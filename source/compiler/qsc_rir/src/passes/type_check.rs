@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::rir::{Callable, Instruction, Operand, Program, Ty, Variable};
+use crate::rir::{Callable, Instruction, Literal, Operand, Prim, Program, Ty, Variable};
 
 #[cfg(test)]
 mod tests;
@@ -20,7 +20,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             check_call_types(program.get_callable(*id), args, *var);
         }
 
-        Instruction::Branch(var, _, _, _) => assert_eq!(var.ty, Ty::Boolean),
+        Instruction::Branch(var, _, _, _) => assert_eq!(var.ty, Ty::Prim(Prim::Boolean)),
 
         Instruction::Add(opr1, opr2, var)
         | Instruction::Sub(opr1, opr2, var)
@@ -33,6 +33,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
         | Instruction::Fsub(opr1, opr2, var)
         | Instruction::Fmul(opr1, opr2, var)
         | Instruction::Fdiv(opr1, opr2, var)
+        | Instruction::Frem(opr1, opr2, var)
         | Instruction::LogicalAnd(opr1, opr2, var)
         | Instruction::LogicalOr(opr1, opr2, var)
         | Instruction::BitwiseAnd(opr1, opr2, var)
@@ -44,7 +45,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
 
         Instruction::Fcmp(_, opr1, opr2, var) | Instruction::Icmp(_, opr1, opr2, var) => {
             assert_eq!(opr1.get_type(), opr2.get_type());
-            assert_eq!(Ty::Boolean, var.ty);
+            assert_eq!(Ty::Prim(Prim::Boolean), var.ty);
         }
 
         Instruction::Store(opr, var)
@@ -59,11 +60,32 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             }
         }
 
+        Instruction::Index(array, index, var) => {
+            match array {
+                Operand::Literal(Literal::Array(global_idx)) => {
+                    let Some(array_literal) = program.array_literals.get(*global_idx) else {
+                        panic!("array literal index {global_idx} is out of bounds");
+                    };
+                    assert_eq!(Ty::Prim(array_literal.ty), var.ty);
+                }
+                Operand::Variable(Variable {
+                    ty: Ty::Array(_, elem_ty),
+                    ..
+                }) => {
+                    assert_eq!(Ty::Prim(*elem_ty), var.ty);
+                }
+                _ => panic!(
+                    "expected array operand to be either a global array literal or an array variable"
+                ),
+            }
+            assert_eq!(index.get_type(), Ty::Prim(Prim::Integer));
+        }
+
         Instruction::Convert(_, _)
         | Instruction::Jump(_)
         | Instruction::Alloca(..)
         | Instruction::Load(..)
-        | Instruction::Return => {}
+        | Instruction::Return(..) => {}
     }
 }
 

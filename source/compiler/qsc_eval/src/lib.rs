@@ -61,129 +61,133 @@ use val::{Qubit, update_functor_app};
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("array too large")]
-    #[diagnostic(code("Qsc.Eval.ArrayTooLarge"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ArrayTooLarge"))]
     ArrayTooLarge(#[label("this array has too many items")] PackageSpan),
 
     #[error("callable already counted")]
     #[diagnostic(help(
         "counting for a given callable must be stopped before it can be started again"
     ))]
-    #[diagnostic(code("Qsc.Eval.CallableAlreadyCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.CallableAlreadyCounted"))]
     CallableAlreadyCounted(#[label] PackageSpan),
 
     #[error("callable not counted")]
     #[diagnostic(help("counting for a given callable must be started before it can be stopped"))]
-    #[diagnostic(code("Qsc.Eval.CallableNotCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.CallableNotCounted"))]
     CallableNotCounted(#[label] PackageSpan),
 
     #[error("invalid array length: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidArrayLength"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidArrayLength"))]
     InvalidArrayLength(i64, #[label("cannot be used as a length")] PackageSpan),
 
     #[error("division by zero")]
-    #[diagnostic(code("Qsc.Eval.DivZero"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.DivZero"))]
     DivZero(#[label("cannot divide by zero")] PackageSpan),
 
     #[error("empty range")]
-    #[diagnostic(code("Qsc.Eval.EmptyRange"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.EmptyRange"))]
     EmptyRange(#[label("the range cannot be empty")] PackageSpan),
 
     #[error("value cannot be used as an index: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidIndex"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidIndex"))]
     InvalidIndex(i64, #[label("invalid index")] PackageSpan),
 
     #[error("integer too large for operation")]
-    #[diagnostic(code("Qsc.Eval.IntTooLarge"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.IntTooLarge"))]
     IntTooLarge(i64, #[label("this value is too large")] PackageSpan),
 
     #[error("index out of range: {0}")]
-    #[diagnostic(code("Qsc.Eval.IndexOutOfRange"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.IndexOutOfRange"))]
     IndexOutOfRange(i64, #[label("out of range")] PackageSpan),
 
     #[error("intrinsic callable `{0}` failed: {1}")]
-    #[diagnostic(code("Qsc.Eval.IntrinsicFail"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.IntrinsicFail"))]
     IntrinsicFail(String, String, #[label] PackageSpan),
 
     #[error("invalid rotation angle: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidRotationAngle"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidRotationAngle"))]
     InvalidRotationAngle(f64, #[label("invalid rotation angle")] PackageSpan),
 
     #[error("negative integers cannot be used here: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidNegativeInt"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidNegativeInt"))]
     InvalidNegativeInt(i64, #[label("invalid negative integer")] PackageSpan),
 
     #[error("output failure")]
-    #[diagnostic(code("Qsc.Eval.OutputFail"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.OutputFail"))]
     OutputFail(#[label("failed to generate output")] PackageSpan),
 
     #[error("qubits in invocation are not unique")]
-    #[diagnostic(code("Qsc.Eval.QubitUniqueness"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitUniqueness"))]
     QubitUniqueness(#[label] PackageSpan),
 
     #[error("qubit used after release")]
     #[diagnostic(help(
         "qubits should not be used after being released, which typically occurs when a qubit is used after it has gone out of scope"
     ))]
-    #[diagnostic(code("Qsc.Eval.QubitUsedAfterRelease"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitUsedAfterRelease"))]
     QubitUsedAfterRelease(#[label] PackageSpan),
 
     #[error("qubit double release")]
-    #[diagnostic(code("Qsc.Eval.QubitDoubleRelease"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitDoubleRelease"))]
     QubitDoubleRelease(#[label("qubit has already been released")] PackageSpan),
 
     #[error("qubits already counted")]
     #[diagnostic(help("counting for qubits must be stopped before it can be started again"))]
-    #[diagnostic(code("Qsc.Eval.QubitsAlreadyCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitsAlreadyCounted"))]
     QubitsAlreadyCounted(#[label] PackageSpan),
 
     #[error("qubits not counted")]
     #[diagnostic(help("counting for qubits must be started before it can be stopped"))]
-    #[diagnostic(code("Qsc.Eval.QubitsNotCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitsNotCounted"))]
     QubitsNotCounted(#[label] PackageSpan),
 
     #[error("qubits are not separable")]
     #[diagnostic(help(
         "subset of qubits provided as arguments must not be entangled with any qubits outside of the subset"
     ))]
-    #[diagnostic(code("Qsc.Eval.QubitsNotSeparable"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitsNotSeparable"))]
     QubitsNotSeparable(#[label] PackageSpan),
 
     #[error("range with step size of zero")]
-    #[diagnostic(code("Qsc.Eval.RangeStepZero"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.RangeStepZero"))]
     RangeStepZero(#[label("invalid range")] PackageSpan),
 
     #[error("qubit arrays used in relabeling must be a permutation of the same set of qubits")]
     #[diagnostic(help("ensure that each qubit is present exactly once in both arrays"))]
-    #[diagnostic(code("Qsc.Eval.RelabelingMismatch"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.RelabelingMismatch"))]
     RelabelingMismatch(#[label] PackageSpan),
 
     #[error("Qubit{0} released while not in |0⟩ state")]
     #[diagnostic(help(
         "qubits should be returned to the |0⟩ state before being released to satisfy the assumption that allocated qubits start in the |0⟩ state"
     ))]
-    #[diagnostic(code("Qsc.Eval.ReleasedQubitNotZero"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ReleasedQubitNotZero"))]
     ReleasedQubitNotZero(usize, #[label("Qubit{0}")] PackageSpan),
 
     #[error("cannot compare measurement results")]
-    #[diagnostic(code("Qsc.Eval.ResultComparisonUnsupported"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ResultComparisonUnsupported"))]
     #[diagnostic(help(
         "comparing measurement results is not supported when performing circuit synthesis or base profile QIR generation"
     ))]
     ResultComparisonUnsupported(#[label("cannot compare to result")] PackageSpan),
 
     #[error("cannot compare measurement result from qubit loss")]
-    #[diagnostic(code("Qsc.Eval.ResultLossComparisonUnsupported"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ResultLossComparisonUnsupported"))]
     #[diagnostic(help(
         "use of a measurement result from a qubit that was lost is not supported, use `IsLossResult` to ensure the result is valid before using it in a comparison"
     ))]
     ResultLossComparisonUnsupported(#[label("cannot compare result from qubit loss")] PackageSpan),
 
+    #[error("simulation error: {0}")]
+    #[diagnostic(code("Qdk.Qsc.Eval.SimulationError"))]
+    SimulationError(String, #[label("simulation error")] PackageSpan),
+
     #[error("name is not bound")]
-    #[diagnostic(code("Qsc.Eval.UnboundName"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UnboundName"))]
     UnboundName(#[label] PackageSpan),
 
     #[error("unknown intrinsic `{0}`")]
-    #[diagnostic(code("Qsc.Eval.UnknownIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UnknownIntrinsic"))]
     UnknownIntrinsic(
         String,
         #[label("callable has no implementation")] PackageSpan,
@@ -191,11 +195,11 @@ pub enum Error {
 
     #[error("unsupported return type for intrinsic `{0}`")]
     #[diagnostic(help("intrinsic callable return type should be `Unit`"))]
-    #[diagnostic(code("Qsc.Eval.UnsupportedIntrinsicType"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UnsupportedIntrinsicType"))]
     UnsupportedIntrinsicType(String, #[label] PackageSpan),
 
     #[error("program failed: {0}")]
-    #[diagnostic(code("Qsc.Eval.UserFail"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UserFail"))]
     UserFail(String, #[label("explicit fail")] PackageSpan),
 }
 
@@ -226,6 +230,7 @@ impl Error {
             | Error::ReleasedQubitNotZero(_, span)
             | Error::ResultComparisonUnsupported(span)
             | Error::ResultLossComparisonUnsupported(span)
+            | Error::SimulationError(_, span)
             | Error::UnboundName(span)
             | Error::UnknownIntrinsic(_, span)
             | Error::UnsupportedIntrinsicType(_, span)
@@ -563,7 +568,7 @@ impl Env {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct Scope {
     bindings: IndexMap<LocalVarId, Variable>,
     frame_id: usize,
@@ -610,7 +615,7 @@ impl State {
     ) -> Self {
         let rng = match classical_seed {
             Some(seed) => RefCell::new(StdRng::seed_from_u64(seed)),
-            None => RefCell::new(StdRng::from_entropy()),
+            None => RefCell::new(StdRng::from_rng(&mut rand::rng())),
         };
         Self {
             exec_graph_stack: vec![exec_graph.select(exec_graph_config)],
@@ -977,6 +982,7 @@ impl State {
             ExprKind::ArrayRepeat(..) => self.eval_arr_repeat(expr.span)?,
             ExprKind::Assign(lhs, _) => self.eval_assign(env, globals, *lhs)?,
             ExprKind::AssignOp(op, lhs, rhs) => {
+                let lhs_span = globals.get_expr((self.package, *lhs).into()).span;
                 let rhs_span = globals.get_expr((self.package, *rhs).into()).span;
                 let (is_array, is_unique) =
                     is_updatable_in_place(env, globals.get_expr((self.package, *lhs).into()));
@@ -990,7 +996,7 @@ impl State {
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
-                self.eval_binop(*op, rhs_span)?;
+                self.eval_binop(*op, lhs_span, rhs_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
             ExprKind::AssignField(record, field, _) => {
@@ -1010,9 +1016,10 @@ impl State {
                 self.eval_update_index(mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
-            ExprKind::BinOp(op, _, rhs) => {
+            ExprKind::BinOp(op, lhs, rhs) => {
+                let lhs_span = globals.get_expr((self.package, *lhs).into()).span;
                 let rhs_span = globals.get_expr((self.package, *rhs).into()).span;
-                self.eval_binop(*op, rhs_span)?;
+                self.eval_binop(*op, lhs_span, rhs_span)?;
             }
             ExprKind::Block(..) => panic!("block expr should be handled by control flow"),
             ExprKind::Call(callee_expr, args_expr) => {
@@ -1120,7 +1127,9 @@ impl State {
                 Some(var) => {
                     var.value.append_array(rhs);
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => {
+                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                }
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
         }
@@ -1156,23 +1165,23 @@ impl State {
         self.bind_value(env, globals, pat, val);
     }
 
-    fn eval_binop(&mut self, op: BinOp, span: Span) -> Result<(), Error> {
+    fn eval_binop(&mut self, op: BinOp, lhs_span: Span, rhs_span: Span) -> Result<(), Error> {
         match op {
             BinOp::Add => self.eval_binop_simple(eval_binop_add),
             BinOp::AndB => self.eval_binop_simple(eval_binop_andb),
-            BinOp::Div => self.eval_binop_with_error(span, eval_binop_div)?,
-            BinOp::Eq => self.eval_binop_with_error(span, eval_binop_eq)?,
-            BinOp::Exp => self.eval_binop_with_error(span, eval_binop_exp)?,
+            BinOp::Div => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_div)?,
+            BinOp::Eq => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_eq)?,
+            BinOp::Exp => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_exp)?,
             BinOp::Gt => self.eval_binop_simple(eval_binop_gt),
             BinOp::Gte => self.eval_binop_simple(eval_binop_gte),
             BinOp::Lt => self.eval_binop_simple(eval_binop_lt),
             BinOp::Lte => self.eval_binop_simple(eval_binop_lte),
-            BinOp::Mod => self.eval_binop_with_error(span, eval_binop_mod)?,
+            BinOp::Mod => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_mod)?,
             BinOp::Mul => self.eval_binop_simple(eval_binop_mul),
-            BinOp::Neq => self.eval_binop_with_error(span, eval_binop_neq)?,
+            BinOp::Neq => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_neq)?,
             BinOp::OrB => self.eval_binop_simple(eval_binop_orb),
-            BinOp::Shl => self.eval_binop_with_error(span, eval_binop_shl)?,
-            BinOp::Shr => self.eval_binop_with_error(span, eval_binop_shr)?,
+            BinOp::Shl => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_shl)?,
+            BinOp::Shr => self.eval_binop_with_error(lhs_span, rhs_span, eval_binop_shr)?,
             BinOp::Sub => self.eval_binop_simple(eval_binop_sub),
             BinOp::XorB => self.eval_binop_simple(eval_binop_xorb),
 
@@ -1190,16 +1199,19 @@ impl State {
 
     fn eval_binop_with_error(
         &mut self,
-        span: Span,
-        binop_func: impl FnOnce(Value, Value, PackageSpan) -> Result<Value, Error>,
+        lhs_span: Span,
+        rhs_span: Span,
+        binop_func: impl FnOnce(Value, Value, PackageSpan, PackageSpan) -> Result<Value, Error>,
     ) -> Result<(), Error> {
-        let span = self.to_global_span(span);
+        let lhs_span: PackageSpan = self.to_global_span(lhs_span);
+        let rhs_span: PackageSpan = self.to_global_span(rhs_span);
         let rhs_val = self.take_val_register();
         let lhs_val = self.pop_val();
-        self.set_val_register(binop_func(lhs_val, rhs_val, span)?);
+        self.set_val_register(binop_func(lhs_val, rhs_val, lhs_span, rhs_span)?);
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn eval_call<B: Backend>(
         &mut self,
         env: &mut Env,
@@ -1228,7 +1240,9 @@ impl State {
                 self.set_val_register(arg);
                 return Ok(());
             }
-            None => return Err(Error::UnboundName(self.to_global_span(callable_span))),
+            None => {
+                return Err(Error::UnboundName(self.to_global_span(callable_span)));
+            }
         };
 
         let callee_span = self.to_global_span(callee.span);
@@ -1326,7 +1340,9 @@ impl State {
         let name = &callee.name.name;
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
-                let q = sim.qubit_allocate(&call_stack);
+                let q = sim
+                    .qubit_allocate(&call_stack)
+                    .map_err(|e| Error::SimulationError(e, callee_span))?;
                 let q = Rc::new(Qubit(q));
                 env.track_qubit(Rc::clone(&q));
                 if let Some(counter) = &mut self.qubit_counter {
@@ -1343,7 +1359,9 @@ impl State {
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
                 env.release_qubit(&qubit);
-                let is_zero = sim.qubit_release(qubit.0, &call_stack);
+                let is_zero = sim
+                    .qubit_release(qubit.0, &call_stack)
+                    .map_err(|e| Error::SimulationError(e, callee_span))?;
                 let is_borrowed = self.dirty_qubits.remove(&qubit.0);
                 if is_zero || is_borrowed {
                     Value::unit()
@@ -1472,7 +1490,7 @@ impl State {
             field_vals.len() == field_indexes.len(),
             "number of given field values should match the number of given struct fields"
         );
-        for (i, val) in field_indexes.iter().zip(field_vals.into_iter()) {
+        for (i, val) in field_indexes.iter().zip(field_vals) {
             strct[*i] = val;
         }
 
@@ -1677,7 +1695,9 @@ impl State {
                 Some(var) => {
                     var.value = rhs;
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => {
+                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                }
             },
             (ExprKind::Tuple(var_tup), Value::Tuple(tup, _)) => {
                 for (expr, val) in var_tup.iter().zip(tup.iter()) {
@@ -1954,16 +1974,33 @@ fn lit_to_val(lit: &Lit) -> Value {
     }
 }
 
-fn eval_binop_eq(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_eq(
+    lhs_val: Value,
+    rhs_val: Value,
+    lhs_span: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match (lhs_val, rhs_val) {
-        (Value::Result(val::Result::Id(_)), _) | (_, Value::Result(val::Result::Id(_))) => {
+        (Value::Result(val::Result::Id(_)), _) => {
+            // Comparison of result ids is nonsensical, so we prevent it.
+            // This code path is reachable when using the circuit builder backend
+            // since we don't currently do runtime capability analysis
+            // to prevent executing programs that do result comparisons.
+            Err(Error::ResultComparisonUnsupported(lhs_span))
+        }
+        (Value::Result(val::Result::Loss), _) => {
+            // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
+            // failure.
+            Err(Error::ResultLossComparisonUnsupported(lhs_span))
+        }
+        (_, Value::Result(val::Result::Id(_))) => {
             // Comparison of result ids is nonsensical, so we prevent it.
             // This code path is reachable when using the circuit builder backend
             // since we don't currently do runtime capability analysis
             // to prevent executing programs that do result comparisons.
             Err(Error::ResultComparisonUnsupported(rhs_span))
         }
-        (Value::Result(val::Result::Loss), _) | (_, Value::Result(val::Result::Loss)) => {
+        (_, Value::Result(val::Result::Loss)) => {
             // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
             // failure.
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
@@ -1972,20 +2009,38 @@ fn eval_binop_eq(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resul
     }
 }
 
-fn eval_binop_neq(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_neq(
+    lhs_val: Value,
+    rhs_val: Value,
+    lhs_span: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match (lhs_val, rhs_val) {
-        (Value::Result(val::Result::Id(_)), _) | (_, Value::Result(val::Result::Id(_))) => {
+        (Value::Result(val::Result::Id(_)), _) => {
+            // Comparison of result ids is nonsensical, so we prevent it.
+            // This code path is reachable when using the circuit builder backend
+            // since we don't currently do runtime capability analysis
+            // to prevent executing programs that do result comparisons.
+            Err(Error::ResultComparisonUnsupported(lhs_span))
+        }
+        (Value::Result(val::Result::Loss), _) => {
+            // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
+            // failure.
+            Err(Error::ResultLossComparisonUnsupported(lhs_span))
+        }
+        (_, Value::Result(val::Result::Id(_))) => {
             // Comparison of result ids is nonsensical, so we prevent it.
             // This code path is reachable when using the circuit builder backend
             // since we don't currently do runtime capability analysis
             // to prevent executing programs that do result comparisons.
             Err(Error::ResultComparisonUnsupported(rhs_span))
         }
-        (Value::Result(val::Result::Loss), _) | (_, Value::Result(val::Result::Loss)) => {
+        (_, Value::Result(val::Result::Loss)) => {
             // Loss is not comparable and should be checked ahead of time, so treat this as a runtime
             // failure.
             Err(Error::ResultLossComparisonUnsupported(rhs_span))
         }
+
         (lhs, rhs) => Ok(Value::Bool(lhs != rhs)),
     }
 }
@@ -2069,7 +2124,12 @@ fn eval_binop_andb(lhs_val: Value, rhs_val: Value) -> Value {
     }
 }
 
-fn eval_binop_div(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_div(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_big_int();
@@ -2121,7 +2181,12 @@ fn eval_binop_div(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
     }
 }
 
-fn eval_binop_exp(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_exp(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match lhs_val {
         Value::BigInt(val) => {
             let rhs_val = rhs_val.unwrap_int();
@@ -2252,7 +2317,12 @@ fn eval_binop_lte(lhs_val: Value, rhs_val: Value) -> Value {
     }
 }
 
-fn eval_binop_mod(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_mod(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_big_int();
@@ -2336,7 +2406,12 @@ fn eval_binop_orb(lhs_val: Value, rhs_val: Value) -> Value {
     }
 }
 
-fn eval_binop_shl(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_shl(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     Ok(match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_int();
@@ -2366,7 +2441,12 @@ fn eval_binop_shl(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Resu
     })
 }
 
-fn eval_binop_shr(lhs_val: Value, rhs_val: Value, rhs_span: PackageSpan) -> Result<Value, Error> {
+fn eval_binop_shr(
+    lhs_val: Value,
+    rhs_val: Value,
+    _: PackageSpan,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
     Ok(match lhs_val {
         Value::BigInt(val) => {
             let rhs = rhs_val.unwrap_int();

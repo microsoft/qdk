@@ -20,7 +20,7 @@ env:
   CARGO_TERM_COLOR: always
   NODE_VERSION: "22.14.0"
   PYTHON_VERSION: "3.11"
-  RUST_TOOLCHAIN_VERSION: "1.93"
+  RUST_TOOLCHAIN_VERSION: "1.95"
   RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
 
 jobs:
@@ -92,6 +92,17 @@ jobs:
         run: npm install
       - name: npm check
         run: npm run check
+
+  python-check:
+    name: Python static checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Run python static checks
+        run: python ./build.py --check-py --no-check-prereqs
 
   build:
     name: Build and test
@@ -190,8 +201,11 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Prereqs
         run: python ./prereqs.py --install
-      - name: Run integration tests
-        run: python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
+      - name:
+          Run integration tests
+          # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
+          # which requires a display to run
+        run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
 
   status-check:
     name: Status Check
@@ -200,6 +214,7 @@ jobs:
         format,
         clippy,
         web-check,
+        python-check,
         build,
         unit-tests,
         format-qsc,

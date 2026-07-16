@@ -2,8 +2,11 @@
 // Licensed under the MIT License.
 
 use crate::debug::{DbgInfo, InstructionDbgMetadata};
-use indenter::{Indented, indented};
-use qsc_data_structures::{attrs::Attributes, index_map::IndexMap, target::TargetCapabilityFlags};
+use indenter::indented;
+use qsc_data_structures::{
+    attrs::Attributes, display::core::set_indentation, index_map::IndexMap,
+    target::TargetCapabilityFlags,
+};
 use std::fmt::{self, Display, Formatter, Write};
 
 /// The root of the RIR.
@@ -17,13 +20,18 @@ pub struct Program {
     pub num_results: u32,
     pub attrs: Attributes,
     pub tags: Vec<String>,
+    pub array_literals: Vec<ArrayLiteral>,
     pub dbg_info: DbgInfo,
+    /// Whether the program actually emits dynamic qubit allocation/release runtime calls. Drives
+    /// the `dynamic_qubit_management` QIR module flag. Set only when a dynamic allocation is
+    /// generated, not merely when the capability is enabled.
+    pub use_dynamic_qubit_management: bool,
 }
 
 impl Display for Program {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Program:",)?;
+        write!(indent, "Program:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nentry: {}", self.entry.0)?;
         write!(indent, "\ncallables:")?;
@@ -48,6 +56,14 @@ impl Display for Program {
         indent = set_indentation(indent, 2);
         for (idx, tag) in self.tags.iter().enumerate() {
             writeln!(indent, "[{idx}]: {tag}")?;
+        }
+        indent = set_indentation(indent, 1);
+        if !self.array_literals.is_empty() {
+            writeln!(indent, "array_literals:")?;
+            indent = set_indentation(indent, 2);
+            for (idx, array) in self.array_literals.iter().enumerate() {
+                writeln!(indent, "[{idx}]: {array}")?;
+            }
         }
         Ok(())
     }
@@ -78,6 +94,7 @@ impl Program {
                 Callable {
                     name: "entry".into(),
                     input_type: vec![],
+                    input_vars: vec![],
                     output_type: None,
                     body: Some(entry_block_id),
                     call_type: CallableType::Regular,
@@ -117,7 +134,7 @@ pub struct Config {
 impl Display for Config {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Config:",)?;
+        write!(indent, "Config:")?;
         indent = set_indentation(indent, 1);
         if self.capabilities.is_empty() {
             write!(indent, "\ncapabilities: Base")?;
@@ -154,7 +171,7 @@ impl From<usize> for BlockId {
 impl Display for Block {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Block:",)?;
+        write!(indent, "Block:")?;
         if self.0.is_empty() {
             write!(indent, " <EMPTY>")?;
         } else {
@@ -208,6 +225,11 @@ pub struct Callable {
     pub name: String,
     /// The input type of the callable.
     pub input_type: Vec<Ty>,
+    /// The body-local variable ids bound to the input parameters, in order.
+    /// These are the `VariableId`s that the body references for each `input_type`
+    /// entry, enabling codegen to name `define` parameters consistently with the
+    /// body. Empty for intrinsics and the entry point.
+    pub input_vars: Vec<VariableId>,
     /// The output type of the callable.
     pub output_type: Option<Ty>,
     /// The callable body.
@@ -220,7 +242,7 @@ pub struct Callable {
 impl Display for Callable {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Callable:",)?;
+        write!(indent, "Callable:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nname: {}", self.name)?;
         write!(indent, "\ncall_type: {}", self.call_type)?;
@@ -231,6 +253,14 @@ impl Display for Callable {
             indent = set_indentation(indent, 2);
             for (index, ty) in self.input_type.iter().enumerate() {
                 write!(indent, "\n[{index}]: {ty}")?;
+            }
+            indent = set_indentation(indent, 1);
+        }
+        if !self.input_vars.is_empty() {
+            write!(indent, "\ninput_vars:")?;
+            indent = set_indentation(indent, 2);
+            for (index, var) in self.input_vars.iter().enumerate() {
+                write!(indent, "\n[{index}]: {}", var.0)?;
             }
             indent = set_indentation(indent, 1);
         }
@@ -370,6 +400,7 @@ pub enum Instruction {
     Fsub(Operand, Operand, Variable),
     Fmul(Operand, Operand, Variable),
     Fdiv(Operand, Operand, Variable),
+    Frem(Operand, Operand, Variable),
     Fcmp(FcmpConditionCode, Operand, Operand, Variable),
     Icmp(ConditionCode, Operand, Operand, Variable),
     LogicalNot(Operand, Variable),
@@ -383,7 +414,8 @@ pub enum Instruction {
     Convert(Operand, Variable),
     Load(Variable, Variable),
     Alloca(Variable),
-    Return,
+    Index(Operand, Operand, Variable),
+    Return(Option<Operand>),
 }
 
 impl Instruction {
@@ -461,6 +493,9 @@ impl Display for Instruction {
             Self::Fdiv(lhs, rhs, variable) => {
                 write_binary_instruction(f, "Fdiv", lhs, rhs, *variable)?;
             }
+            Self::Frem(lhs, rhs, variable) => {
+                write_binary_instruction(f, "Frem", lhs, rhs, *variable)?;
+            }
             Self::Fcmp(op, lhs, rhs, variable) => {
                 write_fcmp_instruction(f, *op, lhs, rhs, *variable)?;
             }
@@ -481,7 +516,12 @@ impl Display for Instruction {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{variable} = Alloca")?;
             }
-            Self::Return => write!(f, "Return")?,
+            Self::Index(array_var, index_opr, result_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
+            }
+            Self::Return(None) => write!(f, "Return")?,
+            Self::Return(Some(operand)) => write!(f, "Return {operand}")?,
         }
         Ok(())
     }
@@ -528,7 +568,7 @@ impl Variable {
     pub fn new_boolean(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         }
     }
 
@@ -536,7 +576,7 @@ impl Variable {
     pub fn new_integer(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Integer,
+            ty: Ty::Prim(Prim::Integer),
         }
     }
 
@@ -544,7 +584,7 @@ impl Variable {
     pub fn new_double(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }
     }
 
@@ -552,13 +592,29 @@ impl Variable {
     pub fn new_ptr(id: VariableId) -> Self {
         Self {
             variable_id: id,
-            ty: Ty::Pointer,
+            ty: Ty::Prim(Prim::Pointer),
         }
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Ty {
+    Prim(Prim),
+    Array(usize, Prim),
+}
+
+impl Display for Ty {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match &self {
+            Ty::Prim(prim) => write!(f, "{prim}")?,
+            Ty::Array(size, prim) => write!(f, "Array({size}, {prim})")?,
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Prim {
     Qubit,
     Result,
     Boolean,
@@ -567,7 +623,7 @@ pub enum Ty {
     Pointer,
 }
 
-impl Display for Ty {
+impl Display for Prim {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Qubit => write!(f, "Qubit")?,
@@ -601,12 +657,14 @@ impl Operand {
     pub fn get_type(&self) -> Ty {
         match self {
             Operand::Literal(lit) => match lit {
-                Literal::Qubit(_) => Ty::Qubit,
-                Literal::Result(_) => Ty::Result,
-                Literal::Bool(_) => Ty::Boolean,
-                Literal::Integer(_) => Ty::Integer,
-                Literal::Double(_) => Ty::Double,
-                Literal::Pointer | Literal::Tag(..) => Ty::Pointer,
+                Literal::Qubit(_) => Ty::Prim(Prim::Qubit),
+                Literal::Result(_) => Ty::Prim(Prim::Result),
+                Literal::Bool(_) => Ty::Prim(Prim::Boolean),
+                Literal::Integer(_) => Ty::Prim(Prim::Integer),
+                Literal::Double(_) => Ty::Prim(Prim::Double),
+                Literal::NullPointer | Literal::Tag(..) | Literal::Array(_) => {
+                    Ty::Prim(Prim::Pointer)
+                }
             },
             Operand::Variable(var) => var.ty,
         }
@@ -621,7 +679,8 @@ pub enum Literal {
     Integer(i64),
     Double(f64),
     Tag(usize, usize),
-    Pointer,
+    Array(usize),
+    NullPointer,
 }
 
 impl Display for Literal {
@@ -633,7 +692,8 @@ impl Display for Literal {
             Self::Integer(i) => write!(f, "Integer({i})")?,
             Self::Double(d) => write!(f, "Double({d})")?,
             Self::Tag(idx, len) => write!(f, "Tag({idx}, {len})")?,
-            Self::Pointer => write!(f, "Pointer")?,
+            Self::Array(idx) => write!(f, "Array({idx})")?,
+            Self::NullPointer => write!(f, "Pointer")?,
         }
         Ok(())
     }
@@ -665,7 +725,7 @@ impl PartialEq for Literal {
                     false
                 }
             }
-            Self::Pointer => matches!(other, Self::Pointer),
+            Self::NullPointer => matches!(other, Self::NullPointer),
             Self::Qubit(self_qubit) => {
                 if let Self::Qubit(other_qubit) = other {
                     self_qubit == other_qubit
@@ -687,21 +747,42 @@ impl PartialEq for Literal {
                     false
                 }
             }
+            Self::Array(self_idx) => {
+                if let Self::Array(other_idx) = other {
+                    self_idx == other_idx
+                } else {
+                    false
+                }
+            }
         }
     }
 }
 
 impl Eq for Literal {}
 
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
+#[derive(Clone, Debug)]
+pub struct ArrayLiteral {
+    pub contents: Vec<Literal>,
+    pub ty: Prim,
+}
+
+impl Display for ArrayLiteral {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        write!(f, "[")?;
+        for (index, literal) in self.contents.iter().enumerate() {
+            write!(f, "{literal}")?;
+            if index != self.contents.len() - 1 {
+                write!(f, ", ")?;
+            }
+        }
+        write!(f, "]")?;
+        Ok(())
+    }
+}
+
+impl PartialEq for ArrayLiteral {
+    fn eq(&self, other: &Self) -> bool {
+        self.ty == other.ty && self.contents == other.contents
     }
 }
 

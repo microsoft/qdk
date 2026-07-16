@@ -19,6 +19,7 @@ function formatComplex(real: number, imag: number) {
 export function createDebugConsoleEventTarget(
   out: (message: string) => void,
   captureEvents: boolean = false,
+  options?: { suppressResultOutput?: boolean },
 ) {
   const eventTarget = new QscEventTarget(captureEvents);
 
@@ -36,7 +37,9 @@ export function createDebugConsoleEventTarget(
 
   eventTarget.addEventListener("Result", (evt) => {
     if (evt.detail.success) {
-      out(`${evt.detail.value}`);
+      if (!options?.suppressResultOutput) {
+        out(`${evt.detail.value}`);
+      }
     } else {
       out(formatErrors(evt.detail.value.errors));
     }

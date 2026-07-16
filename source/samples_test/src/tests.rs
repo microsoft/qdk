@@ -1,9 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(non_snake_case)]
+
 mod algorithms;
 #[rustfmt::skip]
 mod algorithms_generated;
+mod algorithms_Ising;
+#[rustfmt::skip]
+mod algorithms_Ising_generated;
 mod getting_started;
 #[rustfmt::skip]
 mod getting_started_generated;
@@ -14,9 +19,7 @@ mod language;
 mod language_generated;
 #[rustfmt::skip]
 mod project_generated;
-#[allow(non_snake_case)]
 mod OpenQASM;
-#[allow(non_snake_case)]
 #[rustfmt::skip]
 mod OpenQASM_generated;
 
@@ -31,6 +34,7 @@ use qsc::{
         compiler::parse_and_compile_to_qsharp_ast_with_config, io::InMemorySourceResolver,
     },
     packages::BuildableProgram,
+    target::Profile,
 };
 use qsc_project::{FileSystem, ProjectType, StdFs};
 
@@ -124,6 +128,7 @@ fn compile_and_run_qasm_internal(source: &str, debug: bool) -> String {
         config,
     );
     let (source_map, errors, package, sig, profile) = unit.into_tuple();
+    let profile = profile.unwrap_or(Profile::Unrestricted);
     assert!(errors.is_empty(), "QASM compilation failed: {errors:?}");
 
     let Some(signature) = sig else {
@@ -382,10 +387,8 @@ fn circuit_qasm(source: &str) -> String {
     }
 }
 
-fn qirgen(sources: SourceMap) -> String {
-    let capabilities = TargetCapabilityFlags::Adaptive
-        | TargetCapabilityFlags::IntegerComputations
-        | TargetCapabilityFlags::FloatingPointComputations;
+fn qirgen(sources: SourceMap, profile: Profile) -> String {
+    let capabilities = profile.into();
     let (std_id, store) = compile::package_store_with_stdlib(capabilities);
 
     let namespace = sources
@@ -419,7 +422,7 @@ fn qirgen(sources: SourceMap) -> String {
     }
 }
 
-fn qirgen_qasm(source: &str) -> String {
+fn qirgen_qasm(source: &str, profile: Profile) -> String {
     let config = qsc::openqasm::CompilerConfig::new(
         QubitSemantics::Qiskit,
         OutputSemantics::OpenQasm,
@@ -445,9 +448,7 @@ fn qirgen_qasm(source: &str) -> String {
         "Circuit has unbound input parameters\n  help: Parameters: {}",
         signature.input_params()
     );
-    let capabilities = TargetCapabilityFlags::Adaptive
-        | TargetCapabilityFlags::IntegerComputations
-        | TargetCapabilityFlags::FloatingPointComputations;
+    let capabilities = profile.into();
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
     let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);

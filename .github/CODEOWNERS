@@ -1,31 +1,34 @@
-* @billti @idavis @minestarks @swernli
+* @billti @idavis @amcasey @swernli
 
 /.github/ISSUE_TEMPLATE/fuzz_bug_report.md @billti @idavis @swernli
 /.github/workflows/fuzz.yml @billti @idavis @swernli
-/source/compiler @idavis @minestarks @swernli
+/source/compiler @idavis @amcasey @swernli
 /source/compiler/qsc_codegen @idavis @swernli
 /source/compiler/qsc_doc_gen @billti @ScottCarda-MS
-/source/compiler/qsc_formatter @billti @minestarks @ScottCarda-MS
-/source/compiler/qsc_project @idavis @minestarks @swernli
+/source/compiler/qsc_formatter @billti @amcasey @ScottCarda-MS
+/source/compiler/qsc_project @idavis @amcasey @swernli
 /source/compiler/qsc_partial_eval @idavis @swernli
 /source/compiler/qsc_rca @idavis @swernli
 /source/compiler/qsc_rir @idavis @swernli
-/source/fuzz  @billti @idavis @swernli
+/source/fuzz @billti @idavis @swernli
 /katas @billti @swernli
-/source/jupyterlab @billti @idavis @minestarks
-/source/language_service @billti @idavis @minestarks @ScottCarda-MS
+/source/jupyterlab @billti @idavis @amcasey
+/source/language_service @billti @idavis @amcasey @ScottCarda-MS
 /source/simulators @billti @idavis @orpuente-MS
 /source/noisy_simulator @swernli @orpuente-MS
 /library @swernli @orpuente-MS
-/source/npm @billti @minestarks @ScottCarda-MS
-/source/pip @billti @idavis @minestarks
-/source/playground @billti @minestarks
+/source/npm @billti @amcasey @ScottCarda-MS
+/source/pip @billti @idavis @amcasey
+/source/qdk_package @billti @idavis @amcasey
+/source/qdk_package/qdk/qre @msoeken @brad-lackey @jwhogabo
+/source/playground @billti @amcasey
+/source/qre @msoeken @brad-lackey @jwhogabo
 /source/resource_estimator @billti @swernli
-/samples @minestarks @swernli
-/source/vscode @billti @idavis @minestarks
+/samples @amcasey @swernli
+/source/vscode @billti @idavis @amcasey
 /source/wasm @billti @idavis @swernli
 
-/Cargo.lock @idavis @minestarks @swernli
-/Cargo.toml @idavis @minestarks @swernli
-/package-lock.json @billti @minestarks
-/package.json @billti @minestarks
+/Cargo.lock @idavis @amcasey @swernli
+/Cargo.toml @idavis @amcasey @swernli
+/package-lock.json @billti @amcasey
+/package.json @billti @amcasey

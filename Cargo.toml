@@ -12,10 +12,11 @@ members = [
     "source/compiler/qsc_doc_gen",
     "source/compiler/qsc_eval",
     "source/compiler/qsc_fir",
+    "source/compiler/qsc_fir_transforms",
     "source/compiler/qsc_frontend",
     "source/compiler/qsc_hir",
     "source/compiler/qsc_openqasm_compiler",
-    "source/compiler/qsc_openqasm_parser",
+    "source/compiler/stim_compiler",
     "source/compiler/qsc_linter",
     "source/compiler/qsc_lowerer",
     "source/compiler/qsc_parse",
@@ -24,9 +25,12 @@ members = [
     "source/compiler/qsc_project",
     "source/compiler/qsc_rir",
     "source/fuzz",
+    "source/index_map",
     "source/language_service",
     "source/simulators",
-    "source/pip",
+    "source/qdk_openqasm_parser",
+    "source/qdk_package",
+    "source/qre",
     "source/resource_estimator",
     "source/samples_test",
     "source/wasm",
@@ -53,7 +57,7 @@ expect-test = "1.5"
 futures = "0.3"
 futures-util = "0.3"
 fasteval = "0.2"
-getrandom = "0.2"
+getrandom = "0.4"
 iai-callgrind = "0.16.1"
 indoc = "2.0"
 js-sys = "0.3"
@@ -79,10 +83,9 @@ sorted-vec = "0.8"
 sorted-iter = "0.1"
 wasm-bindgen = "0.2.114"
 wasm-bindgen-futures = "0.4"
-rand = "0.8"
+rand = "0.10.1"
 serde_json = "1.0"
-pyo3 = "0.28"
-quantum-sparse-sim = { git = "https://github.com/qir-alliance/qir-runner", rev = "2c130b0e4397c8d82e483b2d18fc3e241a5fa31c" }
+pyo3 = "0.29"
 async-trait = "0.1"
 tokio = { version = "1.50", features = ["macros", "rt"] }
 rayon = "1.11.0"

@@ -1,4 +1,5 @@
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::cmp::max;
 use std::collections::VecDeque;
 use std::hash::Hash;
 
@@ -336,4 +337,149 @@ impl<K: Eq + Hash + Clone> LeastFrequentlyUsedPriorityQueue<K> {
             self.removed += 1;
         }
     }
+}
+
+// State of a qubit used for resource estimation with memory-compute architecture in
+// Manual mode.
+// Allowed transitions:
+//  * allocate: (not existing) -> ComputeUnused.
+//  * release: (any state) -> (not existing).
+//  * reset: Compute|ComputeUnused -> ComputeUnused.
+//  * assert_compute_qubit: Compute|ComputeUnused -> Compute.
+//  * store: Compute|ComputeUnused -> Memory.
+//  * load: Memory -> Compute.
+enum QubitLocality {
+    /// Compute qubit - can perform operations.
+    Compute,
+    /// Compute qubits which have not been used by any operation since they were allocated
+    /// or reset.
+    /// This is needed to get better resource estimates, so we don't account for compute
+    /// qubit after it's allocated but before it's used.
+    ComputeUnused,
+    /// Memory qubit - cannot perform operations other than Load.
+    Memory,
+}
+
+/// For each qubit in use, stores its locality.
+/// Allows user to directly move qubits between "Memory" and "Compute" sets.
+/// Keeps track of maximal usage of compute and memory qubits.
+#[derive(Default)]
+pub struct ManualMemoryCompute {
+    qubits: FxHashMap<usize, QubitLocality>,
+    compute_qubits_count: usize,
+    memory_qubits_count: usize,
+    pub(crate) max_memory_qubits_count: usize,
+    pub(crate) max_compute_qubits_count: usize,
+    pub(crate) reads_count: usize,
+    pub(crate) writes_count: usize,
+}
+
+impl ManualMemoryCompute {
+    fn ensure_compute_or_unused(&self, qid: usize, error_message: &str) -> Result<(), String> {
+        if matches!(
+            self.qubits.get(&qid),
+            Some(QubitLocality::Compute | QubitLocality::ComputeUnused)
+        ) {
+            Ok(())
+        } else {
+            Err(error_message.to_string())
+        }
+    }
+
+    fn change_qubit_locality(&mut self, qid: usize, new_locality: Option<QubitLocality>) {
+        match self.qubits.get(&qid) {
+            Some(QubitLocality::Compute) => {
+                self.compute_qubits_count -= 1;
+            }
+            Some(QubitLocality::Memory) => {
+                self.memory_qubits_count -= 1;
+            }
+            _ => (),
+        }
+        match new_locality {
+            Some(QubitLocality::Compute) => {
+                self.compute_qubits_count += 1;
+                self.max_compute_qubits_count =
+                    max(self.max_compute_qubits_count, self.compute_qubits_count);
+            }
+            Some(QubitLocality::Memory) => {
+                self.memory_qubits_count += 1;
+                self.max_memory_qubits_count =
+                    max(self.max_memory_qubits_count, self.memory_qubits_count);
+            }
+            _ => (),
+        }
+        if let Some(l) = new_locality {
+            self.qubits.insert(qid, l);
+        } else {
+            self.qubits.remove(&qid);
+        }
+    }
+
+    /// Called when the qubit is allocated.
+    pub fn allocate(&mut self, qid: usize) {
+        self.change_qubit_locality(qid, Some(QubitLocality::ComputeUnused));
+    }
+
+    /// Called when qubit is released.
+    pub fn release(&mut self, qid: usize) -> Result<(), String> {
+        self.change_qubit_locality(qid, None);
+        Ok(())
+    }
+
+    /// Called when qubit is reset.
+    pub fn reset(&mut self, qid: usize) -> Result<(), String> {
+        self.ensure_compute_or_unused(qid, "cannot reset memory qubit")?;
+        self.change_qubit_locality(qid, Some(QubitLocality::ComputeUnused));
+        Ok(())
+    }
+
+    fn assert_compute_qubit(&mut self, qid: usize) -> Result<(), String> {
+        self.ensure_compute_or_unused(qid, "cannot perform computation on memory qubit")?;
+        self.change_qubit_locality(qid, Some(QubitLocality::Compute));
+        Ok(())
+    }
+
+    /// Called immediately before qubit is used in a gate or measurement.
+    pub fn assert_compute_qubits(
+        &mut self,
+        qubits: impl IntoIterator<Item = usize>,
+    ) -> Result<(), String> {
+        for qid in qubits {
+            self.assert_compute_qubit(qid)?;
+        }
+        Ok(())
+    }
+
+    /// Called when qubit is stored to memory.
+    pub fn store(&mut self, qid: usize) -> Result<(), String> {
+        self.ensure_compute_or_unused(qid, "cannot perform Store on memory qubit")?;
+        self.change_qubit_locality(qid, Some(QubitLocality::Memory));
+        self.writes_count += 1;
+        Ok(())
+    }
+
+    /// Called when qubit is loaded from memory.
+    pub fn load(&mut self, qid: usize) -> Result<(), String> {
+        if !matches!(self.qubits.get(&qid), Some(QubitLocality::Memory)) {
+            return Err("cannot perform Load on compute qubit".to_string());
+        }
+        self.change_qubit_locality(qid, Some(QubitLocality::Compute));
+        self.reads_count += 1;
+        Ok(())
+    }
+}
+
+pub enum MemoryCompute {
+    /// No memory-compute architecture, all qubits are "compute" qubits.
+    /// Load/Store instructions are ignored.
+    None,
+    /// Automatically manages memory and compute qubits by evicting compute qubits to
+    /// memory if needed.
+    /// Load/Store instructions are ignored.
+    /// Gates/measurements on memory qubit will be automatically prepended by load.
+    Auto(MemoryComputeInfo),
+    /// Qubits are loaded and stored by explicit Load/Store instructions.
+    /// Gates/measurements on memory qubit result in error.
+    Manual(ManualMemoryCompute),
 }

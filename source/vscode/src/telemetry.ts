@@ -61,6 +61,10 @@ export enum EventType {
   RemoveOldCopilotInstructions = "Qsharp.RemoveOldCopilotInstructions",
   ChangelogPromptStart = "Qsharp.ChangelogPromptStart",
   ChangelogPromptEnd = "Qsharp.ChangelogPromptEnd",
+  LearningSessionStarted = "Qsharp.LearningSessionStarted",
+  LearningActivityAction = "Qsharp.LearningActivityAction",
+  LearningExerciseCompleted = "Qsharp.LearningExerciseCompleted",
+  WasmError = "Qsharp.WasmError",
 }
 
 type Empty = { [K in any]: never };
@@ -330,6 +334,34 @@ type EventTypes = {
     };
     measurements: Empty;
   };
+  [EventType.LearningSessionStarted]: {
+    properties: {
+      isFirstTime: "true" | "false";
+    };
+    measurements: Empty;
+  };
+  [EventType.LearningActivityAction]: {
+    properties: {
+      action: "navigate" | "run" | "check" | "hint" | "solution" | "reset";
+      activityType: "lesson" | "exercise";
+      source: "panel" | "chat" | "tree";
+    };
+    measurements: Empty;
+  };
+  [EventType.LearningExerciseCompleted]: {
+    properties: Empty;
+    measurements: {
+      unitNumber: number;
+      exerciseNumber: number;
+      totalExercises: number;
+    };
+  };
+  [EventType.WasmError]: {
+    properties: {
+      target: string;
+    };
+    measurements: Empty;
+  };
 };
 
 export enum QsharpDocumentType {
@@ -377,6 +409,14 @@ export function initTelemetry(context: vscode.ExtensionContext) {
   const version = context.extension?.packageJSON?.version;
   const browserAndRelease = getBrowserRelease();
   userAgentString = `VSCode/${version} ${browserAndRelease}`;
+
+  log.setTelemetryCollector((event) => {
+    if (event.id === "wasm-error") {
+      sendTelemetryEvent(EventType.WasmError, {
+        target: event.data?.target ?? "unknown",
+      });
+    }
+  });
 
   sendTelemetryEvent(EventType.InitializePlugin, {}, {});
 }

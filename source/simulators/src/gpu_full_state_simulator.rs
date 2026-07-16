@@ -44,7 +44,7 @@ pub fn run_shots_sync(
 }
 
 pub fn run_adaptive_shots_sync(
-    program: AdaptiveProgram,
+    program: AdaptiveProgram<u32>,
     noise: &Option<NoiseConfig<f32, f64>>,
     shot_count: i32,
     rng_seed: u32,

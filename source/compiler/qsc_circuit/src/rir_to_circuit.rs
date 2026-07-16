@@ -11,7 +11,7 @@ use qsc_fir::fir::PackageId;
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
-    rir::{Block, BlockId, Program, Ty, Variable},
+    rir::{Block, BlockId, Prim, Program, Ty, Variable},
 };
 use qsc_rir::debug::{DbgInfo, DbgLocationId, DbgScope, DbgScopeId};
 use std::{fmt::Display, vec};
@@ -27,6 +27,10 @@ use crate::{
     rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
 
+/// Converts a Runtime Intermediate Representation (RIR) program into a visual circuit.
+///
+/// Traverses the RIR's structured control flow, collects quantum operations, tracks variable
+/// assignments, and synthesizes the final circuit with scope grouping and qubit-wire mapping.
 pub fn rir_to_circuit(
     program_rir: &Program,
     config: TracerConfig,
@@ -72,6 +76,7 @@ pub fn rir_to_circuit(
         &structured_control_flow,
         &[],
         &ScopeStack::top(),
+        source_lookup,
     )?;
 
     // All operations from the program collected, finalize the circuit.
@@ -84,6 +89,7 @@ pub fn rir_to_circuit(
 
 /// Recursively traverses the structured control flow, pushing operations and measurement results
 /// to the builder as it goes.
+#[allow(clippy::too_many_arguments)]
 fn build_operation_list(
     variable_tracker: &mut VariableTracker,
     program_rir: &Program,
@@ -92,6 +98,7 @@ fn build_operation_list(
     scf: &StructuredControlFlow,
     control_results: &[usize],
     current_stack: &ScopeStack,
+    source_lookup: &impl SourceLookup,
 ) -> Result<(), Error> {
     match scf {
         StructuredControlFlow::Seq(items) => {
@@ -104,6 +111,7 @@ fn build_operation_list(
                     item,
                     control_results,
                     current_stack,
+                    source_lookup,
                 )?;
             }
         }
@@ -126,6 +134,7 @@ fn build_operation_list(
                 &program_rir.callables,
                 block,
                 current_stack,
+                source_lookup,
             )?;
         }
         StructuredControlFlow::If {
@@ -152,7 +161,7 @@ fn build_operation_list(
 
             let branch_instruction_stack = branch_instruction_metadata
                 .as_deref()
-                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location, source_lookup))
                 .unwrap_or_default();
 
             let full_stack =
@@ -180,6 +189,7 @@ fn build_operation_list(
                 then_br,
                 &control_results,
                 &new_stack_true,
+                source_lookup,
             )?;
 
             build_operation_list(
@@ -190,6 +200,7 @@ fn build_operation_list(
                 else_br,
                 &control_results,
                 &new_stack_false,
+                source_lookup,
             )?;
         }
         StructuredControlFlow::Return => {}
@@ -197,6 +208,7 @@ fn build_operation_list(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn push_operations_in_block(
     builder: &mut impl OperationReceiver,
     state: &mut VariableTracker,
@@ -205,6 +217,7 @@ fn push_operations_in_block(
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &Block,
     current_stack: &ScopeStack,
+    source_lookup: &impl SourceLookup,
 ) -> Result<(), Error> {
     let dbg_lookup = DbgLookup { dbg_info };
 
@@ -218,7 +231,7 @@ fn push_operations_in_block(
         if let Instruction::Call(callable_id, operands, _, metadata) = instruction {
             let call_instruction_stack = metadata
                 .as_deref()
-                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location))
+                .map(|md| dbg_lookup.instruction_logical_stack(md.dbg_location, source_lookup))
                 .unwrap_or_default();
 
             let full_stack =
@@ -245,8 +258,12 @@ pub(crate) struct DbgLookup<'a> {
 }
 
 impl DbgLookup<'_> {
-    /// Returns oldest->newest
-    fn instruction_logical_stack(&self, dbg_location_idx: DbgLocationId) -> LogicalStack {
+    /// Returns oldest->newest.
+    fn instruction_logical_stack(
+        &self,
+        dbg_location_idx: DbgLocationId,
+        source_lookup: &impl SourceLookup,
+    ) -> LogicalStack {
         let mut location_stack = vec![];
         let mut current_location_idx = Some(dbg_location_idx);
 
@@ -286,6 +303,9 @@ impl DbgLookup<'_> {
             current_location_idx = location.inlined_at;
         }
         location_stack.reverse();
+
+        filter_synthesized_frames(&mut location_stack, source_lookup);
+
         LogicalStack(location_stack)
     }
 
@@ -300,6 +320,38 @@ impl DbgLookup<'_> {
             offset: dbg_location.location.offset,
         }
     }
+}
+
+/// Removes entries from a logical stack that correspond to synthesized callables
+/// and any scopes nested within them (e.g., loops inside synthesized callables).
+/// These are callables created by FIR transforms (e.g., monomorphization, specialization)
+/// that don't correspond to user-authored code and shouldn't appear in circuit groupings.
+fn filter_synthesized_frames(
+    location_stack: &mut Vec<LogicalStackEntry>,
+    source_lookup: &impl SourceLookup,
+) {
+    let mut inside_synthesized = false;
+
+    // Walk from outer to inner (the stack is already in outer→inner order)
+    location_stack.retain(|entry| {
+        if source_lookup.is_synthesized_callable_scope(entry.lexical_scope()) {
+            // Skip this synthesized callable and mark that we're inside one
+            inside_synthesized = true;
+            return false;
+        }
+        if inside_synthesized {
+            // Skip loop/iteration entries that are inside a synthesized callable
+            if matches!(
+                entry.lexical_scope(),
+                Scope::Loop(..) | Scope::LoopIteration(..)
+            ) {
+                return false;
+            }
+            // A non-synthesized callable entry means we've exited the synthesized region
+            inside_synthesized = false;
+        }
+        true
+    });
 }
 
 fn process_variables(
@@ -355,6 +407,7 @@ fn process_variables(
         | Instruction::Fsub(operand, operand1, variable)
         | Instruction::Fmul(operand, operand1, variable)
         | Instruction::Fdiv(operand, operand1, variable)
+        | Instruction::Frem(operand, operand1, variable)
         | Instruction::LogicalAnd(operand, operand1, variable)
         | Instruction::LogicalOr(operand, operand1, variable)
         | Instruction::BitwiseAnd(operand, operand1, variable)
@@ -372,12 +425,13 @@ fn process_variables(
         instruction @ (Instruction::Store(..)
         | Instruction::BitwiseNot(..)
         | Instruction::Alloca(..)
-        | Instruction::Load(..)) => {
+        | Instruction::Load(..)
+        | Instruction::Index(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));
         }
-        Instruction::Return | Instruction::Branch(..) | Instruction::Jump(..) => {
+        Instruction::Return(..) | Instruction::Branch(..) | Instruction::Jump(..) => {
             // do nothing for terminators
         }
     }
@@ -911,7 +965,7 @@ fn store_expr_in_variable(
         panic!("variable {variable_id:?} already stored {old_value:?}, cannot store {expr:?}");
     }
     if let Expr::Bool(condition_expr) = &expr {
-        if let Ty::Boolean = var.ty {
+        if let Ty::Prim(Prim::Boolean) = var.ty {
         } else {
             return Err(Error::UnsupportedFeature(format!(
                 "variable {variable_id:?} has type {var_ty:?} but is being assigned a condition expression: {condition_expr:?}",
@@ -1278,17 +1332,23 @@ fn callable_spec<'a>(
             match o {
                 Operand::Literal(Literal::Integer(_) | Literal::Double(_))
                 | Operand::Variable(Variable {
-                    ty: Ty::Boolean | Ty::Integer | Ty::Double,
+                    ty: Ty::Prim(Prim::Boolean | Prim::Integer | Prim::Double),
                     ..
                 }) => {
                     operand_types.push(OperandType::Arg);
                 }
                 Operand::Literal(Literal::Qubit(_))
-                | Operand::Variable(Variable { ty: Ty::Qubit, .. }) => {
+                | Operand::Variable(Variable {
+                    ty: Ty::Prim(Prim::Qubit),
+                    ..
+                }) => {
                     operand_types.push(OperandType::TargetQubit);
                 }
                 Operand::Literal(Literal::Result(_))
-                | Operand::Variable(Variable { ty: Ty::Result, .. }) => {
+                | Operand::Variable(Variable {
+                    ty: Ty::Prim(Prim::Result),
+                    ..
+                }) => {
                     operand_types.push(OperandType::TargetResult);
                 }
                 o => {

@@ -38,7 +38,7 @@ export rxx, ryy, rzz;
 // that Qiskit wont emit correctly.
 export dcx, ecr, r, rzx, cs, csdg, sxdg, csx, rccx, c3sqrtx, c3x, rc3x, xx_minus_yy, xx_plus_yy, ccz;
 
-export mresetz_checked;
+export mresetz_checked, postselectz;
 
 export __quantum__qis__barrier__body;
 
@@ -222,7 +222,7 @@ operation phase(lambda : Angle, qubit : Qubit) : Unit is Adj + Ctl {
     U(ZERO_ANGLE(), ZERO_ANGLE(), lambda, qubit);
 }
 
-operation cphase(ctrl : Qubit, lambda : Angle, qubit : Qubit) : Unit is Adj + Ctl {
+operation cphase(lambda : Angle, ctrl : Qubit, qubit : Qubit) : Unit is Adj + Ctl {
     Controlled phase([ctrl], (lambda, qubit));
 }
 
@@ -645,6 +645,10 @@ operation mresetz_checked(q : Qubit) : Int {
     } else {
         Std.OpenQASM.Convert.ResultAsInt(r)
     }
+}
+
+operation postselectz(r : Result, q : Qubit) : Unit {
+    Std.Diagnostics.PostSelectZ(r, q);
 }
 
 /// The ``BARRIER`` function is used to implement the `barrier` statement in QASM.

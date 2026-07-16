@@ -18,7 +18,8 @@
 //                          Q# extension logs are usually more relevant for debugging tests.
 //                          To control the Q# extension log level see: suites/extensionUtils.ts
 
-import { runTests } from "@vscode/test-web";
+import { runTests as runTestsWeb } from "@vscode/test-web";
+import { runTests as runTestsElectron } from "@vscode/test-electron";
 import { readFileSync } from "node:fs";
 import { SourceMap } from "node:module";
 import path, { dirname, join } from "node:path";
@@ -85,7 +86,6 @@ try {
 }
 
 async function runSuite(name) {
-  const extensionTestsPath = join(thisDir, "out", name, "index");
   const workspacePath = join(thisDir, "suites", name, "test-workspace");
 
   // Capture console output before running tests,
@@ -95,11 +95,17 @@ async function runSuite(name) {
   try {
     // Start a web server that serves VS Code in a browser, run the tests
     void name;
-    await runTests({
+    await runTestsWeb({
       headless: true, // pass false to see VS Code UI
       browserType: "chromium",
       extensionDevelopmentPath,
-      extensionTestsPath,
+      extensionTestsPath: join(
+        thisDir,
+        "out",
+        "browser",
+        name,
+        "index.browser.js",
+      ),
       folderPath: workspacePath,
       quality: "stable",
       printServerLog: verbose,
@@ -108,6 +114,15 @@ async function runSuite(name) {
         ? Number(waitForDebugger.slice(attachArgName.length))
         : undefined,
     });
+
+    // Also run the tests in Electron to catch any issues specific to that environment.
+    if (name !== "empty") {
+      await runTestsElectron({
+        extensionDevelopmentPath,
+        extensionTestsPath: join(thisDir, "out", "node", name, "index.node.js"),
+        launchArgs: [workspacePath, "--log=info", "--disable-extensions"],
+      });
+    }
   } finally {
     restoreConsole();
   }

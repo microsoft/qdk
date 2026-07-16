@@ -1,0 +1,23 @@
+[package]
+name = "qre"
+
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+miette = { workspace = true }
+num-traits = { workspace = true }
+rustc-hash = { workspace = true }
+probability = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+
+[dev-dependencies]
+
+[lints]
+workspace = true

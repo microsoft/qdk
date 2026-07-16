@@ -5,15 +5,110 @@
 mod tests;
 pub(crate) mod uq1_63;
 
-use num_traits::{ConstZero, Float};
+use num_traits::ConstZero;
+use qsc_data_structures::display::{write_field, writeln_field, writeln_header};
+use rand::RngExt;
 use rustc_hash::FxHashMap;
-use std::hash::BuildHasherDefault;
+use std::{fmt::Display, hash::BuildHasherDefault};
+
+use crate::noise_config::uq1_63::UQ1_63;
 
 pub(crate) type IntrinsicID = u32;
 
-pub trait Fault {
-    fn none() -> Self;
-    fn loss() -> Self;
+/// A [`u64`] where every 3-bits encodes one of I, X, Y, Z, and L
+/// where IXYZ represent Pauli terms, and L represents loss.
+pub type PauliAndLossString = u64;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum FaultTerm {
+    /// An `I` Pauli.
+    I,
+    /// An `X` Pauli.
+    X,
+    /// A `Y` Pauli.
+    Y,
+    /// A `Z` Pauli.
+    Z,
+    /// The qubit was lost.
+    Loss,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+/// A string of [`FaultTerm`].
+pub struct Fault(pub Vec<FaultTerm>);
+
+impl From<(PauliAndLossString, u32)> for Fault {
+    fn from((pauli, qubits): (PauliAndLossString, u32)) -> Self {
+        const MAP: [FaultTerm; 5] = [
+            FaultTerm::I,
+            FaultTerm::X,
+            FaultTerm::Z,
+            FaultTerm::Y,
+            FaultTerm::Loss,
+        ];
+        assert!(
+            !is_pauli_identity(pauli),
+            "the NoiseTable input validation should ensure we don't insert the identity string"
+        );
+        let fault_string = decode_pauli(pauli, qubits, &MAP);
+        Self(fault_string)
+    }
+}
+
+impl CumulativeNoiseConfig {
+    /// Returns true if an idle fault has triggered.
+    #[must_use]
+    pub fn gen_idle_fault(&self, rng: &mut impl rand::Rng, idle_steps: u32) -> bool {
+        let sample: f32 = rng.random_range(0.0..1.0);
+        sample < self.idle.s_probability(idle_steps)
+    }
+}
+
+/// Specifies the behavior of a multi-qubit gate when at least one of its qubit
+/// operands is lost.
+///
+/// This lets users experiment with different lost-qubit gate behaviors
+/// from Python (via the per-gate `on_loss` field of the noise config)
+/// without modifying and recompiling the simulator.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LossPolicy {
+    /// If any of the qubit operands of a gate is lost, skip the gate entirely.
+    /// This policy can apply to all multi-qubit gates.
+    #[default]
+    Skip,
+    /// If any operand of a gate is lost, propagate the loss to the other operands.
+    /// This policy can apply to all multi-qubit gates.
+    Propagate,
+    /// For multi-qubit rotations, degrade the unitary to its single-qubit version
+    /// on the surviving operand (e.g. rxx -> rx). Falls back to SKIP for gates with
+    /// no single-qubit reduction (cx, cy, cz, swap, and single-qubit gates).
+    /// This policy only applies to the rxx, ryy, and rzz gates, in which case
+    /// they degrade to rx, ry, and rz on the remaining qubit respectively.
+    Degrade,
+    /// Skip the gate and instead apply an S adjoint to each surviving operand.
+    /// This policy can apply to all multi-qubit gates.
+    ResidualSDagger,
+    /// This policy only applies to the swap gate, in which case the qubit states
+    /// are exchanged, including their loss flags.
+    ApplyAnyway,
+}
+
+impl LossPolicy {
+    /// Encodes the policy as a `u32` for transport to the GPU shader.
+    ///
+    /// The values match the Python `LossPolicy` enum (`SKIP = 0` ..
+    /// `APPLY_ANYWAY = 4`). The value `0` is reserved by the shader to mean
+    /// "no policy stamped" and is never produced here.
+    #[must_use]
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Skip => 0,
+            Self::Propagate => 1,
+            Self::Degrade => 2,
+            Self::ResidualSDagger => 3,
+            Self::ApplyAnyway => 4,
+        }
+    }
 }
 
 /// Noise description for each operation.
@@ -21,7 +116,7 @@ pub trait Fault {
 /// This is the format in which the user config files are
 /// written.
 #[derive(Clone, Debug)]
-pub struct NoiseConfig<T: Float, Q: Float> {
+pub struct NoiseConfig<T, Q> {
     pub i: NoiseTable<T>,
     pub x: NoiseTable<T>,
     pub y: NoiseTable<T>,
@@ -60,7 +155,7 @@ pub const fn const_empty_hash_map<K, V>() -> FxHashMap<K, V> {
     }
 }
 
-impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
+impl<T, Q> NoiseConfig<T, Q> {
     pub const NOISELESS: Self = Self {
         i: NoiseTable::<T>::noiseless(1),
         x: NoiseTable::<T>::noiseless(1),
@@ -79,10 +174,10 @@ impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
         cx: NoiseTable::<T>::noiseless(2),
         cy: NoiseTable::<T>::noiseless(2),
         cz: NoiseTable::<T>::noiseless(2),
-        rxx: NoiseTable::<T>::noiseless(2),
-        ryy: NoiseTable::<T>::noiseless(2),
-        rzz: NoiseTable::<T>::noiseless(2),
-        swap: NoiseTable::<T>::noiseless(2),
+        rxx: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        ryy: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        rzz: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        swap: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::ApplyAnyway),
         ccx: NoiseTable::<T>::noiseless(3),
         mov: NoiseTable::<T>::noiseless(1),
         mz: NoiseTable::<T>::noiseless(1),
@@ -90,6 +185,97 @@ impl<T: Float + ConstZero, Q: Float> NoiseConfig<T, Q> {
         idle: IdleNoiseParams::NOISELESS,
         intrinsics: const_empty_hash_map(),
     };
+
+    #[must_use]
+    pub fn is_noiseless(&self) -> bool {
+        self.i.is_noiseless()
+            && self.x.is_noiseless()
+            && self.y.is_noiseless()
+            && self.z.is_noiseless()
+            && self.h.is_noiseless()
+            && self.s.is_noiseless()
+            && self.s_adj.is_noiseless()
+            && self.t.is_noiseless()
+            && self.t_adj.is_noiseless()
+            && self.sx.is_noiseless()
+            && self.sx_adj.is_noiseless()
+            && self.rx.is_noiseless()
+            && self.ry.is_noiseless()
+            && self.rz.is_noiseless()
+            && self.cx.is_noiseless()
+            && self.cy.is_noiseless()
+            && self.cz.is_noiseless()
+            && self.rxx.is_noiseless()
+            && self.ryy.is_noiseless()
+            && self.rzz.is_noiseless()
+            && self.swap.is_noiseless()
+            && self.ccx.is_noiseless()
+            && self.mov.is_noiseless()
+            && self.mz.is_noiseless()
+            && self.mresetz.is_noiseless()
+            && self.idle.is_noiseless()
+            && self.intrinsics.is_empty()
+    }
+}
+
+impl<T: Display, Q: Display> Display for NoiseConfig<T, Q> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        /// Macro to avoid repeating field names twice as in:
+        /// ```ignore
+        ///     writeln_field(f, "mresetz", &self.mresetz)?;
+        /// ```
+        macro_rules! write_if_noisy {
+            ($field:ident) => {
+                if !self.$field.is_noiseless() {
+                    writeln_field(f, stringify!($field), &self.$field)?;
+                }
+            };
+        }
+
+        writeln_header(f, "NoiseConfig")?;
+
+        // Write stdgates with noise.
+        write_if_noisy!(i);
+        write_if_noisy!(x);
+        write_if_noisy!(y);
+        write_if_noisy!(z);
+        write_if_noisy!(h);
+        write_if_noisy!(s);
+        write_if_noisy!(s_adj);
+        write_if_noisy!(t);
+        write_if_noisy!(t_adj);
+        write_if_noisy!(sx);
+        write_if_noisy!(sx_adj);
+        write_if_noisy!(rx);
+        write_if_noisy!(ry);
+        write_if_noisy!(rz);
+        write_if_noisy!(cx);
+        write_if_noisy!(cy);
+        write_if_noisy!(cz);
+        write_if_noisy!(rxx);
+        write_if_noisy!(ryy);
+        write_if_noisy!(rzz);
+        write_if_noisy!(swap);
+        write_if_noisy!(ccx);
+        write_if_noisy!(mov);
+        write_if_noisy!(mz);
+        write_if_noisy!(mresetz);
+
+        // Write IdleNoiseParams.
+        if !self.idle.is_noiseless() {
+            writeln_field(f, "idle", &self.idle)?;
+        }
+
+        // Write intrinsics.
+        if !self.intrinsics.is_empty() {
+            writeln_header(f, "intrinsics")?;
+            for (id, table) in &self.intrinsics {
+                writeln_field(f, &id.to_string(), table)?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// The probability of idle noise is computed using the equation:
@@ -105,6 +291,13 @@ pub struct IdleNoiseParams {
     pub s_probability: f32,
 }
 
+impl Display for IdleNoiseParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln_header(f, "IdleNoiseParams")?;
+        write_field(f, "s_probability", &self.s_probability)
+    }
+}
+
 impl Default for IdleNoiseParams {
     fn default() -> Self {
         Self::NOISELESS
@@ -113,6 +306,11 @@ impl Default for IdleNoiseParams {
 
 impl IdleNoiseParams {
     pub const NOISELESS: Self = Self { s_probability: 0.0 };
+
+    #[must_use]
+    pub const fn is_noiseless(&self) -> bool {
+        self.s_probability == 0.0
+    }
 
     #[must_use]
     pub fn s_probability(self, steps: u32) -> f32 {
@@ -129,34 +327,55 @@ impl IdleNoiseParams {
 /// strings are mutually exclusive. Therefore, their probabilities
 /// must add up to a number less or equal than `1.0`.
 #[derive(Clone, Debug)]
-pub struct NoiseTable<T: Float> {
+pub struct NoiseTable<T> {
     pub qubits: u32,
-    pub pauli_strings: Vec<u64>,
+    pub pauli_strings: Vec<PauliAndLossString>,
     pub probabilities: Vec<T>,
-    pub loss: T,
+    /// The behavior of this gate when at least one of its operands is lost.
+    pub on_loss: LossPolicy,
 }
 
-impl<T: Float + ConstZero> NoiseTable<T> {
+impl<T> NoiseTable<T> {
     #[must_use]
     pub const fn noiseless(qubits: u32) -> Self {
+        Self::noiseless_with_loss_policy(qubits, LossPolicy::Skip)
+    }
+
+    #[must_use]
+    pub const fn noiseless_with_loss_policy(qubits: u32, on_loss: LossPolicy) -> Self {
         Self {
             qubits,
             pauli_strings: Vec::new(),
             probabilities: Vec::new(),
-            loss: num_traits::ConstZero::ZERO,
+            on_loss,
         }
+    }
+
+    #[must_use]
+    pub const fn is_noiseless(&self) -> bool {
+        self.probabilities.is_empty()
     }
 }
 
-impl<T: Float> NoiseTable<T> {
-    #[must_use]
-    pub fn is_noiseless(&self) -> bool {
-        self.probabilities.is_empty() && self.loss == T::zero()
-    }
-
+impl<T: ConstZero + PartialOrd> NoiseTable<T> {
     #[must_use]
     pub fn has_pauli_noise(&self) -> bool {
-        self.probabilities.iter().any(|p| *p > T::zero())
+        self.probabilities.iter().any(|p| *p > T::ZERO)
+    }
+}
+
+impl<T: Display> Display for NoiseTable<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        const MAP: [char; 5] = ['I', 'X', 'Z', 'Y', 'L'];
+        writeln_header(f, "NoiseTable")?;
+        writeln_field(f, "qubits", &self.qubits)?;
+        for (encoded_pauli, probability) in self.pauli_strings.iter().zip(&self.probabilities) {
+            let fault_string: String = decode_pauli(*encoded_pauli, self.qubits, &MAP)
+                .into_iter()
+                .collect();
+            writeln_field(f, &fault_string, &probability)?;
+        }
+        Ok(())
     }
 }
 
@@ -164,40 +383,37 @@ impl<T: Float> NoiseTable<T> {
 ///
 /// This is the internal format used by the simulator.
 #[derive(Default)]
-pub struct CumulativeNoiseConfig<T> {
-    pub i: CumulativeNoiseTable<T>,
-    pub x: CumulativeNoiseTable<T>,
-    pub y: CumulativeNoiseTable<T>,
-    pub z: CumulativeNoiseTable<T>,
-    pub h: CumulativeNoiseTable<T>,
-    pub s: CumulativeNoiseTable<T>,
-    pub s_adj: CumulativeNoiseTable<T>,
-    pub t: CumulativeNoiseTable<T>,
-    pub t_adj: CumulativeNoiseTable<T>,
-    pub sx: CumulativeNoiseTable<T>,
-    pub sx_adj: CumulativeNoiseTable<T>,
-    pub rx: CumulativeNoiseTable<T>,
-    pub ry: CumulativeNoiseTable<T>,
-    pub rz: CumulativeNoiseTable<T>,
-    pub cx: CumulativeNoiseTable<T>,
-    pub cy: CumulativeNoiseTable<T>,
-    pub cz: CumulativeNoiseTable<T>,
-    pub rxx: CumulativeNoiseTable<T>,
-    pub ryy: CumulativeNoiseTable<T>,
-    pub rzz: CumulativeNoiseTable<T>,
-    pub swap: CumulativeNoiseTable<T>,
-    pub ccx: CumulativeNoiseTable<T>,
-    pub mov: CumulativeNoiseTable<T>,
-    pub mz: CumulativeNoiseTable<T>,
-    pub mresetz: CumulativeNoiseTable<T>,
+pub struct CumulativeNoiseConfig {
+    pub i: CumulativeNoiseTable,
+    pub x: CumulativeNoiseTable,
+    pub y: CumulativeNoiseTable,
+    pub z: CumulativeNoiseTable,
+    pub h: CumulativeNoiseTable,
+    pub s: CumulativeNoiseTable,
+    pub s_adj: CumulativeNoiseTable,
+    pub t: CumulativeNoiseTable,
+    pub t_adj: CumulativeNoiseTable,
+    pub sx: CumulativeNoiseTable,
+    pub sx_adj: CumulativeNoiseTable,
+    pub rx: CumulativeNoiseTable,
+    pub ry: CumulativeNoiseTable,
+    pub rz: CumulativeNoiseTable,
+    pub cx: CumulativeNoiseTable,
+    pub cy: CumulativeNoiseTable,
+    pub cz: CumulativeNoiseTable,
+    pub rxx: CumulativeNoiseTable,
+    pub ryy: CumulativeNoiseTable,
+    pub rzz: CumulativeNoiseTable,
+    pub swap: CumulativeNoiseTable,
+    pub ccx: CumulativeNoiseTable,
+    pub mov: CumulativeNoiseTable,
+    pub mz: CumulativeNoiseTable,
+    pub mresetz: CumulativeNoiseTable,
     pub idle: IdleNoiseParams,
-    pub intrinsics: FxHashMap<IntrinsicID, CorrelatedNoiseSampler<T>>,
+    pub intrinsics: FxHashMap<IntrinsicID, Sampler>,
 }
 
-impl<F> From<NoiseConfig<f64, f64>> for CumulativeNoiseConfig<F>
-where
-    F: Fault + Clone + From<(u64, u32)>,
-{
+impl From<NoiseConfig<f64, f64>> for CumulativeNoiseConfig {
     fn from(value: NoiseConfig<f64, f64>) -> Self {
         let intrinsics = value
             .intrinsics
@@ -242,59 +458,55 @@ where
 ///
 /// This is the internal format used by the simulator.
 #[derive(Default)]
-pub struct CumulativeNoiseTable<T> {
-    pub sampler: CorrelatedNoiseSampler<T>,
-    pub loss: f64,
+pub struct CumulativeNoiseTable {
+    /// The behavior of this gate when at least one of its operands is lost.
+    pub on_loss: LossPolicy,
+    pub sampler: Sampler,
 }
 
-impl<F> From<NoiseTable<f64>> for CumulativeNoiseTable<F>
-where
-    F: Fault + Clone + From<(u64, u32)>,
-{
+impl From<NoiseTable<f64>> for CumulativeNoiseTable {
     fn from(value: NoiseTable<f64>) -> Self {
         let qubits = value.qubits;
         let choices = value
             .pauli_strings
             .into_iter()
-            .map(|p| F::from((p, qubits)));
+            .map(|p| Fault::from((p, qubits)));
         let probs = value.probabilities.into_iter().map(uq1_63::from_prob);
         Self {
-            sampler: CorrelatedNoiseSampler::new(choices, probs),
-            loss: value.loss,
+            on_loss: value.on_loss,
+            sampler: Sampler::new(choices, probs),
         }
     }
 }
 
-impl<F> CumulativeNoiseTable<F>
-where
-    F: Fault + Clone,
-{
-    /// Samples a float in the range [0, 1] and picks one of the faults
-    /// `X`, `Y`, `Z`, `Loss` based on the provided noise table.
+impl CumulativeNoiseTable {
+    /// Samples loss using the noise probabilities in the noise table.
     #[must_use]
-    pub fn gen_operation_fault(&self, rng: &mut impl rand::Rng) -> F {
-        let sample: f64 = rng.gen_range(0.0..1.0);
-        if sample < self.loss {
-            return F::loss();
-        }
-        self.sampler.sample(rng)
+    pub fn sample_noise(&self, rng: &mut impl rand::Rng) -> Option<Fault> {
+        self.sampler.sample(rng).cloned()
     }
 }
 
-#[derive(Default)]
-pub struct CorrelatedNoiseSampler<T> {
-    /// The total probability of any noise.
-    noise_probability: u64,
-    /// The errors to choose from.
+pub struct Sampler<T = Fault> {
+    /// The total probability of any choice.
+    total_probability: UQ1_63,
+    /// The values to choose from.
     choices: Vec<T>,
-    /// Cumulative probabilities in the [`uq1_63`] format.
-    cumulative_probabilities: Vec<u64>,
+    /// Cumulative probabilities in the [`UQ1_63`] format.
+    cumulative_probabilities: Vec<UQ1_63>,
 }
 
-impl<F> From<NoiseTable<f64>> for CorrelatedNoiseSampler<F>
-where
-    F: Fault + Clone + From<(u64, u32)>,
-{
+impl Default for Sampler {
+    fn default() -> Self {
+        Self {
+            total_probability: Default::default(),
+            choices: Default::default(),
+            cumulative_probabilities: Default::default(),
+        }
+    }
+}
+
+impl From<NoiseTable<f64>> for Sampler<Fault> {
     fn from(value: NoiseTable<f64>) -> Self {
         assert!(
             !value.pauli_strings.is_empty(),
@@ -304,42 +516,42 @@ where
         let choices = value
             .pauli_strings
             .into_iter()
-            .map(|p| F::from((p, qubits)));
+            .map(|p| Fault::from((p, qubits)));
         let probs = value.probabilities.into_iter().map(uq1_63::from_prob);
         Self::new(choices, probs)
     }
 }
 
-impl<F: Fault + Clone> CorrelatedNoiseSampler<F> {
+impl<T> Sampler<T> {
     #[must_use]
     pub fn new<Choices, Probabilities>(choices: Choices, probs: Probabilities) -> Self
     where
-        Choices: IntoIterator<Item = F>,
+        Choices: IntoIterator<Item = T>,
         Probabilities: IntoIterator<Item = u64>,
     {
         let probs = probs.into_iter();
         let mut cumulative_probabilities: Vec<u64> = Vec::with_capacity(probs.size_hint().0);
-        let mut noise_probability: u64 = 0;
+        let mut total_probability: u64 = 0;
 
         for p in probs {
-            noise_probability += p;
+            total_probability += p;
             assert!(
-                noise_probability <= uq1_63::ONE,
+                total_probability <= uq1_63::ONE,
                 "total probability should not exceed 1.0"
             );
-            cumulative_probabilities.push(noise_probability);
+            cumulative_probabilities.push(total_probability);
         }
 
         Self {
-            noise_probability,
+            total_probability,
             choices: choices.into_iter().collect(),
             cumulative_probabilities,
         }
     }
 
     #[must_use]
-    pub fn sample(&self, rng: &mut impl rand::Rng) -> F {
-        let distr = rand::distributions::Uniform::new(0, uq1_63::ONE);
+    pub fn sample(&self, rng: &mut impl rand::Rng) -> Option<&T> {
+        let distr = rand::distr::Uniform::new(0, uq1_63::ONE).expect("valid range");
         let random_sample: u64 = rng.sample(distr);
         self.sample_with_value(random_sample)
     }
@@ -347,57 +559,58 @@ impl<F: Fault + Clone> CorrelatedNoiseSampler<F> {
     /// Samples a fault given a pre-generated random value in the range `[0, uq1_63::ONE)`.
     /// This is useful for testing purposes.
     #[must_use]
-    pub fn sample_with_value(&self, random_sample: u64) -> F {
+    pub fn sample_with_value(&self, random_sample: u64) -> Option<&T> {
         // This codepath will be taken > 99.9% of times, since the total error probability
         // is usually very low.
-        if random_sample >= self.noise_probability {
-            return F::none();
+        if random_sample >= self.total_probability {
+            return None;
         }
         // Find the index of the first cumulative probability greater than the chosen sample.
         let idx = self
             .cumulative_probabilities
             .partition_point(|p| *p <= random_sample);
 
-        self.choices[idx].clone()
+        Some(&self.choices[idx])
     }
 }
 
 /// Checks if a pauli string is the identity.
 #[must_use]
-pub fn is_pauli_identity(pauli_string: u64) -> bool {
+pub fn is_pauli_identity(pauli_string: PauliAndLossString) -> bool {
     pauli_string == 0
 }
 
-/// Encode a validated Pauli string as a `u64` using 2 bits per character
-/// (I=0, X=1, Z=2, Y=3). Supports up to 32 qubits.
+/// Encode a validated Pauli string as a `u128` using 3 bits per character
+/// (I=0, X=1, Z=2, Y=3, L=4). Supports up to 42 qubits.
 #[must_use]
-pub fn encode_pauli(pauli: &str) -> u64 {
+pub fn encode_pauli(pauli: &str) -> PauliAndLossString {
     let pauli = pauli.as_bytes();
-    debug_assert!(pauli.len() <= 32);
-    let mut result: u64 = 0;
+    debug_assert!(pauli.len() <= 42);
+    let mut result: PauliAndLossString = 0;
     for &b in pauli {
         let bits = match b {
-            b'I' => 0u64,
-            b'X' => 1u64,
-            b'Z' => 2u64,
-            b'Y' => 3u64,
+            b'I' => 0,
+            b'X' => 1,
+            b'Z' => 2,
+            b'Y' => 3,
+            b'L' => 4,
             _ => unreachable!("pauli bytes must be validated before encoding"),
         };
-        result = (result << 2) | bits;
+        result = (result << 3) | bits;
     }
     result
 }
 
 /// Decode a `u64`-encoded Pauli string back into a list of T,
 /// using the given `map` for decoding.
-/// (I=0, X=1, Z=2, Y=3). Supports up to 32 qubits.
+/// (I=0, X=1, Z=2, Y=3, L=4). Supports up to 21 qubits.
 #[must_use]
-pub fn decode_pauli<T: Clone>(mut pauli: u64, qubits: u32, map: &[T; 4]) -> Vec<T> {
+pub fn decode_pauli<T: Clone>(mut pauli: PauliAndLossString, qubits: u32, map: &[T; 5]) -> Vec<T> {
     let n = qubits as usize;
     let mut buf = vec![map[0].clone(); n];
     for i in (0..n).rev() {
-        buf[i] = map[(pauli & 0b11) as usize].clone();
-        pauli >>= 2;
+        buf[i] = map[(pauli & 0b111) as usize].clone();
+        pauli >>= 3;
     }
     buf
 }

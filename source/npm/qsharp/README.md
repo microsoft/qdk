@@ -11,11 +11,9 @@ to it when calling the `loadWasmModule` method so it may be located and loaded.
 
 ## Node and browser support
 
-This package is platform-agnostic, using a single entry point (`main.ts`) for both browser
-and Node.js environments. The wasm module and JavaScript glue code can be found in `./lib/web/`.
-Consumers must bundle the package for their target platform so that external
-dependencies (such as the `web-worker` package) are resolved correctly for the
-runtime environment.
+This package provides separate entry points for browser (`browser.ts`) and Node.js (`node.ts`)
+environments. Each entry point handles platform-specific setup before re-exporting the
+shared API from `main.ts`. The public API is the same regardless of the runtime.
 
 ## Design
 

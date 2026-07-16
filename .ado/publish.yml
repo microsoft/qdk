@@ -19,7 +19,15 @@ schedules:
 
 variables:
   CARGO_TERM_COLOR: always
-  RUST_TOOLCHAIN_VERSION: "1.93"
+  RUST_TOOLCHAIN_VERSION: "1.95"
+  # CFS requires that we have a .npmrc next to each package.json.  If we set this variable, it will
+  # synthesize everything it requires during the pipeline run, leaving our external contributors
+  # free to continue using the default npmjs.org registry.
+  # (To learn more, search eng.ms for AZURE_ARTIFACTS_FEED.)
+  #
+  # Caveat: the synthesized .npmrc file doesn't seem to contain the necessary token, so we'll have to
+  # use the npmAuthenticate task explicitly.
+  AZURE_ARTIFACTS_FEED: https://pkgs.dev.azure.com/ms-azurequantum/AzureQuantum/_packaging/azure-quantum/npm/registry/
 
 resources:
   repositories:
@@ -34,7 +42,7 @@ parameters:
     default:
       - name: linux_x86_64
         poolName: "Azure-Pipelines-DevTools-GPU"
-        imageName: "1es-pt-dsvm-ubuntu-2204"
+        imageName: "ubuntu-2204-qdk-gpu"
         os: linux
         arch: x86_64
         envVars:
@@ -74,7 +82,6 @@ parameters:
 # - BUILD_TYPE
 # - cratesIoFeedOverride
 # - OwnerPersonalAlias
-# - PAT
 # - toolchainFeed
 
 extends:
@@ -112,6 +119,11 @@ extends:
                   toolchainFeed: $(toolchainFeed)
                 displayName: Install Rust toolchain
 
+              - task: PipAuthenticate@1
+                displayName: Pip Authenticate
+                inputs:
+                  artifactFeeds: "AzureQuantum/azure-quantum"
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
@@ -121,6 +133,11 @@ extends:
                 inputs:
                   version: "22.x"
 
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
+
               - script: |
                   python ./prereqs.py --install && python ./version.py
                 displayName: Install Prereqs and set version
@@ -129,7 +146,7 @@ extends:
 
               - script: |
                   python build.py --npm --wasm --no-check-prereqs
-                displayName: Build VSCode Extension
+                displayName: Build npm package
 
               - script: |
                   mkdir -p $(System.DefaultWorkingDirectory)/target/npm/qsharp
@@ -160,6 +177,11 @@ extends:
                   toolchainFeed: $(toolchainFeed)
                 displayName: Install Rust toolchain
 
+              - task: PipAuthenticate@1
+                displayName: Pip Authenticate
+                inputs:
+                  artifactFeeds: "AzureQuantum/azure-quantum"
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
@@ -169,19 +191,25 @@ extends:
                 inputs:
                   version: "22.x"
 
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
+
               - script: |
                   python ./prereqs.py --install && python ./version.py
                 displayName: Install Prereqs and set version
 
               # Below VS Code extension build only needs to run on one platform (Linux x86_64 for now)
               - script: |
-                  npm install -g @vscode/vsce
+                  npm install -g @vscode/vsce --userconfig=.npmrc
                 displayName: Install Prereqs for VSCode Extension
 
               # build steps
-
+              # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
+              # which requires a display to run
               - script: |
-                  python build.py --wasm --npm --vscode --integration-tests --no-check-prereqs
+                  xvfb-run -a python build.py --wasm --npm --vscode --integration-tests --no-check-prereqs
                 displayName: Build VSCode Extension
 
               - script: |
@@ -275,6 +303,11 @@ extends:
                   toolchainFeed: $(toolchainFeed)
                 displayName: Install Rust toolchain
 
+              - task: PipAuthenticate@1
+                displayName: Pip Authenticate
+                inputs:
+                  artifactFeeds: "AzureQuantum/azure-quantum"
+
               - task: UsePythonVersion@0
                 inputs:
                   versionSpec: "3.11"
@@ -284,15 +317,29 @@ extends:
                 inputs:
                   version: "22.x"
 
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
+
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: source/jupyterlab/.npmrc
+
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: source/widgets/.npmrc
+
               - script: |
                   python ./prereqs.py --skip-wasm && python ./version.py
                 displayName: Install Prereqs and set version
 
-              # The jupyterlab and widgets packages have no tests. The qdk package has minimal tests but
-              # they also depend on the qsharp package which is platform-dependent. So we skip tests here
-              # and rely on the GitHub CI to run the few `qdk` tests on every PR.
+              # Build platform-agnostic Python wheels: jupyterlab, widgets, and the
+              # qsharp shim (pure Python). The qdk native wheel is built per-platform.
               - script: |
-                  python ./build.py --jupyterlab --widgets --qdk --no-check --no-test --no-check-prereqs
+                  python ./build.py --jupyterlab --widgets --pip --no-check --no-test --no-check-prereqs
                 displayName: Build Platform-Agnostic Packages
 
               - script: |
@@ -349,6 +396,11 @@ extends:
                       rustc --print target-list
                     displayName: View rust target info
 
+                  - task: PipAuthenticate@1
+                    displayName: Pip Authenticate
+                    inputs:
+                      artifactFeeds: "AzureQuantum/azure-quantum"
+
                   - task: UsePythonVersion@0
                     inputs:
                       versionSpec: "3.11"
@@ -369,6 +421,11 @@ extends:
                   - task: UseNode@1
                     inputs:
                       version: "22.x"
+
+                  # See the note on AZURE_ARTIFACTS_FEED
+                  - task: npmAuthenticate@0
+                    inputs:
+                      workingFile: .npmrc
 
                   - script: |
                       sudo apt update
@@ -396,15 +453,17 @@ extends:
                     displayName: Set version
 
                   # Windows arm64
+                  # Skip checking because that would force npm install, which won't work properly until UseNode supports arm64
+                  # https://github.com/microsoft/azure-pipelines-tasks/issues/21743
                   - script: |
-                      python build.py --pip --no-check-prereqs --no-integration-tests --no-optional-dependencies
-                    displayName: Build Platform-Dependent Py Packages
+                      python build.py --qdk --no-check --no-check-prereqs --no-integration-tests --no-optional-dependencies
+                    displayName: Build Platform-Dependent Py Packages (Windows ARM64)
                     condition: and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64'))
 
                   # every other platform
                   - script: |
-                      python build.py --pip --no-check-prereqs --integration-tests
-                    displayName: Build Platform-Dependent Py Packages
+                      python build.py --qdk --no-check-prereqs --integration-tests
+                    displayName: Build Platform-Dependent Py Packages (Other)
                     condition: not(and(eq(variables['Agent.OS'], 'Windows_NT'), eq(variables['arch'], 'aarch64')))
 
                   - script: |
@@ -451,8 +510,21 @@ extends:
                   artifactName: VSIX
                   targetPath: $(System.DefaultWorkingDirectory)/target/vscode
             steps:
+              # We don't want to check this .npmrc in because it won't work for external contributors.
+              # Unlike in the build stage, there doesn't seem to be a task that consumes AZURE_ARTIFACTS_FEED
+              # and creates the compliant .npmrc files, so just make a simple one inline.
               - script: |
-                  npm install -g @vscode/vsce
+                  echo "registry=$(AZURE_ARTIFACTS_FEED)" > .npmrc
+                  echo "always-auth=true" >> .npmrc
+                displayName: Create .npmrc
+
+              # See the note on AZURE_ARTIFACTS_FEED
+              - task: npmAuthenticate@0
+                inputs:
+                  workingFile: .npmrc
+
+              - script: |
+                  npm install -g @vscode/vsce --userconfig=.npmrc
                 displayName: Install Prereqs for VSCode Ext Publishing
 
               - script: |
@@ -474,21 +546,27 @@ extends:
                 condition: succeeded()
                 displayName: Reconfirming signature verification before publishing
 
-              - script: |
-                  echo "Command: vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                  vsce publish --pre-release --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
+              - task: AzureCLI@2
                 condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish pre-release VSCode Extension
-                env:
-                  VSCE_PAT: $(PAT)
+                inputs:
+                  azureSubscription: QDK Publish Connection
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    echo "Command: vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                    vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
 
-              - script: |
-                  echo "Command: vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                  vsce publish --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
+              - task: AzureCLI@2
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
                 displayName: Publish VSCode Extension
-                env:
-                  VSCE_PAT: $(PAT)
+                inputs:
+                  azureSubscription: QDK Publish Connection
+                  scriptType: bash
+                  scriptLocation: inlineScript
+                  inlineScript: |
+                    echo "Command: vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                    vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
 
               - script: |
                   dir

@@ -6,6 +6,8 @@
 const ERR_CALL_STACK_OVERFLOW = 3u;
 const ERR_CALL_STACK_UNDERFLOW = 4u;
 const ERR_INVALID_INSTRUCTION = 5u;
+const ERR_ALLOCA_OUT_OF_BOUNDS = 6u;
+const ERR_MEMORY_OUT_OF_BOUNDS = 7u;
 
 @group(0) @binding(0)
 var<storage, read_write> workgroup_collation: WorkgroupCollationBuffer;
@@ -37,7 +39,8 @@ struct ShotData {
     rand_damping: f32,
     rand_dephase: f32,
     rand_measure: f32,
-    rand_loss: f32,
+    // Bitmask of qubits the most recent noise sampler chose to lose.
+    pending_loss_mask: u32,
 
     // The type of the next operation to execute. This will be OPID_SHOT_BUFF_* if it should use the unitary from the op buffer
     op_type: u32,
@@ -77,10 +80,14 @@ struct Op {
     q1: u32,
     q2: u32,
     q3: u32,
+    policy: u32,
+    pad0: u32,
+    pad1: u32,
+    pad2: u32,
     // Entries in the unitary are: 00, 01, 02, 03, 10, 11, 12, 13, 20, ..., 32, 33
     // 1q matrix elements are stored in: 00, 01, 10, 11 (i.e., indices 0, 1, 4, and 5)
     unitary: array<vec2f, 16>,
-} // Struct size: 4 * 4 + 16 * 8 = 144 bytes (which is aligned to 16 bytes)
+} // Struct size: 4 * 8 + 16 * 8 = 160 bytes (which is aligned to 16 bytes)
 
 @group(0) @binding(2)
 var<storage, read> ops: array<Op>;
@@ -206,6 +213,7 @@ const FUNCTION_TABLE_SIZE: u32 = {{FUNCTION_TABLE_SIZE}};
 const PHI_TABLE_SIZE: u32 = {{PHI_TABLE_SIZE}};
 const SWITCH_CASES_SIZE: u32 = {{SWITCH_CASES_SIZE}};
 const CALL_ARGS_SIZE: u32 = {{CALL_ARGS_SIZE}};
+const CONSTANT_DATA_SIZE: u32 = {{CONSTANT_DATA_SIZE}};
 
 struct Program {
     /// Bytecode instructions.
@@ -220,6 +228,8 @@ struct Program {
     switch_table: array<SwitchCase, SWITCH_CASES_SIZE>,
     /// Call argument register indices.
     call_arg_table: array<u32, CALL_ARGS_SIZE>,
+    /// Constant data pool (flattened array constant values).
+    constant_data: array<u32, CONSTANT_DATA_SIZE>,
 }
 
 struct CallStackFrame {
@@ -235,6 +245,7 @@ struct CallStackFrame {
 
 // MAX_REGISTERS must be declared before InterpreterState which uses it.
 const MAX_REGISTERS: u32 = {{MAX_REGISTERS}};
+const MAX_MEMORY: u32 = {{MAX_MEMORY}};
 
 /// Per-shot interpreter state.
 struct InterpreterState {
@@ -258,6 +269,8 @@ struct InterpreterState {
     call_stack_frames: array<CallStackFrame, 14>,
     /// Per-shot register file.
     registers: array<u32, MAX_REGISTERS>,
+    /// Per-shot memory (constant_data + alloca'd values).
+    memory: array<u32, MAX_MEMORY>,
 }
 
 // -----------------------------------------------------------------------------
@@ -279,6 +292,12 @@ const STATUS_QUANTUM_PENDING:  u32 = 1u;
 const STATUS_TERMINATED:       u32 = 2u;
 const STATUS_ERROR:            u32 = 3u;
 const STATUS_YIELD:            u32 = 4u;
+
+// pending_op_type values: 0 = gate, 1 = measure, 2 = reset, 3 = loss commit.
+// A loss-commit pending op carries the lost qubit in pending_op_idx (not an
+// ops-pool index) and is produced while draining pending_loss_mask. Its value
+// must not collide with the gate/measure/reset types resolved in prepare_op.
+const PENDING_OP_LOSS_COMMIT:  u32 = 3u;
 
 // -----------------------------------------------------------------------------
 // Adaptive interpreter — opcodes
@@ -322,6 +341,7 @@ const OP_MEASURE:       u32 = 0x11;
 const OP_RESET:         u32 = 0x12;
 const OP_READ_RESULT:   u32 = 0x13;
 const OP_RECORD_OUTPUT: u32 = 0x14;
+const OP_READ_LOSS:     u32 = 0x15;
 
 // -- Integer Arithmetic -------------------------------------------------------
 const OP_ADD:           u32 = 0x20;
@@ -349,6 +369,7 @@ const OP_FADD:          u32 = 0x38;
 const OP_FSUB:          u32 = 0x39;
 const OP_FMUL:          u32 = 0x3A;
 const OP_FDIV:          u32 = 0x3B;
+const OP_FREM:          u32 = 0x3C;
 
 // -- Type Conversion ----------------------------------------------------------
 const OP_ZEXT:          u32 = 0x40;
@@ -359,12 +380,20 @@ const OP_FPTRUNC:       u32 = 0x44;
 const OP_INTTOPTR:      u32 = 0x45;
 const OP_FPTOSI:        u32 = 0x46;
 const OP_SITOFP:        u32 = 0x47;
+const OP_FPTOUI:        u32 = 0x48;
+const OP_UITOFP:        u32 = 0x49;
 
 // -- SSA / Data Movement -----------------------------------------------------
 const OP_PHI:           u32 = 0x50;
 const OP_SELECT:        u32 = 0x51;
 const OP_MOV:           u32 = 0x52;
 const OP_CONST:         u32 = 0x53;
+
+// -- Memory Operations --------------------------------------------------------
+const OP_ALLOCA:        u32 = 0x60;
+const OP_LOAD:          u32 = 0x61;
+const OP_STORE:         u32 = 0x62;
+const OP_GEP:           u32 = 0x63;
 
 // -- ICmp condition codes (sub-opcode, placed in bits[15:8] via << 8) ---------
 // Reference: https://llvm.org/docs/LangRef.html#icmp-instruction
@@ -484,6 +513,15 @@ fn resolve_q2(shot_idx: u32) -> u32 {
     return read_reg(shot_idx, instr.aux2);
 }
 
+// Resolves the rotation angle for the current quantum instruction.
+// The angle is stored in the instruction's src0 field (register or immediate).
+fn resolve_gate_angle(shot_idx: u32) -> f32 {
+    let state = shots[shot_idx].interp;
+    let instr = fetch_instr(state.pc - 1);
+    let flags = get_flags(instr.opcode);
+    return resolve_f32(shot_idx, instr.src0, flags, 0u);
+}
+
 fn get_measure_qubit(shot_idx: u32, op_idx: u32) -> u32 {
     return resolve_q1(shot_idx);
 }
@@ -498,6 +536,18 @@ fn read_measurement_result(shot_idx: u32, result_id: u32) -> bool {
     return atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]) == 1u;
 }
 
+// Return true if the id corresponds to a rotation gate.
+fn is_rotation_gate(id: u32) -> bool {
+    return (12 <= id && id <= 14) || (17 <= id && id <= 19);
+}
+
+// Return true if the angle for the current rotation gate is dynamic.
+fn is_dynamic_angle(shot_idx: u32) -> bool {
+    let state = shots[shot_idx].interp;
+    let instr = fetch_instr(state.pc - 1);
+    return (instr.opcode | FLAG_SRC0_IMM) != 0;
+}
+
 // For every qubit, each 'execute' kernel thread will update its own workgroup storage location for accumulating probabilities
 // The final probabilities will be reduced and written back to the shot state after the parallel execution completes.
 struct QubitProbabilityPerThread {
@@ -508,6 +558,19 @@ struct QubitProbabilityPerThread {
 var<workgroup> qubitProbabilities: array<QubitProbabilityPerThread, THREADS_PER_WORKGROUP>;
 // Workgroup memory size: THREADS_PER_WORKGROUP (32) * 216 = 6,912 bytes.
 
+// Commit a sampled qubit loss on an explicitly given qubit (measure + reset to
+// |0> and mark the qubit lost). The lost qubit is carried to the execute stage
+// in `op_idx`, and `op_type` is set to OPID_LOSS_NOISE so execute applies the
+// reset matrix to that explicit qubit.
+fn prep_loss_commit(shot_idx: u32, qubit: u32) {
+    let shot = &shots[shot_idx];
+    let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
+    shot.qubit_state[qubit].heat = -1.0;
+    prep_measure_reset_instrument(shot_idx, qubit, result, true /* resets_to_zero */);
+    shot.op_idx = qubit; // execute reads the lost qubit from op_idx
+    shot.op_type = OPID_LOSS_NOISE;
+}
+
 // Prepare correlated noise for the adaptive path.
 // Qubit IDs are read from call_arg_table (register indices), following the same
 // pattern as OP_CALL argument passing.
@@ -517,18 +580,24 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32, qubit_count: u32, arg_offse
     let sample = sample_correlated_noise(shot_idx, op_idx, noise_table_idx);
     if (sample.should_apply == 0u) { return; }
 
-    // Build bit-flip and phase-flip masks using qubit IDs from registers via call_arg_table
+    // Build bit-flip, phase-flip, and loss masks using qubit IDs from registers via call_arg_table
     var bit_flip_mask: u32 = 0u;
     var phase_flip_mask: u32 = 0u;
+    var loss_mask: u32 = 0u;
     for (var i: u32 = 0u; i < qubit_count; i++) {
         let pauli_bits = get_pauli_bits(sample.paulis_lo, sample.paulis_hi, qubit_count, i);
         let arg_reg = batch_data.program.call_arg_table[arg_offset + i];
         let qubit_mask = 1u << read_reg(shot_idx, arg_reg);
-        if ((pauli_bits & 0x1u) != 0u) { bit_flip_mask |= qubit_mask; }
-        if ((pauli_bits & 0x2u) != 0u) { phase_flip_mask |= qubit_mask; }
+        if ((pauli_bits & 0x4u) != 0u) {
+            // Loss term (L = 4): the qubit is lost, no Pauli is applied to it.
+            loss_mask |= qubit_mask;
+        } else {
+            if ((pauli_bits & 0x1u) != 0u) { bit_flip_mask |= qubit_mask; }
+            if ((pauli_bits & 0x2u) != 0u) { phase_flip_mask |= qubit_mask; }
+        }
     }
 
-    commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask);
+    commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask, loss_mask);
 }
 
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
@@ -550,6 +619,22 @@ fn initialize(
         // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
         stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
         reset_all(params.shot_idx);
+
+        // Zero the results buffer for this shot so stale exit codes from
+        // prior runs do not leak via atomicCompareExchangeWeak in OP_RET.
+        let results_base = u32(params.shot_idx) * RESULT_COUNT;
+        for (var r = 0u; r < RESULT_COUNT; r++) {
+            atomicStore(&results[results_base + r], 0u);
+        }
+
+        // Initialize memory from constant_data
+        for (var m = 0u; m < CONSTANT_DATA_SIZE; m++) {
+            shots[params.shot_idx].interp.memory[m] = batch_data.program.constant_data[m];
+        }
+        // Zero the alloca region for CPU-GPU parity
+        for (var m = CONSTANT_DATA_SIZE; m < MAX_MEMORY; m++) {
+            shots[params.shot_idx].interp.memory[m] = 0u;
+        }
     }
 }
 
@@ -609,6 +694,20 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
     // -- Early-exit for shots that already finished or errored --
     let status = state.status;
     if status == STATUS_TERMINATED || status == STATUS_ERROR {
+        return;
+    }
+
+    // -- Drain pending qubit losses before resuming classical execution --
+    // The most recent noise op (per-gate Pauli/loss or correlated) may have
+    // sampled one or more qubits as lost, recorded in pending_loss_mask. Commit
+    // each as its own measure+reset quantum op (one per round) before running
+    // any more bytecode, so loss is applied with the correct correlation.
+    if shots[shot_idx].pending_loss_mask != 0u {
+        let q = firstTrailingBit(shots[shot_idx].pending_loss_mask);
+        shots[shot_idx].pending_loss_mask &= ~(1u << q);
+        shots[shot_idx].interp.pending_op_idx = q;
+        shots[shot_idx].interp.pending_op_type = PENDING_OP_LOSS_COMMIT;
+        shots[shot_idx].interp.status = STATUS_QUANTUM_PENDING;
         return;
     }
 
@@ -783,7 +882,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let arg_offset = instr.aux2;
                 let func = batch_data.program.function_table[func_id];
                 // Push return info onto the call stack
-                let sp = state.call_sp;
+                let sp = shots[shot_idx].interp.call_sp;
                 // Guard: prevent call stack overflow (max 8 frames)
                 if sp >= 8u {
                     shots[shot_idx].interp.exit_code = ERR_CALL_STACK_OVERFLOW;
@@ -817,7 +916,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // return register (not 0xFFFFFFFF), copies the return value into
             // that register.
             case OP_CALL_RETURN {
-                if state.call_sp == 0u {
+                if shots[shot_idx].interp.call_sp == 0u {
                     shots[shot_idx].interp.exit_code = ERR_CALL_STACK_UNDERFLOW;
                     let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
                     atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_CALL_STACK_UNDERFLOW);
@@ -827,11 +926,11 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                     break;
                 }
 
-                let sp = state.call_sp - 1;
+                let sp = shots[shot_idx].interp.call_sp - 1;
                 shots[shot_idx].interp.call_sp = sp;
-                block_id = state.call_stack_frames[sp].block_id;  // go back to the callers block
-                pc = state.call_stack_frames[sp].return_pc;       // restore pc
-                let return_reg = state.call_stack_frames[sp].return_reg;
+                block_id = shots[shot_idx].interp.call_stack_frames[sp].block_id;
+                pc = shots[shot_idx].interp.call_stack_frames[sp].return_pc;
+                let return_reg = shots[shot_idx].interp.call_stack_frames[sp].return_reg;
                 if return_reg != VOID_RETURN {
                     write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
                 }
@@ -922,6 +1021,18 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // directly after all shots terminate. The instruction exists to
             // maintain compatibility with the QIR adaptive profile bytecode.
             case OP_RECORD_OUTPUT {
+                pc++;
+            }
+
+            // READ_LOSS: Reports whether the measurement that produced a
+            // result observed a lost qubit. The per-shot ``results`` buffer
+            // encodes loss as the value 2u (0u = Zero, 1u = One, 2u = Loss),
+            // so we compare against 2u and write 1u when the result was a loss,
+            // else 0u.
+            case OP_READ_LOSS {
+                let result_id = instr.src0;
+                let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
+                write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
                 pc++;
             }
 
@@ -1146,6 +1257,16 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc++;
             }
 
+            // FREM: Float remainder. LLVM docs say this instruction has
+            // the same semantics as C's fmod, which is implemented as:
+            // dst = src0 - trunc(src0/src1) * src1
+            case OP_FREM {
+                let a = resolve_f32(shot_idx, instr.src0, flags, 0u);
+                let b = resolve_f32(shot_idx, instr.src1, flags, 1u);
+                write_reg_f32(shot_idx, instr.dst, a - trunc(a / b) * b);
+                pc++;
+            }
+
             // -------------------------------------------------------------
             // TYPE CONVERSIONS
             // -------------------------------------------------------------
@@ -1212,6 +1333,18 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc++;
             }
 
+            // FPTOUI: Float to unsigned integer conversion. dst = u32(src0).
+            case OP_FPTOUI {
+                write_reg(shot_idx, instr.dst, u32(resolve_f32(shot_idx, instr.src0, flags, 0u)));
+                pc++;
+            }
+
+            // UITOFP: Unsigned integer to float conversion. dst = f32(src0).
+            case OP_UITOFP {
+                write_reg_f32(shot_idx, instr.dst, f32(resolve_u32(shot_idx, instr.src0, flags, 0u)));
+                pc++;
+            }
+
             // -------------------------------------------------------------
             // PHI NODE (SSA resolution at runtime)
             // -------------------------------------------------------------
@@ -1272,6 +1405,75 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc++;
             }
 
+            // -------------------------------------------------------------
+            // MEMORY OPERATIONS
+            // -------------------------------------------------------------
+
+            // ALLOCA: Reserve memory and write the address to dst.
+            // Encoding: src0 = number of words, src1 = compile-time assigned address.
+            case OP_ALLOCA {
+                let num_words = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let addr = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                if addr + num_words > MAX_MEMORY {
+                    shots[shot_idx].interp.exit_code = ERR_ALLOCA_OUT_OF_BOUNDS;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_ALLOCA_OUT_OF_BOUNDS);
+                    shots[shot_idx].interp.status = STATUS_ERROR;
+                    atomicAdd(&diagnostics.termination_count, 1u);
+                    should_break = true;
+                    break;
+                }
+                write_reg(shot_idx, instr.dst, addr);
+                pc++;
+            }
+
+            // LOAD: Read a value from memory at the given address.
+            // Encoding: src0 = memory address, dst = destination register.
+            case OP_LOAD {
+                let addr = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                if addr >= MAX_MEMORY {
+                    shots[shot_idx].interp.exit_code = ERR_MEMORY_OUT_OF_BOUNDS;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_MEMORY_OUT_OF_BOUNDS);
+                    shots[shot_idx].interp.status = STATUS_ERROR;
+                    atomicAdd(&diagnostics.termination_count, 1u);
+                    should_break = true;
+                    break;
+                }
+                let val = shots[shot_idx].interp.memory[addr];
+                write_reg(shot_idx, instr.dst, val);
+                pc++;
+            }
+
+            // STORE: Write a value to memory at the given address.
+            // Encoding: src0 = value to store, src1 = memory address.
+            case OP_STORE {
+                let val = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let addr = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                if addr >= MAX_MEMORY {
+                    shots[shot_idx].interp.exit_code = ERR_MEMORY_OUT_OF_BOUNDS;
+                    let err_idx = (shot_idx + 1) * RESULT_COUNT - 1;
+                    atomicCompareExchangeWeak(&results[err_idx], 0u, ERR_MEMORY_OUT_OF_BOUNDS);
+                    shots[shot_idx].interp.status = STATUS_ERROR;
+                    atomicAdd(&diagnostics.termination_count, 1u);
+                    should_break = true;
+                    break;
+                }
+                shots[shot_idx].interp.memory[addr] = val;
+                pc++;
+            }
+
+            // GEP: Get element pointer — compute address from base + index * elem_size.
+            // Encoding: src0 = base address, src1 = index, aux0 = element size.
+            case OP_GEP {
+                let base = resolve_u32(shot_idx, instr.src0, flags, 0u);
+                let index = resolve_u32(shot_idx, instr.src1, flags, 1u);
+                let elem_size = resolve_u32(shot_idx, instr.aux0, flags, 3u);
+                let addr = base + index * elem_size;
+                write_reg(shot_idx, instr.dst, addr);
+                pc++;
+            }
+
             // Unknown opcode — flag the shot as errored.
             default {
                 shots[shot_idx].interp.status = STATUS_ERROR;
@@ -1321,6 +1523,14 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     let op_idx = state.pending_op_idx;
     let op_type = state.pending_op_type;
+
+    // Loss commit: pending_op_idx holds the lost qubit (not an ops-pool index).
+    // Measure + reset that qubit; the execute stage applies it via op_idx.
+    if op_type == PENDING_OP_LOSS_COMMIT {
+        prep_loss_commit(shot_idx, op_idx);
+        return;
+    }
+
     let op = &ops[op_idx];
 
     // Correlated noise: qubit IDs are stored as register indices in
@@ -1345,31 +1555,106 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     switch op_type {
         case 0u { // Gate
-            shot.op_idx = op_idx;
-            shot.op_type = op.id;
-
-            // Check for noise ops after this gate in the ops pool
-            let pauli_op_idx = get_pauli_noise_idx(op_idx);
-            let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
-
-            // Handle loss noise first (if qubit is lost, gate doesn't matter)
-            if loss_op_idx != 0u {
-                let loss_op = &ops[loss_op_idx];
-                let p_loss = loss_op.unitary[0].x;
-                if shot.rand_loss < p_loss {
-                    prep_measure_reset(shot_idx, op_idx, true, false, true);
-                    shots[shot_idx].interp.status = STATUS_RUNNING;
-                    return;
+            // For rotation gates, recompute the unitary from the dynamic angle stored
+            // in the instruction's src0 field if needed. The op pool unitary was built
+            // at upload time and may not reflect a runtime-computed angle.
+            if is_rotation_gate(op.id) && is_dynamic_angle(shot_idx) {
+                if op.id == OPID_RX || op.id == OPID_RY || op.id == OPID_RZ {
+                    let angle = resolve_gate_angle(shot_idx);
+                    let half = angle * 0.5;
+                    let c = cos(half);
+                    let s = sin(half);
+                    if op.id == OPID_RX {
+                        // [[cos(θ/2), -i·sin(θ/2)], [-i·sin(θ/2), cos(θ/2)]]
+                        shot.unitary[0] = vec2f(c, 0.0);
+                        shot.unitary[1] = vec2f(0.0, -s);
+                        shot.unitary[4] = vec2f(0.0, -s);
+                        shot.unitary[5] = vec2f(c, 0.0);
+                    } else if op.id == OPID_RY {
+                        // [[cos(θ/2), -sin(θ/2)], [sin(θ/2), cos(θ/2)]]
+                        shot.unitary[0] = vec2f(c, 0.0);
+                        shot.unitary[1] = vec2f(-s, 0.0);
+                        shot.unitary[4] = vec2f(s, 0.0);
+                        shot.unitary[5] = vec2f(c, 0.0);
+                    } else {
+                        // RZ: [[1, 0], [0, e^(iθ)]]
+                        shot.unitary[0] = vec2f(1.0, 0.0);
+                        shot.unitary[1] = vec2f(0.0, 0.0);
+                        shot.unitary[4] = vec2f(0.0, 0.0);
+                        shot.unitary[5] = vec2f(cos(angle), sin(angle));
+                    }
+                } else if op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_RZZ {
+                    let angle = resolve_gate_angle(shot_idx);
+                    let half = angle * 0.5;
+                    let c = cos(half);
+                    let s = sin(half);
+                    if op.id == OPID_RXX {
+                        // exp(-i·θ/2·X⊗X)
+                        shot.unitary[0]  = vec2f(c, 0.0);
+                        shot.unitary[3]  = vec2f(0.0, -s);
+                        shot.unitary[5]  = vec2f(c, 0.0);
+                        shot.unitary[6]  = vec2f(0.0, -s);
+                        shot.unitary[9]  = vec2f(0.0, -s);
+                        shot.unitary[10] = vec2f(c, 0.0);
+                        shot.unitary[12] = vec2f(0.0, -s);
+                        shot.unitary[15] = vec2f(c, 0.0);
+                    } else if op.id == OPID_RYY {
+                        // exp(-i·θ/2·Y⊗Y)
+                        shot.unitary[0]  = vec2f(c, 0.0);
+                        shot.unitary[3]  = vec2f(0.0, s);
+                        shot.unitary[5]  = vec2f(c, 0.0);
+                        shot.unitary[6]  = vec2f(0.0, -s);
+                        shot.unitary[9]  = vec2f(0.0, -s);
+                        shot.unitary[10] = vec2f(c, 0.0);
+                        shot.unitary[12] = vec2f(0.0, s);
+                        shot.unitary[15] = vec2f(c, 0.0);
+                    } else {
+                        // RZZ: diag(1, e^(iθ), e^(iθ), 1)
+                        shot.unitary[0]  = vec2f(1.0, 0.0);
+                        shot.unitary[5]  = vec2f(cos(angle), sin(angle));
+                        shot.unitary[10] = vec2f(cos(angle), sin(angle));
+                        shot.unitary[15] = vec2f(1.0, 0.0);
+                    }
                 }
             }
 
-            // Handle Pauli noise
+            shot.op_idx = op_idx;
+            shot.op_type = op.id;
+
+            // If any operand is lost, dispatch the gate's configured loss
+            // policy (stamped on op.policy).
+            let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, q1, q2);
+            if (has_lost_operand) {
+                handle_lost_operand_policy(shot_idx, op_idx, q1, q2);
+            }
+
+            // Check for noise ops after this gate in the ops pool
+            let pauli_op_idx = get_pauli_noise_idx(op_idx);
+
+            // Handle Pauli noise (loss, if sampled, is recorded in pending_loss_mask)
             if pauli_op_idx != 0u {
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    // A 1-qubit gate has a single operand; if it is lost there
+                    // is no surviving qubit to receive Pauli noise.
+                    if (!has_lost_operand) {
+                        apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
+                    }
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    if (has_lost_operand) {
+                        // The gate body was handled by the loss policy above;
+                        // apply the noise to the surviving operand (if any).
+                        apply_2q_pauli_noise_on_survivor(shot_idx, op_idx, pauli_op_idx, q1, q2);
+                    } else {
+                        apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
+                    }
                 }
+                shots[shot_idx].interp.status = STATUS_RUNNING;
+                return;
+            }
+
+            // If the gate has any lost operands (and no attached noise), the gate
+            // logic was completely handled inside `handle_lost_operand_policy`.
+            if (has_lost_operand) {
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;
             }
@@ -1409,26 +1694,15 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
             // Check for noise ops before the measure op
             // (noise is applied as Id+noise, then original measure, matching non-adaptive pattern)
             let pauli_op_idx = get_pauli_noise_idx(op_idx);
-            let loss_op_idx = get_loss_idx(select(op_idx, pauli_op_idx, pauli_op_idx != 0u));
-
-            if loss_op_idx != 0u {
-                let loss_op = &ops[loss_op_idx];
-                let p_loss = loss_op.unitary[0].x;
-                if shot.rand_loss < p_loss {
-                    prep_measure_reset(shot_idx, op_idx, true, false, true);
-                    shots[shot_idx].interp.status = STATUS_RUNNING;
-                    return;
-                }
-            }
 
             if pauli_op_idx != 0u {
                 // Apply noise to the Id gate before measure, then the measure itself
                 // The non-adaptive path inserts Id+noise before measure; here the Id
                 // is at op_idx and the original measure op follows after noise ops
                 if ops[pauli_op_idx].id == OPID_PAULI_NOISE_1Q {
-                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_1q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1);
                 } else {
-                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx);
+                    apply_2q_pauli_noise(shot_idx, op_idx, pauli_op_idx, q1, q2);
                 }
                 shots[shot_idx].interp.status = STATUS_RUNNING;
                 return;
@@ -1467,6 +1741,9 @@ fn execute(
         // IGNORE
     } else if (shot.op_type == OPID_CORRELATED_NOISE) {
         apply_correlated_noise(workgroupId.x, tid);
+    } else if (shot.op_type == OPID_LOSS_NOISE) {
+        // Loss commit: the lost qubit is carried in op_idx (set by prep_loss_commit).
+        apply_1q_op(workgroupId.x, tid, shot.op_idx);
     } else if (is_1q_op(shot.op_type)) {
         let q1: u32 = resolve_q1(shot_idx_u32);
         apply_1q_op(workgroupId.x, tid, q1);

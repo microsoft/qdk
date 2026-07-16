@@ -16,7 +16,7 @@ fn check_compiler_error_spans_are_correct() {
     check_qasm_to_qsharp(
         SOURCE,
         &expect![[r#"
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x calibration grammar statements are not supported
                 ,-[Test.qasm:11:1]
@@ -26,7 +26,7 @@ fn check_compiler_error_spans_are_correct() {
              12 | 
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x calibration statements are not supported
                 ,-[Test.qasm:14:1]
@@ -42,7 +42,7 @@ fn check_compiler_error_spans_are_correct() {
              22 |     
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x def cal statements are not supported
                 ,-[Test.qasm:24:1]
@@ -57,7 +57,7 @@ fn check_compiler_error_spans_are_correct() {
              31 |     
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x delay statements are not supported
                 ,-[Test.qasm:33:1]
@@ -67,7 +67,7 @@ fn check_compiler_error_spans_are_correct() {
              34 | 
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x box with duration are not supported
                 ,-[Test.qasm:35:6]
@@ -77,7 +77,7 @@ fn check_compiler_error_spans_are_correct() {
              36 |     x [2ns] q; // NotSupported duration on gate call
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x gate call duration are not supported
                 ,-[Test.qasm:36:8]
@@ -87,7 +87,7 @@ fn check_compiler_error_spans_are_correct() {
              37 | }
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x break stmt are not supported
                 ,-[Test.qasm:40:5]
@@ -97,7 +97,7 @@ fn check_compiler_error_spans_are_correct() {
              41 | }
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x continue stmt are not supported
                 ,-[Test.qasm:44:5]
@@ -107,7 +107,7 @@ fn check_compiler_error_spans_are_correct() {
              45 | }
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x mutable array references `mutable array[int[8], #dim = 1]` are not
               | supported
@@ -118,7 +118,7 @@ fn check_compiler_error_spans_are_correct() {
              50 | 
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x mutable array references `mutable array[int[8], 2, 3]` are not supported
                 ,-[Test.qasm:54:27]
@@ -128,7 +128,7 @@ fn check_compiler_error_spans_are_correct() {
              55 | 
                 `----
 
-            Qasm.Compiler.Unimplemented
+            Qdk.Qasm.Compiler.Unimplemented
 
               x this statement is not yet handled during OpenQASM 3 import: extern
               | statements
@@ -139,7 +139,7 @@ fn check_compiler_error_spans_are_correct() {
              79 | 
                 `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x hardware qubit operands are not supported
                 ,-[Test.qasm:81:3]

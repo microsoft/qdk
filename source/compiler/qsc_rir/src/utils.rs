@@ -90,6 +90,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 | Instruction::Fsub(_, _, var)
                 | Instruction::Fmul(_, _, var)
                 | Instruction::Fdiv(_, _, var)
+                | Instruction::Frem(_, _, var)
                 | Instruction::Fcmp(_, _, _, var)
                 | Instruction::Icmp(_, _, _, var)
                 | Instruction::LogicalNot(_, var)
@@ -110,7 +111,8 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 }
                 Instruction::Store(_, var)
                 | Instruction::Alloca(var)
-                | Instruction::Load(_, var) => {
+                | Instruction::Load(_, var)
+                | Instruction::Index(_, _, var) => {
                     has_store = true;
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
@@ -118,7 +120,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 Instruction::Call(_, _, None, _)
                 | Instruction::Jump(..)
                 | Instruction::Branch(..)
-                | Instruction::Return => {}
+                | Instruction::Return(..) => {}
             }
         }
     }
@@ -192,25 +194,29 @@ pub(crate) fn map_variable_use_in_block(
             | Instruction::Fsub(lhs, rhs, _)
             | Instruction::Fmul(lhs, rhs, _)
             | Instruction::Fdiv(lhs, rhs, _)
+            | Instruction::Frem(lhs, rhs, _)
             | Instruction::Fcmp(_, lhs, rhs, _)
             | Instruction::Icmp(_, lhs, rhs, _)
             | Instruction::LogicalAnd(lhs, rhs, _)
             | Instruction::LogicalOr(lhs, rhs, _)
             | Instruction::BitwiseAnd(lhs, rhs, _)
             | Instruction::BitwiseOr(lhs, rhs, _)
-            | Instruction::BitwiseXor(lhs, rhs, _) => {
+            | Instruction::BitwiseXor(lhs, rhs, _)
+            | Instruction::Index(lhs, rhs, _) => {
                 *lhs = lhs.mapped(var_map);
                 *rhs = rhs.mapped(var_map);
             }
 
             // Single variable instructions, replace operand with new value.
-            Instruction::BitwiseNot(operand, _) | Instruction::LogicalNot(operand, _) => {
+            Instruction::BitwiseNot(operand, _)
+            | Instruction::LogicalNot(operand, _)
+            | Instruction::Return(Some(operand)) => {
                 *operand = operand.mapped(var_map);
             }
 
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
-            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
+            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
             Instruction::Alloca(..) => {
                 panic!("alloca not supported in ssa transformation")
@@ -239,6 +245,11 @@ impl Variable {
         let mut var = self;
         while let Some(operand) = var_map.get(&var.variable_id) {
             if let Operand::Variable(new_var) = operand {
+                if new_var.variable_id == var.variable_id {
+                    // The variable maps to itself, as happens when a live-in parameter is seeded as
+                    // its own definition. It is already at its root, so stop following the chain.
+                    break;
+                }
                 var = *new_var;
             } else {
                 return *operand;
@@ -254,6 +265,11 @@ impl Variable {
             let Operand::Variable(new_var) = operand else {
                 panic!("literal not supported in this context");
             };
+            if new_var.variable_id == var.variable_id {
+                // The variable maps to itself, as happens when a live-in parameter is seeded as its
+                // own definition. It is already at its root, so stop following the chain.
+                break;
+            }
             var = *new_var;
         }
         var

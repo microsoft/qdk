@@ -60,6 +60,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId, next_var_id:
     entry_block.0 = new_instrs;
 }
 
+#[allow(clippy::too_many_lines)]
 fn add_alloca_load_to_block(
     program: &mut Program,
     block_id: BlockId,
@@ -82,6 +83,9 @@ fn add_alloca_load_to_block(
                     should_load_operand(operand, vars_to_alloca),
                 );
                 block.0.push(Instruction::Store(new_operand, *var));
+                // Drop the cached load for this variable so a later read in this
+                // block reloads the freshly stored value instead of a stale one.
+                var_map.remove(&var.variable_id);
                 *next_var_id = next_var_id.successor();
                 continue;
             }
@@ -126,6 +130,7 @@ fn add_alloca_load_to_block(
             | Instruction::Fsub(lhs, rhs, _)
             | Instruction::Fmul(lhs, rhs, _)
             | Instruction::Fdiv(lhs, rhs, _)
+            | Instruction::Frem(lhs, rhs, _)
             | Instruction::Fcmp(_, lhs, rhs, _)
             | Instruction::Icmp(_, lhs, rhs, _)
             | Instruction::LogicalAnd(lhs, rhs, _)
@@ -152,7 +157,8 @@ fn add_alloca_load_to_block(
             // Single variable instructions, replace operand with new value.
             Instruction::BitwiseNot(operand, _)
             | Instruction::LogicalNot(operand, _)
-            | Instruction::Convert(operand, _) => {
+            | Instruction::Convert(operand, _)
+            | Instruction::Return(Some(operand)) => {
                 *operand = map_or_load_operand(
                     operand,
                     &mut var_map,
@@ -162,9 +168,27 @@ fn add_alloca_load_to_block(
                 );
             }
 
+            // For array indexing, the array remains a pointer and does not need to be loaded, but we must
+            // update the index operand, immediately add the updated instruction, and then load the result.
+            Instruction::Index(array, operand, variable) => {
+                *operand = map_or_load_operand(
+                    operand,
+                    &mut var_map,
+                    &mut block.0,
+                    next_var_id,
+                    should_load_operand(operand, vars_to_alloca),
+                );
+                block
+                    .0
+                    .push(Instruction::Index(*array, *operand, *variable));
+                load_from_variable(variable, &mut var_map, &mut block.0, next_var_id);
+                // Continue here to avoid pushing the instruction again below.
+                continue;
+            }
+
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
-            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return => {}
+            Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}
 
             Instruction::Alloca(..) => {
                 panic!("alloca not expected in alloca insertion")
@@ -209,17 +233,26 @@ fn map_or_load_variable_to_operand(
     if let Some(operand) = var_map.get(&variable.variable_id) {
         *operand
     } else if should_load {
-        let new_var = Variable {
-            variable_id: *next_var_id,
-            ty: variable.ty,
-        };
-        instrs.push(Instruction::Load(variable, new_var));
-        var_map.insert(variable.variable_id, Operand::Variable(new_var));
-        *next_var_id = next_var_id.successor();
-        Operand::Variable(new_var)
+        load_from_variable(&variable, var_map, instrs, next_var_id)
     } else {
         Operand::Variable(variable)
     }
+}
+
+fn load_from_variable(
+    variable: &Variable,
+    var_map: &mut FxHashMap<VariableId, Operand>,
+    instrs: &mut Vec<Instruction>,
+    next_var_id: &mut VariableId,
+) -> Operand {
+    let new_var = Variable {
+        variable_id: *next_var_id,
+        ty: variable.ty,
+    };
+    instrs.push(Instruction::Load(*variable, new_var));
+    var_map.insert(variable.variable_id, Operand::Variable(new_var));
+    *next_var_id = next_var_id.successor();
+    Operand::Variable(new_var)
 }
 
 fn map_or_load_variable(

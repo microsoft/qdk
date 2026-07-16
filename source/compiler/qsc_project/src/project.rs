@@ -128,15 +128,15 @@ pub trait DirEntry {
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("No `src` directory found for project")]
-    #[diagnostic(code("Qsc.Project.NoSrcDir"))]
+    #[diagnostic(code("Qdk.Qsc.Project.NoSrcDir"))]
     NoSrcDir { path: String },
 
     #[error("Failed to parse manifest: {error}")]
-    #[diagnostic(code("Qsc.Project.ManifestParse"))]
+    #[diagnostic(code("Qdk.Qsc.Project.ManifestParse"))]
     ManifestParse { path: String, error: String },
 
     #[error("Failed to parse manifest for GitHub dependency {repo}/{owner} : {error}")]
-    #[diagnostic(code("Qsc.Project.GitHubManifestParse"))]
+    #[diagnostic(code("Qdk.Qsc.Project.GitHubManifestParse"))]
     GitHubManifestParse {
         path: String,
         owner: String,
@@ -145,30 +145,30 @@ pub enum Error {
     },
 
     #[error("Circular dependency detected between {0} and {1}")]
-    #[diagnostic(code("Qsc.Project.CircularDependency"))]
+    #[diagnostic(code("Qdk.Qsc.Project.CircularDependency"))]
     Circular(String, String),
 
     #[error("GitHub dependency {0} contains a local dependency {1}, which is not supported")]
-    #[diagnostic(code("Qsc.Project.GitHubToLocal"))]
+    #[diagnostic(code("Qdk.Qsc.Project.GitHubToLocal"))]
     GitHubToLocal(String, String),
 
     #[error("File system error: {about_path}: {error}")]
-    #[diagnostic(code("Qsc.Project.FileSystem"))]
+    #[diagnostic(code("Qdk.Qsc.Project.FileSystem"))]
     FileSystem { about_path: String, error: String },
 
     #[error("Error reading circuit file: {path}: {error}")]
-    #[diagnostic(code("Qsc.Project.Circuit"))]
+    #[diagnostic(code("Qdk.Qsc.Project.Circuit"))]
     Circuit { path: String, error: String },
 
     #[error("Error fetching from GitHub: {0}")]
-    #[diagnostic(code("Qsc.Project.GitHub"))]
+    #[diagnostic(code("Qdk.Qsc.Project.GitHub"))]
     GitHub(String),
 
     #[error("File {relative_path} is not listed in the `files` field of the manifest")]
     #[diagnostic(help(
         "To avoid unexpected behavior, add this file to the `files` field in the `qsharp.json` manifest"
     ))]
-    #[diagnostic(code("Qsc.Project.DocumentNotInProject"))]
+    #[diagnostic(code("Qdk.Qsc.Project.DocumentNotInProject"))]
     DocumentNotInProject { path: String, relative_path: String },
 }
 
@@ -538,7 +538,7 @@ pub trait FileSystemAsync {
             })
             .unwrap_or_default();
 
-        let manifest_path = format!("{path_trimmed_seps}/qsharp.json",);
+        let manifest_path = format!("{path_trimmed_seps}/qsharp.json");
         let manifest_content = self
             .fetch_github(&dep.owner, &dep.repo, &dep.r#ref, &manifest_path)
             .await

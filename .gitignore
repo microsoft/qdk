@@ -7,6 +7,7 @@ __pycache__/
 .DS_Store
 .vscode/*
 .vscode-test-web/
+.vscode-test/
 *.pem
 !.vscode/*.shared.json
 !.vscode/extensions.json
@@ -15,10 +16,17 @@ __pycache__/
 /source/fuzz/artifacts
 /source/fuzz/coverage
 /source/fuzz/Cargo.lock
+/source/pip/doc
+/source/pip/build/
+/source/pip/*.egg-info/
 /source/samples_test/src/tests/*_generated.rs
 .mypy_cache/
 .pytest_cache/
 .idea/
 *.so
 samples/scratch/
+samples/qdk-learning/
+samples/qdk-learning.json
 *.pyd
+/python_doc/
+/logs/

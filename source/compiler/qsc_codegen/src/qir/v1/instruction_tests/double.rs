@@ -6,7 +6,7 @@ use core::f64::consts::{E, PI};
 use super::super::ToQir;
 use expect_test::expect;
 use qsc_rir::rir::{
-    FcmpConditionCode, Instruction, Literal, Operand, Program, Ty, Variable, VariableId,
+    FcmpConditionCode, Instruction, Literal, Operand, Prim, Program, Ty, Variable, VariableId,
 };
 
 #[test]
@@ -17,7 +17,7 @@ fn add_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -31,7 +31,7 @@ fn sub_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -45,7 +45,7 @@ fn mul_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -59,7 +59,7 @@ fn sdiv_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -72,7 +72,7 @@ fn fadd_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fadd double 3.141592653589793, 2.718281828459045"]
@@ -87,7 +87,7 @@ fn ashr_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -101,7 +101,7 @@ fn bitwise_and_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -114,7 +114,7 @@ fn bitwise_not_double_literals() {
         Operand::Literal(Literal::Double(PI)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -128,7 +128,7 @@ fn bitwise_or_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -142,7 +142,7 @@ fn bitwise_xor_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     let _ = &inst.to_qir(&Program::default());
@@ -153,15 +153,15 @@ fn fadd_double_variables() {
     let inst = Instruction::Fadd(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fadd double %var_1, %var_2"].assert_eq(&inst.to_qir(&Program::default()));
@@ -175,7 +175,7 @@ fn fcmp_oeq_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp oeq double 3.141592653589793, 2.718281828459045"]
@@ -188,15 +188,15 @@ fn fcmp_oeq_double_variables() {
         FcmpConditionCode::OrderedAndEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp oeq double %var_1, %var_2"]
@@ -211,7 +211,7 @@ fn fcmp_one_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp one double 3.141592653589793, 2.718281828459045"]
@@ -224,15 +224,15 @@ fn fcmp_one_double_variables() {
         FcmpConditionCode::OrderedAndNotEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp one double %var_1, %var_2"]
@@ -246,7 +246,7 @@ fn fcmp_olt_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp olt double 3.141592653589793, 2.718281828459045"]
@@ -259,15 +259,15 @@ fn fcmp_olt_double_variables() {
         FcmpConditionCode::OrderedAndLessThan,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp olt double %var_1, %var_2"]
@@ -281,7 +281,7 @@ fn fcmp_ole_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp ole double 3.141592653589793, 2.718281828459045"]
@@ -294,15 +294,15 @@ fn fcmp_ole_double_variables() {
         FcmpConditionCode::OrderedAndLessThanOrEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp ole double %var_1, %var_2"]
@@ -316,7 +316,7 @@ fn fcmp_ogt_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp ogt double 3.141592653589793, 2.718281828459045"]
@@ -329,15 +329,15 @@ fn fcmp_ogt_double_variables() {
         FcmpConditionCode::OrderedAndGreaterThan,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp ogt double %var_1, %var_2"]
@@ -351,7 +351,7 @@ fn fcmp_oge_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp oge double 3.141592653589793, 2.718281828459045"]
@@ -364,15 +364,15 @@ fn fcmp_oge_double_variables() {
         FcmpConditionCode::OrderedAndGreaterThanOrEqual,
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Boolean,
+            ty: Ty::Prim(Prim::Boolean),
         },
     );
     expect!["  %var_0 = fcmp oge double %var_1, %var_2"]
@@ -386,7 +386,7 @@ fn fmul_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fmul double 3.141592653589793, 2.718281828459045"]
@@ -398,15 +398,15 @@ fn fmul_double_variables() {
     let inst = Instruction::Fmul(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fmul double %var_1, %var_2"].assert_eq(&inst.to_qir(&Program::default()));
@@ -419,7 +419,7 @@ fn fdiv_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fdiv double 3.141592653589793, 2.718281828459045"]
@@ -431,15 +431,15 @@ fn fdiv_double_variables() {
     let inst = Instruction::Fdiv(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fdiv double %var_1, %var_2"].assert_eq(&inst.to_qir(&Program::default()));
@@ -452,7 +452,7 @@ fn fsub_double_literals() {
         Operand::Literal(Literal::Double(E)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fsub double 3.141592653589793, 2.718281828459045"]
@@ -464,15 +464,15 @@ fn fsub_double_variables() {
     let inst = Instruction::Fsub(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Operand::Variable(Variable {
             variable_id: VariableId(2),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         },
     );
     expect!["  %var_0 = fsub double %var_1, %var_2"].assert_eq(&inst.to_qir(&Program::default()));
@@ -484,7 +484,7 @@ fn convert_double_literal_to_integer() {
         Operand::Literal(Literal::Double(PI)),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Integer,
+            ty: Ty::Prim(Prim::Integer),
         },
     );
     expect!["  %var_0 = fptosi double 3.141592653589793 to i64"]
@@ -496,11 +496,11 @@ fn convert_double_variable_to_integer() {
     let inst = Instruction::Convert(
         Operand::Variable(Variable {
             variable_id: VariableId(1),
-            ty: Ty::Double,
+            ty: Ty::Prim(Prim::Double),
         }),
         Variable {
             variable_id: VariableId(0),
-            ty: Ty::Integer,
+            ty: Ty::Prim(Prim::Integer),
         },
     );
     expect!["  %var_0 = fptosi double %var_1 to i64"].assert_eq(&inst.to_qir(&Program::default()));

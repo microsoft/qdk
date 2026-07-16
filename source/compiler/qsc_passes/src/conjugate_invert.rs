@@ -39,11 +39,11 @@ pub enum Error {
     #[diagnostic(help(
         "updating mutable variables in the apply-block that are used in the within-block can violate logic reversibility"
     ))]
-    #[diagnostic(code("Qsc.ConjugateInvert.ApplyAssign"))]
+    #[diagnostic(code("Qdk.Qsc.ConjugateInvert.ApplyAssign"))]
     ApplyAssign(#[label] Span),
 
     #[error("return expressions are not allowed in apply-blocks")]
-    #[diagnostic(code("Qsc.ConjugateInvert.ReturnForbidden"))]
+    #[diagnostic(code("Qdk.Qsc.ConjugateInvert.ReturnForbidden"))]
     ReturnForbidden(#[label] Span),
 }
 
@@ -216,10 +216,8 @@ impl<'a> Visitor<'a> for AssignmentCheck {
 impl AssignmentCheck {
     fn check_assign(&mut self, expr: &Expr) {
         match &expr.kind {
-            ExprKind::Var(Res::Local(id), _) => {
-                if self.used.contains(id) {
-                    self.errors.push(Error::ApplyAssign(expr.span));
-                }
+            ExprKind::Var(Res::Local(id), _) if self.used.contains(id) => {
+                self.errors.push(Error::ApplyAssign(expr.span));
             }
             ExprKind::Tuple(var_tup) => {
                 for expr in var_tup {

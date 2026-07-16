@@ -28,7 +28,7 @@ For Qiskit integration, which exposes Qiskit interop utilities in the `qdk.qiski
 pip install "qdk[qiskit]"
 ```
 
-For Cirq integration, which exposes Cirq interop utilities in the `qdk.azure.cirq` submodule:
+For Cirq integration, which exposes Cirq interop utilities in the `qdk.cirq` submodule:
 
 ```bash
 pip install "qdk[cirq]"
@@ -70,34 +70,50 @@ Histogram(results)
 
 Submodules:
 
-- `qdk.qsharp` – exports the same APIs as the `qsharp` Python package
-- `qdk.openqasm` – exports the same APIs as the `openqasm` submodule of the `qsharp` Python package.
-- `qdk.estimator` – exports the same APIs as the `estimator` submodule of the `qsharp` Python package.
-- `qdk.widgets` – exports the Jupyter widgets available from the `qsharp-widgets` Python package (requires the `qdk[jupyter]` extra to be installed).
-- `qdk.azure` – exports the Python APIs available from the `azure-quantum` Python package (requires the `qdk[azure]` extra to be installed).
-- `qdk.qiskit` – exports the same APIs as the `interop.qiskit` submodule of the `qsharp` Python package (requires the `qdk[qiskit]` extra to be installed).
+- `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, `dump_machine`, `dump_circuit`, `dump_operation`, and related types.
+- `qdk.openqasm` – OpenQASM compilation and execution.
+- `qdk.estimator` – resource estimation utilities.
+- `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
+- `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.
+- `qdk.qre` – quantum resource estimation v3: `estimate`, `Application`, `Architecture`, `ISA`, `ISATransform`, and related types.
+- `qdk.applications` – domain-specific quantum applications (e.g. `qdk.applications.magnets`).
+- `qdk.widgets` – Jupyter widgets for visualization (requires the `qdk[jupyter]` extra).
+- `qdk.azure` – Azure Quantum service integration (requires the `qdk[azure]` extra).
+- `qdk.qiskit` – Qiskit interop: `QSharpBackend`, `NeutralAtomBackend`, and related types (requires the `qdk[qiskit]` extra).
+- `qdk.cirq` – Cirq interop: `NeutralAtomSampler` (requires the `qdk[cirq]` extra).
 
 ### Top level exports
 
 For convenience, the following helpers and types are also importable directly from the `qdk` root (e.g. `from qdk import code, Result`). Algorithm execution APIs (like `run` / `estimate`) remain under `qdk.qsharp` or `qdk.openqasm`.
 
-| Symbol               | Type     | Origin                      | Description                                                         |
-| -------------------- | -------- | --------------------------- | ------------------------------------------------------------------- |
-| `code`               | module   | `qsharp.code`               | Exposes operations defined in Q\# or OpenQASM                       |
-| `init`               | function | `qsharp.init`               | Initialize/configure the QDK interpreter (target profile, options). |
-| `set_quantum_seed`   | function | `qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).             |
-| `set_classical_seed` | function | `qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                          |
-| `dump_machine`       | function | `qsharp.dump_machine`       | Emit a structured dump of full quantum state (simulator dependent). |
-| `Result`             | class    | `qsharp.Result`             | Measurement result token.                                           |
-| `TargetProfile`      | class    | `qsharp.TargetProfile`      | Target capability / profile descriptor.                             |
-| `StateDump`          | class    | `qsharp.StateDump`          | Structured state dump object.                                       |
-| `ShotResult`         | class    | `qsharp.ShotResult`         | Multi-shot execution results container.                             |
-| `PauliNoise`         | class    | `qsharp.PauliNoise`         | Pauli channel noise model spec.                                     |
-| `DepolarizingNoise`  | class    | `qsharp.DepolarizingNoise`  | Depolarizing noise model spec.                                      |
-| `BitFlipNoise`       | class    | `qsharp.BitFlipNoise`       | Bit-flip noise model spec.                                          |
-| `PhaseFlipNoise`     | class    | `qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                        |
+| Symbol               | Type     | Origin                          | Description                                                            |
+| -------------------- | -------- | ------------------------------- | ---------------------------------------------------------------------- |
+| `code`               | module   | `qdk.code`                      | Exposes operations defined in Q\# or OpenQASM                          |
+| `init`               | function | `qdk.qsharp.init`               | Initialize/configure the QDK interpreter (target profile, options).    |
+| `set_quantum_seed`   | function | `qdk.qsharp.set_quantum_seed`   | Deterministic seed for quantum randomness (simulators).                |
+| `set_classical_seed` | function | `qdk.qsharp.set_classical_seed` | Deterministic seed for classical host RNG.                             |
+| `dump_machine`       | function | `qdk.qsharp.dump_machine`       | Emit a structured dump of full quantum state (simulator dependent).    |
+| `Result`             | class    | `qdk.qsharp.Result`             | Measurement result token.                                              |
+| `TargetProfile`      | class    | `qdk.qsharp.TargetProfile`      | Target capability / profile descriptor.                                |
+| `StateDump`          | class    | `qdk.qsharp.StateDump`          | Structured state dump object.                                          |
+| `ShotResult`         | class    | `qdk.qsharp.ShotResult`         | Multi-shot execution results container.                                |
+| `PauliNoise`         | class    | `qdk.qsharp.PauliNoise`         | Pauli channel noise model spec.                                        |
+| `DepolarizingNoise`  | class    | `qdk.qsharp.DepolarizingNoise`  | Depolarizing noise model spec.                                         |
+| `BitFlipNoise`       | class    | `qdk.qsharp.BitFlipNoise`       | Bit-flip noise model spec.                                             |
+| `PhaseFlipNoise`     | class    | `qdk.qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                           |
+| `Context`            | class    | `qdk.Context`                   | Isolated Q# and OpenQASM interpreter context for independent sessions. |
 
 ## Telemetry
 
 This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
-All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/pip/qsharp/telemetry_events.py).
+All telemetry events can be seen in the source file [telemetry_events.py](https://github.com/microsoft/qdk/tree/main/source/qdk_package/qdk/telemetry_events.py).
+
+To disable sending telemetry from this package, set the environment variable `QDK_PYTHON_TELEMETRY=none`
+
+## Support
+
+For more information about the Microsoft Quantum Development Kit, visit [https://aka.ms/qdk](https://aka.ms/qdk).
+
+## Contributing
+
+Q# welcomes your contributions! Visit the Q# GitHub repository at [https://github.com/microsoft/qdk] to find out more about the project.

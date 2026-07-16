@@ -7,6 +7,7 @@
 
 use indenter::{Format, Indented, indented};
 use num_bigint::BigInt;
+use qsc_data_structures::display::core::set_indentation;
 use qsc_data_structures::span::{Span, WithSpan};
 use std::{
     cmp::Ordering,
@@ -15,18 +16,6 @@ use std::{
     iter::once,
     rc::Rc,
 };
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
-    }
-}
 
 /// The unique identifier for an AST node.
 /// This could be assigned or unassigned. If unassigned, the value will be `u32::MAX`.
@@ -208,7 +197,7 @@ impl Display for Namespace {
             write!(indent, "{}", buf[0])?;
         }
 
-        write!(indent, "):",)?;
+        write!(indent, "):")?;
         indent = set_indentation(indent, 1);
 
         if !self.doc.is_empty() {
@@ -1490,7 +1479,7 @@ impl Display for PathKind {
                     write!(indent, "\n{part}")?;
                 }
             }
-            PathKind::Err(None) => write!(f, "Err",)?,
+            PathKind::Err(None) => write!(f, "Err")?,
         }
         Ok(())
     }
@@ -2148,7 +2137,7 @@ impl std::fmt::Display for ClassConstraints {
             "{}",
             self.0
                 .iter()
-                .map(|x| format!("{}", x.name.name,))
+                .map(|x| format!("{}", x.name.name))
                 .collect::<Vec<_>>()
                 .join(" + "),
         )

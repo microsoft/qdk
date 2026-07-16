@@ -10,11 +10,11 @@ use crate::bytecode::AdaptiveProgram;
 use crate::correlated_noise::NoiseTables;
 use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
-use crate::noise_mapping::get_noise_ops;
+use crate::noise_mapping::{expand_correlated_loss_commits, get_noise_ops, loss_policy_u32};
 use crate::shader_types::{
-    DiagnosticsData, InterpreterState, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT, MAX_QUBITS_PER_WORKGROUP,
-    MAX_REGISTERS, MAX_SHOT_ENTRIES, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS, Op,
-    SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
+    self, DiagnosticsData, InterpreterState, MAX_ALLOCA_SIZE, MAX_BUFFER_SIZE, MAX_QUBIT_COUNT,
+    MAX_QUBITS_PER_WORKGROUP, MAX_REGISTERS, MAX_SHOTS_PER_BATCH, MIN_QUBIT_COUNT, MIN_REGISTERS,
+    Op, SIZEOF_SHOTDATA, THREADS_PER_WORKGROUP, Uniforms, WorkgroupCollationBuffer, ops,
 };
 
 // On Windows, running larger circuits/shots can hit TDR issues if too many ops are dispatched in one go.
@@ -33,7 +33,7 @@ pub struct GpuContext {
     run_params: RunParams,
 
     // Adaptive program data (set via set_adaptive_program)
-    adaptive_program: Option<AdaptiveProgram>,
+    adaptive_program: Option<AdaptiveProgram<u32>>,
 
     // Indicates if items impacting the Ops have changed and need to be re-uploaded / recompiled
     program_is_dirty: bool,
@@ -70,6 +70,8 @@ pub(crate) struct RunParams {
     pub num_phi_entries: usize,
     pub num_switch_cases: usize,
     pub num_call_args: usize,
+    pub num_constant_data: usize,
+    pub max_memory: usize,
     // Noise table sizes for BatchData (minimum 1, since WGSL arrays must have length ≥ 1).
     pub noise_table_count: usize,
     pub noise_entry_count: usize,
@@ -258,8 +260,9 @@ impl GpuContext {
             let mut non_noise_count = 0;
 
             for op in self.get_program() {
-                // Check if this is a noise op
-                let is_noise = matches!(op.id, ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE);
+                // Check if this is a noise op. Pauli noise ops are consumed inline
+                // by the preceding gate; loss-commit ops are dispatched on their own.
+                let is_noise = matches!(op.id, ops::PAULI_NOISE_1Q..=ops::PAULI_NOISE_2Q);
 
                 if !is_noise {
                     non_noise_count += 1;
@@ -306,15 +309,16 @@ impl GpuContext {
                         | ops::CX..=ops::RZZ
                         | ops::CY
                         | ops::SWAP
-                        | ops::CORRELATED_NOISE => {
+                        | ops::CORRELATED_NOISE
+                        | ops::LOSS_NOISE => {
                             compute_pass.set_pipeline(&kernels.prepare_op);
                             compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 
                             compute_pass.set_pipeline(&kernels.execute_op);
                             compute_pass.dispatch_workgroups(execute_workgroup_count, 1, 1);
                         }
-                        // Skip over simple noise ops
-                        ops::PAULI_NOISE_1Q..=ops::LOSS_NOISE => {}
+                        // Pauli noise ops are consumed inline by the preceding gate
+                        ops::PAULI_NOISE_1Q..=ops::PAULI_NOISE_2Q => {}
                         _ => {
                             panic!("Unsupported op ID {}", op.id);
                         }
@@ -377,14 +381,16 @@ impl GpuContext {
 
         if self.program_is_dirty || self.noise_config_is_dirty {
             // Rebuild the program (with noise if needed) and upload to GPU
-            if let Some(noise) = &self.noise_config {
-                let ops = add_noise_config_to_ops(&self.program, noise);
-                self.resources.upload_ops_data(cast_slice(&ops))?;
-                self.program_with_noise = Some(ops);
+            let base_ops = if let Some(noise) = &self.noise_config {
+                &add_noise_config_to_ops(&self.program, noise)
             } else {
-                self.resources.upload_ops_data(cast_slice(&self.program))?;
-                self.program_with_noise = None;
-            }
+                &self.program
+            };
+            // Insert loss-commit ops after correlated-noise ops so intrinsic
+            // tables containing loss strings can lose qubits on the GPU.
+            let ops = expand_correlated_loss_commits(base_ops);
+            self.resources.upload_ops_data(cast_slice(&ops))?;
+            self.program_with_noise = Some(ops);
             self.program_is_dirty = false;
         }
 
@@ -453,11 +459,27 @@ impl GpuContext {
         let entries_per_shot = 1 << params.qubit_count; // 2^n state vector entries per shot for n qubits
         let state_vector_size_per_shot = entries_per_shot * 8; // Each entry is a complex containing 2 * f32
 
+        // Figure out the per-shot GPU struct size first, since it's needed for batching limits.
+        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers + memory.
+        // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
+        let gpu_shot_size = if self.is_adaptive {
+            let raw = SIZEOF_SHOTDATA
+                + size_of::<InterpreterState>()
+                + params.num_registers * 4
+                + params.max_memory * 4;
+            (raw + 7) & !7 // round up to 8-byte alignment
+        } else {
+            SIZEOF_SHOTDATA
+        };
+
         // Figure out some limits based on buffer size limits, structure sizes, and number of qubits
         let max_shot_state_vectors =
             usize_to_i32(MAX_BUFFER_SIZE / i32_to_usize(state_vector_size_per_shot));
-        // How many of the structures would fit
-        let max_shots_in_buffer = min(MAX_SHOT_ENTRIES, max_shot_state_vectors);
+        // How many shots fit in the shots buffer using the actual per-shot size
+        let max_shots_in_buffer = min(
+            usize_to_i32(MAX_BUFFER_SIZE / gpu_shot_size),
+            max_shot_state_vectors,
+        );
         // How many would we allow based on the max shots per batch
         let max_shots_per_batch = min(max_shots_in_buffer, MAX_SHOTS_PER_BATCH);
 
@@ -473,16 +495,6 @@ impl GpuContext {
         };
         params.entries_per_thread =
             entries_per_shot / params.workgroups_per_shot / THREADS_PER_WORKGROUP;
-
-        // Figure out the buffer sizes we need for all the above
-        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers.
-        // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
-        let gpu_shot_size = if self.is_adaptive {
-            let raw = SIZEOF_SHOTDATA + size_of::<InterpreterState>() + params.num_registers * 4;
-            (raw + 7) & !7 // round up to 8-byte alignment
-        } else {
-            SIZEOF_SHOTDATA
-        };
         params.shots_buffer_size = i32_to_usize(params.shots_per_batch) * gpu_shot_size;
         params.state_vector_buffer_size =
             i32_to_usize(params.shots_per_batch * state_vector_size_per_shot);
@@ -542,8 +554,10 @@ impl GpuContext {
         }
     }
 
-    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram) -> Result<(), String> {
+    pub fn set_adaptive_program(&mut self, program: AdaptiveProgram<u32>) -> Result<(), String> {
         self.program.clear();
+        self.program
+            .extend_from_slice(&shader_types::build_op_pool(&program.quantum_ops));
         let num_qubits = u32_to_i32(program.num_qubits);
 
         // Always allocate a minumum number of qubits to ensure good data alignment, GPU thread usage, etc.
@@ -553,6 +567,10 @@ impl GpuContext {
         // Dynamic register file sizing: use at least MIN_REGISTERS to avoid
         // tiny buffers, but grow to match the program's actual requirement.
         let num_registers = (program.num_registers as usize).max(MIN_REGISTERS);
+
+        // Memory sizing: constant_data + headroom for alloca'd variables.
+        let max_memory = program.constant_data.len() + MAX_ALLOCA_SIZE;
+        assert!(max_memory >= 1, "WGSL arrays must have length >= 1");
 
         if num_registers > MAX_REGISTERS {
             return Err(format!(
@@ -570,6 +588,8 @@ impl GpuContext {
             || self.run_params.num_phi_entries != program.phi_entries.len()
             || self.run_params.num_switch_cases != program.switch_cases.len()
             || self.run_params.num_call_args != program.call_args.len()
+            || self.run_params.num_constant_data != program.constant_data.len()
+            || self.run_params.max_memory != max_memory
         {
             self.pipeline_is_dirty = true;
         }
@@ -583,6 +603,8 @@ impl GpuContext {
         self.run_params.num_phi_entries = program.phi_entries.len();
         self.run_params.num_switch_cases = program.switch_cases.len();
         self.run_params.num_call_args = program.call_args.len();
+        self.run_params.num_constant_data = program.constant_data.len();
+        self.run_params.max_memory = max_memory;
 
         self.adaptive_program = Some(program);
         self.program_is_dirty = true;
@@ -612,6 +634,7 @@ impl GpuContext {
             cast_slice(&program.phi_entries),
             cast_slice(&program.switch_cases),
             cast_slice(&program.call_args),
+            cast_slice(&program.constant_data),
         ]
         .concat();
 
@@ -628,8 +651,11 @@ impl GpuContext {
             .copy_from_slice(&program_bytes);
 
         self.resources.upload_batch_data(&batch_data)?;
-        self.resources
-            .upload_ops_data(cast_slice(&program.quantum_ops))?;
+        if let Some(program) = &self.program_with_noise {
+            self.resources.upload_ops_data(cast_slice(program))?;
+        } else {
+            self.resources.upload_ops_data(cast_slice(&self.program))?;
+        }
 
         Ok(())
     }
@@ -668,7 +694,7 @@ impl GpuContext {
                     .adaptive_program
                     .as_mut()
                     .ok_or("No adaptive program has been set")?;
-                let (noisy_ops, index_map) = add_noise_to_adaptive_ops(&program.quantum_ops, noise);
+                let (noisy_ops, index_map) = add_noise_to_adaptive_ops(&self.program, noise);
                 // Patch bytecode instructions that reference quantum op indices.
                 // OP_QUANTUM_GATE (0x10), OP_MEASURE (0x11), OP_RESET (0x12)
                 // all store the op pool index in `aux0`.
@@ -678,7 +704,7 @@ impl GpuContext {
                         instr.aux0 = index_map[instr.aux0 as usize];
                     }
                 }
-                program.quantum_ops = noisy_ops;
+                self.program_with_noise = Some(noisy_ops);
             }
             // Upload the combined batch_data buffer (noise + program) to binding 7
             self.upload_batch_data()?;
@@ -764,7 +790,8 @@ impl GpuContext {
             self.resources.reset_diagnostics_header()?;
 
             // Initialize state vectors and shot data via the init kernel.
-            // The init kernel zeros and configures the base ShotData fields per shot.
+            // The init kernel also zeros the results buffer per shot to prevent
+            // stale exit codes from prior runs leaking via atomicCompareExchangeWeak.
             {
                 let kernels = self.resources.get_kernels()?;
                 let mut encoder = self.resources.get_encoder("Adaptive Init Encoder")?;
@@ -781,12 +808,16 @@ impl GpuContext {
 
             // Upload interpreter state + registers into the shots buffer.
             // Each shot's interp data starts at SIZEOF_SHOTDATA offset within the shot region.
-            // The init kernel already initialized the base ShotData fields, so we only
-            // write the interp portion per shot to avoid overwriting them.
+            // The init kernel already initialized the base ShotData fields and the
+            // per-shot memory (from constant_data), so we only write the interp
+            // header + registers per shot to avoid overwriting them.
             {
                 let num_registers = self.run_params.num_registers;
+                let max_memory = self.run_params.max_memory;
                 let interp_bytes_per_shot = size_of::<InterpreterState>() + num_registers * 4;
-                let gpu_shot_size = (SIZEOF_SHOTDATA + interp_bytes_per_shot + 7) & !7;
+                // The `(... + 7) & !7` is a bit-hack to round-up the number to 8 bits (1 byte).
+                let gpu_shot_size =
+                    (SIZEOF_SHOTDATA + interp_bytes_per_shot + max_memory * 4 + 7) & !7;
 
                 let mut interp = InterpreterState::zeroed();
                 interp.pc = entry_pc;
@@ -900,9 +931,17 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
     let mut noisy_ops: Vec<Op> = Vec::with_capacity(ops.len() + 1);
 
     for op in ops {
-        let mut add_ops: Vec<Op> = vec![*op];
+        // Stamp the configured loss policy onto the gate op so the shader can
+        // decide how to handle the gate when one of its operands is lost.
+        let mut gate_op = *op;
+        if let Some(policy) = loss_policy_u32(op, noise) {
+            gate_op.policy = policy;
+        }
+        let mut add_ops: Vec<Op> = vec![gate_op];
         // If there's a NoiseConfig, and we get noise for this op, append it
-        if let Some(noise_ops) = get_noise_ops(op, noise) {
+        // The base path dispatches ops linearly, so it needs explicit
+        // loss-commit ops to perform any deferred qubit loss.
+        if let Some(noise_ops) = get_noise_ops(op, noise, true) {
             add_ops.extend(noise_ops);
         }
         // If it's an MResetZ, MZ, or ResetZ with noise, change to an Id with noise, followed by the original op
@@ -930,11 +969,16 @@ fn add_noise_config_to_ops(ops: &[Op], noise: &NoiseConfig<f32, f64>) -> Vec<Op>
 
 /// Expand the adaptive quantum op pool with noise ops.
 ///
-/// For each original op, this emits the op itself and then any Pauli/loss
-/// noise ops from the `NoiseConfig`.  Unlike `add_noise_config_to_ops` used
+/// For each original op, this emits the op itself and then the Pauli/loss
+/// sampler op from the `NoiseConfig`.  Unlike `add_noise_config_to_ops` used
 /// by the non-adaptive path, this does *not* reorder measure/reset ops or
 /// drop identity gates, because the adaptive bytecode interpreter references
 /// each op by index and handles measure/reset at the instruction level.
+///
+/// It also does *not* emit loss-commit ops: the adaptive interpreter commits
+/// any sampled qubit loss by draining `pending_loss_mask` in its run loop, so
+/// emitting per-gate loss-commit ops here would only bloat the op pool with
+/// entries that are never dispatched.
 ///
 /// Returns `(expanded_ops, index_map)` where `index_map[old_idx]` gives
 /// the new index of the original op in the expanded pool.
@@ -951,10 +995,16 @@ fn add_noise_to_adaptive_ops(
         let new_idx = noisy_ops.len() as u32;
         index_map.push(new_idx);
 
-        noisy_ops.push(*op);
+        // Stamp the configured loss policy onto the gate op so the shader can
+        // decide how to handle the gate when one of its operands is lost.
+        let mut gate_op = *op;
+        if let Some(policy) = loss_policy_u32(op, noise) {
+            gate_op.policy = policy;
+        }
+        noisy_ops.push(gate_op);
 
-        // Append any noise ops (pauli + loss) from the config
-        if let Some(noise_ops) = get_noise_ops(op, noise) {
+        // Append the Pauli/loss sampler op (no loss-commit ops; see above).
+        if let Some(noise_ops) = get_noise_ops(op, noise, false) {
             noisy_ops.extend(noise_ops);
         }
     }

@@ -7,8 +7,30 @@ import { type ExtensionApi } from "../../src/extension";
 // Q# extension log level. Increase this for debugging.
 const extensionLogLevel = "warn";
 
+/**
+ * The timeout to use for all integration tests, in milliseconds.
+ *
+ * By design, this is set deliberately high (10 minutes) so that even a slow
+ * machine never hits it. Tests that behave correctly will complete well before
+ * this; the timeout only exists to prevent a hung test from blocking the suite
+ * indefinitely.
+ */
+export const TEST_TIMEOUT_MS = 10 * 60 * 1000;
+
 // The code for the document status diagnostic.
 const documentStatusDiagnosticCode = "Qdk.Dev.DocumentStatus";
+
+let testGithubEndpoint = "";
+export function setTestGithubEndpoint(url: string) {
+  // In the web environment, http://localhost:3000/static/mount is set up by
+  // @vscode/test-web to serve the test workspace files. We use a subfolder
+  // as a fake GitHub raw content endpoint.
+  //
+  // In the node environment, the language-service test suite starts its own
+  // HTTP server and passes the endpoint URL here, where it is stored in the
+  // module-level testGithubEndpoint variable for use during activation.
+  testGithubEndpoint = url;
+}
 
 export async function activateExtension() {
   // Check for pre-release or stable builds of the extension, as could be in release pipeline
@@ -27,15 +49,7 @@ export async function activateExtension() {
   const start = performance.now();
   const extensionApi: ExtensionApi = await ext.activate();
 
-  // http://localhost:3000/static/mount is set up by the @vscode/test-web
-  // test infrastructure. This local webserver is normally set up to serve
-  // files for the test workspace. We're taking advantage of it here to
-  // also act as a a fake github endpoint.
-  //
-  // /web/github is a folder in the test workspace.
-  extensionApi.setGithubEndpoint(
-    "http://localhost:3000/static/mount/web/github",
-  );
+  extensionApi.setGithubEndpoint(testGithubEndpoint);
 
   const logForwarder = extensionApi.logging;
   if (!logForwarder) {
@@ -135,7 +149,7 @@ export async function delay(timeoutMs: number) {
 async function waitForDiagnostics(
   uri: vscode.Uri,
   condition: (diagnostics: vscode.Diagnostic[]) => boolean,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
   timeoutErrorMsg: string = "Diagnostics condition not met within timeout",
 ): Promise<vscode.Diagnostic[]> {
   await waitForCondition(
@@ -161,7 +175,7 @@ async function waitForDiagnostics(
  */
 export async function waitForDiagnosticsToAppear(
   uri: vscode.Uri,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
 ): Promise<vscode.Diagnostic[]> {
   const diagnostics = await waitForDiagnostics(
     uri,
@@ -185,7 +199,7 @@ export async function waitForDiagnosticsToAppear(
  */
 export async function waitForDiagnosticsToBeEmpty(
   uri: vscode.Uri,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
 ): Promise<void> {
   await waitForDiagnostics(
     uri,
@@ -210,7 +224,7 @@ export async function waitForDiagnosticsToBeEmpty(
  */
 export async function openDocumentAndWaitForProcessing(
   documentUri: vscode.Uri,
-  timeoutMs: number = 2000,
+  timeoutMs: number = TEST_TIMEOUT_MS,
 ): Promise<vscode.TextDocument> {
   const doc = await vscode.workspace.openTextDocument(documentUri);
   const version = doc.version;

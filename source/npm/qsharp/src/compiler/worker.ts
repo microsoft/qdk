@@ -6,4 +6,3 @@ import { compilerProtocol } from "./compiler.js";
 
 // message handler exported for backwards compatibility
 export const messageHandler = createWorker(compilerProtocol);
-addEventListener("message", messageHandler);

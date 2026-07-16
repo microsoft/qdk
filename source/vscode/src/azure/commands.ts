@@ -5,7 +5,7 @@ import { log, QdkDiagnostics, TargetProfile } from "qsharp-lang";
 import * as vscode from "vscode";
 import { getCircuitOrErrorWithTimeout, getConfig } from "../circuit";
 import { qsharpExtensionId } from "../common";
-import { getUploadSupplementalData } from "../config";
+import { getTargetJobParams, getUploadSupplementalData } from "../config";
 import { FullProgramConfig, getActiveProgram } from "../programConfig";
 import { getQirForProgram, QirGenerationError } from "../qirGeneration";
 import {
@@ -43,6 +43,7 @@ import {
   queryWorkspaces,
   submitJob,
   uploadBlob,
+  queryWorkspace,
 } from "./workspaceActions";
 import { UriRouteHandler } from "../uriHandler.js";
 
@@ -475,8 +476,15 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         const treeItem = arg || currentTreeItem;
         if (treeItem?.type !== "job") return;
         const job = treeItem.itemData as Job;
-        const link = getQuantumOsJobLink(treeItem.workspace, job.id);
-        vscode.env.openExternal(vscode.Uri.parse(link));
+        try {
+          const link = await getQuantumOsJobLink(treeItem.workspace, job.id);
+          vscode.env.openExternal(vscode.Uri.parse(link));
+        } catch (e) {
+          log.error("Failed to build job portal link", e);
+          vscode.window.showErrorMessage(
+            "Unable to open the job in the portal because the tenant ID for this workspace could not be determined. Try removing and re-adding the workspace.",
+          );
+        }
       },
     ),
   );
@@ -490,8 +498,16 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
         if (treeItem?.type !== "workspace") return;
         const workspace = treeItem.itemData as WorkspaceConnection;
 
-        const link = getWorkspacePortalLink(workspace);
-        vscode.env.openExternal(vscode.Uri.parse(link));
+        try {
+          const link = await getWorkspacePortalLink(workspace);
+          vscode.env.openExternal(vscode.Uri.parse(link));
+        } catch (e) {
+          const errorMsg = e instanceof Error ? ` Details: ${e.message}` : "";
+          log.error("Failed to build workspace portal link", e);
+          vscode.window.showErrorMessage(
+            `Unable to open a link to the workspace portal.${errorMsg}`,
+          );
+        }
       },
     ),
   );
@@ -514,6 +530,7 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
     }
 
     const workspace = parseConnectionString(connStr);
+
     if (!workspace) {
       vscode.window.showErrorMessage(
         "The workspace URI contained an invalid connection string.",
@@ -527,9 +544,25 @@ export async function initAzureWorkspaces(context: vscode.ExtensionContext) {
       "Add Workspace",
     );
     if (confirmed === "Add Workspace") {
-      workspaceTreeProvider.updateWorkspace(workspace);
-      await saveWorkspaceList();
-      startRefreshCycle(workspaceTreeProvider, workspace);
+      // Verify if the connection can be made
+      try {
+        await queryWorkspace(workspace);
+        workspaceTreeProvider.updateWorkspace(workspace);
+        await saveWorkspaceList();
+
+        // Locate and reveal the newly added workspace in the tree view
+        const workspaceItems = await workspaceTreeProvider.getChildren();
+        workspaceItems?.forEach((item) => {
+          if ((item.itemData as WorkspaceConnection).id == workspace.id) {
+            treeView.reveal(item, { focus: true, expand: true });
+          }
+        });
+        startRefreshCycle(workspaceTreeProvider, workspace);
+      } catch (e: any) {
+        // On failure, not much the user can do. Just report the error and exit
+        const errorText = e.message || "An unexpected error occurred";
+        await vscode.window.showErrorMessage(errorText, { modal: true });
+      }
     }
   };
 
@@ -640,6 +673,8 @@ export async function compileAndSubmit(
     parameters = { jobName: result.jobName, shots: result.numberOfShots };
   }
 
+  const additionalJobParams = getTargetJobParams(target.id);
+
   const { jobId, storageUris, quantumUris, token } = await submitJob(
     workspace,
     associationId,
@@ -648,6 +683,7 @@ export async function compileAndSubmit(
     target.id,
     parameters.jobName,
     parameters.shots,
+    additionalJobParams,
   );
 
   sendTelemetryEvent(

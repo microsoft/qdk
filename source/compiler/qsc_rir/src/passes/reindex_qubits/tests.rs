@@ -8,7 +8,7 @@ use expect_test::expect;
 use crate::{
     builder::{cx_decl, h_decl, m_decl, mresetz_decl, read_result_decl, reset_decl, x_decl},
     rir::{
-        Block, BlockId, CallableId, CallableType, Instruction, Literal, Operand, Program, Ty,
+        Block, BlockId, CallableId, CallableType, Instruction, Literal, Operand, Prim, Program, Ty,
         Variable, VariableId,
     },
 };
@@ -30,7 +30,7 @@ fn qubit_reindexed_after_reset_removes_reset() {
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -73,7 +73,7 @@ fn qubit_reindex_removes_initial_reset_without_reindexing() {
         Block(vec![
             Instruction::Call(RESET, vec![Operand::Literal(Literal::Qubit(0))], None, None),
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -131,7 +131,7 @@ fn qubit_reindexed_after_mz() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -190,7 +190,7 @@ fn qubit_reindexed_after_mresetz_and_changed_to_mz() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -249,7 +249,7 @@ fn multiple_qubit_reindex() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -325,7 +325,7 @@ fn qubit_reindexed_multiple_times_with_mz_inserts_multiple_cx() {
                 None,
                 None,
             ),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 
@@ -394,14 +394,14 @@ fn qubit_reindexed_across_branches() {
                 vec![Operand::Literal(Literal::Result(0))],
                 Some(Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 }),
                 None,
             ),
             Instruction::Branch(
                 Variable {
                     variable_id: VariableId(0),
-                    ty: Ty::Boolean,
+                    ty: Ty::Prim(Prim::Boolean),
                 },
                 BlockId(1),
                 BlockId(2),
@@ -444,7 +444,7 @@ fn qubit_reindexed_across_branches() {
         BlockId(3),
         Block(vec![
             Instruction::Call(X, vec![Operand::Literal(Literal::Qubit(0))], None, None),
-            Instruction::Return,
+            Instruction::Return(None),
         ]),
     );
 

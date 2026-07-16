@@ -3,7 +3,11 @@
 
 import * as vscode from "vscode";
 import { assert } from "chai";
-import { activateExtension, waitForCondition } from "../extensionUtils";
+import {
+  activateExtension,
+  waitForCondition,
+  TEST_TIMEOUT_MS,
+} from "../extensionUtils";
 import { DebugProtocol } from "@vscode/debugprotocol";
 import { qsharpExtensionId } from "../../../src/common";
 import { Tracker } from "./tracker";
@@ -21,15 +25,35 @@ suite("OpenQASM Debugger Tests", function suite() {
     workspaceFolder.uri,
     selfContainedName,
   );
+
+  const multifileUri = vscode.Uri.joinPath(workspaceFolder.uri, multifileName);
+
   const multifileIncludeUri = vscode.Uri.joinPath(
     workspaceFolder.uri,
     multifileIncludeName,
   );
+
+  // Makes testing compatible with node and web environments
+  const separator = workspaceFolder.uri.path.endsWith("/") ? "" : "/";
+
   let tracker: Tracker | undefined;
   let disposable;
 
   this.beforeAll(async () => {
     await activateExtension();
+
+    // Ensure the Debug view opens when a debug session starts.
+    // VS Code 1.117 changed the default behavior of `debug.openDebug: openOnDebugBreak`
+    // to no longer auto-open the Debug view on the first session start (see
+    // https://github.com/microsoft/vscode/pull/309133). Without the Debug view open,
+    // VS Code won't send `variables` requests to the debug adapter, which causes
+    // the test tracker to time out waiting for the debugger to enter the paused state.
+    const config = vscode.workspace.getConfiguration("debug");
+    await config.update(
+      "openDebug",
+      "openOnSessionStart",
+      vscode.ConfigurationTarget.Global,
+    );
   });
 
   this.beforeEach(async () => {
@@ -60,7 +84,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       setTimeout(
         () =>
           reject(new Error("Timed out waiting for debug session to terminate")),
-        2000,
+        TEST_TIMEOUT_MS,
       );
     });
 
@@ -76,7 +100,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: true,
     });
 
@@ -85,7 +109,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -116,7 +140,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -136,7 +160,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: true,
     });
 
@@ -146,7 +170,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -165,7 +189,7 @@ suite("OpenQASM Debugger Tests", function suite() {
     await waitForCondition(
       () => !vscode.debug.activeDebugSession,
       vscode.debug.onDidChangeActiveDebugSession,
-      9000,
+      TEST_TIMEOUT_MS,
       "timed out waiting for the debugger to be terminated",
     );
   });
@@ -183,7 +207,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: false,
     });
 
@@ -193,7 +217,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -220,7 +244,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${multifileName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${multifileName}`,
+      program: `\${workspaceFolder}${separator}${multifileName}`,
       stopOnEntry: false,
     });
 
@@ -230,7 +254,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 1,
         source: {
           name: multifileIncludeName,
-          path: `vscode-test-web://mount/${multifileIncludeName}`,
+          path: multifileIncludeUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -244,7 +268,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: multifileName,
-          path: `vscode-test-web://mount/${multifileName}`,
+          path: multifileUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -272,7 +296,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: false,
     });
 
@@ -282,7 +306,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -317,7 +341,7 @@ suite("OpenQASM Debugger Tests", function suite() {
         id: 0,
         source: {
           name: selfContainedName,
-          path: `vscode-test-web://mount/${selfContainedName}`,
+          path: selfContainedUri.toString(),
           sourceReference: 0,
           adapterData: "qsharp-adapter-data",
         },
@@ -350,7 +374,7 @@ suite("OpenQASM Debugger Tests", function suite() {
       name: `Launch ${selfContainedName}`,
       type: "qsharp",
       request: "launch",
-      program: "${workspaceFolder}" + `${selfContainedName}`,
+      program: `\${workspaceFolder}${separator}${selfContainedName}`,
       stopOnEntry: false,
     });
 
@@ -447,7 +471,7 @@ async function terminateSession() {
   await waitForCondition(
     () => !vscode.debug.activeDebugSession,
     vscode.debug.onDidChangeActiveDebugSession,
-    9000,
+    TEST_TIMEOUT_MS,
     "timed out waiting for the debugger to be terminated",
   );
 }
@@ -461,7 +485,7 @@ async function waitForTextEditorOn(uri: vscode.Uri) {
       vscode.window.activeTextEditor?.document.uri.toString() ===
       uri.toString(),
     vscode.window.onDidChangeActiveTextEditor,
-    500,
+    TEST_TIMEOUT_MS,
     `timed out waiting for the text editor to open to ${uri}.\nactive text editor is ${vscode.window.activeTextEditor?.document.uri}`,
   );
 }

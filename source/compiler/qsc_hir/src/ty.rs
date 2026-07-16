@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use indenter::{Indented, indented};
-use qsc_data_structures::span::Span;
+use indenter::indented;
+use qsc_data_structures::{display::core::set_indentation, span::Span};
 use rustc_hash::FxHashMap;
 
 use crate::hir::{CallableKind, FieldPath, Functor, ItemId, PackageId, Res};
@@ -11,18 +11,6 @@ use std::{
     fmt::{self, Debug, Display, Formatter, Write},
     rc::Rc,
 };
-
-fn set_indentation<'a, 'b>(
-    indent: Indented<'a, Formatter<'b>>,
-    level: usize,
-) -> Indented<'a, Formatter<'b>> {
-    match level {
-        0 => indent.with_str(""),
-        1 => indent.with_str("    "),
-        2 => indent.with_str("        "),
-        _ => unimplemented!("indentation level not supported"),
-    }
-}
 
 /// A type.
 #[derive(Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
@@ -369,7 +357,7 @@ impl Display for TypeParameter {
                 if bounds.0.is_empty() {
                     String::new()
                 } else {
-                    format!(" bounds: {bounds}",)
+                    format!(" bounds: {bounds}")
                 }
             ),
             TypeParameter::Functor(min) => write!(f, "functor ({min})"),

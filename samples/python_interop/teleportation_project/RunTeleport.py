@@ -1,5 +1,5 @@
 from pathlib import Path
-import qsharp
+from qdk import qsharp
 
 # set the root folder for the Q# project
 # the root folder of a Q# project is where the qsharp.json file is located

@@ -14,10 +14,10 @@ import shutil
 from pathlib import Path
 
 python_ver = (3, 11)  # Python support for Windows on ARM64 requires v3.11 or later
-rust_ver = (1, 93, 0)  # Ensure Rust version 1.93 or later is installed
+rust_ver = (1, 95, 0)  # Ensure Rust version 1.95 or later is installed
 node_ver = (22, 14, 0)
-rust_fmt_ver = (1, 8, 0)  # Current version when Rust 1.93 shipped
-clippy_ver = (0, 1, 93)
+rust_fmt_ver = (1, 9, 0)  # Current version when Rust 1.95 shipped
+clippy_ver = (0, 1, 95)
 wasm_bindgen_ver = (0, 2, 114)
 binaryen_ver = 123
 
@@ -119,7 +119,9 @@ def check_prereqs(install=False, skip_wasm=False):
         rust_version = subprocess.check_output(["rustc", "--version"])
         print(f"Detected Rust version: {rust_version.decode()}")
     except FileNotFoundError:
-        print("Rust compiler not found. Install from https://rustup.rs/")
+        print(
+            f'Rust compiler not found. Install from https://rustup.rs/ and then run "rustup default {rust_ver[0]}.{rust_ver[1]}"'
+        )
         exit(1)
 
     ver_match = re.search(r"rustc (\d+)\.(\d+)\.(\d+)", rust_version.decode())
@@ -130,6 +132,10 @@ def check_prereqs(install=False, skip_wasm=False):
                 f'Rust v{rust_ver[0]}.{rust_ver[1]} is required. Please update with "rustup default {rust_ver[0]}.{rust_ver[1]}"'
             )
             exit(1)
+        elif found_ver > rust_ver:
+            print(
+                f'WARNING: Rust version {found_ver[0]}.{found_ver[1]}.{found_ver[2]} is newer than expected {rust_ver[0]}.{rust_ver[1]}.{rust_ver[2]}. There may be new linter warnings. To switch, run "rustup default {rust_ver[0]}.{rust_ver[1]}"'
+            )
     else:
         raise Exception("Unable to determine the Rust compiler version.")
 
@@ -184,7 +190,7 @@ def wasm_checks(install, installed_rust_targets):
     try:
         wasm_bindgen_version = subprocess.check_output(["wasm-bindgen", "--version"])
         print(f"Detected wasm-bindgen version: {wasm_bindgen_version.decode()}")
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         if install == True:
             print("wasm-bindgen not found. Attempting to install...")
             install_wasm_bindgen()
@@ -217,7 +223,7 @@ def wasm_checks(install, installed_rust_targets):
     try:
         binaryen_version = subprocess.check_output(["wasm-opt", "--version"])
         print(f"Detected wasm-opt version: {binaryen_version.decode()}")
-    except FileNotFoundError:
+    except (FileNotFoundError, PermissionError):
         if install == True:
             print("wasm-opt not found. Attempting to install...")
             install_binaryen()

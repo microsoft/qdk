@@ -128,15 +128,17 @@ impl ResourceManager {
 pub struct QuantumIntrinsicsChecker {}
 
 impl Backend for QuantumIntrinsicsChecker {
-    fn qubit_is_zero(&mut self, _q: usize) -> bool {
+    fn qubit_is_zero(&mut self, _q: usize) -> std::result::Result<bool, String> {
         // Because `qubit_is_zero` is called on every qubit release, this must return
         // true to avoid a panic.
-        true
+        Ok(true)
     }
 
     // Needed for calls to `DumpMachine` and `DumpRegister`.
-    fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        (Vec::new(), 0)
+    fn capture_quantum_state(
+        &mut self,
+    ) -> std::result::Result<(Vec<(BigUint, Complex<f64>)>, usize), String> {
+        Ok((Vec::new(), 0))
     }
 
     // Only intrinsic functions are supported here since they're the only ones that will be classically evaluated.
@@ -150,6 +152,8 @@ impl Backend for QuantumIntrinsicsChecker {
             "IsResourceEstimating" => Some(Ok(Value::Bool(false))),
             "EndEstimateCaching"
             | "EnableMemoryComputeArchitecture"
+            | "Load"
+            | "Store"
             | "GlobalPhase"
             | "ConfigurePauliNoise"
             | "ConfigureQubitLoss"

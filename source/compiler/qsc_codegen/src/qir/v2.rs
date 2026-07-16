@@ -8,11 +8,14 @@ mod instruction_tests;
 mod tests;
 
 use qsc_data_structures::attrs::Attributes;
+use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::{
     rir::{self, ConditionCode, FcmpConditionCode},
     utils::get_all_block_successors,
 };
 use std::fmt::Write;
+
+use super::name::llvm_global_name;
 
 /// A trait for converting a type into QIR of type `T`.
 /// This can be used to generate QIR strings or other representations.
@@ -34,22 +37,29 @@ impl ToQir<String> for rir::Literal {
                 }
             }
             rir::Literal::Integer(i) => format!("i64 {i}"),
-            rir::Literal::Pointer => "ptr null".to_string(),
+            rir::Literal::NullPointer => "ptr null".to_string(),
             rir::Literal::Qubit(q) => format!("ptr inttoptr (i64 {q} to ptr)"),
             rir::Literal::Result(r) => format!("ptr inttoptr (i64 {r} to ptr)"),
             rir::Literal::Tag(idx, _) => format!("ptr @{idx}"),
+            rir::Literal::Array(idx) => format!("ptr @array{idx}"),
         }
     }
 }
 
 impl ToQir<String> for rir::Ty {
-    fn to_qir(&self, _program: &rir::Program) -> String {
+    fn to_qir(&self, program: &rir::Program) -> String {
         match self {
-            rir::Ty::Boolean => "i1".to_string(),
-            rir::Ty::Double => "double".to_string(),
-            rir::Ty::Integer => "i64".to_string(),
-            rir::Ty::Pointer | rir::Ty::Qubit | rir::Ty::Result => "ptr".to_string(),
+            rir::Ty::Prim(prim) => ToQir::<String>::to_qir(prim, program),
+            rir::Ty::Array(size, elem_ty) => {
+                format!("[{size} x {}]", ToQir::<String>::to_qir(elem_ty, program))
+            }
         }
+    }
+}
+
+impl ToQir<String> for rir::Prim {
+    fn to_qir(&self, _program: &rir::Program) -> String {
+        get_prim_ty(*self).to_owned()
     }
 }
 
@@ -124,6 +134,7 @@ impl ToQir<String> for rir::ConditionCode {
 }
 
 impl ToQir<String> for rir::Instruction {
+    #[allow(clippy::too_many_lines)]
     fn to_qir(&self, program: &rir::Program) -> String {
         match self {
             rir::Instruction::Add(lhs, rhs, variable) => {
@@ -164,6 +175,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Fdiv(lhs, rhs, variable) => {
                 fbinop_to_qir("fdiv", lhs, rhs, *variable, program)
             }
+            rir::Instruction::Frem(lhs, rhs, variable) => {
+                fbinop_to_qir("frem", lhs, rhs, *variable, program)
+            }
             rir::Instruction::Fmul(lhs, rhs, variable) => {
                 fbinop_to_qir("fmul", lhs, rhs, *variable, program)
             }
@@ -194,7 +208,14 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Phi(..) => {
                 unreachable!("phi nodes should not be inserted for QIR v2 generation")
             }
-            rir::Instruction::Return => "  ret i64 0".to_string(),
+            rir::Instruction::Return(operand) => match operand {
+                None => "  ret void".to_string(),
+                Some(operand) => format!(
+                    "  ret {} {}",
+                    get_value_ty(operand),
+                    get_value_as_str(operand, program)
+                ),
+            },
             rir::Instruction::Sdiv(lhs, rhs, variable) => {
                 binop_to_qir("sdiv", lhs, rhs, *variable, program)
             }
@@ -212,8 +233,28 @@ impl ToQir<String> for rir::Instruction {
             }
             rir::Instruction::Alloca(variable) => alloca_to_qir(*variable, program),
             rir::Instruction::Load(var_from, var_to) => load_to_qir(*var_from, *var_to, program),
+            rir::Instruction::Index(array_op, index_op, result_var) => {
+                index_to_qir(array_op, index_op, result_var, program)
+            }
         }
     }
+}
+
+fn index_to_qir(
+    array_op: &rir::Operand,
+    index_op: &rir::Operand,
+    result_var: &rir::Variable,
+    program: &rir::Program,
+) -> String {
+    // Only need to emit the getelementptr instruction here, as passes are expected to insert the subsequent load instruction.
+    format!(
+        "  {} = getelementptr {}, ptr {}, {} {}",
+        ToQir::<String>::to_qir(&result_var.variable_id, program),
+        ToQir::<String>::to_qir(&result_var.ty, program),
+        get_value_as_str(array_op, program),
+        get_value_ty(index_op),
+        get_value_as_str(index_op, program)
+    )
 }
 
 fn convert_to_qir(
@@ -228,7 +269,7 @@ fn convert_to_qir(
         "input/output types ({operand_ty}, {var_ty}) should not match in convert"
     );
 
-    let convert_instr = match (operand_ty, var_ty) {
+    let convert_instr = match (operand_ty.as_str(), var_ty.as_str()) {
         ("i64", "double") => "sitofp i64",
         ("double", "i64") => "fptosi double",
         _ => panic!("unsupported conversion from {operand_ty} to {var_ty} in convert instruction"),
@@ -347,18 +388,19 @@ fn call_to_qir(
         .collect::<Vec<_>>()
         .join(", ");
     let callable = program.get_callable(call_id);
+    let callable_name = llvm_global_name(&callable.name);
     if let Some(output) = output {
         format!(
-            "  {} = call {} @{}({args})",
+            "  {} = call {} {}({args})",
             ToQir::<String>::to_qir(&output.variable_id, program),
             ToQir::<String>::to_qir(&callable.output_type, program),
-            callable.name
+            callable_name
         )
     } else {
         format!(
-            "  call {} @{}({args})",
+            "  call {} {}({args})",
             ToQir::<String>::to_qir(&callable.output_type, program),
-            callable.name
+            callable_name
         )
     }
 }
@@ -511,9 +553,12 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
                 }
             }
             rir::Literal::Integer(i) => format!("{i}"),
-            rir::Literal::Pointer => "null".to_string(),
+            rir::Literal::NullPointer => "null".to_string(),
             rir::Literal::Qubit(q) => format!("{q}"),
             rir::Literal::Result(r) => format!("{r}"),
+            rir::Literal::Array(idx) => {
+                format!("@array{idx}")
+            }
             rir::Literal::Tag(..) => panic!(
                 "tag literals should not be used as string values outside of output recording"
             ),
@@ -522,7 +567,7 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
     }
 }
 
-fn get_value_ty(lhs: &rir::Operand) -> &str {
+fn get_value_ty(lhs: &rir::Operand) -> String {
     match lhs {
         rir::Operand::Literal(lit) => match lit {
             rir::Literal::Integer(_) => "i64",
@@ -530,19 +575,28 @@ fn get_value_ty(lhs: &rir::Operand) -> &str {
             rir::Literal::Double(_) => get_f64_ty(),
             rir::Literal::Qubit(_)
             | rir::Literal::Result(_)
-            | rir::Literal::Pointer
-            | rir::Literal::Tag(..) => "ptr",
-        },
+            | rir::Literal::NullPointer
+            | rir::Literal::Tag(..)
+            | rir::Literal::Array(_) => "ptr",
+        }
+        .to_owned(),
         rir::Operand::Variable(var) => get_variable_ty(*var),
     }
 }
 
-fn get_variable_ty(variable: rir::Variable) -> &'static str {
+fn get_variable_ty(variable: rir::Variable) -> String {
     match variable.ty {
-        rir::Ty::Integer => "i64",
-        rir::Ty::Boolean => "i1",
-        rir::Ty::Double => get_f64_ty(),
-        rir::Ty::Qubit | rir::Ty::Result | rir::Ty::Pointer => "ptr",
+        rir::Ty::Prim(prim) => get_prim_ty(prim).to_owned(),
+        rir::Ty::Array(size, elem_ty) => format!("[{size} x {}]", get_prim_ty(elem_ty)),
+    }
+}
+
+fn get_prim_ty(prim: rir::Prim) -> &'static str {
+    match prim {
+        rir::Prim::Integer => "i64",
+        rir::Prim::Boolean => "i1",
+        rir::Prim::Double => get_f64_ty(),
+        rir::Prim::Qubit | rir::Prim::Result | rir::Prim::Pointer => "ptr",
     }
 }
 
@@ -579,45 +633,89 @@ impl ToQir<String> for rir::Block {
 
 impl ToQir<String> for rir::Callable {
     fn to_qir(&self, program: &rir::Program) -> String {
-        let input_type = self
+        // The trait entry point preserves the historical behavior of treating a bodied callable
+        // as the program entry point. Non-entry IR functions are emitted via `callable_to_qir`
+        // from `Program::to_qir`, where the callable's id is known.
+        callable_to_qir(self, true, program)
+    }
+}
+
+/// Converts a callable to its QIR string representation.
+///
+/// `is_entry` selects how a bodied callable is rendered: the entry point is emitted as
+/// `@ENTRYPOINT__main()` returning `i64 0`, while a non-entry `Regular` callable is emitted as a
+/// real LLVM `define void @<name>(<params>)` IR function with typed parameters named after the
+/// callable's `input_vars`. Bodyless callables (intrinsics) always render as `declare`.
+fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Program) -> String {
+    let output_type = ToQir::<String>::to_qir(&callable.output_type, program);
+    let Some(entry_id) = callable.body else {
+        let input_type = callable
             .input_type
             .iter()
             .map(|t| ToQir::<String>::to_qir(t, program))
             .collect::<Vec<_>>()
             .join(", ");
-        let output_type = ToQir::<String>::to_qir(&self.output_type, program);
-        let Some(entry_id) = self.body else {
-            return format!(
-                "declare {output_type} @{}({input_type}){}",
-                self.name,
-                match self.call_type {
-                    rir::CallableType::Measurement | rir::CallableType::Reset => {
-                        // These callables are a special case that need the irreversible attribute.
-                        " #1"
-                    }
-                    rir::CallableType::NoiseIntrinsic => " #2",
-                    _ => "",
+        let callable_name = llvm_global_name(&callable.name);
+        return format!(
+            "declare {output_type} {callable_name}({input_type}){}",
+            match callable.call_type {
+                rir::CallableType::Measurement | rir::CallableType::Reset => {
+                    // These callables are a special case that need the irreversible attribute.
+                    " #1"
                 }
-            );
-        };
-        let mut body = String::new();
-        let mut all_blocks = vec![entry_id];
-        all_blocks.extend(get_all_block_successors(entry_id, program));
-        for block_id in all_blocks {
-            let block = program.get_block(block_id);
-            write!(
-                body,
-                "{}:\n{}\n",
-                ToQir::<String>::to_qir(&block_id, program),
-                ToQir::<String>::to_qir(block, program)
-            )
-            .expect("writing to string should succeed");
-        }
+                rir::CallableType::NoiseIntrinsic => " #2",
+                _ => "",
+            }
+        );
+    };
+    let mut body = String::new();
+    let mut all_blocks = vec![entry_id];
+    all_blocks.extend(get_all_block_successors(entry_id, program));
+    for block_id in all_blocks {
+        let block = program.get_block(block_id);
+        write!(
+            body,
+            "{}:\n{}\n",
+            ToQir::<String>::to_qir(&block_id, program),
+            ToQir::<String>::to_qir(block, program)
+        )
+        .expect("writing to string should succeed");
+    }
+    if is_entry {
         assert!(
-            input_type.is_empty(),
+            callable.input_type.is_empty(),
             "entry point should not have an input"
         );
-        format!("define {output_type} @ENTRYPOINT__main() #0 {{\n{body}}}",)
+        format!("define {output_type} @ENTRYPOINT__main() #0 {{\n{body}}}")
+    } else {
+        let callable_name = llvm_global_name(&callable.name);
+        let params = callable
+            .input_type
+            .iter()
+            .zip(callable.input_vars.iter())
+            .map(|(ty, var_id)| {
+                format!(
+                    "{} {}",
+                    ToQir::<String>::to_qir(ty, program),
+                    ToQir::<String>::to_qir(var_id, program)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("define {output_type} {callable_name}({params}) {{\n{body}}}")
+    }
+}
+
+impl ToQir<String> for rir::ArrayLiteral {
+    fn to_qir(&self, program: &rir::Program) -> String {
+        let elem_ty = get_prim_ty(self.ty);
+        let elems = self
+            .contents
+            .iter()
+            .map(|elem| ToQir::<String>::to_qir(elem, program))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("[{} x {}] [{}]", self.contents.len(), elem_ty, elems)
     }
 }
 
@@ -626,7 +724,7 @@ impl ToQir<String> for rir::Program {
         let callables = self
             .callables
             .iter()
-            .map(|(_, callable)| ToQir::<String>::to_qir(callable, self))
+            .map(|(id, callable)| callable_to_qir(callable, id == self.entry, self))
             .collect::<Vec<_>>()
             .join("\n\n");
         let mut constants = String::default();
@@ -639,13 +737,36 @@ impl ToQir<String> for rir::Program {
             )
             .expect("writing to string should succeed");
         }
+        for (idx, array) in self.array_literals.iter().enumerate() {
+            // We need to add the array as a global constant.
+            writeln!(
+                constants,
+                "@array{idx} = internal constant {}",
+                ToQir::<String>::to_qir(array, self)
+            )
+            .expect("writing to string should succeed");
+        }
+        // When dynamic qubit allocation is enabled, qubits are allocated via the
+        // runtime API rather than declared up front. The spec states that the
+        // `required_num_qubits` entry-point attribute is not required in that case,
+        // and the `dynamic_qubit_management` module flag must be set to true.
+        let dynamic_qubit_management = self
+            .config
+            .capabilities
+            .contains(TargetCapabilityFlags::DynamicQubitAllocation);
+        let required_num_qubits = if dynamic_qubit_management {
+            String::new()
+        } else {
+            format!("\"required_num_qubits\"=\"{}\" ", self.num_qubits)
+        };
         let body = format!(
             include_str!("./v2/template.ll"),
             constants,
             callables,
-            self.num_qubits,
+            required_num_qubits,
             self.num_results,
-            get_additional_module_attributes(self)
+            get_additional_module_attributes(self),
+            dynamic_qubit_management,
         );
         body
     }

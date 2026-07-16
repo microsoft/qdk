@@ -213,6 +213,31 @@ fn block_empty_is_unit_expr() {
 }
 
 #[test]
+fn qubit_array_length_expr() {
+    check_expr(
+        "",
+        indoc! {"{
+            use qs = Qubit[4];
+            Length(qs)
+        }"},
+        &expect!["4"],
+    );
+}
+
+#[test]
+fn qubit_array_chunks_expr() {
+    check_expr(
+        "",
+        indoc! {"{
+            use qs = Qubit[4];
+            let chunks = Std.Arrays.Chunks(2, qs);
+            Length(chunks[0])
+        }"},
+        &expect!["2"],
+    );
+}
+
+#[test]
 fn block_shadowing_expr() {
     check_expr(
         "",
@@ -3749,8 +3774,6 @@ fn partial_eval_simple_stmt() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [12-12] (Public):
-                        Namespace (Ident 0 [12-12] "test"): <empty>
                 Blocks:
                     Block 0 [0-11] [Type Unit]:
                         0
@@ -3784,8 +3807,6 @@ fn partial_eval_stmt_with_bound_variable() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [20-20] (Public):
-                        Namespace (Ident 1 [20-20] "test"): <empty>
                 Blocks:
                     Block 0 [0-19] [Type Unit]:
                         0
@@ -3822,8 +3843,6 @@ fn partial_eval_stmt_with_mutable_variable_update() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [45-45] (Public):
-                        Namespace (Ident 1 [45-45] "test"): <empty>
                 Blocks:
                     Block 0 [0-44] [Type Unit]:
                         0
@@ -3873,8 +3892,6 @@ fn partial_eval_stmt_with_mutable_variable_update_out_of_order_works() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [45-45] (Public):
-                        Namespace (Ident 1 [45-45] "test"): <empty>
                 Blocks:
                     Block 0 [0-44] [Type Unit]:
                         0
@@ -3924,8 +3941,6 @@ fn partial_eval_stmt_with_mutable_variable_update_repeat_stmts_works() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [45-45] (Public):
-                        Namespace (Ident 1 [45-45] "test"): <empty>
                 Blocks:
                     Block 0 [0-44] [Type Unit]:
                         0
@@ -3975,8 +3990,6 @@ fn partial_eval_stmt_with_bool_short_circuit() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [35-35] (Public):
-                        Namespace (Ident 1 [35-35] "test"): <empty>
                 Blocks:
                     Block 0 [0-34] [Type Unit]:
                         0
@@ -4017,8 +4030,6 @@ fn partial_eval_stmt_with_bool_no_short_circuit() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [35-35] (Public):
-                        Namespace (Ident 1 [35-35] "test"): <empty>
                 Blocks:
                     Block 0 [0-34] [Type Unit]:
                         0
@@ -4059,8 +4070,6 @@ fn partial_eval_stmt_with_loop() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [53-53] (Public):
-                        Namespace (Ident 1 [53-53] "test"): <empty>
                 Blocks:
                     Block 0 [0-52] [Type Unit]:
                         0
@@ -4119,18 +4128,16 @@ fn partial_eval_stmt_function_calls() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [41-102] (Public):
-                        Namespace (Ident 1 [51-55] "Test"): Item 1
                     Item 1 [62-100] (Internal):
                         Parent: 0
-                        Callable 0 [62-100] (function):
+                        Callable [62-100] (function):
                             name: Ident 0 [71-75] "Add1"
                             input: 1
                             output: Int
                             functors: empty set
                             implementation: Spec:
                                 SpecImpl:
-                                    body: SpecDecl 1 [62-100]: None 2
+                                    body: SpecDecl [62-100]: None 2
                                     adj: <none>
                                     ctl: <none>
                                     ctl-adj: <none>
@@ -4187,8 +4194,6 @@ fn partial_eval_stmt_function_calls_from_library() {
             Package:
                 Entry Expression: 0
                 Items:
-                    Item 0 [35-35] (Public):
-                        Namespace (Ident 1 [35-35] "test"): <empty>
                 Blocks:
                     Block 0 [0-34] [Type Int]:
                         0

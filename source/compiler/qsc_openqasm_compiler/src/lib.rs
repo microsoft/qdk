@@ -16,7 +16,6 @@
 
 mod ast_builder;
 pub mod compiler;
-pub mod display_utils;
 mod functor_constraints;
 mod types;
 
@@ -28,9 +27,9 @@ pub use functor_constraints::{FunctorConstraintSolver, FunctorConstraints};
 use std::{fmt::Write, sync::Arc};
 
 use miette::Diagnostic;
+use qdk_openqasm_parser::semantic::QasmSemanticParseResult;
 use qsc_ast::ast::Package;
-use qsc_data_structures::{error::WithSource, source::SourceMap, span::Span, target::Profile};
-use qsc_openqasm_parser::semantic::QasmSemanticParseResult;
+use qsc_data_structures::{error::WithSource, source::SourceMap, target::Profile};
 use thiserror::Error;
 
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]
@@ -74,11 +73,11 @@ pub enum ErrorKind {
     Compiler(#[from] crate::compiler::error::Error),
     #[error(transparent)]
     #[diagnostic(transparent)]
-    Parser(#[from] qsc_openqasm_parser::error::Error),
+    Parser(#[from] qdk_openqasm_parser::error::Error),
 }
 
-impl From<qsc_openqasm_parser::error::Error> for crate::Error {
-    fn from(error: qsc_openqasm_parser::error::Error) -> Self {
+impl From<qdk_openqasm_parser::error::Error> for crate::Error {
+    fn from(error: qdk_openqasm_parser::error::Error) -> Self {
         Self(ErrorKind::Parser(error))
     }
 }
@@ -253,10 +252,9 @@ pub struct QasmCompileUnit {
     /// The signature of the operation created from the QASM source code.
     /// None if the program type is `ProgramType::Fragments`.
     signature: Option<OperationSignature>,
-    /// The QIR profile used for the compilation.
-    /// This is used to determine the QIR profile that the generated code
-    /// will use.
-    profile: Profile,
+    /// The QIR profile for compilation, derived from pragmas.
+    /// Returns `None` if no profile pragma was specified in the `OpenQASM` source.
+    profile: Option<Profile>,
 }
 
 /// Represents a QASM compilation unit.
@@ -270,7 +268,7 @@ impl QasmCompileUnit {
         errors: Vec<WithSource<crate::Error>>,
         package: Package,
         signature: Option<OperationSignature>,
-        profile: Profile,
+        profile: Option<Profile>,
     ) -> Self {
         Self {
             source_map,
@@ -293,9 +291,9 @@ impl QasmCompileUnit {
         self.errors.clone()
     }
 
-    /// Returns the QIR target profile associated with the compilation unit.
+    /// Returns the optional QIR profile from `OpenQASM` pragmas.
     #[must_use]
-    pub fn profile(&self) -> Profile {
+    pub fn profile(&self) -> Option<Profile> {
         self.profile
     }
 
@@ -308,7 +306,7 @@ impl QasmCompileUnit {
         Vec<WithSource<crate::Error>>,
         Package,
         Option<OperationSignature>,
-        Profile,
+        Option<Profile>,
     ) {
         (
             self.source_map,

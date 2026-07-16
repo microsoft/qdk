@@ -151,7 +151,7 @@ fn indexing_a_bitarray_of_zero_size_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ZeroSizeArrayAccess
+        [Qdk.Qasm.Lowerer.ZeroSizeArrayAccess
 
           x zero size array access is not allowed
            ,-[Test.qasm:3:9]

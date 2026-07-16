@@ -1,0 +1,366 @@
+# Copyright (c) Microsoft Corporation.
+# Licensed under the MIT License.
+
+import json
+import os
+
+import pytest
+
+
+@pytest.fixture
+def qsharp():
+    from qdk import qsharp
+    import qdk._fs
+    import qdk._http
+
+    qdk._fs.read_file = read_file_memfs
+    qdk._fs.list_directory = list_directory_memfs
+    qdk._fs.exists = exists_memfs
+    qdk._fs.join = join_memfs
+    qdk._fs.resolve = resolve_memfs
+    qdk._http.fetch_github = fetch_github_test
+
+    return qsharp
+
+
+def test_project(qsharp) -> None:
+    qsharp.init(project_root="/good")
+    result = qsharp.eval("Test.ReturnsFour()")
+    assert result == 4
+
+
+def test_project_compile_error(qsharp) -> None:
+    with pytest.raises(Exception) as excinfo:
+        qsharp.init(project_root="/compile_error")
+    assert str(excinfo.value).startswith("Qdk.Qsc.TypeCk.TyMismatch")
+
+
+def test_project_bad_qsharp_json(qsharp) -> None:
+    with pytest.raises(Exception) as excinfo:
+        qsharp.init(project_root="/bad_qsharp_json")
+    assert str(excinfo.value).find("Failed to parse manifest") != -1
+
+
+def test_project_unreadable_qsharp_json(qsharp) -> None:
+    with pytest.raises(Exception) as excinfo:
+        qsharp.init(project_root="/unreadable_qsharp_json")
+    assert str(excinfo.value).startswith(
+        "Error reading /unreadable_qsharp_json/qsharp.json."
+    )
+
+
+def test_project_unreadable_source(qsharp) -> None:
+    with pytest.raises(Exception) as excinfo:
+        qsharp.init(project_root="/unreadable_source")
+    # If this seems like a silly substring to assert on, it's
+    # because the error reporting code is inserting a line break
+    # between "could not" and "read test.qs"
+    assert str(excinfo.value).find("OSError: could not") != -1
+
+
+def test_project_dependencies(qsharp) -> None:
+    qsharp.init(project_root="/with_deps")
+    result = qsharp.eval("Test.CallsDependency()")
+    assert result == 4
+
+
+def test_project_circular_dependency_error(qsharp) -> None:
+    with pytest.raises(Exception) as excinfo:
+        qsharp.init(project_root="/circular")
+    assert str(excinfo.value).find("Circular dependency detected between") != -1
+
+
+def test_github_dependency(qsharp) -> None:
+    qsharp.init(project_root="/with_github_dep")
+    result = qsharp.eval("Test.CallsDependency()")
+    assert result == 12
+
+
+def test_circuit(qsharp) -> None:
+    qsharp.init(project_root="/circuit")
+    result = qsharp.eval("Test.TestCircuit()")
+    assert result == qsharp.Result.Zero
+
+
+def test_import_circuit(qsharp) -> None:
+    import qdk
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit("/standalone/circuit.qsc")
+    assert circuit is ctx.code.circuit
+    assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
+    assert ctx.circuit(circuit) is not None
+
+
+def test_import_circuit_from_multiple_circuit_file(qsharp) -> None:
+    import qdk
+
+    ctx = qdk.Context()
+    first_circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc", name="FirstCircuit"
+    )
+    assert first_circuit is ctx.code.FirstCircuit
+
+    second_circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc", index=1, name="SecondCircuit"
+    )
+
+    assert second_circuit is ctx.code.SecondCircuit
+    assert ctx.run(first_circuit, 1) == [qsharp.Result.Zero]
+    assert ctx.run(second_circuit, 1) == [qsharp.Result.One]
+
+
+def test_import_circuit_as_operation(qsharp) -> None:
+    import qdk
+    from qdk import ProgramType
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit(
+        "/standalone/circuit.qsc", program_type=ProgramType.Operation
+    )
+    assert circuit is ctx.code.circuit
+    assert ctx.run("{ use qs = Qubit[1]; circuit(qs) }", 1) == [qsharp.Result.Zero]
+
+
+def test_import_circuit_as_operation_from_multiple_circuit_file(qsharp) -> None:
+    import qdk
+    from qdk import ProgramType
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit(
+        "/standalone/multiple_circuits.qsc",
+        index=1,
+        name="MultiCircuit",
+        program_type=ProgramType.Operation,
+    )
+
+    assert circuit is ctx.code.MultiCircuit1
+    assert ctx.run(
+        "{ use qs = Qubit[1]; MultiCircuit1(qs); let result = M(qs[0]); Reset(qs[0]); result }",
+        1,
+    ) == [qsharp.Result.One]
+
+
+def test_import_circuit_with_name_override(qsharp) -> None:
+    import qdk
+
+    ctx = qdk.Context()
+    circuit = ctx.import_circuit("/standalone/circuit.qsc", name="NamedCircuit")
+    assert circuit is ctx.code.NamedCircuit
+    assert ctx.run(circuit, 1) == [qsharp.Result.Zero]
+    assert ctx.circuit(circuit) is not None
+
+
+def test_src_package_udt(qsharp) -> None:
+    import qdk.code
+
+    qsharp.init(project_root="/src_package_udt")
+    arg = qdk.code.Test.Data(42)
+    result = qsharp.run(qdk.code.Test.Op, 1, arg)
+    assert result == [42]
+
+
+with open(
+    os.path.join(os.path.dirname(__file__), "circuit.qsc"), "r", encoding="utf-8"
+) as f:
+    circuit_qsc_contents = f.read()
+
+multiple_circuits = json.loads(circuit_qsc_contents)
+second_circuit = json.loads(circuit_qsc_contents)["circuits"][0]
+second_circuit["componentGrid"].insert(
+    0,
+    {
+        "components": [
+            {
+                "kind": "unitary",
+                "gate": "X",
+                "targets": [{"qubit": 0}],
+            }
+        ]
+    },
+)
+multiple_circuits["circuits"].append(second_circuit)
+multiple_circuits_qsc_contents = json.dumps(multiple_circuits)
+
+memfs = {
+    "": {
+        "good": {
+            "src": {
+                "test.qs": "namespace Test { operation ReturnsFour() : Int { 4 } export ReturnsFour; }",
+            },
+            "qsharp.json": "{}",
+        },
+        "src_package_udt": {
+            "src": {
+                "test.qs": "namespace Test { struct Data { value : Int } operation Op(data : Data) : Int { data.value } }"
+            },
+            "qsharp.json": "{}",
+        },
+        "bad_qsharp_json": {"qsharp.json": "BAD_JSON_CONTENTS"},
+        "unreadable_qsharp_json": {
+            "qsharp.json": OSError("could not read qsharp.json")
+        },
+        "unreadable_source": {
+            "src": {
+                "test.qs": OSError("could not read test.qs"),
+            },
+            "qsharp.json": "{}",
+        },
+        "compile_error": {
+            "src": {
+                "test.qs": "namespace Test { operation ReturnsFour() : Int { 4.0 } }",
+            },
+            "qsharp.json": "{}",
+        },
+        "with_deps": {
+            "src": {
+                "test.qs": "namespace Test { operation CallsDependency() : Int { return Foo.Test.ReturnsFour(); } }",
+            },
+            "qsharp.json": """
+                {
+                    "dependencies": {
+                        "Foo": {
+                            "path": "../good"
+                        }
+                    }
+                }""",
+        },
+        "circular": {
+            "src": {
+                "test.qs": "namespace Test {}",
+            },
+            "qsharp.json": """
+                {
+                    "dependencies": {
+                        "Foo": {
+                            "path": "../circular"
+                        }
+                    }
+                }""",
+        },
+        "with_github_dep": {
+            "src": {
+                "test.qs": "namespace Test { operation CallsDependency() : Int { return Foo.Test.ReturnsTwelve(); } }",
+            },
+            "qsharp.json": """
+                {
+                    "dependencies": {
+                        "Foo": {
+                            "github" : {
+                                "owner" : "test-owner",
+                                "repo" : "test-repo",
+                                "ref" : "12345"
+                            }
+                        }
+                    }
+                }""",
+        },
+        "circuit": {
+            "src": {
+                "test.qs": "namespace Test {"
+                "    import circuit.circuit;"
+                "    operation TestCircuit() : Result {"
+                "        use qs = Qubit[2];"
+                "        let result = circuit(qs);"
+                "        ResetAll(qs);"
+                "        result"
+                "    }"
+                "}",
+                "circuit.qsc": circuit_qsc_contents,
+            },
+            "qsharp.json": "{}",
+        },
+        "standalone": {
+            "circuit.qsc": circuit_qsc_contents,
+            "multiple_circuits.qsc": multiple_circuits_qsc_contents,
+        },
+    }
+}
+
+
+def fetch_github_test(owner: str, repo: str, ref: str, path: str):
+    if (
+        owner == "test-owner"
+        and repo == "test-repo"
+        and ref == "12345"
+        and path == "/qsharp.json"
+    ):
+        return """{ "files" : ["src/test.qs"] }"""
+    if (
+        owner == "test-owner"
+        and repo == "test-repo"
+        and ref == "12345"
+        and path == "/src/test.qs"
+    ):
+        return "namespace Test { operation ReturnsTwelve() : Int { 12 } export ReturnsTwelve;}"
+    raise Exception(f"Unexpected fetch_github call: {owner}, {repo}, {ref}, {path}")
+
+
+def read_file_memfs(path):
+    global memfs
+    item = memfs
+    for part in path.split("/"):
+        if part in item:
+            if isinstance(item[part], OSError):
+                raise item[part]
+            else:
+                item = item[part]
+        else:
+            raise Exception("File not found: " + path)
+
+    return (path, item)
+
+
+def list_directory_memfs(dir_path):
+    global memfs
+    item = memfs
+    for part in dir_path.split("/"):
+        if part in item:
+            item = item[part]
+        else:
+            raise Exception("Directory not found: " + dir_path)
+
+    contents = list(
+        map(
+            lambda x: {
+                "path": join_memfs(dir_path, x[0]),
+                "entry_name": x[0],
+                "type": "folder" if isinstance(x[1], dict) else "file",
+            },
+            item.items(),
+        )
+    )
+
+    return contents
+
+
+def exists_memfs(path):
+    global memfs
+    parts = path.split("/")
+    item = memfs
+    for part in parts:
+        if part in item:
+            item = item[part]
+        else:
+            return False
+
+    return True
+
+
+# The below functions force the use of `/` separators in the unit tests
+# so that they function on Windows consistently with other platforms.
+def join_memfs(path, *paths):
+    return "/".join([path, *paths])
+
+
+def resolve_memfs(base, path):
+    parts = f"{base}/{path}".split("/")
+    new_parts = []
+    for part in parts:
+        if part == ".":
+            continue
+        if part == "..":
+            new_parts.pop()
+            continue
+        new_parts.append(part)
+    return "/".join(new_parts)

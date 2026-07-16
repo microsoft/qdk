@@ -9,11 +9,10 @@ use qdk_simulators::{
     noise_config::{CumulativeNoiseConfig, NoiseConfig},
     stabilizer_simulator::{
         StabilizerSimulator,
-        noise::Fault,
         operation::{Operation, cz, h, id, mov, mz, s, x, y, z},
     },
 };
-use rand::{SeedableRng, distributions::Uniform, prelude::Distribution, rngs::StdRng};
+use rand::{SeedableRng, distr::Uniform, prelude::Distribution, rngs::StdRng};
 use std::hint::black_box;
 use std::sync::Arc;
 
@@ -21,12 +20,12 @@ const SEED: u32 = 1000;
 const NUM_QUBITS: usize = 1_224;
 
 fn random_qubit(rng: &mut StdRng) -> QubitID {
-    let distr = Uniform::new(0, usize::MAX);
+    let distr = Uniform::new(0, usize::MAX).expect("valid range");
     distr.sample(rng) % NUM_QUBITS
 }
 
 fn gate(rng: &mut StdRng) -> Operation {
-    let distr = Uniform::new(0, usize::MAX);
+    let distr = Uniform::new(0, usize::MAX).expect("valid range");
     let gate = distr.sample(rng) % 8;
 
     match gate {
@@ -57,8 +56,7 @@ fn random_gates(num_gates: usize) -> Vec<Operation> {
 fn sim_1k_gates(c: &mut Criterion) {
     const NUM_GATES: usize = 1_000;
     let gates = random_gates(NUM_GATES);
-    let noise: Arc<CumulativeNoiseConfig<Fault>> =
-        Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
+    let noise: Arc<CumulativeNoiseConfig> = Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
     c.bench_function("1k gates", |b| {
         b.iter(|| {
             let mut simulator =
@@ -71,8 +69,7 @@ fn sim_1k_gates(c: &mut Criterion) {
 fn sim_20k_gates(c: &mut Criterion) {
     const NUM_GATES: usize = 20_000;
     let gates = random_gates(NUM_GATES);
-    let noise: Arc<CumulativeNoiseConfig<Fault>> =
-        Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
+    let noise: Arc<CumulativeNoiseConfig> = Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
     c.bench_function("20k gates", |b| {
         b.iter(|| {
             let mut simulator =
@@ -85,8 +82,7 @@ fn sim_20k_gates(c: &mut Criterion) {
 fn sim_1m_gates(c: &mut Criterion) {
     const NUM_GATES: usize = 1_000_000;
     let gates = random_gates(NUM_GATES);
-    let noise: Arc<CumulativeNoiseConfig<Fault>> =
-        Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
+    let noise: Arc<CumulativeNoiseConfig> = Arc::new(<NoiseConfig<f64, f64>>::NOISELESS.into());
     c.bench_function("1m gates", |b| {
         b.iter(|| {
             let mut simulator =

@@ -10,6 +10,7 @@ use std::{
 
 fn main() {
     create_tests_for_files("algorithms");
+    create_tests_for_files("algorithms/Ising");
     create_tests_for_files("getting_started");
     create_tests_for_files("language");
     create_tests_for_files_compile_only("estimation");
@@ -22,8 +23,9 @@ fn create_tests_for_files(folder: &str) {
     // Iterate through the folder and create a test for each qs file
     let mut paths =
         read_dir(format!("../../samples/{folder}")).expect("folder should exist and be readable");
+    let folder_name = folder.replace('/', "_");
     let out_dir = "./src/tests";
-    let dest_path = Path::new(&out_dir).join(format!("{folder}_generated.rs"));
+    let dest_path = Path::new(&out_dir).join(format!("{folder_name}_generated.rs"));
     let mut f = File::create(dest_path).expect("files should be creatable in ./src/tests");
 
     writeln!(
@@ -35,9 +37,10 @@ fn create_tests_for_files(folder: &str) {
 //! This build-generated module contains tests for the samples in the `/samples/{folder}` folder.
 //! DO NOT MANUALLY EDIT THIS FILE. To regenerate this file, run `cargo check` or `cargo test` in the `samples_test` directory.
 
-use super::{folder}::*;
+use super::{folder_name}::*;
 use super::{{compile_and_run, compile_and_run_debug, circuit, qirgen}};
-use qsc::SourceMap;"#,
+use qsc::SourceMap;
+use qsc::target::Profile;"#,
     )
     .expect("writing to file should succeed");
 
@@ -77,7 +80,7 @@ fn {file_stem}_src() -> SourceMap {{
 #[test]
 fn run_{file_stem}() {{
     let output = compile_and_run({file_stem}_src());
-    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // This constant must be defined in `samples_test/src/tests/{folder_name}.rs` and
     // must contain the output of the sample {file_name}
     {file_stem_upper}_EXPECT.assert_eq(&output);
 }}
@@ -86,7 +89,7 @@ fn run_{file_stem}() {{
 #[test]
 fn debug_{file_stem}() {{
     let output = compile_and_run_debug({file_stem}_src());
-    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // This constant must be defined in `samples_test/src/tests/{folder_name}.rs` and
     // must contain the output of the sample {file_name}
     {file_stem_upper}_EXPECT_DEBUG.assert_eq(&output);
 }}
@@ -95,18 +98,27 @@ fn debug_{file_stem}() {{
 #[test]
 fn circuit_{file_stem}() {{
     let circuit = circuit({file_stem}_src());
-    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // This constant must be defined in `samples_test/src/tests/{folder_name}.rs` and
     // must contain the circuit for the sample {file_name}
     {file_stem_upper}_EXPECT_CIRCUIT.assert_eq(&circuit);
 }}
 
 #[allow(non_snake_case)]
 #[test]
-fn qirgen_{file_stem}() {{
-    let qir = qirgen({file_stem}_src());
-    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+fn qirgen_adaptive_rif_{file_stem}() {{
+    let qir = qirgen({file_stem}_src(), Profile::AdaptiveRIF);
+    // This constant must be defined in `samples_test/src/tests/{folder_name}.rs` and
     // must contain the QIR for the sample {file_name}
-    {file_stem_upper}_EXPECT_QIR.assert_eq(&qir);
+    {file_stem_upper}_EXPECT_QIR_ADAPTIVE_RIF.assert_eq(&qir);
+}}
+
+#[allow(non_snake_case)]
+#[test]
+fn qirgen_adaptive_{file_stem}() {{
+    let qir = qirgen({file_stem}_src(), Profile::Adaptive);
+    // This constant must be defined in `samples_test/src/tests/{folder_name}.rs` and
+    // must contain the QIR for the sample {file_name}
+    {file_stem_upper}_EXPECT_QIR_ADAPTIVE.assert_eq(&qir);
 }}"#
         )
         .expect("writing to file should succeed");
@@ -284,7 +296,8 @@ fn create_tests_for_qasm_files(folder: &str) {
 //! DO NOT MANUALLY EDIT THIS FILE. To regenerate this file, run `cargo check` or `cargo test` in the `samples_test` directory.
 
 use super::{folder}::*;
-use super::{{compile_and_run_qasm, compile_and_run_debug_qasm, circuit_qasm, qirgen_qasm}};"#,
+use super::{{compile_and_run_qasm, compile_and_run_debug_qasm, circuit_qasm, qirgen_qasm}};
+use qsc::target::Profile;"#,
     )
     .expect("writing to file should succeed");
 
@@ -346,11 +359,20 @@ fn circuit_{file_stem}() {{
 
 #[allow(non_snake_case)]
 #[test]
-fn qirgen_{file_stem}() {{
-    let qir = qirgen_qasm({file_stem}_src());
+fn qirgen_adaptive_rif_{file_stem}() {{
+    let qir = qirgen_qasm({file_stem}_src(), Profile::AdaptiveRIF);
     // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
     // must contain the output of the sample {file_name}
-    {file_stem_upper}_EXPECT_QIR.assert_eq(&qir);
+    {file_stem_upper}_EXPECT_QIR_ADAPTIVE_RIF.assert_eq(&qir);
+}}
+
+#[allow(non_snake_case)]
+#[test]
+fn qirgen_adaptive_{file_stem}() {{
+    let qir = qirgen_qasm({file_stem}_src(), Profile::Adaptive);
+    // This constant must be defined in `samples_test/src/tests/{folder}.rs` and
+    // must contain the output of the sample {file_name}
+    {file_stem_upper}_EXPECT_QIR_ADAPTIVE.assert_eq(&qir);
 }}"#
         )
         .expect("writing to file should succeed");

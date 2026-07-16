@@ -26,13 +26,14 @@ qsc_linter = { path = "../qsc_linter" }
 qsc_lowerer = { path = "../qsc_lowerer" }
 qsc_ast = { path = "../qsc_ast" }
 qsc_fir = { path = "../qsc_fir" }
+qsc_fir_transforms = { path = "../qsc_fir_transforms" }
 qsc_hir = { path = "../qsc_hir" }
 qsc_passes = { path = "../qsc_passes" }
 qsc_parse = { path = "../qsc_parse" }
 qsc_partial_eval = { path = "../qsc_partial_eval" }
 qsc_project = { path = "../qsc_project", features = ["fs"] }
 qsc_openqasm_compiler = { path = "../qsc_openqasm_compiler" }
-qsc_openqasm_parser = { path = "../qsc_openqasm_parser" }
+qdk_openqasm_parser = { path = "../../qdk_openqasm_parser", features = ["internal"] }
 qsc_rca = { path = "../qsc_rca" }
 qsc_circuit = { path = "../qsc_circuit" }
 rustc-hash = { workspace = true }

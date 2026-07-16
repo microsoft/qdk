@@ -12,7 +12,7 @@ fn logical_and_literals() {
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     expect!["  %var_0 = and i1 true, false"].assert_eq(&inst.to_qir(&rir::Program::default()));
@@ -23,15 +23,15 @@ fn logical_and_variables() {
     let inst = rir::Instruction::LogicalAnd(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         }),
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(2),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         }),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     expect!["  %var_0 = and i1 %var_1, %var_2"].assert_eq(&inst.to_qir(&rir::Program::default()));
@@ -43,7 +43,7 @@ fn logical_not_true_literal() {
         rir::Operand::Literal(rir::Literal::Bool(true)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     expect!["  %var_0 = xor i1 true, true"].assert_eq(&inst.to_qir(&rir::Program::default()));
@@ -54,11 +54,11 @@ fn logical_not_variables() {
     let inst = rir::Instruction::LogicalNot(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         }),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     expect!["  %var_0 = xor i1 %var_1, true"].assert_eq(&inst.to_qir(&rir::Program::default()));
@@ -70,7 +70,7 @@ fn logical_not_false_literal() {
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     expect!["  %var_0 = xor i1 false, true"].assert_eq(&inst.to_qir(&rir::Program::default()));
@@ -83,7 +83,7 @@ fn logical_or_literals() {
         rir::Operand::Literal(rir::Literal::Bool(false)),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     expect!["  %var_0 = or i1 true, false"].assert_eq(&inst.to_qir(&rir::Program::default()));
@@ -94,15 +94,15 @@ fn logical_or_variables() {
     let inst = rir::Instruction::LogicalOr(
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(1),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         }),
         rir::Operand::Variable(rir::Variable {
             variable_id: rir::VariableId(2),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         }),
         rir::Variable {
             variable_id: rir::VariableId(0),
-            ty: rir::Ty::Boolean,
+            ty: rir::Ty::Prim(rir::Prim::Boolean),
         },
     );
     expect!["  %var_0 = or i1 %var_1, %var_2"].assert_eq(&inst.to_qir(&rir::Program::default()));

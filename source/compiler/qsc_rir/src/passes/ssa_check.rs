@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use qsc_data_structures::index_map::IndexMap;
+use rustc_hash::FxHashSet;
 
 use crate::{
     rir::{BlockId, Instruction, Operand, Program, VariableId},
@@ -26,8 +27,28 @@ pub fn check_ssa_form(
     let variable_assignments = get_variable_assignments(program);
     let variable_uses = get_variable_uses(program);
 
+    // Program.blocks is a single flat arena holding the blocks of every bodied callable, and SSA is
+    // formed independently per body. A callable's input parameters are live-in definitions on entry
+    // to its body: they have no defining instruction but are available from the first instruction and
+    // dominate every block in the body. Collect them so a parameter use is not mistaken for a use of
+    // an unassigned variable.
+    let mut parameter_defs = FxHashSet::default();
+    for callable_id in program.all_callable_ids() {
+        let callable = program.get_callable(callable_id);
+        if callable.body.is_none() {
+            continue;
+        }
+        for &input_var in &callable.input_vars {
+            parameter_defs.insert(input_var);
+        }
+    }
+
     for (var_id, uses) in variable_uses.iter() {
         let Some((def_block_id, def_idx)) = variable_assignments.get(var_id) else {
+            // A live-in parameter dominates its entire body, so every use within the body is valid.
+            if parameter_defs.contains(&var_id) {
+                continue;
+            }
             panic!("{var_id:?} is used but not assigned");
         };
         for (use_block_id, use_idx) in uses {
@@ -133,6 +154,8 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 | Instruction::Fmul(Operand::Literal(_), Operand::Variable(var), _)
                 | Instruction::Fdiv(Operand::Variable(var), Operand::Literal(_), _)
                 | Instruction::Fdiv(Operand::Literal(_), Operand::Variable(var), _)
+                | Instruction::Frem(Operand::Variable(var), Operand::Literal(_), _)
+                | Instruction::Frem(Operand::Literal(_), Operand::Variable(var), _)
                 | Instruction::Fcmp(_, Operand::Variable(var), Operand::Literal(_), _)
                 | Instruction::Fcmp(_, Operand::Literal(_), Operand::Variable(var), _)
                 | Instruction::Icmp(_, Operand::Variable(var), Operand::Literal(_), _)
@@ -166,6 +189,7 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 | Instruction::Fsub(Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::Fmul(Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::Fdiv(Operand::Variable(var1), Operand::Variable(var2), _)
+                | Instruction::Frem(Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::Fcmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::Icmp(_, Operand::Variable(var1), Operand::Variable(var2), _)
                 | Instruction::LogicalAnd(Operand::Variable(var1), Operand::Variable(var2), _)
@@ -208,6 +232,7 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 | Instruction::Fsub(Operand::Literal(_), Operand::Literal(_), _)
                 | Instruction::Fmul(Operand::Literal(_), Operand::Literal(_), _)
                 | Instruction::Fdiv(Operand::Literal(_), Operand::Literal(_), _)
+                | Instruction::Frem(Operand::Literal(_), Operand::Literal(_), _)
                 | Instruction::Fcmp(_, Operand::Literal(_), Operand::Literal(_), _)
                 | Instruction::Icmp(_, Operand::Literal(_), Operand::Literal(_), _)
                 | Instruction::LogicalNot(Operand::Literal(_), _)
@@ -221,13 +246,13 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                     panic!("{block_id:?}, instruction {idx} has no variables: {instr}")
                 }
 
-                Instruction::Jump(..) | Instruction::Return => {}
+                Instruction::Jump(..) | Instruction::Return(..) => {}
 
                 Instruction::Store(..) => {
                     panic!("Unexpected Store at {block_id:?}, instruction {idx}")
                 }
 
-                Instruction::Alloca(..) | Instruction::Load(..) => {
+                Instruction::Alloca(..) | Instruction::Load(..) | Instruction::Index(..) => {
                     panic!("Unexpected advanced instruction at {block_id:?}, instruction {idx}")
                 }
             }

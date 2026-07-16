@@ -234,7 +234,7 @@ fn barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         c[0] = measure q[0];
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -278,7 +278,7 @@ fn barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
-    .assert_eq(&qsharp);
+    .assert_eq(&qir);
     Ok(())
 }
 
@@ -313,7 +313,7 @@ fn cx_called_with_one_qubit_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 1 were provided
            ,-[Test.qasm:4:9]
@@ -339,7 +339,7 @@ fn cx_called_with_too_many_qubits_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 3 were provided
            ,-[Test.qasm:4:9]
@@ -365,7 +365,7 @@ fn rx_gate_with_no_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 0 were provided
            ,-[Test.qasm:4:9]
@@ -412,7 +412,7 @@ fn rx_gate_with_too_many_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 2 were provided
            ,-[Test.qasm:4:9]
@@ -442,6 +442,228 @@ fn implicit_cast_to_angle_works() -> miette::Result<(), Vec<Report>> {
         rx(Std.OpenQASM.Angle.DoubleAsAngle(a, 53), q);
     "#]]
     .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn custom_gate_with_angle_parameter_generates_qir_adaptive_rif() -> miette::Result<(), Vec<Report>>
+{
+    let source = r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        #pragma qdk.qir.profile Adaptive_RIF
+        gate phase_by(theta) q {
+            rz(theta) q;
+        }
+        qubit q;
+        output bit c;
+        phase_by(1.0) q;
+        c = measure q;
+    "#;
+
+    let qir = compile_qasm_to_qir(source)?;
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
+
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__rz__body(double 1.0000000000000002, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__rz__body(double, %Qubit*)
+
+        declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
+
+        declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+    "#]]
+    .assert_eq(&qir);
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        OPENQASM 3.0;
+        include "stdgates.inc";
+        #pragma qdk.qir.profile Adaptive
+        gate phase_by(theta) q {
+            rz(theta) q;
+        }
+        qubit q;
+        output bit c;
+        phase_by(1.0) q;
+        c = measure q;
+    "#;
+
+    let qir = compile_qasm_to_qir(source)?;
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_t\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          call void @phase_by(i64 1433540284805665, i64 53, ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__tuple_record_output(i64 0, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        define void @phase_by(i64 %var_0, i64 %var_1, ptr %var_2) {
+        block_1:
+          call void @rz(i64 %var_0, i64 %var_1, ptr %var_2)
+          ret void
+        }
+
+        define void @rz(i64 %var_3, i64 %var_4, ptr %var_5) {
+        block_2:
+          %var_42 = call double @AngleAsDouble(i64 %var_3, i64 %var_4)
+          call void @Rz(double %var_42, ptr %var_5)
+          ret void
+        }
+
+        define double @AngleAsDouble(i64 %var_6, i64 %var_7) {
+        block_3:
+          %var_9 = alloca i64
+          %var_14 = alloca i64
+          %var_19 = alloca i64
+          %var_21 = alloca i64
+          %var_23 = alloca i1
+          %var_25 = alloca i1
+          %var_28 = alloca i64
+          %var_30 = alloca i64
+          %var_32 = alloca i64
+          %var_8 = icmp sgt i64 %var_7, 53
+          br i1 %var_8, label %block_4, label %block_5
+        block_4:
+          %var_10 = sub i64 %var_7, 53
+          %var_12 = sub i64 %var_10, 1
+          %var_13 = shl i64 1, %var_12
+          store i64 %var_13, ptr %var_14
+          %var_15 = shl i64 1, %var_10
+          %var_16 = sub i64 %var_15, 1
+          %var_18 = and i64 %var_6, %var_16
+          store i64 %var_18, ptr %var_19
+          %var_20 = ashr i64 %var_6, %var_10
+          store i64 %var_20, ptr %var_21
+          %var_53 = load i64, ptr %var_19
+          %var_54 = load i64, ptr %var_14
+          %var_22 = icmp sgt i64 %var_53, %var_54
+          store i1 true, ptr %var_23
+          br i1 %var_22, label %block_9, label %block_6
+        block_5:
+          store i64 %var_6, ptr %var_9
+          br label %block_13
+        block_6:
+          %var_56 = load i64, ptr %var_19
+          %var_57 = load i64, ptr %var_14
+          %var_24 = icmp eq i64 %var_56, %var_57
+          store i1 false, ptr %var_25
+          br i1 %var_24, label %block_7, label %block_8
+        block_7:
+          %var_68 = load i64, ptr %var_21
+          %var_26 = and i64 %var_68, 1
+          %var_27 = icmp eq i64 %var_26, 1
+          store i1 %var_27, ptr %var_25
+          br label %block_8
+        block_8:
+          %var_59 = load i1, ptr %var_25
+          store i1 %var_59, ptr %var_23
+          br label %block_9
+        block_9:
+          %var_61 = load i1, ptr %var_23
+          br i1 %var_61, label %block_10, label %block_11
+        block_10:
+          %var_66 = load i64, ptr %var_21
+          %var_29 = add i64 %var_66, 1
+          store i64 %var_29, ptr %var_28
+          br label %block_12
+        block_11:
+          %var_62 = load i64, ptr %var_21
+          store i64 %var_62, ptr %var_28
+          br label %block_12
+        block_12:
+          %var_64 = load i64, ptr %var_28
+          store i64 %var_64, ptr %var_9
+          br label %block_13
+        block_13:
+          %var_44 = load i64, ptr %var_9
+          store i64 %var_44, ptr %var_30
+          %var_31 = icmp sgt i64 %var_7, 53
+          br i1 %var_31, label %block_14, label %block_15
+        block_14:
+          store i64 53, ptr %var_32
+          br label %block_16
+        block_15:
+          store i64 %var_7, ptr %var_32
+          br label %block_16
+        block_16:
+          %var_47 = load i64, ptr %var_32
+          %var_34 = shl i64 1, %var_47
+          %var_35 = sitofp i64 %var_34 to double
+          %var_48 = load i64, ptr %var_30
+          %var_37 = sitofp i64 %var_48 to double
+          %var_39 = fdiv double 6.283185307179586, %var_35
+          %var_41 = fmul double %var_37, %var_39
+          ret double %var_41
+        }
+
+        define void @Rz(double %var_44, ptr %var_45) {
+        block_17:
+          call void @__quantum__qis__rz__body(double %var_44, ptr %var_45)
+          ret void
+        }
+
+        declare void @__quantum__qis__rz__body(double, ptr)
+
+        declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+        declare void @__quantum__rt__tuple_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]]
+    .assert_eq(&qir);
     Ok(())
 }
 
@@ -545,7 +767,7 @@ fn custom_gate_can_be_called_with_negctrl_modifier() -> miette::Result<(), Vec<R
     let qsharp = compile_qasm_to_qsharp(source)?;
     expect![[r#"
         import Std.OpenQASM.Intrinsic.*;
-        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Ctl {
+        operation my_gate(q1 : Qubit, q2 : Qubit) : Unit is Adj + Ctl {
             h(q1);
             h(q2);
         }
@@ -600,7 +822,7 @@ fn simulatable_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<
         bit result = measure q;
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -636,7 +858,7 @@ fn simulatable_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
-    "#]].assert_eq(&qsharp);
+    "#]].assert_eq(&qir);
     Ok(())
 }
 
@@ -656,7 +878,7 @@ fn qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<(), 
         bit result = measure q;
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -692,7 +914,7 @@ fn qdk_qir_intrinsic_on_gate_stmt_generates_correct_qir() -> miette::Result<(), 
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
-    "#]].assert_eq(&qsharp);
+    "#]].assert_eq(&qir);
     Ok(())
 }
 
@@ -751,6 +973,435 @@ fn rzz_gate_with_one_angle_can_be_called() -> miette::Result<(), Vec<Report>> {
             Value = 2867080569611330,
             Size = 53
         }, q[1], q[0]);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+#[test]
+fn all_stdgates_inc_gates_can_be_called() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[3] q;
+        // main gate definitions
+        p(1.0) q[0];
+        x q[0];
+        y q[0];
+        z q[0];
+        h q[0];
+        s q[0];
+        sdg q[0];
+        t q[0];
+        tdg q[0];
+        sx q[0];
+        rx(1.0) q[0];
+        ry(1.0) q[0];
+        rz(1.0) q[0];
+        cx q[0], q[1];
+        cy q[0], q[1];
+        cz q[0], q[1];
+        cp(1.0) q[0], q[1];
+        crx(1.0) q[0], q[1];
+        cry(1.0) q[0], q[1];
+        crz(1.0) q[0], q[1];
+        ch q[0], q[1];
+        swap q[0], q[1];
+        ccx q[0], q[1], q[2];
+        cswap q[0], q[1], q[2];
+        cu(1.0, 2.0, 3.0, 4.0) q[0], q[1];
+        // OpenQASM 2.0 backwards compatibility gates
+        CX q[0], q[1];
+        phase(1.0) q[0];
+        cphase(1.0) q[0], q[1];
+        id q[0];
+        u1(1.0) q[0];
+        u2(1.0, 2.0) q[0];
+        u3(1.0, 2.0, 3.0) q[0];
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        borrow q = Qubit[3];
+        p(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        x(q[0]);
+        y(q[0]);
+        z(q[0]);
+        h(q[0]);
+        s(q[0]);
+        sdg(q[0]);
+        t(q[0]);
+        tdg(q[0]);
+        sx(q[0]);
+        rx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        ry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        rz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        cx(q[0], q[1]);
+        cy(q[0], q[1]);
+        cz(q[0], q[1]);
+        cp(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        crx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        cry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        crz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        ch(q[0], q[1]);
+        swap(q[0], q[1]);
+        ccx(q[0], q[1], q[2]);
+        cswap(q[0], q[1], q[2]);
+        cu(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 5734161139222659,
+            Size = 53
+        }, q[0], q[1]);
+        CX(q[0], q[1]);
+        phase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        cphase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        id(q[0]);
+        u1(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        u2(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, q[0]);
+        u3(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, q[0]);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+#[test]
+fn all_stdgates_inc_gates_adjoint_can_be_called() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[3] q;
+        // main gate definitions
+        inv @ p(1.0) q[0];
+        inv @ x q[0];
+        inv @ y q[0];
+        inv @ z q[0];
+        inv @ h q[0];
+        inv @ s q[0];
+        inv @ sdg q[0];
+        inv @ t q[0];
+        inv @ tdg q[0];
+        inv @ sx q[0];
+        inv @ rx(1.0) q[0];
+        inv @ ry(1.0) q[0];
+        inv @ rz(1.0) q[0];
+        inv @ cx q[0], q[1];
+        inv @ cy q[0], q[1];
+        inv @ cz q[0], q[1];
+        inv @ cp(1.0) q[0], q[1];
+        inv @ crx(1.0) q[0], q[1];
+        inv @ cry(1.0) q[0], q[1];
+        inv @ crz(1.0) q[0], q[1];
+        inv @ ch q[0], q[1];
+        inv @ swap q[0], q[1];
+        inv @ ccx q[0], q[1], q[2];
+        inv @ cswap q[0], q[1], q[2];
+        inv @ cu(1.0, 2.0, 3.0, 4.0) q[0], q[1];
+        // OpenQASM 2.0 backwards compatibility gates
+        inv @ CX q[0], q[1];
+        inv @ phase(1.0) q[0];
+        inv @ cphase(1.0) q[0], q[1];
+        inv @ id q[0];
+        inv @ u1(1.0) q[0];
+        inv @ u2(1.0, 2.0) q[0];
+        inv @ u3(1.0, 2.0, 3.0) q[0];
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        borrow q = Qubit[3];
+        Adjoint p(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint x(q[0]);
+        Adjoint y(q[0]);
+        Adjoint z(q[0]);
+        Adjoint h(q[0]);
+        Adjoint s(q[0]);
+        Adjoint sdg(q[0]);
+        Adjoint t(q[0]);
+        Adjoint tdg(q[0]);
+        Adjoint sx(q[0]);
+        Adjoint rx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint ry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint rz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint cx(q[0], q[1]);
+        Adjoint cy(q[0], q[1]);
+        Adjoint cz(q[0], q[1]);
+        Adjoint cp(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint crx(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint cry(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint crz(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint ch(q[0], q[1]);
+        Adjoint swap(q[0], q[1]);
+        Adjoint ccx(q[0], q[1], q[2]);
+        Adjoint cswap(q[0], q[1], q[2]);
+        Adjoint cu(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 5734161139222659,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint CX(q[0], q[1]);
+        Adjoint phase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint cphase(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0], q[1]);
+        Adjoint id(q[0]);
+        Adjoint u1(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[0]);
+        Adjoint u2(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, q[0]);
+        Adjoint u3(new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, q[0]);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[allow(clippy::too_many_lines)]
+#[test]
+fn all_stdgates_inc_gates_controlled_can_be_called() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[4] q;
+        // main gate definitions
+        ctrl @ p(1.0) q[0], q[1];
+        ctrl @ x q[0], q[1];
+        ctrl @ y q[0], q[1];
+        ctrl @ z q[0], q[1];
+        ctrl @ h q[0], q[1];
+        ctrl @ s q[0], q[1];
+        ctrl @ sdg q[0], q[1];
+        ctrl @ t q[0], q[1];
+        ctrl @ tdg q[0], q[1];
+        ctrl @ sx q[0], q[1];
+        ctrl @ rx(1.0) q[0], q[1];
+        ctrl @ ry(1.0) q[0], q[1];
+        ctrl @ rz(1.0) q[0], q[1];
+        ctrl @ cx q[0], q[1], q[2];
+        ctrl @ cy q[0], q[1], q[2];
+        ctrl @ cz q[0], q[1], q[2];
+        ctrl @ cp(1.0) q[0], q[1], q[2];
+        ctrl @ crx(1.0) q[0], q[1], q[2];
+        ctrl @ cry(1.0) q[0], q[1], q[2];
+        ctrl @ crz(1.0) q[0], q[1], q[2];
+        ctrl @ ch q[0], q[1], q[2];
+        ctrl @ swap q[0], q[1], q[2];
+        ctrl @ ccx q[0], q[1], q[2], q[3];
+        ctrl @ cswap q[0], q[1], q[2], q[3];
+        ctrl @ cu(1.0, 2.0, 3.0, 4.0) q[0], q[1], q[2];
+        // OpenQASM 2.0 backwards compatibility gates
+        ctrl @ CX q[0], q[1], q[2];
+        ctrl @ phase(1.0) q[0], q[1];
+        ctrl @ cphase(1.0) q[0], q[1], q[2];
+        ctrl @ id q[0], q[1];
+        ctrl @ u1(1.0) q[0], q[1];
+        ctrl @ u2(1.0, 2.0) q[0], q[1];
+        ctrl @ u3(1.0, 2.0, 3.0) q[0], q[1];
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        borrow q = Qubit[4];
+        Controlled p([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled x([q[0]], q[1]);
+        Controlled y([q[0]], q[1]);
+        Controlled z([q[0]], q[1]);
+        Controlled h([q[0]], q[1]);
+        Controlled s([q[0]], q[1]);
+        Controlled sdg([q[0]], q[1]);
+        Controlled t([q[0]], q[1]);
+        Controlled tdg([q[0]], q[1]);
+        Controlled sx([q[0]], q[1]);
+        Controlled rx([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled ry([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled rz([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled cx([q[0]], (q[1], q[2]));
+        Controlled cy([q[0]], (q[1], q[2]));
+        Controlled cz([q[0]], (q[1], q[2]));
+        Controlled cp([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled crx([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled cry([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled crz([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled ch([q[0]], (q[1], q[2]));
+        Controlled swap([q[0]], (q[1], q[2]));
+        Controlled ccx([q[0]], (q[1], q[2], q[3]));
+        Controlled cswap([q[0]], (q[1], q[2], q[3]));
+        Controlled cu([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 5734161139222659,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled CX([q[0]], (q[1], q[2]));
+        Controlled phase([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled cphase([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1], q[2]));
+        Controlled id([q[0]], q[1]);
+        Controlled u1([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, q[1]));
+        Controlled u2([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, q[1]));
+        Controlled u3([q[0]], (new Std.OpenQASM.Angle.Angle {
+            Value = 1433540284805665,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 2867080569611330,
+            Size = 53
+        }, new Std.OpenQASM.Angle.Angle {
+            Value = 4300620854416994,
+            Size = 53
+        }, q[1]));
     "#]]
     .assert_eq(&qsharp);
     Ok(())
@@ -954,7 +1605,7 @@ fn broadcast_with_different_register_sizes_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
+        [Qdk.Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
 
           x first quantum register is of type qubit[3] but found an argument of type
           | qubit[2]
@@ -1136,7 +1787,7 @@ fn qasm2_barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         c[0] = measure q[0];
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -1180,7 +1831,7 @@ fn qasm2_barrier_generates_qir() -> miette::Result<(), Vec<Report>> {
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
-    .assert_eq(&qsharp);
+    .assert_eq(&qir);
     Ok(())
 }
 
@@ -1217,7 +1868,7 @@ fn qasm2_cx_called_with_one_qubit_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 1 were provided
            ,-[Test.qasm:5:9]
@@ -1244,7 +1895,7 @@ fn qasm2_cx_called_with_too_many_qubits_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfQubitArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfQubitArgs
 
           x gate expects 2 qubit arguments, but 3 were provided
            ,-[Test.qasm:5:9]
@@ -1271,7 +1922,7 @@ fn qasm2_rx_gate_with_no_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 0 were provided
            ,-[Test.qasm:5:9]
@@ -1320,7 +1971,7 @@ fn qasm2_rx_gate_with_too_many_angles_generates_error() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.InvalidNumberOfClassicalArgs
+        [Qdk.Qasm.Lowerer.InvalidNumberOfClassicalArgs
 
           x gate expects 1 classical arguments, but 2 were provided
            ,-[Test.qasm:5:9]
@@ -1402,7 +2053,7 @@ fn qasm2_simulatable_intrinsic_on_gate_stmt_generates_correct_qir()
         result = measure q;
     "#;
 
-    let qsharp = compile_qasm_to_qir(source)?;
+    let qir = compile_qasm_to_qir(source)?;
     expect![[r#"
         %Result = type opaque
         %Qubit = type opaque
@@ -1442,7 +2093,7 @@ fn qasm2_simulatable_intrinsic_on_gate_stmt_generates_correct_qir()
         !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
         !3 = !{i32 1, !"dynamic_result_management", i1 false}
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
-    "#]].assert_eq(&qsharp);
+    "#]].assert_eq(&qir);
     Ok(())
 }
 
@@ -1689,7 +2340,7 @@ fn qasm2_broadcast_with_different_register_sizes_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
+        [Qdk.Qasm.Lowerer.BroadcastCallQuantumArgsDisagreeInSize
 
           x first quantum register is of type qubit[3] but found an argument of type
           | qubit[2]

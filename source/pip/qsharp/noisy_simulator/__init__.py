@@ -1,18 +1,14 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from ._noisy_simulator import (
+"""Deprecated. Use :mod:`qdk.simulation` instead."""
+
+from qdk.simulation import (  # noqa: F401
     NoisySimulatorError,
     Operation,
     Instrument,
     DensityMatrixSimulator,
     StateVectorSimulator,
+    DensityMatrix,
+    StateVector,
 )
-
-__all__ = [
-    "NoisySimulatorError",
-    "Operation",
-    "Instrument",
-    "DensityMatrixSimulator",
-    "StateVectorSimulator",
-]

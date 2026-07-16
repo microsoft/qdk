@@ -41,7 +41,7 @@ fn check_rca_for_dynamic_for_loop() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | LoopWithDynamicCondition)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicRange | LoopWithDynamicCondition | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -85,7 +85,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_initial_dynamic_condition() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | LoopWithDynamicCondition)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | LoopWithDynamicCondition | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -112,7 +112,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_initial_classical_condition_and_
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -135,7 +135,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_measurement_in_condition() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -163,7 +163,7 @@ fn check_rca_for_dynamic_repeat_until_loop_with_initial_classical_condition_and_
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -205,7 +205,7 @@ fn check_rca_for_dynamic_while_loop_with_initial_dynamic_condition() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | LoopWithDynamicCondition)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | LoopWithDynamicCondition | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -231,7 +231,7 @@ fn check_rca_for_dynamic_while_loop_with_initial_classical_condition_and_measure
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -253,7 +253,7 @@ fn check_rca_for_dynamic_while_loop_with_measurement_in_condition() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -282,7 +282,7 @@ fn check_rca_for_dynamic_while_loop_with_initial_classical_condition_and_dynamic
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -310,7 +310,7 @@ fn check_rca_for_dynamic_while_loop_with_assignments_in_both_the_condition_and_t
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | MeasurementWithinDynamicScope | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -332,7 +332,7 @@ fn check_rca_for_static_for_loop() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -340,7 +340,7 @@ fn check_rca_for_static_for_loop() {
 
 #[test]
 fn check_rca_for_static_for_loop_with_loop_and_array_support() {
-    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIFLA.into());
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
     compilation_context.update(
         r#"
         use q = Qubit();
@@ -354,7 +354,7 @@ fn check_rca_for_static_for_loop_with_loop_and_array_support() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicQubit | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -376,7 +376,7 @@ fn check_rca_for_static_for_loop_over_array() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );
@@ -384,7 +384,7 @@ fn check_rca_for_static_for_loop_over_array() {
 
 #[test]
 fn check_rca_for_static_for_loop_over_array_with_loop_and_array_support() {
-    let mut compilation_context = CompilationContext::new(Profile::AdaptiveRIFLA.into());
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
     compilation_context.update(
         r#"
         use q = Qubit();
@@ -398,7 +398,7 @@ fn check_rca_for_static_for_loop_over_array_with_loop_and_array_support() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(0x0)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicDouble | UseOfDynamicQubit | UseOfDynamicIndex | QubitAllocation)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );

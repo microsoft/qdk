@@ -36,6 +36,7 @@ fn main() {
     test_mz_idempotent();
     test_reset_preserves_distribution();
     gates_on_lost_qubits();
+    survivor_noise_on_lost_2q_gate();
     scaled_ising();
     scaled_grover();
     noise_config();
@@ -69,7 +70,10 @@ fn assert_ratio(results: &[Vec<u32>], expected: &[u32], expected_ratio: f64, tol
 fn two_measurements() {
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),
-        Op::new_loss_noise(0, 0.333),
+        // 33% chance the qubit is lost after the X gate, sampled by the noise op
+        // and committed by the following loss-commit op.
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 0.333),
+        Op::new_loss_commit(0),
         // Should be 33% chance of lost, 66% chance of 1
 
         // If not using the noise model processing, need to turn pauli on measurement into Id with noise then mesurement
@@ -178,9 +182,11 @@ fn gates_on_lost_qubits() {
 
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),
-        Op::new_loss_noise(0, 0.1),
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 0.1),
+        Op::new_loss_commit(0),
         Op::new_x_gate(1),
-        Op::new_loss_noise(1, 0.1),
+        Op::new_pauli_noise_1q_with_loss(1, 0.0, 0.0, 0.0, 0.1),
+        Op::new_loss_commit(1),
         Op::new_cx_gate(0, 1),
         Op::new_rx_gate(angle, 2),
         Op::new_rx_gate(angle, 2),
@@ -190,7 +196,7 @@ fn gates_on_lost_qubits() {
     ];
     let start = Instant::now();
     let results =
-        run_shots_sync(3, 3, &ops, &None, 1000, DEFAULT_SEED, 0).expect("GPU shots failed");
+        run_shots_sync(3, 3, &ops, &None, 10_000, DEFAULT_SEED, 0).expect("GPU shots failed");
     let elapsed = start.elapsed();
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
     check_success(&results);
@@ -211,6 +217,42 @@ fn gates_on_lost_qubits() {
     assert_ratio(&qubit_1_results, &[0], 0.8, 0.01);
 }
 
+// When a 2-qubit gate has a lost operand, the gate body is handled by its loss
+// policy, but the attached Pauli noise must still be applied to the *surviving*
+// operand (matching the CPU `apply_fault`, which skips only lost targets).
+fn survivor_noise_on_lost_2q_gate() {
+    // Build a 2q Pauli noise op that applies X to the second operand (q2) with
+    // certainty and identity to the first. Slot k = q1_term*5 + q2_term with the
+    // encoding I=0, X=1, Z=2, Y=3, L=4, so (I, X) -> slot 1.
+    let mut iz_x_noise = Op::new_2q_gate(ops::PAULI_NOISE_2Q, 0, 1);
+    iz_x_noise.set_noise_prob_slot(1, 1.0); // P(I on q0, X on q1) = 1.0
+
+    let ops: Vec<Op> = vec![
+        // Deterministically lose qubit 0. The loss noise must follow a gate so it
+        // is sampled into pending_loss_mask, then committed by the loss-commit op.
+        Op::new_id_gate(0),
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 1.0),
+        Op::new_loss_commit(0),
+        // CX with a lost control. With the default (SKIP) policy the gate body is
+        // dropped, but the survivor (qubit 1) must still receive its X noise term.
+        Op::new_cx_gate(0, 1),
+        iz_x_noise,
+        Op::new_mresetz_gate(0, 0),
+        Op::new_mresetz_gate(1, 1),
+    ];
+
+    let results =
+        run_shots_sync(2, 2, &ops, &None, 200, DEFAULT_SEED, 0).expect("GPU shots failed");
+    check_success(&results);
+
+    // Qubit 0 is always lost (code 2); qubit 1 always picks up the survivor X (1).
+    assert!(
+        results.shot_results.iter().all(|r| r[0] == 2 && r[1] == 1),
+        "Expected every shot to be [Loss, 1] from survivor noise, got {results:?}"
+    );
+    println!("[GPU Runner]: survivor_noise_on_lost_2q_gate passed (200 shots)");
+}
+
 fn scale_teleport() {
     // Create a circuit that does an Rx by a random amount, does a teleport using controlled gates,
     // then does the inverse Rx by the same amount, measurement at the end to verify correctness.
@@ -226,15 +268,15 @@ fn scale_teleport() {
     Controlled Z([msg], bob);
          */
 
-    use rand::Rng;
+    use rand::RngExt;
 
     let msg_qubit = 0;
     let alice_qubit = 1;
     let bob_qubit = 2;
 
     // Generate random angle between 0 and 2π
-    let mut rng = rand::thread_rng();
-    let angle: f32 = rng.gen_range(0.0..(2.0 * PI));
+    let mut rng = rand::rng();
+    let angle: f32 = rng.random_range(0.0..(2.0 * PI));
 
     let ops: Vec<Op> = vec![
         // Prepare message qubit with rotation
@@ -731,13 +773,15 @@ fn repeated_noise() {
     // Add bit-flip and loss noise to X gates of 0.1%
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
+    noise.x.probabilities.push(0.001 * (1.0 - 0.001));
+
+    noise.x.pauli_strings.push(encode_pauli("L"));
     noise.x.probabilities.push(0.001);
-    noise.x.loss = 0.001;
 
     let start = Instant::now();
     // Run for 20,000 shots
-    let results =
-        run_shots_sync(5, 5, &ops, &Some(noise), 20000, DEFAULT_SEED, 0).expect("GPU shots failed");
+    let results = run_shots_sync(5, 5, &ops, &Some(noise), 30_000, DEFAULT_SEED, 0)
+        .expect("GPU shots failed");
     let elapsed = start.elapsed();
     check_success(&results);
 
@@ -753,15 +797,15 @@ fn repeated_noise() {
     --001: 160 (0.80%)
     1-001: 145 (0.72%)
         */
-    assert_ratio(&results.shot_results, &[0, 0, 0, 0, 1], 0.675, 0.01);
-    assert_ratio(&results.shot_results, &[0, 2, 0, 0, 1], 0.078, 0.003);
-    assert_ratio(&results.shot_results, &[0, 1, 0, 0, 1], 0.071, 0.003);
+    assert_ratio(&results.shot_results, &[0, 0, 0, 0, 1], 0.675, 0.002);
+    assert_ratio(&results.shot_results, &[0, 2, 0, 0, 1], 0.078, 0.002);
+    assert_ratio(&results.shot_results, &[0, 1, 0, 0, 1], 0.071, 0.002);
     assert_ratio(&results.shot_results, &[2, 0, 0, 0, 1], 0.045, 0.002);
     assert_ratio(&results.shot_results, &[2, 1, 0, 0, 1], 0.043, 0.002);
     assert_ratio(&results.shot_results, &[1, 1, 0, 0, 1], 0.037, 0.002);
     assert_ratio(&results.shot_results, &[1, 0, 0, 0, 1], 0.036, 0.002);
-    assert_ratio(&results.shot_results, &[2, 2, 0, 0, 1], 0.008, 0.001);
-    assert_ratio(&results.shot_results, &[1, 2, 0, 0, 1], 0.007, 0.001);
+    assert_ratio(&results.shot_results, &[2, 2, 0, 0, 1], 0.008, 0.002);
+    assert_ratio(&results.shot_results, &[1, 2, 0, 0, 1], 0.007, 0.002);
     assert_ratio(&results.shot_results, &[1, 2, 0, 0, 0], 0.0, 0.0);
 
     println!("[GPU Runner]: Elapsed time: {elapsed:.2?}");
@@ -826,8 +870,10 @@ fn scaled_grover() {
 fn noise_config() {
     let mut noise: NoiseConfig<f32, f64> = NoiseConfig::NOISELESS.clone();
     noise.x.pauli_strings.push(encode_pauli("X"));
-    noise.x.probabilities.push(0.5);
-    noise.x.loss = 0.333_333;
+    noise.x.probabilities.push(0.333_333);
+
+    noise.x.pauli_strings.push(encode_pauli("L"));
+    noise.x.probabilities.push(0.333_333);
 
     let ops: Vec<Op> = vec![
         Op::new_x_gate(0),

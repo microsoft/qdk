@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Encoding, LanguageService, UpdateWorker,
+    Encoding, LanguageService, UpdateHandler,
     protocol::{DiagnosticUpdate, ErrorKind, TestCallables},
 };
 use expect_test::{Expect, expect};
@@ -17,7 +17,7 @@ async fn single_document() {
     let received_errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &received_errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
 
     ls.update_document("foo.qs", 1, "namespace Foo { }", "qsharp");
 
@@ -52,7 +52,7 @@ async fn single_document_update() {
     let received_errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &received_errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
 
     ls.update_document("foo.qs", 1, "namespace Foo { }", "qsharp");
 
@@ -119,7 +119,7 @@ async fn document_in_project() {
     let received_errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &received_errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
 
     ls.update_document("project/src/this_file.qs", 1, "namespace Foo { }", "qsharp");
 
@@ -173,7 +173,7 @@ async fn completions_requested_before_document_load() {
     let errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let _worker = create_update_worker(&mut ls, &errors, &test_cases);
+    let _worker = create_update_handler(&mut ls, &errors, &test_cases);
 
     ls.update_document(
         "foo.qs",
@@ -204,7 +204,7 @@ async fn completions_requested_after_document_load() {
     let errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &errors, &test_cases);
 
     // this test is a contrast to `completions_requested_before_document_load`
     // we want to ensure that completions load when the update_document call has been awaited
@@ -271,20 +271,24 @@ type ErrorInfo = (
     Vec<project::Error>,
 );
 
-fn create_update_worker<'a>(
+fn create_update_handler<'a>(
     ls: &mut LanguageService,
     received_errors: &'a RefCell<Vec<ErrorInfo>>,
     received_test_cases: &'a RefCell<Vec<TestCallables>>,
-) -> UpdateWorker<'a> {
-    ls.create_update_worker(
+) -> UpdateHandler<'a> {
+    ls.create_update_handler(
         |update: DiagnosticUpdate| {
             let project_errors = update.errors.iter().filter_map(|error| match error {
                 ErrorKind::Project(error) => Some(error.clone()),
-                ErrorKind::Compile(_) | ErrorKind::DocumentStatus { .. } => None,
+                ErrorKind::Compile(_)
+                | ErrorKind::DocumentStatus { .. }
+                | ErrorKind::Unnecessary(_) => None,
             });
             let compile_errors = update.errors.iter().filter_map(|error| match error {
                 ErrorKind::Compile(error) => Some(error.error().clone()),
-                ErrorKind::Project(_) | ErrorKind::DocumentStatus { .. } => None,
+                ErrorKind::Project(_)
+                | ErrorKind::DocumentStatus { .. }
+                | ErrorKind::Unnecessary(_) => None,
             });
 
             let mut v = received_errors.borrow_mut();

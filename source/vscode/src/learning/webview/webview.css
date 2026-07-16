@@ -1,0 +1,492 @@
+/* Copyright (c) Microsoft Corporation.
+   Licensed under the MIT License. */
+
+/* Ensures padding/border are included in width/height */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Ensures the page fills the panel height */
+html {
+  height: 100%;
+}
+
+:root {
+  color-scheme: light dark;
+
+  /* Shared corner rounding for badges, code blocks, buttons... */
+  --radius: 4px;
+  /* Page background. Matches the VS Code editor so the panel blends in */
+  --bg: var(--vscode-editor-background, transparent);
+  /* Body text color. */
+  --fg: var(--vscode-editor-foreground, #1a1a1a);
+  /* De-emphasized text for labels, breadcrumbs... */
+  --muted: var(--vscode-descriptionForeground, #6a6a6a);
+  /* Interactive/link color — hyperlinks, active indicators, default output accent */
+  --accent: var(--vscode-textLink-foreground, #06c);
+  /* Hovered link color */
+  --accent-hover: var(--vscode-textLink-activeForeground, var(--accent));
+  /* Separators and outlines throughout the panel  */
+  --border: var(--vscode-widget-border, var(--vscode-panel-border, #e0e0e0));
+  /* Green for passed checks */
+  --success: var(
+    --vscode-charts-green,
+    var(--vscode-testing-iconPassed, #1a7f37)
+  );
+  /* Red for failed checks and error messages */
+  --fail: var(--vscode-errorForeground, var(--vscode-charts-red, #cf222e));
+  /* Subtle tinted background for code blocks, badges, and the output card */
+  --code-bg: var(--vscode-textCodeBlock-background, rgb(127 127 127 / 8%));
+  /* Primary action button fill (e.g., "Check", "Next") */
+  --btn-bg: var(--vscode-button-background, var(--accent));
+  /* Primary action button text */
+  --btn-fg: var(--vscode-button-foreground, #fff);
+  /* Primary action button on hover */
+  --btn-hover-bg: var(
+    --vscode-button-hoverBackground,
+    color-mix(in srgb, var(--accent) 85%, black)
+  );
+  /* Secondary button fill (e.g., "Back", "Hint") */
+  --btn-secondary-bg: var(--vscode-button-secondaryBackground, transparent);
+  /* Secondary button text */
+  --btn-secondary-fg: var(--vscode-button-secondaryForeground, var(--fg));
+  /* Hover tint for secondary buttons and the progress footer */
+  --btn-secondary-hover-bg: var(
+    --vscode-button-secondaryHoverBackground,
+    rgb(127 127 127 / 10%)
+  );
+  /* Keyboard-focus ring shown on all interactive elements */
+  --focus-border: var(--vscode-focusBorder, var(--accent));
+  /* UI (sans-serif) font used for all non-code text */
+  --ui-font: var(
+    --vscode-font-family,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    sans-serif
+  );
+  /* Monospace font for inline code and fenced code blocks */
+  --mono-font: var(
+    --vscode-editor-font-family,
+    ui-monospace,
+    "Cascadia Mono",
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace
+  );
+
+  /* Font sizes — all text sizes in the panel, largest to smallest */
+  --font-h1: 17px;
+  --font-h2: 16px;
+  --font-h3: 15px;
+  --font-icon: 14px;
+  --body-font-size: var(--vscode-font-size, 13px);
+  --font-sm: var(--vscode-bodyFontSize-small, 12px);
+  --font-xs: var(--vscode-bodyFontSize-xSmall, 11px);
+}
+
+/* Sets up a flex column layout so the panel stacks: branding → header → content → output → action-bar → progress-bar. */
+body {
+  font: var(--body-font-size) / 1.45 var(--ui-font);
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+/* Logo and text at the top of the panel. */
+.branding {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  /* Prevent this bar from shrinking when the flex column is tight */
+  flex-shrink: 0;
+}
+
+/* Logo icon rendered as a CSS mask so it inherits the current theme color. */
+.branding-icon {
+  width: 18px;
+  height: 18px;
+  /* Don't let the logo shrink if the text beside it is long */
+  flex-shrink: 0;
+  background-color: var(--fg);
+  mask-image: var(--mobius-url);
+  mask-size: contain;
+  mask-repeat: no-repeat;
+}
+
+/* Logo text label. */
+.branding-text {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+
+/* Breadcrumb bar showing "Unit › Activity" and a type badge. */
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--font-xs);
+  color: var(--muted);
+  /* Keep this bar fixed-height even when content pushes the flex column */
+  flex-shrink: 0;
+}
+
+/* Breadcrumb text — truncates with ellipsis when the panel is narrow. */
+.header .crumb {
+  flex: 1;
+  /* Required for ellipsis to work inside a flex item */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Type badge ("lesson", "example", "exercise", "✔ done"). */
+.header .badge {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--code-bg);
+  /* Slightly stronger than the muted crumb text so the badge pops */
+  color: var(--fg);
+}
+
+/* Badge variant: completed exercise — green "done" state. */
+.header .badge.complete {
+  background: var(--success);
+  color: #fff;
+}
+
+/* Main scrollable area holding rendered Markdown (lessons, examples, exercises). */
+.content {
+  padding: 12px 16px;
+  overflow-y: auto; /* this is the panel's scroll container */
+  flex: 1; /* fill all remaining vertical space */
+  min-height: 0; /* let flex item shrink below content size so overflow scrolls */
+}
+
+/* Markdown headings — tighter margins than browser defaults. */
+.content h1,
+.content h2,
+.content h3 {
+  margin: 6px 0 5px;
+}
+
+.content h1 {
+  font-size: var(--font-h1);
+}
+
+.content h2 {
+  font-size: var(--font-h2);
+}
+
+.content h3 {
+  font-size: var(--font-h3);
+}
+
+/* Markdown paragraphs. */
+.content p {
+  margin: 6px 0;
+}
+
+/* Markdown lists. */
+.content ul,
+.content ol {
+  margin: 6px 0;
+  padding-left: 21px;
+}
+
+/* Fenced code blocks. */
+.content pre {
+  background: var(--code-bg);
+  padding: 6px 8px;
+  border-radius: var(--radius);
+  overflow-x: auto; /* horizontal scroll for wide code */
+  font-size: var(--font-sm);
+  margin: 5px 0;
+}
+
+/* Inline and block code. */
+.content code {
+  font-family: var(--mono-font);
+}
+
+/* Markdown tables. */
+.content table {
+  border-collapse: collapse;
+  margin: 4px 0;
+  font-size: var(--font-sm);
+}
+
+.content th,
+.content td {
+  border: 1px solid var(--border);
+  padding: 2px 6px;
+  text-align: left; /* override default center-align on <th> */
+}
+
+/* Small muted note below content: "Your code file should be open…" */
+.content .file-path {
+  font-size: var(--font-xs);
+  color: var(--muted);
+  margin-top: 8px;
+}
+
+/* "open it here" link inside the file-path note. */
+.content .file-path-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.content .file-path-link:hover {
+  text-decoration: underline;
+}
+
+.content .file-path-link:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 1px;
+}
+
+/* Green "✓ Correct!" banner shown when an exercise is complete. */
+.content .completion-banner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 5px 11px;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--success) 12%, transparent);
+  color: var(--success);
+  font-size: var(--font-sm);
+  font-weight: 600;
+}
+
+/* Used by: <Exercise /> — the "✓" checkmark <span> inside the completion banner. */
+.completion-banner .completion-icon {
+  font-size: var(--font-icon);
+}
+
+/* Result/output card between content and action bar. Color-coded left border
+   indicates status (accent = neutral, green = pass, red = fail). */
+.output {
+  margin: 0 16px 8px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--code-bg);
+  font-size: var(--font-sm);
+  border-left: 3px solid var(--accent);
+  position: relative; /* anchors the absolute dismiss button */
+  flex-shrink: 0;
+}
+
+/* Left-border override: tests passed. */
+.output.pass {
+  border-left-color: var(--success);
+}
+
+/* Left-border override: check failed or error. */
+.output.fail {
+  border-left-color: var(--fail);
+}
+
+/* "RESULT" / "OUTPUT" label at the top of the card. */
+.output .out-label {
+  font-size: var(--font-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+/* "×" dismiss button pinned to the top-right corner. */
+.output .out-dismiss {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: none; /* reset UA button style */
+  border: none; /* reset UA button style */
+  color: var(--muted);
+  cursor: pointer;
+  font-size: var(--font-icon);
+  line-height: 1; /* prevent extra height from line-height on the "×" glyph */
+  padding: 2px 5px;
+}
+
+.output .out-dismiss:hover {
+  color: var(--fg);
+}
+
+.output .out-dismiss:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 1px;
+}
+
+/* Green "✔ All tests passed!" text. */
+.output .success {
+  color: var(--success);
+  white-space: pre-wrap;
+}
+
+/* Red "✘ Check failed" or error message text. */
+.output .out-fail {
+  color: var(--fail);
+  white-space: pre-wrap;
+}
+
+/* Runtime messages (DumpMachine output, etc.) shown in mono. */
+.output .message {
+  font-family: var(--mono-font);
+  white-space: pre-wrap;
+}
+
+/* Bottom toolbar with grouped action buttons (Back, Next, Check, Run, Hint…). */
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 6px 12px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+/* Button group — separated from siblings by a vertical rule. */
+.action-group {
+  display: flex;
+  gap: 4px;
+}
+
+.action-group:not(:last-child) {
+  padding-right: 6px;
+  border-right: 1px solid var(--border);
+}
+
+/* Base button style (secondary appearance by default). */
+.action-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit; /* buttons don't inherit font by default */
+  font-size: var(--font-sm);
+  background: var(--btn-secondary-bg);
+  color: var(--btn-secondary-fg);
+  border: 1px solid var(--border);
+  padding: 3px 9px;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
+.action-bar button:hover {
+  background: var(--btn-secondary-hover-bg);
+  border-color: var(--accent);
+}
+
+.action-bar button:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 1px;
+}
+
+/* Primary action button ("Check", "Next") — filled accent background. */
+.action-bar button.primary {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  border-color: var(--btn-bg);
+}
+
+.action-bar button.primary:hover {
+  background: var(--btn-hover-bg);
+  border-color: var(--btn-hover-bg);
+}
+
+/* Disabled state while a check/run is in progress. */
+.action-bar button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Clickable footer showing completion stats and activity dots.
+   Opens the progress tree view on click. */
+.progress-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: var(--font-xs);
+  padding: 5px 12px;
+  color: var(--muted);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.progress-bar:hover {
+  background: var(--btn-secondary-hover-bg);
+}
+
+.progress-bar:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: -1px; /* inset because this sits at the viewport edge */
+}
+
+/* Row of small colored dots (one per activity in the current unit). */
+.pb-segments {
+  display: inline-flex;
+  gap: 2px;
+}
+
+/* Individual activity dot — gray (not started) by default. */
+.pb-seg {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: var(--border);
+}
+
+/* Completed activity dot (green). */
+.pb-seg.done {
+  background: var(--success);
+}
+
+/* Currently active activity dot (accent blue). */
+.pb-seg.current {
+  background: var(--accent);
+}
+
+/* "What went wrong?" link — opens Copilot Chat with a help prompt. */
+.chat-link {
+  display: inline-block;
+  margin-top: 7px;
+  font-size: var(--font-sm);
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.chat-link:hover {
+  text-decoration: underline;
+  color: var(--accent-hover);
+}
+
+.chat-link:focus-visible {
+  outline: 1px solid var(--focus-border);
+  outline-offset: 1px;
+}
+
+/* "Loading…" / "Working…" placeholder text. */
+.loading {
+  color: var(--muted);
+  font-style: italic;
+}

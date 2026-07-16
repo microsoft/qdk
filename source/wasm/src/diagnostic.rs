@@ -23,17 +23,25 @@ serializable_type! {
         #[serde(skip_serializing_if = "Option::is_none")]
         pub uri: Option<String>,
         #[serde(skip_serializing_if = "Vec::is_empty")]
-        pub related: Vec<Related>
+        pub related: Vec<Related>,
+        // LSP `DiagnosticTag` values, e.g. 1 = Unnecessary, 2 = Deprecated.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        pub tags: Vec<u8>
     },
     r#"export interface VSDiagnostic {
         range: IRange,
         message: string;
-        severity: "error" | "warning" | "info"
+        severity: "error" | "warning" | "info" | "hint"
         code?: string;
         uri?: string;
         related?: IRelatedInformation[];
+        tags?: number[];
     }"#
 }
+
+/// LSP `DiagnosticTag` value indicating unused or unnecessary code, which
+/// editors typically render as greyed out.
+const DIAGNOSTIC_TAG_UNNECESSARY: u8 = 1;
 
 serializable_type! {
     Related,
@@ -85,6 +93,7 @@ impl VSDiagnostic {
             e @ qsls::protocol::ErrorKind::DocumentStatus { .. } => {
                 Self::new(Vec::new(), source_name, e)
             }
+            qsls::protocol::ErrorKind::Unnecessary(d) => Self::unnecessary(d),
         }
     }
 
@@ -149,7 +158,7 @@ impl VSDiagnostic {
             write!(message, "\n\nhelp: {help}").expect("message should be writable");
         }
 
-        // e.g. Qsc.Eval.ReleasedQubitNotZero
+        // e.g. Qdk.Qsc.Eval.ReleasedQubitNotZero
         let code = err.code().map(|c| c.to_string());
 
         // e.g. https://aka.ms/qdk.qir
@@ -167,6 +176,22 @@ impl VSDiagnostic {
             code,
             uri,
             related,
+            tags: Vec::new(),
+        }
+    }
+
+    /// Creates a [`VSDiagnostic`] for a region of code that is excluded from the
+    /// current compilation. It is reported with `hint` severity and the
+    /// `Unnecessary` tag so that editors render the excluded code as greyed out.
+    fn unnecessary(d: &qsls::protocol::UnnecessaryCodeDiagnostic) -> Self {
+        Self {
+            range: d.range.into(),
+            message: d.to_string(),
+            severity: "hint".to_string(),
+            code: None,
+            uri: None,
+            related: Vec::new(),
+            tags: vec![DIAGNOSTIC_TAG_UNNECESSARY],
         }
     }
 }
@@ -258,6 +283,12 @@ pub fn interpret_errors_into_qsharp_errors(errs: &[interpret::Error]) -> Vec<QSh
         .collect()
 }
 
+#[allow(clippy::needless_pass_by_value)]
+pub fn interpret_errors_into_qsharp_errors_json(errs: Vec<qsc::interpret::Error>) -> String {
+    serde_json::to_string(&interpret_errors_into_qsharp_errors(&errs))
+        .expect("serializing errors to json should succeed")
+}
+
 pub fn project_errors_into_qsharp_errors(
     project_dir: &str,
     errs: &[project::Error],
@@ -283,6 +314,7 @@ fn interpret_error_labels(err: &interpret::Error) -> Vec<Label> {
         interpret::Error::Compile(e) => error_labels(e),
         interpret::Error::Pass(e) => error_labels(e),
         interpret::Error::PartialEvaluation(e) => error_labels(e),
+        interpret::Error::FirTransform(e) => error_labels(e),
         interpret::Error::NoEntryPoint
         | interpret::Error::UnsupportedRuntimeCapabilities
         | interpret::Error::Circuit(_)

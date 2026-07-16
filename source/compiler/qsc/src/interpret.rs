@@ -16,6 +16,10 @@ mod tests;
 use std::{cell::RefCell, rc::Rc};
 
 use crate::{
+    codegen::qir::{
+        CallableArgsBackend, CodegenFir, entry_from_codegen_fir, prepare_codegen_fir,
+        prepare_codegen_fir_from_callable_args, prepare_codegen_fir_from_fir_store,
+    },
     error::{self, WithStack},
     incremental::Compiler,
     location::Location,
@@ -44,7 +48,7 @@ use qsc_data_structures::{
 };
 use qsc_eval::{
     Env, ErrorBehavior, State, VariableInfo,
-    backend::{Backend, SparseSim, TracingBackend},
+    backend::{Backend, CliffordSim, SparseSim, TracingBackend},
     output::Receiver,
 };
 pub use qsc_eval::{
@@ -77,7 +81,7 @@ use qsc_lowerer::{
 use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
 use qsc_passes::{PackageType, PassContext};
 use qsc_rca::PackageStoreComputeProperties;
-use rustc_hash::FxHashSet;
+use rustc_hash::FxHashMap;
 use thiserror::Error;
 
 impl Error {
@@ -105,21 +109,31 @@ pub enum Error {
     #[diagnostic(transparent)]
     Circuit(#[from] qsc_circuit::Error),
     #[error("entry point not found")]
-    #[diagnostic(code("Qsc.Interpret.NoEntryPoint"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NoEntryPoint"))]
     NoEntryPoint,
     #[error("unsupported runtime capabilities for code generation")]
-    #[diagnostic(code("Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
     UnsupportedRuntimeCapabilities,
     #[error("expression does not evaluate to an operation")]
-    #[diagnostic(code("Qsc.Interpret.NotAnOperation"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NotAnOperation"))]
     #[diagnostic(help("provide the name of a callable or a lambda expression"))]
     NotAnOperation,
     #[error("value is not a global callable")]
-    #[diagnostic(code("Qsc.Interpret.NotACallable"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NotACallable"))]
     NotACallable,
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),
+    #[error("FIR transform error")]
+    #[diagnostic(transparent)]
+    FirTransform(#[from] WithSource<qsc_fir_transforms::PipelineError>),
+}
+
+#[derive(Default, Debug, PartialEq, Eq, Copy, Clone)]
+pub enum SimType {
+    #[default]
+    Sparse,
+    Clifford(usize),
 }
 
 /// A Q# interpreter.
@@ -128,8 +142,6 @@ pub struct Interpreter {
     compiler: Compiler,
     /// The target capabilities used for compilation.
     capabilities: TargetCapabilityFlags,
-    /// The computed properties for the package store, if any, used for code generation.
-    compute_properties: Option<PackageStoreComputeProperties>,
     /// The number of lines that have so far been compiled.
     /// This field is used to generate a unique label
     /// for each line evaluated with `eval_fragments`.
@@ -339,34 +351,72 @@ impl Interpreter {
         let package_id = compiler.package_id();
 
         let package = map_hir_package_to_fir(package_id);
-        let compute_properties = if capabilities == TargetCapabilityFlags::all() {
-            None
-        } else {
-            let compute_properties = PassContext::run_fir_passes_on_fir(
-                &fir_store,
-                map_hir_package_to_fir(source_package_id),
-                capabilities,
-            )
-            .map_err(|caps_errors| {
-                let source_package = compiler
-                    .package_store()
-                    .get(source_package_id)
-                    .expect("package should exist in the package store");
 
-                caps_errors
-                    .into_iter()
-                    .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
-                    .collect::<Vec<_>>()
-            })?;
+        // Validate capabilities at interpreter construction time rather than
+        // deferring to qirgen()/circuit(). To match what codegen actually emits,
+        // run the FIR transform pipeline on a throwaway clone of the FIR store, then
+        // run RCA on that transformed clone.
+        //
+        // The original `fir_store` is left un-transformed and remains the artifact used
+        // for execution and debugging.
+        //
+        // The transformed clone (and its computed properties) are discarded after
+        // validation.
+        if capabilities != TargetCapabilityFlags::all() {
+            let fir_package_id = map_hir_package_to_fir(source_package_id);
+            let source_package = compiler
+                .package_store()
+                .get(source_package_id)
+                .expect("package should exist in the package store");
 
-            Some(compute_properties)
-        };
+            // The transform pipeline requires a package with an entry expression, and
+            // entry-less library packages and eval calls via the Python interop layer can
+            // arrive here. Guard the transform branch on the presence of an entry expression
+            // exactly like the language service does; when absent, fall back to
+            // running RCA on the original store.
+            let transformed_store = if fir_store.get(fir_package_id).entry.is_some() {
+                let mut transformed_store = fir_store.clone();
+                let transform_result = crate::fir_transforms::run_pipeline_with_diagnostics(
+                    &mut transformed_store,
+                    fir_package_id,
+                );
+                if !transform_result.errors.is_empty() {
+                    // Fatal transform errors reuse the existing FirTransform variant,
+                    // mapped exactly as codegen.rs does. They are not capability
+                    // failures, so they are not routed through Error::Pass.
+                    return Err(transform_result
+                        .errors
+                        .into_iter()
+                        .map(|e| {
+                            Error::FirTransform(WithSource::from_map(&source_package.sources, e))
+                        })
+                        .collect());
+                }
+                Some(transformed_store)
+            } else {
+                None
+            };
+
+            let store_for_rca = transformed_store.as_ref().unwrap_or(&fir_store);
+
+            // The computed properties are intentionally discarded — only the `?`
+            // error propagation is used to surface capability violations.
+            let _compute_properties =
+                PassContext::run_fir_passes_on_fir(store_for_rca, fir_package_id, capabilities)
+                    .map_err(|caps_errors| {
+                        caps_errors
+                            .into_iter()
+                            .map(|error| {
+                                Error::Pass(WithSource::from_map(&source_package.sources, error))
+                            })
+                            .collect::<Vec<_>>()
+                    })?;
+        }
 
         Ok(Self {
             compiler,
             lines: 0,
             capabilities,
-            compute_properties,
             fir_store,
             lowerer: qsc_lowerer::Lowerer::new(),
             expr_graph: None,
@@ -844,30 +894,47 @@ impl Interpreter {
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
         seed: Option<u64>,
+        sim_type: SimType,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
             None
         };
-        let mut sim = match noise {
-            Some(noise) => SparseSim::new_with_noise(&noise),
-            None => match noise_config {
-                Some(config) => SparseSim::new_with_noise_config(config.into()),
-                None => SparseSim::new(),
-            },
-        };
-        if let Some(loss) = qubit_loss {
-            sim.set_loss(loss);
+
+        match sim_type {
+            SimType::Sparse => {
+                let mut sim = match noise {
+                    Some(noise) => SparseSim::new_with_noise(&noise),
+                    None => match noise_config {
+                        Some(config) => SparseSim::new_with_noise_config(config.into()),
+                        None => SparseSim::new(),
+                    },
+                };
+                if let Some(loss) = qubit_loss {
+                    sim.set_loss(loss);
+                }
+                if seed.is_some() {
+                    sim.set_seed(seed);
+                }
+                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
+            }
+            SimType::Clifford(num_qubits) => {
+                let mut sim = match noise_config {
+                    Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
+                    None => CliffordSim::new(num_qubits),
+                };
+                if seed.is_some() {
+                    sim.set_seed(seed);
+                }
+                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
+            }
         }
-        if seed.is_some() {
-            sim.set_seed(seed);
-        }
-        self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
     }
 
     /// Runs the given entry expression on a new instance of the environment and simulator,
     /// but using the current compilation.
+    #[allow(clippy::too_many_arguments)]
     pub fn run(
         &mut self,
         receiver: &mut impl Receiver,
@@ -876,28 +943,42 @@ impl Interpreter {
         qubit_loss: Option<f64>,
         noise_config: Option<NoiseConfig<f64, f64>>,
         seed: Option<u64>,
+        sim_type: SimType,
     ) -> InterpretResult {
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
             None
         };
-        let mut sim = match noise {
-            Some(noise) => SparseSim::new_with_noise(&noise),
-            None => match noise_config {
-                Some(config) => SparseSim::new_with_noise_config(config.into()),
-                None => SparseSim::new(),
-            },
-        };
-        if let Some(loss) = qubit_loss {
-            sim.set_loss(loss);
+        match sim_type {
+            SimType::Sparse => {
+                let mut sim = match noise {
+                    Some(noise) => SparseSim::new_with_noise(&noise),
+                    None => match noise_config {
+                        Some(config) => SparseSim::new_with_noise_config(config.into()),
+                        None => SparseSim::new(),
+                    },
+                };
+                if let Some(loss) = qubit_loss {
+                    sim.set_loss(loss);
+                }
+                self.run_with_sim(&mut sim, receiver, expr, seed)
+            }
+            SimType::Clifford(num_qubits) => {
+                let mut sim = match noise_config {
+                    Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
+                    None => CliffordSim::new(num_qubits),
+                };
+                self.run_with_sim(&mut sim, receiver, expr, seed)
+            }
         }
-        self.run_with_sim(&mut sim, receiver, expr, seed)
     }
 
     /// Gets the current quantum state of the simulator.
     pub fn get_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        self.sim.capture_quantum_state()
+        self.sim
+            .capture_quantum_state()
+            .expect("interpreter should use infallible sparse sim by default")
     }
 
     /// Get the current circuit representation of the program.
@@ -908,9 +989,212 @@ impl Interpreter {
             .snapshot(&(self.compiler.package_store(), &self.fir_store))
     }
 
+    fn prepare_codegen_entry_expr(
+        &mut self,
+        expr: &str,
+    ) -> std::result::Result<CodegenFir, Vec<Error>> {
+        if self.entry_point_call_expr().as_deref() == Some(expr) {
+            return self.prepare_codegen_source_package();
+        }
+
+        let _ = self.compile_entry_expr(expr)?;
+
+        prepare_codegen_fir_from_fir_store(
+            self.compiler.package_store(),
+            map_fir_package_to_hir(self.package),
+            &self.fir_store,
+            self.package,
+            self.capabilities,
+        )
+    }
+
+    fn prepare_codegen_source_package(&self) -> std::result::Result<CodegenFir, Vec<Error>> {
+        prepare_codegen_fir(
+            self.compiler.package_store(),
+            map_fir_package_to_hir(self.source_package),
+            self.capabilities,
+        )
+    }
+
+    /// Reconstructs the source package's `@EntryPoint` callable as a Q# call
+    /// expression string (e.g., `"MyNamespace.MyOp()"`).
+    ///
+    /// Returns `Some` only when the entry expression is a zero-argument call to
+    /// a resolved named callable. Returns `None` if there is no entry
+    /// expression, the call has arguments, or the callee is not a simple item
+    /// reference.
+    ///
+    /// This is used in two places:
+    /// - **Codegen shortcut** (`prepare_codegen_entry_expr`): when the caller
+    ///   passes an expression string that matches the existing entry point, we
+    ///   reuse the already-compiled source package instead of recompiling.
+    /// - **Default entry fallback** (`compile_to_rir_with_debug_metadata`):
+    ///   when no explicit entry expression is provided, this supplies the
+    ///   `@EntryPoint` callable as the expression to compile.
+    fn entry_point_call_expr(&self) -> Option<String> {
+        let source_package = self
+            .compiler
+            .package_store()
+            .get(map_fir_package_to_hir(self.source_package))
+            .expect("source package should exist in the package store");
+        let entry = source_package.package.entry.as_ref()?;
+
+        let qsc_hir::hir::ExprKind::Call(callee, args) = &entry.kind else {
+            return None;
+        };
+        let qsc_hir::hir::ExprKind::Tuple(items) = &args.kind else {
+            return None;
+        };
+        if !items.is_empty() {
+            return None;
+        }
+
+        let qsc_hir::hir::ExprKind::Var(qsc_hir::hir::Res::Item(item_id), _) = &callee.kind else {
+            return None;
+        };
+        let item = source_package.package.items.get(item_id.item)?;
+        let qsc_hir::hir::ItemKind::Callable(callable) = &item.kind else {
+            return None;
+        };
+
+        let qualified_name = item
+            .parent
+            .and_then(|parent_id| source_package.package.items.get(parent_id))
+            .and_then(|parent| match &parent.kind {
+                qsc_hir::hir::ItemKind::Namespace(namespace, _) => {
+                    Some(namespace.name().to_string())
+                }
+                _ => None,
+            })
+            .map_or_else(
+                || callable.name.name.to_string(),
+                |namespace| format!("{namespace}.{}", callable.name.name),
+            );
+
+        Some(format!("{qualified_name}()"))
+    }
+
+    /// Extracts an HIR `ItemId` from a runtime `Value::Global`.
+    ///
+    /// Maps the FIR-domain package and item IDs back to their HIR equivalents
+    /// for use with the HIR package store in codegen preparation.
+    ///
+    /// # Errors
+    ///
+    /// Returns `Error::NotACallable` if the value is not a `Value::Global`.
+    fn hir_item_id_from_value(
+        callable: &Value,
+    ) -> std::result::Result<qsc_hir::hir::ItemId, Vec<Error>> {
+        let Value::Global(store_item_id, _) = callable else {
+            return Err(vec![Error::NotACallable]);
+        };
+
+        Ok(qsc_hir::hir::ItemId {
+            package: map_fir_package_to_hir(store_item_id.package),
+            item: map_fir_local_item_to_hir(store_item_id.item),
+        })
+    }
+
+    /// Normalizes a `StoreItemId` through the HIR↔FIR mapping round-trip.
+    ///
+    /// The interpreter's FIR store may use package/item IDs from a different
+    /// lowering pass than the freshly-lowered codegen store. Round-tripping
+    /// through `map_fir→hir→fir` ensures IDs align with the codegen store's
+    /// ID space.
+    fn remap_store_item_id_for_codegen(store_item_id: fir::StoreItemId) -> fir::StoreItemId {
+        fir::StoreItemId {
+            package: map_hir_package_to_fir(map_fir_package_to_hir(store_item_id.package)),
+            item: map_hir_local_item_to_fir(map_fir_local_item_to_hir(store_item_id.item)),
+        }
+    }
+
+    /// Recursively remaps all `StoreItemId` references within a runtime `Value`
+    /// to the codegen FIR store's ID space.
+    ///
+    /// Applies `remap_store_item_id_for_codegen` to every callable reference
+    /// (`Global`, `Closure`, and UDT-tagged `Tuple`) so the value tree is
+    /// compatible with the freshly-lowered codegen package store.
+    fn remap_value_for_codegen(value: Value) -> Value {
+        match value {
+            Value::Array(values) => Value::Array(Rc::new(
+                values
+                    .iter()
+                    .cloned()
+                    .map(Self::remap_value_for_codegen)
+                    .collect(),
+            )),
+            Value::Closure(inner) => Value::Closure(Box::new(Closure {
+                fixed_args: inner
+                    .fixed_args
+                    .iter()
+                    .cloned()
+                    .map(Self::remap_value_for_codegen)
+                    .collect::<Vec<_>>()
+                    .into(),
+                id: Self::remap_store_item_id_for_codegen(inner.id),
+                functor: inner.functor,
+            })),
+            Value::Global(store_item_id, functor_app) => Value::Global(
+                Self::remap_store_item_id_for_codegen(store_item_id),
+                functor_app,
+            ),
+            Value::Tuple(values, store_item_id) => Value::Tuple(
+                values
+                    .iter()
+                    .cloned()
+                    .map(Self::remap_value_for_codegen)
+                    .collect::<Vec<_>>()
+                    .into(),
+                store_item_id.map(|id| Rc::new(Self::remap_store_item_id_for_codegen(*id))),
+            ),
+            other => other,
+        }
+    }
+
+    fn partial_evaluation_error(
+        &self,
+        error: qsc_partial_eval::Error,
+        fallback_package: qsc_hir::hir::PackageId,
+    ) -> Vec<Error> {
+        let hir_package_id = match error.span() {
+            Some(span) => span.package,
+            None => fallback_package,
+        };
+        let source_package = self
+            .compiler
+            .package_store()
+            .get(hir_package_id)
+            .expect("package should exist in the package store");
+        vec![Error::PartialEvaluation(WithSource::from_map(
+            &source_package.sources,
+            error,
+        ))]
+    }
+
     /// Performs QIR codegen using the given entry expression on a new instance of the environment
     /// and simulator but using the current compilation.
     pub fn qirgen(&mut self, expr: &str) -> std::result::Result<String, Vec<Error>> {
+        if self.capabilities == TargetCapabilityFlags::all() {
+            return Err(vec![Error::UnsupportedRuntimeCapabilities]);
+        }
+
+        let prepared_fir = self.prepare_codegen_entry_expr(expr)?;
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let CodegenFir {
+            fir_store,
+            fir_package_id,
+            compute_properties,
+            ..
+        } = prepared_fir;
+
+        fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
+            .map_err(|e| self.partial_evaluation_error(e, map_fir_package_to_hir(fir_package_id)))
+    }
+
+    /// Performs RIR codegen using the given entry expression on a new instance of the environment
+    /// and simulator but using the current compilation. Returns the raw and SSA forms of the RIR
+    /// as strings.
+    pub fn get_rir(&mut self, expr: &str) -> std::result::Result<Vec<String>, Vec<Error>> {
         if self.capabilities == TargetCapabilityFlags::all() {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
@@ -935,12 +1219,14 @@ impl Interpreter {
             )
                 .into(),
         };
-        // Generate QIR
-        fir_to_qir(
+        let (raw, ssa) = fir_to_rir(
             &self.fir_store,
             self.capabilities,
-            Some(compute_properties),
+            &compute_properties,
             &entry,
+            PartialEvalConfig {
+                generate_debug_metadata: true,
+            },
         )
         .map_err(|e| {
             let hir_package_id = match e.span() {
@@ -956,7 +1242,8 @@ impl Interpreter {
                 &source_package.sources,
                 e,
             ))]
-        })
+        })?;
+        Ok(vec![raw.to_string(), ssa.to_string()])
     }
 
     /// Performs QIR codegen using the given callable with the given arguments on a new instance of the environment
@@ -970,32 +1257,46 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let Value::Global(store_item_id, _) = callable else {
-            return Err(vec![Error::NotACallable]);
-        };
-
-        fir_to_qir_from_callable(
-            &self.fir_store,
+        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let backend_args = Self::remap_value_for_codegen(args);
+        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args(
+            self.compiler.package_store(),
+            callable_id,
+            &backend_args,
             self.capabilities,
-            None,
-            *store_item_id,
-            args,
-        )
-        .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
-            let source_package = self
-                .compiler
-                .package_store()
-                .get(hir_package_id)
-                .expect("package should exist in the package store");
-            vec![Error::PartialEvaluation(WithSource::from_map(
-                &source_package.sources,
-                e,
-            ))]
-        })
+        )?;
+
+        match backend {
+            CallableArgsBackend::SyntheticEntry => {
+                let entry = entry_from_codegen_fir(&prepared_fir);
+                let CodegenFir {
+                    fir_store,
+                    fir_package_id,
+                    compute_properties,
+                    ..
+                } = prepared_fir;
+
+                fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry).map_err(
+                    |e| self.partial_evaluation_error(e, map_fir_package_to_hir(fir_package_id)),
+                )
+            }
+            CallableArgsBackend::ReinvokeOriginal { callable, args } => {
+                let CodegenFir {
+                    fir_store,
+                    compute_properties,
+                    ..
+                } = prepared_fir;
+
+                fir_to_qir_from_callable(
+                    &fir_store,
+                    self.capabilities,
+                    &compute_properties,
+                    callable,
+                    args,
+                )
+                .map_err(|e| self.partial_evaluation_error(e, callable_id.package))
+            }
+        }
     }
 
     /// Generates a circuit representation for the program.
@@ -1100,12 +1401,12 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let program = self.compile_to_rir_with_debug_metadata(entry_expr)?;
+        let (program, fir_store) = self.compile_to_rir_with_debug_metadata(entry_expr)?;
         rir_to_circuit(
             &program,
             tracer_config,
             &[self.package, self.source_package],
-            &(self.compiler.package_store(), &self.fir_store),
+            &(self.compiler.package_store(), &fir_store),
         )
         .map_err(|e| vec![e.into()])
     }
@@ -1120,116 +1421,108 @@ impl Interpreter {
             return Err(vec![Error::UnsupportedRuntimeCapabilities]);
         }
 
-        let Value::Global(store_item_id, _) = callable else {
-            return Err(vec![Error::NotACallable]);
-        };
-
-        let (_original, transformed) = fir_to_rir_from_callable(
-            &self.fir_store,
+        let callable_id = Self::hir_item_id_from_value(callable)?;
+        let backend_args = Self::remap_value_for_codegen(args);
+        let (prepared_fir, backend) = prepare_codegen_fir_from_callable_args(
+            self.compiler.package_store(),
+            callable_id,
+            &backend_args,
             self.capabilities,
-            None,
-            *store_item_id,
-            args,
-            PartialEvalConfig {
-                generate_debug_metadata: true,
-            },
-        )
-        .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
-            let source_package = self
-                .compiler
-                .package_store()
-                .get(hir_package_id)
-                .expect("package should exist in the package store");
-            vec![Error::PartialEvaluation(WithSource::from_map(
-                &source_package.sources,
-                e,
-            ))]
-        })?;
+        )?;
 
-        rir_to_circuit(
-            &transformed,
-            tracer_config,
-            &[self.package, self.source_package],
-            &(self.compiler.package_store(), &self.fir_store),
-        )
-        .map_err(|e| vec![e.into()])
+        match backend {
+            CallableArgsBackend::SyntheticEntry => {
+                let entry = entry_from_codegen_fir(&prepared_fir);
+                let CodegenFir {
+                    fir_store,
+                    compute_properties,
+                    ..
+                } = prepared_fir;
+
+                let (_original, transformed) = fir_to_rir(
+                    &fir_store,
+                    self.capabilities,
+                    &compute_properties,
+                    &entry,
+                    PartialEvalConfig {
+                        generate_debug_metadata: true,
+                    },
+                )
+                .map_err(|e| self.partial_evaluation_error(e, callable_id.package))?;
+
+                rir_to_circuit(
+                    &transformed,
+                    tracer_config,
+                    &[self.package, self.source_package],
+                    &(self.compiler.package_store(), &fir_store),
+                )
+                .map_err(|e| vec![e.into()])
+            }
+            CallableArgsBackend::ReinvokeOriginal { callable, args } => {
+                let CodegenFir {
+                    fir_store,
+                    compute_properties,
+                    ..
+                } = prepared_fir;
+
+                let (_original, transformed) = fir_to_rir_from_callable(
+                    &fir_store,
+                    self.capabilities,
+                    &compute_properties,
+                    callable,
+                    args,
+                    PartialEvalConfig {
+                        generate_debug_metadata: true,
+                    },
+                )
+                .map_err(|e| self.partial_evaluation_error(e, callable_id.package))?;
+
+                rir_to_circuit(
+                    &transformed,
+                    tracer_config,
+                    &[self.package, self.source_package],
+                    &(self.compiler.package_store(), &fir_store),
+                )
+                .map_err(|e| vec![e.into()])
+            }
+        }
     }
 
     fn compile_to_rir_with_debug_metadata(
         &mut self,
         entry_expr: Option<&str>,
-    ) -> std::result::Result<qsc_partial_eval::Program, Vec<Error>> {
-        let (entry, compute_properties) = if let Some(entry_expr) = &entry_expr {
-            // Compile the expression. This operation will set the expression as
-            // the entry-point in the FIR store.
-            let (graph, compute_properties) = self.compile_entry_expr(entry_expr)?;
+    ) -> std::result::Result<(qsc_partial_eval::Program, qsc_fir::fir::PackageStore), Vec<Error>>
+    {
+        let (prepared_fir, fallback_package) =
+            if let Some(entry_expr) = entry_expr.or(self.entry_point_call_expr().as_deref()) {
+                (
+                    self.prepare_codegen_entry_expr(entry_expr)?,
+                    map_fir_package_to_hir(self.package),
+                )
+            } else {
+                (
+                    self.prepare_codegen_source_package()?,
+                    map_fir_package_to_hir(self.source_package),
+                )
+            };
 
-            let Some(compute_properties) = compute_properties else {
-                // This can only happen if capability analysis was not run.
-                panic!(
-                    "internal error: compute properties not set after lowering entry expression"
-                );
-            };
-            let package = self.fir_store.get(self.package);
-            let entry = ProgramEntry {
-                exec_graph: graph,
-                expr: (
-                    self.package,
-                    package
-                        .entry
-                        .expect("package must have an entry expression"),
-                )
-                    .into(),
-            };
-            (entry, compute_properties)
-        } else {
-            let package = self.fir_store.get(self.source_package);
-            let entry = ProgramEntry {
-                exec_graph: package.entry_exec_graph.clone(),
-                expr: (
-                    self.source_package,
-                    package
-                        .entry
-                        .expect("package must have an entry expression"),
-                )
-                    .into(),
-            };
-            (
-                entry,
-                self.compute_properties.clone().expect(
-                    "compute properties should be set if target profile isn't unrestricted",
-                ),
-            )
-        };
+        let entry = entry_from_codegen_fir(&prepared_fir);
+        let CodegenFir {
+            fir_store,
+            compute_properties,
+            ..
+        } = prepared_fir;
         let (_original, transformed) = fir_to_rir(
-            &self.fir_store,
+            &fir_store,
             self.capabilities,
-            Some(compute_properties),
+            &compute_properties,
             &entry,
             PartialEvalConfig {
                 generate_debug_metadata: true,
             },
         )
-        .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
-            let source_package = self
-                .compiler
-                .package_store()
-                .get(hir_package_id)
-                .expect("package should exist in the package store");
-            vec![Error::PartialEvaluation(WithSource::from_map(
-                &source_package.sources,
-                e,
-            ))]
-        })?;
-        Ok(transformed)
+        .map_err(|e| self.partial_evaluation_error(e, fallback_package))?;
+        Ok((transformed, fir_store))
     }
 
     /// Sets the entry expression for the interpreter.
@@ -1405,7 +1698,9 @@ impl Interpreter {
         }
 
         self.lower_and_update_package(unit_addition);
-        Ok((self.lowerer.take_exec_graph(), None))
+        let graph = self.lowerer.take_exec_graph();
+        self.fir_store.get_mut(self.package).entry_exec_graph = graph.clone();
+        Ok((graph, None))
     }
 
     fn lower_and_update_package(&mut self, unit: &qsc_frontend::incremental::Increment) {
@@ -1446,6 +1741,7 @@ impl Interpreter {
         })?;
 
         let graph = self.lowerer.take_exec_graph();
+        self.fir_store.get_mut(self.package).entry_exec_graph = graph.clone();
         Ok((graph, Some(compute_properties)))
     }
 
@@ -1641,7 +1937,7 @@ impl Debugger {
     }
 
     pub fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        self.interpreter.sim.capture_quantum_state()
+        self.interpreter.get_quantum_state()
     }
 
     pub fn circuit(&self) -> Circuit {
@@ -1664,7 +1960,7 @@ impl Debugger {
                 self.position_encoding,
             );
             collector.visit_package(package, &self.interpreter.fir_store);
-            let mut spans: Vec<_> = collector.statements.into_iter().collect();
+            let mut spans: Vec<_> = collector.statements.into_values().collect();
 
             // Sort by start position (line first, column next)
             spans.sort_by_key(|s| (s.range.start.line, s.range.start.column));
@@ -1748,7 +2044,7 @@ pub struct BreakpointSpan {
 }
 
 struct BreakpointCollector<'a> {
-    statements: FxHashSet<BreakpointSpan>,
+    statements: FxHashMap<Range, BreakpointSpan>,
     sources: &'a SourceMap,
     offset: u32,
     package: &'a Package,
@@ -1763,7 +2059,7 @@ impl<'a> BreakpointCollector<'a> {
         position_encoding: Encoding,
     ) -> Self {
         Self {
-            statements: FxHashSet::default(),
+            statements: FxHashMap::default(),
             sources,
             offset,
             package,
@@ -1782,11 +2078,18 @@ impl<'a> BreakpointCollector<'a> {
         if source.offset == self.offset {
             let span = stmt.span - source.offset;
             if span != Span::default() {
+                let range = Range::from_span(self.position_encoding, &source.contents, &span);
                 let bps = BreakpointSpan {
                     id: stmt.id.into(),
-                    range: Range::from_span(self.position_encoding, &source.contents, &span),
+                    range,
                 };
-                self.statements.insert(bps);
+                // Keep the first statement seen for a source range so UI clients get
+                // one stable, hittable breakpoint per visual location.
+                // Multiple HIR passes (ReplaceQubitAllocation, LoopUni,
+                // conjugate_invert, spec_gen) generate statements sharing the same
+                // source span. The lowerer maps these 1:1 into FIR, so deduplication
+                // is needed here.
+                self.statements.entry(range).or_insert(bps);
             }
         }
     }

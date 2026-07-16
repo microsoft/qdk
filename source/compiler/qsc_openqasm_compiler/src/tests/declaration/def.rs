@@ -123,7 +123,7 @@ fn return_expr_on_void_function_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ReturningExpressionFromVoidSubroutine
+        [Qdk.Qasm.Lowerer.ReturningExpressionFromVoidSubroutine
 
           x cannot return an expression from a void subroutine
            ,-[Test.qasm:3:20]
@@ -149,7 +149,7 @@ fn missing_return_stmt_expr_on_non_void_function_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.MissingTargetExpressionInReturnStmt
+        [Qdk.Qasm.Lowerer.MissingTargetExpressionInReturnStmt
 
           x return statements on a non-void subroutine should have a target expression
            ,-[Test.qasm:3:13]
@@ -172,7 +172,7 @@ fn missing_return_in_non_void_function_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -226,7 +226,7 @@ fn missing_return_in_else_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -253,7 +253,7 @@ fn missing_return_in_if_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -279,7 +279,7 @@ fn missing_return_in_omitted_else_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -326,7 +326,7 @@ fn missing_return_in_for_loop_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -373,7 +373,7 @@ fn missing_return_in_while_loop_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -393,6 +393,7 @@ fn return_from_switch() {
             switch (a) {
                 case 0 { return 1; }
                 case 1 { return 0; }
+                default { return 0; }
             }
         }
     "#;
@@ -405,6 +406,8 @@ fn return_from_switch() {
                 if a == 0 {
                     return Std.OpenQASM.Convert.IntAsResult(1);
                 } elif a == 1 {
+                    return Std.OpenQASM.Convert.IntAsResult(0);
+                } else {
                     return Std.OpenQASM.Convert.IntAsResult(0);
                 };
             }
@@ -426,7 +429,7 @@ fn missing_return_in_switch_case_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -453,7 +456,7 @@ fn missing_return_in_switch_default_case_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -500,7 +503,7 @@ fn missing_return_in_block_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
 
               x non-void def should always return
                ,-[Test.qasm:2:30]
@@ -548,7 +551,7 @@ fn capturing_non_const_external_variable_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ExprMustBeConst
+        [Qdk.Qasm.Lowerer.ExprMustBeConst
 
           x a captured variable must be a const expression
            ,-[Test.qasm:4:20]
@@ -575,7 +578,7 @@ fn capturing_non_const_evaluatable_external_variable_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.NegativeUIntValue
+        [Qdk.Qasm.Lowerer.NegativeUIntValue
 
           x uint expression must evaluate to a non-negative value, but it evaluated to
           | -3
@@ -619,15 +622,15 @@ fn cannot_redefine_builtin_function() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-        Qasm.Lowerer.RedefinedBuiltinFunction
+            Qdk.Qasm.Lowerer.RedefinedBuiltinFunction
 
-          x redefined builtin function: mod
-           ,-[Test.qasm:2:13]
-         1 | 
-         2 |         def mod(int a) -> bit {
-           :             ^^^
-         3 |             return 1;
-           `----
-    "#]],
+              x redefined builtin function: mod
+               ,-[Test.qasm:2:13]
+             1 | 
+             2 |         def mod(int a) -> bit {
+               :             ^^^
+             3 |             return 1;
+               `----
+        "#]],
     );
 }

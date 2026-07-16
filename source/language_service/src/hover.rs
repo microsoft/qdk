@@ -368,7 +368,7 @@ fn display_local(
             let callable_name = callable_name.expect("param should have a callable name");
             with_doc(
                 &param_doc,
-                format!("parameter of `{callable_name}`\n{markdown}",),
+                format!("parameter of `{callable_name}`\n{markdown}"),
             )
         }
         LocalKind::TypeParam => {
@@ -376,7 +376,7 @@ fn display_local(
             let callable_name = callable_name.expect("type param should have a callable name");
             with_doc(
                 &param_doc,
-                format!("type parameter of `{callable_name}`\n{markdown}",),
+                format!("type parameter of `{callable_name}`\n{markdown}"),
             )
         }
         LocalKind::LambdaParam => format!("lambda parameter\n{markdown}"),

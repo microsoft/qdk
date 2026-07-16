@@ -5,6 +5,7 @@ import type { IQSharpError } from "../../lib/web/qsc_wasm.js";
 import type { CancellationToken } from "../cancellation.js";
 import { QdkDiagnostics } from "../diagnostics.js";
 import { log } from "../log.js";
+import type { IWorkerHost } from "./adapters/types.js";
 import type {
   CommonEventMessage,
   EventMessage,
@@ -23,10 +24,9 @@ import type {
  * Creates and initializes a service in a web worker, and returns a proxy for the service
  * to be used from the main thread.
  *
- * @param workerArg The service web worker or the URL of the web worker script.
+ * @param workerArg An `IWorkerHost` instance, or a URL string to create one via the `WorkerHost` global.
  * @param wasmModule The wasm module to initialize the service with
  * @param serviceProtocol An object that describes the service: its constructor, methods and events
- * @param workerType The type of worker to create: "classic" for browsers, "module" for Node.js
  * @returns A proxy object that implements the service interface.
  *   This interface can now be used as if calling into the real service,
  *   and the calls will be proxied to the web worker.
@@ -35,21 +35,15 @@ export function createProxy<
   TService extends ServiceMethods<TService>,
   TServiceEventMsg extends IServiceEventMessage,
 >(
-  workerArg: string | Worker,
+  workerArg: string | IWorkerHost,
   wasmModule: WebAssembly.Module,
   serviceProtocol: ServiceProtocol<TService, TServiceEventMsg>,
-  workerType: "classic" | "module",
 ): TService & IServiceProxy {
-  // Create or use the WebWorker
-  const useModuleWorker: WorkerOptions = { type: workerType };
-
   const worker =
-    typeof workerArg === "string"
-      ? new Worker(workerArg, useModuleWorker)
-      : workerArg;
+    typeof workerArg === "string" ? new WorkerHost(workerArg) : workerArg;
 
   // Log any errors from the worker
-  worker.addEventListener("error", (ev: Event) => {
+  worker.onError((ev: Event) => {
     log.error("Worker error:", ev);
   });
 
@@ -72,7 +66,7 @@ export function createProxy<
   );
 
   // Let proxy handle response and event messages from the worker
-  worker.addEventListener("message", (ev: MessageEvent) => {
+  worker.onMessage((ev: MessageEvent) => {
     proxy.onMsgFromWorker(ev.data);
   });
   return proxy;

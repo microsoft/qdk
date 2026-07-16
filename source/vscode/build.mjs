@@ -29,10 +29,12 @@ const platformBuildOptions = {
   ui: {
     ...commonBuildOptions,
     platform: "browser",
-    outdir: join(thisDir, "out", "webview"),
+    outbase: join(thisDir, "src"),
+    outdir: join(thisDir, "out"),
     entryPoints: [
       join(thisDir, "src", "webview/webview.tsx"),
       join(thisDir, "src", "webview/editor.tsx"),
+      join(thisDir, "src", "learning/webview/webview-client.tsx"),
     ],
     define: {
       "import.meta.url": "undefined",
@@ -59,7 +61,7 @@ const platformBuildOptions = {
     platform: "node",
     outdir: join(thisDir, "out", "node"),
     entryPoints: [join(thisDir, "src", "extension.ts")],
-    external: ["vscode", "web-worker"],
+    external: ["vscode"],
     banner: {
       js: 'const _importMetaUrl = require("url").pathToFileURL(__filename).href;',
     },

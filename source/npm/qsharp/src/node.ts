@@ -1,14 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Node.js entrypoint. Polyfills the Worker global before loading the main module.
+import { NodeWorkerHost } from "./workers/adapters/node.js";
 
-import worker from "web-worker";
-import { setWorkerType } from "./main.js";
-
-if (typeof globalThis.Worker === "undefined") {
-  globalThis.Worker = worker;
-}
-setWorkerType("module");
+globalThis.WorkerHost = NodeWorkerHost;
 
 export * from "./main.js";

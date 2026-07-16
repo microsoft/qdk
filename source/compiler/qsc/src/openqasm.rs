@@ -4,7 +4,9 @@
 use std::sync::Arc;
 use std::vec;
 
+use qdk_openqasm_parser::io::SourceResolver;
 use qsc_data_structures::error::WithSource;
+use qsc_data_structures::target::Profile;
 use qsc_frontend::compile::PackageStore;
 use qsc_hir::hir::PackageId;
 use qsc_openqasm_compiler::compiler::parse_and_compile_to_qsharp_ast_with_config;
@@ -12,19 +14,18 @@ pub use qsc_openqasm_compiler::{
     CompilerConfig, OperationSignature, OutputSemantics, ProgramType, QasmCompileUnit,
     QubitSemantics,
 };
-use qsc_openqasm_parser::io::SourceResolver;
 use qsc_passes::PackageType;
 
 pub mod io {
-    pub use qsc_openqasm_parser::io::*;
+    pub use qdk_openqasm_parser::io::*;
 }
 
 pub mod parser {
-    pub use qsc_openqasm_parser::parser::*;
+    pub use qdk_openqasm_parser::parser::*;
 }
 
 pub mod semantic {
-    pub use qsc_openqasm_parser::semantic::*;
+    pub use qdk_openqasm_parser::semantic::*;
 }
 
 pub mod error {
@@ -33,7 +34,7 @@ pub mod error {
 }
 
 pub mod completion {
-    pub use qsc_openqasm_parser::parser::completion::*;
+    pub use qdk_openqasm_parser::parser::completion::*;
 }
 
 pub mod compiler {
@@ -41,7 +42,7 @@ pub mod compiler {
 }
 
 pub mod stdlib {
-    pub use qsc_openqasm_parser::stdlib::*;
+    pub use qdk_openqasm_parser::stdlib::*;
 }
 
 use crate::compile::package_store_with_stdlib;
@@ -52,11 +53,31 @@ pub struct CompileRawQasmResult(
     pub Vec<(PackageId, Option<std::sync::Arc<str>>)>,
     pub Option<OperationSignature>,
     pub Vec<crate::compile::Error>,
+    pub Option<Profile>,
 );
 
 #[must_use]
 pub fn compile_openqasm(unit: QasmCompileUnit, package_type: PackageType) -> CompileRawQasmResult {
-    let (source_map, openqasm_errors, package, sig, profile) = unit.into_tuple();
+    compile_openqasm_with_profile_override(unit, package_type, None)
+}
+
+/// Compiles `OpenQASM` to Q# with optional explicit profile override.
+///
+/// Profile precedence:
+/// 1. `profile_override` (if provided)
+/// 2. Pragma-derived profile from `OpenQASM` source
+/// 3. Default to `Profile::Unrestricted`
+///
+/// This enables cleaner profile management across `OpenQASM` compilation flows,
+/// allowing callers to explicitly control the QIR profile used for circuit/QIR generation.
+#[must_use]
+pub fn compile_openqasm_with_profile_override(
+    unit: QasmCompileUnit,
+    package_type: PackageType,
+    profile_override: Option<Profile>,
+) -> CompileRawQasmResult {
+    let (source_map, openqasm_errors, package, sig, pragma_profile) = unit.into_tuple();
+    let profile = profile_override.unwrap_or(pragma_profile.unwrap_or(Profile::Unrestricted));
 
     let (stdid, mut store) = package_store_with_stdlib(profile.into());
     let dependencies = vec![(PackageId::CORE, None), (stdid, None)];
@@ -93,7 +114,14 @@ pub fn compile_openqasm(unit: QasmCompileUnit, package_type: PackageType) -> Com
         compile_errors
     };
 
-    CompileRawQasmResult(store, source_package_id, dependencies, sig, surfaced_errors)
+    CompileRawQasmResult(
+        store,
+        source_package_id,
+        dependencies,
+        sig,
+        surfaced_errors,
+        profile_override.or(pragma_profile),
+    )
 }
 
 #[must_use]

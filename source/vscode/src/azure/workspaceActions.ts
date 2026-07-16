@@ -5,13 +5,18 @@ import * as vscode from "vscode";
 import { log } from "qsharp-lang";
 import {
   azureRequest,
+  AzureError,
   AzureUris,
   QuantumUris,
   ResponseTypes,
   storageRequest,
   StorageUris,
 } from "./networkRequests";
-import { Job, WorkspaceConnection } from "./treeView";
+import {
+  getSubscriptionFromWorkspace,
+  Job,
+  WorkspaceConnection,
+} from "./treeView";
 import {
   shouldExcludeProvider,
   shouldExcludeTarget,
@@ -20,16 +25,54 @@ import { getRandomGuid } from "../utils";
 import { EventType, sendTelemetryEvent, UserFlowStatus } from "../telemetry";
 import { getTenantIdAndToken, getTokenForWorkspace } from "./auth";
 
-export function getQuantumOsJobLink(
+function getQuantumOsRoot(): string {
+  return (
+    vscode.workspace
+      .getConfiguration("Q#")
+      .get<string>("azure.quantumOsRoot") ??
+    "https://manage.quantum.microsoft.com"
+  );
+}
+
+export async function getQuantumOsJobLink(
   workspace: WorkspaceConnection,
   jobId: string,
 ) {
   // Quantum OS job page format:
-  // https://manage.quantum.microsoft.com/jobs/<job-id>
-  return `https://manage.quantum-test.microsoft.com/jobs/${jobId}`;
+  // <quantumOsRoot>/jobs/<job-id>#<workspace-fragment>
+  const fragment = await buildQuantumOsFragment(workspace);
+  return `${getQuantumOsRoot()}/jobs/${jobId}#${fragment}`;
 }
 
-export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
+async function buildQuantumOsFragment(
+  workspace: WorkspaceConnection,
+): Promise<string> {
+  const subscriptionId = getSubscriptionFromWorkspace(workspace);
+
+  // The QuantumOS requires the offeringId to be present in the fragment for the link to work correctly.
+  // For now, it's always just the first (only) provider in the list, but this may need to be updated if we allow multiple providers.
+  const offeringId = workspace.providers[0]?.providerId;
+  if (!offeringId) {
+    throw Error(
+      `No providers found for Workspace ${workspace.name}. Cannot determine QuantumOS link offeringId.`,
+    );
+  }
+
+  // The tenantId is required for QuantumOS links. If this workspace was added with API key auth
+  // then the tenantId may not be present, so derive it from the subscriptionId.
+  const tenantId =
+    workspace.tenantId || (await getTenantIdForSubscription(subscriptionId));
+
+  return (
+    `tenantId=${tenantId}` +
+    `&subscriptionId=${subscriptionId}` +
+    `&role=Researcher` +
+    `&offeringId=${offeringId}` +
+    `&workspaceId=${workspace.id}`
+  );
+}
+
+export async function getWorkspacePortalLink(workspace: WorkspaceConnection) {
   const { isV2Workspace } = QuantumUris.parseEndpointUri(workspace.endpointUri);
 
   if (isV2Workspace) {
@@ -39,21 +82,8 @@ export function getWorkspacePortalLink(workspace: WorkspaceConnection) {
     //
     // workspace.id starts with '/' (e.g. "/subscriptions/.../Workspaces/<name>"),
     // so it is appended directly to produce a clean path with literal slashes.
-    const idRegex =
-      /\/subscriptions\/(?<subscriptionId>[^/]+)\/resourceGroups\//;
-    const subscriptionId =
-      workspace.id.match(idRegex)?.groups?.subscriptionId ?? "";
-
-    const offeringId = workspace.providers[0]?.providerId ?? "";
-
-    const fragment =
-      `tenantId=${workspace.tenantId}` +
-      `&subscriptionId=${subscriptionId}` +
-      `&role=Researcher` +
-      (offeringId ? `&offeringId=${offeringId}` : "") +
-      `&workspaceId=${workspace.id}`;
-
-    return `https://manage.quantum-test.microsoft.com/workspaces/${workspace.name}#${fragment}`;
+    const fragment = await buildQuantumOsFragment(workspace);
+    return `${getQuantumOsRoot()}/workspaces/${workspace.name}#${fragment}`;
   }
 
   // Azure Portal link format:
@@ -66,6 +96,52 @@ export type EndEventProperties = {
   reason: string;
   flowStatus: UserFlowStatus;
 };
+
+/**
+ * Discovers the tenant ID for an Azure subscription using an ARM
+ * unauthenticated challenge. An unauthenticated request to the ARM
+ * subscription endpoint always returns a 401 with a WWW-Authenticate header
+ * containing the tenant ID, e.g.:
+ *   Bearer authorization_uri="https://login.microsoftonline.com/<tenantId>", ...
+ */
+export async function getTenantIdForSubscription(
+  subscriptionId: string,
+): Promise<string> {
+  log.debug(
+    `Attempting to get the tenantId for subscription ${subscriptionId}`,
+  );
+
+  const url = `${AzureUris.mgmtEndpoint}/subscriptions/${subscriptionId}?api-version=${AzureUris.mgmtApiVersion}`;
+  try {
+    const response = await fetch(url);
+    const wwwAuth = response.headers.get("WWW-Authenticate");
+    if (!wwwAuth)
+      throw Error(
+        "Azure ARM subscriptions endpoint did not return the WWW-Authenticate header as expected.",
+      );
+
+    const match = wwwAuth.match(
+      /authorization_uri="https:\/\/(?:login\.microsoftonline\.com|login\.windows\.net)\/([^"]+)"/,
+    );
+    const tenantId = match?.[1];
+    if (!tenantId) {
+      throw Error(
+        `Failed to extract the tenantId from WWW-Authenticate header value: ${wwwAuth}`,
+      );
+    }
+    return tenantId;
+  } catch (e) {
+    log.error(
+      "Failed to discover tenant ID for subscription",
+      subscriptionId,
+      e,
+    );
+    throw Error(
+      `Unable to discover Entra tenant for subscription "${subscriptionId}"`,
+      { cause: e },
+    );
+  }
+}
 
 export async function queryWorkspaces(): Promise<
   WorkspaceConnection | undefined
@@ -159,11 +235,26 @@ workspace = Workspace(
 
 /**
  * Parses a connection string into a WorkspaceConnection, or returns undefined
- * if any required fields are missing. Does not validate the connection against
- * the service — call getTokenForWorkspace / azureRequest to validate.
+ * if any required fields are missing.
+ * Does not validate the connection against the service — call
+ * getTokenForWorkspace / azureRequest to validate.
  *
- * Expected format:
- *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>
+ * Required fields: SubscriptionId, ResourceGroupName, WorkspaceName, QuantumEndpoint
+ * Authentication: at least one of ApiKey or TenantId must be present, otherwise
+ * this returns undefined.
+ *   - ApiKey:   if present, API key authentication is used; otherwise Entra ID
+ *               (AAD) authentication is used and VS Code will prompt the user to
+ *               sign in interactively if not already authenticated.
+ *   - TenantId: scopes Entra ID auth and is used for portal deep links. When an
+ *               ApiKey is supplied the TenantId may be omitted; in that case it
+ *               is left blank here and lazily derived from the SubscriptionId
+ *               only when a portal deep link is built (see buildQuantumOsFragment).
+ *
+ * API key format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<https://...>
+ *
+ * Entra ID format:
+ *   SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;TenantId=<tenant-guid>;QuantumEndpoint=<https://...>
  */
 export function parseConnectionString(
   connStr: string,
@@ -172,16 +263,28 @@ export function parseConnectionString(
   connStr.split(";").forEach((part) => {
     const eq = part.indexOf("=");
     if (eq === -1) return;
-    partsMap.set(part.substring(0, eq).toLowerCase(), part.substring(eq + 1));
+    const value = part.substring(eq + 1).trim();
+    // Skip keys with empty values so that `partsMap.has(...)` reliably means
+    // "present and non-empty" (e.g. "ApiKey=" should not count as an API key).
+    if (!value) return;
+    partsMap.set(part.substring(0, eq).trim().toLowerCase(), value);
   });
 
-  if (
-    !partsMap.has("subscriptionid") ||
-    !partsMap.has("resourcegroupname") ||
-    !partsMap.has("workspacename") ||
-    !partsMap.has("apikey") ||
-    !partsMap.has("quantumendpoint")
-  ) {
+  // The core fields are always required. In addition, an authentication method
+  // must be present: either an ApiKey or a TenantId (Entra ID). Auth uses the
+  // ApiKey if present, otherwise Entra ID (see getTokenForWorkspace).
+  const hasRequiredFields =
+    partsMap.has("subscriptionid") &&
+    partsMap.has("resourcegroupname") &&
+    partsMap.has("workspacename") &&
+    partsMap.has("quantumendpoint");
+
+  if (!hasRequiredFields) {
+    return undefined;
+  }
+
+  // At least one of ApiKey or TenantId must be specified
+  if (!partsMap.has("apikey") && !partsMap.has("tenantid")) {
     return undefined;
   }
 
@@ -194,7 +297,7 @@ export function parseConnectionString(
     id: workspaceId,
     name: partsMap.get("workspacename")!,
     endpointUri: partsMap.get("quantumendpoint")!,
-    tenantId: "", // Blank means not authenticated via a token
+    tenantId: partsMap.get("tenantid") || "", // Blank when only an ApiKey is supplied; derived from the subscription id when a portal link is built
     apiKey: partsMap.get("apikey"),
     providers: [], // Providers and jobs will be populated by a following 'queryWorkspace' call
     jobs: [],
@@ -208,7 +311,7 @@ async function getWorkspaceWithConnectionString(
     const connStr = await vscode.window.showInputBox({
       prompt: "Enter the connection string",
       placeHolder:
-        "SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri>;",
+        "SubscriptionId=<guid>;ResourceGroupName=<name>;WorkspaceName=<name>;ApiKey=<secret>;QuantumEndpoint=<serviceUri> (or replace ApiKey with TenantId=<tenant-guid> for Entra ID auth)",
     });
     if (!connStr) {
       endEventProperties.reason = "no connection string entered";
@@ -232,32 +335,11 @@ async function getWorkspaceWithConnectionString(
       }
     }
 
-    // Validate the connection string info before returning as valid for further use.
     try {
-      const token = await getTokenForWorkspace(workspace);
-      const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
-      const associationId = getRandomGuid();
-      const providerStatus: ResponseTypes.ProviderStatusList =
-        await azureRequest(quantumUris.providerStatus(), token, associationId);
-      if (!providerStatus.value?.length) {
-        // There should always be providers, so this is an exceptional condition
-        throw Error("No providers returned");
-      }
+      await queryWorkspace(workspace);
+      return workspace;
     } catch (e: any) {
-      log.debug("Workspace connection error", e);
-      // e.g. check for 401 (invalid key), 404 (invalid workspace), failed network requests (invalid endpoint), etc.
-      let errorText = "An unexpected error occurred";
-      const message: string | undefined = e.message;
-      if (message?.includes("status 401")) {
-        errorText =
-          "Authentication failed. Please check the ApiKey is valid and active.";
-      } else if (message?.includes("status 404")) {
-        errorText =
-          "Workspace not found. Please check the WorkspaceName and ResourceGroupName values.";
-      } else if (message?.includes("Failed to fetch")) {
-        errorText =
-          "Request failed. Please check the QuantumEndpoint value and network connectivity.";
-      }
+      const errorText = e.message || "An unknown error occurred";
       const action = await vscode.window.showErrorMessage(
         errorText,
         { modal: true },
@@ -271,8 +353,6 @@ async function getWorkspaceWithConnectionString(
         return;
       }
     }
-
-    return workspace;
   }
 }
 
@@ -411,77 +491,103 @@ async function getWorkspaceWithAzureAD(
 // - https://github.com/microsoft/qdk-python/blob/main/azure-quantum/azure/quantum/_client/aio/operations/_operations.py
 // - https://github.com/Azure/azure-rest-api-specs/blob/main/specification/quantum/data-plane/Microsoft.Quantum/preview/2022-09-12-preview/quantum.json
 export async function queryWorkspace(workspace: WorkspaceConnection) {
-  const start = performance.now();
-  const token = await getTokenForWorkspace(workspace);
+  try {
+    const start = performance.now();
+    const token = await getTokenForWorkspace(workspace);
 
-  const associationId = getRandomGuid();
-  sendTelemetryEvent(EventType.QueryWorkspaceStart, { associationId }, {});
+    const associationId = getRandomGuid();
+    sendTelemetryEvent(EventType.QueryWorkspaceStart, { associationId }, {});
 
-  const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
+    const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
 
-  const providerStatus: ResponseTypes.ProviderStatusList = await azureRequest(
-    quantumUris.providerStatus(),
-    token,
-    associationId,
-  );
-  if (log.getLogLevel() >= 5) {
-    log.trace(
-      `Got provider status: ${JSON.stringify(providerStatus, null, 2)}`,
+    const providerStatus: ResponseTypes.ProviderStatusList = await azureRequest(
+      quantumUris.providerStatus(),
+      token,
+      associationId,
     );
-  }
+    if (log.getLogLevel() >= 5) {
+      log.trace(
+        `Got provider status: ${JSON.stringify(providerStatus, null, 2)}`,
+      );
+    }
 
-  // Update the providers with the target list
-  workspace.providers = providerStatus.value.map((provider) => {
-    return {
-      providerId: provider.id,
-      currentAvailability: provider.currentAvailability,
-      targets: provider.targets
-        .map((target) => ({ ...target, providerId: provider.id }))
-        .filter((target) => !shouldExcludeTarget(target.id)),
-    };
-  });
+    // Update the providers with the target list
+    workspace.providers = providerStatus.value.map((provider) => {
+      return {
+        providerId: provider.id,
+        currentAvailability: provider.currentAvailability,
+        targets: provider.targets
+          .map((target) => ({ ...target, providerId: provider.id }))
+          .filter((target) => !shouldExcludeTarget(target.id)),
+      };
+    });
 
-  workspace.providers = workspace.providers.filter(
-    (provider) => !shouldExcludeProvider(provider.providerId),
-  );
+    workspace.providers = workspace.providers.filter(
+      (provider) => !shouldExcludeProvider(provider.providerId),
+    );
 
-  log.debug("Fetching the jobs for the workspace");
-  const jobs: ResponseTypes.JobList = await azureRequest(
-    quantumUris.jobs(),
-    token,
-    associationId,
-  );
-  log.debug(`Query returned ${jobs.value.length} jobs`);
+    log.debug("Fetching the jobs for the workspace");
+    const jobs: ResponseTypes.JobList = await azureRequest(
+      quantumUris.jobs(),
+      token,
+      associationId,
+    );
+    log.debug(`Query returned ${jobs.value.length} jobs`);
 
-  if (log.getLogLevel() >= 5) {
-    log.trace(`Got jobs: ${JSON.stringify(jobs, null, 2)}`);
-  }
+    if (log.getLogLevel() >= 5) {
+      log.trace(`Got jobs: ${JSON.stringify(jobs, null, 2)}`);
+    }
 
-  if (jobs.value.length === 0) {
+    if (jobs.value.length === 0) {
+      sendTelemetryEvent(
+        EventType.QueryWorkspaceEnd,
+        {
+          associationId,
+          reason: "no jobs returned",
+          flowStatus: UserFlowStatus.Aborted,
+        },
+        { timeToCompleteMs: performance.now() - start },
+      );
+      return;
+    }
+
+    // Sort by creation time from newest to oldest
+    workspace.jobs = jobs.value
+      .sort((a, b) => (a.creationTime < b.creationTime ? 1 : -1))
+      .map(responseJobToJob);
+
     sendTelemetryEvent(
       EventType.QueryWorkspaceEnd,
-      {
-        associationId,
-        reason: "no jobs returned",
-        flowStatus: UserFlowStatus.Aborted,
-      },
+      { associationId, flowStatus: UserFlowStatus.Succeeded },
       { timeToCompleteMs: performance.now() - start },
     );
-    return;
+  } catch (e: unknown) {
+    log.debug("Workspace connection error", e);
+    // e.g. check for 401 (invalid key / no access), 403 (no access), 404 (invalid
+    // workspace), failed network requests (invalid endpoint), or a failed/cancelled
+    // interactive sign-in when authenticating via Entra ID (tenant id).
+    const usingEntraId = !workspace.apiKey;
+    const status = e instanceof AzureError ? e.status : undefined;
+    const message = e instanceof Error ? e.message : undefined;
+
+    // Default error text for unknown cause
+    let errorText =
+      `An unexpected error occurred querying workspace "${workspace.name}".` +
+      (status ? ` Status: ${status}.` : "") +
+      (message ? ` Message: ${message}` : "");
+
+    if (status === 401 || status === 403) {
+      errorText = usingEntraId
+        ? `Authentication failed. The signed-in account does not appear to have access to workspace "${workspace.name}". Please verify the account has been granted access.`
+        : "Authentication failed. Please check the ApiKey is valid and active.";
+    } else if (status === 404) {
+      errorText = "Workspace not found. Please check the connection settings.";
+    } else if (message?.includes("Failed to fetch")) {
+      errorText =
+        "Request failed. Please check the connection settings and network connectivity.";
+    }
+    throw Error(errorText, { cause: e });
   }
-
-  // Sort by creation time from newest to oldest
-  workspace.jobs = jobs.value
-    .sort((a, b) => (a.creationTime < b.creationTime ? 1 : -1))
-    .map(responseJobToJob);
-
-  sendTelemetryEvent(
-    EventType.QueryWorkspaceEnd,
-    { associationId, flowStatus: UserFlowStatus.Succeeded },
-    { timeToCompleteMs: performance.now() - start },
-  );
-
-  return;
 }
 
 // Drop properties we don't care to track and clean up the types.
@@ -579,6 +685,7 @@ export async function submitJob(
   target: string,
   jobName: string,
   numberOfShots: number,
+  additionalJobParams?: Record<string, unknown>,
 ): Promise<JobContext> {
   const quantumUris = new QuantumUris(workspace.endpointUri, workspace.id);
   const token = await getTokenForWorkspace(workspace);
@@ -611,6 +718,7 @@ export async function submitJob(
     providerId,
     target,
     numberOfShots,
+    additionalJobParams,
   );
 
   vscode.window.showInformationMessage(`Job ${jobName} submitted`);
@@ -659,6 +767,7 @@ async function putJobData(
   providerId: string,
   target: string,
   numberOfShots: number,
+  additionalJobParams?: Record<string, unknown>,
 ) {
   const putJobUri = quantumUris.jobs(jobId);
 
@@ -673,6 +782,7 @@ async function putJobData(
     inputDataFormat: "qir.v1",
     outputDataFormat: "microsoft.quantum-results.v2",
     inputParams: {
+      ...additionalJobParams,
       entryPoint: "ENTRYPOINT__main",
       arguments: [],
       shots: numberOfShots,

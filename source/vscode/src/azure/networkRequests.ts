@@ -68,6 +68,9 @@ export async function azureRequest(
       );
     }
     log.error(`Failed to fetch ${uri}: ${e}`);
+    // Preserve the typed AzureError (including its status code) so callers can
+    // branch on it directly rather than string-matching the message.
+    if (e instanceof AzureError) throw e;
     throw new Error(getErrorMessage(e), { cause: e });
   }
 }
@@ -133,36 +136,42 @@ export async function storageRequest(
         {},
       );
     }
+    // Preserve the typed AzureError (including its status code) so callers can
+    // branch on it directly rather than string-matching the message.
+    if (e instanceof AzureError) throw e;
     throw new Error(getErrorMessage(e), { cause: e });
   }
 }
 
-class AzureError extends Error {
-  constructor(message: string) {
+export class AzureError extends Error {
+  constructor(
+    message: string,
+    /** The HTTP status code of the failed response, if available. */
+    public readonly status?: number,
+  ) {
     super(message);
   }
 }
 
 async function getAzureQuantumError(response: Response): Promise<AzureError> {
-  let error: { code: string; message: string } | undefined = undefined;
+  const requestId = response.headers.get("x-ms-request-id") || "";
+  let detail = "";
+
   try {
     const json = await response.json();
     // Extract the error data if it conforms to the Azure Quantum error schema defined in
     // https://github.com/Azure/azure-rest-api-specs/blob/957fd518388828b31126417415b04f859b95c586/specification/quantum/data-plane/Microsoft.Quantum/preview/2022-09-12-preview/quantum.json#L1186
-    if (json && json.error && json.error.code && json.error.message) {
-      error = json.error;
+    if (json.error?.code && json.error?.message) {
+      detail = `${json.error.code}: ${json.error.message}`;
     }
   } catch {
-    /* empty */
+    /* body wasn't readable or wasn't JSON — detail stays empty */
   }
 
-  let message;
-  if (error) {
-    message = `Azure Quantum request failed with status ${response.status}.\n${error.code}: ${error.message}`;
-  } else {
-    message = `Azure Quantum request failed with status ${response.status}.`;
-  }
-  return new AzureError(message);
+  let message = `Azure Quantum request failed with status ${response.status} (${response.statusText}).`;
+  if (detail) message += `\n${detail}`;
+  if (requestId) message += `\nRequest ID: ${requestId}`;
+  return new AzureError(message, response.status);
 }
 
 function getAzureStorageError(response: Response): AzureError {
@@ -171,6 +180,7 @@ function getAzureStorageError(response: Response): AzureError {
   // https://github.com/Azure/azure-rest-api-specs/blob/eb06c34581dc6f56868ee9cc811a51f0e1a50770/specification/storage/data-plane/Microsoft.BlobStorage/preview/2021-12-02/blob.json#L75C30-L75C30
   return new AzureError(
     `Storage request failed with status ${response.status}.`,
+    response.status,
   );
 }
 

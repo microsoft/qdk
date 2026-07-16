@@ -19,16 +19,16 @@ pub enum Error {
     #[diagnostic(help(
         "mutable variables must be declared with the keyword `mutable` instead of `let`"
     ))]
-    #[diagnostic(code("Qsc.BorrowCk.Mutability"))]
+    #[diagnostic(code("Qdk.Qsc.BorrowCk.Mutability"))]
     Mutability(#[label] Span),
 
     #[error("lambdas cannot close over mutable variables")]
-    #[diagnostic(code("Qsc.BorrowCk.MutableClosure"))]
+    #[diagnostic(code("Qdk.Qsc.BorrowCk.MutableClosure"))]
     MutableClosure(#[label] Span),
 
     #[error("invalid left-hand side of assignment")]
     #[diagnostic(help("the left-hand side must be a variable or tuple of variables"))]
-    #[diagnostic(code("Qsc.BorrowCk.Unassignable"))]
+    #[diagnostic(code("Qdk.Qsc.BorrowCk.Unassignable"))]
     Unassignable(#[label("not assignable")] Span),
 }
 
@@ -81,10 +81,10 @@ impl Visitor<'_> for Checker {
             | ExprKind::AssignField(lhs, _, _)
             | ExprKind::AssignIndex(lhs, _, _)
             | ExprKind::AssignOp(_, lhs, _) => self.verify_assignment(lhs),
-            ExprKind::Closure(captures, _) => {
-                if captures.iter().any(|cap| self.mutable.contains(cap)) {
-                    self.errors.push(Error::MutableClosure(expr.span));
-                }
+            ExprKind::Closure(captures, _)
+                if captures.iter().any(|cap| self.mutable.contains(cap)) =>
+            {
+                self.errors.push(Error::MutableClosure(expr.span));
             }
             _ => {}
         }

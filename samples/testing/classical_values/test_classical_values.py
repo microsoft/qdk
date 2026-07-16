@@ -1,7 +1,7 @@
 from pathlib import Path
 from random import randint
 import pytest
-import qsharp
+from qdk import qsharp
 
 
 @pytest.fixture(autouse=True)

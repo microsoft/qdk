@@ -13,15 +13,14 @@ mod analyzer;
 mod applications;
 mod common;
 mod core;
-mod cycle_detection;
-mod cyclic_callables;
 pub mod errors;
-mod overrider;
+#[cfg(debug_assertions)]
+mod invariants;
 mod scaffolding;
 
-use crate::common::set_indentation;
 use bitflags::bitflags;
 use indenter::indented;
+use qsc_data_structures::display::core::set_indentation;
 use qsc_data_structures::{
     index_map::{IndexMap, Iter},
     target::TargetCapabilityFlags,
@@ -285,7 +284,7 @@ pub struct CallableComputeProperties {
 impl Display for CallableComputeProperties {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "CallableComputeProperties:",)?;
+        write!(indent, "CallableComputeProperties:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nbody: {}", self.body)?;
         match &self.adj {
@@ -328,7 +327,7 @@ impl Default for ApplicationGeneratorSet {
 impl Display for ApplicationGeneratorSet {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "ApplicationsGeneratorSet:",)?;
+        write!(indent, "ApplicationsGeneratorSet:")?;
         indent = set_indentation(indent, 1);
         write!(indent, "\ninherent: {}", self.inherent)?;
         write!(indent, "\ndynamic_param_applications:")?;
@@ -352,7 +351,15 @@ impl ApplicationGeneratorSet {
         &self,
         args_compute_kinds: &[ComputeKind],
     ) -> ComputeKind {
-        assert!(self.dynamic_param_applications.len() == args_compute_kinds.len());
+        // RCA generators record one `ParamApplication` per flattened input
+        // parameter of the owning callable. The runtime arg vector must match
+        // exactly; any skew indicates a bug in the analyzer's recording path.
+        assert!(
+            self.dynamic_param_applications.len() == args_compute_kinds.len(),
+            "application generator recorded {} parameter applications for {} runtime arguments",
+            self.dynamic_param_applications.len(),
+            args_compute_kinds.len()
+        );
         let mut compute_kind = self.inherent;
         for (arg_compute_kind, param_application) in args_compute_kinds
             .iter()
@@ -360,8 +367,15 @@ impl ApplicationGeneratorSet {
         {
             match param_application {
                 ParamApplication::Element(param_compute_kind) => {
-                    if arg_compute_kind.is_variable_value_kind() {
-                        compute_kind = compute_kind.aggregate(*param_compute_kind);
+                    if let ComputeKind::Dynamic { value_kind, .. } = arg_compute_kind {
+                        match value_kind {
+                            ValueKind::Variable => {
+                                compute_kind = compute_kind.aggregate(param_compute_kind.variable);
+                            }
+                            ValueKind::Constant => {
+                                compute_kind = compute_kind.aggregate(param_compute_kind.constant);
+                            }
+                        }
                     }
                 }
                 ParamApplication::Array(array_param_application) => {
@@ -383,7 +397,8 @@ impl ApplicationGeneratorSet {
                                     compute_kind.aggregate(array_param_application.static_size);
                             }
                             ValueKind::Constant => {
-                                // No aggregation needed for static arrays.
+                                compute_kind = compute_kind
+                                    .aggregate(array_param_application.constant_content);
                             }
                         }
                     }
@@ -392,11 +407,33 @@ impl ApplicationGeneratorSet {
         }
         compute_kind
     }
+
+    /// Generates the compute kind of a call assuming the callee is emitted as an IR function, in which case all
+    /// arguments are considered dynamic and variable. This helps understand when emitting an IR function uses different
+    /// capabilities compared to inlining it.
+    #[must_use]
+    pub fn generate_ir_function_application_compute_kind(&self) -> ComputeKind {
+        let mut compute_kind = self.inherent;
+        for param_application in &self.dynamic_param_applications {
+            match param_application {
+                ParamApplication::Element(param_compute_kind) => {
+                    compute_kind = compute_kind.aggregate(param_compute_kind.variable);
+                }
+                ParamApplication::Array(array_param_application) => {
+                    compute_kind = compute_kind.aggregate(array_param_application.dynamic_size);
+                }
+            }
+        }
+        if !matches!(compute_kind, ComputeKind::Static) {
+            compute_kind.set_variable_value_kind();
+        }
+        compute_kind
+    }
 }
 
 #[derive(Clone, Debug)]
 pub enum ParamApplication {
-    Element(ComputeKind),
+    Element(ElementParamApplication),
     Array(ArrayParamApplication),
 }
 
@@ -413,7 +450,25 @@ impl Display for ParamApplication {
 }
 
 #[derive(Clone, Debug)]
+pub struct ElementParamApplication {
+    pub constant: ComputeKind,
+    pub variable: ComputeKind,
+}
+
+impl Display for ElementParamApplication {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        let mut indent = set_indentation(indented(f), 0);
+        write!(indent, "ElementParamApplication:")?;
+        indent = set_indentation(indent, 1);
+        write!(indent, "\nconstant: {}", self.constant)?;
+        write!(indent, "\nvariable: {}", self.variable)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct ArrayParamApplication {
+    pub constant_content: ComputeKind,
     pub static_size: ComputeKind,
     pub dynamic_size: ComputeKind,
 }
@@ -421,8 +476,9 @@ pub struct ArrayParamApplication {
 impl Display for ArrayParamApplication {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "ArrayParamApplication:",)?;
+        write!(indent, "ArrayParamApplication:")?;
         indent = set_indentation(indent, 1);
+        write!(indent, "\nconstant_content: {}", self.constant_content)?;
         write!(indent, "\nstatic_size: {}", self.static_size)?;
         write!(indent, "\ndynamic_size: {}", self.dynamic_size)?;
         Ok(())
@@ -456,7 +512,7 @@ impl Display for ComputeKind {
                 value_kind,
             } => {
                 let mut indent = set_indentation(indented(f), 0);
-                write!(indent, "Dynamic:",)?;
+                write!(indent, "Dynamic:")?;
                 indent = set_indentation(indent, 1);
                 write!(indent, "\nruntime_features: {runtime_features:?}")?;
                 write!(indent, "\nvalue_kind: {value_kind}")?;
@@ -511,13 +567,16 @@ impl ComputeKind {
         };
 
         // Determine the aggregated runtime features, use the value kind equivalent from self or the default.
-        let (runtime_features, value_kind) = match self {
+        let (mut runtime_features, value_kind) = match self {
             Self::Static => (runtime_features, default_value_kind),
             Self::Dynamic {
                 runtime_features: self_runtime_features,
                 value_kind: self_value_kind,
             } => (self_runtime_features | runtime_features, self_value_kind),
         };
+
+        // We don't propagate the `MustBeInlined` runtime feature because it is only relevant at call expressions.
+        runtime_features.remove(RuntimeFeatureFlags::MustBeInlined);
 
         // Return the aggregated compute kind.
         ComputeKind::Dynamic {
@@ -618,50 +677,54 @@ bitflags! {
         const UseOfDynamicBigInt = 1 << 6;
         /// Use of a dynamic `String`.
         const UseOfDynamicString = 1 << 7;
-        /// Use of a dynamic array.
-        const UseOfDynamicallySizedArray = 1 << 8;
+        /// Use of a dynamic array with static size.
+        const UseOfDynamicArray = 1 << 8;
+        /// Use of a dynamic array with dynamic size.
+        const UseOfDynamicallySizedArray = 1 << 9;
         /// Use of a dynamic UDT.
-        const UseOfDynamicUdt = 1 << 9;
+        const UseOfDynamicUdt = 1 << 10;
         /// Use of a dynamic arrow function.
-        const UseOfDynamicArrowFunction = 1 << 10;
+        const UseOfDynamicArrowFunction = 1 << 11;
         /// Use of a dynamic arrow operation.
-        const UseOfDynamicArrowOperation = 1 << 11;
-        /// A function with cycles used with a dynamic argument.
-        const CallToCyclicFunctionWithDynamicArg = 1 << 12;
-        /// An operation specialization with cycles exists.
-        const CyclicOperationSpec = 1 << 13;
-        /// A call to an operation with cycles.
-        const CallToCyclicOperation = 1 << 14;
+        const UseOfDynamicArrowOperation = 1 << 12;
         /// A callee expression is dynamic.
-        const CallToDynamicCallee = 1 << 15;
+        const CallToDynamicCallee = 1 << 13;
         /// A callee expression could not be resolved to a specific callable.
-        const CallToUnresolvedCallee = 1 << 16;
+        const CallToUnresolvedCallee = 1 << 14;
         /// Performing a measurement within a dynamic scope.
-        const MeasurementWithinDynamicScope = 1 << 17;
+        const MeasurementWithinDynamicScope = 1 << 15;
         /// Use of a dynamic index to access or update an array.
-        const UseOfDynamicIndex = 1 << 18;
+        const UseOfDynamicIndex = 1 << 16;
         /// A return expression within a dynamic scope.
-        const ReturnWithinDynamicScope = 1 << 19;
+        const ReturnWithinDynamicScope = 1 << 17;
         /// A loop with a dynamic condition.
-        const LoopWithDynamicCondition = 1 << 20;
+        const LoopWithDynamicCondition = 1 << 18;
         /// Use of an advanced type as output of a computation.
-        const UseOfAdvancedOutput = 1 << 21;
+        const UseOfAdvancedOutput = 1 << 19;
         /// Use of a `Bool` as output of a computation.
-        const UseOfBoolOutput = 1 << 22;
+        const UseOfBoolOutput = 1 << 20;
         /// Use of a `Double` as output of a computation.
-        const UseOfDoubleOutput = 1 << 23;
+        const UseOfDoubleOutput = 1 << 21;
         /// Use of an `Int` as output of a computation.
-        const UseOfIntOutput = 1 << 24;
+        const UseOfIntOutput = 1 << 22;
         /// Use of a dynamic exponent in a computation.
-        const UseOfDynamicExponent = 1 << 25;
+        const UseOfDynamicExponent = 1 << 23;
         /// Use of a dynamic `Result` variable in a computation.
-        const UseOfDynamicResult = 1 << 26;
+        const UseOfDynamicResult = 1 << 24;
         /// Use of a dynamic tuple variable.
-        const UseOfDynamicTuple = 1 << 27;
+        const UseOfDynamicTuple = 1 << 25;
         /// A callee expression to a measurement.
-        const CallToCustomMeasurement = 1 << 28;
+        const CallToCustomMeasurement = 1 << 26;
         /// A callee expression to a reset.
-        const CallToCustomReset = 1 << 29;
+        const CallToCustomReset = 1 << 27;
+        /// Use of a dynamic generic parameter.
+        const UseOfDynamicGeneric = 1 << 28;
+        /// A callable allocates qubits (directly or transitively).
+        const QubitAllocation = 1 << 29;
+        /// A dynamic release of a qubit.
+        const UseOfDynamicQubitRelease = 1 << 30;
+        /// A callable whose required features mean it must be inlined rather than emitted as an IR function.
+        const MustBeInlined = 1 << 31;
     }
 }
 
@@ -699,12 +762,19 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::FloatingPointComputations;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicQubit) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+            capabilities |= TargetCapabilityFlags::StaticSizedArrays;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicBigInt) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicString) {
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicArray) {
+            // capabilities |= TargetCapabilityFlags::StaticSizedArrays;
+
+            // For now, we are treating any dynamic array as requiriing higher level constructs,
+            // so that we can reject loops over arrays with dynamic contents.
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) {
@@ -719,15 +789,6 @@ impl RuntimeFeatureFlags {
         if self.contains(RuntimeFeatureFlags::UseOfDynamicArrowOperation) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
-        if self.contains(RuntimeFeatureFlags::CallToCyclicFunctionWithDynamicArg) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
-        }
-        if self.contains(RuntimeFeatureFlags::CyclicOperationSpec) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
-        }
-        if self.contains(RuntimeFeatureFlags::CallToCyclicOperation) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
-        }
         if self.contains(RuntimeFeatureFlags::CallToDynamicCallee) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
@@ -735,7 +796,7 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::Adaptive;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicIndex) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+            capabilities |= TargetCapabilityFlags::StaticSizedArrays;
         }
         if self.contains(RuntimeFeatureFlags::ReturnWithinDynamicScope) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
@@ -773,6 +834,12 @@ impl RuntimeFeatureFlags {
         }
         if self.contains(RuntimeFeatureFlags::CallToCustomReset) {
             capabilities |= TargetCapabilityFlags::Adaptive;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicGeneric) {
+            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+        }
+        if self.contains(RuntimeFeatureFlags::UseOfDynamicQubitRelease) {
+            capabilities |= TargetCapabilityFlags::DynamicQubitAllocation;
         }
         capabilities
     }

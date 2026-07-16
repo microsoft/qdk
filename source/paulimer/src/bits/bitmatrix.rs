@@ -167,11 +167,7 @@ impl<const WORD_COUNT: usize> BitMatrix<WORD_COUNT> {
         rowcount: usize,
     ) -> Vec<*mut BitBlock<WORD_COUNT>> {
         let mut rows = Vec::<*mut BitBlock<WORD_COUNT>>::new();
-        let rowstride = if rowcount == 0 {
-            0
-        } else {
-            blocks.len() / rowcount
-        };
+        let rowstride = blocks.len().checked_div(rowcount).unwrap_or(0);
         if rowstride == 0 {
             rows = vec![blocks.as_mut_ptr(); rowcount];
         } else {

@@ -480,9 +480,11 @@ test("cancel worker", () => {
       .catch((err) => {
         cancelledArray.push(err);
       });
-    compiler.getHir(code, []).catch((err) => {
-      cancelledArray.push(err);
-    });
+    compiler
+      .getHir({ sources: [["test.qs", code]], languageFeatures: [] })
+      .catch((err) => {
+        cancelledArray.push(err);
+      });
 
     // Ensure those tasks are running/queued before terminating.
     setTimeout(async () => {
@@ -491,7 +493,10 @@ test("cancel worker", () => {
 
       // Start a new compiler and ensure that works fine
       const compiler2 = getCompilerWorker(compilerWorkerPath);
-      const result = await compiler2.getHir(code, []);
+      const result = await compiler2.getHir({
+        sources: [["test.qs", code]],
+        languageFeatures: [],
+      });
       compiler2.terminate();
 
       // getHir should have worked
@@ -630,7 +635,7 @@ test("diagnostics with related spans", async () => {
     assert.equal(event.type, "diagnostics");
     assert.deepEqual(
       {
-        code: "Qsc.Resolve.Ambiguous",
+        code: "Qdk.Qsc.Resolve.Ambiguous",
         message:
           "name error: `DumpMachine` could refer to the item in `Std.Diagnostics` or `Other`",
         related: [
@@ -871,6 +876,83 @@ async function testCompilerError(useWorker) {
 
 test("compiler error on run", () => testCompilerError(false));
 test("compiler error on run - worker", () => testCompilerError(true));
+
+test("OpenQASM compile error on run", async () => {
+  const compiler = await getCompiler();
+  const events = new QscEventTarget(true);
+  let promiseResult = undefined;
+  await compiler
+    .run(
+      {
+        sources: [
+          // Missing stdgates.inc, so CX is undefined
+          ["test.qasm", `OPENQASM 3.0;\nqubit[2] q;\nCX q[0], q[1];`],
+        ],
+        languageFeatures: [],
+        projectType: "openqasm",
+      },
+      "",
+      1,
+      events,
+    )
+    .then(() => {
+      promiseResult = "success";
+    })
+    .catch(() => {
+      promiseResult = "failure";
+    });
+
+  assert.equal(promiseResult, "failure");
+  const results = events.getResults();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].success, false);
+});
+
+test("Q# dependency compile error on run", async () => {
+  const compiler = await getCompiler();
+  const events = new QscEventTarget(true);
+  let promiseResult = undefined;
+  await compiler
+    .run(
+      {
+        packageGraphSources: {
+          root: {
+            sources: [
+              [
+                "main.qs",
+                `import BrokenDep.Broken; operation Main() : Unit { Broken(); }`,
+              ],
+            ],
+            languageFeatures: [],
+            dependencies: { BrokenDep: "broken-dep-key" },
+          },
+          packages: {
+            "broken-dep-key": {
+              sources: [["lib.qs", "invalid code"]],
+              languageFeatures: [],
+              dependencies: {},
+              packageType: "lib",
+            },
+          },
+          hasManifest: true,
+        },
+      },
+      "",
+      1,
+      events,
+    )
+    .then(() => {
+      promiseResult = "success";
+    })
+    .catch(() => {
+      promiseResult = "failure";
+    });
+
+  assert.equal(promiseResult, "failure");
+  const results = events.getResults();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].success, false);
+});
 
 test("debug service loading source without entry point attr fails - web worker", async () => {
   const debugService = getDebugServiceWorker(debugServiceWorkerPath);
