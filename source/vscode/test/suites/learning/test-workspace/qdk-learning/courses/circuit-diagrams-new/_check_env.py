@@ -92,7 +92,7 @@ def check(notebook_dir: str | Path | None = None) -> None:
         )
 
     # --- Check 4: required packages ---
-    missing = [m for m in import_checks if importlib.util.find_spec(m) is None]
+    missing = [m for m in import_checks if not _can_import(m)]
 
     if missing:
         results.append(
@@ -125,6 +125,14 @@ def check(notebook_dir: str | Path | None = None) -> None:
         raise EnvironmentError(
             "Environment check failed. See output above for details."
         )
+
+
+def _can_import(module_name: str) -> bool:
+    """Check whether *module_name* is importable without raising."""
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except ModuleNotFoundError:
+        return False
 
 
 def _find_venv_python(venv: Path) -> Path | None:
