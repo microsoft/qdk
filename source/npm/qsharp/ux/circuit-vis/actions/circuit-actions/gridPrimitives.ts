@@ -72,18 +72,17 @@ const addOp = (
   originalOperation: Operation | null = null,
 ) => {
   const [colIndex, opIndex] = targetLastIndex;
-  if (targetOperationParent[colIndex] == null) {
-    targetOperationParent[colIndex] = { components: [] };
-  }
 
   insertNewColumn =
     insertNewColumn || _isClassicallyControlled(sourceOperation);
 
-  // Check if there are any existing operations in the target column within the wire range of the
-  // new operation
-  if (!insertNewColumn) {
+  // Overlap check only applies when inserting into an EXISTING column: two ops can't occupy the
+  // same wire range in one column (a column is a single time-step), so an overlap forces a fresh
+  // column. A trailing slot (`colIndex === length`, no column there yet) has nothing to overlap.
+  const existingColumn = targetOperationParent[colIndex];
+  if (!insertNewColumn && existingColumn != null) {
     const [minTarget, maxTarget] = getMinMaxRegIdx(sourceOperation);
-    for (const op of targetOperationParent[colIndex].components) {
+    for (const op of existingColumn.components) {
       if (op === originalOperation) continue;
 
       const [opMinTarget, opMaxTarget] = getMinMaxRegIdx(op);
@@ -95,10 +94,16 @@ const addOp = (
   }
 
   if (insertNewColumn) {
+    // `splice` at `colIndex === length` appends, so a trailing new column needs no placeholder.
     targetOperationParent.splice(colIndex, 0, {
       components: [sourceOperation],
     });
   } else {
+    // In-column insert. Materialize a fresh trailing column on demand (never eagerly, or an
+    // insertNewColumn path would leave it behind as a stray empty column).
+    if (existingColumn == null) {
+      targetOperationParent[colIndex] = { components: [] };
+    }
     targetOperationParent[colIndex].components.splice(
       opIndex,
       0,

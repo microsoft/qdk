@@ -41,7 +41,7 @@ test("addOperation: adding a child to a group on a wire outside its span extends
   const model = build(circuit(3, [[group("Foo", [[gate("H", 0)]])]]));
 
   // add Y into Foo's trailing inner slot on q2 (outside its span)
-  const added = addOperation(model, gate("Y", 0), "0,0-1,2", 2);
+  const added = addOperation(model, gate("Y", 0), "0,0-1,0", 2);
   assert.ok(added, "addOperation should return the new op");
 
   assertEnclosesWires(at(model, "0,0"), 2);
@@ -53,7 +53,7 @@ test("addOperation: cascade — adding deep into a nested group extends both inn
   );
 
   // add Y deep inside Inner on q2 (outside both spans)
-  const added = addOperation(model, gate("Y", 0), "0,0-0,0-1,2", 2);
+  const added = addOperation(model, gate("Y", 0), "0,0-0,0-1,0", 2);
   assert.ok(added);
 
   assertEnclosesWires(at(model, "0,0-0,0"), 2);

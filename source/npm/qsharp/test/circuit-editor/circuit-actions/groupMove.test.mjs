@@ -170,6 +170,63 @@ test("moveOperation: moving an internal gate to its group's trailing inner-colum
 });
 
 // ---------------------------------------------------------------
+// Cross-scope moves between nested groups.
+//
+// The target location string alone decides which group the op lands in. These pin two shapes the
+// dropzone layer can produce but that no other test exercises: promoting a gate up into its
+// GRANDPARENT group (one level out, still nested), and moving a gate sideways into a SIBLING group
+// (a different group at the same nesting level). A "child group" destination isn't meaningful — a
+// gate owns no children — so there's nothing to test there.
+// ---------------------------------------------------------------
+
+test("moveOperation: promoting a gate into its grandparent group lands it beside the parent group", () => {
+  // Outer ▷ Inner ▷ [H | Z]. Dropping H on Outer's trailing inner slot
+  // "0,0-1,0" pulls H up one level into Outer, as a sibling of Inner.
+  // Inner keeps Z, so it survives the promotion (no empty-group prune).
+  const model = build(
+    circuit(3, [
+      [group("Outer", [[group("Inner", [[gate("H", 0)], [gate("Z", 0)]])]])],
+    ]),
+  );
+
+  const moved = moveOperation(
+    model,
+    "0,0-0,0-0,0",
+    "0,0-1,0",
+    0,
+    0,
+    false,
+    false,
+  );
+  assert.ok(moved, "promotion into the grandparent group must succeed");
+
+  // Outer now holds [Inner(Z)] then [H]; Inner survives with just Z.
+  expectOp(at(model, "0,0"), {
+    Outer: {
+      children: [[{ Inner: { children: [[{ Z: 0 }]] } }], [{ H: 0 }]],
+    },
+  });
+});
+
+test("moveOperation: moving a gate into a sibling group relocates it across scopes", () => {
+  // A ▷ [H] and B ▷ [X] are sibling top-level groups. Dropping H on B's
+  // trailing inner slot "0,1-1,0" moves it out of A and into B, rewired
+  // to B's wire (q2). A is emptied and pruned, so B collapses to "0,0".
+  const model = build(
+    circuit(4, [[group("A", [[gate("H", 0)]]), group("B", [[gate("X", 2)]])]]),
+  );
+
+  const moved = moveOperation(model, "0,0-0,0", "0,1-1,0", 0, 2, false, false);
+  assert.ok(moved, "move into the sibling group must succeed");
+
+  // A is gone; B holds [X] then the relocated [H] on wire 2.
+  expectGrid(model, [["B"]]);
+  expectOp(at(model, "0,0"), {
+    B: { children: [[{ X: 2 }], [{ H: 2 }]] },
+  });
+});
+
+// ---------------------------------------------------------------
 // Multi-target gate + quantum-control drag.
 //
 // Control-leg drags always take the single-leg path (`_moveAsUnit` returns false when a control is
