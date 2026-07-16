@@ -36,79 +36,90 @@ const unitary = (/** @type {string} */ g) => gate(g, 0);
 // addOperation
 // ---------------------------------------------------------------------------
 
-test("addOperation appends to the target column and bumps qubitUseCounts", () => {
+test("addOperation: basic add to an empty circuit", () => {
   const model = new CircuitModel(emptyCircuit(2));
 
   const added = addOperation(model, unitary("H"), "0,0", 0);
 
   assert.ok(added, "addOperation should return the new operation");
   expectGrid(model, [["H"]]);
-  // Returned op is the inserted reference (deep-copied from template).
+  // Returned value is the inserted reference (deep-copied from the template).
   assert.equal(added, at(model, "0,0"));
   assert.deepEqual(model.qubitUseCounts, [1, 0]);
 });
 
-test("addOperation on an existing wire bumps qubitUseCounts without growing qubits", () => {
+test("addOperation: add on an existing wire bumps its use count without growing qubits", () => {
   const model = new CircuitModel(emptyCircuit(2));
   addOperation(model, unitary("H"), "0,0", 0);
-  assert.equal(model.qubits.length, 2);
   assert.deepEqual(model.qubitUseCounts, [1, 0]);
 
-  // Second op on the SAME wire (column 1 to avoid same-column overlap).
+  // Second op on the SAME wire (fresh column 1 to avoid same-column overlap).
   addOperation(model, unitary("X"), "1,0", 0);
+
   assert.equal(model.qubits.length, 2);
   assert.deepEqual(model.qubitUseCounts, [2, 0]);
+  expectGrid(model, [["H"], ["X"]]);
 });
 
-test("addOperation on a wire several IDs beyond the end bulk-grows qubits", () => {
+test("addOperation: add on a new wire grows the qubit register by one", () => {
   const model = new CircuitModel(emptyCircuit(1));
+  addOperation(model, unitary("H"), "0,0", 0);
   assert.equal(model.qubits.length, 1);
 
+  // Drop on wire 1 (one past the end). H@q0 and X@q1 don't overlap, so X
+  // shares column 0; the register grows to 2.
+  addOperation(model, gate("X", 1), "0,1", 1);
+
+  assert.equal(model.qubits.length, 2);
+  assert.deepEqual(model.qubitUseCounts, [1, 1]);
+  expectGrid(model, [["H", "X"]]);
+});
+
+test("addOperation: add on a wire several IDs past the end bulk-grows the register", () => {
+  const model = new CircuitModel(emptyCircuit(1));
+  addOperation(model, unitary("H"), "0,0", 0);
+
   // Drop on wire 5 — ensureQubitCount(5) adds wires 1..5 in one shot.
-  addOperation(model, unitary("H"), "0,0", 5);
+  addOperation(model, gate("X", 5), "0,1", 5);
 
   assert.equal(model.qubits.length, 6);
-  assert.deepEqual(model.qubitUseCounts, [0, 0, 0, 0, 0, 1]);
+  assert.deepEqual(model.qubitUseCounts, [1, 0, 0, 0, 0, 1]);
+  // Wire IDs stay contiguous after the bulk grow.
   for (let i = 0; i < model.qubits.length; i++) {
     assert.equal(model.qubits[i].id, i);
   }
+  expectGrid(model, [["H", "X"]]);
 });
 
-test("addOperation with insertNewColumn=true creates a fresh column", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("H"), "0,0", 0);
-
-  // insertNewColumn pushes X into a fresh column 0, shifting H right.
-  addOperation(model, gate("X", 1), "0,0", 1, /* insertNewColumn */ true);
-
-  expectGrid(model, [["X"], ["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 1]);
-});
-
-test("addOperation with insertNewColumn=true moves other operations to the right", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("H"), "0,0", 0);
-  addOperation(model, unitary("S"), "1,0", 0);
-
-  addOperation(model, gate("X", 1), "1,0", 1, /* insertNewColumn */ true);
-
-  expectGrid(model, [["H"], ["X"], ["S"]]);
-  assert.deepEqual(model.qubitUseCounts, [2, 1]);
-});
-
-test("addOperation deep-copies its source operation template", () => {
+test("addOperation: deep-copies the source operation template", () => {
   const model = new CircuitModel(emptyCircuit(2));
   const template = unitary("H");
 
   const added = addOperation(model, template, "0,0", 0);
 
-  // Mutating the template after add must not affect the model.
+  // Mutating the template after the add must not affect the model.
   template.gate = "MUTATED";
   assert.equal(/** @type {any} */ (added).gate, "H");
   expectOp(at(model, "0,0"), "H");
 });
 
-test("addOperation with a missing target location returns null", () => {
+test("addOperation: an overlapping insert forces a new column even with insertNewColumn=false", () => {
+  // Grid invariant: a column is one time-step, so two ops can't occupy the
+  // same wire within it. When an insert into the target column would overlap
+  // an op already there, addOperation splits in a fresh column regardless of
+  // insertNewColumn — the flag can *request* a new column, but an overlap
+  // *forces* one. The inserted op lands ahead of the op it displaced.
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, unitary("H"), "0,0", 0);
+
+  const added = addOperation(model, gate("X", 0), "0,0", 0);
+
+  assert.ok(added, "an overlapping insert is resolved, not rejected");
+  expectGrid(model, [["X"], ["H"]]);
+  assert.deepEqual(model.qubitUseCounts, [2, 0]);
+});
+
+test("addOperation: a root/empty location returns null", () => {
   const model = new CircuitModel(emptyCircuit(2));
 
   // Empty location parses to root; last() is null → failure, no change.
@@ -116,6 +127,97 @@ test("addOperation with a missing target location returns null", () => {
 
   assert.equal(result, null);
   expectGrid(model, []);
+});
+
+test("addOperation: an op index one past the column's append slot returns null", () => {
+  // Column 0 holds one op (index 0), so index 1 is the valid append slot and
+  // index 2 is the minimal out-of-range op index. Rejected the add.
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, unitary("H"), "0,0", 0);
+
+  const result = addOperation(model, gate("X", 1), "0,2", 1);
+
+  assert.equal(result, null, "out-of-range op index must be rejected");
+  expectGrid(model, [["H"]]);
+  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+});
+
+test("addOperation: a column index one past the trailing-append slot returns null", () => {
+  // The grid has one column (index 0), so index 1 is the valid trailing-append
+  // slot and index 2 is the minimal out-of-range column index. Rejected —
+  // assigning a column there would leave a sparse hole in the grid.
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, unitary("H"), "0,0", 0);
+
+  const result = addOperation(model, gate("X", 1), "2,0", 1);
+
+  assert.equal(result, null, "out-of-range column index must be rejected");
+  expectGrid(model, [["H"]]);
+  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+});
+
+test("addOperation: insertNewColumn at the first column shifts every existing gate right", () => {
+  const model = new CircuitModel(emptyCircuit(3));
+  addOperation(model, gate("H", 0), "0,0", 0);
+  addOperation(model, gate("Y", 1), "0,1", 1);
+  addOperation(model, gate("Z", 2), "1,0", 2);
+  expectGrid(model, [["H", "Y"], ["Z"]]);
+
+  // A new lead column at index 0 shifts both existing columns right.
+  addOperation(model, gate("X", 0), "0,0", 0, /* insertNewColumn */ true);
+
+  expectGrid(model, [["X"], ["H", "Y"], ["Z"]]);
+  assert.deepEqual(model.qubitUseCounts, [2, 1, 1]);
+});
+
+test("addOperation: insertNewColumn in the middle moves only the gates at and after the insert point", () => {
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, gate("H", 0), "0,0", 0);
+  addOperation(model, gate("Y", 1), "0,1", 1);
+  addOperation(model, gate("Z", 2), "1,0", 2);
+  expectGrid(model, [["H", "Y"], ["Z"]]);
+
+  addOperation(model, gate("X", 1), "1,0", 1, /* insertNewColumn */ true);
+
+  expectGrid(model, [["H", "Y"], ["X"], ["Z"]]);
+});
+
+test("addOperation: insertNewColumn at location len,0 appends a fresh trailing column", () => {
+  // colIndex === grid length is the valid trailing-append slot. With insertNewColumn it
+  // appends a new last column.
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, unitary("H"), "0,0", 0);
+
+  const added = addOperation(
+    model,
+    gate("X", 1),
+    "1,0",
+    1,
+    /* insertNewColumn */ true,
+  );
+
+  assert.ok(added, "column index equal to the grid length must be valid");
+  expectGrid(model, [["H"], ["X"]]);
+  assert.deepEqual(model.qubitUseCounts, [1, 1]);
+});
+
+test("addOperation: insertNewColumn at location len+1,0 returns null", () => {
+  // One past the trailing-append slot is out of range even with
+  // insertNewColumn — the bounds guard rejects it.
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, unitary("H"), "0,0", 0);
+
+  const result = addOperation(
+    model,
+    gate("X", 1),
+    "2,0",
+    1,
+    /* insertNewColumn */ true,
+  );
+
+  assert.equal(result, null, "out-of-range column index must be rejected");
+  expectGrid(model, [["H"]]);
+  assert.deepEqual(model.qubitUseCounts, [1, 0]);
 });
 
 // ---------------------------------------------------------------------------
@@ -196,6 +298,53 @@ test("removeOperation on a root location is a safe no-op", () => {
   assert.equal(result, null);
   expectGrid(model, [["H"]]);
   assert.deepEqual(model.qubitUseCounts, [1, 0]);
+});
+
+test("removeOperation of the only remaining gate empties the circuit", () => {
+  // Removing the last op drops its column, and the trailing-wire trim
+  // then collapses every now-unused wire — leaving a fully empty model.
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, unitary("H"), "0,0", 0);
+
+  removeOperation(model, "0,0");
+
+  expectGrid(model, []);
+  assert.equal(model.componentGrid.length, 0);
+  assert.deepEqual(model.qubitUseCounts, []);
+  assert.equal(model.qubits.length, 0);
+});
+
+test("removeOperation at an out-of-bounds location is a safe no-op", () => {
+  const model = new CircuitModel(emptyCircuit(2));
+  addOperation(model, unitary("H"), "0,0", 0);
+
+  // Out-of-range column ("9,0") and out-of-range op index in a valid
+  // column ("0,9") both resolve to no op → null, model untouched.
+  assert.equal(removeOperation(model, "9,0"), null);
+  assert.equal(removeOperation(model, "0,9"), null);
+
+  expectGrid(model, [["H"]]);
+  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+});
+
+test("removeOperation at an in-range but empty interior slot is a safe no-op", () => {
+  // Three populated columns on q0: [["H"], ["Y"], ["Z"]].
+  const model = new CircuitModel(emptyCircuit(1));
+  addOperation(model, unitary("H"), "0,0", 0);
+  addOperation(model, unitary("Y"), "1,0", 0);
+  addOperation(model, unitary("Z"), "2,0", 0);
+  expectGrid(model, [["H"], ["Y"], ["Z"]]);
+
+  // "1,1" is a real, populated column that sits
+  // BETWEEN H and Z, but op index 1 points to no gate (the column holds a
+  // single op at index 0). Unlike "9,0"/"0,9", the coordinate is interior
+  // rather than past the end — it still resolves to no op, so removal is a
+  // safe no-op rather than dropping the neighboring gate.
+  const result = removeOperation(model, "1,1");
+
+  assert.equal(result, null, "an interior empty slot must resolve to no op");
+  expectGrid(model, [["H"], ["Y"], ["Z"]]);
+  assert.deepEqual(model.qubitUseCounts, [3]);
 });
 
 // ---------------------------------------------------------------------------

@@ -435,6 +435,19 @@ const addOperation = (
   const targetLastIndex = Location.parse(targetLocation).last();
 
   if (targetOperationParent == null || targetLastIndex == null) return null;
+
+  // Reject an out-of-range location on either axis.
+  const [targetColIndex, targetOpIndex] = targetLastIndex;
+  if (targetColIndex < 0 || targetColIndex > targetOperationParent.length) {
+    return null;
+  }
+  // A brand-new trailing column doesn't exist yet, so its length is 0 — only op index 0 is valid.
+  const targetColumnLength =
+    targetOperationParent[targetColIndex]?.components.length ?? 0;
+  if (targetOpIndex < 0 || targetOpIndex > targetColumnLength) {
+    return null;
+  }
+
   // Create a deep copy of the source operation
   const newSourceOperation: Operation = JSON.parse(
     JSON.stringify(sourceOperation),
