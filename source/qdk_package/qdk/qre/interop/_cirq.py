@@ -7,7 +7,7 @@ import random
 from dataclasses import dataclass
 from enum import Enum
 from math import pi
-from typing import Iterable, Iterator, Sequence, cast
+from typing import Any, Iterable, Iterator, Sequence, cast
 
 import cirq
 from cirq import (
@@ -764,7 +764,7 @@ class ReadFromMemoryGate(cirq.Gate):
         self,
         context: _CirqTraceBuilder,
         op: cirq.Operation,
-        **_kwargs: object,
+        **_kwargs: Any,
     ):
         """Convert this gate into trace instructions."""
         if context._track_memory_qubits:
@@ -812,7 +812,7 @@ class WriteToMemoryGate(cirq.Gate):
         self,
         context: _CirqTraceBuilder,
         op: cirq.Operation,
-        **_kwargs: object,
+        **_kwargs: Any,
     ):
         """Convert this gate into trace instructions."""
         if context._track_memory_qubits:

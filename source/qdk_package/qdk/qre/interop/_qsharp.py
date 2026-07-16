@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from ..._interpreter import logical_counts
 from ...estimator import LogicalCounts
@@ -55,7 +55,7 @@ def _bucketize_rotation_counts(
 
 
 def trace_from_entry_expr(
-    entry_expr: str | Callable | LogicalCounts, *args: object
+    entry_expr: str | Callable | LogicalCounts, *args: Any
 ) -> Trace:
     """Convert a Q# entry expression into a resource-estimation Trace.
 
@@ -130,7 +130,7 @@ def trace_from_entry_expr(
 def trace_from_entry_expr_cached(
     entry_expr: str | Callable | LogicalCounts,
     cache_path: Optional[Path],
-    *args: object,
+    *args: Any,
 ) -> Trace:
     """Convert a Q# entry expression into a Trace, with optional caching.
 

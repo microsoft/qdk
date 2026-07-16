@@ -694,7 +694,7 @@ def _extract_data_from_simulations(filename: Path, zenodo_path: Path):
     #############################################
     def select_rep_stats(
         stats: list[sinter.TaskStats],
-        circuit: stim.Circuit,  # pyright: ignore[reportAttributeAccessIssue]
+        circuit: stim.Circuit,  # type: ignore (stim not installed)
     ) -> list[tuple[sinter.TaskStats, float]]:
         stats = [stat for stat in stats if stat.shots > stat.discards]
         vols = []
