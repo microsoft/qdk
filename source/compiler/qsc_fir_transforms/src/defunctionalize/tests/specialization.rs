@@ -4757,6 +4757,96 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
     );
 }
 
+/// Specializing a HOF that indexes directly into a callable-array parameter
+/// must not duplicate a side-effecting index expression across synthesized
+/// branch guards. The index operation applies `X(q)`, so running it once versus
+/// once per dispatch arm is an observable semantic difference.
+#[test]
+fn indexed_callable_array_param_hoists_side_effecting_index_once() {
+    let source = r#"
+        operation ChooseIndex(q : Qubit) : Int {
+            X(q);
+            1
+        }
+        operation RunAt(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            ops[ChooseIndex(q)](q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            RunAt([I, X, Y], q);
+        }
+        "#;
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert_no_defunctionalization_errors("defunctionalization", &errors);
+
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    assert!(
+        after.contains("let index : Int = ChooseIndex(q);"),
+        "side-effecting index must be hoisted into a single local after specialization:\n{after}"
+    );
+    assert!(
+        !after.contains("if ChooseIndex(q)") && !after.contains("else if ChooseIndex(q)"),
+        "specialized dispatch guards must not re-evaluate the side-effecting index:\n{after}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation ChooseIndex(q : Qubit) : Int {
+                X(q);
+                1
+            }
+            operation RunAt(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+                ops[ChooseIndex(q)](q);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RunAt_AdjCtl_([I, X, Y], q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RunAt_AdjCtl_(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit {
+                ops[ChooseIndex(q)](q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation ChooseIndex(q : Qubit) : Int {
+                X(q);
+                1
+            }
+            operation RunAt(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+                ops[ChooseIndex(q)](q);
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RunAt_AdjCtl__I__X__Y_(q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RunAt_AdjCtl_(ops : (Qubit => Unit is Adj + Ctl)[], q : Qubit) : Unit {
+                ops[ChooseIndex(q)](q);
+            }
+            operation RunAt_AdjCtl__I__X__Y_(q : Qubit) : Unit {
+                {
+                    let index : Int = ChooseIndex(q);
+                    if index == 0 {
+                        I(q)
+                    } else if index == 1 {
+                        X(q)
+                    } else {
+                        Y(q)
+                    }
+                };
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
 /// A callable array is forwarded into a higher-order function that receives it
 /// as a plain array parameter and iterates over it, mirroring the shape of the
 /// Deutsch-Jozsa sample where a list of oracles is looped over and each is run

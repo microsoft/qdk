@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from concurrent.futures import Executor, Future
 import logging
 from time import monotonic
-from typing import Callable, Dict, Optional, Any
+from typing import Callable, Dict, Optional, Any, cast
 
 from qiskit.providers import BackendV2
 from qiskit.circuit import (
@@ -21,7 +21,7 @@ from ...estimator import EstimatorResult
 
 logger = logging.getLogger(__name__)
 
-RunInputCallable = Callable[[QuantumCircuit, str, Dict[str, Any]], Result]
+RunInputCallable = Callable[[list[QuantumCircuit], str], Result]
 
 
 class QsJob(JobV1, ABC):
@@ -38,10 +38,10 @@ class QsJob(JobV1, ABC):
         backend: Optional[BackendV2],
         job_id: str,
         job_callable: RunInputCallable,
-        run_input: QuantumCircuit,
+        run_input: list[QuantumCircuit],
         input_params: Dict[str, Any],
-        executor=None,
-        **kwargs,
+        executor: Optional[Executor] = None,
+        **kwargs: Any,
     ) -> None:
         """
         :param backend: The backend on which the job is run.
@@ -65,7 +65,7 @@ class QsJob(JobV1, ABC):
         self._submit_start_time: Optional[float] = None
         super().__init__(backend, job_id, **kwargs)
 
-    def submit(self):
+    def submit(self) -> None:
         """Submit the job to the backend for execution.
 
         :raises JobError: If trying to re-submit the job.
@@ -84,7 +84,7 @@ class QsJob(JobV1, ABC):
         pass
 
     @abstractmethod
-    def _submit_duration(self, _future: Future):
+    def _submit_duration(self, _future: Future) -> None:
         pass
 
     def _result(self, timeout: Optional[float] = None) -> Any:
@@ -112,15 +112,14 @@ class QsJob(JobV1, ABC):
 
     def backend(self) -> BackendV2:
         """Return the backend where this job was executed."""
+        return cast(BackendV2, super().backend())
 
-        return super().backend()
-
-    def cancel(self):
+    def cancel(self) -> None:
         """Attempt to cancel the job."""
         if self._future is not None:
             self._future.cancel()
 
-    def error(self) -> Optional[JobError]:
+    def error(self) -> Optional[BaseException]:
         """Return the error that occurred during the execution of the job."""
         if self._future is not None:
             return self._future.exception()
@@ -142,7 +141,7 @@ class QsSimJob(QsJob):
     def result(self, timeout: Optional[float] = None) -> Result:
         return self._result(timeout=timeout)
 
-    def submit(self):
+    def submit(self) -> None:
         """Submit the job to the backend for execution.
 
         :raises JobError: If trying to re-submit the job.
@@ -152,7 +151,7 @@ class QsSimJob(QsJob):
 
         super().submit()
 
-    def _submit_duration(self, _future: Future):
+    def _submit_duration(self, _future: Future) -> None:
         end_time = monotonic()
         # _submit_start_time is set in submit() before adding this callback
         assert self._submit_start_time is not None
@@ -174,7 +173,7 @@ class ReJob(QsJob):
     def result(self, timeout: Optional[float] = None) -> EstimatorResult:
         return self._result(timeout=timeout)
 
-    def submit(self):
+    def submit(self) -> None:
         """Submit the job to the backend for execution.
 
         :raises JobError: If trying to re-submit the job.
@@ -184,7 +183,7 @@ class ReJob(QsJob):
 
         super().submit()
 
-    def _submit_duration(self, _future: Future):
+    def _submit_duration(self, _future: Future) -> None:
         end_time = monotonic()
         # _submit_start_time is set in submit() before adding this callback
         assert self._submit_start_time is not None

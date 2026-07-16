@@ -1359,8 +1359,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                 (t1, t2) = (t2, t1 - quotient * t2);
             }
 
-            let __cond_0 : Bool = r2 == 0 and AbsI(s2) <= denominatorBound;
-            if __cond_0 {
+            if r2 == 0 and AbsI(s2) <= denominatorBound {
                 (-t2 * signB, s2 * signA)
             } else {
                 (-t1 * signB, s1 * signA)
@@ -1462,8 +1461,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     if xsLen > 1 {
                         {
@@ -1484,41 +1481,33 @@ fn shor_sample_full_pipeline_reachable_items() {
                     }
 
                     CNOT(xs[0], ys[0]);
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        if xsLen > 1 {
-                            CNOT(xs[xsLen - 1], ys[ysLen - 1]);
+                } else if xsLen + 1 == ysLen {
+                    if xsLen > 1 {
+                        CNOT(xs[xsLen - 1], ys[ysLen - 1]);
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    ApplyInnerTTKAdderWithCarry(xs, ys);
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                        } else {
-                            CCNOT(xs[0], ys[0], ys[1]);
+                            let _apply_res : Unit = {
+                                ApplyInnerTTKAdderWithCarry(xs, ys);
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
-                        CNOT(xs[0], ys[0]);
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            RippleCarryTTKIncByLE(xs + padding, ys);
-                            ReleaseQubitArray(padding);
-                        }
-
+                        CCNOT(xs[0], ys[0], ys[1]);
                     }
 
+                    CNOT(xs[0], ys[0]);
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    RippleCarryTTKIncByLE(xs + padding, ys);
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -1527,8 +1516,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     Adjoint CNOT(xs[0], ys[0]);
                     if xsLen > 1 {
@@ -1549,41 +1536,33 @@ fn shor_sample_full_pipeline_reachable_items() {
 
                     }
 
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        Adjoint CNOT(xs[0], ys[0]);
-                        if xsLen > 1 {
+                } else if xsLen + 1 == ysLen {
+                    Adjoint CNOT(xs[0], ys[0]);
+                    if xsLen > 1 {
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    Adjoint ApplyInnerTTKAdderWithCarry(xs, ys);
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                            Adjoint CNOT(xs[xsLen - 1], ys[ysLen - 1]);
-                        } else {
-                            Adjoint CCNOT(xs[0], ys[0], ys[1]);
+                            let _apply_res : Unit = {
+                                Adjoint ApplyInnerTTKAdderWithCarry(xs, ys);
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
+                        Adjoint CNOT(xs[xsLen - 1], ys[ysLen - 1]);
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            Adjoint RippleCarryTTKIncByLE(xs + padding, ys);
-                            ReleaseQubitArray(padding);
-                        }
-
+                        Adjoint CCNOT(xs[0], ys[0], ys[1]);
                     }
 
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    Adjoint RippleCarryTTKIncByLE(xs + padding, ys);
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -1592,8 +1571,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     if xsLen > 1 {
                         {
@@ -1614,41 +1591,33 @@ fn shor_sample_full_pipeline_reachable_items() {
                     }
 
                     Controlled CNOT(ctls, (xs[0], ys[0]));
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        if xsLen > 1 {
-                            Controlled CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
+                } else if xsLen + 1 == ysLen {
+                    if xsLen > 1 {
+                        Controlled CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    Controlled ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                        } else {
-                            Controlled CCNOT(ctls, (xs[0], ys[0], ys[1]));
+                            let _apply_res : Unit = {
+                                Controlled ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
-                        Controlled CNOT(ctls, (xs[0], ys[0]));
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            Controlled RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
-                            ReleaseQubitArray(padding);
-                        }
-
+                        Controlled CCNOT(ctls, (xs[0], ys[0], ys[1]));
                     }
 
+                    Controlled CNOT(ctls, (xs[0], ys[0]));
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    Controlled RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -1657,8 +1626,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     Controlled Adjoint CNOT(ctls, (xs[0], ys[0]));
                     if xsLen > 1 {
@@ -1679,41 +1646,33 @@ fn shor_sample_full_pipeline_reachable_items() {
 
                     }
 
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        Controlled Adjoint CNOT(ctls, (xs[0], ys[0]));
-                        if xsLen > 1 {
+                } else if xsLen + 1 == ysLen {
+                    Controlled Adjoint CNOT(ctls, (xs[0], ys[0]));
+                    if xsLen > 1 {
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    Controlled Adjoint ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                            Controlled Adjoint CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
-                        } else {
-                            Controlled Adjoint CCNOT(ctls, (xs[0], ys[0], ys[1]));
+                            let _apply_res : Unit = {
+                                Controlled Adjoint ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
+                        Controlled Adjoint CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            Controlled Adjoint RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
-                            ReleaseQubitArray(padding);
-                        }
-
+                        Controlled Adjoint CCNOT(ctls, (xs[0], ys[0], ys[1]));
                     }
 
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    Controlled Adjoint RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -2188,11 +2147,10 @@ fn shor_sample_full_pipeline_reachable_items() {
             (a, b)
         }
         operation FactorSemiprimeInteger(number : Int) : (Int, Int) {
-            mutable __cond_1 : Bool = false;
+            mutable __cond_0 : Bool = false;
             mutable __has_returned : Bool = false;
             mutable __ret_val : (Int, Int) = (0, 0);
-            let __cond_0 : Bool = number % 2 == 0;
-            if __cond_0 {
+            if number % 2 == 0 {
                 Message($"An even number has been given; 2 is a factor.");
                 {
                     __ret_val = (number / 2, 2);
@@ -2219,8 +2177,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                     while _continue_cond_1475 {
                         Message($"*** Factorizing {number}, attempt {attempt}.");
                         let generator : Int = 2;
-                        __cond_1 = GreatestCommonDivisorI(generator, number) == 1;
-                        if __cond_1 {
+                        __cond_0 = GreatestCommonDivisorI(generator, number) == 1;
+                        if __cond_0 {
                             Message($"Estimating period of {generator}.");
                             let period : Int = EstimatePeriod(generator, number);
                             (foundFactors, factors) = MaybeFactorsFromPeriod(number, generator, period);
@@ -2255,14 +2213,11 @@ fn shor_sample_full_pipeline_reachable_items() {
             __ret_val
         }
         function MaybeFactorsFromPeriod(modulus : Int, generator : Int, period : Int) : (Bool, (Int, Int)) {
-            mutable __cond_1 : Bool = false;
             mutable __has_returned : Bool = false;
             mutable __ret_val : (Bool, (Int, Int)) = (false, (0, 0));
-            let __cond_0 : Bool = period % 2 == 0;
-            if __cond_0 {
+            if period % 2 == 0 {
                 let halfPower : Int = ExpModI(generator, period / 2, modulus);
-                __cond_1 = halfPower != modulus - 1;
-                if __cond_1 {
+                if halfPower != modulus - 1 {
                     let factor : Int = MaxI(GreatestCommonDivisorI(halfPower - 1, modulus), GreatestCommonDivisorI(halfPower + 1, modulus));
                     if factor != 1 and factor != modulus {
                         Message($"Found factor={factor}");
@@ -2682,437 +2637,417 @@ fn shor_sample_full_pipeline_reachable_items() {
         operation ApplyActionIfGreaterThanOrEqualConstant_Qubit__AdjCtl__X_(invertControl : Bool, c : BigInt, x : Qubit[], target : Qubit) : Unit is Adj + Ctl {
             body ... {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         X(target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        X(target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            X(target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54853 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54679 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_52801 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_52804 : Int = _range_id_52801::Start;
-                                    let _step_id_52809 : Int = _range_id_52801::Step;
-                                    let _end_id_52814 : Int = _range_id_52801::End;
-                                    while _step_id_52809 > 0 and _index_id_52804 <= _end_id_52814 or _step_id_52809 < 0 and _index_id_52804 >= _end_id_52814 {
-                                        let i : Int = _index_id_52804;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_52804 += _step_id_52809;
-                                    }
-
+                                let _range_id_52627 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_52630 : Int = _range_id_52627::Start;
+                                let _step_id_52635 : Int = _range_id_52627::Step;
+                                let _end_id_52640 : Int = _range_id_52627::End;
+                                while _step_id_52635 > 0 and _index_id_52630 <= _end_id_52640 or _step_id_52635 < 0 and _index_id_52630 >= _end_id_52640 {
+                                    let i : Int = _index_id_52630;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_52630 += _step_id_52635;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled X([control], target);
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_52844 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_52847 : Int = _range_id_52844::Start;
-                                        let _step_id_52852 : Int = _range_id_52844::Step;
-                                        let _end_id_52857 : Int = _range_id_52844::End;
-                                        while _step_id_52852 > 0 and _index_id_52847 <= _end_id_52857 or _step_id_52852 < 0 and _index_id_52847 >= _end_id_52857 {
-                                            let i : Int = _index_id_52847;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_52847 += _step_id_52852;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled X([control], target);
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_52670 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_52673 : Int = _range_id_52670::Start;
+                                    let _step_id_52678 : Int = _range_id_52670::Step;
+                                    let _end_id_52683 : Int = _range_id_52670::End;
+                                    while _step_id_52678 > 0 and _index_id_52673 <= _end_id_52683 or _step_id_52678 < 0 and _index_id_52673 >= _end_id_52683 {
+                                        let i : Int = _index_id_52673;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_52673 += _step_id_52678;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54853
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54679
                 }
 
             }
             adjoint ... {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         Adjoint X(target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        Adjoint X(target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            Adjoint X(target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54867 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54693 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_52887 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_52890 : Int = _range_id_52887::Start;
-                                    let _step_id_52895 : Int = _range_id_52887::Step;
-                                    let _end_id_52900 : Int = _range_id_52887::End;
-                                    while _step_id_52895 > 0 and _index_id_52890 <= _end_id_52900 or _step_id_52895 < 0 and _index_id_52890 >= _end_id_52900 {
-                                        let i : Int = _index_id_52890;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_52890 += _step_id_52895;
-                                    }
-
+                                let _range_id_52713 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_52716 : Int = _range_id_52713::Start;
+                                let _step_id_52721 : Int = _range_id_52713::Step;
+                                let _end_id_52726 : Int = _range_id_52713::End;
+                                while _step_id_52721 > 0 and _index_id_52716 <= _end_id_52726 or _step_id_52721 < 0 and _index_id_52716 >= _end_id_52726 {
+                                    let i : Int = _index_id_52716;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_52716 += _step_id_52721;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled Adjoint X([control], target);
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_52930 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_52933 : Int = _range_id_52930::Start;
-                                        let _step_id_52938 : Int = _range_id_52930::Step;
-                                        let _end_id_52943 : Int = _range_id_52930::End;
-                                        while _step_id_52938 > 0 and _index_id_52933 <= _end_id_52943 or _step_id_52938 < 0 and _index_id_52933 >= _end_id_52943 {
-                                            let i : Int = _index_id_52933;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_52933 += _step_id_52938;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled Adjoint X([control], target);
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_52756 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_52759 : Int = _range_id_52756::Start;
+                                    let _step_id_52764 : Int = _range_id_52756::Step;
+                                    let _end_id_52769 : Int = _range_id_52756::End;
+                                    while _step_id_52764 > 0 and _index_id_52759 <= _end_id_52769 or _step_id_52764 < 0 and _index_id_52759 >= _end_id_52769 {
+                                        let i : Int = _index_id_52759;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_52759 += _step_id_52764;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54867
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54693
                 }
 
             }
             controlled (ctls, ...) {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         Controlled X(ctls, target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        Controlled X(ctls, target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            Controlled X(ctls, target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54881 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54707 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_52973 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_52976 : Int = _range_id_52973::Start;
-                                    let _step_id_52981 : Int = _range_id_52973::Step;
-                                    let _end_id_52986 : Int = _range_id_52973::End;
-                                    while _step_id_52981 > 0 and _index_id_52976 <= _end_id_52986 or _step_id_52981 < 0 and _index_id_52976 >= _end_id_52986 {
-                                        let i : Int = _index_id_52976;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_52976 += _step_id_52981;
-                                    }
-
+                                let _range_id_52799 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_52802 : Int = _range_id_52799::Start;
+                                let _step_id_52807 : Int = _range_id_52799::Step;
+                                let _end_id_52812 : Int = _range_id_52799::End;
+                                while _step_id_52807 > 0 and _index_id_52802 <= _end_id_52812 or _step_id_52807 < 0 and _index_id_52802 >= _end_id_52812 {
+                                    let i : Int = _index_id_52802;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_52802 += _step_id_52807;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled Controlled X(ctls, ([control], target));
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_53016 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_53019 : Int = _range_id_53016::Start;
-                                        let _step_id_53024 : Int = _range_id_53016::Step;
-                                        let _end_id_53029 : Int = _range_id_53016::End;
-                                        while _step_id_53024 > 0 and _index_id_53019 <= _end_id_53029 or _step_id_53024 < 0 and _index_id_53019 >= _end_id_53029 {
-                                            let i : Int = _index_id_53019;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_53019 += _step_id_53024;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled Controlled X(ctls, ([control], target));
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_52842 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_52845 : Int = _range_id_52842::Start;
+                                    let _step_id_52850 : Int = _range_id_52842::Step;
+                                    let _end_id_52855 : Int = _range_id_52842::End;
+                                    while _step_id_52850 > 0 and _index_id_52845 <= _end_id_52855 or _step_id_52850 < 0 and _index_id_52845 >= _end_id_52855 {
+                                        let i : Int = _index_id_52845;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_52845 += _step_id_52850;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54881
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54707
                 }
 
             }
             controlled adjoint (ctls, ...) {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         Controlled Adjoint X(ctls, target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        Controlled Adjoint X(ctls, target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            Controlled Adjoint X(ctls, target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54895 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54721 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_53059 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_53062 : Int = _range_id_53059::Start;
-                                    let _step_id_53067 : Int = _range_id_53059::Step;
-                                    let _end_id_53072 : Int = _range_id_53059::End;
-                                    while _step_id_53067 > 0 and _index_id_53062 <= _end_id_53072 or _step_id_53067 < 0 and _index_id_53062 >= _end_id_53072 {
-                                        let i : Int = _index_id_53062;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_53062 += _step_id_53067;
-                                    }
-
+                                let _range_id_52885 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_52888 : Int = _range_id_52885::Start;
+                                let _step_id_52893 : Int = _range_id_52885::Step;
+                                let _end_id_52898 : Int = _range_id_52885::End;
+                                while _step_id_52893 > 0 and _index_id_52888 <= _end_id_52898 or _step_id_52893 < 0 and _index_id_52888 >= _end_id_52898 {
+                                    let i : Int = _index_id_52888;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_52888 += _step_id_52893;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled Controlled Adjoint X(ctls, ([control], target));
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_53102 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_53105 : Int = _range_id_53102::Start;
-                                        let _step_id_53110 : Int = _range_id_53102::Step;
-                                        let _end_id_53115 : Int = _range_id_53102::End;
-                                        while _step_id_53110 > 0 and _index_id_53105 <= _end_id_53115 or _step_id_53110 < 0 and _index_id_53105 >= _end_id_53115 {
-                                            let i : Int = _index_id_53105;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_53105 += _step_id_53110;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled Controlled Adjoint X(ctls, ([control], target));
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_52928 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_52931 : Int = _range_id_52928::Start;
+                                    let _step_id_52936 : Int = _range_id_52928::Step;
+                                    let _end_id_52941 : Int = _range_id_52928::End;
+                                    while _step_id_52936 > 0 and _index_id_52931 <= _end_id_52941 or _step_id_52936 < 0 and _index_id_52931 >= _end_id_52941 {
+                                        let i : Int = _index_id_52931;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_52931 += _step_id_52936;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54895
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54721
                 }
 
             }

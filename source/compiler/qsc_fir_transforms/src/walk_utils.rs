@@ -65,10 +65,11 @@ mod tests;
 
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
-    BinOp, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, ItemKind,
-    LocalItemId, LocalVarId, Package, PackageLookup, PatId, PatKind, Res, SpecDecl, SpecImpl,
-    StmtId, StmtKind, StringComponent, UnOp,
+    BinOp, BlockId, CallableDecl, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field,
+    Global, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PatId, PatKind,
+    Res, SpecDecl, SpecImpl, StmtId, StmtKind, StringComponent, UnOp,
 };
+use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
 
 /// Walks an expression tree in pre-order, invoking `visit` for each expression.
@@ -707,102 +708,183 @@ pub(crate) fn extend_expr_ids_in_local_callables(
     }
 }
 
-/// Conservatively decides whether evaluating `expr_id` has no observable side
-/// effects.
+/// Returns whether evaluating `expr_id` has no observable side effects.
 ///
-/// Returns `true` only for pure value constructors, reads, and projections:
-/// literals, holes, variable references, and closures (the body is not invoked
-/// here); compound constructors (`Tuple`, `Array`, `ArrayLit`, `ArrayRepeat`,
-/// `Range`, `String`, `Struct`) and projections (`Field`, `Index`,
-/// `UpdateField`, `UpdateIndex`) whose children are all side-effect-free; `If`
-/// with both arms and `Block` (empty or a single trailing `Expr` stmt) whose
-/// subexpressions are side-effect-free; and non-trapping operators (the
-/// `Functor`, `NotB`, `NotL`, `Pos`, and `Unwrap` unary operators and the
-/// logical, bitwise, and comparison binary operators) over side-effect-free
-/// operands.
+/// This is a local syntactic purity check: it accepts value construction,
+/// reads, projections, functional updates, and operators whose operands are
+/// themselves side-effect-free. It does not prove that evaluation is total.
+/// Pure expressions such as array indexing, array repeat, division, modulus,
+/// exponentiation, shifts, and result comparison can still raise runtime
+/// errors. Callers that remove evaluation entirely must use
+/// [`expr_is_safe_to_discard`] instead.
 ///
-/// Returns `false` for everything else, including `Call`, `Assign*`, `Return`,
-/// `Fail`, `While`, else-less `If`, the trapping arithmetic/shift operators,
-/// and `Neg`. The match is exhaustive with no wildcard arm, so a new
-/// `ExprKind` variant breaks the build here and must have its purity decided
-/// explicitly rather than defaulting to either answer.
-pub(crate) fn expr_is_side_effect_free(package: &Package, expr_id: ExprId) -> bool {
-    match &package.get_expr(expr_id).kind {
+/// Calls are accepted only when the callee resolves to a callable in
+/// `package_id`, the callable is a function with a non-intrinsic body, and that
+/// body is side-effect-free under the same rules. Opaque intrinsics,
+/// operations, dynamic callees, and foreign-package callees remain rejected.
+/// `Return`, `Fail`, `While`, assignments, and else-less `If` in the current
+/// expression are rejected because they can change caller control flow or
+/// program state. The match is exhaustive with no wildcard arm, so a new
+/// [`ExprKind`] variant breaks the build here and must have both purity
+/// properties decided explicitly.
+pub(crate) fn expr_is_side_effect_free(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+) -> bool {
+    expr_has_purity(
+        package,
+        package_id,
+        expr_id,
+        PurityMode::AllowFallible,
+        PurityScope::Expression,
+        &mut FxHashSet::default(),
+    )
+}
+
+/// Returns whether evaluating `expr_id` can be removed without changing
+/// observable behavior.
+///
+/// This is stronger than [`expr_is_side_effect_free`]: it requires the
+/// expression to be side-effect-free and total for all well-typed runtime
+/// values described by the FIR shape. Fallible pure expressions such as
+/// `Index`, `UpdateIndex`, `ArrayRepeat`, division, modulus, exponentiation,
+/// shifts, and result equality are rejected unless a future value-sensitive
+/// analysis proves the specific instance total. Calls must additionally
+/// resolve to a known function body that is itself safe to discard; intrinsic,
+/// dynamic, foreign, and recursive callees are rejected.
+pub(crate) fn expr_is_safe_to_discard(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+) -> bool {
+    expr_has_purity(
+        package,
+        package_id,
+        expr_id,
+        PurityMode::RequireTotal,
+        PurityScope::Expression,
+        &mut FxHashSet::default(),
+    )
+}
+
+/// Controls whether purity analysis accepts expressions that can fail at
+/// runtime.
+#[derive(Clone, Copy)]
+enum PurityMode {
+    /// Accepts fallible expressions as long as they do not mutate state or
+    /// perform externally observable effects.
+    AllowFallible,
+    /// Requires expressions to be both side-effect-free and total for all
+    /// values described by their FIR shape.
+    RequireTotal,
+}
+
+/// Selects the statement and expression rules for the current analysis root.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PurityScope {
+    /// Applies expression-position rules, where only transparent expression
+    /// blocks are accepted.
+    Expression,
+    /// Applies callable-body rules, where local mutation and explicit returns
+    /// are analyzed as part of the callee's implementation.
+    CallableBody,
+}
+
+/// Recursively checks whether `expr_id` satisfies the requested purity mode
+/// and scope.
+///
+/// `active_callables` tracks the functions currently being analyzed so direct
+/// recursive call graphs do not recurse forever.
+fn expr_has_purity(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+    mode: PurityMode,
+    scope: PurityScope,
+    active_callables: &mut FxHashSet<LocalItemId>,
+) -> bool {
+    let kind = &package.get_expr(expr_id).kind;
+    if matches!(scope, PurityScope::CallableBody)
+        && let Some(has_purity) =
+            callable_body_expr_has_purity(package, package_id, kind, mode, active_callables)
+    {
+        return has_purity;
+    }
+
+    match kind {
         ExprKind::Lit(_) | ExprKind::Hole | ExprKind::Var(_, _) | ExprKind::Closure(_, _) => true,
         ExprKind::Tuple(items) | ExprKind::Array(items) | ExprKind::ArrayLit(items) => items
             .iter()
-            .all(|&id| expr_is_side_effect_free(package, id)),
+            .all(|&id| expr_has_purity(package, package_id, id, mode, scope, active_callables)),
         ExprKind::ArrayRepeat(value, count) | ExprKind::Index(value, count) => {
-            expr_is_side_effect_free(package, *value) && expr_is_side_effect_free(package, *count)
+            matches!(mode, PurityMode::AllowFallible)
+                && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *count, mode, scope, active_callables)
         }
-        ExprKind::Field(record, _) => expr_is_side_effect_free(package, *record),
+        ExprKind::Field(record, _) => {
+            expr_has_purity(package, package_id, *record, mode, scope, active_callables)
+        }
         ExprKind::UpdateField(record, _, value) => {
-            expr_is_side_effect_free(package, *record) && expr_is_side_effect_free(package, *value)
+            expr_has_purity(package, package_id, *record, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
         }
         ExprKind::UpdateIndex(arr, idx, value) => {
-            expr_is_side_effect_free(package, *arr)
-                && expr_is_side_effect_free(package, *idx)
-                && expr_is_side_effect_free(package, *value)
+            matches!(mode, PurityMode::AllowFallible)
+                && expr_has_purity(package, package_id, *arr, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *idx, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
         }
         ExprKind::Range(start, step, end) => [start, step, end].iter().all(|opt| match opt {
-            Some(id) => expr_is_side_effect_free(package, *id),
+            Some(id) => expr_has_purity(package, package_id, *id, mode, scope, active_callables),
             None => true,
         }),
         ExprKind::String(parts) => parts.iter().all(|p| match p {
             StringComponent::Lit(_) => true,
-            StringComponent::Expr(e) => expr_is_side_effect_free(package, *e),
+            StringComponent::Expr(e) => {
+                expr_has_purity(package, package_id, *e, mode, scope, active_callables)
+            }
         }),
         ExprKind::Struct(_, copy, fields) => {
-            copy.is_none_or(|id| expr_is_side_effect_free(package, id))
-                && fields
-                    .iter()
-                    .all(|f| expr_is_side_effect_free(package, f.value))
+            copy.is_none_or(|id| {
+                expr_has_purity(package, package_id, id, mode, scope, active_callables)
+            }) && fields.iter().all(|f| {
+                expr_has_purity(package, package_id, f.value, mode, scope, active_callables)
+            })
         }
         ExprKind::If(cond, then, Some(else_id)) => {
-            expr_is_side_effect_free(package, *cond)
-                && expr_is_side_effect_free(package, *then)
-                && expr_is_side_effect_free(package, *else_id)
+            expr_has_purity(package, package_id, *cond, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *then, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *else_id, mode, scope, active_callables)
         }
         ExprKind::UnOp(op, operand) => {
             matches!(
                 op,
-                UnOp::Functor(_) | UnOp::NotB | UnOp::NotL | UnOp::Pos | UnOp::Unwrap
-            ) && expr_is_side_effect_free(package, *operand)
+                UnOp::Functor(_) | UnOp::Neg | UnOp::NotB | UnOp::NotL | UnOp::Pos | UnOp::Unwrap
+            ) && expr_has_purity(package, package_id, *operand, mode, scope, active_callables)
         }
         ExprKind::BinOp(op, lhs, rhs) => {
-            matches!(
-                op,
-                BinOp::AndL
-                    | BinOp::OrL
-                    | BinOp::AndB
-                    | BinOp::OrB
-                    | BinOp::XorB
-                    | BinOp::Eq
-                    | BinOp::Neq
-                    | BinOp::Lt
-                    | BinOp::Lte
-                    | BinOp::Gt
-                    | BinOp::Gte
-            ) && expr_is_side_effect_free(package, *lhs)
-                && expr_is_side_effect_free(package, *rhs)
+            binop_has_purity(package, *op, *lhs, mode)
+                && expr_has_purity(package, package_id, *lhs, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *rhs, mode, scope, active_callables)
         }
         ExprKind::Block(bid) => {
-            let blk = package.get_block(*bid);
-            match blk.stmts.as_slice() {
-                [] => true,
-                [only] => match &package.get_stmt(*only).kind {
-                    StmtKind::Expr(tail) => expr_is_side_effect_free(package, *tail),
-                    _ => false,
-                },
-                _ => false,
-            }
+            block_expr_has_purity(package, package_id, *bid, mode, scope, active_callables)
         }
-        // Side-effecting or potentially-trapping variants. `If` without an
+        ExprKind::Call(callee, args) => call_has_purity(
+            package,
+            package_id,
+            *callee,
+            *args,
+            mode,
+            scope,
+            active_callables,
+        ),
+        // Effectful or caller-control-flow-changing variants. `If` without an
         // else arm is included here: it has `Unit` type but its `then` branch
-        // may run for effect. No wildcard arm — a new `ExprKind` variant
-        // breaks the build here so its purity is decided explicitly.
-        ExprKind::Call(_, _)
-        | ExprKind::Assign(_, _)
+        // may run for effect. No wildcard arm — a new `ExprKind` variant breaks
+        // the build here so its purity is decided explicitly.
+        ExprKind::Assign(_, _)
         | ExprKind::AssignOp(_, _, _)
         | ExprKind::AssignField(_, _, _)
         | ExprKind::AssignIndex(_, _, _)
@@ -810,5 +892,223 @@ pub(crate) fn expr_is_side_effect_free(package: &Package, expr_id: ExprId) -> bo
         | ExprKind::Return(_)
         | ExprKind::While(_, _)
         | ExprKind::If(_, _, None) => false,
+    }
+}
+
+/// Checks the block expression rules for the requested scope.
+///
+/// Expression-position blocks are accepted only when they are transparent
+/// value wrappers. Callable-body blocks are checked statement-by-statement so
+/// local mutation and return-like body forms can participate in call purity.
+fn block_expr_has_purity(
+    package: &Package,
+    package_id: PackageId,
+    block_id: BlockId,
+    mode: PurityMode,
+    scope: PurityScope,
+    active_callables: &mut FxHashSet<LocalItemId>,
+) -> bool {
+    if matches!(scope, PurityScope::CallableBody) {
+        return block_has_purity(package, package_id, block_id, mode, scope, active_callables);
+    }
+
+    let blk = package.get_block(block_id);
+    match blk.stmts.as_slice() {
+        [] => true,
+        [only] => match &package.get_stmt(*only).kind {
+            StmtKind::Expr(tail) => {
+                expr_has_purity(package, package_id, *tail, mode, scope, active_callables)
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
+/// Handles expression kinds that are legal only while analyzing a callable
+/// body.
+///
+/// Returns `None` for kinds whose rules are the same in expression and
+/// callable-body scopes, letting the main expression matcher handle them.
+fn callable_body_expr_has_purity(
+    package: &Package,
+    package_id: PackageId,
+    kind: &ExprKind,
+    mode: PurityMode,
+    active_callables: &mut FxHashSet<LocalItemId>,
+) -> Option<bool> {
+    let scope = PurityScope::CallableBody;
+    Some(match kind {
+        ExprKind::Assign(lhs, rhs) => {
+            expr_has_purity(package, package_id, *lhs, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *rhs, mode, scope, active_callables)
+        }
+        ExprKind::AssignOp(op, lhs, rhs) => {
+            binop_has_purity(package, *op, *lhs, mode)
+                && expr_has_purity(package, package_id, *lhs, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *rhs, mode, scope, active_callables)
+        }
+        ExprKind::AssignField(record, _, value) => {
+            expr_has_purity(package, package_id, *record, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
+        }
+        ExprKind::AssignIndex(arr, idx, value) => {
+            matches!(mode, PurityMode::AllowFallible)
+                && expr_has_purity(package, package_id, *arr, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *idx, mode, scope, active_callables)
+                && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
+        }
+        ExprKind::Fail(msg) => {
+            matches!(mode, PurityMode::AllowFallible)
+                && expr_has_purity(package, package_id, *msg, mode, scope, active_callables)
+        }
+        ExprKind::Return(value) => {
+            expr_has_purity(package, package_id, *value, mode, scope, active_callables)
+        }
+        _ => return None,
+    })
+}
+
+/// Checks every statement expression in a callable body block against the
+/// requested purity mode.
+fn block_has_purity(
+    package: &Package,
+    package_id: PackageId,
+    block_id: BlockId,
+    mode: PurityMode,
+    scope: PurityScope,
+    active_callables: &mut FxHashSet<LocalItemId>,
+) -> bool {
+    let block = package.get_block(block_id);
+    block
+        .stmts
+        .iter()
+        .all(|&stmt_id| match &package.get_stmt(stmt_id).kind {
+            StmtKind::Expr(expr) | StmtKind::Semi(expr) | StmtKind::Local(_, _, expr) => {
+                expr_has_purity(package, package_id, *expr, mode, scope, active_callables)
+            }
+            StmtKind::Item(_) => true,
+        })
+}
+
+/// Checks whether a call expression is pure under the requested mode.
+///
+/// The callee and argument expressions must first satisfy the same purity mode.
+/// Then the callee must resolve to a same-package function body that can be
+/// analyzed, or to a same-package UDT constructor.
+fn call_has_purity(
+    package: &Package,
+    package_id: PackageId,
+    callee: ExprId,
+    args: ExprId,
+    mode: PurityMode,
+    scope: PurityScope,
+    active_callables: &mut FxHashSet<LocalItemId>,
+) -> bool {
+    if !expr_has_purity(package, package_id, callee, mode, scope, active_callables)
+        || !expr_has_purity(package, package_id, args, mode, scope, active_callables)
+    {
+        return false;
+    }
+
+    match &package.get_expr(callee).kind {
+        ExprKind::Var(Res::Item(item_id), _) if item_id.package == package_id => {
+            match package.get_global(item_id.item) {
+                Some(Global::Callable(decl)) => callable_has_purity(
+                    package,
+                    package_id,
+                    item_id.item,
+                    decl,
+                    mode,
+                    active_callables,
+                ),
+                Some(Global::Udt) => true,
+                None => false,
+            }
+        }
+        ExprKind::Closure(_, item_id) => match package.get_global(*item_id) {
+            Some(Global::Callable(decl)) => {
+                callable_has_purity(package, package_id, *item_id, decl, mode, active_callables)
+            }
+            Some(Global::Udt) | None => false,
+        },
+        _ => false,
+    }
+}
+
+/// Checks whether a callable declaration can be treated as pure under the
+/// requested mode.
+///
+/// Only functions with explicit bodies are analyzed. Intrinsics, operations,
+/// and opaque implementations are rejected. Recursive functions are accepted
+/// only for side-effect freedom, not for discard safety.
+fn callable_has_purity(
+    package: &Package,
+    package_id: PackageId,
+    item_id: LocalItemId,
+    decl: &CallableDecl,
+    mode: PurityMode,
+    active_callables: &mut FxHashSet<LocalItemId>,
+) -> bool {
+    if decl.kind != CallableKind::Function {
+        return false;
+    }
+
+    let CallableImpl::Spec(spec_impl) = &decl.implementation else {
+        return false;
+    };
+
+    if !active_callables.insert(item_id) {
+        return matches!(mode, PurityMode::AllowFallible);
+    }
+
+    let is_pure = block_has_purity(
+        package,
+        package_id,
+        spec_impl.body.block,
+        mode,
+        PurityScope::CallableBody,
+        active_callables,
+    );
+    active_callables.remove(&item_id);
+    is_pure
+}
+
+/// Checks the operator-level portion of binary-expression purity.
+///
+/// Operand purity is checked by the caller. This helper decides only whether
+/// the operator itself can be considered total in `RequireTotal` mode.
+fn binop_has_purity(package: &Package, op: BinOp, lhs: ExprId, mode: PurityMode) -> bool {
+    match mode {
+        PurityMode::AllowFallible => true,
+        PurityMode::RequireTotal => match op {
+            BinOp::Add
+            | BinOp::AndB
+            | BinOp::AndL
+            | BinOp::Gt
+            | BinOp::Gte
+            | BinOp::Lt
+            | BinOp::Lte
+            | BinOp::Mul
+            | BinOp::OrB
+            | BinOp::OrL
+            | BinOp::Sub
+            | BinOp::XorB => true,
+            BinOp::Eq | BinOp::Neq => !ty_may_contain_runtime_result(&package.get_expr(lhs).ty),
+            BinOp::Div | BinOp::Exp | BinOp::Mod | BinOp::Shl | BinOp::Shr => false,
+        },
+    }
+}
+
+/// Returns whether `ty` may contain a runtime `Result` value.
+///
+/// Result equality can fail at runtime, so equality over any type that may
+/// contain results is not safe to discard without a more precise proof.
+fn ty_may_contain_runtime_result(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::Result) | Ty::Param(_) | Ty::Infer(_) | Ty::Udt(_) | Ty::Err => true,
+        Ty::Array(item) => ty_may_contain_runtime_result(item),
+        Ty::Tuple(items) => items.iter().any(ty_may_contain_runtime_result),
+        Ty::Arrow(_) | Ty::Prim(_) => false,
     }
 }

@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn e_yields_expected_qir() {
@@ -115,10 +116,10 @@ fn correlated_error_without_probability_yields_error() {
 
 #[test]
 fn else_correlated_error_with_preceding_correlated_error_yields_expected_qir() {
-    let source = "
-CORRELATED_ERROR(0.01) X0
-ELSE_CORRELATED_ERROR(0.02) Z0
-";
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        ELSE_CORRELATED_ERROR(0.02) Z0
+    "};
     check(
         source,
         &expect![[r#"
@@ -165,11 +166,11 @@ ELSE_CORRELATED_ERROR(0.02) Z0
 
 #[test]
 fn correlated_error_chain_with_common_qubit_yields_expected_qir() {
-    let source = "
-CORRELATED_ERROR(0.01) X0
-ELSE_CORRELATED_ERROR(0.02) Z0 L1
-ELSE_CORRELATED_ERROR(0.03) X0 Z1 Y2
-";
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        ELSE_CORRELATED_ERROR(0.02) Z0 L1
+        ELSE_CORRELATED_ERROR(0.03) X0 Z1 Y2
+    "};
     check(
         source,
         &expect![[r#"
@@ -217,11 +218,11 @@ ELSE_CORRELATED_ERROR(0.03) X0 Z1 Y2
 
 #[test]
 fn correlated_error_chain_with_disjoint_qubits_yields_expected_qir() {
-    let source = "
-CORRELATED_ERROR(0.01) X0
-ELSE_CORRELATED_ERROR(0.02) Z1 L2
-ELSE_CORRELATED_ERROR(0.03) Y3 Z4
-";
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        ELSE_CORRELATED_ERROR(0.02) Z1 L2
+        ELSE_CORRELATED_ERROR(0.03) Y3 Z4
+    "};
     check(
         source,
         &expect![[r#"
@@ -269,11 +270,11 @@ ELSE_CORRELATED_ERROR(0.03) Y3 Z4
 
 #[test]
 fn else_correlated_error_with_preceding_else_correlated_error_yields_expected_qir() {
-    let source = "
-CORRELATED_ERROR(0.01) X0
-ELSE_CORRELATED_ERROR(0.02) Y0
-ELSE_CORRELATED_ERROR(0.03) Z0
-";
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        ELSE_CORRELATED_ERROR(0.02) Y0
+        ELSE_CORRELATED_ERROR(0.03) Z0
+    "};
     check(
         source,
         &expect![[r#"
@@ -339,11 +340,35 @@ fn else_correlated_error_by_itself_yields_error() {
 
 #[test]
 fn else_correlated_error_without_preceding_correlated_error_yields_error() {
-    let source = "
-CORRELATED_ERROR(0.01) X0
-I 0
-ELSE_CORRELATED_ERROR(0.02) X0
-";
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        I 0
+        ELSE_CORRELATED_ERROR(0.02) X0
+    "};
+    check(
+        source,
+        &expect![[r#"
+            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
+
+              x else_correlated_error must be preceded by a correlated_error or
+              | else_correlated_error instruction
+               ,-[3:1]
+             2 | I 0
+             3 | ELSE_CORRELATED_ERROR(0.02) X0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn else_correlated_error_without_preceding_else_correlated_error_yields_error() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        ELSE_CORRELATED_ERROR(0.02) Y0
+        I 0
+        ELSE_CORRELATED_ERROR(0.02) Z0
+    "};
     check(
         source,
         &expect![[r#"
@@ -353,31 +378,7 @@ ELSE_CORRELATED_ERROR(0.02) X0
               | else_correlated_error instruction
                ,-[4:1]
              3 | I 0
-             4 | ELSE_CORRELATED_ERROR(0.02) X0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn else_correlated_error_without_preceding_else_correlated_error_yields_error() {
-    let source = "
-CORRELATED_ERROR(0.01) X0
-ELSE_CORRELATED_ERROR(0.02) Y0
-I 0
-ELSE_CORRELATED_ERROR(0.02) Z0
-";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.OrphanedElseCorrelatedError
-
-              x else_correlated_error must be preceded by a correlated_error or
-              | else_correlated_error instruction
-               ,-[5:1]
-             4 | I 0
-             5 | ELSE_CORRELATED_ERROR(0.02) Z0
+             4 | ELSE_CORRELATED_ERROR(0.02) Z0
                : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                `----
         "#]],
@@ -560,38 +561,38 @@ fn heralded_pauli_channel_1_yields_expected_qir() {
 #[test]
 #[ignore = "unsupported instruction"]
 fn i_error_yields_expected_qir() {
-    let source = "
-# does nothing
-I_ERROR 0
+    let source = indoc! {"
+        # does nothing
+        I_ERROR 0
 
-# does nothing with probability 0.1, else does nothing
-I_ERROR(0.1) 0
+        # does nothing with probability 0.1, else does nothing
+        I_ERROR(0.1) 0
 
-# doesn't require a probability argument
-I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
+        # doesn't require a probability argument
+        I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0
 
-# checks for you that the disjoint probabilities in the arguments are legal
-I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
-";
+        # checks for you that the disjoint probabilities in the arguments are legal
+        I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
+    "};
     check(source, &expect![[""]]);
 }
 
 #[test]
 #[ignore = "unsupported instruction"]
 fn ii_error_yields_expected_qir() {
-    let source = "
-# does nothing
-II_ERROR 0 1
+    let source = indoc! {"
+        # does nothing
+        II_ERROR 0 1
 
-# does nothing with probability 0.1, else does nothing
-II_ERROR(0.1) 0 1
+        # does nothing with probability 0.1, else does nothing
+        II_ERROR(0.1) 0 1
 
-# checks for you that the targets are two-qubit pairs
-II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
+        # checks for you that the targets are two-qubit pairs
+        II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
 
-# checks for you that the disjoint probabilities in the arguments are legal
-II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
-";
+        # checks for you that the disjoint probabilities in the arguments are legal
+        II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
+    "};
     check(source, &expect![[""]]);
 }
 

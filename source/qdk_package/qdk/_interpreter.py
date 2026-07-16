@@ -182,11 +182,11 @@ def get_config() -> Config:
     return _get_default_context()._config
 
 
-def python_args_to_interpreter_args(args) -> Any:
+def python_args_to_interpreter_args(args: Tuple[Any, ...]) -> Any:
     return _get_default_context()._python_args_to_interpreter_args(args)
 
 
-def qsharp_value_to_python_value(obj):
+def qsharp_value_to_python_value(obj: Any) -> Any:
     return _get_default_context()._qsharp_value_to_python_value(obj)
 
 
@@ -217,7 +217,7 @@ def eval(
 def run(
     entry_expr: Union[str, Callable, GlobalCallable, Closure],
     shots: int,
-    *args,
+    *args: Any,
     on_result: Optional[Callable[[ShotResult], None]] = None,
     save_events: bool = False,
     noise: Optional[
@@ -274,7 +274,7 @@ def run(
 
 
 def compile(
-    entry_expr: Union[str, Callable, GlobalCallable, Closure], *args
+    entry_expr: Union[str, Callable, GlobalCallable, Closure], *args: Any
 ) -> QirInputData:
     """
     Compiles the Q# source code into a program that can be submitted to a target.
@@ -300,7 +300,7 @@ def compile(
 
 def circuit(
     entry_expr: Optional[Union[str, Callable, GlobalCallable, Closure]] = None,
-    *args,
+    *args: Any,
     operation: Optional[str] = None,
     generation_method: Optional[CircuitGenerationMethod] = None,
     max_operations: Optional[int] = None,
@@ -366,7 +366,7 @@ def circuit(
 def estimate(
     entry_expr: Union[str, Callable, GlobalCallable, Closure],
     params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
-    *args,
+    *args: Any,
 ) -> EstimatorResult:
     """
     Estimates resources for Q# source code.
@@ -442,7 +442,7 @@ def estimate(
 
 def logical_counts(
     entry_expr: Union[str, Callable, GlobalCallable, Closure],
-    *args,
+    *args: Any,
 ) -> LogicalCounts:
     """
     Extracts logical resource counts from Q# source code.

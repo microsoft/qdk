@@ -3059,6 +3059,7 @@ version = "0.0.0"
 dependencies = [
  "enum-iterator",
  "expect-test",
+ "indoc",
  "miette",
  "qdk_simulators",
  "qsc_data_structures",

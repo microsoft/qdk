@@ -3,7 +3,7 @@
 
 from collections import Counter
 import logging
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union, cast
 from uuid import uuid4
 
 from qiskit import QuantumCircuit
@@ -34,8 +34,8 @@ class QSharpBackend(BackendBase):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **options,
-    ):
+        **options: Any,
+    ) -> None:
         """
         :param target: The target to use for the backend.
         :param qiskit_pass_options: Options for the Qiskit passes.
@@ -71,7 +71,7 @@ class QSharpBackend(BackendBase):
         )
 
     @classmethod
-    def _default_options(cls):
+    def _default_options(cls) -> Options:
         return Options(
             name="program",
             params=None,
@@ -87,7 +87,7 @@ class QSharpBackend(BackendBase):
     def run(
         self,
         run_input: Union[QuantumCircuit, List[QuantumCircuit]],
-        **options,
+        **options: Any,
     ) -> QsSimJob:
         """
         Runs the given QuantumCircuit using the Q# simulator.
@@ -113,9 +113,11 @@ class QSharpBackend(BackendBase):
         """
 
         run_input = self._validate_quantum_circuits(run_input)
-        return self._run(run_input, **options)
+        return cast(QsSimJob, self._run(run_input, **options))
 
-    def _execute(self, programs: List[Compilation], **input_params) -> Dict[str, Any]:
+    def _execute(
+        self, programs: List[Compilation], **input_params: Any
+    ) -> Dict[str, Any]:
         exec_results: List[Tuple[Compilation, Dict[str, Any]]] = [
             (
                 program,
@@ -162,8 +164,8 @@ class QSharpBackend(BackendBase):
 
 def _run_qasm(
     qasm: str,
-    default_options: Options,
-    **options,
+    default_options: Mapping[str, Any],
+    **options: Any,
 ) -> Any:
     """
     Runs the supplied OpenQASM 3 program.
