@@ -1,14 +1,8 @@
 {
   "pythonVersion": "3.10",
   "include": ["source/qdk_package/qdk"],
-  "exclude": [
-    "source/qdk_package/qdk/applications",
-    "source/qdk_package/qdk/azure",
-    "source/qdk_package/qdk/cirq",
-    "source/qdk_package/qdk/simulation",
-    "source/qdk_package/qdk/qiskit",
-    "source/qdk_package/qdk/qre"
-  ],
+  "exclude": ["source/qdk_package/qdk/qre"],
   "reportMissingModuleSource": "none", // Allow .pyi without .py
-  "typeCheckingMode": "basic"
+  "typeCheckingMode": "basic",
+  "reportMissingParameterType": "error"
 }

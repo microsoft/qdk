@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, is_entry_point, Opcode
+from pyqir import BasicBlock, Function, QirModuleVisitor, is_entry_point, Opcode
 
 
 class ValidateAllowedIntrinsics(QirModuleVisitor):
@@ -9,7 +9,7 @@ class ValidateAllowedIntrinsics(QirModuleVisitor):
     Ensure that the module only contains allowed intrinsics.
     """
 
-    def _on_function(self, function):
+    def _on_function(self, function: Function) -> None:
         name = function.name
         if (
             not is_entry_point(function)
@@ -35,7 +35,7 @@ class ValidateNoConditionalBranches(QirModuleVisitor):
     Ensure that the function(s) only use unconditional branches.
     """
 
-    def _on_block(self, block):
+    def _on_block(self, block: BasicBlock) -> None:
         if (
             block.terminator
             and block.terminator.opcode == Opcode.BR
@@ -55,6 +55,6 @@ class ValidateNoFunctionCalls(QirModuleVisitor):
     supported intrinsics have no body).
     """
 
-    def _on_function(self, function):
+    def _on_function(self, function: Function) -> None:
         if not is_entry_point(function) and len(function.basic_blocks) > 0:
             raise ValueError("programs with function calls are not supported")

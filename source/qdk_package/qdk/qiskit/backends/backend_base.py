@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 import datetime
 import logging
 from time import monotonic
-from typing import Dict, Any, List, Optional, Union
+from typing import Callable, Dict, Any, List, Optional, Union
 from warnings import warn
 
 from qiskit import transpile
@@ -81,7 +81,7 @@ _QISKIT_STDGATES = [
 ]
 
 
-def filter_kwargs(func, **kwargs) -> Dict[str, Any]:
+def filter_kwargs(func: Callable[..., Any], **kwargs: Any) -> Dict[str, Any]:
     import inspect
 
     sig = inspect.signature(func)
@@ -92,12 +92,12 @@ def filter_kwargs(func, **kwargs) -> Dict[str, Any]:
     return extracted_kwargs
 
 
-def get_transpile_options(**kwargs) -> Dict[str, Any]:
+def get_transpile_options(**kwargs: Any) -> Dict[str, Any]:
     args = filter_kwargs(transpile, **kwargs)
     return args
 
 
-def get_exporter_options(**kwargs) -> Dict[str, Any]:
+def get_exporter_options(**kwargs: Any) -> Dict[str, Any]:
     return filter_kwargs(Exporter.__init__, **kwargs)
 
 
@@ -113,8 +113,8 @@ class BackendBase(BackendV2, ABC):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **options,
-    ):
+        **options: Any,
+    ) -> None:
         """
         :param target: The target to use for the backend.
         :param qiskit_pass_options: Options for the Qiskit passes.
@@ -133,6 +133,7 @@ class BackendBase(BackendV2, ABC):
             # is a convenience for aer users.
             # if the user passes in seed_simulator, we will rename it to seed
             # but only if the seed field is defined in the backend options.
+            assert self._options is not None
             if "seed_simulator" in options and "seed" in self._options.data:
                 warn("seed_simulator passed, but field is called seed.")
                 options["seed"] = options.pop("seed_simulator")
@@ -199,6 +200,7 @@ class BackendBase(BackendV2, ABC):
     def _build_target(self) -> Target:
         supports_barrier = self._qiskit_pass_options["supports_barrier"]
         supports_delay = self._qiskit_pass_options["supports_delay"]
+        assert self._options is not None
 
         # explicitly set ``num_qubits`` to ``None`` to indicate a :class:`Target` representing a
         # simulator or other abstract machine that imposes no limits on the number of qubits.
@@ -215,14 +217,16 @@ class BackendBase(BackendV2, ABC):
         return self._target
 
     @property
-    def max_circuits(self):
+    def max_circuits(self) -> None:
         """
         Returns the maximum number of circuits that can be executed simultaneously.
         """
         return None
 
     @abstractmethod
-    def _execute(self, programs: List[Compilation], **input_params) -> Dict[str, Any]:
+    def _execute(
+        self, programs: List[Compilation], **input_params: Any
+    ) -> Dict[str, Any]:
         """Execute circuits on the backend.
 
         :param programs: Simulator input circuits.
@@ -236,15 +240,15 @@ class BackendBase(BackendV2, ABC):
     def run(
         self,
         run_input: Union[QuantumCircuit, List[QuantumCircuit]],
-        **options,
+        **options: Any,
     ) -> QsJob:
         pass
 
     def _run(
         self,
         run_input: List[QuantumCircuit],
-        **options,
-    ) -> QsJob:
+        **options: Any,
+    ) -> QsJob | QsJobSet:
         if "name" not in options and len(run_input) == 1:
             options["name"] = run_input[0].name
 
@@ -259,7 +263,7 @@ class BackendBase(BackendV2, ABC):
         return self._submit_job(run_input, **input_params)
 
     def run_job(
-        self, run_input: List[QuantumCircuit], job_id: str, **options
+        self, run_input: List[QuantumCircuit], job_id: str, **options: Any
     ) -> Result:
         start = monotonic()
 
@@ -271,7 +275,7 @@ class BackendBase(BackendV2, ABC):
             logger.error("%s: run failed.", self.name)
             if output:
                 logger.error("Output: %s", output)
-            from ... import QSharpError
+            from ..._native import QSharpError
 
             raise QSharpError(str(Errors.RUN_TERMINATED_WITHOUT_OUTPUT))
 
@@ -306,7 +310,9 @@ class BackendBase(BackendV2, ABC):
                 raise ValueError(str(Errors.INPUT_MUST_BE_QC))
         return run_input
 
-    def _submit_job(self, run_input: List[QuantumCircuit], **options) -> QsJob:
+    def _submit_job(
+        self, run_input: List[QuantumCircuit], **options: Any
+    ) -> QsJob | QsJobSet:
         """Default implementation for simulation backends.
 
         Submits a ``QsSimJob`` for a single circuit or a ``QsJobSet`` for
@@ -324,7 +330,9 @@ class BackendBase(BackendV2, ABC):
         job.submit()
         return job
 
-    def _compile(self, run_input: List[QuantumCircuit], **options) -> List[Compilation]:
+    def _compile(
+        self, run_input: List[QuantumCircuit], **options: Any
+    ) -> List[Compilation]:
         # for each run input, convert to qasm
         compilations = []
         for circuit in run_input:
@@ -336,7 +344,7 @@ class BackendBase(BackendV2, ABC):
             qasm = self._qasm(circuit, **args)
             end = monotonic()
 
-            time_taken = end - start
+            time_taken = str(end - start)
             compilation = Compilation(circuit, qasm, time_taken)
             compilations.append(compilation)
         return compilations
@@ -349,7 +357,7 @@ class BackendBase(BackendV2, ABC):
         """
         return Result.from_dict(output)
 
-    def _map_result_bit(self, v) -> str:
+    def _map_result_bit(self, v: Any) -> str:
         """Map a single QIR result value to a bit character.
 
         Override in subclasses to customize the mapping — for example,
@@ -364,7 +372,7 @@ class BackendBase(BackendV2, ABC):
             return "0"
         return str(v)
 
-    def _shot_to_bitstring(self, value) -> str:
+    def _shot_to_bitstring(self, value: Any) -> str:
         """Recursively convert a QIR shot result to a Qiskit-style bitstring.
 
         - ``tuple`` → space-joined register parts (multiple classical registers)
@@ -378,7 +386,7 @@ class BackendBase(BackendV2, ABC):
         else:
             return str(value)
 
-    def _transpile(self, circuit: QuantumCircuit, **options) -> QuantumCircuit:
+    def _transpile(self, circuit: QuantumCircuit, **options: Any) -> QuantumCircuit:
         if options.get("skip_transpilation", self._skip_transpilation):
             return circuit
 
@@ -405,7 +413,9 @@ class BackendBase(BackendV2, ABC):
             )
         return transpiled_circuit
 
-    def run_qiskit_passes(self, circuit, options):
+    def run_qiskit_passes(
+        self, circuit: QuantumCircuit, options: Dict[str, Any]
+    ) -> QuantumCircuit:
         pass_options = self._build_qiskit_pass_options(**options)
 
         pass_manager = PassManager()
@@ -423,7 +433,7 @@ class BackendBase(BackendV2, ABC):
         circuit = pass_manager.run(circuit)
         return circuit
 
-    def _build_qiskit_pass_options(self, **kwargs) -> Dict[str, Any]:
+    def _build_qiskit_pass_options(self, **kwargs: Any) -> Dict[str, Any]:
         params: Dict[str, Any] = vars(self._qiskit_pass_options).copy()
         for opt in params.copy():
             if opt in kwargs:
@@ -437,7 +447,7 @@ class BackendBase(BackendV2, ABC):
 
         return params
 
-    def _build_transpile_options(self, **kwargs) -> Dict[str, Any]:
+    def _build_transpile_options(self, **kwargs: Any) -> Dict[str, Any]:
         # create the default options from the backend
         args = self._transpile_options.copy()
         # gather any remaining options that are not in the default list
@@ -445,7 +455,7 @@ class BackendBase(BackendV2, ABC):
         args.update(transpile_args)
         return args
 
-    def _build_qasm_export_options(self, **kwargs) -> Dict[str, Any]:
+    def _build_qasm_export_options(self, **kwargs: Any) -> Dict[str, Any]:
         # Disable aliasing until we decide want to support it
         # The exporter defaults to only having the U gate.
         # When it sees the stdgates.inc in the default includes list, it adds
@@ -467,11 +477,11 @@ class BackendBase(BackendV2, ABC):
         args.update(exporter_args)
         return args
 
-    def transpile(self, circuit: QuantumCircuit, **options) -> QuantumCircuit:
+    def transpile(self, circuit: QuantumCircuit, **options: Any) -> QuantumCircuit:
         transpiled_circuit = self._transpile(circuit, **options)
         return transpiled_circuit
 
-    def _qasm(self, circuit: QuantumCircuit, **options) -> str:
+    def _qasm(self, circuit: QuantumCircuit, **options: Any) -> str:
         """Converts a Qiskit QuantumCircuit to QASM 3 for the current backend.
 
         :param circuit: The QuantumCircuit to be executed.
@@ -498,7 +508,7 @@ class BackendBase(BackendV2, ABC):
 
             raise QasmError(str(Errors.FAILED_TO_EXPORT_QASM)) from ex
 
-    def _qsharp(self, circuit: QuantumCircuit, **kwargs) -> str:
+    def _qsharp(self, circuit: QuantumCircuit, **kwargs: Any) -> str:
         """
         Converts a Qiskit QuantumCircuit to Q# for the current backend.
 
@@ -524,8 +534,10 @@ class BackendBase(BackendV2, ABC):
         if search_path := kwargs.pop("search_path", "."):
             args["search_path"] = search_path
 
+        options = self.options
+        assert options is not None
         if output_semantics := kwargs.pop(
-            "output_semantics", self.options.get("output_semantics", default=None)
+            "output_semantics", options.get("output_semantics", default=None)
         ):
             args["output_semantics"] = output_semantics
 
@@ -535,7 +547,7 @@ class BackendBase(BackendV2, ABC):
     def qir(
         self,
         circuit: QuantumCircuit,
-        **kwargs,
+        **kwargs: Any,
     ) -> str:
         """
         Converts a Qiskit QuantumCircuit to QIR (Quantum Intermediate Representation).
@@ -552,8 +564,10 @@ class BackendBase(BackendV2, ABC):
         :raises QasmError: If there is an error generating, parsing, or compiling QASM.
         :raises ValueError: If the backend configuration does not support QIR generation.
         """
+        options = self.options
+        assert options is not None
         name = kwargs.pop("name", circuit.name)
-        target_profile = kwargs.pop("target_profile", self.options.target_profile)
+        target_profile = kwargs.pop("target_profile", options.target_profile)
         if target_profile == TargetProfile.Unrestricted:
             raise ValueError(str(Errors.UNRESTRICTED_INVALID_QIR_TARGET))
 
@@ -571,7 +585,7 @@ class BackendBase(BackendV2, ABC):
             args["params"] = params
 
         if output_semantics := kwargs.pop(
-            "output_semantics", self.options.get("output_semantics", default=None)
+            "output_semantics", options.get("output_semantics", default=None)
         ):
             args["output_semantics"] = output_semantics
 
@@ -580,7 +594,7 @@ class BackendBase(BackendV2, ABC):
     def _qasm_to_qir(
         self,
         source: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> str:
         from ..._native import compile_qasm_program_to_qir
         from ..._fs import read_file, list_directory, resolve
@@ -598,7 +612,7 @@ class BackendBase(BackendV2, ABC):
     def _qasm_to_qsharp(
         self,
         source: str,
-        **kwargs,
+        **kwargs: Any,
     ) -> str:
         from ..._native import compile_qasm_to_qsharp
         from ..._fs import read_file, list_directory, resolve

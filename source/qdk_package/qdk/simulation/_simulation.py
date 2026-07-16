@@ -21,10 +21,18 @@ from .._native import (
     Result,
 )
 from pyqir import (
+    BasicBlock,
+    Call,
+    Context,
+    FloatConstant,
     Function,
     FunctionType,
+    IntConstant,
+    Module,
+    Opcode,
     PointerType,
     Type,
+    Value,
     Linkage,
 )
 from .._types import QirInputData
@@ -47,13 +55,13 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         self.required_num_qubits: Optional[int] = None
         self.required_num_results: Optional[int] = None
 
-    def _get_value_as_string(self, value: pyqir.Value) -> str:
+    def _get_value_as_string(self, value: Value) -> str:
         value_bytes = pyqir.extract_byte_string(value)
         if value_bytes is None:
             return ""
         return value_bytes.decode("utf-8")
 
-    def run(self, mod: pyqir.Module) -> Tuple[List[QirInstruction | Tuple], int, int]:
+    def run(self, mod: Module) -> Tuple[List[QirInstruction | Tuple], int, int]:
         errors = mod.verify()
         if errors is not None:
             raise ValueError(f"Module verification failed: {errors}")
@@ -64,12 +72,14 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
         self.required_num_results = pyqir.required_num_results(func)
 
         super().run(mod)
+        assert self.required_num_qubits is not None
+        assert self.required_num_results is not None
         return (self.gates, self.required_num_qubits, self.required_num_results)
 
-    def _on_block(self, block):
+    def _on_block(self, block: BasicBlock) -> None:
         if (
             block.terminator
-            and block.terminator.opcode == pyqir.Opcode.BR
+            and block.terminator.opcode == Opcode.BR
             and len(block.terminator.operands) > 1
         ):
             raise ValueError(
@@ -77,7 +87,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             )
         super()._on_block(block)
 
-    def _on_call_instr(self, call: pyqir.Call) -> None:
+    def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name == "__quantum__qis__ccx__body":
             self.gates.append(
@@ -121,7 +131,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rx__body":
-            angle = cast(pyqir.FloatConstant, call.args[0]).value
+            angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.RX,
@@ -130,7 +140,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rxx__body":
-            angle = cast(pyqir.FloatConstant, call.args[0]).value
+            angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.RXX,
@@ -140,7 +150,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__ry__body":
-            angle = cast(pyqir.FloatConstant, call.args[0]).value
+            angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.RY,
@@ -149,7 +159,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__ryy__body":
-            angle = cast(pyqir.FloatConstant, call.args[0]).value
+            angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.RYY,
@@ -159,7 +169,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rz__body":
-            angle = cast(pyqir.FloatConstant, call.args[0]).value
+            angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.RZ,
@@ -168,7 +178,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                 )
             )
         elif callee_name == "__quantum__qis__rzz__body":
-            angle = cast(pyqir.FloatConstant, call.args[0]).value
+            angle = cast(FloatConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.RZZ,
@@ -239,7 +249,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             )
         elif callee_name == "__quantum__rt__tuple_record_output":
             tag = self._get_value_as_string(call.args[1])
-            value = cast(pyqir.IntConstant, call.args[0]).value
+            value = cast(IntConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.TupleRecordOutput,
@@ -249,7 +259,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             )
         elif callee_name == "__quantum__rt__array_record_output":
             tag = self._get_value_as_string(call.args[1])
-            value = cast(pyqir.IntConstant, call.args[0]).value
+            value = cast(IntConstant, call.args[0]).value
             self.gates.append(
                 (
                     QirInstructionId.ArrayRecordOutput,
@@ -263,7 +273,7 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             or callee_name == "__quantum__rt__end_parallel"
             or callee_name == "__quantum__qis__barrier__body"
             # We only hit this during noiseless simulations
-            or "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func
+            or "qdk_noise" in cast(Function, call.callee).attributes.func
         ):
             pass
         else:
@@ -280,7 +290,7 @@ class CorrelatedNoisePass(AggregateGatesPass):
         super().__init__()
         self.noise_intrinsics_table = noise_config.intrinsics
 
-    def _on_call_instr(self, call: pyqir.Call) -> None:
+    def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name in self.noise_intrinsics_table:
             self.gates.append(
@@ -290,7 +300,7 @@ class CorrelatedNoisePass(AggregateGatesPass):
                     [pyqir.ptr_id(arg) for arg in call.args],
                 )
             )
-        elif "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func:
+        elif "qdk_noise" in cast(Function, call.callee).attributes.func:
             # If we are running a noisy simulation, we treat
             # missing noise intrinsics as an error.
             raise ValueError(f"Missing noise intrinsic: {callee_name}")
@@ -311,7 +321,7 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
         for table_id, name, _count in noise_table:
             self.noise_table[name] = table_id
 
-    def _on_call_instr(self, call: pyqir.Call) -> None:
+    def _on_call_instr(self, call: Call) -> None:
         callee_name = call.callee.name
         if callee_name in self.noise_table:
             self.gates.append(
@@ -321,7 +331,7 @@ class GpuCorrelatedNoisePass(AggregateGatesPass):
                     [pyqir.ptr_id(qubit) for qubit in call.args],  # qubit args
                 )
             )
-        elif "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func:
+        elif "qdk_noise" in cast(Function, call.callee).attributes.func:
             # If we are running a noisy simulation, we treat
             # missing noise intrinsics as an error.
             raise ValueError(f"Missing noise intrinsic: {callee_name}")
@@ -335,7 +345,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     _counters: List[int] = []
     _process_fn = None
 
-    def process_output(self, bitstring: str):
+    def process_output(self, bitstring: str) -> str | list[Result]:
         if self._process_fn:
             return self._process_fn(
                 [
@@ -346,7 +356,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
         else:
             return bitstring
 
-    def _on_function(self, function):
+    def _on_function(self, function: Function) -> None:
         if pyqir.is_entry_point(function):
             super()._on_function(function)
             while len(self._closers) > 0:
@@ -355,7 +365,9 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
             if len(self._output_str) != 0:
                 self._process_fn = eval(f"lambda o: {self._output_str}")
 
-    def _on_rt_result_record_output(self, call, result, target):
+    def _on_rt_result_record_output(
+        self, call: Call, result: Value, target: Value
+    ) -> None:
         self._output_str += f"o[{pyqir.ptr_id(result)}]"
         while len(self._counters) > 0:
             self._output_str += ","
@@ -367,14 +379,18 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
             else:
                 break
 
-    def _on_rt_array_record_output(self, call, value, target):
+    def _on_rt_array_record_output(
+        self, call: Call, value: IntConstant, target: Value
+    ) -> None:
         self._output_str += "["
         self._closers.append("]")
         # if len(self._counters) > 0:
         #     self._counters[-1] -= 1
         self._counters.append(value.value)
 
-    def _on_rt_tuple_record_output(self, call, value, target):
+    def _on_rt_tuple_record_output(
+        self, call: Call, value: IntConstant, target: Value
+    ) -> None:
         self._output_str += "("
         self._closers.append(")")
         # if len(self._counters) > 0:
@@ -388,10 +404,10 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
     tadj_func: Function
     cz_func: Function
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         void = Type.void(module.context)
         qubit_ty = PointerType(Type.void(module.context))
 
@@ -436,7 +452,13 @@ class DecomposeCcxPass(pyqir.QirModuleVisitor):
             )
         super()._on_module(module)
 
-    def _on_qis_ccx(self, call, ctrl1, ctrl2, target):
+    def _on_qis_ccx(
+        self,
+        call: Call,
+        ctrl1: Value,
+        ctrl2: Value,
+        target: Value,
+    ) -> None:
         self.builder.insert_before(call)
         self.builder.call(self.h_func, [target])
         self.builder.call(self.tadj_func, [ctrl1])
@@ -478,7 +500,7 @@ def preprocess_simulation_input(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-) -> tuple[pyqir.Module, int, Optional[NoiseConfig], int]:
+) -> tuple[Module, int, Optional[NoiseConfig], int]:
     if shots is None:
         shots = 1
     # If no seed specified, generate a random u32 to use
@@ -489,18 +511,18 @@ def preprocess_simulation_input(
             "Specifying Pauli noise via a tuple is not supported. Use a NoiseConfig instead."
         )
 
-    context = pyqir.Context()
+    context = Context()
     if isinstance(input, QirInputData):
-        mod = pyqir.Module.from_ir(context, str(input))
+        mod = Module.from_ir(context, str(input))
     elif isinstance(input, str):
-        mod = pyqir.Module.from_ir(context, input)
+        mod = Module.from_ir(context, input)
     else:
-        mod = pyqir.Module.from_bitcode(context, input)
+        mod = Module.from_bitcode(context, input)
 
     return (mod, shots, noise, seed)
 
 
-def is_adaptive(mod: pyqir.Module) -> bool:
+def is_adaptive(mod: Module) -> bool:
     """Check if the QIR module uses the Adaptive Profile."""
     entry = next(filter(pyqir.is_entry_point, mod.functions), None)
     if entry is None:
@@ -525,7 +547,7 @@ def str_to_result(result: str):
 
 def run_base(
     rust_run_base_fn: Callable,
-    mod: pyqir.Module,
+    mod: Module,
     shots: int,
     noise: Optional[NoiseConfig],
     seed: int,
@@ -549,7 +571,7 @@ def run_base(
 
 def run_adaptive(
     rust_run_adaptive_fn: Callable,
-    mod: pyqir.Module,
+    mod: Module,
     program: AdaptiveProgram,
     shots: int,
     noise: Optional[NoiseConfig],
@@ -687,7 +709,9 @@ class GpuSimulator:
                 )
             )
             self.gpu_context.set_program(
-                self.gates, self.required_num_qubits, self.required_num_results
+                cast(List[QirInstruction], self.gates),
+                self.required_num_qubits,
+                self.required_num_results,
             )
 
     def run_shots(self, shots: int, seed: Optional[int] = None) -> "GpuShotResults":
@@ -698,20 +722,22 @@ class GpuSimulator:
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         if self._is_adaptive:
             results = self.gpu_context.run_adaptive_shots(shots, seed=seed)
+            assert self._recorder is not None
+            shot_results = cast(list, results["shot_results"])
             for i, (shot_ret_code, shot_result) in enumerate(
-                zip(results["shot_result_codes"], results["shot_results"])
+                zip(results["shot_result_codes"], shot_results)
             ):
                 if shot_ret_code == 0:
                     # If the ret_code was zero, we do an output recording pass
                     # on the output.
-                    results["shot_results"][i] = self._recorder.process_output(
-                        shot_result
+                    shot_results[i] = self._recorder.process_output(
+                        cast(str, shot_result)
                     )
                 else:
                     # If the shot finished with a ret_code other than zero,
                     # we set the result to `None`.
-                    results["shot_results"][i] = None
-            return results
+                    shot_results[i] = None
+            return cast("GpuShotResults", results)
         return self.gpu_context.run_shots(shots, seed=seed)
 
 
