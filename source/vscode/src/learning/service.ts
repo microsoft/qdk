@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import { log } from "qsharp-lang";
 import { getExerciseSources } from "qsharp-lang/katas-md";
 import * as vscode from "vscode";
 import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
@@ -629,8 +630,12 @@ export class LearningService {
    */
   async runEnvironmentCheck(): Promise<EnvironmentCheckReport> {
     const course = this.activeCourse;
+    log.info(
+      `[env-check] Starting for course "${course.id}" (kind=${course.kind})`,
+    );
 
     if (course.kind !== "python-notebook") {
+      log.info(`[env-check] Q# course — skipping environment checks.`);
       const checks: EnvironmentCheckItem[] = [
         check("course-kind", "Course type", "ok", {
           detail: "Q# course — runs on the built-in simulator.",
@@ -646,6 +651,7 @@ export class LearningService {
 
     // Hard stop: environment management can't run on the Web.
     if (!env.supported) {
+      log.info(`[env-check] Web host — environment management unavailable.`);
       const checks: EnvironmentCheckItem[] = [
         check("host", "Desktop VS Code", "fail", {
           detail: "Python courses require the desktop version of VS Code.",
@@ -658,6 +664,7 @@ export class LearningService {
     // Resolve the course's working root (its source folder); the venv
     // lives here, beside the authored notebooks.
     if (!course.sourceDir) {
+      log.info(`[env-check] No sourceDir — cannot resolve course root.`);
       return this.assembleReport(course, [
         check("course-folder", "Course folder", "fail", {
           detail: "This course has no source folder on disk.",
@@ -665,11 +672,14 @@ export class LearningService {
       ]);
     }
     const courseRoot = vscode.Uri.parse(course.sourceDir);
+    log.info(`[env-check] Course root: ${courseRoot.fsPath}`);
 
     const checks: EnvironmentCheckItem[] = [];
 
     // 1. Required extensions (Python + Jupyter).
+    log.info(`[env-check] Checking extensions…`);
     const extMessage = await this.pythonRunner.ensureExtensions();
+    log.info(`[env-check] Extensions: ${extMessage ?? "ok"}`);
     checks.push(
       check(
         "extensions",
@@ -688,7 +698,9 @@ export class LearningService {
     );
 
     // 2. Base Python interpreter (for bootstrapping the venv).
+    log.info(`[env-check] Checking interpreter…`);
     const interpreter = await env.ensureInterpreter();
+    log.info(`[env-check] Interpreter: ${interpreter ?? "not found"}`);
     checks.push(
       check("interpreter", "Python interpreter", interpreter ? "ok" : "fail", {
         detail: interpreter ?? "No interpreter found.",
@@ -700,8 +712,12 @@ export class LearningService {
 
     // 3. Tooling: uv (preferred) vs stdlib venv. Informational unless the
     //    venv is missing AND the stdlib module is unavailable.
+    log.info(`[env-check] Checking for uv…`);
     const hasUv = await env.hasUv();
+    log.info(`[env-check] uv available: ${hasUv}`);
+    log.info(`[env-check] Checking venv existence…`);
     const venvOk = await env.venvExists(courseRoot);
+    log.info(`[env-check] Venv exists: ${venvOk}`);
     if (hasUv) {
       checks.push(
         check("tooling", "Environment tooling", "ok", {
@@ -710,9 +726,11 @@ export class LearningService {
       );
     } else if (interpreter) {
       // Only probe the stdlib venv module when we'd actually need it.
+      log.info(`[env-check] Probing stdlib venv module…`);
       const venvModuleOk = venvOk
         ? true
         : await env.venvModuleSupported(interpreter);
+      log.info(`[env-check] venv module supported: ${venvModuleOk}`);
       checks.push(
         check(
           "tooling",
@@ -744,7 +762,9 @@ export class LearningService {
       }),
     );
 
+    log.info(`[env-check] Checking venv interpreter…`);
     const venvPython = venvOk ? await env.venvPython(courseRoot) : undefined;
+    log.info(`[env-check] Venv interpreter: ${venvPython ?? "n/a"}`);
     checks.push(
       check(
         "venv-interpreter",
@@ -769,11 +789,15 @@ export class LearningService {
     // 5. Required packages import in the venv.
     if (venvPython) {
       // TODO (acasey): are these supposed to come from the course metadata or are these just a baseline for all courses?
+      log.info(`[env-check] Checking package imports…`);
       const report = await env.importsReport(courseRoot, [
         "qdk",
         "qsharp_widgets",
       ]);
       const missing = report.filter((r) => !r.ok).map((r) => r.module);
+      log.info(
+        `[env-check] Import results: ${report.map((r) => `${r.module}=${r.ok ? "ok" : "fail"}`).join(", ")}`,
+      );
       checks.push(
         check(
           "packages",
@@ -796,6 +820,7 @@ export class LearningService {
         ),
       );
     } else {
+      log.info(`[env-check] Skipping package imports — no venv interpreter.`);
       checks.push(
         check("packages", "Required packages", "skip", {
           detail: "No environment yet.",
@@ -803,6 +828,7 @@ export class LearningService {
       );
     }
 
+    log.info(`[env-check] Assembling report (${checks.length} checks).`);
     return this.assembleReport(course, checks);
   }
 
