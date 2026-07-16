@@ -169,16 +169,6 @@ test("moveOperation: moving an internal gate to its group's trailing inner-colum
   );
 });
 
-// ---------------------------------------------------------------
-// Cross-scope moves between nested groups.
-//
-// The target location string alone decides which group the op lands in. These pin two shapes the
-// dropzone layer can produce but that no other test exercises: promoting a gate up into its
-// GRANDPARENT group (one level out, still nested), and moving a gate sideways into a SIBLING group
-// (a different group at the same nesting level). A "child group" destination isn't meaningful — a
-// gate owns no children — so there's nothing to test there.
-// ---------------------------------------------------------------
-
 test("moveOperation: promoting a gate into its grandparent group lands it beside the parent group", () => {
   // Outer ▷ Inner ▷ [H | Z]. Dropping H on Outer's trailing inner slot
   // "0,0-1,0" pulls H up one level into Outer, as a sibling of Inner.
