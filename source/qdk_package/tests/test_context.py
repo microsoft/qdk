@@ -206,30 +206,32 @@ def test_context_released_after_drop() -> None:
     assert ref() is None
 
 
-def test_config(context: qdk.Context) -> None:
-    context.set_config("int_config", 123)
-    assert context.eval("""Std.Diagnostics.GetConfig("int_config",0)""") == 123
+def test_qsharp_config(context: qdk.Context) -> None:
+    context = qdk.Context(
+        qsharp_config={
+            "int_config": 123,
+            "bool_config": True,
+            "string_config": "value",
+            "double_config": 124.1,
+        }
+    )
 
-    context.set_config("bool_config", True)
-    assert context.eval("""Std.Diagnostics.GetConfig("bool_config",true)""") is True
-
-    context.set_config("string_config", "value")
-    assert context.eval("""Std.Diagnostics.GetConfig("string_config","")""") == "value"
-
-    context.set_config("double_config", 124.1)
-    assert context.eval("""Std.Diagnostics.GetConfig("double_config",0.0)""") == 124.1
+    assert context.eval("""Std.Diagnostics.GetConfig("int_config", 0)""") == 123
+    assert context.eval("""Std.Diagnostics.GetConfig("bool_config", true)""") is True
+    assert context.eval("""Std.Diagnostics.GetConfig("string_config", "")""") == "value"
+    assert context.eval("""Std.Diagnostics.GetConfig("double_config", 0.0)""") == 124.1
 
     # Default values.
-    assert context.eval("""Std.Diagnostics.GetConfig("unknown", "foo")""") == "foo"
-    assert context.eval("""Std.Diagnostics.GetConfig("unknown", false)""") is False
-    assert context.eval("""Std.Diagnostics.GetConfig("unknown", 12)""") == 12
-    assert context.eval("""Std.Diagnostics.GetConfig("unknown", 12.0)""") == 12.0
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown1", "foo")""") == "foo"
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown2", false)""") is False
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown3", 12)""") == 12
+    assert context.eval("""Std.Diagnostics.GetConfig("unknown4", 12.0)""") == 12.0
 
-    # Can overwrite an existing value.
-    context.set_config("int_config", 100)
-    assert context.eval("""Std.Diagnostics.GetConfig("int_config",0)""") == 100
+    # Wrong type.
+    # TODO: add check that this raises compile-time error about type mismatch.
+    context.eval("""Std.Diagnostics.GetConfig("int_config", false)""")
 
 
 def test_config_invalid_type(context: qdk.Context) -> None:
     with pytest.raises(TypeError):
-        context.set_config("invalid", {"a": 1}) # type: ignore
+        qdk.Context(qsharp_config={"invalid", {"a": 1}})  # type: ignore

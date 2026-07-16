@@ -186,6 +186,7 @@ class Context:
         language_features: Optional[List[str]] = None,
         _trace_circuit: Optional[bool] = None,
         _is_global_context: bool = False,
+        qsharp_config: dict[str, int | float | str | bool] = {},
     ):
         """
         Initializes a new isolated Q# context.
@@ -207,6 +208,9 @@ class Context:
             the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
             the statement form instead (``use q = Qubit();``). It also removes the requirement
             to use the ``set`` keyword for mutable variable assignments.
+
+        :keyword qsharp_config: configuration parameters that will be accessible in Q#
+            code using `Std.Diagnostics.GetConfig`.
         """
         self._disposed = False
         self._is_global_context = _is_global_context
@@ -279,6 +283,9 @@ class Context:
             make_class_weak,
             _trace_circuit,
         )
+
+        for key, value in qsharp_config.items():
+            self._interpreter.set_config(key, value)
 
         self._config = Config(
             target_profile, language_features, manifest_contents, project_root
@@ -1021,16 +1028,3 @@ class Context:
     def get_target_profile(self) -> TargetProfile:
         """Returns target profile for this Context."""
         return self._target_profile
-
-    def set_config(self, key: str, value: int | float | str | bool) -> None:
-        """
-        Sets a read-only configuration value for this context.
-
-        Values set here can be read from Q# with
-        ``Std.Diagnostics.GetConfig(name, defaultValue)``.
-
-        :param key: The configuration key.
-        :param value: The configuration value. Supported types are
-            ``int``, ``float``, ``str``, and ``bool``.
-        """
-        self._interpreter.set_config(key, value)
