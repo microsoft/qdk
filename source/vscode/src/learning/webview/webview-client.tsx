@@ -78,7 +78,7 @@ function reducer(state: AppState, action: AppAction): AppState {
           action.direction === "next"
             ? {
                 type: "text",
-                text: "🎉 You have completed all content!",
+                text: "🎉 You have completed all content!", // TODO (acasey): clear this on reset
                 variant: "pass",
               }
             : { type: "text", text: "Already at the beginning." };

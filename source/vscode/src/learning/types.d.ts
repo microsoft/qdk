@@ -384,7 +384,7 @@ export interface EnvironmentCheckFix {
    * - `select-kernel`: re-select the course kernel for the notebook.
    * - `docs`: informational only; no action.
    */
-  kind: "setup" | "install-extensions" | "select-kernel" | "docs";
+  kind: "setup" | "install-extensions" | "select-kernel" | "docs"; // TODO (acasey): select-kernel appears to be unused
 }
 
 /** One diagnostic in an {@link EnvironmentCheckReport}. */

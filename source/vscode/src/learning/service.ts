@@ -608,12 +608,14 @@ export class LearningService {
   async applyEnvironmentCheckFix(fix: EnvironmentCheckFix): Promise<void> {
     switch (fix.kind) {
       case "setup":
+        // TODO (acasey): should this be a command?
         await this.setupActiveEnvironment();
         return;
       case "install-extensions":
         await this.pythonRunner.promptInstallExtensions();
         return;
       case "select-kernel":
+        // TODO (acasey): is this ever offered?
         await vscode.commands.executeCommand("notebook.selectKernel");
         return;
       case "docs":
