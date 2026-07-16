@@ -510,7 +510,8 @@ const removeOperation = (model: CircuitModel, sourceLocation: string) => {
 
   // Re-derive the parent's `.targets` (and every ancestor above) from the surviving children.
   // Narrowing-only: shrinking a span can't introduce new sibling collisions, so no resolver hook.
-  refreshAncestorTargets(ancestorChain);
+  const survivedChain = pruneEmptyAncestors(ancestorChain);
+  refreshAncestorTargets(survivedChain);
 
   model.removeTrailingUnusedQubits();
 };

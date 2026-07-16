@@ -8,8 +8,17 @@
 // @ts-check
 
 import { test } from "node:test";
+import assert from "node:assert/strict";
 import { removeOperation } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
-import { at, build, circuit, expectOp, gate, group } from "../_helpers.mjs";
+import {
+  at,
+  build,
+  circuit,
+  expectGrid,
+  expectOp,
+  gate,
+  group,
+} from "../_helpers.mjs";
 
 test("removeOperation strips a leaf inside an expanded group", () => {
   const model = build(
@@ -51,4 +60,38 @@ test("removeOperation: cascade — removing across multiple nested groups narrow
 
   expectOp(at(model, "0,0"), { Outer: { targets: [0, 1] } });
   expectOp(at(model, "0,0-0,0"), { Inner: { targets: [0, 1] } });
+});
+
+test("removeOperation: removing a group's last child prunes the emptied group", () => {
+  const model = build(circuit(2, [[group("Foo", [[gate("H", 0)]])]]));
+
+  removeOperation(model, "0,0-0,0");
+
+  // Foo held only H; with H gone the group is deleted, leaving an empty circuit.
+  expectGrid(model, []);
+});
+
+test("removeOperation: prune cascades through nested groups emptied in lockstep", () => {
+  // Inner is Outer's only child, so removing Inner's only gate empties Inner, which empties Outer.
+  const model = build(
+    circuit(2, [[group("Outer", [[group("Inner", [[gate("H", 0)]])]])]]),
+  );
+
+  removeOperation(model, "0,0-0,0-0,0");
+
+  expectGrid(model, []);
+});
+
+test("removeOperation: prune STOPS at the first non-empty ancestor", () => {
+  // Y keeps Outer alive after Inner is emptied, so only Inner is pruned.
+  const model = build(
+    circuit(2, [
+      [group("Outer", [[group("Inner", [[gate("H", 0)]]), gate("Y", 0)]])],
+    ]),
+  );
+
+  removeOperation(model, "0,0-0,0-0,0");
+
+  // Inner is gone; Outer survives holding just Y.
+  expectOp(at(model, "0,0"), { Outer: { children: [[{ Y: 0 }]] } });
 });
