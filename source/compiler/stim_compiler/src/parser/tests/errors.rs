@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn line_not_starting_with_instruction_name_is_error() {
@@ -50,7 +51,10 @@ fn parser_recovers_to_next_line_after_error() {
     // The first line is invalid, but the parser recovers and the second line
     // parses cleanly, so only one error is reported.
     check(
-        "0 1\nH 2",
+        indoc! {"
+            0 1
+            H 2
+        "},
         &expect![[r#"
             Qdk.Stim.Parser.ExpectedToken
 
@@ -61,7 +65,7 @@ fn parser_recovers_to_next_line_after_error() {
              2 | H 2
                `----
 
-            Circuit [0-7]:
+            Circuit [0-8]:
                 items:
                     Instruction [4-7]:
                         name: H
@@ -76,7 +80,11 @@ fn parser_recovers_to_next_line_after_error() {
 #[test]
 fn multiple_errors_are_collected() {
     check(
-        "0\n1\n2",
+        indoc! {"
+            0
+            1
+            2
+        "},
         &expect![[r#"
             Qdk.Stim.Parser.ExpectedToken
 
@@ -146,7 +154,11 @@ fn recovery_preserves_surrounding_instructions() {
     // The bad middle line is dropped; the valid lines before and after it
     // are both kept in the AST.
     check(
-        "H 0\n0 1\nX 2",
+        indoc! {"
+            H 0
+            0 1
+            X 2
+        "},
         &expect![[r#"
             Qdk.Stim.Parser.ExpectedToken
 
@@ -158,7 +170,7 @@ fn recovery_preserves_surrounding_instructions() {
              3 | X 2
                `----
 
-            Circuit [0-11]:
+            Circuit [0-12]:
                 items:
                     Instruction [0-3]:
                         name: H
@@ -182,21 +194,26 @@ fn recovery_inside_repeat_block() {
     // Recovery also happens within a block: the bad line is skipped and the
     // following instruction is still added to the block.
     check(
-        "REPEAT 2 {\n0 1\nH 0\n}",
+        indoc! {"
+            REPEAT 2 {
+              0 1
+              H 0
+            }
+        "},
         &expect![[r#"
             Qdk.Stim.Parser.ExpectedToken
 
               x expected instruction_name, found uint
-               ,-[2:1]
+               ,-[2:3]
              1 | REPEAT 2 {
-             2 | 0 1
-               : ^
-             3 | H 0
+             2 |   0 1
+               :   ^
+             3 |   H 0
                `----
 
-            Circuit [0-20]:
+            Circuit [0-25]:
                 items:
-                    Block [0-20]:
+                    Block [0-24]:
                         block_instruction: Instruction [0-8]:
                             name: REPEAT
                             tag: <none>
@@ -205,12 +222,12 @@ fn recovery_inside_repeat_block() {
                                 Target [7-8]:
                                     kind: Qubit(2)
                         items:
-                            Instruction [15-18]:
+                            Instruction [19-22]:
                                 name: H
                                 tag: <none>
                                 args: <empty>
                                 targets:
-                                    Target [17-18]:
+                                    Target [21-22]:
                                         kind: Qubit(0)"#]],
     );
 }
@@ -220,7 +237,10 @@ fn malformed_line_is_discarded_during_recovery() {
     // A line that starts validly but has trailing garbage is discarded whole
     // (the "H 0" prefix is not kept); parsing resumes on the next line.
     check(
-        "H 0 )\nX 1",
+        indoc! {"
+            H 0 )
+            X 1
+        "},
         &expect![[r#"
             Qdk.Stim.Parser.ExpectedToken
 
@@ -231,7 +251,7 @@ fn malformed_line_is_discarded_during_recovery() {
              2 | X 1
                `----
 
-            Circuit [0-9]:
+            Circuit [0-10]:
                 items:
                     Instruction [6-9]:
                         name: X

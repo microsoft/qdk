@@ -3,68 +3,83 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn repeat_block_with_body() {
     // The repeat count (3) is parsed as a Qubit target on the block instruction.
     check(
-        "REPEAT 3 {\n    H 0\n    X 1\n}",
+        indoc! {"
+            REPEAT 3 {
+              H 0
+              X 1
+            }
+        "},
         &expect![[r#"
-        Circuit [0-28]:
-            items:
-                Block [0-28]:
-                    block_instruction: Instruction [0-8]:
-                        name: REPEAT
-                        tag: <none>
-                        args: <empty>
-                        targets:
-                            Target [7-8]:
-                                kind: Qubit(3)
-                    items:
-                        Instruction [15-18]:
-                            name: H
+            Circuit [0-25]:
+                items:
+                    Block [0-24]:
+                        block_instruction: Instruction [0-8]:
+                            name: REPEAT
                             tag: <none>
                             args: <empty>
                             targets:
-                                Target [17-18]:
-                                    kind: Qubit(0)
-                        Instruction [23-26]:
-                            name: X
-                            tag: <none>
-                            args: <empty>
-                            targets:
-                                Target [25-26]:
-                                    kind: Qubit(1)"#]],
+                                Target [7-8]:
+                                    kind: Qubit(3)
+                        items:
+                            Instruction [13-16]:
+                                name: H
+                                tag: <none>
+                                args: <empty>
+                                targets:
+                                    Target [15-16]:
+                                        kind: Qubit(0)
+                            Instruction [19-22]:
+                                name: X
+                                tag: <none>
+                                args: <empty>
+                                targets:
+                                    Target [21-22]:
+                                        kind: Qubit(1)"#]],
     );
 }
 
 #[test]
 fn empty_repeat_block() {
     check(
-        "REPEAT 5 {\n}",
+        indoc! {"
+            REPEAT 5 {
+            }
+        "},
         &expect![[r#"
-        Circuit [0-12]:
-            items:
-                Block [0-12]:
-                    block_instruction: Instruction [0-8]:
-                        name: REPEAT
-                        tag: <none>
-                        args: <empty>
-                        targets:
-                            Target [7-8]:
-                                kind: Qubit(5)
-                    items: <empty>"#]],
+            Circuit [0-13]:
+                items:
+                    Block [0-12]:
+                        block_instruction: Instruction [0-8]:
+                            name: REPEAT
+                            tag: <none>
+                            args: <empty>
+                            targets:
+                                Target [7-8]:
+                                    kind: Qubit(5)
+                        items: <empty>"#]],
     );
 }
 
 #[test]
 fn nested_repeat_blocks() {
     check(
-        "REPEAT 2 {\n    REPEAT 3 {\n        H 0\n    }\n}",
+        indoc! {"
+            REPEAT 2 {
+              REPEAT 3 {
+                H 0
+              }
+            }
+        "},
         &expect![[r#"
-            Circuit [0-45]:
+            Circuit [0-38]:
                 items:
-                    Block [0-45]:
+                    Block [0-37]:
                         block_instruction: Instruction [0-8]:
                             name: REPEAT
                             tag: <none>
@@ -73,21 +88,21 @@ fn nested_repeat_blocks() {
                                 Target [7-8]:
                                     kind: Qubit(2)
                         items:
-                            Block [15-43]:
-                                block_instruction: Instruction [15-23]:
+                            Block [13-35]:
+                                block_instruction: Instruction [13-21]:
                                     name: REPEAT
                                     tag: <none>
                                     args: <empty>
                                     targets:
-                                        Target [22-23]:
+                                        Target [20-21]:
                                             kind: Qubit(3)
                                 items:
-                                    Instruction [34-37]:
+                                    Instruction [28-31]:
                                         name: H
                                         tag: <none>
                                         args: <empty>
                                         targets:
-                                            Target [36-37]:
+                                            Target [30-31]:
                                                 kind: Qubit(0)"#]],
     );
 }
@@ -111,14 +126,16 @@ fn missing_newline_after_open_brace_is_error() {
 #[test]
 fn unclosed_block_is_error() {
     check(
-        "REPEAT 5 {\n    H 0",
+        indoc! {"
+            REPEAT 5 {
+              H 0"},
         &expect![[r#"
             Qdk.Stim.Parser.UnexpectedEof
 
               x unexpected end of input
-               ,-[2:8]
+               ,-[2:6]
              1 | REPEAT 5 {
-             2 |     H 0
+             2 |   H 0
                `----
         "#]],
     );
@@ -127,7 +144,10 @@ fn unclosed_block_is_error() {
 #[test]
 fn content_after_close_brace_is_error() {
     check(
-        "REPEAT 5 {\n} H 0",
+        indoc! {"
+            REPEAT 5 {
+            } H 0
+        "},
         &expect![[r#"
             Qdk.Stim.Parser.ExpectedToken
 
@@ -161,18 +181,21 @@ fn stray_close_brace_is_error() {
 fn non_repeat_instruction_with_block() {
     // This should be parsed correctly, although it doesn't generate any meaningful code
     check(
-        "H 0 {\n}",
+        indoc! {"
+            H 0 {
+            }
+        "},
         &expect![[r#"
-        Circuit [0-7]:
-            items:
-                Block [0-7]:
-                    block_instruction: Instruction [0-3]:
-                        name: H
-                        tag: <none>
-                        args: <empty>
-                        targets:
-                            Target [2-3]:
-                                kind: Qubit(0)
-                    items: <empty>"#]],
+            Circuit [0-8]:
+                items:
+                    Block [0-7]:
+                        block_instruction: Instruction [0-3]:
+                            name: H
+                            tag: <none>
+                            args: <empty>
+                            targets:
+                                Target [2-3]:
+                                    kind: Qubit(0)
+                        items: <empty>"#]],
     );
 }

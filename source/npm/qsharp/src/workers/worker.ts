@@ -216,6 +216,13 @@ function initService<
   }
 
   function postLogMessage(level: number, target: string, ...args: any) {
+    // Emit telemetry for all error-level log messages from Wasm.
+    // Only the target is included to distinguish errors; message
+    // content is omitted for privacy.
+    if (level === 1) {
+      postTelemetryMessage({ id: "wasm-error", data: { target } });
+    }
+
     if (log.getLogLevel() < level) {
       return;
     }
