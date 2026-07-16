@@ -14,6 +14,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { draw } from "../../dist/ux/circuit-vis/index.js";
+import { Location } from "../../dist/ux/circuit-vis/data/location.js";
 import { circuit, gate, group } from "./_helpers.mjs";
 
 const documentTemplate = `<!doctype html><html>
@@ -540,47 +541,37 @@ function renderAndCollectGeometry(circuitGroup) {
 }
 
 /**
- * Parse a hierarchical location string into its scope prefix and the (colIndex, opIndex) inside
- * that scope.
- *
- *   "0,0"     -> { prefix: "",     colIndex: 0, opIndex: 0 } "0,0-1,2" -> { prefix: "0,0",
- *   colIndex: 1, opIndex: 2 }
- */
-function parseLocation(/** @type {string} */ loc) {
-  const lastDash = loc.lastIndexOf("-");
-  const prefix = lastDash === -1 ? "" : loc.slice(0, lastDash);
-  const tail = lastDash === -1 ? loc : loc.slice(lastDash + 1);
-  const [colIndex, opIndex] = tail.split(",").map(Number);
-  return { prefix, colIndex, opIndex };
-}
-
-/**
  * For each rendered gate `host`, assert there is at least one on-column dropzone in the *same
- * column* (same prefix + colIndex) whose x-range overlaps the host's x-range. This is the geometry
- * property that actually matters for the editor: dropping near a gate must hit a dropzone in that
- * gate's column.
+ * column* whose x-range overlaps the host's x-range. This is the geometry property that actually
+ * matters for the editor: dropping near a gate must hit a dropzone in that gate's column.
  *
- * Note: we deliberately match on (prefix, colIndex) — NOT full location — because a column with N
- * ops emits dropzones at opIndex `0..N` (slots above each op + the trailing slot). Every dropzone
- * in that column has the same x/width as every other (they're all sized to the column), so any one
- * of them is a valid coverage witness.
+ * Note: we deliberately match on the column (parent scope + colIndex) — NOT full location — because
+ * a column with N ops emits dropzones at opIndex `0..N` (slots above each op + the trailing slot).
+ * Every dropzone in that column has the same x/width as every other (they're all sized to the
+ * column), so any one of them is a valid coverage witness.
  */
 function assertHostsCoveredByColumnDropzones(
   /** @type {{location: string, x: number, width: number}[]} */ hosts,
   /** @type {{location: string, x: number, width: number, wire: number}[]} */ dropzones,
   /** @type {string} */ label,
 ) {
+  // Identify the column a location lives in: its parent scope plus the column index within that
+  // scope. Two locations share a column iff both fields match.
+  const columnOf = (/** @type {string} */ loc) => {
+    const parsed = Location.parse(loc);
+    const [colIndex] = parsed.last() ?? [0, 0];
+    return { scope: parsed.parent().toString(), colIndex };
+  };
+
   for (const host of hosts) {
-    const hostKey = parseLocation(host.location);
-    const sameCol = dropzones.filter((/** @type {{location: string}} */ d) => {
-      const dzKey = parseLocation(d.location);
-      return (
-        dzKey.prefix === hostKey.prefix && dzKey.colIndex === hostKey.colIndex
-      );
+    const hostCol = columnOf(host.location);
+    const sameCol = dropzones.filter((d) => {
+      const c = columnOf(d.location);
+      return c.scope === hostCol.scope && c.colIndex === hostCol.colIndex;
     });
     assert.ok(
       sameCol.length > 0,
-      `${label}: no on-column dropzone in column "${hostKey.prefix}":${hostKey.colIndex} for host ${host.location}`,
+      `${label}: no on-column dropzone in scope "${hostCol.scope}" column ${hostCol.colIndex} for host ${host.location}`,
     );
 
     const hostLeft = host.x;
@@ -590,7 +581,7 @@ function assertHostsCoveredByColumnDropzones(
     const dzRight = dzWitness.x + dzWitness.width;
     assert.ok(
       dzRight >= hostLeft && dzLeft <= hostRight,
-      `${label}: column "${hostKey.prefix}":${hostKey.colIndex} dropzone (x=[${dzLeft}, ${dzRight}]) does not overlap host ${host.location} (x=[${hostLeft}, ${hostRight}])`,
+      `${label}: scope "${hostCol.scope}" column ${hostCol.colIndex} dropzone (x=[${dzLeft}, ${dzRight}]) does not overlap host ${host.location} (x=[${hostLeft}, ${hostRight}])`,
     );
   }
 }
