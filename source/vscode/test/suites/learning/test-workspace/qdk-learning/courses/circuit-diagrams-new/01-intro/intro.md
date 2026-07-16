@@ -21,4 +21,4 @@ This course runs in its own Python environment. If the notebook's kernel
 won't start, or the first cell reports a problem, set up and check your
 environment here first:
 
-👉 [Check my environment](command:qsharp-vscode.learningDoctor)
+👉 [Check my environment](command:qsharp-vscode.learningCheckEnvironment)

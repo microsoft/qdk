@@ -140,6 +140,9 @@ def _find_venv_python(venv: Path) -> Path | None:
     return None
 
 
+# TODO (acasey): these links don't seem to work in the notebook sandbox (either in input or output cells)
+# Probably want to refer people to the lesson panel and/or the command palette
+# TODO (acasey): the diagnostics don't appear to check whether the venv is active in the python notebook
 def _command_link(command_id: str, label: str) -> str:
     """Return an HTML link that invokes a VS Code command when clicked.
 

@@ -453,7 +453,7 @@ export class LessonPanelManager {
       enableScripts: true,
       enableFindWidget: true,
       retainContextWhenHidden: true,
-      enableCommandUris: ["qsharp-vscode.learningCheckEnvironment"],
+      enableCommandUris: ["qsharp-vscode.learningCheckEnvironment"], // TODO (acasey): validate this
       localResourceRoots: [
         vscode.Uri.joinPath(this.extensionUri, "out"),
         vscode.Uri.joinPath(this.extensionUri, "resources"),
