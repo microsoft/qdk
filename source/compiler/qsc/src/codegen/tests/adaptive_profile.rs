@@ -2298,42 +2298,56 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
 #[test]
 fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
     let source = "
-    operation Main() : Result {
-        use q = Qubit();
-        Std.StatePreparation.PreparePureStateD([0.0, 1.0], [q]);
-        MResetZ(q)
+    operation Main() : Result[] {
+        use qs = Qubit[2];
+        Std.StatePreparation.PreparePureStateD([0.5, 0.5, 0.5, 0.5], qs);
+        MResetEachZ(qs)
     }
     ";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     expect![[r#"
-        @0 = internal constant [4 x i8] c"0_r\00"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
+        @2 = internal constant [6 x i8] c"2_a1r\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__rt__initialize(ptr null)
           call void @S__Adj(ptr inttoptr (i64 0 to ptr))
           call void @H(ptr inttoptr (i64 0 to ptr))
-          call void @Rz(double 3.141592653589793, ptr inttoptr (i64 0 to ptr))
+          call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 0 to ptr))
           call void @H__Adj(ptr inttoptr (i64 0 to ptr))
           call void @S(ptr inttoptr (i64 0 to ptr))
+          call void @S__Adj(ptr inttoptr (i64 1 to ptr))
+          call void @H(ptr inttoptr (i64 1 to ptr))
+          call void @Rz(double 1.5707963267948966, ptr inttoptr (i64 1 to ptr))
+          call void @CNOT__Adj(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @CNOT__Adj(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @H__Adj(ptr inttoptr (i64 1 to ptr))
+          call void @S(ptr inttoptr (i64 1 to ptr))
+          call void @CNOT__Adj(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @CNOT__Adj(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
           call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @0)
+          call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr @1)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr @2)
           ret i64 0
         }
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @S__Adj(ptr %var_3) {
+        define void @S__Adj(ptr %var_6) {
         block_1:
-          call void @__quantum__qis__s__adj(ptr %var_3)
+          call void @__quantum__qis__s__adj(ptr %var_6)
           ret void
         }
 
         declare void @__quantum__qis__s__adj(ptr)
 
-        define void @H(ptr %var_4) {
+        define void @H(ptr %var_7) {
         block_2:
-          call void @__quantum__qis__h__body(ptr %var_4)
+          call void @__quantum__qis__h__body(ptr %var_7)
           ret void
         }
 
@@ -2361,11 +2375,21 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__qis__s__body(ptr)
 
+        define void @CNOT__Adj(ptr %var_20, ptr %var_21) {
+        block_6:
+          call void @__quantum__qis__cx__body(ptr %var_20, ptr %var_21)
+          ret void
+        }
+
+        declare void @__quantum__qis__cx__body(ptr, ptr)
+
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
 
         declare void @__quantum__rt__result_record_output(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
 
         ; module flags

@@ -12,7 +12,7 @@ use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
 use std::collections::hash_map::Entry;
 
-use crate::ScopeDbgContext;
+use crate::{ScopeDbgContext, is_static_value};
 
 /// Struct that keeps track of the active RIR blocks (where RIR instructions are added) and the active scopes (which
 /// correspond to the Q#'s program call stack).
@@ -144,9 +144,15 @@ impl Scope {
                     Arg::Discard(value) => value,
                     Arg::Var(_, var) => &var.value,
                 };
-                ComputeKind::Dynamic {
-                    runtime_features: RuntimeFeatureFlags::empty(),
-                    value_kind: map_eval_value_to_value_kind(value),
+                if is_static_value(value) {
+                    // When values are statically known, treat them as such so they get mapped
+                    // correctly below.
+                    ComputeKind::Static
+                } else {
+                    ComputeKind::Dynamic {
+                        runtime_features: RuntimeFeatureFlags::empty(),
+                        value_kind: map_eval_value_to_value_kind(value),
+                    }
                 }
             })
             .collect();

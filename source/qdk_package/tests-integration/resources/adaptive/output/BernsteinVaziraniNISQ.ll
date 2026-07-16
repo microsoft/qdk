@@ -9,21 +9,21 @@
 define i64 @ENTRYPOINT__main() #0 {
 block_0:
   %var_3 = alloca i64
-  %var_13 = alloca i64
+  %var_12 = alloca i64
   call void @__quantum__rt__initialize(ptr null)
   call void @X(ptr inttoptr (i64 5 to ptr))
   store i64 0, ptr %var_3
   br label %block_1
 block_1:
-  %var_20 = load i64, ptr %var_3
-  %var_4 = icmp slt i64 %var_20, 5
+  %var_19 = load i64, ptr %var_3
+  %var_4 = icmp slt i64 %var_19, 5
   br i1 %var_4, label %block_2, label %block_3
 block_2:
-  %var_26 = load i64, ptr %var_3
-  %var_5 = getelementptr ptr, ptr @array0, i64 %var_26
-  %var_27 = load ptr, ptr %var_5
-  call void @H(ptr %var_27)
-  %var_8 = add i64 %var_26, 1
+  %var_25 = load i64, ptr %var_3
+  %var_5 = getelementptr ptr, ptr @array0, i64 %var_25
+  %var_26 = load ptr, ptr %var_5
+  call void @H(ptr %var_26)
+  %var_8 = add i64 %var_25, 1
   store i64 %var_8, ptr %var_3
   br label %block_1
 block_3:
@@ -31,19 +31,19 @@ block_3:
   call void @CNOT(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 5 to ptr))
   call void @CNOT(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 5 to ptr))
   call void @CNOT(ptr inttoptr (i64 4 to ptr), ptr inttoptr (i64 5 to ptr))
-  store i64 4, ptr %var_13
+  store i64 4, ptr %var_12
   br label %block_4
 block_4:
-  %var_22 = load i64, ptr %var_13
-  %var_14 = icmp sge i64 %var_22, 0
-  br i1 %var_14, label %block_5, label %block_6
+  %var_21 = load i64, ptr %var_12
+  %var_13 = icmp sge i64 %var_21, 0
+  br i1 %var_13, label %block_5, label %block_6
 block_5:
-  %var_23 = load i64, ptr %var_13
-  %var_15 = getelementptr ptr, ptr @array0, i64 %var_23
-  %var_24 = load ptr, ptr %var_15
-  call void @H__Adj(ptr %var_24)
-  %var_18 = add i64 %var_23, -1
-  store i64 %var_18, ptr %var_13
+  %var_22 = load i64, ptr %var_12
+  %var_14 = getelementptr ptr, ptr @array0, i64 %var_22
+  %var_23 = load ptr, ptr %var_14
+  call void @H__Adj(ptr %var_23)
+  %var_17 = add i64 %var_22, -1
+  store i64 %var_17, ptr %var_12
   br label %block_4
 block_6:
   call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
@@ -79,25 +79,25 @@ block_8:
 
 declare void @__quantum__qis__h__body(ptr)
 
-define void @CNOT(ptr %var_11, ptr %var_12) {
+define void @CNOT(ptr %var_10, ptr %var_11) {
 block_9:
-  call void @__quantum__qis__cx__body(ptr %var_11, ptr %var_12)
+  call void @__quantum__qis__cx__body(ptr %var_10, ptr %var_11)
   ret void
 }
 
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
-define void @H__Adj(ptr %var_17) {
+define void @H__Adj(ptr %var_16) {
 block_10:
-  call void @__quantum__qis__h__body(ptr %var_17)
+  call void @__quantum__qis__h__body(ptr %var_16)
   ret void
 }
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-define void @Reset(ptr %var_20) {
+define void @Reset(ptr %var_19) {
 block_11:
-  call void @__quantum__qis__reset__body(ptr %var_20)
+  call void @__quantum__qis__reset__body(ptr %var_19)
   ret void
 }
 
