@@ -624,18 +624,18 @@ fn analysis_apply_operation_power_ca_consumer() {
             operation ApplyOperationPowerCA__Qubit_____AdjCtl__U_(power : Int, target : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     {
-                        let _range_id_48110 : Range = 1..AbsI(power);
-                        mutable _index_id_48113 : Int = _range_id_48110::Start;
-                        let _step_id_48118 : Int = _range_id_48110::Step;
-                        let _end_id_48123 : Int = _range_id_48110::End;
-                        while _step_id_48118 > 0 and _index_id_48113 <= _end_id_48123 or _step_id_48118 < 0 and _index_id_48113 >= _end_id_48123 {
-                            let _ : Int = _index_id_48113;
+                        let _range_id_48117 : Range = 1..AbsI(power);
+                        mutable _index_id_48120 : Int = _range_id_48117::Start;
+                        let _step_id_48125 : Int = _range_id_48117::Step;
+                        let _end_id_48130 : Int = _range_id_48117::End;
+                        while _step_id_48125 > 0 and _index_id_48120 <= _end_id_48130 or _step_id_48125 < 0 and _index_id_48120 >= _end_id_48130 {
+                            let _ : Int = _index_id_48120;
                             if power >= 0 {
                                 U(target)
                             } else {
                                 Adjoint U(target)
                             };
-                            _index_id_48113 += _step_id_48118;
+                            _index_id_48120 += _step_id_48125;
                         }
 
                     }
@@ -645,18 +645,18 @@ fn analysis_apply_operation_power_ca_consumer() {
                     {
                         let _range : Range = 1..AbsI(power);
                         {
-                            let _range_id_48153 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_48156 : Int = _range_id_48153::Start;
-                            let _step_id_48161 : Int = _range_id_48153::Step;
-                            let _end_id_48166 : Int = _range_id_48153::End;
-                            while _step_id_48161 > 0 and _index_id_48156 <= _end_id_48166 or _step_id_48161 < 0 and _index_id_48156 >= _end_id_48166 {
-                                let _ : Int = _index_id_48156;
+                            let _range_id_48160 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                            mutable _index_id_48163 : Int = _range_id_48160::Start;
+                            let _step_id_48168 : Int = _range_id_48160::Step;
+                            let _end_id_48173 : Int = _range_id_48160::End;
+                            while _step_id_48168 > 0 and _index_id_48163 <= _end_id_48173 or _step_id_48168 < 0 and _index_id_48163 >= _end_id_48173 {
+                                let _ : Int = _index_id_48163;
                                 if power >= 0 {
                                     Adjoint U(target)
                                 } else {
                                     U(target)
                                 };
-                                _index_id_48156 += _step_id_48161;
+                                _index_id_48163 += _step_id_48168;
                             }
 
                         }
@@ -666,18 +666,18 @@ fn analysis_apply_operation_power_ca_consumer() {
                 }
                 controlled (ctls, ...) {
                     {
-                        let _range_id_48196 : Range = 1..AbsI(power);
-                        mutable _index_id_48199 : Int = _range_id_48196::Start;
-                        let _step_id_48204 : Int = _range_id_48196::Step;
-                        let _end_id_48209 : Int = _range_id_48196::End;
-                        while _step_id_48204 > 0 and _index_id_48199 <= _end_id_48209 or _step_id_48204 < 0 and _index_id_48199 >= _end_id_48209 {
-                            let _ : Int = _index_id_48199;
+                        let _range_id_48203 : Range = 1..AbsI(power);
+                        mutable _index_id_48206 : Int = _range_id_48203::Start;
+                        let _step_id_48211 : Int = _range_id_48203::Step;
+                        let _end_id_48216 : Int = _range_id_48203::End;
+                        while _step_id_48211 > 0 and _index_id_48206 <= _end_id_48216 or _step_id_48211 < 0 and _index_id_48206 >= _end_id_48216 {
+                            let _ : Int = _index_id_48206;
                             if power >= 0 {
                                 Controlled U(ctls, target)
                             } else {
                                 Controlled Adjoint U(ctls, target)
                             };
-                            _index_id_48199 += _step_id_48204;
+                            _index_id_48206 += _step_id_48211;
                         }
 
                     }
@@ -687,18 +687,18 @@ fn analysis_apply_operation_power_ca_consumer() {
                     {
                         let _range : Range = 1..AbsI(power);
                         {
-                            let _range_id_48239 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_48242 : Int = _range_id_48239::Start;
-                            let _step_id_48247 : Int = _range_id_48239::Step;
-                            let _end_id_48252 : Int = _range_id_48239::End;
-                            while _step_id_48247 > 0 and _index_id_48242 <= _end_id_48252 or _step_id_48247 < 0 and _index_id_48242 >= _end_id_48252 {
-                                let _ : Int = _index_id_48242;
+                            let _range_id_48246 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                            mutable _index_id_48249 : Int = _range_id_48246::Start;
+                            let _step_id_48254 : Int = _range_id_48246::Step;
+                            let _end_id_48259 : Int = _range_id_48246::End;
+                            while _step_id_48254 > 0 and _index_id_48249 <= _end_id_48259 or _step_id_48254 < 0 and _index_id_48249 >= _end_id_48259 {
+                                let _ : Int = _index_id_48249;
                                 if power >= 0 {
                                     Controlled Adjoint U(ctls, target)
                                 } else {
                                     Controlled U(ctls, target)
                                 };
-                                _index_id_48242 += _step_id_48247;
+                                _index_id_48249 += _step_id_48254;
                             }
 
                         }
@@ -1016,13 +1016,13 @@ fn analysis_bernstein_vazirani_sample_shape() {
             operation ApplyToEachA_Qubit__AdjCtl__H_(register : Qubit[]) : Unit is Adj {
                 body ... {
                     {
-                        let _array_id_46327 : Qubit[] = register;
-                        let _len_id_46331 : Int = Length(_array_id_46327);
-                        mutable _index_id_46336 : Int = 0;
-                        while _index_id_46336 < _len_id_46331 {
-                            let item : Qubit = _array_id_46327[_index_id_46336];
+                        let _array_id_46334 : Qubit[] = register;
+                        let _len_id_46338 : Int = Length(_array_id_46334);
+                        mutable _index_id_46343 : Int = 0;
+                        while _index_id_46343 < _len_id_46338 {
+                            let item : Qubit = _array_id_46334[_index_id_46343];
                             H(item);
-                            _index_id_46336 += 1;
+                            _index_id_46343 += 1;
                         }
 
                     }
@@ -1032,15 +1032,15 @@ fn analysis_bernstein_vazirani_sample_shape() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46355 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46358 : Int = _range_id_46355::Start;
-                            let _step_id_46363 : Int = _range_id_46355::Step;
-                            let _end_id_46368 : Int = _range_id_46355::End;
-                            while _step_id_46363 > 0 and _index_id_46358 <= _end_id_46368 or _step_id_46363 < 0 and _index_id_46358 >= _end_id_46368 {
-                                let _index : Int = _index_id_46358;
+                            let _range_id_46362 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46365 : Int = _range_id_46362::Start;
+                            let _step_id_46370 : Int = _range_id_46362::Step;
+                            let _end_id_46375 : Int = _range_id_46362::End;
+                            while _step_id_46370 > 0 and _index_id_46365 <= _end_id_46375 or _step_id_46370 < 0 and _index_id_46365 >= _end_id_46375 {
+                                let _index : Int = _index_id_46365;
                                 let item : Qubit = _array[_index];
                                 Adjoint H(item);
-                                _index_id_46358 += _step_id_46363;
+                                _index_id_46365 += _step_id_46370;
                             }
 
                         }
@@ -1052,13 +1052,13 @@ fn analysis_bernstein_vazirani_sample_shape() {
             operation ApplyToEachA_Qubit__AdjCtl__H_(register : Qubit[]) : Unit is Adj {
                 body ... {
                     {
-                        let _array_id_46327 : Qubit[] = register;
-                        let _len_id_46331 : Int = Length(_array_id_46327);
-                        mutable _index_id_46336 : Int = 0;
-                        while _index_id_46336 < _len_id_46331 {
-                            let item : Qubit = _array_id_46327[_index_id_46336];
+                        let _array_id_46334 : Qubit[] = register;
+                        let _len_id_46338 : Int = Length(_array_id_46334);
+                        mutable _index_id_46343 : Int = 0;
+                        while _index_id_46343 < _len_id_46338 {
+                            let item : Qubit = _array_id_46334[_index_id_46343];
                             H(item);
-                            _index_id_46336 += 1;
+                            _index_id_46343 += 1;
                         }
 
                     }
@@ -1068,15 +1068,15 @@ fn analysis_bernstein_vazirani_sample_shape() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46355 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46358 : Int = _range_id_46355::Start;
-                            let _step_id_46363 : Int = _range_id_46355::Step;
-                            let _end_id_46368 : Int = _range_id_46355::End;
-                            while _step_id_46363 > 0 and _index_id_46358 <= _end_id_46368 or _step_id_46363 < 0 and _index_id_46358 >= _end_id_46368 {
-                                let _index : Int = _index_id_46358;
+                            let _range_id_46362 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46365 : Int = _range_id_46362::Start;
+                            let _step_id_46370 : Int = _range_id_46362::Step;
+                            let _end_id_46375 : Int = _range_id_46362::End;
+                            while _step_id_46370 > 0 and _index_id_46365 <= _end_id_46375 or _step_id_46370 < 0 and _index_id_46365 >= _end_id_46375 {
+                                let _index : Int = _index_id_46365;
                                 let item : Qubit = _array[_index];
                                 Adjoint H(item);
-                                _index_id_46358 += _step_id_46363;
+                                _index_id_46365 += _step_id_46370;
                             }
 
                         }
@@ -1951,13 +1951,13 @@ fn full_pipeline_handles_stdlib_apply_to_each() {
             }
             operation ApplyToEach_Qubit__AdjCtl__H_(register : Qubit[]) : Unit {
                 {
-                    let _array_id_46289 : Qubit[] = register;
-                    let _len_id_46293 : Int = Length(_array_id_46289);
-                    mutable _index_id_46298 : Int = 0;
-                    while _index_id_46298 < _len_id_46293 {
-                        let item : Qubit = _array_id_46289[_index_id_46298];
+                    let _array_id_46296 : Qubit[] = register;
+                    let _len_id_46300 : Int = Length(_array_id_46296);
+                    mutable _index_id_46305 : Int = 0;
+                    while _index_id_46305 < _len_id_46300 {
+                        let item : Qubit = _array_id_46296[_index_id_46305];
                         H(item);
-                        _index_id_46298 += 1;
+                        _index_id_46305 += 1;
                     }
 
                 }
@@ -1999,13 +1999,13 @@ fn full_pipeline_handles_stdlib_apply_to_each_with_custom_intrinsic() {
             }
             operation ApplyToEach_Qubit__AdjCtl__SX_(register : Qubit[]) : Unit {
                 {
-                    let _array_id_46289 : Qubit[] = register;
-                    let _len_id_46293 : Int = Length(_array_id_46289);
-                    mutable _index_id_46298 : Int = 0;
-                    while _index_id_46298 < _len_id_46293 {
-                        let item : Qubit = _array_id_46289[_index_id_46298];
+                    let _array_id_46296 : Qubit[] = register;
+                    let _len_id_46300 : Int = Length(_array_id_46296);
+                    mutable _index_id_46305 : Int = 0;
+                    while _index_id_46305 < _len_id_46300 {
+                        let item : Qubit = _array_id_46296[_index_id_46305];
                         SX(item);
-                        _index_id_46298 += 1;
+                        _index_id_46305 += 1;
                     }
 
                 }
@@ -2047,13 +2047,13 @@ fn apply_to_each_body_callable_defunctionalizes() {
             }
             operation ApplyToEach_Qubit__AdjCtl__H_(register : Qubit[]) : Unit {
                 {
-                    let _array_id_46289 : Qubit[] = register;
-                    let _len_id_46293 : Int = Length(_array_id_46289);
-                    mutable _index_id_46298 : Int = 0;
-                    while _index_id_46298 < _len_id_46293 {
-                        let item : Qubit = _array_id_46289[_index_id_46298];
+                    let _array_id_46296 : Qubit[] = register;
+                    let _len_id_46300 : Int = Length(_array_id_46296);
+                    mutable _index_id_46305 : Int = 0;
+                    while _index_id_46305 < _len_id_46300 {
+                        let item : Qubit = _array_id_46296[_index_id_46305];
                         H(item);
-                        _index_id_46298 += 1;
+                        _index_id_46305 += 1;
                     }
 
                 }
@@ -2099,13 +2099,13 @@ fn apply_to_each_a_adjoint_callable_defunctionalizes() {
             operation ApplyToEachA_Qubit__AdjCtl__S_(register : Qubit[]) : Unit is Adj {
                 body ... {
                     {
-                        let _array_id_46317 : Qubit[] = register;
-                        let _len_id_46321 : Int = Length(_array_id_46317);
-                        mutable _index_id_46326 : Int = 0;
-                        while _index_id_46326 < _len_id_46321 {
-                            let item : Qubit = _array_id_46317[_index_id_46326];
+                        let _array_id_46324 : Qubit[] = register;
+                        let _len_id_46328 : Int = Length(_array_id_46324);
+                        mutable _index_id_46333 : Int = 0;
+                        while _index_id_46333 < _len_id_46328 {
+                            let item : Qubit = _array_id_46324[_index_id_46333];
                             S(item);
-                            _index_id_46326 += 1;
+                            _index_id_46333 += 1;
                         }
 
                     }
@@ -2115,15 +2115,15 @@ fn apply_to_each_a_adjoint_callable_defunctionalizes() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46345 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46348 : Int = _range_id_46345::Start;
-                            let _step_id_46353 : Int = _range_id_46345::Step;
-                            let _end_id_46358 : Int = _range_id_46345::End;
-                            while _step_id_46353 > 0 and _index_id_46348 <= _end_id_46358 or _step_id_46353 < 0 and _index_id_46348 >= _end_id_46358 {
-                                let _index : Int = _index_id_46348;
+                            let _range_id_46352 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46355 : Int = _range_id_46352::Start;
+                            let _step_id_46360 : Int = _range_id_46352::Step;
+                            let _end_id_46365 : Int = _range_id_46352::End;
+                            while _step_id_46360 > 0 and _index_id_46355 <= _end_id_46365 or _step_id_46360 < 0 and _index_id_46355 >= _end_id_46365 {
+                                let _index : Int = _index_id_46355;
                                 let item : Qubit = _array[_index];
                                 Adjoint S(item);
-                                _index_id_46348 += _step_id_46353;
+                                _index_id_46355 += _step_id_46360;
                             }
 
                         }
@@ -2175,13 +2175,13 @@ fn apply_to_each_c_controlled_callable_defunctionalizes() {
             operation ApplyToEachC_Qubit__AdjCtl__X_(register : Qubit[]) : Unit is Ctl {
                 body ... {
                     {
-                        let _array_id_46388 : Qubit[] = register;
-                        let _len_id_46392 : Int = Length(_array_id_46388);
-                        mutable _index_id_46397 : Int = 0;
-                        while _index_id_46397 < _len_id_46392 {
-                            let item : Qubit = _array_id_46388[_index_id_46397];
+                        let _array_id_46395 : Qubit[] = register;
+                        let _len_id_46399 : Int = Length(_array_id_46395);
+                        mutable _index_id_46404 : Int = 0;
+                        while _index_id_46404 < _len_id_46399 {
+                            let item : Qubit = _array_id_46395[_index_id_46404];
                             X(item);
-                            _index_id_46397 += 1;
+                            _index_id_46404 += 1;
                         }
 
                     }
@@ -2189,13 +2189,13 @@ fn apply_to_each_c_controlled_callable_defunctionalizes() {
                 }
                 controlled (ctls, ...) {
                     {
-                        let _array_id_46416 : Qubit[] = register;
-                        let _len_id_46420 : Int = Length(_array_id_46416);
-                        mutable _index_id_46425 : Int = 0;
-                        while _index_id_46425 < _len_id_46420 {
-                            let item : Qubit = _array_id_46416[_index_id_46425];
+                        let _array_id_46423 : Qubit[] = register;
+                        let _len_id_46427 : Int = Length(_array_id_46423);
+                        mutable _index_id_46432 : Int = 0;
+                        while _index_id_46432 < _len_id_46427 {
+                            let item : Qubit = _array_id_46423[_index_id_46432];
                             Controlled X(ctls, item);
-                            _index_id_46425 += 1;
+                            _index_id_46432 += 1;
                         }
 
                     }
@@ -2239,13 +2239,13 @@ fn apply_to_each_ca_callable_defunctionalizes() {
             operation ApplyToEachCA_Qubit__AdjCtl__S_(register : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     {
-                        let _array_id_46444 : Qubit[] = register;
-                        let _len_id_46448 : Int = Length(_array_id_46444);
-                        mutable _index_id_46453 : Int = 0;
-                        while _index_id_46453 < _len_id_46448 {
-                            let item : Qubit = _array_id_46444[_index_id_46453];
+                        let _array_id_46451 : Qubit[] = register;
+                        let _len_id_46455 : Int = Length(_array_id_46451);
+                        mutable _index_id_46460 : Int = 0;
+                        while _index_id_46460 < _len_id_46455 {
+                            let item : Qubit = _array_id_46451[_index_id_46460];
                             S(item);
-                            _index_id_46453 += 1;
+                            _index_id_46460 += 1;
                         }
 
                     }
@@ -2255,15 +2255,15 @@ fn apply_to_each_ca_callable_defunctionalizes() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46472 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46475 : Int = _range_id_46472::Start;
-                            let _step_id_46480 : Int = _range_id_46472::Step;
-                            let _end_id_46485 : Int = _range_id_46472::End;
-                            while _step_id_46480 > 0 and _index_id_46475 <= _end_id_46485 or _step_id_46480 < 0 and _index_id_46475 >= _end_id_46485 {
-                                let _index : Int = _index_id_46475;
+                            let _range_id_46479 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46482 : Int = _range_id_46479::Start;
+                            let _step_id_46487 : Int = _range_id_46479::Step;
+                            let _end_id_46492 : Int = _range_id_46479::End;
+                            while _step_id_46487 > 0 and _index_id_46482 <= _end_id_46492 or _step_id_46487 < 0 and _index_id_46482 >= _end_id_46492 {
+                                let _index : Int = _index_id_46482;
                                 let item : Qubit = _array[_index];
                                 Adjoint S(item);
-                                _index_id_46475 += _step_id_46480;
+                                _index_id_46482 += _step_id_46487;
                             }
 
                         }
@@ -2273,13 +2273,13 @@ fn apply_to_each_ca_callable_defunctionalizes() {
                 }
                 controlled (ctls, ...) {
                     {
-                        let _array_id_46515 : Qubit[] = register;
-                        let _len_id_46519 : Int = Length(_array_id_46515);
-                        mutable _index_id_46524 : Int = 0;
-                        while _index_id_46524 < _len_id_46519 {
-                            let item : Qubit = _array_id_46515[_index_id_46524];
+                        let _array_id_46522 : Qubit[] = register;
+                        let _len_id_46526 : Int = Length(_array_id_46522);
+                        mutable _index_id_46531 : Int = 0;
+                        while _index_id_46531 < _len_id_46526 {
+                            let item : Qubit = _array_id_46522[_index_id_46531];
                             Controlled S(ctls, item);
-                            _index_id_46524 += 1;
+                            _index_id_46531 += 1;
                         }
 
                     }
@@ -2289,15 +2289,15 @@ fn apply_to_each_ca_callable_defunctionalizes() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46543 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46546 : Int = _range_id_46543::Start;
-                            let _step_id_46551 : Int = _range_id_46543::Step;
-                            let _end_id_46556 : Int = _range_id_46543::End;
-                            while _step_id_46551 > 0 and _index_id_46546 <= _end_id_46556 or _step_id_46551 < 0 and _index_id_46546 >= _end_id_46556 {
-                                let _index : Int = _index_id_46546;
+                            let _range_id_46550 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46553 : Int = _range_id_46550::Start;
+                            let _step_id_46558 : Int = _range_id_46550::Step;
+                            let _end_id_46563 : Int = _range_id_46550::End;
+                            while _step_id_46558 > 0 and _index_id_46553 <= _end_id_46563 or _step_id_46558 < 0 and _index_id_46553 >= _end_id_46563 {
+                                let _index : Int = _index_id_46553;
                                 let item : Qubit = _array[_index];
                                 Controlled Adjoint S(ctls, item);
-                                _index_id_46546 += _step_id_46551;
+                                _index_id_46553 += _step_id_46558;
                             }
 
                         }
@@ -2351,13 +2351,13 @@ fn cross_package_apply_to_each_closure_arg_defunctionalizes() {
             }
             operation ApplyToEach_Qubit__Empty__closure_(register : Qubit[], __capture_0 : Double) : Unit {
                 {
-                    let _array_id_46289 : Qubit[] = register;
-                    let _len_id_46293 : Int = Length(_array_id_46289);
-                    mutable _index_id_46298 : Int = 0;
-                    while _index_id_46298 < _len_id_46293 {
-                        let item : Qubit = _array_id_46289[_index_id_46298];
+                    let _array_id_46296 : Qubit[] = register;
+                    let _len_id_46300 : Int = Length(_array_id_46296);
+                    mutable _index_id_46305 : Int = 0;
+                    while _index_id_46305 < _len_id_46300 {
+                        let item : Qubit = _array_id_46296[_index_id_46305];
                         _lambda_2(__capture_0, item);
-                        _index_id_46298 += 1;
+                        _index_id_46305 += 1;
                     }
 
                 }
@@ -2399,13 +2399,13 @@ fn cross_package_apply_to_each_adjoint_arg_defunctionalizes() {
             }
             operation ApplyToEach_Qubit__AdjCtl__Adj_S_(register : Qubit[]) : Unit {
                 {
-                    let _array_id_46289 : Qubit[] = register;
-                    let _len_id_46293 : Int = Length(_array_id_46289);
-                    mutable _index_id_46298 : Int = 0;
-                    while _index_id_46298 < _len_id_46293 {
-                        let item : Qubit = _array_id_46289[_index_id_46298];
+                    let _array_id_46296 : Qubit[] = register;
+                    let _len_id_46300 : Int = Length(_array_id_46296);
+                    mutable _index_id_46305 : Int = 0;
+                    while _index_id_46305 < _len_id_46300 {
+                        let item : Qubit = _array_id_46296[_index_id_46305];
                         Adjoint S(item);
-                        _index_id_46298 += 1;
+                        _index_id_46305 += 1;
                     }
 
                 }
@@ -2448,13 +2448,13 @@ fn adjoint_cross_package_apply_to_each_ca_defunctionalizes() {
             operation ApplyToEachCA_Qubit__AdjCtl__S_(register : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     {
-                        let _array_id_46444 : Qubit[] = register;
-                        let _len_id_46448 : Int = Length(_array_id_46444);
-                        mutable _index_id_46453 : Int = 0;
-                        while _index_id_46453 < _len_id_46448 {
-                            let item : Qubit = _array_id_46444[_index_id_46453];
+                        let _array_id_46451 : Qubit[] = register;
+                        let _len_id_46455 : Int = Length(_array_id_46451);
+                        mutable _index_id_46460 : Int = 0;
+                        while _index_id_46460 < _len_id_46455 {
+                            let item : Qubit = _array_id_46451[_index_id_46460];
                             S(item);
-                            _index_id_46453 += 1;
+                            _index_id_46460 += 1;
                         }
 
                     }
@@ -2464,15 +2464,15 @@ fn adjoint_cross_package_apply_to_each_ca_defunctionalizes() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46472 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46475 : Int = _range_id_46472::Start;
-                            let _step_id_46480 : Int = _range_id_46472::Step;
-                            let _end_id_46485 : Int = _range_id_46472::End;
-                            while _step_id_46480 > 0 and _index_id_46475 <= _end_id_46485 or _step_id_46480 < 0 and _index_id_46475 >= _end_id_46485 {
-                                let _index : Int = _index_id_46475;
+                            let _range_id_46479 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46482 : Int = _range_id_46479::Start;
+                            let _step_id_46487 : Int = _range_id_46479::Step;
+                            let _end_id_46492 : Int = _range_id_46479::End;
+                            while _step_id_46487 > 0 and _index_id_46482 <= _end_id_46492 or _step_id_46487 < 0 and _index_id_46482 >= _end_id_46492 {
+                                let _index : Int = _index_id_46482;
                                 let item : Qubit = _array[_index];
                                 Adjoint S(item);
-                                _index_id_46475 += _step_id_46480;
+                                _index_id_46482 += _step_id_46487;
                             }
 
                         }
@@ -2482,13 +2482,13 @@ fn adjoint_cross_package_apply_to_each_ca_defunctionalizes() {
                 }
                 controlled (ctls, ...) {
                     {
-                        let _array_id_46515 : Qubit[] = register;
-                        let _len_id_46519 : Int = Length(_array_id_46515);
-                        mutable _index_id_46524 : Int = 0;
-                        while _index_id_46524 < _len_id_46519 {
-                            let item : Qubit = _array_id_46515[_index_id_46524];
+                        let _array_id_46522 : Qubit[] = register;
+                        let _len_id_46526 : Int = Length(_array_id_46522);
+                        mutable _index_id_46531 : Int = 0;
+                        while _index_id_46531 < _len_id_46526 {
+                            let item : Qubit = _array_id_46522[_index_id_46531];
                             Controlled S(ctls, item);
-                            _index_id_46524 += 1;
+                            _index_id_46531 += 1;
                         }
 
                     }
@@ -2498,15 +2498,15 @@ fn adjoint_cross_package_apply_to_each_ca_defunctionalizes() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46543 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46546 : Int = _range_id_46543::Start;
-                            let _step_id_46551 : Int = _range_id_46543::Step;
-                            let _end_id_46556 : Int = _range_id_46543::End;
-                            while _step_id_46551 > 0 and _index_id_46546 <= _end_id_46556 or _step_id_46551 < 0 and _index_id_46546 >= _end_id_46556 {
-                                let _index : Int = _index_id_46546;
+                            let _range_id_46550 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46553 : Int = _range_id_46550::Start;
+                            let _step_id_46558 : Int = _range_id_46550::Step;
+                            let _end_id_46563 : Int = _range_id_46550::End;
+                            while _step_id_46558 > 0 and _index_id_46553 <= _end_id_46563 or _step_id_46558 < 0 and _index_id_46553 >= _end_id_46563 {
+                                let _index : Int = _index_id_46553;
                                 let item : Qubit = _array[_index];
                                 Controlled Adjoint S(ctls, item);
-                                _index_id_46546 += _step_id_46551;
+                                _index_id_46553 += _step_id_46558;
                             }
 
                         }
@@ -2624,13 +2624,13 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
             operation ApplyToEachCA_Qubit__AdjCtl__X_(register : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     {
-                        let _array_id_46444 : Qubit[] = register;
-                        let _len_id_46448 : Int = Length(_array_id_46444);
-                        mutable _index_id_46453 : Int = 0;
-                        while _index_id_46453 < _len_id_46448 {
-                            let item : Qubit = _array_id_46444[_index_id_46453];
+                        let _array_id_46451 : Qubit[] = register;
+                        let _len_id_46455 : Int = Length(_array_id_46451);
+                        mutable _index_id_46460 : Int = 0;
+                        while _index_id_46460 < _len_id_46455 {
+                            let item : Qubit = _array_id_46451[_index_id_46460];
                             X(item);
-                            _index_id_46453 += 1;
+                            _index_id_46460 += 1;
                         }
 
                     }
@@ -2640,15 +2640,15 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46472 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46475 : Int = _range_id_46472::Start;
-                            let _step_id_46480 : Int = _range_id_46472::Step;
-                            let _end_id_46485 : Int = _range_id_46472::End;
-                            while _step_id_46480 > 0 and _index_id_46475 <= _end_id_46485 or _step_id_46480 < 0 and _index_id_46475 >= _end_id_46485 {
-                                let _index : Int = _index_id_46475;
+                            let _range_id_46479 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46482 : Int = _range_id_46479::Start;
+                            let _step_id_46487 : Int = _range_id_46479::Step;
+                            let _end_id_46492 : Int = _range_id_46479::End;
+                            while _step_id_46487 > 0 and _index_id_46482 <= _end_id_46492 or _step_id_46487 < 0 and _index_id_46482 >= _end_id_46492 {
+                                let _index : Int = _index_id_46482;
                                 let item : Qubit = _array[_index];
                                 Adjoint X(item);
-                                _index_id_46475 += _step_id_46480;
+                                _index_id_46482 += _step_id_46487;
                             }
 
                         }
@@ -2658,13 +2658,13 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
                 }
                 controlled (ctls, ...) {
                     {
-                        let _array_id_46515 : Qubit[] = register;
-                        let _len_id_46519 : Int = Length(_array_id_46515);
-                        mutable _index_id_46524 : Int = 0;
-                        while _index_id_46524 < _len_id_46519 {
-                            let item : Qubit = _array_id_46515[_index_id_46524];
+                        let _array_id_46522 : Qubit[] = register;
+                        let _len_id_46526 : Int = Length(_array_id_46522);
+                        mutable _index_id_46531 : Int = 0;
+                        while _index_id_46531 < _len_id_46526 {
+                            let item : Qubit = _array_id_46522[_index_id_46531];
                             Controlled X(ctls, item);
-                            _index_id_46524 += 1;
+                            _index_id_46531 += 1;
                         }
 
                     }
@@ -2674,15 +2674,15 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46543 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46546 : Int = _range_id_46543::Start;
-                            let _step_id_46551 : Int = _range_id_46543::Step;
-                            let _end_id_46556 : Int = _range_id_46543::End;
-                            while _step_id_46551 > 0 and _index_id_46546 <= _end_id_46556 or _step_id_46551 < 0 and _index_id_46546 >= _end_id_46556 {
-                                let _index : Int = _index_id_46546;
+                            let _range_id_46550 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46553 : Int = _range_id_46550::Start;
+                            let _step_id_46558 : Int = _range_id_46550::Step;
+                            let _end_id_46563 : Int = _range_id_46550::End;
+                            while _step_id_46558 > 0 and _index_id_46553 <= _end_id_46563 or _step_id_46558 < 0 and _index_id_46553 >= _end_id_46563 {
+                                let _index : Int = _index_id_46553;
                                 let item : Qubit = _array[_index];
                                 Controlled Adjoint X(ctls, item);
-                                _index_id_46546 += _step_id_46551;
+                                _index_id_46553 += _step_id_46558;
                             }
 
                         }
@@ -2694,13 +2694,13 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
             operation ApplyToEachCA_Qubit__AdjCtl__H_(register : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
                     {
-                        let _array_id_46444 : Qubit[] = register;
-                        let _len_id_46448 : Int = Length(_array_id_46444);
-                        mutable _index_id_46453 : Int = 0;
-                        while _index_id_46453 < _len_id_46448 {
-                            let item : Qubit = _array_id_46444[_index_id_46453];
+                        let _array_id_46451 : Qubit[] = register;
+                        let _len_id_46455 : Int = Length(_array_id_46451);
+                        mutable _index_id_46460 : Int = 0;
+                        while _index_id_46460 < _len_id_46455 {
+                            let item : Qubit = _array_id_46451[_index_id_46460];
                             H(item);
-                            _index_id_46453 += 1;
+                            _index_id_46460 += 1;
                         }
 
                     }
@@ -2710,15 +2710,15 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46472 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46475 : Int = _range_id_46472::Start;
-                            let _step_id_46480 : Int = _range_id_46472::Step;
-                            let _end_id_46485 : Int = _range_id_46472::End;
-                            while _step_id_46480 > 0 and _index_id_46475 <= _end_id_46485 or _step_id_46480 < 0 and _index_id_46475 >= _end_id_46485 {
-                                let _index : Int = _index_id_46475;
+                            let _range_id_46479 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46482 : Int = _range_id_46479::Start;
+                            let _step_id_46487 : Int = _range_id_46479::Step;
+                            let _end_id_46492 : Int = _range_id_46479::End;
+                            while _step_id_46487 > 0 and _index_id_46482 <= _end_id_46492 or _step_id_46487 < 0 and _index_id_46482 >= _end_id_46492 {
+                                let _index : Int = _index_id_46482;
                                 let item : Qubit = _array[_index];
                                 Adjoint H(item);
-                                _index_id_46475 += _step_id_46480;
+                                _index_id_46482 += _step_id_46487;
                             }
 
                         }
@@ -2728,13 +2728,13 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
                 }
                 controlled (ctls, ...) {
                     {
-                        let _array_id_46515 : Qubit[] = register;
-                        let _len_id_46519 : Int = Length(_array_id_46515);
-                        mutable _index_id_46524 : Int = 0;
-                        while _index_id_46524 < _len_id_46519 {
-                            let item : Qubit = _array_id_46515[_index_id_46524];
+                        let _array_id_46522 : Qubit[] = register;
+                        let _len_id_46526 : Int = Length(_array_id_46522);
+                        mutable _index_id_46531 : Int = 0;
+                        while _index_id_46531 < _len_id_46526 {
+                            let item : Qubit = _array_id_46522[_index_id_46531];
                             Controlled H(ctls, item);
-                            _index_id_46524 += 1;
+                            _index_id_46531 += 1;
                         }
 
                     }
@@ -2744,15 +2744,15 @@ fn controlled_apply_to_each_ca_keeps_body_callable_static() {
                     {
                         let _array : Qubit[] = register;
                         {
-                            let _range_id_46543 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_46546 : Int = _range_id_46543::Start;
-                            let _step_id_46551 : Int = _range_id_46543::Step;
-                            let _end_id_46556 : Int = _range_id_46543::End;
-                            while _step_id_46551 > 0 and _index_id_46546 <= _end_id_46556 or _step_id_46551 < 0 and _index_id_46546 >= _end_id_46556 {
-                                let _index : Int = _index_id_46546;
+                            let _range_id_46550 : Range = Length(_array) - 1..-1..0;
+                            mutable _index_id_46553 : Int = _range_id_46550::Start;
+                            let _step_id_46558 : Int = _range_id_46550::Step;
+                            let _end_id_46563 : Int = _range_id_46550::End;
+                            while _step_id_46558 > 0 and _index_id_46553 <= _end_id_46563 or _step_id_46558 < 0 and _index_id_46553 >= _end_id_46563 {
+                                let _index : Int = _index_id_46553;
                                 let item : Qubit = _array[_index];
                                 Controlled Adjoint H(ctls, item);
-                                _index_id_46546 += _step_id_46551;
+                                _index_id_46553 += _step_id_46558;
                             }
 
                         }
@@ -2804,13 +2804,13 @@ fn cross_package_mapped_defunctionalizes() {
             function Mapped_Int__Int__Double_(array : Int[]) : Int[] {
                 mutable mapped : Int[] = [];
                 {
-                    let _array_id_45803 : Int[] = array;
-                    let _len_id_45807 : Int = Length(_array_id_45803);
-                    mutable _index_id_45812 : Int = 0;
-                    while _index_id_45812 < _len_id_45807 {
-                        let element : Int = _array_id_45803[_index_id_45812];
+                    let _array_id_45810 : Int[] = array;
+                    let _len_id_45814 : Int = Length(_array_id_45810);
+                    mutable _index_id_45819 : Int = 0;
+                    while _index_id_45819 < _len_id_45814 {
+                        let element : Int = _array_id_45810[_index_id_45819];
                         mapped += [Double(element)];
-                        _index_id_45812 += 1;
+                        _index_id_45819 += 1;
                     }
 
                 }
@@ -2854,13 +2854,13 @@ fn cross_package_for_each_defunctionalizes() {
             operation ForEach_Qubit__Unit__AdjCtl__H_(array : Qubit[]) : Unit[] {
                 mutable output : Unit[] = [];
                 {
-                    let _array_id_45575 : Qubit[] = array;
-                    let _len_id_45579 : Int = Length(_array_id_45575);
-                    mutable _index_id_45584 : Int = 0;
-                    while _index_id_45584 < _len_id_45579 {
-                        let element : Qubit = _array_id_45575[_index_id_45584];
+                    let _array_id_45582 : Qubit[] = array;
+                    let _len_id_45586 : Int = Length(_array_id_45582);
+                    mutable _index_id_45591 : Int = 0;
+                    while _index_id_45591 < _len_id_45586 {
+                        let element : Qubit = _array_id_45582[_index_id_45591];
                         output += [H(element)];
-                        _index_id_45584 += 1;
+                        _index_id_45591 += 1;
                     }
 
                 }
@@ -2915,13 +2915,13 @@ fn stdlib_hof_specialized_with_concrete_callable() {
             function Mapped_Int__Int__closure_(array : Int[]) : Int[] {
                 mutable mapped : Int[] = [];
                 {
-                    let _array_id_45803 : Int[] = array;
-                    let _len_id_45807 : Int = Length(_array_id_45803);
-                    mutable _index_id_45812 : Int = 0;
-                    while _index_id_45812 < _len_id_45807 {
-                        let element : Int = _array_id_45803[_index_id_45812];
+                    let _array_id_45810 : Int[] = array;
+                    let _len_id_45814 : Int = Length(_array_id_45810);
+                    mutable _index_id_45819 : Int = 0;
+                    while _index_id_45819 < _len_id_45814 {
+                        let element : Int = _array_id_45810[_index_id_45819];
                         mapped += [_lambda_2(element, )];
-                        _index_id_45812 += 1;
+                        _index_id_45819 += 1;
                     }
 
                 }
@@ -2999,13 +2999,13 @@ fn lambda_expression_sample_shape_has_no_defunctionalization_errors() {
             function Fold_Int__Int__closure_(state : Int, array : Int[]) : Int {
                 mutable current : Int = state;
                 {
-                    let _array_id_45547 : Int[] = array;
-                    let _len_id_45551 : Int = Length(_array_id_45547);
-                    mutable _index_id_45556 : Int = 0;
-                    while _index_id_45556 < _len_id_45551 {
-                        let element : Int = _array_id_45547[_index_id_45556];
+                    let _array_id_45554 : Int[] = array;
+                    let _len_id_45558 : Int = Length(_array_id_45554);
+                    mutable _index_id_45563 : Int = 0;
+                    while _index_id_45563 < _len_id_45558 {
+                        let element : Int = _array_id_45554[_index_id_45563];
                         current = _lambda_2((current, element), );
-                        _index_id_45556 += 1;
+                        _index_id_45563 += 1;
                     }
 
                 }
@@ -3015,13 +3015,13 @@ fn lambda_expression_sample_shape_has_no_defunctionalization_errors() {
             function Mapped_Int__Int__closure_(array : Int[]) : Int[] {
                 mutable mapped : Int[] = [];
                 {
-                    let _array_id_45803 : Int[] = array;
-                    let _len_id_45807 : Int = Length(_array_id_45803);
-                    mutable _index_id_45812 : Int = 0;
-                    while _index_id_45812 < _len_id_45807 {
-                        let element : Int = _array_id_45803[_index_id_45812];
+                    let _array_id_45810 : Int[] = array;
+                    let _len_id_45814 : Int = Length(_array_id_45810);
+                    mutable _index_id_45819 : Int = 0;
+                    while _index_id_45819 < _len_id_45814 {
+                        let element : Int = _array_id_45810[_index_id_45819];
                         mapped += [_lambda_4(element, )];
-                        _index_id_45812 += 1;
+                        _index_id_45819 += 1;
                     }
 
                 }
@@ -3137,13 +3137,13 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
             function Mapped_Int__Int__closure_(array : Int[], __capture_0 : Int) : Int[] {
                 mutable mapped : Int[] = [];
                 {
-                    let _array_id_45803 : Int[] = array;
-                    let _len_id_45807 : Int = Length(_array_id_45803);
-                    mutable _index_id_45812 : Int = 0;
-                    while _index_id_45812 < _len_id_45807 {
-                        let element : Int = _array_id_45803[_index_id_45812];
+                    let _array_id_45810 : Int[] = array;
+                    let _len_id_45814 : Int = Length(_array_id_45810);
+                    mutable _index_id_45819 : Int = 0;
+                    while _index_id_45819 < _len_id_45814 {
+                        let element : Int = _array_id_45810[_index_id_45819];
                         mapped += [_lambda_8(__capture_0, element)];
-                        _index_id_45812 += 1;
+                        _index_id_45819 += 1;
                     }
 
                 }

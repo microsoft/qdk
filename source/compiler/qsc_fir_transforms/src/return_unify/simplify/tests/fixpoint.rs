@@ -38,8 +38,8 @@ use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BlockId, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageLookup, Res,
-        StmtId, StmtKind,
+        BlockId, ExprId, ExprKind, Lit, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+        Res, StmtId, StmtKind,
     },
     ty::{Prim, Ty},
 };
@@ -59,11 +59,12 @@ use crate::return_unify::tests::{check_simplify_rule_q, synth_slots_for_block};
 fn run_to_fixpoint_bool(
     pkg: &mut Package,
     asgn: &mut Assigner,
+    pkg_id: PackageId,
     bid: BlockId,
     slots: &crate::return_unify::lower::SynthSlots,
 ) -> bool {
     let mut errors = Vec::new();
-    simplify::run_to_fixpoint(pkg, asgn, bid, &mut errors, slots);
+    simplify::run_to_fixpoint(pkg, asgn, pkg_id, bid, &mut errors, slots);
     assert!(errors.is_empty(), "unexpected fixpoint errors: {errors:?}");
     true
 }
@@ -631,6 +632,7 @@ fn guard_clause_plus_dead_flag_via_run_to_fixpoint() {
     simplify::run_to_fixpoint(
         &mut package,
         &mut assigner,
+        PackageId::CORE,
         block_id,
         &mut Vec::new(),
         &synth_slots,

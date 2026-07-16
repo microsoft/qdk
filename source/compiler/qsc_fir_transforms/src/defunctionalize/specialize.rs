@@ -32,18 +32,19 @@ use super::{
 };
 use crate::cloner::FirCloner;
 use crate::fir_builder::{
-    alloc_bin_op_expr, alloc_call_expr, alloc_expr, alloc_functor_wrapped_expr, alloc_int_lit,
-    alloc_item_var_expr, alloc_local_var_expr, functored_specs,
+    alloc_bin_op_expr, alloc_block, alloc_block_expr, alloc_call_expr, alloc_expr, alloc_expr_stmt,
+    alloc_functor_wrapped_expr, alloc_int_lit, alloc_item_var_expr, alloc_local_var,
+    alloc_local_var_expr, functored_specs,
 };
 use crate::package_assigners::PackageAssigners;
-use crate::walk_utils::for_each_expr_in_callable_impl;
+use crate::walk_utils::{expr_is_side_effect_free, for_each_expr_in_callable_impl};
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath,
-    Ident, Item, ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, Visibility,
+    Ident, Item, ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
+    PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, Visibility,
 };
 use qsc_fir::ty::{Arrow, Prim, Ty};
 use qsc_fir::visit::{self, Visitor};
@@ -2586,6 +2587,22 @@ fn replace_indexed_callable_array_call(
     let span = package.get_expr(call_expr_id).span;
     let original_args = package.get_expr(args_id).clone();
 
+    let hoisted = if expr_is_side_effect_free(package, package_id, index_id) {
+        None
+    } else {
+        let index_ty = package.get_expr(index_id).ty.clone();
+        let index_span = package.get_expr(index_id).span;
+        let (local_var, let_stmt) = alloc_local_var(
+            package,
+            assigner,
+            "index",
+            &index_ty,
+            index_id,
+            Mutability::Immutable,
+        );
+        Some((local_var, index_ty, index_span, let_stmt))
+    };
+
     let mut branch_calls = Vec::with_capacity(branch_callables.len());
     for (position, branch_callable) in branch_callables.iter().enumerate() {
         let call_id = alloc_dispatch_branch_call(
@@ -2603,7 +2620,13 @@ fn replace_indexed_callable_array_call(
 
     let mut dispatch_id = branch_calls.last().expect("branch exists").1;
     for (position, call_id) in branch_calls.into_iter().rev().skip(1) {
-        let condition_id = alloc_index_eq_expr(package, index_id, position, span, assigner);
+        let operand = match &hoisted {
+            Some((local_var, ty, index_span, _)) => {
+                alloc_local_var_expr(package, assigner, *local_var, ty.clone(), *index_span)
+            }
+            None => index_id,
+        };
+        let condition_id = alloc_index_eq_expr(package, operand, position, span, assigner);
         dispatch_id = alloc_if_expr(
             package,
             span,
@@ -2613,6 +2636,18 @@ fn replace_indexed_callable_array_call(
             dispatch_id,
             assigner,
         );
+    }
+
+    if let Some((_, _, _, let_stmt)) = &hoisted {
+        let tail_stmt = alloc_expr_stmt(package, assigner, dispatch_id, span);
+        let block_id = alloc_block(
+            package,
+            assigner,
+            vec![*let_stmt, tail_stmt],
+            result_ty.clone(),
+            span,
+        );
+        dispatch_id = alloc_block_expr(package, assigner, block_id, result_ty.clone(), span);
     }
 
     let dispatch = package.get_expr(dispatch_id).clone();

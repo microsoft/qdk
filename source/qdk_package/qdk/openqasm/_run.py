@@ -45,7 +45,7 @@ def run(
     type: Optional[Literal["sparse", "clifford"]] = None,
     num_qubits: Optional[int] = None,
     **kwargs: Any,
-) -> List[Any]:
+) -> List[Any] | str:
     """
     Runs the given OpenQASM program for the given number of shots.
     Either a full program or a callable with arguments must be provided.
@@ -99,7 +99,7 @@ def run(
     )
     start_time = monotonic()
 
-    results: List[ShotResult] = []
+    results: List[Any] = []
 
     def on_save_events(output: Output) -> None:
         # Append the output to the last shot's output list
@@ -211,6 +211,6 @@ def run(
     if as_bitstring:
         from ._utils import as_bitstring as convert_to_bitstring
 
-        results = convert_to_bitstring(results)
+        return convert_to_bitstring(results)
 
     return results

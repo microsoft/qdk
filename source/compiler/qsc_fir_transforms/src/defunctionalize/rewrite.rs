@@ -48,7 +48,9 @@ use crate::fir_builder::{
     alloc_bin_op_expr, alloc_call_expr, alloc_expr, alloc_functor_wrapped_expr, alloc_int_lit,
     alloc_local_var_expr,
 };
-use crate::walk_utils::{DirectChild, UseClass, classify_block_use, for_each_direct_child};
+use crate::walk_utils::{
+    DirectChild, UseClass, classify_block_use, expr_is_side_effect_free, for_each_direct_child,
+};
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
@@ -702,10 +704,10 @@ fn branch_split_direct_call_rewrite(
         && entries.len() > 1
         && let Some((synthetic_conditioned, default_idx)) = synthesize_direct_index_dispatch(
             package,
+            package_id,
             expr_owner_lookup,
             call_expr_id,
             entries,
-            span,
             assigner,
         )
     {
@@ -871,10 +873,10 @@ fn ty_is_callable_array(package: &Package, ty: &Ty) -> bool {
 /// resolves to multiple callables via branch-split analysis.
 fn synthesize_callsite_index_dispatch(
     package: &mut Package,
+    package_id: PackageId,
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     call_expr_id: ExprId,
     entries: &[HofDispatchTarget],
-    span: Span,
     assigner: &mut Assigner,
 ) -> Option<(Vec<(usize, ExprId)>, usize)> {
     let callables = entries
@@ -883,11 +885,10 @@ fn synthesize_callsite_index_dispatch(
         .collect::<Vec<_>>();
     synthesize_index_dispatch_plan(
         package,
+        package_id,
         expr_owner_lookup,
-        call_expr_id,
-        entries.first()?.0.arg_expr_id,
+        (call_expr_id, entries.first()?.0.arg_expr_id),
         &callables,
-        span,
         assigner,
     )
 }
@@ -896,10 +897,10 @@ fn synthesize_callsite_index_dispatch(
 /// whose callee expression resolves to multiple concrete callables.
 fn synthesize_direct_index_dispatch(
     package: &mut Package,
+    package_id: PackageId,
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     call_expr_id: ExprId,
     entries: &[&DirectCallSite],
-    span: Span,
     assigner: &mut Assigner,
 ) -> Option<(Vec<(usize, ExprId)>, usize)> {
     let ExprKind::Call(callee_id, _) = package.get_expr(call_expr_id).kind else {
@@ -911,11 +912,10 @@ fn synthesize_direct_index_dispatch(
         .collect::<Vec<_>>();
     synthesize_index_dispatch_plan(
         package,
+        package_id,
         expr_owner_lookup,
-        call_expr_id,
-        callee_id,
+        (call_expr_id, callee_id),
         &callables,
-        span,
         assigner,
     )
 }
@@ -924,19 +924,20 @@ fn synthesize_direct_index_dispatch(
 /// candidate callable with the condition expression that selects it.
 fn synthesize_index_dispatch_plan(
     package: &mut Package,
+    package_id: PackageId,
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
-    owner_expr_id: ExprId,
-    dispatch_expr_id: ExprId,
+    dispatch_source: (ExprId, ExprId),
     callables: &[ConcreteCallable],
-    span: Span,
     assigner: &mut Assigner,
 ) -> Option<(Vec<(usize, ExprId)>, usize)> {
     if callables.len() < 2 {
         return None;
     }
 
+    let (owner_expr_id, dispatch_expr_id) = dispatch_source;
     let (index_expr_id, indexed_callables) =
         resolve_index_dispatch_source(package, expr_owner_lookup, owner_expr_id, dispatch_expr_id)?;
+    let span = package.get_expr(owner_expr_id).span;
 
     let mut entry_positions = Vec::with_capacity(callables.len());
     for callable in callables {
@@ -952,15 +953,10 @@ fn synthesize_index_dispatch_plan(
         .enumerate()
         .max_by_key(|(_, position)| *position)?;
 
-    // Non-trivial index expressions (not a plain local read or literal) could
-    // repeat side effects if re-evaluated per branch, so hoist into a single
-    // shared `let`; each `index == k` comparison then reads the temp. Trivial
-    // indices keep referencing the original expression so snapshots stay
-    // byte-identical.
-    let hoist_index = !matches!(
-        package.get_expr(index_expr_id).kind,
-        ExprKind::Var(_, _) | ExprKind::Lit(_)
-    );
+    // Index expressions that may have side effects or traps are hoisted into a
+    // single shared `let`; each `index == k` comparison then reads the temp.
+    // Provably side-effect-free indices can be referenced directly.
+    let hoist_index = !expr_is_side_effect_free(package, package_id, index_expr_id);
     let hoisted = if hoist_index {
         let index_ty = package.get_expr(index_expr_id).ty.clone();
         let index_span = package.get_expr(index_expr_id).span;
@@ -984,13 +980,33 @@ fn synthesize_index_dispatch_plan(
                 ty.clone(),
                 *index_span,
             ),
-            None => index_expr_id,
+            None => strip_transparent_block_expr(package, index_expr_id),
         };
         let condition = alloc_index_eq_expr(package, operand, position, span, assigner);
         conditioned.push((entry_idx, condition));
     }
 
     Some((conditioned, default_idx))
+}
+
+/// Removes nested `Block([Expr(tail)])` wrappers from an index expression used
+/// in synthesized dispatch guards.
+///
+/// This keeps pure block indices such as `ops[{ i }]` from rendering as
+/// `if { i } == 0`, while leaving blocks with locals or multiple statements
+/// untouched so they still use the normal hoist path when needed.
+fn strip_transparent_block_expr(package: &Package, expr_id: ExprId) -> ExprId {
+    let ExprKind::Block(block_id) = package.get_expr(expr_id).kind else {
+        return expr_id;
+    };
+    let block = package.get_block(block_id);
+    let [stmt_id] = block.stmts.as_slice() else {
+        return expr_id;
+    };
+    let StmtKind::Expr(tail_expr_id) = package.get_stmt(*stmt_id).kind else {
+        return expr_id;
+    };
+    strip_transparent_block_expr(package, tail_expr_id)
 }
 
 /// Locates the source of a dynamic dispatch (for example the index
@@ -4328,7 +4344,7 @@ fn build_expr_data_from_elements(package: &Package, elements: Vec<ExprId>) -> (E
 /// Returns `None` for a `Struct` literal or an out-of-range index. A
 /// `Struct`-literal-bound deep local is intentionally left to decline: analysis
 /// cannot resolve a concrete callable through a `Struct` literal, so such a call
-/// site is already reported as `Qsc.Defunctionalize.DynamicCallable` upstream of
+/// site is already reported as `Qdk.Qsc.Defunctionalize.DynamicCallable` upstream of
 /// this rewrite and never reaches here. Extending this helper to recurse through
 /// `Struct` fields would therefore be dead code unless analysis is separately
 /// taught to resolve concrete callables through struct literals.
@@ -5106,10 +5122,10 @@ fn branch_split_rewrite(
 
     let Some((conditioned, default_entry)) = partition_branch_split_targets(
         package,
+        package_id,
         expr_owner_lookup,
         call_expr_id,
         entries,
-        span,
         assigner,
     ) else {
         return;
@@ -5164,10 +5180,10 @@ fn branch_split_rewrite(
 /// when there is no entry to dispatch at all.
 fn partition_branch_split_targets<'a>(
     package: &mut Package,
+    package_id: PackageId,
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
     call_expr_id: ExprId,
     entries: &[HofDispatchTarget<'a>],
-    span: Span,
     assigner: &mut Assigner,
 ) -> Option<(Vec<ConditionedHofTarget<'a>>, HofDispatchTarget<'a>)> {
     let mut conditioned: Vec<ConditionedHofTarget> = Vec::new();
@@ -5186,10 +5202,10 @@ fn partition_branch_split_targets<'a>(
         && entries.len() > 1
         && let Some((synthetic_conditioned, default_idx)) = synthesize_callsite_index_dispatch(
             package,
+            package_id,
             expr_owner_lookup,
             call_expr_id,
             entries,
-            span,
             assigner,
         )
     {

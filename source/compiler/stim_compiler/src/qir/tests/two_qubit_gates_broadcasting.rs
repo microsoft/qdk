@@ -1217,13 +1217,13 @@ fn cx_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.OddTargetCount
+            Qdk.Stim.Compiler.OddTargetCount
 
-          x instruction CX requires an even number of targets
-           ,----
-         1 | CX 0 1 2
-           : ^^^^^^^^
-           `----
-    "#]],
+              x instruction CX requires an even number of targets
+               ,----
+             1 | CX 0 1 2
+               : ^^^^^^^^
+               `----
+        "#]],
     );
 }

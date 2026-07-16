@@ -165,7 +165,7 @@ fn target_with_param_raises_error() {
         panic!("Expected an error");
     };
     expect![[r#"
-        Qasm.Compiler.InvalidBoxPragmaTarget
+        Qdk.Qasm.Compiler.InvalidBoxPragmaTarget
 
           x sample_box_target is not defined or is not a valid target for box usage
            ,-[Test.qasm:2:29]
@@ -190,7 +190,7 @@ fn unknown_pragma_raises_error() {
         panic!("Expected an error");
     };
     expect![[r#"
-        Qasm.Compiler.NotSupported
+        Qdk.Qasm.Compiler.NotSupported
 
           x pragma statement: qdk.box.unknown are not supported
            ,-[Test.qasm:2:9]
@@ -217,7 +217,7 @@ fn target_with_return_value_raises_error() {
         panic!("Expected an error");
     };
     expect![[r#"
-        Qasm.Compiler.InvalidBoxPragmaTarget
+        Qdk.Qasm.Compiler.InvalidBoxPragmaTarget
 
           x sample_box_target is not defined or is not a valid target for box usage
            ,-[Test.qasm:2:29]
@@ -241,7 +241,7 @@ fn unknown_target_with_return_value_raises_error() {
         panic!("Expected an error");
     };
     expect![[r#"
-        Qasm.Compiler.InvalidBoxPragmaTarget
+        Qdk.Qasm.Compiler.InvalidBoxPragmaTarget
 
           x sample_box_target is not defined or is not a valid target for box usage
            ,-[Test.qasm:2:29]

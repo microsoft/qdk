@@ -109,17 +109,17 @@ pub enum Error {
     #[diagnostic(transparent)]
     Circuit(#[from] qsc_circuit::Error),
     #[error("entry point not found")]
-    #[diagnostic(code("Qsc.Interpret.NoEntryPoint"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NoEntryPoint"))]
     NoEntryPoint,
     #[error("unsupported runtime capabilities for code generation")]
-    #[diagnostic(code("Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
     UnsupportedRuntimeCapabilities,
     #[error("expression does not evaluate to an operation")]
-    #[diagnostic(code("Qsc.Interpret.NotAnOperation"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NotAnOperation"))]
     #[diagnostic(help("provide the name of a callable or a lambda expression"))]
     NotAnOperation,
     #[error("value is not a global callable")]
-    #[diagnostic(code("Qsc.Interpret.NotACallable"))]
+    #[diagnostic(code("Qdk.Qsc.Interpret.NotACallable"))]
     NotACallable,
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]

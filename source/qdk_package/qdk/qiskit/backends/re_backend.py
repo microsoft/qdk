@@ -5,7 +5,7 @@ from concurrent.futures import Executor
 import json
 import logging
 import warnings
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 from uuid import uuid4
 
 from qiskit import QuantumCircuit
@@ -45,8 +45,8 @@ class ResourceEstimatorBackend(BackendBase):
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **options,
-    ):
+        **options: Any,
+    ) -> None:
         """
         :param target: The target to use for the backend.
         :param qiskit_pass_options: Options for the Qiskit passes.
@@ -76,14 +76,14 @@ class ResourceEstimatorBackend(BackendBase):
         )
 
     @property
-    def max_circuits(self):
+    def max_circuits(self) -> int:
         """
         Returns the maximum number of circuits that can be executed simultaneously.
         """
         return 1
 
     @classmethod
-    def _default_options(cls):
+    def _default_options(cls) -> Options:
         return Options(
             params=None,
             name="program",
@@ -97,7 +97,7 @@ class ResourceEstimatorBackend(BackendBase):
         self,
         run_input: Union[QuantumCircuit, List[QuantumCircuit]],
         params: Optional[EstimatorParams] = None,
-        **options,
+        **options: Any,
     ) -> ReJob:
         """
         Performs resource estimation on the supplied QuantumCircuit via conversion
@@ -126,12 +126,12 @@ class ResourceEstimatorBackend(BackendBase):
 
         if params is not None:
             options["params"] = params
-        return self._run(run_input, **options)
+        return cast(ReJob, self._run(run_input, **options))
 
     def _estimate_qasm(
         self,
         source: str,
-        **input_params,
+        **input_params: Any,
     ) -> Dict[str, Any]:
         """
         Estimates the resource usage of a QASM source code.
@@ -170,7 +170,7 @@ class ResourceEstimatorBackend(BackendBase):
         res = json.loads(res_str)
         return res
 
-    def _execute(self, programs: List[Compilation], **input_params) -> Dict:
+    def _execute(self, programs: List[Compilation], **input_params: Any) -> Dict[str, Any]:
         exec_results = [
             (program, self._estimate_qasm(program.qasm, **input_params))
             for program in programs
@@ -193,7 +193,7 @@ class ResourceEstimatorBackend(BackendBase):
     def _create_results(self, output: Dict[str, Any]) -> EstimatorResult:
         return EstimatorResult(output["results"][0])
 
-    def _submit_job(self, run_input: List[QuantumCircuit], **options) -> ReJob:
+    def _submit_job(self, run_input: List[QuantumCircuit], **options: Any) -> ReJob:
         job_id = str(uuid4())
         executor: Executor = options.pop("executor", DetaultExecutor())
         job = ReJob(self, job_id, self.run_job, run_input, options, executor)

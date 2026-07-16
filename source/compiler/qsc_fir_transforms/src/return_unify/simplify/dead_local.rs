@@ -5,7 +5,7 @@
 //!
 //! Drops single-bind `Local` declarations whose bound local has no
 //! downstream reader or writer in the block and whose initializer is
-//! provably side-effect-free.
+//! safe to discard.
 //!
 //! ```text
 //! {
@@ -28,10 +28,10 @@
 //!
 //! A `let`/`mutable` binding's only observable effect is evaluating its
 //! initializer. When the local is referenced nowhere downstream and the
-//! initializer is provably side-effect-free (see
-//! [`crate::walk_utils::expr_is_side_effect_free`]), removing the binding
-//! preserves value,
-//! evaluation order, and qubit lifetimes. The canonical `__has_returned` /
+//! initializer can be discarded without changing effects or runtime errors
+//! (see [`crate::walk_utils::expr_is_safe_to_discard`]), removing the binding
+//! preserves value, evaluation order, and qubit lifetimes. The canonical
+//! `__has_returned` /
 //! `__ret_val` slot declarations are the motivating case: their
 //! initializers are literals and become dead once the catalogue collapses
 //! the merge. The same shape arises from user code and from normalize's
@@ -43,13 +43,13 @@
 //! patterns are rejected because decomposing them would change observable
 //! shape; discard patterns (`let _ = ...`) are left alone since their
 //! initializer must keep evaluating for side effects. Mutability is
-//! unconstrained: the bar is "no downstream uses and side-effect-free
+//! unconstrained: the bar is "no downstream uses and safely discardable
 //! init".
 //!
-//! The purity check is conservative — it accepts only the shapes
-//! enumerated in [`crate::walk_utils::expr_is_side_effect_free`] and otherwise assumes
-//! effects. A misclassification can only leave an extra dead binding
-//! standing, never drop observable behavior.
+//! An initializer must be both effect-free and unable to fail before this rule
+//! can remove it. Expressions such as array indexing or division may be pure,
+//! but they can still fail at runtime, so their bindings stay in place unless a
+//! future value-sensitive proof can show the specific expression is safe.
 //!
 //! [`super::local_use_count`] counts closure captures, so a local that
 //! escapes through a downstream closure keeps its binding alive.
@@ -62,10 +62,12 @@
 
 use qsc_fir::{
     assigner::Assigner,
-    fir::{BlockId, ExprId, LocalVarId, Package, PackageLookup, PatKind, StmtId, StmtKind},
+    fir::{
+        BlockId, ExprId, LocalVarId, Package, PackageId, PackageLookup, PatKind, StmtId, StmtKind,
+    },
 };
 
-use crate::walk_utils::expr_is_side_effect_free;
+use crate::walk_utils::expr_is_safe_to_discard;
 
 use super::local_use_count;
 
@@ -73,7 +75,12 @@ use super::local_use_count;
 ///
 /// Returns `true` when at least one eligible single-bind `Local` was
 /// removed.
-pub(super) fn apply(package: &mut Package, _assigner: &mut Assigner, block_id: BlockId) -> bool {
+pub(super) fn apply(
+    package: &mut Package,
+    _assigner: &mut Assigner,
+    package_id: PackageId,
+    block_id: BlockId,
+) -> bool {
     let stmt_ids = package.get_block(block_id).stmts.clone();
     let mut to_remove = Vec::new();
 
@@ -81,7 +88,7 @@ pub(super) fn apply(package: &mut Package, _assigner: &mut Assigner, block_id: B
         let Some((local_id, init_id)) = eligible_local_binding(package, sid) else {
             continue;
         };
-        if !expr_is_side_effect_free(package, init_id) {
+        if !expr_is_safe_to_discard(package, package_id, init_id) {
             continue;
         }
         if !local_is_dead_in(package, &stmt_ids, idx, local_id) {

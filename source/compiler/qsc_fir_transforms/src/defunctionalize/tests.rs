@@ -513,7 +513,7 @@ fn error_diagnostic_has_code() {
     let code = error
         .code()
         .expect("DynamicCallable should have a diagnostic code");
-    assert_eq!(code.to_string(), "Qsc.Defunctionalize.DynamicCallable");
+    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
 }
 
 #[test]

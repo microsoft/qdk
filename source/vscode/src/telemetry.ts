@@ -64,6 +64,7 @@ export enum EventType {
   LearningSessionStarted = "Qsharp.LearningSessionStarted",
   LearningActivityAction = "Qsharp.LearningActivityAction",
   LearningExerciseCompleted = "Qsharp.LearningExerciseCompleted",
+  WasmError = "Qsharp.WasmError",
 }
 
 type Empty = { [K in any]: never };
@@ -355,6 +356,12 @@ type EventTypes = {
       totalExercises: number;
     };
   };
+  [EventType.WasmError]: {
+    properties: {
+      target: string;
+    };
+    measurements: Empty;
+  };
 };
 
 export enum QsharpDocumentType {
@@ -402,6 +409,14 @@ export function initTelemetry(context: vscode.ExtensionContext) {
   const version = context.extension?.packageJSON?.version;
   const browserAndRelease = getBrowserRelease();
   userAgentString = `VSCode/${version} ${browserAndRelease}`;
+
+  log.setTelemetryCollector((event) => {
+    if (event.id === "wasm-error") {
+      sendTelemetryEvent(EventType.WasmError, {
+        target: event.data?.target ?? "unknown",
+      });
+    }
+  });
 
   sendTelemetryEvent(EventType.InitializePlugin, {}, {});
 }

@@ -972,3 +972,74 @@ attributes #1 = { "irreversible" }
 !7 = !{!"double"}
 """,
     )
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_reorder_tolerates_qis_call_without_qubit_args() -> None:
+    # Regression: a recognized `__quantum__qis__*` call may have no qubit
+    # operands (here `read_result`, whose only operand is a Result). The reorder
+    # pass sorts instructions within a step by their first qubit id, so such a
+    # call previously triggered `IndexError: list index out of range` in
+    # `Reorder.instr_key`. It must now be tolerated and must remain ordered
+    # after the measurement that produced the result it reads.
+    ir = """
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @__quantum__qis__mz__body(ptr null, ptr inttoptr (i64 1 to ptr))
+  %0 = call i1 @__quantum__qis__read_result__body(ptr inttoptr (i64 1 to ptr))
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+declare void @__quantum__qis__mz__body(ptr, ptr) #1
+declare i1 @__quantum__qis__read_result__body(ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+"""
+
+    module = pyqir.Module.from_ir(pyqir.Context(), ir)
+    # Must not raise: previously failed with `IndexError: list index out of range`.
+    Reorder(NeutralAtomDevice()).run(module)
+    check_module_verifies(module)
+
+    text = str(module)
+    mz_pos = text.index("call void @__quantum__qis__mz__body")
+    read_pos = text.index("call i1 @__quantum__qis__read_result__body")
+    assert mz_pos < read_pos, "read_result must remain ordered after its measurement"
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+def test_reorder_tolerates_qis_gate_on_dynamic_qubit_pointer() -> None:
+    # Regression: Adaptive-profile QIR may keep gate definitions as separate
+    # functions whose body applies a `__quantum__qis__*` gate to a qubit
+    # *parameter* (a dynamic pointer whose `ptr_id` is None). The reorder pass
+    # visits every function with a body, so `Reorder.instr_key` must tolerate a
+    # recognized QIS gate whose qubit operand has no constant id instead of
+    # raising `IndexError`.
+    ir = """
+define void @my_gate(ptr %q) {
+block_0:
+  call void @__quantum__qis__h__body(ptr %q)
+  ret void
+}
+
+define i64 @ENTRYPOINT__main() #0 {
+block_0:
+  call void @__quantum__rt__initialize(ptr null)
+  call void @my_gate(ptr null)
+  ret i64 0
+}
+
+declare void @__quantum__rt__initialize(ptr)
+declare void @__quantum__qis__h__body(ptr)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+"""
+
+    module = pyqir.Module.from_ir(pyqir.Context(), ir)
+    # Must not raise: previously failed with `IndexError` while visiting
+    # `@my_gate`, whose `h` operand `%q` has no constant qubit id.
+    Reorder(NeutralAtomDevice()).run(module)
+    check_module_verifies(module)

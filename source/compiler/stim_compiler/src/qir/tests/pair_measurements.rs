@@ -54,7 +54,7 @@ fn mxx_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: MXX
                ,----
@@ -71,7 +71,7 @@ fn mxx_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: MXX
                ,----
@@ -139,7 +139,7 @@ fn myy_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: MYY
                ,----
@@ -156,7 +156,7 @@ fn myy_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: MYY
                ,----
@@ -214,7 +214,7 @@ fn mzz_with_negated_target_yields_unsupported_target_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedTarget
+            Qdk.Stim.Compiler.UnsupportedTarget
 
               x unsupported target in instruction: MZZ
                ,----
@@ -231,7 +231,7 @@ fn mzz_with_parens_arg_yields_unsupported_argument_error() {
     check(
         source,
         &expect![[r#"
-            Stim.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: MZZ
                ,----
