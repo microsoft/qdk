@@ -247,19 +247,19 @@ class Reg:
 OperandLike: TypeAlias = int | IntOperand | FloatOperand | Reg
 
 
-def is_immediate(arg: OperandLike | None) -> bool:
+def is_immediate(arg: Optional[OperandLike]) -> bool:
     return isinstance(arg, (IntOperand, FloatOperand))
 
 
 def prepare_immediate_flags(
     *,
-    dst: OperandLike | None = None,
-    src0: OperandLike | None = None,
-    src1: OperandLike | None = None,
-    aux0: OperandLike | None = None,
-    aux1: OperandLike | None = None,
-    aux2: OperandLike | None = None,
-    aux3: OperandLike | None = None,
+    dst: Optional[OperandLike] = None,
+    src0: Optional[OperandLike] = None,
+    src1: Optional[OperandLike] = None,
+    aux0: Optional[OperandLike] = None,
+    aux1: Optional[OperandLike] = None,
+    aux2: Optional[OperandLike] = None,
+    aux3: Optional[OperandLike] = None,
 ) -> int:
     flags = 0
     if is_immediate(dst):
