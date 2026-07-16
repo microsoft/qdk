@@ -27,8 +27,8 @@ Key exports:
   read-only ``openqasm3``-style node classes it produces.
 - :mod:`~qdk.openqasm.semantic` — the resolved semantic AST: :func:`analyze`
   and the richly-typed, clean-named node classes it produces (for example
-  :class:`~qdk.openqasm.semantic.GateCall` and
-  :class:`~qdk.openqasm.semantic.BinaryOpExpr`).
+  :class:`~qdk.openqasm.semantic.QuantumGate` and
+  :class:`~qdk.openqasm.semantic.BinaryExpression`).
 - :class:`~qdk.openqasm.parser.QASMVisitor` — a read-only visitor base for
   walking either the syntactic or semantic AST.
 """

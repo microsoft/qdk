@@ -81,8 +81,8 @@ def run(
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
         - ``seed`` (int): The seed to use for the random number generator.
-    :return: A list of results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` values is returned.
-    :rtype: List[Any]
+    :return: Results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` values is returned. If ``as_bitstring`` is true, a single result may be returned as a string.
+    :rtype: List[Any] | str
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.

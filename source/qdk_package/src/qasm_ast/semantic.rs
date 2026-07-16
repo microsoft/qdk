@@ -103,7 +103,7 @@
 //! [`SemHardwareQubit`] (Python `HardwareQubit`) so that no operand is silently
 //! dropped.
 
-use crate::qasm_ast::nodes::{Expression, QASMNode, Statement};
+use crate::qasm_ast::nodes::{Annotation, Expression, QASMNode, Statement};
 use crate::qasm_ast::span::Span;
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
@@ -312,11 +312,7 @@ pub(crate) struct SemExpr {
     name = "SemanticStatement",
     module = "qdk._native._semantic"
 )]
-pub(crate) struct SemStmt {
-    /// The statement's annotation identifiers, in source order.
-    #[pyo3(get)]
-    annotations: Vec<String>,
-}
+pub(crate) struct SemStmt {}
 
 /// Builds the initializer chain `QASMNode -> Expression -> SemExpr`.
 fn sem_expr_base(
@@ -335,10 +331,10 @@ fn sem_expr_base(
 }
 
 /// Builds the initializer chain `QASMNode -> Statement -> SemStmt`.
-fn sem_stmt_base(span: Span, annotations: Vec<String>) -> PyClassInitializer<SemStmt> {
+fn sem_stmt_base(span: Span, annotations: Vec<Py<Annotation>>) -> PyClassInitializer<SemStmt> {
     PyClassInitializer::from(QASMNode { span })
-        .add_subclass(Statement)
-        .add_subclass(SemStmt { annotations })
+        .add_subclass(Statement { annotations })
+        .add_subclass(SemStmt {})
 }
 
 // ----------------------------------------------------------------------------
@@ -406,6 +402,29 @@ impl SemHardwareQubit {
         format!("HardwareQubit(name={:?})", self.name)
     }
 }
+
+qasm_node!(@aux SemQuantumGateModifier = "QuantumGateModifier" {
+    modifier: val String,
+    argument: opt,
+});
+qasm_node!(@aux SemRangeDefinition = "RangeDefinition" {
+    start: opt,
+    step: opt,
+    end: opt,
+});
+qasm_node!(@aux SemDiscreteSet = "DiscreteSet" {
+    values: list,
+});
+qasm_node!(@aux SemSwitchCase = "SwitchCase" {
+    labels: list,
+    body: list,
+});
+qasm_node!(@aux SemSubroutineParameter = "SubroutineParameter" {
+    name: val Option<String>,
+    symbol_id: val u32,
+    symbol: val Py<SemSymbol>,
+    type_expressions: list,
+});
 
 // ----------------------------------------------------------------------------
 // Expression leaf nodes
@@ -506,7 +525,7 @@ qasm_node!(@stmt SemClassicalDecl = "ClassicalDeclaration" {
 qasm_node!(@stmt SemContinue = "ContinueStatement" {});
 qasm_node!(@stmt SemDef = "SubroutineDefinition" {
     name: val Option<String>,
-    param_types: list,
+    params: list,
     return_types: list,
     body: list,
 });
@@ -529,7 +548,7 @@ qasm_node!(@stmt SemExternDecl = "ExternDeclaration" {
 qasm_node!(@stmt SemForLoop = "ForInLoop" {
     name: val Option<String>,
     ty_exprs: list,
-    iterable: list,
+    iterable: node,
     body: node,
 });
 qasm_node!(@stmt SemGateCall = "QuantumGate" {
@@ -588,12 +607,56 @@ qasm_node!(@stmt SemReset = "QuantumReset" {
 qasm_node!(@stmt SemReturn = "ReturnStatement" {
     value: opt,
 });
-qasm_node!(@stmt SemSwitch = "SwitchStatement" {
-    target: node,
-    labels: list,
-    body: list,
-    default: list,
-});
+#[pyclass(
+    extends = SemStmt,
+    frozen,
+    name = "SwitchStatement",
+    module = "qdk._native._semantic"
+)]
+pub(crate) struct SemSwitch {
+    #[pyo3(get)]
+    target: Py<PyAny>,
+    #[pyo3(get)]
+    cases: Vec<Py<PyAny>>,
+    default: Option<Vec<Py<PyAny>>>,
+}
+
+#[pymethods]
+impl SemSwitch {
+    #[getter]
+    fn default(&self, py: Python<'_>) -> Option<Vec<Py<PyAny>>> {
+        self.default
+            .as_ref()
+            .map(|body| body.iter().map(|stmt| stmt.clone_ref(py)).collect())
+    }
+
+    fn children(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
+        let default_len = self.default.as_ref().map_or(0, Vec::len);
+        let mut children = Vec::with_capacity(1 + self.cases.len() + default_len);
+        children.push(self.target.clone_ref(py));
+        children.extend(self.cases.iter().map(|case| case.clone_ref(py)));
+        if let Some(default) = &self.default {
+            children.extend(default.iter().map(|stmt| stmt.clone_ref(py)));
+        }
+        children
+    }
+}
+
+impl SemSwitch {
+    fn init(
+        span: Span,
+        annotations: Vec<Py<Annotation>>,
+        target: Py<PyAny>,
+        cases: Vec<Py<PyAny>>,
+        default: Option<Vec<Py<PyAny>>>,
+    ) -> PyClassInitializer<Self> {
+        sem_stmt_base(span, annotations).add_subclass(Self {
+            target,
+            cases,
+            default,
+        })
+    }
+}
 qasm_node!(@stmt SemWhileLoop = "WhileLoop" {
     condition: node,
     body: node,
@@ -624,6 +687,11 @@ pub(crate) fn register_semantic_nodes(m: &Bound<'_, PyModule>) -> PyResult<()> {
         SemStmt,
         SemProgram,
         SemHardwareQubit,
+        SemQuantumGateModifier,
+        SemRangeDefinition,
+        SemDiscreteSet,
+        SemSwitchCase,
+        SemSubroutineParameter,
         SemErrExpr,
         SemResolvedIdent,
         SemCapturedResolvedIdent,
@@ -716,11 +784,7 @@ fn build_pragma(py: Python<'_>, pragma: &sem::Pragma) -> PyResult<Py<PyAny>> {
 #[allow(clippy::too_many_lines)]
 fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResult<Py<PyAny>> {
     let span = Span::from(stmt.span);
-    let annotations: Vec<String> = stmt
-        .annotations
-        .iter()
-        .map(|annotation| annotation.identifier.as_string())
-        .collect();
+    let annotations = build_annotations(py, &stmt.annotations)?;
 
     let obj: Py<PyAny> = match stmt.kind.as_ref() {
         StmtKind::Alias(s) => {
@@ -769,18 +833,30 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResu
         }
         StmtKind::Continue(_) => Py::new(py, SemContinue::init(span, annotations))?.into_any(),
         StmtKind::Def(s) => {
-            let mut param_types = Vec::new();
+            let mut params = Vec::with_capacity(s.params.len());
             for param in &s.params {
-                for ty_expr in &param.ty_exprs {
-                    param_types.push(build_expr(py, ty_expr, symbols)?);
-                }
+                let type_expressions = expr_list(py, &param.ty_exprs, symbols)?;
+                let symbol = build_symbol(py, symbols, param.symbol_id)?;
+                params.push(
+                    Py::new(
+                        py,
+                        SemSubroutineParameter::init(
+                            Span::from(param.span),
+                            symbol_name(symbols, param.symbol_id),
+                            param.symbol_id.into(),
+                            symbol,
+                            type_expressions,
+                        ),
+                    )?
+                    .into_any(),
+                );
             }
             let return_types = expr_list(py, &s.return_ty_exprs, symbols)?;
             let body = stmt_list(py, &s.body.stmts, symbols)?;
             let name = symbol_name(symbols, s.symbol_id);
             Py::new(
                 py,
-                SemDef::init(span, annotations, name, param_types, return_types, body),
+                SemDef::init(span, annotations, name, params, return_types, body),
             )?
             .into_any()
         }
@@ -811,8 +887,7 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResu
         }
         StmtKind::For(s) => {
             let ty_exprs = expr_list(py, &s.ty_exprs, symbols)?;
-            let mut iterable = Vec::new();
-            collect_enumerable_set(py, &mut iterable, &s.set_declaration, symbols)?;
+            let iterable = build_enumerable_set(py, &s.set_declaration, symbols)?;
             let body = build_stmt(py, &s.body, symbols)?;
             let name = symbol_name(symbols, s.loop_variable);
             Py::new(
@@ -822,9 +897,9 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResu
             .into_any()
         }
         StmtKind::GateCall(s) => {
-            let mut modifiers = Vec::new();
-            for modifier in &s.modifiers {
-                collect_modifier(py, &mut modifiers, modifier, symbols)?;
+            let mut modifiers = Vec::with_capacity(s.modifiers.len());
+            for modifier in s.modifiers.iter().rev() {
+                modifiers.push(build_modifier(py, modifier, symbols)?);
             }
             let args = expr_list(py, &s.args, symbols)?;
             let qubits = gate_operand_list(py, &s.qubits, symbols)?;
@@ -856,9 +931,9 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResu
         .into_any(),
         StmtKind::IndexedAssign(s) => {
             let lhs = build_expr(py, &s.lhs, symbols)?;
-            let mut indices = Vec::new();
+            let mut indices = Vec::with_capacity(s.indices.len());
             for index in &s.indices {
-                collect_index(py, &mut indices, index, symbols)?;
+                indices.push(build_index(py, index, symbols)?);
             }
             let rhs = build_expr(py, &s.rhs, symbols)?;
             Py::new(
@@ -939,25 +1014,23 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResu
         }
         StmtKind::Switch(s) => {
             let target = build_expr(py, &s.target, symbols)?;
-            let mut labels = Vec::new();
-            let mut body = Vec::new();
+            let mut cases = Vec::with_capacity(s.cases.len());
             for case in &s.cases {
-                for label in &case.labels {
-                    labels.push(build_expr(py, label, symbols)?);
-                }
-                for case_stmt in &case.block.stmts {
-                    body.push(build_stmt(py, case_stmt, symbols)?);
-                }
+                let labels = expr_list(py, &case.labels, symbols)?;
+                let body = stmt_list(py, &case.block.stmts, symbols)?;
+                cases.push(
+                    Py::new(py, SemSwitchCase::init(Span::from(case.span), labels, body))?
+                        .into_any(),
+                );
             }
-            let mut default = Vec::new();
-            if let Some(default_block) = &s.default {
-                for default_stmt in &default_block.stmts {
-                    default.push(build_stmt(py, default_stmt, symbols)?);
-                }
-            }
+            let default = s
+                .default
+                .as_ref()
+                .map(|block| stmt_list(py, &block.stmts, symbols))
+                .transpose()?;
             Py::new(
                 py,
-                SemSwitch::init(span, annotations, target, labels, body, default),
+                SemSwitch::init(span, annotations, target, cases, default),
             )?
             .into_any()
         }
@@ -969,6 +1042,26 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResu
         StmtKind::Err => Py::new(py, SemErrStmt::init(span, annotations))?.into_any(),
     };
     Ok(obj)
+}
+
+fn build_annotations(
+    py: Python<'_>,
+    annotations: &[sem::Annotation],
+) -> PyResult<Vec<Py<Annotation>>> {
+    annotations
+        .iter()
+        .map(|annotation| {
+            Py::new(
+                py,
+                Annotation::init(
+                    Span::from(annotation.span),
+                    annotation.identifier.as_string(),
+                    annotation.value.as_ref().map(ToString::to_string),
+                    annotation.value_span.map(Span::from),
+                ),
+            )
+        })
+        .collect()
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1067,8 +1160,7 @@ fn build_expr(py: Python<'_>, expr: &sem::Expr, symbols: &SymbolTable) -> PyResu
         }
         ExprKind::IndexedExpr(e) => {
             let collection = build_expr(py, &e.collection, symbols)?;
-            let mut indices = Vec::new();
-            collect_index(py, &mut indices, &e.index, symbols)?;
+            let indices = vec![build_index(py, &e.index, symbols)?];
             Py::new(
                 py,
                 SemIndexedExpr::init(span, ty, const_value, None, collection, indices),
@@ -1185,68 +1277,55 @@ fn build_hardware_qubit(py: Python<'_>, hw: &sem::HardwareQubit) -> PyResult<Py<
     Ok(Py::new(py, init)?.into_any())
 }
 
-fn collect_index(
-    py: Python<'_>,
-    out: &mut Vec<Py<PyAny>>,
-    index: &sem::Index,
-    symbols: &SymbolTable,
-) -> PyResult<()> {
+fn build_index(py: Python<'_>, index: &sem::Index, symbols: &SymbolTable) -> PyResult<Py<PyAny>> {
     match index {
-        sem::Index::Expr(expr) => out.push(build_expr(py, expr, symbols)?),
-        sem::Index::Range(range) => collect_range(py, out, range, symbols)?,
+        sem::Index::Expr(expr) => build_expr(py, expr, symbols),
+        sem::Index::Range(range) => build_range(py, range, symbols),
     }
-    Ok(())
 }
 
-fn collect_range(
-    py: Python<'_>,
-    out: &mut Vec<Py<PyAny>>,
-    range: &sem::Range,
-    symbols: &SymbolTable,
-) -> PyResult<()> {
-    if let Some(start) = &range.start {
-        out.push(build_expr(py, start, symbols)?);
-    }
-    if let Some(step) = &range.step {
-        out.push(build_expr(py, step, symbols)?);
-    }
-    if let Some(end) = &range.end {
-        out.push(build_expr(py, end, symbols)?);
-    }
-    Ok(())
+fn build_range(py: Python<'_>, range: &sem::Range, symbols: &SymbolTable) -> PyResult<Py<PyAny>> {
+    let start = build_opt_expr(py, range.start.as_ref(), symbols)?;
+    let step = build_opt_expr(py, range.step.as_ref(), symbols)?;
+    let end = build_opt_expr(py, range.end.as_ref(), symbols)?;
+    Ok(Py::new(
+        py,
+        SemRangeDefinition::init(Span::from(range.span), start, step, end),
+    )?
+    .into_any())
 }
 
-fn collect_enumerable_set(
+fn build_enumerable_set(
     py: Python<'_>,
-    out: &mut Vec<Py<PyAny>>,
     set: &sem::EnumerableSet,
     symbols: &SymbolTable,
-) -> PyResult<()> {
+) -> PyResult<Py<PyAny>> {
     match set {
         sem::EnumerableSet::Set(set) => {
-            for value in &set.values {
-                out.push(build_expr(py, value, symbols)?);
-            }
+            let values = expr_list(py, &set.values, symbols)?;
+            Ok(Py::new(py, SemDiscreteSet::init(Span::from(set.span), values))?.into_any())
         }
-        sem::EnumerableSet::Range(range) => collect_range(py, out, range, symbols)?,
-        sem::EnumerableSet::Expr(expr) => out.push(build_expr(py, expr, symbols)?),
+        sem::EnumerableSet::Range(range) => build_range(py, range, symbols),
+        sem::EnumerableSet::Expr(expr) => build_expr(py, expr, symbols),
     }
-    Ok(())
 }
 
-fn collect_modifier(
+fn build_modifier(
     py: Python<'_>,
-    out: &mut Vec<Py<PyAny>>,
     modifier: &sem::QuantumGateModifier,
     symbols: &SymbolTable,
-) -> PyResult<()> {
-    match &modifier.kind {
-        sem::GateModifierKind::Inv => {}
-        sem::GateModifierKind::Pow(expr)
-        | sem::GateModifierKind::Ctrl(expr)
-        | sem::GateModifierKind::NegCtrl(expr) => out.push(build_expr(py, expr, symbols)?),
-    }
-    Ok(())
+) -> PyResult<Py<PyAny>> {
+    let (name, argument) = match &modifier.kind {
+        sem::GateModifierKind::Inv => ("inv", None),
+        sem::GateModifierKind::Pow(expr) => ("pow", Some(build_expr(py, expr, symbols)?)),
+        sem::GateModifierKind::Ctrl(expr) => ("ctrl", Some(build_expr(py, expr, symbols)?)),
+        sem::GateModifierKind::NegCtrl(expr) => ("negctrl", Some(build_expr(py, expr, symbols)?)),
+    };
+    Ok(Py::new(
+        py,
+        SemQuantumGateModifier::init(Span::from(modifier.span), name.to_string(), argument),
+    )?
+    .into_any())
 }
 
 // ----------------------------------------------------------------------------

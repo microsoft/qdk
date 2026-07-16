@@ -89,7 +89,7 @@
 //! * A measurement r-value (`measure q`) -> `QuantumMeasurement`
 //! * A gate modifier (`ctrl @`, `pow(2) @`) -> `QuantumGateModifier`
 
-use crate::qasm_ast::nodes::{Expression, QASMNode, Statement};
+use crate::qasm_ast::nodes::{Annotation, Expression, QASMNode, Statement};
 use crate::qasm_ast::span::Span;
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
@@ -106,8 +106,8 @@ fn syntax_expr_base(span: Span) -> PyClassInitializer<Expression> {
 }
 
 /// Builds the initializer chain `QASMNode -> Statement`.
-fn syntax_stmt_base(span: Span) -> PyClassInitializer<Statement> {
-    PyClassInitializer::from(QASMNode { span }).add_subclass(Statement)
+fn syntax_stmt_base(span: Span, annotations: Vec<Py<Annotation>>) -> PyClassInitializer<Statement> {
+    PyClassInitializer::from(QASMNode { span }).add_subclass(Statement { annotations })
 }
 
 // ----------------------------------------------------------------------------
@@ -251,6 +251,26 @@ qasm_node!(@sexpr Concatenation {
 qasm_node!(@sexpr QuantumMeasurement {
     qubits: list,
 });
+qasm_node!(@saux RangeDefinition {
+    start: opt,
+    step: opt,
+    end: opt,
+});
+qasm_node!(@saux DiscreteSet {
+    values: list,
+});
+qasm_node!(@saux IndexList {
+    values: list,
+});
+qasm_node!(@saux SwitchCase {
+    labels: list,
+    body: list,
+});
+qasm_node!(@saux SubroutineParameter {
+    identifier: node,
+    type_name: val String,
+    type_expressions: list,
+});
 
 // ----------------------------------------------------------------------------
 // Statement leaf nodes
@@ -326,7 +346,7 @@ qasm_node!(@sstmt ExternDeclaration {
 qasm_node!(@sstmt ForInLoop {
     type_name: val String,
     identifier: node,
-    iterable: list,
+    iterable: node,
     body: node,
 });
 qasm_node!(@sstmt BranchingStatement {
@@ -375,12 +395,51 @@ qasm_node!(@sstmt QuantumReset {
 qasm_node!(@sstmt ReturnStatement {
     value: opt,
 });
-qasm_node!(@sstmt SwitchStatement {
-    target: node,
-    labels: list,
-    body: list,
-    default: list,
-});
+#[pyclass(extends = Statement, frozen, module = "qdk._native")]
+pub(crate) struct SwitchStatement {
+    #[pyo3(get)]
+    target: Py<PyAny>,
+    #[pyo3(get)]
+    cases: Vec<Py<PyAny>>,
+    default: Option<Vec<Py<PyAny>>>,
+}
+
+#[pymethods]
+impl SwitchStatement {
+    #[getter]
+    fn default(&self, py: Python<'_>) -> Option<Vec<Py<PyAny>>> {
+        self.default
+            .as_ref()
+            .map(|body| body.iter().map(|stmt| stmt.clone_ref(py)).collect())
+    }
+
+    fn children(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
+        let default_len = self.default.as_ref().map_or(0, Vec::len);
+        let mut children = Vec::with_capacity(1 + self.cases.len() + default_len);
+        children.push(self.target.clone_ref(py));
+        children.extend(self.cases.iter().map(|case| case.clone_ref(py)));
+        if let Some(default) = &self.default {
+            children.extend(default.iter().map(|stmt| stmt.clone_ref(py)));
+        }
+        children
+    }
+}
+
+impl SwitchStatement {
+    fn init(
+        span: Span,
+        annotations: Vec<Py<Annotation>>,
+        target: Py<PyAny>,
+        cases: Vec<Py<PyAny>>,
+        default: Option<Vec<Py<PyAny>>>,
+    ) -> PyClassInitializer<Self> {
+        syntax_stmt_base(span, annotations).add_subclass(Self {
+            target,
+            cases,
+            default,
+        })
+    }
+}
 qasm_node!(@sstmt WhileLoop {
     condition: node,
     body: node,
@@ -416,6 +475,11 @@ pub(crate) fn register_syntax_nodes(m: &Bound<'_, PyModule>) -> PyResult<()> {
         DurationOf,
         Concatenation,
         QuantumMeasurement,
+        RangeDefinition,
+        DiscreteSet,
+        IndexList,
+        SwitchCase,
+        SubroutineParameter,
         QubitDeclaration,
         AliasStatement,
         ClassicalAssignment,
@@ -488,46 +552,49 @@ pub(crate) fn build_program(
 #[allow(clippy::too_many_lines)]
 fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
     let span = Span::from(stmt.span);
+    let annotations = build_annotations(py, &stmt.annotations)?;
     let obj: Py<PyAny> = match stmt.kind.as_ref() {
         ast::StmtKind::Alias(s) => {
             let target = build_ident_or_indexed(py, &s.ident)?;
             let exprs = expr_list(py, &s.exprs)?;
-            Py::new(py, AliasStatement::init(span, target, exprs))?.into_any()
+            Py::new(py, AliasStatement::init(span, annotations, target, exprs))?.into_any()
         }
         ast::StmtKind::Assign(s) => {
             let lhs = build_ident_or_indexed(py, &s.lhs)?;
             let rhs = build_value_expr(py, &s.rhs)?;
-            Py::new(py, ClassicalAssignment::init(span, lhs, rhs))?.into_any()
+            Py::new(py, ClassicalAssignment::init(span, annotations, lhs, rhs))?.into_any()
         }
         ast::StmtKind::AssignOp(s) => {
             let lhs = build_ident_or_indexed(py, &s.lhs)?;
             let rhs = build_value_expr(py, &s.rhs)?;
             Py::new(
                 py,
-                CompoundAssignment::init(span, s.op.to_string(), lhs, rhs),
+                CompoundAssignment::init(span, annotations, s.op.to_string(), lhs, rhs),
             )?
             .into_any()
         }
         ast::StmtKind::Barrier(s) => {
             let qubits = gate_operand_list(py, &s.qubits)?;
-            Py::new(py, QuantumBarrier::init(span, qubits))?.into_any()
+            Py::new(py, QuantumBarrier::init(span, annotations, qubits))?.into_any()
         }
         ast::StmtKind::Box(s) => {
             let duration = opt_expr(py, s.duration.as_ref())?;
             let body = stmt_list(py, &s.body)?;
-            Py::new(py, Box::init(span, duration, body))?.into_any()
+            Py::new(py, Box::init(span, annotations, duration, body))?.into_any()
         }
-        ast::StmtKind::Break(_) => Py::new(py, BreakStatement::init(span))?.into_any(),
+        ast::StmtKind::Break(_) => Py::new(py, BreakStatement::init(span, annotations))?.into_any(),
         ast::StmtKind::Block(s) => {
             let statements = stmt_list(py, &s.stmts)?;
-            Py::new(py, CompoundStatement::init(span, statements))?.into_any()
+            Py::new(py, CompoundStatement::init(span, annotations, statements))?.into_any()
         }
-        ast::StmtKind::Cal(s) => {
-            Py::new(py, CalibrationStatement::init(span, s.content.to_string()))?.into_any()
-        }
+        ast::StmtKind::Cal(s) => Py::new(
+            py,
+            CalibrationStatement::init(span, annotations, s.content.to_string()),
+        )?
+        .into_any(),
         ast::StmtKind::CalibrationGrammar(s) => Py::new(
             py,
-            CalibrationGrammarDeclaration::init(span, s.name.to_string()),
+            CalibrationGrammarDeclaration::init(span, annotations, s.name.to_string()),
         )?
         .into_any(),
         ast::StmtKind::ClassicalDecl(s) => {
@@ -538,7 +605,13 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             };
             Py::new(
                 py,
-                ClassicalDeclaration::init(span, s.ty.to_string(), identifier, init_expr),
+                ClassicalDeclaration::init(
+                    span,
+                    annotations,
+                    s.ty.to_string(),
+                    identifier,
+                    init_expr,
+                ),
             )?
             .into_any()
         }
@@ -547,37 +620,65 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             let init_expr = build_value_expr(py, &s.init_expr)?;
             Py::new(
                 py,
-                ConstantDeclaration::init(span, s.ty.to_string(), identifier, init_expr),
+                ConstantDeclaration::init(
+                    span,
+                    annotations,
+                    s.ty.to_string(),
+                    identifier,
+                    init_expr,
+                ),
             )?
             .into_any()
         }
-        ast::StmtKind::Continue(_) => Py::new(py, ContinueStatement::init(span))?.into_any(),
+        ast::StmtKind::Continue(_) => {
+            Py::new(py, ContinueStatement::init(span, annotations))?.into_any()
+        }
         ast::StmtKind::Def(s) => {
             let name = build_identifier(py, &s.name)?;
             let mut params = Vec::with_capacity(s.params.len());
             for param in &s.params {
-                params.push(build_identifier(py, &param.ident)?);
+                let identifier = build_identifier(py, &param.ident)?;
+                let (type_name, type_expressions) =
+                    def_parameter_type_parts(py, param.ty.as_ref())?;
+                params.push(
+                    Py::new(
+                        py,
+                        SubroutineParameter::init(
+                            Span::from(param.span),
+                            identifier,
+                            type_name,
+                            type_expressions,
+                        ),
+                    )?
+                    .into_any(),
+                );
             }
             let return_type_name = s.return_type.as_ref().map(ToString::to_string);
             let body = stmt_list(py, &s.body.stmts)?;
             Py::new(
                 py,
-                SubroutineDefinition::init(span, name, params, return_type_name, body),
+                SubroutineDefinition::init(span, annotations, name, params, return_type_name, body),
             )?
             .into_any()
         }
-        ast::StmtKind::DefCal(s) => {
-            Py::new(py, CalibrationDefinition::init(span, s.content.to_string()))?.into_any()
-        }
+        ast::StmtKind::DefCal(s) => Py::new(
+            py,
+            CalibrationDefinition::init(span, annotations, s.content.to_string()),
+        )?
+        .into_any(),
         ast::StmtKind::Delay(s) => {
             let duration = build_expr(py, &s.duration)?;
             let qubits = gate_operand_list(py, &s.qubits)?;
-            Py::new(py, DelayInstruction::init(span, duration, qubits))?.into_any()
+            Py::new(
+                py,
+                DelayInstruction::init(span, annotations, duration, qubits),
+            )?
+            .into_any()
         }
-        ast::StmtKind::End(_) => Py::new(py, EndStatement::init(span))?.into_any(),
+        ast::StmtKind::End(_) => Py::new(py, EndStatement::init(span, annotations))?.into_any(),
         ast::StmtKind::ExprStmt(s) => {
             let expr = build_expr(py, &s.expr)?;
-            Py::new(py, ExpressionStatement::init(span, expr))?.into_any()
+            Py::new(py, ExpressionStatement::init(span, annotations, expr))?.into_any()
         }
         ast::StmtKind::ExternDecl(s) => {
             let name = build_identifier(py, &s.ident)?;
@@ -592,18 +693,30 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             let return_type_name = s.return_type.as_ref().map(ToString::to_string);
             Py::new(
                 py,
-                ExternDeclaration::init(span, name, param_type_names, return_type_name),
+                ExternDeclaration::init(
+                    span,
+                    annotations,
+                    name,
+                    param_type_names,
+                    return_type_name,
+                ),
             )?
             .into_any()
         }
         ast::StmtKind::For(s) => {
             let identifier = build_identifier(py, &s.ident)?;
-            let mut iterable = Vec::new();
-            collect_enumerable_set(py, &mut iterable, &s.set_declaration)?;
+            let iterable = build_enumerable_set(py, &s.set_declaration)?;
             let body = build_stmt(py, &s.body)?;
             Py::new(
                 py,
-                ForInLoop::init(span, s.ty.to_string(), identifier, iterable, body),
+                ForInLoop::init(
+                    span,
+                    annotations,
+                    s.ty.to_string(),
+                    identifier,
+                    iterable,
+                    body,
+                ),
             )?
             .into_any()
         }
@@ -616,7 +729,7 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             };
             Py::new(
                 py,
-                BranchingStatement::init(span, condition, if_body, else_body),
+                BranchingStatement::init(span, annotations, condition, if_body, else_body),
             )?
             .into_any()
         }
@@ -628,7 +741,7 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             let duration = opt_expr(py, s.duration.as_ref())?;
             Py::new(
                 py,
-                QuantumGate::init(span, name, modifiers, args, qubits, duration),
+                QuantumGate::init(span, annotations, name, modifiers, args, qubits, duration),
             )?
             .into_any()
         }
@@ -639,12 +752,12 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             let duration = opt_expr(py, s.duration.as_ref())?;
             Py::new(
                 py,
-                QuantumPhase::init(span, modifiers, args, qubits, duration),
+                QuantumPhase::init(span, annotations, modifiers, args, qubits, duration),
             )?
             .into_any()
         }
         ast::StmtKind::Include(s) => {
-            Py::new(py, Include::init(span, s.filename.to_string()))?.into_any()
+            Py::new(py, Include::init(span, annotations, s.filename.to_string()))?.into_any()
         }
         ast::StmtKind::IODeclaration(s) => {
             let identifier = build_identifier(py, &s.ident)?;
@@ -652,6 +765,7 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                 py,
                 IODeclaration::init(
                     span,
+                    annotations,
                     s.io_identifier.to_string(),
                     s.ty.to_string(),
                     identifier,
@@ -666,12 +780,16 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                 Some(target) => Some(build_ident_or_indexed(py, target)?),
                 None => None,
             };
-            Py::new(py, QuantumMeasurementStatement::init(span, qubits, target))?.into_any()
+            Py::new(
+                py,
+                QuantumMeasurementStatement::init(span, annotations, qubits, target),
+            )?
+            .into_any()
         }
         ast::StmtKind::Pragma(s) => {
             let name = s.identifier.as_ref().map(PathKind::as_string);
             let value = s.value.as_ref().map(ToString::to_string);
-            Py::new(py, Pragma::init(span, name, value))?.into_any()
+            Py::new(py, Pragma::init(span, annotations, name, value))?.into_any()
         }
         ast::StmtKind::QuantumGateDefinition(s) => {
             let name = build_identifier(py, &s.ident)?;
@@ -688,59 +806,76 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             let body = stmt_list(py, &s.body.stmts)?;
             Py::new(
                 py,
-                QuantumGateDefinition::init(span, name, params, qubits, body),
+                QuantumGateDefinition::init(span, annotations, name, params, qubits, body),
             )?
             .into_any()
         }
         ast::StmtKind::QuantumDecl(s) => {
             let qubit = build_identifier(py, &s.qubit)?;
             let size = opt_expr(py, s.ty.size.as_ref())?;
-            Py::new(py, QubitDeclaration::init(span, qubit, size))?.into_any()
+            Py::new(py, QubitDeclaration::init(span, annotations, qubit, size))?.into_any()
         }
         ast::StmtKind::Reset(s) => {
             let mut qubits = Vec::new();
             collect_gate_operand(py, &mut qubits, &s.operand)?;
-            Py::new(py, QuantumReset::init(span, qubits))?.into_any()
+            Py::new(py, QuantumReset::init(span, annotations, qubits))?.into_any()
         }
         ast::StmtKind::Return(s) => {
             let value = match s.expr.as_deref() {
                 Some(expr) => Some(build_value_expr(py, expr)?),
                 None => None,
             };
-            Py::new(py, ReturnStatement::init(span, value))?.into_any()
+            Py::new(py, ReturnStatement::init(span, annotations, value))?.into_any()
         }
         ast::StmtKind::Switch(s) => {
             let target = build_expr(py, &s.target)?;
-            let mut labels = Vec::new();
-            let mut body = Vec::new();
+            let mut cases = Vec::with_capacity(s.cases.len());
             for case in &s.cases {
-                for label in &case.labels {
-                    labels.push(build_expr(py, label)?);
-                }
-                for case_stmt in &case.block.stmts {
-                    body.push(build_stmt(py, case_stmt)?);
-                }
+                let labels = expr_list(py, &case.labels)?;
+                let body = stmt_list(py, &case.block.stmts)?;
+                cases.push(
+                    Py::new(py, SwitchCase::init(Span::from(case.span), labels, body))?.into_any(),
+                );
             }
-            let mut default = Vec::new();
-            if let Some(default_block) = &s.default {
-                for default_stmt in &default_block.stmts {
-                    default.push(build_stmt(py, default_stmt)?);
-                }
-            }
+            let default = s
+                .default
+                .as_ref()
+                .map(|block| stmt_list(py, &block.stmts))
+                .transpose()?;
             Py::new(
                 py,
-                SwitchStatement::init(span, target, labels, body, default),
+                SwitchStatement::init(span, annotations, target, cases, default),
             )?
             .into_any()
         }
         ast::StmtKind::WhileLoop(s) => {
             let condition = build_expr(py, &s.while_condition)?;
             let body = build_stmt(py, &s.body)?;
-            Py::new(py, WhileLoop::init(span, condition, body))?.into_any()
+            Py::new(py, WhileLoop::init(span, annotations, condition, body))?.into_any()
         }
-        ast::StmtKind::Err => Py::new(py, ErrorStatement::init(span))?.into_any(),
+        ast::StmtKind::Err => Py::new(py, ErrorStatement::init(span, annotations))?.into_any(),
     };
     Ok(obj)
+}
+
+fn build_annotations(
+    py: Python<'_>,
+    annotations: &[ast::Annotation],
+) -> PyResult<Vec<Py<Annotation>>> {
+    annotations
+        .iter()
+        .map(|annotation| {
+            Py::new(
+                py,
+                Annotation::init(
+                    Span::from(annotation.span),
+                    annotation.identifier.as_string(),
+                    annotation.value.as_ref().map(ToString::to_string),
+                    annotation.value_span.map(Span::from),
+                ),
+            )
+        })
+        .collect()
 }
 
 fn build_expr(py: Python<'_>, expr: &ast::Expr) -> PyResult<Py<PyAny>> {
@@ -772,8 +907,7 @@ fn build_expr(py: Python<'_>, expr: &ast::Expr) -> PyResult<Py<PyAny>> {
         }
         ast::ExprKind::IndexExpr(e) => {
             let collection = build_expr(py, &e.collection)?;
-            let mut indices = Vec::new();
-            collect_index(py, &mut indices, &e.index)?;
+            let indices = vec![build_index(py, &e.index)?];
             Py::new(py, IndexExpression::init(span, collection, indices))?.into_any()
         }
         ast::ExprKind::Paren(inner) => {
@@ -800,9 +934,9 @@ fn build_ident_or_indexed(py: Python<'_>, ident: &ast::IdentOrIndexedIdent) -> P
         ast::IdentOrIndexedIdent::Ident(ident) => build_identifier(py, ident),
         ast::IdentOrIndexedIdent::IndexedIdent(indexed) => {
             let name = build_identifier(py, &indexed.ident)?;
-            let mut indices = Vec::new();
+            let mut indices = Vec::with_capacity(indexed.indices.len());
             for index in &indexed.indices {
-                collect_index(py, &mut indices, index)?;
+                indices.push(build_index(py, index)?);
             }
             let init = IndexedIdentifier::init(Span::from(indexed.span), name, indices);
             Ok(Py::new(py, init)?.into_any())
@@ -861,6 +995,71 @@ fn opt_expr(py: Python<'_>, expr: Option<&ast::Expr>) -> PyResult<Option<Py<PyAn
     }
 }
 
+fn def_parameter_type_parts(
+    py: Python<'_>,
+    ty: &ast::DefParameterType,
+) -> PyResult<(String, Vec<Py<PyAny>>)> {
+    match ty {
+        ast::DefParameterType::Qubit(ty) => Ok((
+            "qubit".to_string(),
+            opt_expr(py, ty.size.as_ref())?.into_iter().collect(),
+        )),
+        ast::DefParameterType::Scalar(ty) => scalar_type_parts(py, &ty.kind),
+        ast::DefParameterType::ArrayReference(ty) => match ty {
+            ast::ArrayReferenceType::Static(ty) => {
+                let name = format!(
+                    "{} static array[{}]",
+                    ty.mutability.to_string().to_lowercase(),
+                    array_base_type_name(&ty.base_type)
+                );
+                Ok((name, expr_list(py, &ty.dimensions)?))
+            }
+            ast::ArrayReferenceType::Dyn(ty) => {
+                let name = format!(
+                    "{} dynamic array[{}]",
+                    ty.mutability.to_string().to_lowercase(),
+                    array_base_type_name(&ty.base_type)
+                );
+                Ok((name, vec![build_expr(py, &ty.dimensions)?]))
+            }
+        },
+    }
+}
+
+fn scalar_type_parts(
+    py: Python<'_>,
+    kind: &ast::ScalarTypeKind,
+) -> PyResult<(String, Vec<Py<PyAny>>)> {
+    let (name, size) = match kind {
+        ast::ScalarTypeKind::Bit(ty) => ("bit", ty.size.as_ref()),
+        ast::ScalarTypeKind::Int(ty) => ("int", ty.size.as_ref()),
+        ast::ScalarTypeKind::Uint(ty) => ("uint", ty.size.as_ref()),
+        ast::ScalarTypeKind::Float(ty) => ("float", ty.size.as_ref()),
+        ast::ScalarTypeKind::Angle(ty) => ("angle", ty.size.as_ref()),
+        ast::ScalarTypeKind::Complex(ty) => (
+            "complex",
+            ty.base_size.as_ref().and_then(|base| base.size.as_ref()),
+        ),
+        ast::ScalarTypeKind::BoolType => ("bool", None),
+        ast::ScalarTypeKind::Duration => ("duration", None),
+        ast::ScalarTypeKind::Stretch => ("stretch", None),
+        ast::ScalarTypeKind::Err => ("error", None),
+    };
+    Ok((name.to_string(), opt_expr(py, size)?.into_iter().collect()))
+}
+
+fn array_base_type_name(kind: &ast::ArrayBaseTypeKind) -> &'static str {
+    match kind {
+        ast::ArrayBaseTypeKind::Int(_) => "int",
+        ast::ArrayBaseTypeKind::Uint(_) => "uint",
+        ast::ArrayBaseTypeKind::Float(_) => "float",
+        ast::ArrayBaseTypeKind::Complex(_) => "complex",
+        ast::ArrayBaseTypeKind::Angle(_) => "angle",
+        ast::ArrayBaseTypeKind::BoolType => "bool",
+        ast::ArrayBaseTypeKind::Duration => "duration",
+    }
+}
+
 fn modifier_list(
     py: Python<'_>,
     modifiers: &[ast::QuantumGateModifier],
@@ -908,56 +1107,48 @@ fn collect_gate_operand(
     Ok(())
 }
 
-fn collect_index(py: Python<'_>, out: &mut Vec<Py<PyAny>>, index: &ast::Index) -> PyResult<()> {
+fn build_index(py: Python<'_>, index: &ast::Index) -> PyResult<Py<PyAny>> {
     match index {
         ast::Index::DiscreteSet(set) => {
-            for value in &set.values {
-                out.push(build_expr(py, value)?);
-            }
+            let values = expr_list(py, &set.values)?;
+            Ok(Py::new(py, DiscreteSet::init(Span::from(set.span), values))?.into_any())
         }
         ast::Index::IndexList(list) => {
+            let mut values = Vec::with_capacity(list.values.len());
             for item in &list.values {
                 match item {
                     ast::IndexListItem::RangeDefinition(range) => {
-                        collect_range(py, out, range)?;
+                        values.push(build_range(py, range)?);
                     }
-                    ast::IndexListItem::Expr(expr) => out.push(build_expr(py, expr)?),
+                    ast::IndexListItem::Expr(expr) => values.push(build_expr(py, expr)?),
                     ast::IndexListItem::Err => {}
                 }
             }
+            Ok(Py::new(py, IndexList::init(Span::from(list.span), values))?.into_any())
         }
     }
-    Ok(())
 }
 
-fn collect_range(py: Python<'_>, out: &mut Vec<Py<PyAny>>, range: &ast::Range) -> PyResult<()> {
-    if let Some(start) = &range.start {
-        out.push(build_expr(py, start)?);
-    }
-    if let Some(step) = &range.step {
-        out.push(build_expr(py, step)?);
-    }
-    if let Some(end) = &range.end {
-        out.push(build_expr(py, end)?);
-    }
-    Ok(())
+fn build_range(py: Python<'_>, range: &ast::Range) -> PyResult<Py<PyAny>> {
+    let start = opt_expr(py, range.start.as_ref())?;
+    let step = opt_expr(py, range.step.as_ref())?;
+    let end = opt_expr(py, range.end.as_ref())?;
+    Ok(Py::new(
+        py,
+        RangeDefinition::init(Span::from(range.span), start, step, end),
+    )?
+    .into_any())
 }
 
-fn collect_enumerable_set(
-    py: Python<'_>,
-    out: &mut Vec<Py<PyAny>>,
-    set: &ast::EnumerableSet,
-) -> PyResult<()> {
+fn build_enumerable_set(py: Python<'_>, set: &ast::EnumerableSet) -> PyResult<Py<PyAny>> {
     match set {
         ast::EnumerableSet::DiscreteSet(set) => {
-            for value in &set.values {
-                out.push(build_expr(py, value)?);
-            }
+            let values = expr_list(py, &set.values)?;
+            Ok(Py::new(py, DiscreteSet::init(Span::from(set.span), values))?.into_any())
         }
-        ast::EnumerableSet::Range(range) => collect_range(py, out, range)?,
-        ast::EnumerableSet::Expr(expr) => out.push(build_expr(py, expr)?),
+        ast::EnumerableSet::Range(range) => build_range(py, range),
+        ast::EnumerableSet::Expr(expr) => build_expr(py, expr),
     }
-    Ok(())
 }
 
 // ----------------------------------------------------------------------------

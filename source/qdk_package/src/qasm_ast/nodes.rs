@@ -22,6 +22,40 @@
 use crate::qasm_ast::span::Span;
 use pyo3::prelude::*;
 
+/// An annotation attached to an `OpenQASM` statement.
+#[pyclass(extends = QASMNode, frozen, module = "qdk._native")]
+pub(crate) struct Annotation {
+    #[pyo3(get)]
+    identifier: String,
+    #[pyo3(get)]
+    value: Option<String>,
+    #[pyo3(get)]
+    value_span: Option<Span>,
+}
+
+#[pymethods]
+impl Annotation {
+    #[allow(clippy::unused_self)]
+    fn children(&self) -> Vec<Py<PyAny>> {
+        Vec::new()
+    }
+}
+
+impl Annotation {
+    pub(crate) fn init(
+        span: Span,
+        identifier: String,
+        value: Option<String>,
+        value_span: Option<Span>,
+    ) -> PyClassInitializer<Self> {
+        PyClassInitializer::from(QASMNode { span }).add_subclass(Self {
+            identifier,
+            value,
+            value_span,
+        })
+    }
+}
+
 /// The abstract root of every `OpenQASM` AST node.
 ///
 /// This class has no Python constructor; attempting to instantiate it directly
@@ -53,4 +87,17 @@ pub(crate) struct Expression;
 /// This class has no Python constructor; it exists purely for `isinstance`
 /// dispatch and to root the statement side of the hierarchy.
 #[pyclass(extends = QASMNode, subclass, frozen, module = "qdk._native")]
-pub(crate) struct Statement;
+pub(crate) struct Statement {
+    pub(crate) annotations: Vec<Py<Annotation>>,
+}
+
+#[pymethods]
+impl Statement {
+    #[getter]
+    fn annotations(&self, py: Python<'_>) -> Vec<Py<Annotation>> {
+        self.annotations
+            .iter()
+            .map(|annotation| annotation.clone_ref(py))
+            .collect()
+    }
+}

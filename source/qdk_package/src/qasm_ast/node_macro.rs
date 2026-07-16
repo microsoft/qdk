@@ -42,6 +42,8 @@
 //!   own fields.
 //! * `@sstmt Name { .. }` extends [`super::nodes::Statement`] directly; its
 //!   `init` takes only `span` and the node's own fields.
+//! * `@aux Name = "PyName" { .. }` and `@saux Name { .. }` create semantic
+//!   and syntactic auxiliary nodes rooted directly at [`super::nodes::QASMNode`].
 //!
 //! The expression and statement chains reference `SemExpr` / `SemType` /
 //! `SemSymbol` / `sem_expr_base` / `sem_stmt_base`, which must be in scope at
@@ -76,6 +78,18 @@ macro_rules! qasm_node {
     };
     (@sstmt $name:ident { $($fields:tt)* }) => {
         qasm_node!(@munch sstmt, $name,
+            meta { module = "qdk._native" }, disp { stringify!($name) },
+            sf {}, param {}, ctor {}, nodes {}, opts {}, lists {};
+            $($fields)*);
+    };
+    (@aux $name:ident = $pyname:literal { $($fields:tt)* }) => {
+        qasm_node!(@munch aux, $name,
+            meta { name = $pyname, module = "qdk._native._semantic" }, disp { $pyname },
+            sf {}, param {}, ctor {}, nodes {}, opts {}, lists {};
+            $($fields)*);
+    };
+    (@saux $name:ident { $($fields:tt)* }) => {
+        qasm_node!(@munch saux, $name,
             meta { module = "qdk._native" }, disp { stringify!($name) },
             sf {}, param {}, ctor {}, nodes {}, opts {}, lists {};
             $($fields)*);
@@ -238,7 +252,7 @@ macro_rules! qasm_node {
         impl $name {
             pub(crate) fn init(
                 span: Span,
-                annotations: Vec<String>,
+                annotations: Vec<Py<Annotation>>,
                 $($param)*
             ) -> PyClassInitializer<Self> {
                 sem_stmt_base(span, annotations).add_subclass($name { $($ctor)* })
@@ -329,9 +343,94 @@ macro_rules! qasm_node {
         impl $name {
             pub(crate) fn init(
                 span: Span,
+                annotations: Vec<Py<Annotation>>,
                 $($param)*
             ) -> PyClassInitializer<Self> {
-                syntax_stmt_base(span).add_subclass($name { $($ctor)* })
+                syntax_stmt_base(span, annotations).add_subclass($name { $($ctor)* })
+            }
+        }
+
+        const _: fn() = || {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<$name>();
+        };
+    };
+
+    // ---- emit: semantic auxiliary node ----
+    (@emit aux, $name:ident,
+        meta { $($meta:tt)* }, disp { $($disp:tt)* },
+        { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
+        { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
+    ) => {
+        #[pyclass(extends = QASMNode, frozen, $($meta)*)]
+        pub(crate) struct $name {
+            $($sf)*
+        }
+
+        #[pymethods]
+        impl $name {
+            /// The node's child nodes.
+            #[allow(unused_mut, clippy::vec_init_then_push)]
+            fn children(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
+                let mut out: Vec<Py<PyAny>> = Vec::new();
+                $( out.push(self.$n.clone_ref(py)); )*
+                $( if let Some(child) = &self.$o { out.push(child.clone_ref(py)); } )*
+                $( for child in &self.$l { out.push(child.clone_ref(py)); } )*
+                let _ = py;
+                out
+            }
+
+            #[allow(clippy::unused_self)]
+            fn __repr__(&self) -> String {
+                format!("{}(...)", $($disp)*)
+            }
+        }
+
+        impl $name {
+            pub(crate) fn init(span: Span, $($param)*) -> PyClassInitializer<Self> {
+                PyClassInitializer::from(QASMNode { span }).add_subclass($name { $($ctor)* })
+            }
+        }
+
+        const _: fn() = || {
+            fn assert_send_sync<T: Send + Sync>() {}
+            assert_send_sync::<$name>();
+        };
+    };
+
+    // ---- emit: syntactic auxiliary node ----
+    (@emit saux, $name:ident,
+        meta { $($meta:tt)* }, disp { $($disp:tt)* },
+        { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
+        { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
+    ) => {
+        #[pyclass(extends = QASMNode, frozen, $($meta)*)]
+        pub(crate) struct $name {
+            $($sf)*
+        }
+
+        #[pymethods]
+        impl $name {
+            /// The node's child nodes.
+            #[allow(unused_mut, clippy::vec_init_then_push)]
+            fn children(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
+                let mut out: Vec<Py<PyAny>> = Vec::new();
+                $( out.push(self.$n.clone_ref(py)); )*
+                $( if let Some(child) = &self.$o { out.push(child.clone_ref(py)); } )*
+                $( for child in &self.$l { out.push(child.clone_ref(py)); } )*
+                let _ = py;
+                out
+            }
+
+            #[allow(clippy::unused_self)]
+            fn __repr__(&self) -> String {
+                format!("{}(...)", $($disp)*)
+            }
+        }
+
+        impl $name {
+            pub(crate) fn init(span: Span, $($param)*) -> PyClassInitializer<Self> {
+                PyClassInitializer::from(QASMNode { span }).add_subclass($name { $($ctor)* })
             }
         }
 

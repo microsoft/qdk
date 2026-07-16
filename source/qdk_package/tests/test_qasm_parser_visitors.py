@@ -14,7 +14,7 @@ present in the tree (collected independently), and that both counts match.
 
 from typing import Any, Callable, Dict, List, Tuple
 
-from qdk.openqasm import parser
+from qdk.openqasm import parser, semantic
 from qdk.openqasm.parser import QASMNode, QASMVisitor, Statement
 
 # A single program exercising a broad range of OpenQASM 3 constructs so that as
@@ -192,4 +192,75 @@ def test_error_statement_callback_dispatches() -> None:
     for node in fired:
         assert type(node).__name__ == "ErrorStatement"
         assert isinstance(node, Statement)
+
+
+def test_auxiliary_node_callbacks_dispatch() -> None:
+    source = """OPENQASM 3.0;
+    @tag value
+    def f(int[8] a) -> int { return a; }
+    int x;
+    switch (x) { case 1 { x = 2; } }
+    """
+    fired: List[str] = []
+
+    class AuxiliaryVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any) -> None:
+            fired.append("Annotation")
+
+        def visit_SubroutineParameter(self, node: Any) -> None:
+            fired.append("SubroutineParameter")
+            self.generic_visit(node)
+
+        def visit_SwitchCase(self, node: Any) -> None:
+            fired.append("SwitchCase")
+            self.generic_visit(node)
+
+    AuxiliaryVisitor().visit(parser.parse(source).program)
+    assert fired == ["Annotation", "SubroutineParameter", "SwitchCase"]
+
+
+def test_semantic_auxiliary_node_callbacks_dispatch() -> None:
+    source = """OPENQASM 3.1;
+    include "stdgates.inc";
+    @tag value
+    def f(int[8] a) -> int { return a; }
+    bit[4] bits;
+    let slice = bits[1:2];
+    int selector;
+    switch (selector) { case 1 { selector = 2; } }
+    qubit[2] q;
+    ctrl @ x q[0], q[1];
+    """
+    fired: List[str] = []
+
+    class AuxiliaryVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any) -> None:
+            fired.append("Annotation")
+
+        def visit_SubroutineParameter(self, node: Any) -> None:
+            fired.append("SubroutineParameter")
+            self.generic_visit(node)
+
+        def visit_RangeDefinition(self, node: Any) -> None:
+            fired.append("RangeDefinition")
+            self.generic_visit(node)
+
+        def visit_SwitchCase(self, node: Any) -> None:
+            fired.append("SwitchCase")
+            self.generic_visit(node)
+
+        def visit_QuantumGateModifier(self, node: Any) -> None:
+            fired.append("QuantumGateModifier")
+            self.generic_visit(node)
+
+    result = semantic.analyze(source)
+    assert not result.has_errors
+    AuxiliaryVisitor().visit(result.program)
+    assert fired == [
+        "Annotation",
+        "SubroutineParameter",
+        "RangeDefinition",
+        "SwitchCase",
+        "QuantumGateModifier",
+    ]
 

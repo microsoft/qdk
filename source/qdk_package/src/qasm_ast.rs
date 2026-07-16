@@ -22,7 +22,7 @@ mod span;
 mod syntax;
 
 pub(crate) use diagnostics::{Diagnostic, Label, Severity};
-pub(crate) use nodes::{Expression, QASMNode, Statement};
+pub(crate) use nodes::{Annotation, Expression, QASMNode, Statement};
 pub(crate) use semantic::{
     SemExpr, SemHardwareQubit, SemProgram, SemStmt, SemSymbol, SemSymbolTable, SemType,
 };
@@ -184,6 +184,7 @@ pub(crate) fn register_qasm_ast_submodule(m: &Bound<'_, PyModule>) -> PyResult<(
     m.add_class::<QASMNode>()?;
     m.add_class::<Expression>()?;
     m.add_class::<Statement>()?;
+    m.add_class::<Annotation>()?;
     m.add_class::<Span>()?;
     m.add_class::<Severity>()?;
     m.add_class::<Label>()?;

@@ -8,8 +8,8 @@ tree produced by :func:`qdk.openqasm.parser.parse` or the semantic tree
 produced by :func:`qdk.openqasm.semantic.analyze`. Dispatch is by concrete node
 type name, so the same visitor works across both layers: define a
 ``visit_<NodeType>`` method to handle a node kind, where ``<NodeType>`` is the
-node's ``type(node).__name__`` (for example ``visit_QuantumGate`` for the
-syntactic layer or ``visit_GateCall`` for the semantic layer). Any node kind
+node's ``type(node).__name__`` (for example ``visit_QuantumGate`` in either
+layer). Any node kind
 without a matching method falls through to :meth:`generic_visit`, which recurses
 over ``node.children()``.
 
@@ -59,6 +59,8 @@ class QASMVisitor:
 
     def generic_visit(self, node: Any) -> None:
         """Recurse over ``node.children()`` without modifying the tree."""
+        for annotation in getattr(node, "annotations", ()):
+            self.visit(annotation)
         for child in node.children():
             self.visit(child)
         return None

@@ -44,6 +44,7 @@ from typing import Callable, Dict, Optional, Union
 
 from .._native import (  # type: ignore
     AnalysisResult,
+    Annotation,
     Diagnostic,
     Expression,
     Label,
@@ -70,6 +71,11 @@ Type = _semantic.Type
 Symbol = _semantic.Symbol
 SymbolTable = _semantic.SymbolTable
 HardwareQubit = _semantic.HardwareQubit
+QuantumGateModifier = _semantic.QuantumGateModifier
+RangeDefinition = _semantic.RangeDefinition
+DiscreteSet = _semantic.DiscreteSet
+SwitchCase = _semantic.SwitchCase
+SubroutineParameter = _semantic.SubroutineParameter
 
 # Expression leaf nodes.
 ErrorExpression = _semantic.ErrorExpression
@@ -127,6 +133,7 @@ __all__ = [
     "analyze",
     "QASMVisitor",
     "AnalysisResult",
+    "Annotation",
     "Diagnostic",
     "Label",
     "Severity",
@@ -141,6 +148,11 @@ __all__ = [
     "Symbol",
     "SymbolTable",
     "HardwareQubit",
+    "QuantumGateModifier",
+    "RangeDefinition",
+    "DiscreteSet",
+    "SwitchCase",
+    "SubroutineParameter",
     "ErrorExpression",
     "Identifier",
     "CapturedIdentifier",
