@@ -49,10 +49,26 @@ afterEach(() => {
   jsdom = null;
 });
 
-// Geometry constants — kept in sync with `renderer/constants.ts` and the private constants in
-// `draggable.ts`. Locking these in test fixtures makes the assertions self-documenting and catches
-// the "someone tweaked a padding constant and didn't realize the editor math depended on it"
-// regression.
+// Geometry constants — hand-mirrored from the product source so the assertions are
+// self-documenting and catch the "someone tweaked a padding constant and didn't realize the editor
+// math depended on it" regression. These are duplicated, not imported, on purpose: the test is the
+// canary that fires when the source drifts.
+//
+// If a value below stops matching the source, do NOT just edit the number to make the test pass —
+// that defeats the guard. Instead:
+//   1. Find the source of truth for the constant:
+//      - GATE_PADDING / GATE_HEIGHT / MIN_GATE_WIDTH mirror the `gatePadding` / `gateHeight` /
+//        `minGateWidth` exports in `ux/circuit-vis/renderer/constants.ts`.
+//      - DROPZONE_PADDING_Y mirrors the private `DROPZONE_PADDING_Y` in
+//        `ux/circuit-vis/editor/draggable.ts`.
+//      - INTER_COLUMN_HALF_WIDTH / INTER_COLUMN_FULL_WIDTH / REGISTER_HEIGHT are DERIVED (see the
+//        formulas below); they mirror the same derivations in `draggable.ts`. Update the formula,
+//        not the literal, if the derivation itself changed.
+//   2. Confirm the change to the source constant was intentional (and, for the base constants, that
+//      the CSS custom properties in `sqore.ts` were updated to match — the renderer reads several
+//      of these through CSS).
+//   3. Update the mirrored value (or formula) here to match, and eyeball the dependent assertions
+//      in this file that hard-code the resulting pixel offsets.
 const GATE_PADDING = 6;
 const GATE_HEIGHT = 40;
 const MIN_GATE_WIDTH = 40;
