@@ -581,7 +581,8 @@ export class LearningService {
         );
         if (hasPyproject) {
           // Preferred: `uv sync` resolves and installs from pyproject.toml.
-          await env.syncEnvironment(courseRoot);
+          // Falls back to venv + pip when uv is unavailable.
+          await env.syncEnvironment(courseRoot, course.environment?.python);
         } else {
           // Fallback: manual venv creation + pip install.
           await env.createVenv(courseRoot, course.environment?.python);

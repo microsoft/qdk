@@ -136,35 +136,54 @@ export class EnvironmentManager {
   }
 
   /**
-   * Sync the course environment using `uv sync`. This is the preferred
-   * method for courses that ship a `pyproject.toml`. It creates the `.venv`
-   * in the course's root and installs all declared dependencies
-   * in a single command.
+   * Sync the course environment from its `pyproject.toml`. Prefers `uv sync`
+   * when available; falls back to creating a venv with the stdlib `venv`
+   * module and installing with `pip install .`.
    *
    * @param courseRoot The course's source folder (where `pyproject.toml`
    *   lives and where the `.venv` is created).
+   * @param pythonSpec Optional Python version specifier from course metadata
+   *   (e.g. `">=3.11"`). Passed to {@link createVenv} in the fallback path.
    */
-  async syncEnvironment(courseRoot: vscode.Uri): Promise<void> {
+  async syncEnvironment(
+    courseRoot: vscode.Uri,
+    pythonSpec?: string,
+  ): Promise<void> {
     if (!this.supported) {
       return;
     }
 
-    if (!(await this.uvAvailable())) {
-      throw new Error(
-        "`uv` is required to set up this course's Python environment but " +
-          "was not found on your PATH. Install it from https://docs.astral.sh/uv/",
+    if (await this.uvAvailable()) {
+      const code = await this.runShell(
+        "Sync course environment",
+        "uv",
+        ["sync", "--project", courseRoot.fsPath],
+        courseRoot,
+      );
+      if (code === 0) {
+        return;
+      }
+      log.warn(
+        `\`uv sync\` failed (exit ${code}); falling back to venv + pip.`,
       );
     }
 
+    // Fallback: create a venv and install from pyproject.toml using pip.
+    await this.createVenv(courseRoot, pythonSpec);
+    const python = await this.venvPython(courseRoot);
+    if (!python) {
+      throw new Error("Failed to create the virtual environment.");
+    }
+
     const code = await this.runShell(
-      "Sync course environment",
-      "uv",
-      ["sync", "--project", courseRoot.fsPath],
+      "Install from pyproject.toml",
+      python,
+      ["-m", "pip", "install", "--disable-pip-version-check", "."],
       courseRoot,
     );
     if (code !== 0) {
       throw new Error(
-        `\`uv sync\` failed (exit ${code}). Check the terminal output for details.`,
+        `\`pip install .\` failed (exit ${code}). Check the terminal output for details.`,
       );
     }
   }
