@@ -721,15 +721,11 @@ class GpuSimulator:
         """
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         if self._is_adaptive:
-            results = cast(
-                dict[str, list[int] | list[str] | list[object]],
-                self.gpu_context.run_adaptive_shots(shots, seed=seed),
-            )
+            results = self.gpu_context.run_adaptive_shots(shots, seed=seed)
             assert self._recorder is not None
-            shot_result_codes = cast(list[int], results["shot_result_codes"])
-            shot_results = cast(list[str | object], results["shot_results"])
+            shot_results = cast(list, results["shot_results"])
             for i, (shot_ret_code, shot_result) in enumerate(
-                zip(shot_result_codes, shot_results)
+                zip(results["shot_result_codes"], shot_results)
             ):
                 if shot_ret_code == 0:
                     # If the ret_code was zero, we do an output recording pass
