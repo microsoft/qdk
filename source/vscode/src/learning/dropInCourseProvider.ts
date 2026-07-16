@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// TODO (acasey): consider merging into catalog.ts
+
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import {
@@ -124,6 +126,7 @@ export class DropInCourseProvider implements CourseProvider {
   private async readManifest(
     dir: vscode.Uri,
   ): Promise<CourseManifest | undefined> {
+    // TODO (acasey): probably doesn't need to include readme.md - we know where that is
     const manifestUri = vscode.Uri.joinPath(dir, COURSE_MANIFEST_FILE);
     const text = await tryReadText(manifestUri);
     if (text === undefined) {
@@ -277,6 +280,8 @@ export class DropInCourseProvider implements CourseProvider {
         content: `Open the notebook to begin this unit.`,
       } satisfies CatalogLesson);
     }
+
+    // TODO (acasey): might want multiple solutions
 
     // Load exercise metadata from _exercises.json (optional).
     const exercisesJson = await tryReadText(

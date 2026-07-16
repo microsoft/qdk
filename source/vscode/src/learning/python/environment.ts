@@ -114,6 +114,7 @@ export class EnvironmentManager {
       cwd,
     );
     if (preflight !== 0) {
+      // TODO (acasey): use their python version number
       throw new Error(
         "This Python installation can't create virtual environments " +
           "(the `venv`/`ensurepip` modules are missing). On Debian/Ubuntu " +
@@ -390,6 +391,7 @@ export class EnvironmentManager {
    * are typed here.
    */
   private async pythonEnvironmentsApi(): Promise<
+    // TODO (acasey): consider naming this type
     | {
         getActiveEnvironmentPath?: (resource?: vscode.Uri) => {
           path?: string;

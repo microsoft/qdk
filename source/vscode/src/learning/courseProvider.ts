@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+// TODO (acasey): consider merging into catalog.ts
+
 import { loadKatasCourse } from "./catalog.js";
 import { KATAS_COURSE_ID } from "./constants.js";
 import type { CatalogCourse, CourseDescriptor } from "./types.js";

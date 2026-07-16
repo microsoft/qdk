@@ -24,6 +24,7 @@ export const LEARNING_WORKSPACE_DETECTED_CONTEXT =
 export const KATAS_COURSE_ID = "katas";
 
 /** Per-course virtual environment folder (under the course working copy). */
+// TODO (acasey): is there a way we can make it search recursively during discovery?  Sounds like there might be a workspace setting
 export const LEARNING_VENV_DIR = ".venv";
 
 /** Tree view ID for the learning progress panel. */
