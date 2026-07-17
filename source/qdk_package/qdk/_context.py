@@ -252,12 +252,15 @@ class Context:
         self_ref = weakref.ref(self)
 
         def make_callable_weak(
-            callable: GlobalCallable, namespace: List[str], callable_name: str
+            callable: GlobalCallable,
+            namespace: List[str],
+            callable_name: str,
+            is_test: bool,
         ) -> None:
             ctx = self_ref()
             if ctx is None or ctx._disposed:
                 return
-            ctx._make_callable(callable, namespace, callable_name)
+            ctx._make_callable(callable, namespace, callable_name, is_test)
 
         def make_class_weak(
             qsharp_type: TypeIR, namespace: List[str], class_name: str
@@ -433,7 +436,11 @@ class Context:
         return module
 
     def _make_callable(
-        self, callable: GlobalCallable, namespace: List[str], callable_name: str
+        self,
+        callable: GlobalCallable,
+        namespace: List[str],
+        callable_name: str,
+        is_test: bool,
     ):
         """Registers a Q# callable in this context's code module."""
         module = self._get_code_module(namespace)
@@ -452,12 +459,14 @@ class Context:
 
         setattr(_callable_fn, "_qdk_context", self)
         setattr(_callable_fn, "__global_callable", callable)
+        setattr(_callable_fn, "__is_test__", is_test)
+        setattr(_callable_fn, "__name__", ".".join(namespace + [callable_name]))
 
         if module.__dict__.get(callable_name) is None:
             module.__setattr__(callable_name, _callable_fn)
         else:
             for key, val in module.__dict__.get(callable_name).__dict__.items():
-                if key != "__global_callable":
+                if key != "__global_callable" and key != "__is_test__":
                     _callable_fn.__dict__[key] = val
             module.__setattr__(callable_name, _callable_fn)
 
