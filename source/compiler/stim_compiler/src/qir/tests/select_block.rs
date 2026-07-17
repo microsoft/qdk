@@ -198,6 +198,79 @@ fn multiple_requires_in_block() {
 }
 
 #[test]
+fn multiple_targets_in_require() {
+    let source = indoc! {"
+      SELECT {
+        M 0
+        M 1
+        M 2
+        M 3
+        REQUIRE rec[-1] rec[-2] rec[-3] rec[-4]
+      }
+    "};
+    check(
+        source,
+        &expect![[r#"
+            define i64 @ENTRYPOINT__main() #0 {
+              call void @__quantum__rt__initialize(ptr null)
+              br label %select_0
+            select_0:
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 3 to ptr))
+              %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+              %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
+              %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+              %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
+              %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+              %l_3 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+              %r_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %loss_0 = or i1 %l_0, %l_1
+              %loss_1 = or i1 %loss_0, %l_2
+              %loss_2 = or i1 %loss_1, %l_3
+              %parity_0 = xor i1 %r_0, %r_1
+              %parity_1 = xor i1 %parity_0, %r_2
+              %parity_2 = xor i1 %parity_1, %r_3
+              %restart_0 = or i1 %loss_2, %parity_2
+              br i1 %restart_0, label %select_0, label %continue_0
+            continue_0:
+              call void @__quantum__rt__array_record_output(i64 4, ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 3 to ptr), ptr null)
+              ret i64 0
+            }
+
+            declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
+            declare i1 @__quantum__rt__read_result(ptr)
+            declare void @__quantum__rt__initialize(ptr)
+            declare void @__quantum__qis__m__body(ptr, ptr)
+
+            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
+            attributes #1 = { "irreversible" }
+
+            ; module flags
+
+            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+            !0 = !{i32 1, !"qir_major_version", i32 2}
+            !1 = !{i32 7, !"qir_minor_version", i32 1}
+            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+            !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            !4 = !{i32 5, !"int_computations", !{!"i64"}}
+            !5 = !{i32 5, !"float_computations", !{!"double"}}
+            !6 = !{i32 7, !"backwards_branching", i2 3}
+            !7 = !{i32 1, !"arrays", i1 true}
+        "#]],
+    );
+}
+
+#[test]
 fn select_block_no_require() {
     // should compile to a QIR that works as if there was no select
     let source = indoc! {"
