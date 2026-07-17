@@ -769,3 +769,34 @@ fn test_apply_arithmetic_gate_double() {
     sim.release(q1);
     sim.release(q0);
 }
+
+#[test]
+fn test_apply_arithmetic_gate_on_unordered_subset() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    let q2 = sim.allocate();
+    let q3 = sim.allocate();
+    let q4 = sim.allocate();
+
+    // Prepare the operand |3⟩ on the unordered subset [q3, q1, q4], with q3
+    // as the least significant bit. Set unlisted qubits to verify they remain unchanged.
+    sim.x(q0);
+    sim.x(q1);
+    sim.x(q2);
+    sim.x(q3);
+
+    sim.apply_arithmetic_gate(|x| Ok(x * 2u64), &[q3, q1, q4])
+        .expect("arithmetic gate should succeed");
+
+    // The subset becomes |6⟩, leaving q0 and q2 set: |10111⟩ = |23⟩.
+    let (state, _) = sim.get_state();
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].0, BigUint::from(23u64));
+
+    sim.release(q4);
+    sim.release(q3);
+    sim.release(q2);
+    sim.release(q1);
+    sim.release(q0);
+}
