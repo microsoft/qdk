@@ -75,16 +75,16 @@ function ZoomableCircuit(props: {
   const isEditable = props.editor != null;
 
   useEffect(() => {
-    if (qvizObj.current != null) {
-      // Subsequent prop change (e.g. VS Code undo/redo or any other
-      // external file edit pushing a new CircuitGroup down). Reuse
-      // the existing Sqore so its per-session view state survives,
-      // and avoid the innerHTML wipe + "Rendering..." flicker by
-      // letting `updateCircuit` swap the SVG body in place.
+    if (isEditable && qvizObj.current != null) {
+      // Editable editor is bound to one circuit for its lifetime, so reuse
+      // the Sqore to preserve view state (expand/collapse) and avoid flicker.
       qvizObj.current.updateCircuit(props.circuitGroup);
       return;
     }
-    // First mount (or re-mount): kick the existing initial-draw path.
+    // First mount, or a non-editable host that may push an unrelated circuit.
+    // Reusing the Sqore would leak view state across circuits with matching
+    // locations, so start from a clean draw with a fresh Sqore.
+    qvizObj.current = null;
     setRendering(true);
     const container = circuitDiv.current!;
     container.innerHTML = "";
