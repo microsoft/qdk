@@ -374,9 +374,9 @@ fn cx_with_negated_rec_control_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedMeasurementRecord
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x measurement record control cannot be negated in instruction: CX
+              x target cannot be negated in instruction: CX
                ,-[2:4]
              1 | M 0
              2 | CX !rec[-1] 1
@@ -587,9 +587,9 @@ fn cy_with_negated_rec_control_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedMeasurementRecord
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x measurement record control cannot be negated in instruction: CY
+              x target cannot be negated in instruction: CY
                ,-[2:4]
              1 | M 0
              2 | CY !rec[-1] 1
@@ -851,9 +851,9 @@ fn cz_with_negated_rec_on_first_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedMeasurementRecord
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x measurement record control cannot be negated in instruction: CZ
+              x target cannot be negated in instruction: CZ
                ,-[2:4]
              1 | M 0
              2 | CZ !rec[-1] 1
@@ -872,9 +872,9 @@ fn cz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedMeasurementRecord
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x measurement record control cannot be negated in instruction: CZ
+              x target cannot be negated in instruction: CZ
                ,-[2:6]
              1 | M 0
              2 | CZ 0 !rec[-1]
@@ -969,9 +969,9 @@ fn xcz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedMeasurementRecord
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x measurement record control cannot be negated in instruction: XCZ
+              x target cannot be negated in instruction: XCZ
                ,-[2:7]
              1 | M 0
              2 | XCZ 1 !rec[-1]
@@ -1066,9 +1066,9 @@ fn ycz_with_negated_rec_on_second_target_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.NegatedMeasurementRecord
+            Qdk.Stim.Compiler.NegatedTarget
 
-              x measurement record control cannot be negated in instruction: YCZ
+              x target cannot be negated in instruction: YCZ
                ,-[2:7]
              1 | M 0
              2 | YCZ 1 !rec[-1]
