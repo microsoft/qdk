@@ -472,9 +472,7 @@ export class LearningService {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    const exercise = unit.notebookExercises?.find(
-      (e) => e.cellId === cellId,
-    );
+    const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
     if (!exercise) {
       return false;
     }
@@ -506,9 +504,7 @@ export class LearningService {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    const exercise = unit.notebookExercises?.find(
-      (e) => e.cellId === cellId,
-    );
+    const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
     if (!exercise) {
       return false;
     }
@@ -524,6 +520,25 @@ export class LearningService {
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     return true;
+  }
+
+  /**
+   * Returns the set of cell IDs that correspond to exercises in the
+   * current unit. Empty if the course isn't a python-notebook course or
+   * there are no exercises.
+   */
+  getExerciseCellIds(): Set<string> {
+    if (this.activeCourse.kind !== "python-notebook") {
+      return new Set();
+    }
+    const unit = this.findUnit(this.position.unitId);
+    const ids = new Set<string>();
+    if (unit.notebookExercises) {
+      for (const ex of unit.notebookExercises) {
+        ids.add(ex.cellId);
+      }
+    }
+    return ids;
   }
 
   /** Enumerate all available courses (loaded or not). */

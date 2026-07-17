@@ -299,7 +299,8 @@ export class DropInCourseProvider implements CourseProvider {
             (e): e is NotebookExerciseInfo =>
               !!e &&
               typeof e === "object" &&
-              typeof (e as NotebookExerciseInfo).id === "string",
+              typeof (e as NotebookExerciseInfo).id === "string" &&
+              typeof (e as NotebookExerciseInfo).cellId === "string",
           );
         }
       } catch (e) {

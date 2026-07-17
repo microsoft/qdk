@@ -6,13 +6,6 @@ import * as vscode from "vscode";
 import type { LearningService } from "./service.js";
 
 /**
- * Pattern that identifies exercise/verification cells in python-notebook
- * courses. These cells import check functions from the per-unit `_unit`
- * module (e.g. `from _unit import check_value`).
- */
-// const exerciseCellPattern = /from\s+_unit\s+import\s+check/;
-
-/**
  * Registers a {@link vscode.NotebookCellStatusBarItemProvider} that adds a
  * "Ask for a Hint" button to exercise code cells in python-notebook courses.
  */
@@ -40,7 +33,7 @@ export function createNotebookCellStatusBarProvider(
         return [];
       }
 
-      // Only annotate code cells whose text contains a check import.
+      // Only annotate code cells that are exercises.
       if (cell.kind !== vscode.NotebookCellKind.Code) {
         log.debug(
           "Skipping status bar: cell %d is not a code cell",
@@ -49,16 +42,6 @@ export function createNotebookCellStatusBarProvider(
         return [];
       }
 
-      // TODO (acasey): populate from _exercises.json
-      // const text = cell.document.getText();
-      // if (!exerciseCellPattern.test(text)) {
-      //   log.debug(
-      //     "Skipping status bar: cell %d does not match exercise pattern",
-      //     cell.index,
-      //   );
-      //   return [];
-      // }
-
       // Use the cell's stable ID from notebook metadata.
       const cellId = cell.metadata?.id;
       if (typeof cellId !== "string") {
@@ -66,6 +49,13 @@ export function createNotebookCellStatusBarProvider(
           "Skipping status bar: cell %d has no metadata.id",
           cell.index,
         );
+        return [];
+      }
+
+      // Only show the hint button for cells that are exercises.
+      const exerciseCellIds = service.getExerciseCellIds();
+      if (!exerciseCellIds.has(cellId)) {
+        log.debug("Skipping status bar: cell %s is not an exercise", cellId);
         return [];
       }
 

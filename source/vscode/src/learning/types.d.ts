@@ -278,7 +278,7 @@ export interface NotebookExerciseInfo {
   solution: string;
   solutionExplanation: string;
   /** Stable cell ID (from the notebook's cell metadata) for this exercise. */
-  cellId?: string;
+  cellId: string;
 }
 
 export interface CatalogUnit {

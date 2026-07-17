@@ -5,7 +5,7 @@ model: "Claude Haiku 4.5 (copilot)"
 ---
 
 // TODO (acasey): review these changes
-//  Remove anything about trusted workspaces
+// Remove anything about trusted workspaces
 
 # Quantum Development Kit Learning
 
