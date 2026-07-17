@@ -324,8 +324,7 @@ impl Backend for TraceBuilder {
                 if count < 0 {
                     return Some(Err(format!("count must be non-negative, got {count}.")));
                 }
-
-                let repetitions = count as u64;
+                let repetitions = count.cast_unsigned();
                 self.repeat_frames.push(RepeatFrame {
                     repetitions,
                     operations: Vec::new(),
