@@ -5,8 +5,7 @@ use indoc::indoc;
 use miette::Report;
 use qsc::{
     Backend, LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
-    interpret::{Interpreter, Value},
-    target::Profile,
+    interpret::Interpreter, target::Profile,
 };
 
 use crate::{
@@ -316,16 +315,17 @@ fn load_and_store_emit_memory_gates() {
 
 #[test]
 fn enable_memory_compute_architecture_is_a_no_op() {
-    let mut builder = TraceBuilder::default();
+    let trace = run_trace(indoc! {r#"
+        namespace Test {
+            import Std.ResourceEstimation.*;
 
-    let result = builder
-        .custom_intrinsic("EnableMemoryComputeArchitecture", Value::unit())
-        .expect("intrinsic should be recognized")
-        .expect("intrinsic should succeed");
+            @EntryPoint()
+            operation Main() : Unit {
+                EnableMemoryComputeArchitecture(10, LeastRecentlyUsed());
+            }
+        }
+    "#});
 
-    assert_eq!(result, Value::unit());
-
-    let trace = builder.into_trace();
     assert_eq!(trace.num_gates(), 0);
 }
 

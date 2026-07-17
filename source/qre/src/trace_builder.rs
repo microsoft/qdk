@@ -312,25 +312,20 @@ impl Backend for TraceBuilder {
         Ok(true)
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
-        // The trace builder intentionally handles only the subset of resource-estimation
-        // intrinsics that can be represented directly in the current trace model.
-        // `BeginEstimateCaching` and `EndEstimateCaching` are treated as no-ops, `Load`
-        // and `Store` emit explicit memory-operation gates, `EnableMemoryComputeArchitecture`
-        // remains a no-op until the qubit-id mapping is implemented, and
-        // `AccountForEstimatesInternal` is rejected because the trace model cannot
-        // represent its accounting directly yet.
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        _globals: &impl qsc::fir::PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         match name {
             "BeginRepeatEstimatesInternal" => {
                 let count = arg.unwrap_int();
-                let repetitions: u64 = match count.try_into() {
-                    Ok(repetitions) => repetitions,
-                    Err(_) => {
-                        return Some(Err(format!(
-                            "Estimate count {count} is too large to fit in a u64."
-                        )));
-                    }
-                };
+                if count < 0 {
+                    return Some(Err(format!("count must be non-negative, got {count}.")));
+                }
+
+                let repetitions = count as u64;
                 self.repeat_frames.push(RepeatFrame {
                     repetitions,
                     operations: Vec::new(),
@@ -360,7 +355,7 @@ impl Backend for TraceBuilder {
             | "GlobalPhase"
             | "ConfigurePauliNoise"
             | "ConfigureQubitLoss"
-            | "ApplyIdleNoise" 
+            | "ApplyIdleNoise"
             | "EnableMemoryComputeArchitecture" => Some(Ok(Value::unit())),
             "Load" => {
                 let q = arg.unwrap_qubit().deref().0;
@@ -373,7 +368,7 @@ impl Backend for TraceBuilder {
                 Some(Ok(Value::unit()))
             }
             "AccountForEstimatesInternal" => Some(Err(
-                "AccountForEstimatesInternal is not supported in trace builder; the trace model cannot represent this accounting directly yet".to_string(),
+                "AccountForEstimatesInternal is not supported in trace builder".to_string(),
             )),
             "PostSelectZ" => {
                 let values = arg.unwrap_tuple();
