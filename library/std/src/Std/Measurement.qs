@@ -5,7 +5,6 @@
 import Std.Core.*;
 import Std.Convert.*;
 import Std.Diagnostics.*;
-import Std.Intrinsic.*;
 import QIR.Intrinsic.*;
 import QIR.Runtime.*;
 
