@@ -38,7 +38,7 @@ class TraceTransform(ABC):
         ...
 
     @classmethod
-    def q(cls, **kwargs) -> TraceQuery:
+    def q(cls, **kwargs: Any) -> TraceQuery:
         """Create a trace query for this transform type.
 
         Args:
@@ -208,7 +208,7 @@ class TraceQuery(_Node):
     # override their default domains.  The first element might be
     sequence: list[tuple[Type, dict[str, Any]]]
 
-    def __init__(self, t: Type, **kwargs):
+    def __init__(self, t: Type, **kwargs: Any):
         self.sequence = [(t, kwargs)]
 
     def enumerate(

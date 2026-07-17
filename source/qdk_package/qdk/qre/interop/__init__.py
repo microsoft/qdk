@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from typing import Any
+
 from ._qir import trace_from_qir
 from ._qsharp import trace_from_entry_expr, trace_from_entry_expr_cached
 
@@ -27,10 +29,10 @@ except ImportError:
     class _CirqNotInstalled:
         """Placeholder that raises a helpful error when cirq is not installed."""
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any):
             raise ImportError(_CIRQ_INSTALL_MSG)
 
-    def _cirq_not_installed_func(*args, **kwargs):
+    def _cirq_not_installed_func(*args: Any, **kwargs: Any):
         """Placeholder that raises a helpful error when cirq is not installed."""
         raise ImportError(_CIRQ_INSTALL_MSG)
 

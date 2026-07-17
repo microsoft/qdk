@@ -52,7 +52,7 @@ fn simple_both_branches_collapses_to_if_else() {
         "#},
         "Main",
         "both_branches",
-        both_branches::apply,
+        |p, a, _pkg_id, b, s| both_branches::apply(p, a, b, s),
         &expect![[r#"
             // before both_branches (fired=true)
             function Main() : Int {
@@ -125,7 +125,7 @@ fn nested_both_branches_collapses_recursively() {
         "#},
         "Main",
         "both_branches",
-        both_branches::apply,
+        |p, a, _pkg_id, b, s| both_branches::apply(p, a, b, s),
         &expect![[r#"
             // before both_branches (fired=false)
             function Main() : Int {
@@ -219,7 +219,7 @@ fn both_branches_with_complex_arm_expressions() {
         "#},
         "Main",
         "both_branches",
-        both_branches::apply,
+        |p, a, _pkg_id, b, s| both_branches::apply(p, a, b, s),
         &expect![[r#"
             // before both_branches (fired=true)
             function F(x : Int) : Int {
@@ -299,7 +299,7 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
         "#},
         "Main",
         "both_branches",
-        both_branches::apply,
+        |p, a, _pkg_id, b, s| both_branches::apply(p, a, b, s),
         &expect![[r#"
             // before both_branches (fired=false)
             function Main() : Int {

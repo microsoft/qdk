@@ -17,7 +17,7 @@ from .. import telemetry_events
 
 def circuit(
     source: Optional[Union[str, Callable]] = None,
-    *args,
+    *args: Any,
     **kwargs: Any,
 ) -> Circuit:
     """
@@ -90,7 +90,7 @@ def circuit(
         res = get_interpreter().circuit(
             config, callable=source.__global_callable, args=args
         )
-    else:
+    elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value
         kwargs = {k: v for k, v in kwargs.items() if k is not None and v is not None}
 
@@ -106,6 +106,8 @@ def circuit(
             fetch_github,
             **kwargs,
         )
+    else:
+        raise ValueError("source must be a QASM string or callable")
 
     durationMs = (monotonic() - start) * 1000
     telemetry_events.on_circuit_qasm_end(durationMs)

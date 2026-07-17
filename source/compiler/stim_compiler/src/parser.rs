@@ -202,7 +202,7 @@ pub enum Error {
     #[diagnostic(transparent)]
     Lex(lex::Error),
     #[error("expected {expected}, found {found}")]
-    #[diagnostic(code("Stim.Parser.ExpectedToken"))]
+    #[diagnostic(code("Qdk.Stim.Parser.ExpectedToken"))]
     ExpectedToken {
         expected: TokenKind,
         found: TokenKind,
@@ -210,7 +210,7 @@ pub enum Error {
         span: Span,
     },
     #[error("expected {expected}, found {found}")]
-    #[diagnostic(code("Stim.Parser.Expected"))]
+    #[diagnostic(code("Qdk.Stim.Parser.Expected"))]
     Expected {
         expected: &'static str,
         found: TokenKind,
@@ -218,31 +218,31 @@ pub enum Error {
         span: Span,
     },
     #[error("unexpected end of input")]
-    #[diagnostic(code("Stim.Parser.UnexpectedEof"))]
+    #[diagnostic(code("Qdk.Stim.Parser.UnexpectedEof"))]
     UnexpectedEof {
         #[label]
         span: Span,
     },
     #[error("integer literal is too large to fit in a 32-bit unsigned integer")]
-    #[diagnostic(code("Stim.Parser.IntegerTooLarge"))]
+    #[diagnostic(code("Qdk.Stim.Parser.IntegerTooLarge"))]
     IntegerTooLarge {
         #[label]
         span: Span,
     },
     #[error("measurement record offset cannot be zero; the most recent measurement is rec[-1]")]
-    #[diagnostic(code("Stim.Parser.ZeroMeasurementRecord"))]
+    #[diagnostic(code("Qdk.Stim.Parser.ZeroMeasurementRecord"))]
     ZeroMeasurementRecord {
         #[label]
         span: Span,
     },
     #[error("only qubit and Pauli targets can be negated with '!'")]
-    #[diagnostic(code("Stim.Parser.CannotNegateTarget"))]
+    #[diagnostic(code("Qdk.Stim.Parser.CannotNegateTarget"))]
     CannotNegateTarget {
         #[label]
         span: Span,
     },
     #[error("input is too large; Stim programs must be smaller than 4 GiB")]
-    #[diagnostic(code("Stim.Parser.InputTooLarge"))]
+    #[diagnostic(code("Qdk.Stim.Parser.InputTooLarge"))]
     InputTooLarge,
 }
 

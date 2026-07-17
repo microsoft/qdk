@@ -17,20 +17,27 @@ except ImportError:
 
 SKIP_REASON = "PyQIR is not available"
 
+try:
+    import qsharp_widgets  # noqa: F401
+
+    QSHARP_WIDGETS_AVAILABLE = True
+except ImportError:
+    QSHARP_WIDGETS_AVAILABLE = False
+
+WIDGETS_SKIP_REASON = "qsharp-widgets is not available"
+
 
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_compile() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     compiled = device.compile(qir)
@@ -91,16 +98,14 @@ attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_pr
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_simulate_with_cpu() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     compiled = device.compile(qir)
@@ -114,16 +119,14 @@ def test_device_simulate_with_cpu() -> None:
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_simlate_with_clifford() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     compiled = device.compile(qir)
@@ -137,16 +140,14 @@ def test_device_simlate_with_clifford() -> None:
 @pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
 def test_device_simulate_with_loss() -> None:
     qsharp.init(target_profile=qsharp.TargetProfile.Base)
-    qir = qsharp.compile(
-        """
+    qir = qsharp.compile("""
         {
             use qs = Qubit[2];
             H(qs[0]);
             CNOT(qs[0], qs[1]);
             MResetEachZ(qs)
         }
-        """
-    )
+        """)
 
     device = NeutralAtomDevice()
     noise = NoiseConfig()
@@ -191,3 +192,94 @@ def test_s_adj_noise_inherits_from_rz():
     device = NeutralAtomDevice()
     output = device.simulate(ir, 1, noise)
     assert output == [qsharp.Result.One]
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_rejects_branching_control_flow() -> None:
+    # Tracing renders the program as a single, straight-line schedule, so it
+    # cannot represent control flow. A program that branches on a measurement
+    # result must be rejected rather than silently mis-visualized -- even when
+    # every gate has constant parameters.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            H(q);
+            let r = MResetZ(q);
+            if r == One {
+                X(q);
+            }
+            MResetZ(q)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(ValueError, match="programs with branching control flow"):
+        device.show_trace(qir)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_rejects_runtime_computed_values() -> None:
+    # A program whose behavior depends on runtime-computed values (here a
+    # rotation angle derived from a measurement result) cannot be traced and
+    # must surface a clear, actionable error rather than a low-level failure.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            H(q);
+            let r = MResetZ(q);
+            let angle = if r == One { 1.0 } else { 2.0 };
+            Rz(angle, q);
+            MResetZ(q)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(ValueError, match="programs with branching control flow"):
+        device.show_trace(qir)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_allows_traceable_adaptive_program() -> None:
+    # An Adaptive-profile program with only constant gate parameters and a
+    # single execution path can still be traced; `show_trace` must not reject it
+    # just because it is compiled to the Adaptive profile.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive_RIF)
+    qir = qsharp.compile("""
+        {
+            use qs = Qubit[2];
+            H(qs[0]);
+            CNOT(qs[0], qs[1]);
+            MResetEachZ(qs)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    # Must not raise: this Adaptive-profile program is fully traceable.
+    device.show_trace(qir)
+
+
+@pytest.mark.skipif(not PYQIR_AVAILABLE, reason=SKIP_REASON)
+@pytest.mark.skipif(not QSHARP_WIDGETS_AVAILABLE, reason=WIDGETS_SKIP_REASON)
+def test_show_trace_rejects_function_calls() -> None:
+    # In some Adaptive-profile builds, gate definitions (e.g. `H`) are emitted as
+    # separate, non-inlined functions. Tracing renders a single, straight-line
+    # schedule and cannot follow a call into another function body, so those
+    # operations would be silently dropped from the visualization. Such programs
+    # must be rejected rather than mis-visualized.
+    qsharp.init(target_profile=qsharp.TargetProfile.Adaptive)
+    qir = qsharp.compile("""
+        {
+            use q = Qubit();
+            H(q);
+            MResetZ(q)
+        }
+        """)
+
+    device = NeutralAtomDevice()
+    with pytest.raises(ValueError, match="programs with function calls"):
+        device.show_trace(qir)

@@ -1002,3 +1002,121 @@ fn adaptive_rif_profile_inlines_all_callables() {
     // entry point inlines the body of `ApplyX` at every call site.
     assert_ir_function_names(&program, &expect![[r#"[]"#]]);
 }
+
+#[test]
+fn operation_with_integer_input_used_in_loop_range_is_inlined() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation RepeatX(num : Int, q : Qubit) : Unit {
+                for i in 1..num {
+                    X(q);
+                }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                RepeatX(3, q);
+            }
+        }
+        "#,
+    );
+
+    // Because emitting `RepeatX` as an IR function would require handling a variable
+    // used as a range bound, which is not yet supported, we inline `RepeatX`.
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn operation_without_integer_input_used_in_loop_range_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            operation RepeatX(q : Qubit) : Unit {
+                for i in 1..5 {
+                    X(q);
+                }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                RepeatX(q);
+            }
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "RepeatX",
+                "X",
+            ]"#]],
+    );
+}
+
+#[test]
+fn function_with_dynamic_constant_input_is_inlined() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            function Exponent(n : Int) : Int {
+                2 ^ n
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                use qs = Qubit[5];
+                let exp = Exponent(Length(qs));
+                for i in 1..exp {
+                    X(qs[0]);
+                }
+            }
+        }
+        "#,
+    );
+
+    // `Exponent` is inlined because it is a function with no dynamic variable input, so it can be fully
+    // evaluated during codegen.
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+        [
+            "X",
+        ]"#]],
+    );
+}
+
+#[test]
+fn function_with_dynamic_variable_input_is_emitted() {
+    let program = get_rir_program_with_adaptive_profile(
+        r#"
+        namespace Test {
+            function Compute(n : Int) : Int {
+                2 * n
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let x = M(q) == One ? 1 | 0;
+                let res = Compute(x);
+                res
+            }
+        }
+        "#,
+    );
+
+    assert_ir_function_names(
+        &program,
+        &expect![[r#"
+            [
+                "Compute",
+            ]"#]],
+    );
+}

@@ -437,7 +437,7 @@ pub(crate) fn check_simplify_rule_q(
     source: &str,
     callable_name: &str,
     rule_name: &str,
-    apply_rule: impl FnOnce(&mut Package, &mut Assigner, BlockId, &SynthSlots) -> bool,
+    apply_rule: impl FnOnce(&mut Package, &mut Assigner, PackageId, BlockId, &SynthSlots) -> bool,
     expect: &Expect,
 ) {
     let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Mono);
@@ -451,7 +451,13 @@ pub(crate) fn check_simplify_rule_q(
     let before = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
     let block_id = find_body_block_id(store.get(pkg_id), callable_name);
     let slots = synth_slots_for_block(store.get(pkg_id), block_id);
-    let fired = apply_rule(store.get_mut(pkg_id), &mut assigner, block_id, &slots);
+    let fired = apply_rule(
+        store.get_mut(pkg_id),
+        &mut assigner,
+        pkg_id,
+        block_id,
+        &slots,
+    );
     let after = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
 
     expect.assert_eq(&format!(

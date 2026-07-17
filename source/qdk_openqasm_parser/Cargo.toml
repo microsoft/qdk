@@ -1,0 +1,45 @@
+[package]
+name = "qdk_openqasm_parser"
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+autobenches = false
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+description = "A standalone lexer, parser, and semantic analyzer for OpenQASM 3."
+readme = "README.md"
+keywords = ["openqasm", "qasm", "quantum", "parser", "compiler"]
+categories = ["parser-implementations", "compilers", "science"]
+
+[features]
+default = []
+internal = ["dep:qsc_data_structures"]
+fancy = ["miette/fancy-no-syscall"]
+
+[dependencies]
+bitflags = { workspace = true }
+enum-iterator = { workspace = true }
+indenter = { workspace = true }
+num-bigint = { workspace = true }
+num-traits = { workspace = true }
+miette = { workspace = true }
+qsc_data_structures = { path = "../compiler/qsc_data_structures", optional = true }
+rustc-hash = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true, features = ["cargo_bench_support"] }
+expect-test = { workspace = true }
+miette = { workspace = true, features = ["fancy-no-syscall"] }
+
+[[bin]]
+name = "qasm_memtest"
+path = "src/bin/qasm_memtest.rs"
+
+[[bench]]
+name = "qasm_pipeline"
+harness = false
+
+[lints]
+workspace = true

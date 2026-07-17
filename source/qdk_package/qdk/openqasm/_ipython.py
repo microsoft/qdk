@@ -5,7 +5,7 @@ from .._native import Output  # type: ignore
 
 _in_jupyter = False
 try:
-    from IPython.display import display
+    from IPython.display import display  # type: ignore[import-not-found]
 
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
         _in_jupyter = True  # Jupyter notebook or qtconsole

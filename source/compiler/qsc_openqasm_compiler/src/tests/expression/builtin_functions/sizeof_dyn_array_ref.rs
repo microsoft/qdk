@@ -167,7 +167,7 @@ fn sizeof_with_8_dimensional_array_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NotSupported
+            Qdk.Qasm.Lowerer.NotSupported
 
               x arrays with more than 7 dimensions are not supported
                ,-[Test.qasm:2:15]
@@ -177,7 +177,7 @@ fn sizeof_with_8_dimensional_array_errors() {
              3 |             sizeof(a, d);
                `----
 
-            Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: (unknown, uint)
               | Overloads available are:
@@ -204,7 +204,7 @@ fn sizeof_with_0_dimensional_array_errors() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.NotSupported
+            Qdk.Qasm.Lowerer.NotSupported
 
               x arrays with 0 dimensions are not supported
                ,-[Test.qasm:2:15]
@@ -214,7 +214,7 @@ fn sizeof_with_0_dimensional_array_errors() {
              3 |             sizeof(a, d);
                `----
 
-            Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+            Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
 
               x There is no valid overload of `sizeof` for inputs: (unknown, uint)
               | Overloads available are:

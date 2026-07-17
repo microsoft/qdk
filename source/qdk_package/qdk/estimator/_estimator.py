@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 from dataclasses import dataclass, field
 from .._native import physical_estimates
 
@@ -11,8 +11,8 @@ import warnings
 try:
     # Both markdown and mdx_math (from python-markdown-math) must be present for our markdown
     # rendering logic to work. If either is missing, we'll fall back to plain text.
-    import markdown
-    import mdx_math
+    import markdown  # type: ignore[import-untyped]
+    import mdx_math  # type: ignore[import-not-found]
 
     has_markdown = True
 except ImportError:
@@ -44,8 +44,8 @@ class AutoValidatingParams:
     function, the field is validated beforehand.
     """
 
-    def as_dict(self, validate=True):
-        result = {}
+    def as_dict(self, validate: bool = True) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
 
         for name, field in self.__dataclass_fields__.items():
             field_value = self.__getattribute__(name)
@@ -68,7 +68,7 @@ class AutoValidatingParams:
 
         return result
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         """
         A function that is called after all individual fields have been
         validated, but before the result is returned.
@@ -78,7 +78,7 @@ class AutoValidatingParams:
         pass
 
 
-def validating_field(validation_func, default=None):
+def validating_field(validation_func: Any, default: Any = None) -> Any:
     """
     A helper method to declare field for an AutoValidatingParams data class.
     """
@@ -114,12 +114,14 @@ class QECScheme:
     FLOQUET_CODE = "floquet_code"
 
 
-def _check_error_rate(name, value):
+def _check_error_rate(name: str, value: float) -> None:
     if value <= 0.0 or value >= 1.0:
         raise ValueError(f"{name} must be between 0 and 1")
 
 
-def _check_error_rate_or_process_and_readout(name, value):
+def _check_error_rate_or_process_and_readout(
+    name: str, value: Optional[Union[float, "MeasurementErrorRate"]]
+) -> None:
     if value is None:
         return
 
@@ -134,11 +136,11 @@ def _check_error_rate_or_process_and_readout(name, value):
         )
 
 
-def check_time(name, value):
+def check_time(name: str, value: str) -> None:
     pat = r"^(\+?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)\s*(s|ms|μs|µs|us|ns)$"
     if re.match(pat, value) is None:
         raise ValueError(
-            f"{name} is not a valid time string; use a " "suffix s, ms, us, or ns"
+            f"{name} is not a valid time string; use a suffix s, ms, us, or ns"
         )
 
 
@@ -170,7 +172,7 @@ class EstimatorQubitParams(AutoValidatingParams):
     """
 
     @staticmethod
-    def check_instruction_set(name, value):
+    def check_instruction_set(name: str, value: str) -> None:
         if value not in [
             "gate-based",
             "gate_based",
@@ -210,7 +212,7 @@ class EstimatorQubitParams(AutoValidatingParams):
     _gate_based = ["gate-based", "gate_based", "GateBased", "gateBased"]
     _maj_based = ["Majorana", "majorana"]
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         # check whether all fields have been specified in case a custom qubit
         # model is specified
         custom = result != {} and (
@@ -223,9 +225,7 @@ class EstimatorQubitParams(AutoValidatingParams):
 
         # instruction set must be set
         if self.instruction_set is None:
-            raise LookupError(
-                "instruction_set must be set for custom qubit " "parameters"
-            )
+            raise LookupError("instruction_set must be set for custom qubit parameters")
 
         # NOTE at this point, we know that instruction set must have valid
         # value
@@ -239,7 +239,7 @@ class EstimatorQubitParams(AutoValidatingParams):
             if self.one_qubit_gate_time is None:
                 raise LookupError("one_qubit_gate_time must be set")
 
-    def as_dict(self, validate=True) -> Dict[str, Any]:
+    def as_dict(self, validate: bool = True) -> Dict[str, Any]:
         qubit_params = super().as_dict(validate)
         if len(qubit_params) != 0:
             if isinstance(self.one_qubit_measurement_error_rate, MeasurementErrorRate):
@@ -288,7 +288,7 @@ class ProtocolSpecificDistillationUnitSpecification(AutoValidatingParams):
     num_unit_qubits: Optional[int] = None
     duration_in_qubit_cycle_time: Optional[int] = None
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         if self.num_unit_qubits is None:
             raise LookupError("num_unit_qubits must be set")
 
@@ -338,7 +338,7 @@ class DistillationUnitSpecification(AutoValidatingParams):
     def has_predefined_name(self):
         return self.name is not None
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         if not self.has_custom_specification() and not self.has_predefined_name():
             raise LookupError(
                 "name must be set or custom specification must be provided"
@@ -378,7 +378,7 @@ class DistillationUnitSpecification(AutoValidatingParams):
                 result
             )
 
-    def as_dict(self, validate=True) -> Dict[str, Any]:
+    def as_dict(self, validate: bool = True) -> Dict[str, Any]:
         specification_dict = super().as_dict(validate)
         if len(specification_dict) != 0:
             if self.physical_qubit_specification is not None:
@@ -441,7 +441,7 @@ class EstimatorConstraints(AutoValidatingParams):
     """
 
     @staticmethod
-    def at_least_one(name, value):
+    def at_least_one(name: str, value: float | int) -> None:
         if value < 1:
             raise ValueError(f"{name} must be at least 1")
 
@@ -450,7 +450,7 @@ class EstimatorConstraints(AutoValidatingParams):
     max_duration: Optional[int] = validating_field(check_time)
     max_physical_qubits: Optional[int] = validating_field(at_least_one)
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         if self.max_duration is not None and self.max_physical_qubits is not None:
             raise LookupError(
                 "Both duration and number of physical qubits constraints are provided, but only one is allowed at a time."
@@ -466,25 +466,27 @@ class EstimatorInputParamsItem:
     base class for batching via :class:`EstimatorParams`.
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
 
         self.qubit_params: EstimatorQubitParams = EstimatorQubitParams()
         self.qec_scheme: EstimatorQecScheme = EstimatorQecScheme()
-        self.distillation_unit_specifications = (
-            []
-        )  # type: List[DistillationUnitSpecification]
+        self.distillation_unit_specifications: List[DistillationUnitSpecification] = []
         self.constraints: EstimatorConstraints = EstimatorConstraints()
         self.error_budget: Optional[Union[float, ErrorBudgetPartition]] = None
         self.estimate_type: Optional[str] = None
 
-    def as_dict(self, validate=True, additional_params=None) -> Dict[str, Any]:
-        result = {}
+    def as_dict(
+        self,
+        validate: bool = True,
+        additional_params: Optional["EstimatorInputParamsItem"] = None,
+    ) -> Dict[str, Any]:
+        result: dict[str, Any] = {}
 
         qubit_params = self.qubit_params.as_dict(validate)
         if len(qubit_params) != 0:
             result["qubitParams"] = qubit_params
-        elif hasattr(additional_params, "qubit_params"):
+        elif additional_params and hasattr(additional_params, "qubit_params"):
             qubit_params = additional_params.qubit_params.as_dict(validate)
             if len(qubit_params) != 0:
                 result["qubitParams"] = qubit_params
@@ -492,7 +494,7 @@ class EstimatorInputParamsItem:
         qec_scheme = self.qec_scheme.as_dict(validate)
         if len(qec_scheme) != 0:
             result["qecScheme"] = qec_scheme
-        elif hasattr(additional_params, "qec_scheme"):
+        elif additional_params and hasattr(additional_params, "qec_scheme"):
             qec_scheme = additional_params.qec_scheme.as_dict(validate)
             if len(qec_scheme) != 0:
                 result["qecScheme"] = qec_scheme
@@ -504,8 +506,10 @@ class EstimatorInputParamsItem:
                     result["distillationUnitSpecifications"] = []
 
                 result["distillationUnitSpecifications"].append(specification_dict)
-        if result.get("distillationUnitSpecifications") is not None and hasattr(
-            additional_params, "distillation_unit_specifications"
+        if (
+            result.get("distillationUnitSpecifications") is not None
+            and additional_params is not None
+            and hasattr(additional_params, "distillation_unit_specifications")
         ):
             for specification in additional_params.distillation_unit_specifications:
                 specification_dict = specification.as_dict(validate)
@@ -518,7 +522,7 @@ class EstimatorInputParamsItem:
         constraints = self.constraints.as_dict(validate)
         if len(constraints) != 0:
             result["constraints"] = constraints
-        elif hasattr(additional_params, "constraints"):
+        elif additional_params and hasattr(additional_params, "constraints"):
             constraints = additional_params.constraints.as_dict(validate)
             if len(constraints) != 0:
                 result["constraints"] = constraints
@@ -533,7 +537,7 @@ class EstimatorInputParamsItem:
                 result["errorBudget"] = self.error_budget
             elif isinstance(self.error_budget, ErrorBudgetPartition):
                 result["errorBudget"] = self.error_budget.as_dict(validate)
-        elif hasattr(additional_params, "error_budget"):
+        elif additional_params and hasattr(additional_params, "error_budget"):
             if isinstance(additional_params.error_budget, float) or isinstance(
                 additional_params.error_budget, int
             ):
@@ -602,7 +606,11 @@ class EstimatorParams(EstimatorInputParamsItem):
                 "make_params with num_items parameter"
             )
 
-    def as_dict(self, validate=True) -> Dict[str, Any]:
+    def as_dict(
+        self,
+        validate: bool = True,
+        additional_params: Optional["EstimatorInputParamsItem"] = None,
+    ) -> Dict[str, Any]:
         """
         Constructs a dictionary from the input params.
 
@@ -646,11 +654,13 @@ class EstimatorResult(dict):
 
     def __init__(self, data: Union[Dict, List]):
         self._error = None
+        self._data: Union[Dict[Any, Any], List[Any]]
 
         if isinstance(data, list) and len(data) == 1:
-            data = data[0]
-            if not EstimatorResult._is_succeeded(data):
-                raise EstimatorError(data["code"], data["message"])
+            single_result = data[0]
+            if not EstimatorResult._is_succeeded(single_result):
+                raise EstimatorError(single_result["code"], single_result["message"])
+            data = single_result
 
         if isinstance(data, dict):
             self._data = data
@@ -689,7 +699,7 @@ class EstimatorResult(dict):
             self.summary_data_frame = self._summary_data_frame
 
     @staticmethod
-    def _is_succeeded(data):
+    def _is_succeeded(data: Dict[str, Any]) -> bool:
         return "status" in data and data["status"] == "success"
 
     def data(self, idx: Optional[int] = None) -> Any:
@@ -732,7 +742,7 @@ class EstimatorResult(dict):
             raise self._error
         return self._repr
 
-    def __getitem__(self, key):
+    def __getitem__(self, key: Any) -> Any:
         """
         If the result represents a batching job and key is a slice, a
         side-by-side table comparison is shown for the indexes represented by
@@ -753,7 +763,7 @@ class EstimatorResult(dict):
             else:
                 raise KeyError(key)
 
-    def _plot(self, **kwargs):
+    def _plot(self, **kwargs: Any) -> None:
         """
         Plots all result items in a space time plot, where the x-axis shows
         total runtime, and the y-axis shows total number of physical qubits.
@@ -850,7 +860,7 @@ class EstimatorResult(dict):
         plt.show()
 
     @property
-    def json(self):
+    def json(self) -> str:
         """
         Returns a JSON representation of the resource estimation result data.
         """
@@ -861,7 +871,7 @@ class EstimatorResult(dict):
 
         return self._json
 
-    def _summary_data_frame(self, **kwargs):
+    def _summary_data_frame(self, **kwargs: Any):
         try:
             import pandas as pd
         except ImportError:
@@ -876,7 +886,7 @@ class EstimatorResult(dict):
         labels.extend(range(len(labels), len(self)))
         labels = labels[: len(self)]
 
-        def get_row(result):
+        def get_row(result: Dict[str, Any]) -> Any:
             if EstimatorResult._is_succeeded(result):
                 formatted = result["physicalCountsFormatted"]
 
@@ -915,9 +925,9 @@ class EstimatorResult(dict):
             md = markdown.Markdown(extensions=["mdx_math"])
         for group in self["reportData"]["groups"]:
             html += f"""
-                <details {"open" if group['alwaysVisible'] else ""}>
+                <details {"open" if group["alwaysVisible"] else ""}>
                     <summary style="display:list-item">
-                        <strong>{group['title']}</strong>
+                        <strong>{group["title"]}</strong>
                     </summary>
                     <table>"""
             for entry in group["entries"]:
@@ -932,7 +942,7 @@ class EstimatorResult(dict):
                     explanation = entry["explanation"]
                 html += f"""
                     <tr>
-                        <td style="font-weight: bold; vertical-align: top; white-space: nowrap">{entry['label']}</td>
+                        <td style="font-weight: bold; vertical-align: top; white-space: nowrap">{entry["label"]}</td>
                         <td style="vertical-align: top; white-space: nowrap">{val}</td>
                         <td style="text-align: left">
                             <strong>{entry["description"]}</strong>
@@ -996,9 +1006,9 @@ class EstimatorResult(dict):
             md = markdown.Markdown(extensions=["mdx_math"])
         for group in self["reportData"]["groups"]:
             html += f"""
-                <details {"open" if group['alwaysVisible'] else ""}>
+                <details {"open" if group["alwaysVisible"] else ""}>
                     <summary style="display:list-item">
-                        <strong>{group['title']}</strong>
+                        <strong>{group["title"]}</strong>
                     </summary>
                     <table>"""
             for entry in group["entries"]:
@@ -1011,7 +1021,7 @@ class EstimatorResult(dict):
                     explanation = entry["explanation"]
                 html += f"""
                     <tr class="aqre-tooltip">
-                        <td style="font-weight: bold"><span class="aqre-tooltiptext">{explanation}</span>{entry['label']}</td>
+                        <td style="font-weight: bold"><span class="aqre-tooltiptext">{explanation}</span>{entry["label"]}</td>
                         <td>{val}</td>
                         <td style="text-align: left">{entry["description"]}</td>
                     </tr>
@@ -1026,7 +1036,7 @@ class EstimatorResult(dict):
 
         return html
 
-    def _batch_result_table(self, indices):
+    def _batch_result_table(self, indices: Iterable[int]) -> str:
         succeeded_item_indices = [
             i for i in indices if EstimatorResult._is_succeeded(self[i])
         ]
@@ -1047,9 +1057,9 @@ class EstimatorResult(dict):
             self[first_succeeded_item_index]["reportData"]["groups"]
         ):
             html += f"""
-                <details {"open" if group['alwaysVisible'] else ""}>
+                <details {"open" if group["alwaysVisible"] else ""}>
                     <summary style="display:list-item">
-                        <strong>{group['title']}</strong>
+                        <strong>{group["title"]}</strong>
                     </summary>
                     <table>
                         <thead><tr><th>Item</th>{item_headers}</tr></thead>"""
@@ -1099,13 +1109,9 @@ class EstimatorResult(dict):
 
         return html
 
-    @staticmethod
-    def _is_succeeded(obj):
-        return "status" in obj and obj["status"] == "success"
-
 
 class EstimatorResultDiagram:
-    def __init__(self, data):
+    def __init__(self, data: Dict[str, Any]):
         data.pop("reportData")
         self.data_json = json.dumps(data).replace(" ", "")
         self.vis_lib = "https://cdn-aquavisualization-prod.azureedge.net/resource-estimation/index.js"
@@ -1163,7 +1169,7 @@ class LogicalCounts(dict):
         return self._json
 
     def estimate(
-        self, params: Union[dict, List, EstimatorParams] = None
+        self, params: Union[dict, List, EstimatorParams, None] = None
     ) -> EstimatorResult:
         """
         Estimates resources for the current logical counts, using the

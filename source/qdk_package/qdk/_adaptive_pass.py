@@ -244,13 +244,23 @@ class Reg:
     val: int  # index in the registers table
 
 
-def is_immediate(arg) -> bool:
+OperandLike: TypeAlias = int | IntOperand | FloatOperand | Reg
+
+
+def is_immediate(arg: Optional[OperandLike]) -> bool:
     return isinstance(arg, (IntOperand, FloatOperand))
 
 
 def prepare_immediate_flags(
-    *, dst=None, src0=None, src1=None, aux0=None, aux1=None, aux2=None, aux3=None
-):
+    *,
+    dst: Optional[OperandLike] = None,
+    src0: Optional[OperandLike] = None,
+    src1: Optional[OperandLike] = None,
+    aux0: Optional[OperandLike] = None,
+    aux1: Optional[OperandLike] = None,
+    aux2: Optional[OperandLike] = None,
+    aux3: Optional[OperandLike] = None,
+) -> int:
     flags = 0
     if is_immediate(dst):
         flags |= FLAG_DST_IMM
@@ -270,7 +280,13 @@ def prepare_immediate_flags(
 
 
 def unwrap_operands(
-    dst, src0, src1, aux0, aux1, aux2, aux3
+    dst: OperandLike,
+    src0: OperandLike,
+    src1: OperandLike,
+    aux0: OperandLike,
+    aux1: OperandLike,
+    aux2: OperandLike,
+    aux3: OperandLike,
 ) -> Tuple[int, int, int, int, int, int, int]:
     if not isinstance(dst, int):
         dst = dst.val
@@ -296,7 +312,7 @@ def encode_float_as_bits(val: float, bytecode_kind: Bytecode) -> int:
         return struct.unpack("<Q", struct.pack("<d", val))[0]
 
 
-def void_return(bytecode_kind: Bytecode):
+def void_return(bytecode_kind: Bytecode) -> int:
     if bytecode_kind == Bytecode.Bit32:
         return 0xFFFF_FFFF
     else:
@@ -346,7 +362,7 @@ class AdaptiveProfilePass:
     def run(
         self,
         mod: pyqir.Module,
-        noise=None,
+        noise: Any = None,
         noise_intrinsics: Optional[Dict[str, int]] = None,
     ) -> AdaptiveProgram:
         """Process module and return the AdaptiveProgram.
@@ -439,13 +455,13 @@ class AdaptiveProfilePass:
         self,
         opcode: int,
         *,
-        dst: int | IntOperand | FloatOperand | Reg = 0,
-        src0: int | IntOperand | FloatOperand | Reg = 0,
-        src1: int | IntOperand | FloatOperand | Reg = 0,
-        aux0: int | IntOperand | FloatOperand | Reg = 0,
-        aux1: int | IntOperand | FloatOperand | Reg = 0,
-        aux2: int | IntOperand | FloatOperand | Reg = 0,
-        aux3: int | IntOperand | FloatOperand | Reg = 0,
+        dst: OperandLike = 0,
+        src0: OperandLike = 0,
+        src1: OperandLike = 0,
+        aux0: OperandLike = 0,
+        aux1: OperandLike = 0,
+        aux2: OperandLike = 0,
+        aux3: OperandLike = 0,
     ) -> None:
         imm_flags = prepare_immediate_flags(
             dst=dst, src0=src0, src1=src1, aux0=aux0, aux1=aux1, aux2=aux2, aux3=aux3
@@ -932,7 +948,7 @@ class AdaptiveProfilePass:
                 self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:
                 self._emit_ir_function_call(call)
-            case _ if "qdk_noise" in call.callee.attributes.func:
+            case _ if "qdk_noise" in cast(pyqir.Function, call.callee).attributes.func:
                 # Check if this is a noise intrinsic (custom gate with qdk_noise attribute)
                 self._emit_noise_intrinsic_call(call)
             case _:
@@ -1001,11 +1017,13 @@ class AdaptiveProfilePass:
             # the runtime invokes ``Simulator::mov`` (which applies the
             # configured ``noise.mov`` faults to that qubit).
             q1, q2, q3 = self._resolve_qubit_operands([call.args[0]])
-            angle = FloatOperand(0.0, self._bytecode_kind)
-            qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
+            move_angle = FloatOperand(0.0, self._bytecode_kind)
+            qop_idx = self._emit_quantum_op(
+                op_id, q1.val, q2.val, q3.val, move_angle.val
+            )
             self._emit(
                 OP_QUANTUM_GATE,
-                src0=angle,
+                src0=move_angle,
                 aux0=qop_idx,
                 aux1=q1,
                 aux2=q2,
@@ -1014,11 +1032,10 @@ class AdaptiveProfilePass:
             return
         if gate_name in ROTATION_GATES:
             qubit_arg_offset = 1
-            angle = self._resolve_angle_operand(call.args[0])
+            angle: FloatOperand | Reg = self._resolve_angle_operand(call.args[0])
         else:
             qubit_arg_offset = 0
             angle = FloatOperand(0.0, self._bytecode_kind)
-        qubit_arg_offset = 1 if gate_name in ROTATION_GATES else 0
         q1, q2, q3 = self._resolve_qubit_operands(call.args[qubit_arg_offset:])
         qop_idx = self._emit_quantum_op(op_id, q1.val, q2.val, q3.val, angle.val)
         self._emit(

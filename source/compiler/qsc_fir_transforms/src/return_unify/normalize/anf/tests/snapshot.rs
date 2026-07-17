@@ -342,11 +342,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         1
                     };
-                    let a : Int = if not __has_returned {
-                        __operand_tmp_0 + 2
-                    } else {
-                        0
-                    };
                     let __operand_tmp_1 : Int = if not __has_returned {
                         {
                             {
@@ -356,11 +351,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                             3
                         }
 
-                    } else {
-                        0
-                    };
-                    let b : Int = if not __has_returned {
-                        __operand_tmp_1 * 4
                     } else {
                         0
                     };
@@ -380,11 +370,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         5
                     };
-                    let c : Int = if not __has_returned {
-                        __operand_tmp_0 + 6
-                    } else {
-                        0
-                    };
                     let __operand_tmp_1 : Int = if not __has_returned {
                         {
                             {
@@ -394,11 +379,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                             7
                         }
 
-                    } else {
-                        0
-                    };
-                    let d : Int = if not __has_returned {
-                        __operand_tmp_1 * 8
                     } else {
                         0
                     };
@@ -418,11 +398,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         1
                     };
-                    let a : Int = if not __has_returned {
-                        __operand_tmp_0 + 2
-                    } else {
-                        0
-                    };
                     let __operand_tmp_1 : Int = if not __has_returned {
                         {
                             {
@@ -432,11 +407,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                             3
                         }
 
-                    } else {
-                        0
-                    };
-                    let b : Int = if not __has_returned {
-                        __operand_tmp_1 * 4
                     } else {
                         0
                     };
@@ -456,11 +426,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         5
                     };
-                    let c : Int = if not __has_returned {
-                        __operand_tmp_0 + 6
-                    } else {
-                        0
-                    };
                     let __operand_tmp_1 : Int = if not __has_returned {
                         {
                             {
@@ -470,11 +435,6 @@ fn operand_temp_names_restart_per_specialization_body() {
                             7
                         }
 
-                    } else {
-                        0
-                    };
-                    let d : Int = if not __has_returned {
-                        __operand_tmp_1 * 8
                     } else {
                         0
                     };

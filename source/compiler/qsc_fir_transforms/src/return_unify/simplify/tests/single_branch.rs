@@ -46,7 +46,7 @@ fn then_arm_return_collapses_to_if_else() {
         "#},
         "Main",
         "single_branch",
-        single_branch::apply,
+        |p, a, _pkg_id, b, s| single_branch::apply(p, a, b, s),
         &expect![[r#"
             // before single_branch (fired=true)
             function Main() : Int {
@@ -104,7 +104,7 @@ fn else_arm_return_collapses_to_if_else() {
         "#},
         "Main",
         "single_branch",
-        single_branch::apply,
+        |p, a, _pkg_id, b, s| single_branch::apply(p, a, b, s),
         &expect![[r#"
             // before single_branch (fired=true)
             function Main() : Int {

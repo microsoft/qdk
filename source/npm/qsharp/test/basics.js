@@ -635,7 +635,7 @@ test("diagnostics with related spans", async () => {
     assert.equal(event.type, "diagnostics");
     assert.deepEqual(
       {
-        code: "Qsc.Resolve.Ambiguous",
+        code: "Qdk.Qsc.Resolve.Ambiguous",
         message:
           "name error: `DumpMachine` could refer to the item in `Std.Diagnostics` or `Other`",
         related: [

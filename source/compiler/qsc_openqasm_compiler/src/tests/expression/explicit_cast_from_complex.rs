@@ -27,7 +27,7 @@ fn complex_to_bool_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type bool
                ,-[Test.qasm:3:9]
@@ -49,7 +49,7 @@ fn sized_complex_to_bool_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bool
                ,-[Test.qasm:3:9]
@@ -75,7 +75,7 @@ fn complex_to_duration_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type duration
                ,-[Test.qasm:3:9]
@@ -97,7 +97,7 @@ fn sized_complex_to_duration_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type duration
                ,-[Test.qasm:3:9]
@@ -123,7 +123,7 @@ fn complex_to_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type int
                ,-[Test.qasm:3:9]
@@ -145,7 +145,7 @@ fn complex_to_sized_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type int[32]
                ,-[Test.qasm:3:9]
@@ -167,7 +167,7 @@ fn sized_complex_to_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int
                ,-[Test.qasm:3:9]
@@ -189,7 +189,7 @@ fn sized_complex_to_sized_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int[32]
                ,-[Test.qasm:3:9]
@@ -211,7 +211,7 @@ fn sized_complex_to_sized_int_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int[16]
                ,-[Test.qasm:3:9]
@@ -233,7 +233,7 @@ fn sized_complex_to_sized_int_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type int[64]
                ,-[Test.qasm:3:9]
@@ -259,7 +259,7 @@ fn complex_to_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type uint
                ,-[Test.qasm:3:9]
@@ -281,7 +281,7 @@ fn complex_to_sized_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type uint[32]
                ,-[Test.qasm:3:9]
@@ -303,7 +303,7 @@ fn sized_complex_to_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint
                ,-[Test.qasm:3:9]
@@ -325,7 +325,7 @@ fn sized_complex_to_sized_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint[32]
                ,-[Test.qasm:3:9]
@@ -347,7 +347,7 @@ fn sized_complex_to_sized_uint_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint[16]
                ,-[Test.qasm:3:9]
@@ -369,7 +369,7 @@ fn sized_complex_to_sized_uint_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type uint[64]
                ,-[Test.qasm:3:9]
@@ -395,7 +395,7 @@ fn complex_to_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type float
                ,-[Test.qasm:3:9]
@@ -417,7 +417,7 @@ fn complex_to_sized_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type float[32]
                ,-[Test.qasm:3:9]
@@ -439,7 +439,7 @@ fn sized_complex_to_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float
                ,-[Test.qasm:3:9]
@@ -461,7 +461,7 @@ fn sized_complex_to_sized_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float[32]
                ,-[Test.qasm:3:9]
@@ -483,7 +483,7 @@ fn sized_complex_to_sized_float_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float[16]
                ,-[Test.qasm:3:9]
@@ -505,7 +505,7 @@ fn sized_complex_to_sized_float_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type float[64]
                ,-[Test.qasm:3:9]
@@ -531,7 +531,7 @@ fn complex_to_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type angle
                ,-[Test.qasm:3:9]
@@ -553,7 +553,7 @@ fn complex_to_sized_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type angle[32]
                ,-[Test.qasm:3:9]
@@ -575,7 +575,7 @@ fn sized_complex_to_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle
                ,-[Test.qasm:3:9]
@@ -597,7 +597,7 @@ fn sized_complex_to_sized_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle[32]
                ,-[Test.qasm:3:9]
@@ -619,7 +619,7 @@ fn sized_complex_to_sized_angle_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle[16]
                ,-[Test.qasm:3:9]
@@ -641,7 +641,7 @@ fn sized_complex_to_sized_angle_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type angle[64]
                ,-[Test.qasm:3:9]
@@ -683,7 +683,7 @@ fn complex_to_sized_complex() {
     check(
         source,
         &expect![[r#"
-            Qasm.Compiler.Unimplemented
+            Qdk.Qasm.Compiler.Unimplemented
 
               x this statement is not yet handled during OpenQASM 3 import: cast complex
               | expressions
@@ -694,7 +694,7 @@ fn complex_to_sized_complex() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x casting complex[float] to complex[float[32]] type are not supported
                ,-[Test.qasm:3:9]
@@ -716,7 +716,7 @@ fn sized_complex_to_complex() {
     check(
         source,
         &expect![[r#"
-            Qasm.Compiler.Unimplemented
+            Qdk.Qasm.Compiler.Unimplemented
 
               x this statement is not yet handled during OpenQASM 3 import: cast complex
               | expressions
@@ -727,7 +727,7 @@ fn sized_complex_to_complex() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x casting complex[float[32]] to complex[float] type are not supported
                ,-[Test.qasm:3:9]
@@ -781,7 +781,7 @@ fn sized_complex_to_sized_complex_expanding() {
     check(
         source,
         &expect![[r#"
-            Qasm.Compiler.Unimplemented
+            Qdk.Qasm.Compiler.Unimplemented
 
               x this statement is not yet handled during OpenQASM 3 import: cast complex
               | expressions
@@ -792,7 +792,7 @@ fn sized_complex_to_sized_complex_expanding() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x casting complex[float[32]] to complex[float[64]] type are not supported
                ,-[Test.qasm:3:9]
@@ -818,7 +818,7 @@ fn complex_to_bit_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type bit
                ,-[Test.qasm:3:9]
@@ -840,7 +840,7 @@ fn complex_to_bitarray_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float] to type bit[32]
                ,-[Test.qasm:3:9]
@@ -862,7 +862,7 @@ fn sized_complex_to_bit_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit
                ,-[Test.qasm:3:9]
@@ -884,7 +884,7 @@ fn sized_complex_to_bitarray_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit[32]
                ,-[Test.qasm:3:9]
@@ -906,7 +906,7 @@ fn sized_complex_to_bitarray_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit[16]
                ,-[Test.qasm:3:9]
@@ -928,7 +928,7 @@ fn sized_complex_to_bitarray_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type complex[float[32]] to type bit[64]
                ,-[Test.qasm:3:9]

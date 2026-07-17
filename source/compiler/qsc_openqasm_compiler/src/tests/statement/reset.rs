@@ -233,7 +233,7 @@ fn on_a_zero_len_qubit_register_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.ExprMustBePositiveInt
+            Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
               x quantum register size must be a positive integer
                ,-[Test.qasm:2:15]
