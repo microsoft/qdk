@@ -111,13 +111,19 @@ pub(in super::super) fn run_to_fixpoint(
         changed_any = true;
         let measure = count_operand_position_returns(package, block_id);
         if matches!(prev_measure, Some(prev) if measure >= prev) {
-            errors.push(super::super::Error::FixpointNotReached("anf", block_id));
+            errors.push(super::super::Error::FixpointNotReached(
+                "anf",
+                (package_id, block_id).into(),
+            ));
             return changed_any;
         }
         prev_measure = Some(measure);
     }
     // Hard cap reached without convergence.
-    errors.push(super::super::Error::FixpointNotReached("anf", block_id));
+    errors.push(super::super::Error::FixpointNotReached(
+        "anf",
+        (package_id, block_id).into(),
+    ));
     changed_any
 }
 

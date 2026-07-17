@@ -26,10 +26,10 @@ use super::*;
 ///
 /// The warn-and-delegate policy routes these into the pipeline's warning
 /// channel, so the locks below probe `result.warnings`.
-fn has_unsupported_hoist_context(diagnostics: &[crate::OwnedPipelineError]) -> bool {
+fn has_unsupported_hoist_context(diagnostics: &[crate::PipelineError]) -> bool {
     diagnostics.iter().any(|err| {
         matches!(
-            err.error,
+            err,
             crate::PipelineError::ReturnUnify(crate::return_unify::Error::UnsupportedHoistContext(
                 _,
                 _
@@ -140,12 +140,12 @@ fn operand_return_with_tuple_temp_lifts_without_warning() {
 
 /// Returns the number of `UnsupportedHoistContext` `return_unify` diagnostics
 /// in `diagnostics`.
-fn count_unsupported_hoist_context(diagnostics: &[crate::OwnedPipelineError]) -> usize {
+fn count_unsupported_hoist_context(diagnostics: &[crate::PipelineError]) -> usize {
     diagnostics
         .iter()
         .filter(|err| {
             matches!(
-                err.error,
+                err,
                 crate::PipelineError::ReturnUnify(
                     crate::return_unify::Error::UnsupportedHoistContext(_, _)
                 )
@@ -156,10 +156,10 @@ fn count_unsupported_hoist_context(diagnostics: &[crate::OwnedPipelineError]) ->
 
 /// Returns `true` when `diagnostics` contains at least one
 /// `UnsupportedEarlyReturnType` `return_unify` diagnostic.
-fn has_unsupported_early_return_type(diagnostics: &[crate::OwnedPipelineError]) -> bool {
+fn has_unsupported_early_return_type(diagnostics: &[crate::PipelineError]) -> bool {
     diagnostics.iter().any(|err| {
         matches!(
-            err.error,
+            err,
             crate::PipelineError::ReturnUnify(
                 crate::return_unify::Error::UnsupportedEarlyReturnType(_, _)
             )

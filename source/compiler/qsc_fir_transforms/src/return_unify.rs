@@ -54,12 +54,12 @@ mod semantic_equivalence_tests;
 use crate::fir_builder::functored_specs;
 use crate::package_assigners::PackageAssigners;
 use miette::Diagnostic;
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
         BlockId, CallableDecl, CallableImpl, ExprKind, ItemId, ItemKind, LocalItemId, Package,
-        PackageId, PackageLookup, PackageStore, Res, StmtKind, StoreItemId,
+        PackageId, PackageLookup, PackageSpan, PackageStore, Res, StmtKind, StoreBlockId,
+        StoreItemId,
     },
     ty::Ty,
 };
@@ -91,7 +91,7 @@ pub enum Error {
     ))]
     UnsupportedEarlyReturnType(
         String,
-        #[label("callable with unsupported return type")] Span,
+        #[label("callable with unsupported return type")] PackageSpan,
     ),
 
     /// Emitted when one of the return-unification fixpoint loops — the
@@ -107,7 +107,7 @@ pub enum Error {
         "this is an internal compiler diagnostic; please file an issue \
          including the source program that triggered it"
     ))]
-    FixpointNotReached(&'static str, BlockId),
+    FixpointNotReached(&'static str, StoreBlockId),
 
     /// A return appears inside a compound expression whose enclosing
     /// expression has a type with no classical default.
@@ -121,19 +121,33 @@ pub enum Error {
     ))]
     UnsupportedHoistContext(
         String,
-        #[label("compound expression with unsupported `return`")] Span,
+        #[label("compound expression with unsupported `return`")] PackageSpan,
     ),
 }
 
-/// A return-unification diagnostic paired with the FIR package that owns its
-/// source label.
-#[derive(Clone, Debug)]
-pub(crate) struct OwnedError {
-    pub package: PackageId,
-    pub error: Error,
-}
-
 impl Error {
+    /// Returns the package that owns this diagnostic.
+    #[must_use]
+    pub fn owner(&self) -> PackageId {
+        match self {
+            Self::UnsupportedEarlyReturnType(_, span) | Self::UnsupportedHoistContext(_, span) => {
+                span.package
+            }
+            Self::FixpointNotReached(_, block_id) => block_id.package,
+        }
+    }
+
+    /// Returns the package-qualified source span for located diagnostics.
+    #[must_use]
+    pub fn package_span(&self) -> Option<PackageSpan> {
+        match self {
+            Self::UnsupportedEarlyReturnType(_, span) | Self::UnsupportedHoistContext(_, span) => {
+                Some(*span)
+            }
+            Self::FixpointNotReached(..) => None,
+        }
+    }
+
     /// Returns true if this error is a non-fatal warning that should not
     /// trigger pipeline abort.
     #[must_use]
@@ -359,7 +373,7 @@ pub fn unify_returns(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
-) -> (Vec<OwnedError>, FxHashSet<StoreItemId>) {
+) -> (Vec<Error>, FxHashSet<StoreItemId>) {
     unify_returns_impl_cross_package(
         store,
         package_id,
@@ -383,7 +397,7 @@ pub fn unify_returns_with_seeds(
     package_id: PackageId,
     assigners: &mut PackageAssigners,
     seeds: &[StoreItemId],
-) -> (Vec<OwnedError>, FxHashSet<StoreItemId>) {
+) -> (Vec<Error>, FxHashSet<StoreItemId>) {
     unify_returns_impl_cross_package(
         store, package_id, assigners, seeds, /* run_simplify */ true,
     )
@@ -424,7 +438,7 @@ fn unify_returns_impl_cross_package(
     assigners: &mut PackageAssigners,
     seeds: &[StoreItemId],
     run_simplify: bool,
-) -> (Vec<OwnedError>, FxHashSet<StoreItemId>) {
+) -> (Vec<Error>, FxHashSet<StoreItemId>) {
     let reachable = if seeds.is_empty() {
         collect_reachable_from_entry(store, package_id)
     } else {
@@ -456,10 +470,7 @@ fn unify_returns_impl_cross_package(
             &mut callable_errors,
             &mut skipped,
         );
-        errors.extend(callable_errors.into_iter().map(|error| OwnedError {
-            package: owning_pkg,
-            error,
-        }));
+        errors.extend(callable_errors);
     }
 
     (errors, skipped)
@@ -574,7 +585,7 @@ fn process_callable_returns(
         if has_return {
             errors.push(Error::UnsupportedEarlyReturnType(
                 format!("{return_ty}"),
-                callable.name.span,
+                PackageSpan::new(owning_pkg, callable.name.span),
             ));
             skipped.insert(StoreItemId {
                 package: owning_pkg,
@@ -694,7 +705,7 @@ fn check_normalize_supportable(
             {
                 errors.push(Error::UnsupportedHoistContext(
                     format!("{}", expr.ty),
-                    expr.span,
+                    PackageSpan::new(package_id, expr.span),
                 ));
             }
             ExprKind::Block(bid) | ExprKind::While(_, bid) => block_ids.push(*bid),
@@ -715,7 +726,7 @@ fn check_normalize_supportable(
                 if !is_type_defaultable(package, package_id, pat_ty) {
                     errors.push(Error::UnsupportedHoistContext(
                         format!("{pat_ty}"),
-                        package.get_expr(*init_id).span,
+                        PackageSpan::new(package_id, package.get_expr(*init_id).span),
                     ));
                 }
             }
@@ -729,6 +740,9 @@ fn check_normalize_supportable(
     // operand because each eager child has a stable write-back slot. Reporting
     // here leaves the callable unchanged instead of panicking during normalize.
     for (ty, span) in normalize::find_unsupported_operand_lifts(package, package_id, block_id) {
-        errors.push(Error::UnsupportedHoistContext(ty, span));
+        errors.push(Error::UnsupportedHoistContext(
+            ty,
+            PackageSpan::new(package_id, span),
+        ));
     }
 }

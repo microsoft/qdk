@@ -19,17 +19,17 @@ pub type Error = WithSource<ErrorKind>;
 #[must_use]
 pub fn attach_fir_transform_source(
     store: &PackageStore,
-    diagnostic: qsc_fir_transforms::OwnedPipelineError,
+    diagnostic: qsc_fir_transforms::PipelineError,
 ) -> WithSource<qsc_fir_transforms::PipelineError> {
-    let package_id = qsc_lowerer::map_fir_package_to_hir(diagnostic.package);
-    if let Some(unit) = store.get(package_id) {
-        WithSource::from_map(&unit.sources, diagnostic.error)
-    } else {
-        WithSource::from_map(
-            &SourceMap::default(),
-            qsc_fir_transforms::PipelineError::MissingDiagnosticSourcePackage(diagnostic.package),
+    let owner = diagnostic.owner();
+    let package_id = qsc_lowerer::map_fir_package_to_hir(owner);
+    let unit = store.get(package_id).unwrap_or_else(|| {
+        panic!(
+            "FIR transform diagnostic owner {owner:?} maps to HIR package {package_id:?}, \
+             which must exist in the package store before source attachment"
         )
-    }
+    });
+    WithSource::from_map(&unit.sources, diagnostic)
 }
 
 #[derive(Clone, Debug, Diagnostic, Error)]

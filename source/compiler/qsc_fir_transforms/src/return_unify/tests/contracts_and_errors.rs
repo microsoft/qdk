@@ -638,7 +638,7 @@ fn recursive_udt_early_return_fails_before_return_unify() {
     // panic in return_unify.
     // If errors exist, they should not be return_unify panics.
     for err in &result.errors {
-        if let crate::PipelineError::ReturnUnify(ru_err) = &err.error {
+        if let crate::PipelineError::ReturnUnify(ru_err) = err {
             // Any return_unify error is acceptable (diagnostic, not panic).
             // We just verify it didn't panic.
             assert!(
@@ -861,7 +861,7 @@ fn arrow_return_type_with_early_return_does_not_panic() {
     // Should not panic. May emit diagnostics from downstream passes,
     // but return_unify itself should handle this gracefully.
     for err in &result.errors {
-        if let crate::PipelineError::ReturnUnify(ru_err) = &err.error {
+        if let crate::PipelineError::ReturnUnify(ru_err) = err {
             assert!(
                 !format!("{ru_err:?}").contains("panic"),
                 "return_unify should not panic on arrow return type: {ru_err:?}"

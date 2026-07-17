@@ -56,7 +56,7 @@ pub(crate) fn assert_no_compile_errors(context: &str, errors: &[frontend_compile
 
 /// Asserts that the given pipeline errors slice is empty, panicking with a
 /// `context`-prefixed message that lists each error otherwise.
-pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::OwnedPipelineError]) {
+pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::PipelineError]) {
     let error_messages = format_errors(errors);
     assert!(
         errors.is_empty(),
@@ -65,7 +65,7 @@ pub fn assert_no_pipeline_errors(context: &str, errors: &[crate::OwnedPipelineEr
 }
 
 /// Asserts that a pipeline result did not produce non-fatal warnings.
-pub fn assert_no_pipeline_warnings(context: &str, warnings: &[crate::OwnedPipelineError]) {
+pub fn assert_no_pipeline_warnings(context: &str, warnings: &[crate::PipelineError]) {
     let warning_messages = format_errors(warnings);
     assert!(
         warnings.is_empty(),
@@ -76,7 +76,7 @@ pub fn assert_no_pipeline_warnings(context: &str, warnings: &[crate::OwnedPipeli
 /// Formats a slice of pipeline errors as newline-separated text, returning
 /// `"(no error)"` when the slice is empty.
 #[must_use]
-pub fn format_pipeline_errors(errors: &[crate::OwnedPipelineError]) -> String {
+pub fn format_pipeline_errors(errors: &[crate::PipelineError]) -> String {
     if errors.is_empty() {
         "(no error)".to_string()
     } else {

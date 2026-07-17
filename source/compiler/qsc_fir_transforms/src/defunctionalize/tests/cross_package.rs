@@ -10,6 +10,7 @@ use crate::package_assigners::PackageAssigners;
 use super::*;
 use expect_test::expect;
 use indoc::indoc;
+use miette::Diagnostic;
 
 use super::super::build_spec_key;
 use super::super::types::CallSite;
@@ -599,9 +600,35 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
         1,
         "the unresolved foreign projected call should produce one diagnostic: {errors:?}"
     );
+    let error = &errors[0];
     assert!(
-        matches!(errors[0], crate::defunctionalize::Error::DynamicCallable(_)),
+        matches!(error, crate::defunctionalize::Error::DynamicCallable(_)),
         "the unresolved foreign projected call should produce DynamicCallable: {errors:?}"
+    );
+    assert_ne!(
+        error.owner(),
+        fir_pkg_id,
+        "the diagnostic should be owned by the foreign library package"
+    );
+    assert_eq!(error.owner(), error.package_span().package);
+    assert_eq!(
+        error
+            .code()
+            .expect("DynamicCallable should have a code")
+            .to_string(),
+        "Qdk.Qsc.Defunctionalize.DynamicCallable"
+    );
+
+    let label = error
+        .labels()
+        .and_then(|mut labels| labels.next())
+        .expect("DynamicCallable should have a source label");
+    assert_eq!(label.inner(), &error.package_span().span.into());
+    let span = error.package_span().span;
+    assert_eq!(
+        &lib_source[span.lo as usize..span.hi as usize],
+        "config.Apply(q)",
+        "the foreign diagnostic label should retain the unresolved call expression"
     );
 }
 

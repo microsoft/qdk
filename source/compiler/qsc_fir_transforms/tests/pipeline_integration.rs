@@ -12,8 +12,8 @@ use qsc_fir::{
     visit::Visitor,
 };
 use qsc_fir_transforms::{
-    OwnedPipelineError, PipelineError, PipelineStage, invariants, reachability,
-    run_pipeline_to_with_diagnostics, run_pipeline_with_diagnostics,
+    PipelineError, PipelineStage, invariants, reachability, run_pipeline_to_with_diagnostics,
+    run_pipeline_with_diagnostics,
     test_utils::{
         assert_callable_body_terminal_expr_matches_block_type, assert_full_pipeline_succeeds,
         assert_no_pipeline_errors, assert_pipeline_stage_succeeds, compile_to_fir,
@@ -113,9 +113,9 @@ fn package_has_callable_named(
     })
 }
 
-fn warning_is_excessive_specializations(warning: &OwnedPipelineError) -> bool {
+fn warning_is_excessive_specializations(warning: &PipelineError) -> bool {
     matches!(
-        warning.error,
+        warning,
         PipelineError::Defunctionalize(
             qsc_fir_transforms::defunctionalize::Error::ExcessiveSpecializations(..)
         )
@@ -676,12 +676,9 @@ fn run_pipeline_with_diagnostics_returns_dynamic_callable_as_fatal_error() {
     assert!(
         matches!(
             result.errors.as_slice(),
-            [OwnedPipelineError {
-                error: PipelineError::Defunctionalize(
-                    qsc_fir_transforms::defunctionalize::Error::DynamicCallable(_)
-                ),
-                ..
-            }]
+            [PipelineError::Defunctionalize(
+                qsc_fir_transforms::defunctionalize::Error::DynamicCallable(_)
+            )]
         ),
         "expected DynamicCallable fatal error, got:\n{}",
         format_pipeline_errors(&result.errors)
@@ -707,14 +704,12 @@ fn run_pipeline_to_missing_pinned_item_reports_diagnostic() {
     assert!(
         matches!(
             result.errors.as_slice(),
-            [OwnedPipelineError {
-                error: PipelineError::MissingPinnedItem(item_id),
-                ..
-            }] if *item_id == pinned_store_id
+            [PipelineError::MissingPinnedItem(item_id)] if *item_id == pinned_store_id
         ),
         "expected MissingPinnedItem diagnostic, got:\n{}",
         format_pipeline_errors(&result.errors)
     );
+    assert_eq!(result.errors[0].owner(), pinned_store_id.package);
 }
 
 #[test]
@@ -736,10 +731,7 @@ fn run_pipeline_to_missing_pinned_item_reports_diagnostic_before_exec_rebuild() 
     assert!(
         matches!(
             result.errors.as_slice(),
-            [OwnedPipelineError {
-                error: PipelineError::MissingPinnedItem(item_id),
-                ..
-            }] if *item_id == pinned_store_id
+            [PipelineError::MissingPinnedItem(item_id)] if *item_id == pinned_store_id
         ),
         "expected MissingPinnedItem diagnostic before exec graph rebuild, got:\n{}",
         format_pipeline_errors(&result.errors)
@@ -785,14 +777,12 @@ fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
     assert!(
         matches!(
             result.errors.as_slice(),
-            [OwnedPipelineError {
-                error: PipelineError::PinnedItemNotCallable(item_id),
-                ..
-            }] if *item_id == pinned_store_id
+            [PipelineError::PinnedItemNotCallable(item_id)] if *item_id == pinned_store_id
         ),
         "expected PinnedItemNotCallable diagnostic, got:\n{}",
         format_pipeline_errors(&result.errors)
     );
+    assert_eq!(result.errors[0].owner(), pinned_store_id.package);
 }
 
 #[test]

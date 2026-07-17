@@ -66,8 +66,8 @@ use qsc_fir::fir::{
 use qsc_fir::ty::Ty;
 use rustc_hash::{FxHashMap, FxHashSet};
 use types::{
-    AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, OwnedError,
-    SpecKey, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, ConcreteCallable, ConcreteCallableKey, SpecKey,
+    peel_body_functors,
 };
 
 /// Lower bound on the analysis => specialize => rewrite iteration limit.
@@ -106,25 +106,13 @@ const MAX_ITERATIONS: usize = 20;
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
-#[cfg(test)]
 pub(crate) fn defunctionalize(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
 ) -> Vec<Error> {
-    defunctionalize_with_owners(store, package_id, assigners)
-        .into_iter()
-        .map(|error| error.error)
-        .collect()
-}
-
-pub(crate) fn defunctionalize_with_owners(
-    store: &mut PackageStore,
-    package_id: PackageId,
-    assigners: &mut PackageAssigners,
-) -> Vec<OwnedError> {
-    let mut errors: Vec<OwnedError> = Vec::new();
-    let mut warnings: Vec<OwnedError> = Vec::new();
+    let mut errors: Vec<Error> = Vec::new();
+    let mut warnings: Vec<Error> = Vec::new();
     // Start at the floor; `check_convergence` raises this to the dynamically
     // computed limit after the first iteration, once the analysis has reported
     // how many callable values actually need resolving.
@@ -153,7 +141,7 @@ pub(crate) fn defunctionalize_with_owners(
         // parameter forwarding like `Inner(op, q)` in a not-yet-specialized
         // HOF) disappear once the outer HOF is specialized, so only the final
         // iteration's emissions survive.
-        errors.retain(|e| !matches!(e.error, Error::DynamicCallable(_)));
+        errors.retain(|e| !matches!(e, Error::DynamicCallable(_)));
 
         let reachable = collect_reachable_from_entry(store, package_id);
 
@@ -218,9 +206,9 @@ pub(crate) fn defunctionalize_with_owners(
     // a more actionable error has already fired.
     if errors
         .iter()
-        .any(|e| matches!(e.error, Error::UnsupportedMultipleCallableArrays(_)))
+        .any(|e| matches!(e, Error::UnsupportedMultipleCallableArrays(_)))
     {
-        errors.retain(|e| !matches!(e.error, Error::DynamicCallable(_)));
+        errors.retain(|e| !matches!(e, Error::DynamicCallable(_)));
     }
 
     emit_fixpoint_error(
@@ -257,8 +245,8 @@ fn run_specialization(
     store: &mut PackageStore,
     analysis: &AnalysisResult,
     assigners: &mut PackageAssigners,
-    errors: &mut Vec<OwnedError>,
-    warnings: &mut Vec<OwnedError>,
+    errors: &mut Vec<Error>,
+    warnings: &mut Vec<Error>,
 ) -> FxHashMap<SpecKey, StoreItemId> {
     let (spec_map, mut spec_errors) = if analysis.call_sites.is_empty() {
         (Default::default(), Vec::new())
@@ -269,20 +257,18 @@ fn run_specialization(
     // iteration does not discard them.
     warnings.append(
         &mut (spec_errors
-            .extract_if(.., |e| {
-                matches!(e.error, Error::ExcessiveSpecializations(..))
-            })
+            .extract_if(.., |e| matches!(e, Error::ExcessiveSpecializations(..)))
             .collect()),
     );
-    spec_errors.retain(|e| !matches!(e.error, Error::ExcessiveSpecializations(..)));
+    spec_errors.retain(|e| !matches!(e, Error::ExcessiveSpecializations(..)));
     // `UnsupportedMultipleCallableArrays` is intentionally not swept by the
     // per-iteration `DynamicCallable` retain, so the guarded group re-reports it
     // every fixpoint iteration. Drop any whose span already survives in `errors`
     // so a single diagnostic persists across iterations rather than one copy per
     // pass.
-    spec_errors.retain(|e| match &e.error {
+    spec_errors.retain(|e| match e {
         Error::UnsupportedMultipleCallableArrays(span) => !errors.iter().any(
-            |existing| matches!(existing.error, Error::UnsupportedMultipleCallableArrays(s) if s == *span),
+            |existing| matches!(existing, Error::UnsupportedMultipleCallableArrays(s) if s == span),
         ),
         _ => true,
     });
@@ -462,23 +448,23 @@ fn emit_fixpoint_error(
     package_id: PackageId,
     iteration_count: usize,
     unresolved_direct_call_sites: &[StoreExprId],
-    errors: &mut Vec<OwnedError>,
+    errors: &mut Vec<Error>,
 ) {
     let (has_remaining, remaining_count, owner, span) =
         remaining_callable_value_info(store, package_id);
     if has_remaining && errors.is_empty() {
         if unresolved_direct_call_sites.is_empty() {
-            errors.push(OwnedError {
-                package: owner,
-                error: Error::FixpointNotReached(iteration_count, remaining_count, span),
-            });
+            errors.push(Error::FixpointNotReached(
+                iteration_count,
+                remaining_count,
+                (owner, span).into(),
+            ));
         } else {
             for &call_site in unresolved_direct_call_sites {
                 let package = store.get(call_site.package);
-                errors.push(OwnedError {
-                    package: call_site.package,
-                    error: Error::DynamicCallable(package.get_expr(call_site.expr).span),
-                });
+                errors.push(Error::DynamicCallable(
+                    (call_site.package, package.get_expr(call_site.expr).span).into(),
+                ));
             }
         }
     }
