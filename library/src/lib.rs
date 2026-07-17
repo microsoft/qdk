@@ -82,6 +82,10 @@ pub const STD_LIB: &[(&str, &str)] = &[
         include_str!("../std/src/Std/Arithmetic.qs"),
     ),
     (
+        "qsharp-library-source:Std/ArithmeticTestUtils.qs",
+        include_str!("../std/src/Std/ArithmeticTestUtils.qs"),
+    ),
+    (
         "qsharp-library-source:Std/ArithmeticUtils.qs",
         include_str!("../std/src/Std/ArithmeticUtils.qs"),
     ),

@@ -731,7 +731,12 @@ impl Backend for LogicalCounter {
         Ok(true)
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        _globals: &impl qsc::fir::PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => {
                 let values = arg.unwrap_tuple();

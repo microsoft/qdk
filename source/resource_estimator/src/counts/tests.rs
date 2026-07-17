@@ -9,7 +9,7 @@ use indoc::indoc;
 use miette::Report;
 use qsc::{
     LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
-    interpret::{GenericReceiver, Interpreter, Value},
+    interpret::{GenericReceiver, Interpreter, PackageGlobal, Value},
     target::Profile,
 };
 
@@ -73,7 +73,13 @@ fn source_global(interpreter: &Interpreter, name: &str) -> Value {
     interpreter
         .source_globals()
         .into_iter()
-        .find_map(|(_, global_name, value)| (global_name.as_ref() == name).then_some(value))
+        .find_map(
+            |PackageGlobal {
+                 name: global_name,
+                 value,
+                 ..
+             }| (global_name.as_ref() == name).then_some(value),
+        )
         .unwrap_or_else(|| panic!("{name} should be present in source globals"))
 }
 
