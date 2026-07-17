@@ -119,16 +119,24 @@ from .._native import (  # type: ignore
     qasm_dumps as _qasm_dumps,
 )
 from ._visitor import QASMVisitor
+from .tokens import RawToken, RawTokenKind, tokenize
 
 CANONICAL_FORMAT_VERSION = 1
+IncludeResolver = dict[str, str] | Callable[[str], str | None] | None
 
 __all__ = [
     "parse",
+    "parse_program",
+    "QASM3ParsingError",
+    "IncludeResolver",
     "dumps",
     "unparse",
     "dump",
     "CANONICAL_FORMAT_VERSION",
     "QASMUnparseError",
+    "tokenize",
+    "RawToken",
+    "RawTokenKind",
     "QASMVisitor",
     "Annotation",
     "ParseResult",
@@ -243,6 +251,36 @@ class QASMUnparseError(ValueError):
         return self._diagnostics
 
 
+class QASM3ParsingError(ValueError):
+    """Raised when :func:`parse_program` encounters parser diagnostics.
+
+    Attributes:
+        result: The complete recovery-oriented parse result.
+        diagnostics: An immutable snapshot of every parser diagnostic.
+    """
+
+    __slots__ = ("_result", "_diagnostics")
+
+    def __init__(self, result: ParseResult) -> None:
+        diagnostics = tuple(result.diagnostics)
+        message = "\n\n".join(
+            diagnostic.render(color=False).rstrip("\n") for diagnostic in diagnostics
+        )
+        super().__init__(message or "OpenQASM parsing failed")
+        self._result = result
+        self._diagnostics = diagnostics
+
+    @property
+    def result(self) -> ParseResult:
+        """The identical parse result that caused this exception."""
+        return self._result
+
+    @property
+    def diagnostics(self) -> tuple[Diagnostic, ...]:
+        """An immutable snapshot of all parser diagnostics."""
+        return self._diagnostics
+
+
 def parse(
     source: str,
     *,
@@ -265,6 +303,40 @@ def parse(
         collected rather than raised.
     """
     return _parse(source, path, includes)
+
+
+def parse_program(
+    source: str,
+    *,
+    permissive: bool = False,
+    path: str = "<source>",
+    includes: IncludeResolver = None,
+) -> Program:
+    """Parse source with strict-by-default compatibility control flow.
+
+    This wrapper offers control-flow compatibility with the reference
+    ``openqasm3`` parser: errors raise unless ``permissive`` is true. It returns
+    QDK syntax objects and does not provide reference AST compatibility,
+    ANTLR diagnostic text, or identical recovery behavior. The underlying
+    recovery-oriented :func:`parse` API remains unchanged.
+
+    Args:
+        source: The OpenQASM 2.0 or 3.0 source text to parse.
+        permissive: Return the recovered program even when diagnostics exist.
+        path: A display name for the source, used in diagnostics.
+        includes: How to resolve ``include`` directives.
+
+    Returns:
+        The program from the single underlying parse result.
+
+    Raises:
+        QASM3ParsingError: If parsing reports errors and ``permissive`` is
+            false.
+    """
+    result = parse(source, path=path, includes=includes)
+    if not permissive and result.has_errors:
+        raise QASM3ParsingError(result)
+    return result.program
 
 
 def dumps(program: Program, /) -> str:

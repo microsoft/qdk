@@ -2,11 +2,161 @@
 // Licensed under the MIT License.
 #![allow(unused)]
 
-pub mod cooked;
-pub mod raw;
+pub(crate) mod cooked;
+pub(crate) mod raw;
 use enum_iterator::Sequence;
 
 pub(super) use cooked::{ClosedBinOp, Error, Lexer, Token, TokenKind};
+
+use crate::span::Span;
+
+/// A stable, coarse category for a lossless raw token.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum RawTokenKind {
+    Bitstring,
+    Comment,
+    HardwareQubit,
+    Identifier,
+    LiteralFragment,
+    Newline,
+    Number,
+    Punctuation,
+    String,
+    Unknown,
+    Whitespace,
+}
+
+/// One lossless raw token with a source-local UTF-8 byte span.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct RawToken {
+    pub kind: RawTokenKind,
+    pub span: Span,
+    pub text: String,
+    pub is_trivia: bool,
+    pub detail: Option<&'static str>,
+    pub is_complete: bool,
+}
+
+/// Eagerly tokenizes source without parsing, resolving includes, or running semantic analysis.
+#[must_use]
+pub fn tokenize(source: &str) -> Vec<RawToken> {
+    let source_len = u32::try_from(source.len()).expect("source length should fit into u32");
+    let raw_tokens = raw::Lexer::new(source).collect::<Vec<_>>();
+    raw_tokens
+        .iter()
+        .enumerate()
+        .map(|(index, token)| {
+            let end = raw_tokens
+                .get(index + 1)
+                .map_or(source_len, |next| next.offset);
+            let span = Span {
+                lo: token.offset,
+                hi: end,
+            };
+            RawToken::from_raw(
+                token.kind,
+                span,
+                &source[token.offset as usize..end as usize],
+            )
+        })
+        .collect()
+}
+
+impl RawToken {
+    fn from_raw(kind: raw::TokenKind, span: Span, text: &str) -> Self {
+        let (kind, is_trivia, detail, is_complete) = match kind {
+            raw::TokenKind::Bitstring { terminated } => {
+                (RawTokenKind::Bitstring, false, None, terminated)
+            }
+            raw::TokenKind::Comment(comment) => (
+                RawTokenKind::Comment,
+                true,
+                Some(match comment {
+                    raw::CommentKind::Block => "block",
+                    raw::CommentKind::Normal => "line",
+                }),
+                true,
+            ),
+            raw::TokenKind::HardwareQubit => (RawTokenKind::HardwareQubit, false, None, true),
+            raw::TokenKind::Ident => (RawTokenKind::Identifier, false, None, true),
+            raw::TokenKind::LiteralFragment(fragment) => (
+                RawTokenKind::LiteralFragment,
+                false,
+                Some(match fragment {
+                    raw::LiteralFragmentKind::Imag => "im",
+                    raw::LiteralFragmentKind::Dt => "dt",
+                    raw::LiteralFragmentKind::Ns => "ns",
+                    raw::LiteralFragmentKind::Us => "us",
+                    raw::LiteralFragmentKind::Ms => "ms",
+                    raw::LiteralFragmentKind::S => "s",
+                }),
+                true,
+            ),
+            raw::TokenKind::Newline => (RawTokenKind::Newline, true, None, true),
+            raw::TokenKind::Number(number) => (
+                RawTokenKind::Number,
+                false,
+                Some(match number {
+                    raw::Number::Float => "float",
+                    raw::Number::Int(Radix::Binary) => "binary",
+                    raw::Number::Int(Radix::Octal) => "octal",
+                    raw::Number::Int(Radix::Decimal) => "decimal",
+                    raw::Number::Int(Radix::Hexadecimal) => "hex",
+                }),
+                true,
+            ),
+            raw::TokenKind::Single(single) => (
+                RawTokenKind::Punctuation,
+                false,
+                Some(punctuation_detail(single)),
+                true,
+            ),
+            raw::TokenKind::String { terminated } => {
+                (RawTokenKind::String, false, None, terminated)
+            }
+            raw::TokenKind::Unknown => (RawTokenKind::Unknown, false, None, true),
+            raw::TokenKind::Whitespace => (RawTokenKind::Whitespace, true, None, true),
+        };
+        Self {
+            kind,
+            span,
+            text: text.to_string(),
+            is_trivia,
+            detail,
+            is_complete,
+        }
+    }
+}
+
+fn punctuation_detail(single: raw::Single) -> &'static str {
+    match single {
+        raw::Single::Amp => "&",
+        raw::Single::At => "@",
+        raw::Single::Bang => "!",
+        raw::Single::Bar => "|",
+        raw::Single::Caret => "^",
+        raw::Single::Close(Delim::Brace) => "}",
+        raw::Single::Close(Delim::Bracket) => "]",
+        raw::Single::Close(Delim::Paren) => ")",
+        raw::Single::Colon => ":",
+        raw::Single::Comma => ",",
+        raw::Single::Dot => ".",
+        raw::Single::Eq => "=",
+        raw::Single::Gt => ">",
+        raw::Single::Lt => "<",
+        raw::Single::Minus => "-",
+        raw::Single::Open(Delim::Brace) => "{",
+        raw::Single::Open(Delim::Bracket) => "[",
+        raw::Single::Open(Delim::Paren) => "(",
+        raw::Single::Percent => "%",
+        raw::Single::Plus => "+",
+        raw::Single::Semi => ";",
+        raw::Single::Sharp => "#",
+        raw::Single::Slash => "/",
+        raw::Single::Star => "*",
+        raw::Single::Tilde => "~",
+    }
+}
 
 /// A delimiter token.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
@@ -38,14 +188,85 @@ impl From<Radix> for u32 {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
-pub enum InterpolatedStart {
-    DollarQuote,
-    RBrace,
-}
+#[cfg(test)]
+mod facade_tests {
+    use super::{RawTokenKind, tokenize};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
-pub enum InterpolatedEnding {
-    Quote,
-    LBrace,
+    #[test]
+    fn raw_tokens_reconstruct_unicode_source_with_contiguous_utf8_spans() {
+        let source = "OPENQASM 3.0;\n// µs\nqubit q; §";
+        let tokens = tokenize(source);
+
+        assert_eq!(
+            tokens
+                .iter()
+                .map(|token| token.text.as_str())
+                .collect::<String>(),
+            source
+        );
+        assert_eq!(tokens.first().map(|token| token.span.lo), Some(0));
+        assert_eq!(
+            tokens.last().map(|token| token.span.hi),
+            Some(u32::try_from(source.len()).expect("test source length should fit"))
+        );
+        assert!(
+            tokens
+                .windows(2)
+                .all(|pair| pair[0].span.hi == pair[1].span.lo)
+        );
+        assert!(
+            tokens
+                .iter()
+                .any(|token| token.kind == RawTokenKind::Unknown)
+        );
+    }
+
+    #[test]
+    fn raw_tokens_preserve_trivia_details_and_incomplete_literals() {
+        let source = "  // line\r\n/* block */ 0b10 0o7 12 0xF 1.5 10ns + \"01";
+        let tokens = tokenize(source);
+
+        assert!(tokens.iter().any(|token| {
+            token.kind == RawTokenKind::Comment && token.detail == Some("line") && token.is_trivia
+        }));
+        assert!(tokens.iter().any(|token| {
+            token.kind == RawTokenKind::Comment && token.detail == Some("block") && token.is_trivia
+        }));
+        for detail in ["binary", "octal", "decimal", "hex", "float"] {
+            assert!(tokens.iter().any(|token| token.detail == Some(detail)));
+        }
+        assert!(tokens.iter().any(|token| {
+            token.kind == RawTokenKind::LiteralFragment && token.detail == Some("ns")
+        }));
+        assert!(
+            tokens.iter().any(|token| {
+                token.kind == RawTokenKind::Punctuation && token.detail == Some("+")
+            })
+        );
+        assert!(tokens.iter().any(|token| {
+            token.kind == RawTokenKind::Bitstring && !token.is_complete && token.text == "\"01"
+        }));
+    }
+
+    #[test]
+    fn unterminated_block_comment_remains_visible_as_trivia() {
+        let source = "/* unterminated µ";
+        let tokens = tokenize(source);
+
+        assert_eq!(tokens.len(), 1);
+        assert_eq!(tokens[0].kind, RawTokenKind::Comment);
+        assert_eq!(tokens[0].detail, Some("block"));
+        assert_eq!(tokens[0].text, source);
+        assert!(tokens[0].is_trivia);
+        assert!(tokens[0].is_complete);
+        assert_eq!(
+            tokens[0].span.hi,
+            u32::try_from(source.len()).expect("test source length should fit")
+        );
+    }
+
+    #[test]
+    fn empty_source_has_no_raw_tokens() {
+        assert!(tokenize("").is_empty());
+    }
 }

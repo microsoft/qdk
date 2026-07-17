@@ -21,6 +21,7 @@ mod semantic;
 mod source;
 mod span;
 mod syntax;
+mod tokens;
 
 pub(crate) use diagnostics::{Diagnostic, Label, Severity};
 pub(crate) use nodes::{Annotation, Expression, QASMNode, Statement};
@@ -32,6 +33,7 @@ pub(crate) use source::{
 };
 pub(crate) use span::Span;
 pub(crate) use syntax::{Program, QuantumGateModifier};
+pub(crate) use tokens::{RawToken, RawTokenKind};
 
 use diagnostics::diagnostic_from;
 use pyo3::create_exception;
@@ -315,6 +317,8 @@ pub(crate) fn register_qasm_ast_submodule(m: &Bound<'_, PyModule>) -> PyResult<(
     m.add_class::<Diagnostic>()?;
     m.add_class::<ParseResult>()?;
     m.add_class::<AnalysisResult>()?;
+    m.add_class::<RawTokenKind>()?;
+    m.add_class::<RawToken>()?;
     source::register_source_types(m)?;
     syntax::register_syntax_nodes(m)?;
     register_semantic_submodule(m)?;
@@ -325,6 +329,7 @@ pub(crate) fn register_qasm_ast_submodule(m: &Bound<'_, PyModule>) -> PyResult<(
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
     m.add_function(wrap_pyfunction!(qasm_dumps, m)?)?;
+    m.add_function(wrap_pyfunction!(tokens::qasm_tokenize, m)?)?;
     Ok(())
 }
 

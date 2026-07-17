@@ -1,6 +1,11 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from typing import Any
+
+import pytest
+
+from qdk import openqasm
 from qdk.openqasm import parser, semantic
 from qdk.openqasm.parser import (
     BinaryExpression,
@@ -99,6 +104,118 @@ def test_parse_broken_program_reports_diagnostics() -> None:
     assert isinstance(diagnostic.severity, Severity)
     for label in diagnostic.labels:
         assert isinstance(label.span, Span)
+
+
+def test_parse_program_strict_calls_parse_once_and_preserves_error_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = parser.parse("OPENQASM 3.0; qubit; qubit;")
+    assert len(result.diagnostics) == 2
+    calls: list[tuple[str, str, object]] = []
+
+    def spy(source: str, *, path: str, includes: object) -> Any:
+        calls.append((source, path, includes))
+        return result
+
+    monkeypatch.setattr(parser, "parse", spy)
+    with pytest.raises(parser.QASM3ParsingError) as caught:
+        parser.parse_program(
+            "broken",
+            path="main.qasm",
+            includes={"defs.inc": ""},
+        )
+
+    error = caught.value
+    assert calls == [("broken", "main.qasm", {"defs.inc": ""})]
+    assert error.result is result
+    assert isinstance(error.diagnostics, tuple)
+    assert [diagnostic.render(color=False) for diagnostic in error.diagnostics] == [
+        diagnostic.render(color=False) for diagnostic in result.diagnostics
+    ]
+    assert str(error) == "\n\n".join(
+        diagnostic.render(color=False).rstrip("\n")
+        for diagnostic in result.diagnostics
+    )
+    assert not str(error).endswith("\n")
+    assert "\x1b[" not in str(error)
+    with pytest.raises(AttributeError):
+        error.result = result  # type: ignore[misc]
+    with pytest.raises(AttributeError):
+        error.diagnostics = ()  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("permissive", [False, True])
+def test_parse_program_success_calls_parse_once_and_returns_same_program(
+    monkeypatch: pytest.MonkeyPatch, permissive: bool
+) -> None:
+    result = parser.parse("OPENQASM 3.0; qubit q;")
+    calls = 0
+
+    def spy(source: str, *, path: str, includes: object) -> Any:
+        nonlocal calls
+        calls += 1
+        assert source == "source"
+        assert path == "<source>"
+        assert includes is None
+        return result
+
+    monkeypatch.setattr(parser, "parse", spy)
+
+    assert parser.parse_program("source", permissive=permissive) is result.program
+    assert calls == 1
+
+
+def test_parse_program_permissive_returns_recovered_program_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = parser.parse("OPENQASM 3.0; qubit;")
+    calls = 0
+
+    def spy(source: str, *, path: str, includes: object) -> Any:
+        nonlocal calls
+        calls += 1
+        return result
+
+    monkeypatch.setattr(parser, "parse", spy)
+
+    assert parser.parse_program("broken", permissive=True) is result.program
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    ("source", "includes"),
+    [
+        ('OPENQASM 3.0; include "missing.inc";', None),
+        (
+            'OPENQASM 3.0; include "broken.inc";',
+            lambda path: (_ for _ in ()).throw(RuntimeError(f"cannot resolve {path}")),
+        ),
+    ],
+)
+def test_parse_program_strict_raises_for_include_and_resolver_errors(
+    source: str, includes: parser.IncludeResolver
+) -> None:
+    with pytest.raises(parser.QASM3ParsingError) as caught:
+        parser.parse_program(source, includes=includes)
+
+    assert caught.value.result.has_errors
+    assert caught.value.diagnostics
+
+
+def test_qasm3_parsing_error_uses_fallback_without_diagnostics() -> None:
+    class ResultWithoutDiagnostics:
+        diagnostics: list[Diagnostic] = []
+
+    error = parser.QASM3ParsingError(ResultWithoutDiagnostics())  # type: ignore[arg-type]
+
+    assert str(error) == "OpenQASM parsing failed"
+    assert error.diagnostics == ()
+
+
+def test_parse_program_public_exports_and_value_error_compatibility() -> None:
+    assert openqasm.parse_program is parser.parse_program
+    assert openqasm.QASM3ParsingError is parser.QASM3ParsingError
+    assert issubclass(parser.QASM3ParsingError, ValueError)
 
 
 def test_visitor_counts_gates_and_recurses() -> None:

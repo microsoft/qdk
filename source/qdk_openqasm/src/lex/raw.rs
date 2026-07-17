@@ -273,7 +273,9 @@ impl<'a> Lexer<'a> {
             Some(CommentKind::Normal)
         } else if c == '/' && self.next_if_eq('*') {
             loop {
-                let (_, c) = self.chars.next()?;
+                let Some((_, c)) = self.chars.next() else {
+                    return Some(CommentKind::Block);
+                };
                 if c == '*' && self.next_if_eq('/') {
                     return Some(CommentKind::Block);
                 }

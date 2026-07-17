@@ -36,9 +36,11 @@ Key exports:
 from . import parser, semantic, source
 from .parser import (
   CANONICAL_FORMAT_VERSION,
+  QASM3ParsingError,
   QASMUnparseError,
   dump,
   dumps,
+  parse_program,
   unparse,
 )
 from .source import Position, PositionEncoding, SourceEdit, SourceRange
@@ -59,6 +61,8 @@ __all__ = [
     "unparse",
     "dump",
     "CANONICAL_FORMAT_VERSION",
+    "parse_program",
+    "QASM3ParsingError",
     "QASMUnparseError",
     "parser",
     "semantic",

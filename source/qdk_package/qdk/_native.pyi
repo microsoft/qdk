@@ -1313,6 +1313,39 @@ class Span:
     @property
     def hi(self) -> int: ...
 
+class RawTokenKind(Enum):
+    """A stable, coarse category for a lossless OpenQASM token."""
+
+    BITSTRING: RawTokenKind
+    COMMENT: RawTokenKind
+    HARDWARE_QUBIT: RawTokenKind
+    IDENTIFIER: RawTokenKind
+    LITERAL_FRAGMENT: RawTokenKind
+    NEWLINE: RawTokenKind
+    NUMBER: RawTokenKind
+    PUNCTUATION: RawTokenKind
+    STRING: RawTokenKind
+    UNKNOWN: RawTokenKind
+    WHITESPACE: RawTokenKind
+    @property
+    def value(self) -> str: ...
+
+class RawToken:
+    """One frozen lossless token with a source-local UTF-8 byte span."""
+
+    @property
+    def kind(self) -> RawTokenKind: ...
+    @property
+    def span(self) -> Span: ...
+    @property
+    def text(self) -> str: ...
+    @property
+    def is_trivia(self) -> bool: ...
+    @property
+    def detail(self) -> Optional[str]: ...
+    @property
+    def is_complete(self) -> bool: ...
+
 class PositionEncoding(Enum):
     """The column encoding used by a source position."""
 
@@ -2574,4 +2607,8 @@ def parse(
 
 def qasm_dumps(program: Program) -> str:
     """Canonically serializes a syntactic program from its entry source."""
+    ...
+
+def qasm_tokenize(source: str, /) -> List[RawToken]:
+    """Losslessly tokenizes source without parsing or resolving includes."""
     ...

@@ -22,6 +22,11 @@ mod vendor;
 pub use vendor::span;
 pub(crate) use vendor::{display, index_map};
 
+/// Lossless raw tokenization without exposing lexer implementation types.
+pub mod tokens {
+    pub use crate::lex::{RawToken, RawTokenKind, tokenize};
+}
+
 use std::sync::Arc;
 
 use crate::{parser::ParseResult, semantic::AnalysisResult};
