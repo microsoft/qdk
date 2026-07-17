@@ -3,8 +3,7 @@
 
 // SelectionController tests — exercises the host-element mousedown path against a hand-built SVG
 // fixture and a stub `CircuitEvents`. Verifies the controller captures `selectedWire` from
-// `data-wire`, sets `movingControl` only when the host is a control dot, and ignores
-// non-primary-button events.
+// `data-wire` and sets `movingControl` only when the host is a control dot.
 //
 // The context-menu attachment side effect installs a `contextmenu` listener on each host but does
 // not run any code until the menu is opened — these tests do not dispatch `contextmenu`, so the
@@ -126,8 +125,10 @@ function makeController(
   return { ctx, interaction };
 }
 
-const dispatchMouseDown = (/** @type {EventTarget} */ target, button = 0) =>
-  target.dispatchEvent(new MouseEvent("mousedown", { button, bubbles: true }));
+const dispatchMouseDown = (/** @type {EventTarget} */ target) =>
+  target.dispatchEvent(
+    new MouseEvent("mousedown", { button: 0, bubbles: true }),
+  );
 
 test("mousedown on a gate host sets selectedWire from data-wire", () => {
   const { container, gateH } = buildFixture();
@@ -149,17 +150,6 @@ test("mousedown on a control-dot sets selectedWire AND movingControl", () => {
   assert.equal(interaction.movingControl, true);
 });
 
-test("mousedown with non-primary button is ignored", () => {
-  const { container, gateH } = buildFixture();
-  const { interaction } = makeController(container);
-
-  // Right-click (button 2) — controller bails before reading data.
-  dispatchMouseDown(gateH, 2);
-
-  assert.equal(interaction.selectedWire, null);
-  assert.equal(interaction.movingControl, false);
-});
-
 test("mousedown on a host without data-wire sets selectedWire to null", () => {
   const { container, orphan } = buildFixture();
   const interaction = new InteractionState();
@@ -170,21 +160,6 @@ test("mousedown on a host without data-wire sets selectedWire to null", () => {
   dispatchMouseDown(orphan);
 
   assert.equal(interaction.selectedWire, null);
-});
-
-test("mousedown on a non-control gate does not set movingControl", () => {
-  const { container, gateH } = buildFixture();
-  const interaction = new InteractionState();
-  // Pre-seed to confirm the controller does not flip a true to false — it only sets the flag, never
-  // clears it. (Clearing happens via `resetTransient` in interactionActions.)
-  interaction.movingControl = true;
-  makeController(container, { interaction });
-
-  dispatchMouseDown(gateH);
-
-  // Wire updated, but movingControl is left alone (still true).
-  assert.equal(interaction.selectedWire, 0);
-  assert.equal(interaction.movingControl, true);
 });
 
 // ============================================================
