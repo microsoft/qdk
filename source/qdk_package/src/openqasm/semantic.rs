@@ -103,8 +103,8 @@
 //! [`SemHardwareQubit`] (Python `HardwareQubit`) so that no operand is silently
 //! dropped.
 
-use crate::qasm_ast::nodes::{Annotation, Expression, QASMNode, Statement};
-use crate::qasm_ast::span::Span;
+use crate::openqasm::nodes::{Annotation, Expression, QASMNode, Statement};
+use crate::openqasm::span::Span;
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
 use pyo3::types::{PyComplex, PyList};

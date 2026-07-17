@@ -9,6 +9,6 @@ mod generic_estimator;
 mod interop;
 mod interpreter;
 mod noisy_simulator;
-mod qasm_ast;
+mod openqasm;
 mod qir_simulation;
 mod qre;

@@ -3,7 +3,7 @@
 
 //! Immutable source document projections for parsed OpenQASM syntax.
 
-use crate::qasm_ast::span::Span;
+use crate::openqasm::span::Span;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};

@@ -8,7 +8,7 @@
 //! Python objects so callers do not need any `miette` knowledge to inspect
 //! parse and analysis diagnostics.
 
-use crate::qasm_ast::span::Span;
+use crate::openqasm::span::Span;
 use miette::{
     Diagnostic as MietteDiagnostic, GraphicalReportHandler, GraphicalTheme, LabeledSpan,
     NamedSource, Severity as MietteSeverity, SourceCode, SourceSpan,

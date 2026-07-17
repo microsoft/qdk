@@ -89,9 +89,9 @@
 //! * A measurement r-value (`measure q`) -> `QuantumMeasurement`
 //! * A gate modifier (`ctrl @`, `pow(2) @`) -> `QuantumGateModifier`
 
-use crate::qasm_ast::nodes::{Annotation, Expression, QASMNode, Statement};
-use crate::qasm_ast::source::SourceDocument;
-use crate::qasm_ast::span::Span;
+use crate::openqasm::nodes::{Annotation, Expression, QASMNode, Statement};
+use crate::openqasm::source::SourceDocument;
+use crate::openqasm::span::Span;
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
 use pyo3::types::PyComplex;

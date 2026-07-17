@@ -19,7 +19,7 @@
 //! `Py<PyAny>` references to already-built children), so they are `Send + Sync`
 //! and hold no borrow into the Rust parse result.
 
-use crate::qasm_ast::span::Span;
+use crate::openqasm::span::Span;
 use pyo3::prelude::*;
 
 /// An annotation attached to an `OpenQASM` statement.
