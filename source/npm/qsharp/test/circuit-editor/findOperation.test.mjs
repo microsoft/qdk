@@ -75,7 +75,7 @@ test("all three helpers return null for a null/empty location", () => {
   }
 });
 
-test("findOperation returns null (never throws) for out-of-bounds op indices", () => {
+test("findOperation returns null for out-of-bounds op indices", () => {
   const grid = nestedGrid();
   // Out-of-bounds top-level column / op, out-of-bounds nested column / op, and a path below a
   // missing ancestor.
@@ -84,7 +84,7 @@ test("findOperation returns null (never throws) for out-of-bounds op indices", (
   }
 });
 
-test("findParentArray/findParentOperation return null only when an ancestor is missing", () => {
+test("findParentArray/findParentOperation return null when an ancestor is missing", () => {
   const grid = nestedGrid();
   // The parent PATH is valid, so the containing grid is returned even when the addressed op index
   // itself is out of bounds.
