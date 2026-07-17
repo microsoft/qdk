@@ -46,6 +46,7 @@ license = "MIT"
 version = "0.0.0"
 
 [workspace.dependencies]
+binar = "0.1.1"
 bitflags = "2.11"
 memchr = "2.8"
 clap = "4.4"
@@ -58,7 +59,9 @@ futures = "0.3"
 futures-util = "0.3"
 fasteval = "0.2"
 getrandom = "0.4"
-iai-callgrind = "0.16.1"
+# Keep the rand 0.8 transitive dependency feature-addressable for WASM builds.
+getrandom_02 = { package = "getrandom", version = "0.2" }
+gungraun = "0.19.4"
 indoc = "2.0"
 js-sys = "0.3"
 libfuzzer-sys = "0.4"
@@ -71,6 +74,8 @@ num-bigint = "0.4"
 num-complex = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
+paulimer = "0.1.2"
+pauliverse = "0.1.1"
 pprof = { version = "0.15", features = ["criterion", "flamegraph"] }
 probability = "0.20"
 proptest = "1.10"
