@@ -343,14 +343,14 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     _output_str = ""
     _closers: List[str] = []
     _counters: List[int] = []
-    _process_fn = None
+    _process_fn: Optional[Callable[[List[object]], object]] = None
     # Running index into the per-shot ordered output record values (`v`)
     # supplied to `process_output`. Incremented for each leaf record output
     # (result / bool / int / double) so measurement results and classical
     # records are addressed uniformly.
     _record_index = 0
 
-    def process_output(self, records: str) -> str | list[Result]:
+    def process_output(self, records: List[object]) -> object:
         if self._process_fn:
             return self._process_fn(records)
         # No output recording in the program: fall back to reporting the raw
@@ -372,7 +372,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
                 # during the shot.
                 self._process_fn = eval(f"lambda v: {self._output_str}")
 
-    def _record_leaf(self, expr: str):
+    def _record_leaf(self, expr: str) -> None:
         """Append a leaf value expression and close any containers it completes."""
         self._output_str += expr
         while len(self._counters) > 0:
@@ -385,38 +385,46 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
             else:
                 break
 
-    def _record_next_value(self):
+    def _record_next_value(self) -> None:
         """Record the next ordered output value, whatever its type."""
         self._record_leaf(f"v[{self._record_index}]")
         self._record_index += 1
 
-    def _on_rt_result_record_output(self, call, result, target):
+    def _on_rt_result_record_output(
+        self, call: Call, result: Value, target: Value
+    ) -> None:
         self._record_next_value()
 
-    def _on_rt_bool_record_output(self, call, value, target):
+    def _on_rt_bool_record_output(
+        self, call: Call, value: Value, target: Value
+    ) -> None:
         self._record_next_value()
 
-    def _on_rt_int_record_output(self, call, value, target):
+    def _on_rt_int_record_output(self, call: Call, value: Value, target: Value) -> None:
         self._record_next_value()
 
-    def _on_rt_double_record_output(self, call, value, target):
+    def _on_rt_double_record_output(
+        self, call: Call, value: Value, target: Value
+    ) -> None:
         self._record_next_value()
 
-    def _on_rt_array_record_output(self, call, value, target):
+    def _on_rt_array_record_output(
+        self, call: Call, value: Value, target: Value
+    ) -> None:
         self._output_str += "["
         self._closers.append("]")
         # if len(self._counters) > 0:
         #     self._counters[-1] -= 1
-        self._counters.append(value.value)
+        self._counters.append(cast(IntConstant, value).value)
 
     def _on_rt_tuple_record_output(
-        self, call: Call, value: IntConstant, target: Value
+        self, call: Call, value: Value, target: Value
     ) -> None:
         self._output_str += "("
         self._closers.append(")")
         # if len(self._counters) > 0:
         #     self._counters[-1] -= 1
-        self._counters.append(value.value)
+        self._counters.append(cast(IntConstant, value).value)
 
 
 class DecomposeCcxPass(pyqir.QirModuleVisitor):
@@ -678,7 +686,7 @@ class GpuSimulator:
     def __init__(self):
         self.gpu_context = GpuContext()
         self._is_adaptive = False
-        self._recorder = None
+        self._recorder: Optional[OutputRecordingPass] = None
         self.tables = None
 
     def load_noise_tables(
@@ -743,6 +751,7 @@ class GpuSimulator:
         """
         seed = seed if seed is not None else random.randint(0, 2**32 - 1)
         if self._is_adaptive:
+            assert self._recorder is not None
             results = self.gpu_context.run_adaptive_shots(shots, seed=seed)
             records = results.get("shot_output_records")
             for i, shot_ret_code in enumerate(results["shot_result_codes"]):
@@ -756,7 +765,7 @@ class GpuSimulator:
                 else:
                     # If the shot finished with a ret_code other than zero,
                     # we set the result to `None`.
-                    shot_results[i] = None
+                    results["shot_results"][i] = None
             return cast("GpuShotResults", results)
         return self.gpu_context.run_shots(shots, seed=seed)
 

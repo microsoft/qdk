@@ -1223,8 +1223,8 @@ def run_adaptive_parallel_shots(
 # This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
 # for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
 class _GpuShotResultsBase(TypedDict):
-    shot_results: List[str]
-    """Bit strings for each shot ('0', '1', or 'L' for lost qubits)."""
+    shot_results: List[object]
+    """Processed output for each shot, or `None` when a shot fails."""
 
     shot_result_codes: List[int]
     """Result codes for each shot. 0 = Success, else Failure  (Specific codes are an internal detail)."""
