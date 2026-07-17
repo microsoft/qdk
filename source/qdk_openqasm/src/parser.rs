@@ -100,7 +100,7 @@ pub enum SourceStatus {
     Unresolved,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SourceFileSnapshot {
     pub id: u32,
     pub path: Arc<str>,
@@ -110,7 +110,7 @@ pub struct SourceFileSnapshot {
     pub aliases: Arc<[Arc<str>]>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct SourceSnapshot {
     files: Arc<[SourceFileSnapshot]>,
 }

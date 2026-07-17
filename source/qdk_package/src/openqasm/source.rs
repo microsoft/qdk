@@ -7,7 +7,7 @@ use crate::openqasm::span::Span;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
-use qdk_openqasm::parser::{SourceSnapshot, SourceStatus};
+use qdk_openqasm::parser::{SourceFileSnapshot, SourceSnapshot, SourceStatus};
 use qdk_openqasm::source::{
     Position as NativePosition, PositionEncoding as NativePositionEncoding, Range as NativeRange,
     byte_offset as native_byte_offset, position_at as native_position_at,
@@ -197,25 +197,15 @@ impl SourceRange {
     }
 }
 
-#[derive(Debug, Eq, Hash, PartialEq)]
-struct SourceFileInner {
-    id: u32,
-    path: Arc<str>,
-    text: Arc<str>,
-    span: Span,
-    status: SourceStatus,
-    aliases: Arc<[Arc<str>]>,
-}
-
 #[derive(Debug)]
 pub(crate) struct SourceDocumentInner {
     id: u64,
-    files: Arc<[SourceFileInner]>,
+    snapshot: SourceSnapshot,
 }
 
 impl PartialEq for SourceDocumentInner {
     fn eq(&self, other: &Self) -> bool {
-        self.files == other.files
+        self.snapshot == other.snapshot
     }
 }
 
@@ -223,46 +213,26 @@ impl Eq for SourceDocumentInner {}
 
 impl Hash for SourceDocumentInner {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        self.files.hash(state);
+        self.snapshot.hash(state);
     }
 }
 
 impl From<&SourceSnapshot> for SourceDocumentInner {
     fn from(snapshot: &SourceSnapshot) -> Self {
-        let files = snapshot
-            .files()
-            .iter()
-            .map(|file| {
-                let text_len = u32::try_from(file.text.len())
-                    .expect("source contents length should fit into u32");
-                SourceFileInner {
-                    id: file.id,
-                    path: file.path.clone(),
-                    text: file.text.clone(),
-                    span: Span {
-                        lo: file.offset,
-                        hi: file
-                            .offset
-                            .checked_add(text_len)
-                            .expect("source end should fit into u32"),
-                    },
-                    status: file.status,
-                    aliases: file.aliases.clone(),
-                }
-            })
-            .collect::<Vec<_>>();
         Self {
             id: NEXT_DOCUMENT_ID.fetch_add(1, Ordering::Relaxed),
-            files: files.into(),
+            snapshot: snapshot.clone(),
         }
     }
 }
 
 impl SourceDocumentInner {
-    fn entry(&self) -> &SourceFileInner {
-        self.files
-            .first()
-            .expect("source document should have an entry")
+    fn files(&self) -> &[SourceFileSnapshot] {
+        self.snapshot.files()
+    }
+
+    fn entry(&self) -> &SourceFileSnapshot {
+        self.snapshot.entry()
     }
 }
 
@@ -274,8 +244,8 @@ pub(crate) struct SourceFile {
 }
 
 impl SourceFile {
-    fn inner(&self) -> &SourceFileInner {
-        &self.document.files[self.index]
+    fn inner(&self) -> &SourceFileSnapshot {
+        &self.document.files()[self.index]
     }
 
     fn new(document: Arc<SourceDocumentInner>, index: usize) -> Self {
@@ -302,7 +272,16 @@ impl SourceFile {
 
     #[getter]
     fn span(&self) -> Span {
-        self.inner().span
+        let source = self.inner();
+        let text_len =
+            u32::try_from(source.text.len()).expect("source contents length should fit into u32");
+        Span {
+            lo: source.offset,
+            hi: source
+                .offset
+                .checked_add(text_len)
+                .expect("source end should fit into u32"),
+        }
     }
 
     #[getter]
@@ -349,9 +328,9 @@ impl SourceMap {
         Py::new(py, SourceFile::new(self.document.clone(), index))
     }
 
-    fn source(&self, source_id: u32) -> PyResult<&SourceFileInner> {
+    fn source(&self, source_id: u32) -> PyResult<&SourceFileSnapshot> {
         self.document
-            .files
+            .files()
             .iter()
             .find(|file| file.id == source_id)
             .ok_or_else(|| PyValueError::new_err(format!("unknown source ID {source_id}")))
@@ -360,21 +339,23 @@ impl SourceMap {
     fn source_for_span(
         &self,
         span: Span,
-    ) -> PyResult<(&SourceFileInner, qdk_openqasm::span::Span)> {
+    ) -> PyResult<(&SourceFileSnapshot, qdk_openqasm::span::Span)> {
         if span.hi < span.lo {
             return Err(PyValueError::new_err("span end precedes span start"));
         }
 
         self.document
-            .files
+            .files()
             .iter()
             .find_map(|file| {
-                (file.span.lo <= span.lo && span.hi <= file.span.hi).then(|| {
+                let text_len = u32::try_from(file.text.len()).ok()?;
+                let source_end = file.offset.checked_add(text_len)?;
+                (file.offset <= span.lo && span.hi <= source_end).then(|| {
                     (
                         file,
                         qdk_openqasm::span::Span {
-                            lo: span.lo - file.span.lo,
-                            hi: span.hi - file.span.lo,
+                            lo: span.lo - file.offset,
+                            hi: span.hi - file.offset,
                         },
                     )
                 })
@@ -392,18 +373,18 @@ impl SourceMap {
 
     #[getter]
     fn files(&self, py: Python<'_>) -> PyResult<Py<PyTuple>> {
-        let files = (0..self.document.files.len())
+        let files = (0..self.document.files().len())
             .map(|index| self.file(py, index))
             .collect::<PyResult<Vec<_>>>()?;
         Ok(PyTuple::new(py, files)?.unbind())
     }
 
     fn __len__(&self) -> usize {
-        self.document.files.len()
+        self.document.files().len()
     }
 
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
-        let files = (0..self.document.files.len())
+        let files = (0..self.document.files().len())
             .map(|index| self.file(py, index))
             .collect::<PyResult<Vec<_>>>()?;
         let list = PyList::new(py, files)?;
@@ -413,7 +394,7 @@ impl SourceMap {
     fn get(&self, py: Python<'_>, source_id: u32) -> PyResult<Py<SourceFile>> {
         let index = self
             .document
-            .files
+            .files()
             .iter()
             .position(|file| file.id == source_id)
             .ok_or_else(|| PyKeyError::new_err(source_id))?;
@@ -422,7 +403,7 @@ impl SourceMap {
 
     fn find(&self, py: Python<'_>, path: &str) -> PyResult<Option<Py<SourceFile>>> {
         self.document
-            .files
+            .files()
             .iter()
             .position(|file| file.path.as_ref() == path)
             .map(|index| self.file(py, index))
@@ -432,7 +413,7 @@ impl SourceMap {
     fn find_all(&self, py: Python<'_>, path: &str) -> PyResult<Py<PyTuple>> {
         let files = self
             .document
-            .files
+            .files()
             .iter()
             .enumerate()
             .filter(|(_, file)| file.path.as_ref() == path)
@@ -502,20 +483,18 @@ impl SourceMap {
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(Span {
             lo: source
-                .span
-                .lo
+                .offset
                 .checked_add(local_span.lo)
                 .ok_or_else(|| PyValueError::new_err("global span start overflows u32"))?,
             hi: source
-                .span
-                .lo
+                .offset
                 .checked_add(local_span.hi)
                 .ok_or_else(|| PyValueError::new_err("global span end overflows u32"))?,
         })
     }
 
     fn __repr__(&self) -> String {
-        format!("SourceMap(files=[{} items])", self.document.files.len())
+        format!("SourceMap(files=[{} items])", self.document.files().len())
     }
 }
 
@@ -551,7 +530,7 @@ impl SourceDocument {
     }
 
     fn __repr__(&self) -> String {
-        format!("SourceDocument(files=[{} items])", self.inner.files.len())
+        format!("SourceDocument(files=[{} items])", self.inner.files().len())
     }
 }
 
