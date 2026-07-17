@@ -519,8 +519,28 @@ struct FaultRow {
     probability: f64,
 }
 
+#[derive(PartialEq, Eq, Hash)]
+struct NoiseKey {
+    qubits: u32,
+    pauli_strings: Vec<u64>,
+    probability_bits: Vec<u64>,
+    on_loss: u32,
+}
+
+impl NoiseKey {
+    fn from_table(table: &NoiseTable<f64>) -> Self {
+        Self {
+            qubits: table.qubits,
+            pauli_strings: table.pauli_strings.clone(),
+            probability_bits: table.probabilities.iter().map(|p| p.to_bits()).collect(),
+            on_loss: table.on_loss.as_u32(),
+        }
+    }
+}
+
 struct NoiseAccumulator<'noise> {
     config: &'noise mut NoiseConfig<f64, f64>,
+    intrinsic_ids: FxHashMap<NoiseKey, u32>,
     current_correlated_group: Option<Vec<FaultRow>>,
 }
 
@@ -528,15 +548,20 @@ impl<'noise> NoiseAccumulator<'noise> {
     fn new(config: &'noise mut NoiseConfig<f64, f64>) -> Self {
         Self {
             config,
+            intrinsic_ids: FxHashMap::default(),
             current_correlated_group: None,
         }
     }
 
     fn get_or_insert_intrinsic(&mut self, noise_table: NoiseTable<f64>) -> String {
-        let id = self.config.intrinsics.len() as u32; // use fresh from idmap
-        self.config.intrinsics.insert(id, noise_table);
-        let name = format!("noise_intrinsic_{id}");
-        return name;
+        let key = NoiseKey::from_table(&noise_table);
+        let Some(id) = self.intrinsic_ids.get(&key) else {
+            let next_id = self.config.intrinsics.len() as u32;
+            self.intrinsic_ids.insert(key, next_id);
+            self.config.intrinsics.insert(next_id, noise_table);
+            return format!("noise_intrinsic_{next_id}");
+        };
+        format!("noise_intrinsic_{id}")
     }
 }
 
