@@ -19,8 +19,8 @@ Plus a few top-level files:
 
 - `sqore.ts` — entrypoint. `new Sqore(...).draw()` renders, and on every render hands control to
   either the read-only path or `installEditor`.
-- `utils.ts` — small shared helpers (location-walking `findOperation` family, register helpers, DOM
-  lookups).
+- `utils.ts` — pure shared helpers, no DOM (location-walking `findOperation` family, register
+  helpers, `mathChars`).
 - `index.ts` — public API barrel.
 - `angleExpression.ts` — parse/normalize/evaluate gate rotation angle expressions (handles `pi`/`π`
   and simple arithmetic).
@@ -62,7 +62,7 @@ that's the testability boundary.
 ```
 ux/circuit-vis/
 ├── sqore.ts                      ← entrypoint (Sqore class)
-├── utils.ts                      ← findOperation/findParentArray/... + DOM helpers
+├── utils.ts                      ← pure helpers: findOperation/findParentArray/... + register helpers
 ├── index.ts                      ← public re-exports
 ├── angleExpression.ts            ← parse/normalize/evaluate gate angle expressions (π-aware)
 │
@@ -91,6 +91,7 @@ ux/circuit-vis/
 │   ├── toolbox.ts                  createToolboxElement (+ optional Run button)
 │   ├── toolboxGates.ts             toolboxGateDictionary (gate templates)
 │   ├── standaloneRenderData.ts     toRenderData for ghosts / toolbox icons
+│   ├── domUtils.ts                 DOM lookups (findGateElem/getWireData/getHostElems/parseWireYs/...)
 │   ├── draggable.ts                createDropzones, ghost helpers, wire-dropzone factory
 │   ├── contextMenu.ts              right-click menu (uses CircuitEvents shim)
 │   ├── prompts.ts                  confirm + input prompt primitives, delete/move confirm + arg-entry flows
@@ -108,6 +109,7 @@ ux/circuit-vis/
 │   ├── process.ts                  layout pass: positions every gate, builds LayoutMap
 │   ├── layoutMap.ts                LayoutMap value type (geometry handed to editor)
 │   ├── gateRenderData.ts           render-data shape consumed by formatters
+│   ├── gateWidth.ts                getMinGateWidth: gate-width math from render data
 │   ├── constants.ts                gate sizes, paddings, SVG NS
 │   └── formatters/                 render-data → SVG
 │       ├── formatUtils.ts            low-level SVG element builders (group/line/circle/...)

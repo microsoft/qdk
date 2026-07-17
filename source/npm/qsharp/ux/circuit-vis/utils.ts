@@ -1,14 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-import { GateRenderData, GateType } from "./renderer/gateRenderData.js";
-import {
-  minGateWidth,
-  labelPaddingX,
-  labelFontSize,
-  argsFontSize,
-  controlCircleOffset,
-} from "./renderer/constants.js";
 import { ComponentGrid, Operation } from "./data/circuit.js";
 import { Location } from "./data/location.js";
 import { Register } from "./data/register.js";
@@ -49,99 +41,6 @@ const deepEqual = (obj1: unknown, obj2: unknown): boolean => {
   }
 
   return true;
-};
-
-/**
- * Calculate the width of a gate, given its render data.
- *
- * @param renderData - The rendering data of the gate, including its type, label, display arguments.
- *
- * @returns Width of given gate (in pixels).
- */
-const getMinGateWidth = ({
-  type,
-  label,
-  displayArgs,
-  classicalControlIds,
-}: GateRenderData): number => {
-  switch (type) {
-    case GateType.Measure:
-    case GateType.Cnot:
-    case GateType.Swap:
-      return minGateWidth;
-    default: {
-      // Classically controlled gates are wider because of the control button on the left
-      const controlButtonWidth =
-        classicalControlIds != null ? controlCircleOffset : 0;
-      const labelWidth = _getStringWidth(label);
-      const argsWidth =
-        displayArgs != null ? _getStringWidth(displayArgs, argsFontSize) : 0;
-      const textWidth = Math.max(labelWidth, argsWidth) + labelPaddingX * 2;
-      return Math.max(minGateWidth, textWidth) + controlButtonWidth;
-    }
-  }
-};
-
-/**
- * Estimate string width in pixels based on character types and font size. This may not match the
- * true rendered width, but should be close enough for calculating layout.
- *
- * @param text - The text string to measure.
- * @param fontSize - The font size in pixels (default is labelFontSize).
- *
- * @returns Estimated width of the string in pixels.
- */
-const _getStringWidth = (
-  text: string,
-  fontSize: number = labelFontSize,
-): number => {
-  let units = 0;
-  for (const ch of Array.from(text)) {
-    if (ch === " ") {
-      units += 0.33;
-      continue;
-    }
-    if ("il.:;,'`!|".includes(ch)) {
-      units += 0.28;
-      continue;
-    }
-    if ("mw".includes(ch)) {
-      units += 0.72;
-      continue;
-    }
-    if ("MW@#%&".includes(ch)) {
-      units += 0.78;
-      continue;
-    }
-    if (/[0-9]/.test(ch)) {
-      units += 0.55;
-      continue;
-    }
-    if (/[A-Z]/.test(ch)) {
-      units += 0.56;
-      continue;
-    }
-    if (/[a-z]/.test(ch)) {
-      units += 0.5;
-      continue;
-    }
-    if (/[θπ]/.test(ch)) {
-      units += 0.56;
-      continue;
-    }
-    if (/[ψ]/.test(ch)) {
-      units += 0.6;
-      continue;
-    }
-    if ("-+*/=^~_<>".includes(ch)) {
-      units += 0.5;
-      continue;
-    }
-    units += 0.56;
-  }
-  const kerningFudge = Math.max(0, text.length - 1) * 0.005;
-  // Round to a whole number to keep it easy to read
-  return Math.floor((units + kerningFudge) * fontSize);
 };
 
 /**
@@ -371,16 +270,6 @@ const getWireRange = (operation: Operation): [Register, Register] | null => {
  * *********************/
 
 /**
- * Find the surrounding gate element of a host element.
- *
- * @param hostElem The SVG element representing the host element.
- * @returns The surrounding gate element or null if not found.
- */
-const findGateElem = (hostElem: SVGElement): SVGElement | null => {
-  return hostElem.closest<SVGElement>("[data-location]");
-};
-
-/**
  * Walk a path of `[colIdx, opIdx]` segments from a root grid down through nested operation
  * children, returning the grid reached at the end.
  *
@@ -582,80 +471,6 @@ const getAncestorColumnSiblingWires = (
   return blocked;
 };
 
-/**********************
- *  Getter Functions  *
- * *********************/
-
-/**
- * Get list of y values based on circuit wires.
- *
- * @param container The HTML container element containing the circuit visualization.
- * @returns An array of y values corresponding to the circuit wires.
- */
-const getWireData = (container: HTMLElement): number[] => {
-  const wireElems = container.querySelectorAll<SVGGElement>(".qubit-wire");
-  const wireData = Array.from(wireElems).map((wireElem) => {
-    return Number(wireElem.getAttribute("y1"));
-  });
-  return wireData;
-};
-
-/**
- * Get list of toolbox items.
- *
- * @param container The HTML container element containing the toolbox items.
- * @returns An array of SVG graphics elements representing the toolbox items.
- */
-const getToolboxElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  return Array.from(
-    container.querySelectorAll<SVGGraphicsElement>("[toolbox-item]"),
-  );
-};
-
-/**
- * Get list of host elements that dropzones can be attached to.
- *
- * @param container The HTML container element containing the circuit visualization.
- * @returns An array of SVG graphics elements representing the host elements.
- */
-const getHostElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg.qviz");
-  return circuitSvg != null
-    ? Array.from(
-        circuitSvg.querySelectorAll<SVGGraphicsElement>(
-          '[class^="gate-"]:not(.gate-control, .gate-swap), .control-dot, .oplus, .cross',
-        ),
-      )
-    : [];
-};
-
-/**
- * Get list of gate elements from the circuit, but not the toolbox.
- *
- * @param container The HTML container element containing the circuit visualization.
- * @returns An array of SVG graphics elements representing the gate elements.
- */
-const getGateElems = (container: HTMLElement): SVGGraphicsElement[] => {
-  const circuitSvg = container.querySelector("svg.qviz");
-  return circuitSvg != null
-    ? Array.from(circuitSvg.querySelectorAll<SVGGraphicsElement>(".gate"))
-    : [];
-};
-
-/**
- * Get list of qubit label elements for drag-and-drop.
- *
- * @param container The HTML container element containing the circuit visualization.
- * @returns An array of SVGTextElement representing the qubit labels.
- */
-const getQubitLabelElems = (container: HTMLElement): SVGTextElement[] => {
-  const circuitSvg = container.querySelector("svg.qviz");
-  if (!circuitSvg) return [];
-  const labelGroup = circuitSvg.querySelector("g.qubit-input-states");
-  if (!labelGroup) return [];
-  return Array.from(labelGroup.querySelectorAll<SVGTextElement>("text"));
-};
-
 // Non-ASCII chars are fraught with danger. Copy/paste these when possible. Use the following regex
 // in VS Code to find invalid unicode chars [^\x20-\x7e\u{03b8}-\u{03c8}\u{2020}\u{27e8}\u{27e9}]
 
@@ -666,29 +481,6 @@ const mathChars = {
   dagger: "†", // \u{2020}
   langle: "⟨", // \u{27e8}
   rangle: "⟩", // \u{27e9}
-};
-
-/**
- * Parse a host element's `data-wire-ys` attribute into a number array. The renderer writes the
- * wire-Y coordinates the element visually spans onto this attribute as a JSON array of numbers (see
- * [`gateFormatter.ts`](renderer/formatters/gateFormatter.ts)).
- *
- * Returns `[]` when the attribute is missing or malformed — same convention `_wireYs` in
- * [`draggable.ts`](editor/draggable.ts) follows. Lives in utils so the selection / drag controllers
- * can read host-element wire spans without duplicating the parse.
- */
-const parseWireYs = (elem: Element): number[] => {
-  const wireYsAttr = elem.getAttribute("data-wire-ys");
-  if (!wireYsAttr) return [];
-  try {
-    const parsed = JSON.parse(wireYsAttr);
-    if (Array.isArray(parsed) && parsed.every((y) => typeof y === "number")) {
-      return parsed;
-    }
-  } catch {
-    // Fall through to empty array — caller decides how to handle.
-  }
-  return [];
 };
 
 /**
@@ -738,25 +530,17 @@ const pickClosestWireIndex = (
 
 export {
   deepEqual,
-  getMinGateWidth,
   getChildTargets,
   getGateLocationString,
   getMinMaxRegIdx,
   getOperationRegisters,
   getQuantumWireRange,
   getWireRange,
-  findGateElem,
   findParentOperation,
   findParentArray,
   findOperation,
   getOuterColumnSiblingWires,
   getAncestorColumnSiblingWires,
-  getWireData,
-  getToolboxElems,
-  getHostElems,
-  getGateElems,
-  getQubitLabelElems,
   mathChars,
-  parseWireYs,
   pickClosestWireIndex,
 };

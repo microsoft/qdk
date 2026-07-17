@@ -16,12 +16,8 @@ import { LayoutMap, LayoutScope } from "../renderer/layoutMap.js";
 import { Location } from "../data/location.js";
 import { toRenderData } from "./standaloneRenderData.js";
 import { Sqore } from "../sqore.js";
-import {
-  getHostElems,
-  getQuantumWireRange,
-  getToolboxElems,
-  getWireData,
-} from "../utils.js";
+import { getHostElems, getToolboxElems, getWireData } from "./domUtils.js";
+import { getQuantumWireRange } from "../utils.js";
 
 /** Register height is the height of a single gate including the padding on the top and bottom. */
 const registerHeight: number = gateHeight + gatePadding * 2;

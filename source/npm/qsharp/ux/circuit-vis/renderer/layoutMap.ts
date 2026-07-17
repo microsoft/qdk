@@ -50,8 +50,8 @@ export type LayoutMap = {
 
   /**
    * Y coord of each *real* qubit wire, indexed by qubit id. Mirrors the values
-   * [`getWireData`](utils.ts) recovers from the DOM, but captured at compose time before any editor
-   * chrome (e.g. the ghost qubit wire) is added.
+   * [`getWireData`](../editor/domUtils.ts) recovers from the DOM, but captured at compose time
+   * before any editor chrome (e.g. the ghost qubit wire) is added.
    */
   wireYs: number[];
 };

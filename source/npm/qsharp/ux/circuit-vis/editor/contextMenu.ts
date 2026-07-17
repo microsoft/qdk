@@ -10,7 +10,8 @@ import {
   promptForArguments,
 } from "./prompts.js";
 import { CircuitEvents } from "./events.js";
-import { findGateElem, findOperation } from "../utils.js";
+import { findGateElem } from "./domUtils.js";
+import { findOperation } from "../utils.js";
 
 /**
  * Adds a context menu to a host element in the circuit visualization.

@@ -11,7 +11,7 @@ import { LayoutMap } from "../renderer/layoutMap.js";
 import { QubitController } from "./controllers/qubitController.js";
 import { SelectionController } from "./controllers/selectionController.js";
 import { Sqore } from "../sqore.js";
-import { getWireData } from "../utils.js";
+import { getWireData } from "./domUtils.js";
 
 let events: CircuitEvents | null = null;
 let currentCircuitSvg: SVGElement | null = null;

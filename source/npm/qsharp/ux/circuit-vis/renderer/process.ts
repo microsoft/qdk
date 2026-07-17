@@ -14,7 +14,7 @@ import { ComponentGrid, Operation, SourceLocation } from "../data/circuit.js";
 import { GateRenderData, GateType } from "./gateRenderData.js";
 import { LayoutScope } from "./layoutMap.js";
 import { Register, RegisterMap } from "../data/register.js";
-import { getMinGateWidth } from "../utils.js";
+import { getMinGateWidth } from "./gateWidth.js";
 
 /**
  * Takes in a component grid and maps the operations to `GateRenderData` objects which contains

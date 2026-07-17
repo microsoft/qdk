@@ -4,7 +4,7 @@
 import { Operation } from "../data/circuit.js";
 import { gateHeight, minGateWidth } from "../renderer/constants.js";
 import { GateRenderData, GateType } from "../renderer/gateRenderData.js";
-import { getMinGateWidth } from "../utils.js";
+import { getMinGateWidth } from "../renderer/gateWidth.js";
 
 /**
  * Build a `GateRenderData` for a single operation rendered at (`x`, `y`) without consulting real

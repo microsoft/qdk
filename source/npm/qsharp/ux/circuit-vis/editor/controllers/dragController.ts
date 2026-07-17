@@ -28,12 +28,11 @@ import { promptForArguments } from "../prompts.js";
 import { QubitController } from "./qubitController.js";
 import { enableAutoScroll } from "./scrollController.js";
 import { toolboxGateDictionary } from "../toolboxGates.js";
+import { getGateElems, getToolboxElems } from "../domUtils.js";
 import {
   deepEqual,
   findOperation,
-  getGateElems,
   getGateLocationString,
-  getToolboxElems,
 } from "../../utils.js";
 
 /**

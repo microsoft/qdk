@@ -10,7 +10,7 @@ import { InteractionContext } from "./interactionContext.js";
 import { trackTemporaryDropzone } from "../../actions/interactionActions.js";
 import { createConfirmPrompt } from "../prompts.js";
 import { enableAutoScroll } from "./scrollController.js";
-import { getQubitLabelElems } from "../../utils.js";
+import { getQubitLabelElems } from "../domUtils.js";
 
 /**
  * `QubitController` — owns qubit-line interactions.

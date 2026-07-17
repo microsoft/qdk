@@ -4,11 +4,8 @@
 import { CircuitEvents } from "../events.js";
 import { addContextMenuToHostElem } from "../contextMenu.js";
 import { InteractionContext } from "./interactionContext.js";
-import {
-  getHostElems,
-  parseWireYs,
-  pickClosestWireIndex,
-} from "../../utils.js";
+import { getHostElems, parseWireYs } from "../domUtils.js";
+import { pickClosestWireIndex } from "../../utils.js";
 
 /**
  * `SelectionController` — owns mousedown on **host elements** (the inner clickable bits of a gate:

@@ -18,9 +18,9 @@ import {
   getAncestorColumnSiblingWires,
   getOuterColumnSiblingWires,
   getWireRange,
-  parseWireYs,
   pickClosestWireIndex,
 } from "../../dist/ux/circuit-vis/utils.js";
+import { parseWireYs } from "../../dist/ux/circuit-vis/editor/domUtils.js";
 
 // ============================================================
 // pickClosestWireIndex
