@@ -149,6 +149,18 @@ def test_cross_context_callable_passing_raises() -> None:
         context_b.logical_counts(foo)
 
 
+def test_global_api_uses_context_of_callable() -> None:
+    context_a = qdk.Context(target_profile=qdk.TargetProfile.Base)
+    context_a.eval("operation Foo() : Result { use q = Qubit(); MResetZ(q) }")
+    foo = context_a.code.Foo
+
+    assert qsharp.run(foo, 1) == [qdk.Result.Zero]
+    assert isinstance(qsharp.compile(foo)._repr_qir_(), bytes)
+    assert str(qsharp.circuit(foo)) != ""
+    assert qsharp.estimate(foo).logical_counts["numQubits"] == 1
+    assert qsharp.logical_counts(foo)["numQubits"] == 1
+
+
 def test_cross_context_struct_passing_raises() -> None:
     context_a = qdk.Context()
     context_b = qdk.Context()
