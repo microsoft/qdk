@@ -309,6 +309,7 @@ async function runEnvironmentCheckCommand(
   service: LearningService,
   node?: LearningProgressNode,
 ): Promise<void> {
+  // TODO (acasey): don't allow overlapping runs
   if (!service.initialized) {
     const ok = await service.tryInitialize({ createIfMissing: true });
     if (!ok) {

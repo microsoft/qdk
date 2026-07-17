@@ -183,6 +183,7 @@ def complete_unit(required_exercises: list[str] | None = None) -> None:
     missing = [e for e in required_exercises if e not in _passed]
     if missing:
         names = ", ".join(f"`{e}`" for e in missing)
+        # TODO (acasey): pretty report
         raise AssertionError(
             f"Not all exercises are complete. Missing: {names}. "
             "Run the exercise cells above first."
@@ -193,6 +194,7 @@ def complete_unit(required_exercises: list[str] | None = None) -> None:
     marker = Path(".qdk-unit-complete")
     marker.write_text(f"{unit_id}\n")
 
+    # TODO (acasey): dark mode
     display(
         HTML(
             '<div style="font-family:system-ui,sans-serif;margin:12px 0;'
