@@ -1010,6 +1010,139 @@ fn deprecated_assign_update_expr_mismatched_code_action() {
 }
 
 #[test]
+fn deprecated_assign_update_expr_impure_index_single_level_code_action() {
+    check(
+        "function NextIndex() : Int { 0 }
+        function RunProgram() : Unit {
+            mutable a = [[1, 2], [3, 4]];
+            a w/= NextIndex() <- (a[NextIndex()] w/ 1 <- 7);
+        }",
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "a w/= NextIndex() <- (a[NextIndex()] w/ 1 <- 7)",
+                    level: Allow,
+                    message: "deprecated use of update assignment expressions",
+                    help: "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\"",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace update assignment expression with explicit assignment",
+                            edits: [
+                                (
+                                    "a[NextIndex()] = a[NextIndex()] w/ 1 <- 7",
+                                    Span {
+                                        lo: 154,
+                                        hi: 201,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+                SrcLint {
+                    source: "a[NextIndex()] w/ 1 <- 7",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn deprecated_assign_update_expr_impure_value_pure_indices_code_action() {
+    check(
+        "function NextValue() : Int { 0 }
+        function RunProgram() : Unit {
+            mutable a = [[1, 2], [3, 4]];
+            a w/= 0 <- (a[0] w/ 1 <- NextValue());
+        }",
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "a w/= 0 <- (a[0] w/ 1 <- NextValue())",
+                    level: Allow,
+                    message: "deprecated use of update assignment expressions",
+                    help: "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\"",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace update assignment expression with explicit assignment",
+                            edits: [
+                                (
+                                    "a[0][1] = NextValue()",
+                                    Span {
+                                        lo: 154,
+                                        hi: 191,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+                SrcLint {
+                    source: "a[0] w/ 1 <- NextValue()",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn deprecated_assign_update_expr_impure_middle_index_partial_merge_code_action() {
+    check(
+        "function NextIndex() : Int { 0 }
+        function RunProgram() : Unit {
+            mutable a = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]];
+            a w/= 0 <- (a[0] w/ NextIndex() <- (a[0][NextIndex()] w/ 1 <- 7));
+        }",
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "a w/= 0 <- (a[0] w/ NextIndex() <- (a[0][NextIndex()] w/ 1 <- 7))",
+                    level: Allow,
+                    message: "deprecated use of update assignment expressions",
+                    help: "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\"",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace update assignment expression with explicit assignment",
+                            edits: [
+                                (
+                                    "a[0][NextIndex()] = a[0][NextIndex()] w/ 1 <- 7",
+                                    Span {
+                                        lo: 174,
+                                        hi: 239,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+                SrcLint {
+                    source: "a[0] w/ NextIndex() <- (a[0][NextIndex()] w/ 1 <- 7)",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+                SrcLint {
+                    source: "a[0][NextIndex()] w/ 1 <- 7",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn ambiguous_unary_operator_after_if() {
     check(
         &wrap_in_callable("if true { 42 } else { 0 } - 1", CallableKind::Function),
