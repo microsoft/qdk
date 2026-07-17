@@ -79,7 +79,7 @@ def _get_test_callables(context: Context) -> list[Callable]:
     # Iterate through all the attributes of self.code and check if they are
     # callables with the __is_test__ attribute set to True.
     # Recursively check for nested modules as well.
-    def find_test_callables(module):
+    def find_test_callables(module: types.ModuleType | types.SimpleNamespace) -> None:
         for attr_name in dir(module):
             attr = getattr(module, attr_name)
             if callable(attr) and getattr(attr, "__is_test__", False):
