@@ -11,7 +11,7 @@ ranges, mixed encodings, unknown sources, and cross-source spans raise
 constructors raise ``OverflowError`` when an unsigned 32-bit argument is
 negative or greater than ``2**32 - 1``.
 
-``Position``, ``SourceRange``, ``SourceEdit``, and ``SourceFile`` use value
+``Position``, ``SourceRange``, and ``SourceFile`` use value
 equality, have stable structural representations, and are hashable. The
 collection-backed ``SourceMap`` and ``SourceDocument`` use value equality and
 structural representations but are intentionally unhashable. Source IDs and
@@ -23,7 +23,6 @@ from .._native import (  # type: ignore
     Position,
     PositionEncoding,
     SourceDocument,
-    SourceEdit,
     SourceFile,
     SourceMap,
     SourceRange,
@@ -33,7 +32,6 @@ __all__ = [
     "Position",
     "PositionEncoding",
     "SourceDocument",
-    "SourceEdit",
     "SourceFile",
     "SourceMap",
     "SourceRange",

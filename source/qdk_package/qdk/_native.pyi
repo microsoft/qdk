@@ -1314,40 +1314,6 @@ class Span:
     def hi(self) -> int: ...
     def __hash__(self) -> int: ...
 
-class RawTokenKind(Enum):
-    """A stable, coarse category for a lossless OpenQASM token."""
-
-    BITSTRING: RawTokenKind
-    COMMENT: RawTokenKind
-    HARDWARE_QUBIT: RawTokenKind
-    IDENTIFIER: RawTokenKind
-    LITERAL_FRAGMENT: RawTokenKind
-    NEWLINE: RawTokenKind
-    NUMBER: RawTokenKind
-    PUNCTUATION: RawTokenKind
-    STRING: RawTokenKind
-    UNKNOWN: RawTokenKind
-    WHITESPACE: RawTokenKind
-    @property
-    def value(self) -> str: ...
-
-class RawToken:
-    """One frozen, hashable lossless token with a source-local UTF-8 span."""
-
-    @property
-    def kind(self) -> RawTokenKind: ...
-    @property
-    def span(self) -> Span: ...
-    @property
-    def text(self) -> str: ...
-    @property
-    def is_trivia(self) -> bool: ...
-    @property
-    def detail(self) -> Optional[str]: ...
-    @property
-    def is_complete(self) -> bool: ...
-    def __hash__(self) -> int: ...
-
 class PositionEncoding(Enum):
     """The column encoding used by a source position."""
 
@@ -1394,16 +1360,6 @@ class SourceRange:
     def start(self) -> Position: ...
     @property
     def end(self) -> Position: ...
-    def __hash__(self) -> int: ...
-
-class SourceEdit:
-    """A frozen, hashable replacement for one source range."""
-
-    def __init__(self, range: SourceRange, replacement: str) -> None: ...
-    @property
-    def range(self) -> SourceRange: ...
-    @property
-    def replacement(self) -> str: ...
     def __hash__(self) -> int: ...
 
 class SourceFile:
@@ -2613,13 +2569,6 @@ class _QASMUnparseError(ValueError):
     span: Optional[Span]
     diagnostics: Tuple[Diagnostic, ...]
 
-class _QASMRewriteError(ValueError):
-    """Internal transactional source edit validation error carrier."""
-
-    code: str
-    edit_index: Optional[int]
-    range: Optional[SourceRange]
-
 def parse(
     source: str,
     path: str = ...,
@@ -2628,14 +2577,6 @@ def parse(
     """Parses `OpenQASM` source text into a syntax tree."""
     ...
 
-def qasm_apply_edits(result: ParseResult, edits: List[SourceEdit]) -> ParseResult:
-    """Applies validated entry-source edits and reparses from snapshots."""
-    ...
-
 def qasm_dumps(program: Program) -> str:
     """Canonically serializes a syntactic program from its entry source."""
-    ...
-
-def qasm_tokenize(source: str, /) -> List[RawToken]:
-    """Losslessly tokenizes source without parsing or resolving includes."""
     ...

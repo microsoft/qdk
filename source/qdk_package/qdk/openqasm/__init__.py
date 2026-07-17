@@ -6,15 +6,13 @@
 This module provides functions for compiling, running, estimating, and
 generating circuits from OpenQASM 2.0/3.0 programs.
 
-The parser, source, token, canonical serialization, and rewriter APIs are in
-preview. Their stable public names do not emit a warning merely because they
-are used.
+The parser, source, and canonical serialization APIs are in preview. Their
+stable public names do not emit a warning merely because they are used.
 
 These APIs do not provide mutable syntax nodes, ``openqasm3.ast`` object
 compatibility, comment-preserving serialization, a concrete syntax tree,
-streaming tokens, include-source rewriting, semantic-tree serialization,
-printer style options, filesystem include fallback, or reverse symbol
-references.
+tokenization, source rewriting, semantic-tree serialization, printer style
+options, filesystem include fallback, or reverse symbol references.
 
 Key exports:
 
@@ -41,23 +39,19 @@ Key exports:
   :class:`~qdk.openqasm.semantic.BinaryExpression`).
 - :class:`~qdk.openqasm.parser.QASMVisitor` — a read-only visitor base for
   walking either the syntactic or semantic AST.
-- :mod:`~qdk.openqasm.tokens` — lossless eager raw tokenization.
-- :mod:`~qdk.openqasm.rewriter` — transactional entry-source rewriting.
 """
 
-from . import parser, rewriter, semantic, source, tokens
+from . import parser, semantic, source
 from .parser import (
   CANONICAL_FORMAT_VERSION,
   QASM3ParsingError,
-  QASMRewriteError,
-  QASMRewriter,
   QASMUnparseError,
   dump,
   dumps,
   parse_program,
   unparse,
 )
-from .source import Position, PositionEncoding, SourceEdit, SourceRange
+from .source import Position, PositionEncoding, SourceRange
 from ._circuit import circuit
 from ._compile import compile
 from ._estimate import estimate
@@ -77,17 +71,12 @@ __all__ = [
     "CANONICAL_FORMAT_VERSION",
     "parse_program",
     "QASM3ParsingError",
-    "QASMRewriteError",
-    "QASMRewriter",
     "QASMUnparseError",
     "parser",
-    "rewriter",
     "semantic",
     "source",
-    "tokens",
     "Position",
     "PositionEncoding",
-    "SourceEdit",
     "SourceRange",
     "ProgramType",
     "OutputSemantics",

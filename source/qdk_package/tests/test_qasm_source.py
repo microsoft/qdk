@@ -9,7 +9,6 @@ import pytest
 from qdk.openqasm import (
     Position,
     PositionEncoding,
-    SourceEdit,
     SourceRange,
     parser,
 )
@@ -90,17 +89,11 @@ def test_source_map_lookup_is_exact_and_preserves_duplicates() -> None:
 def test_source_values_are_frozen_and_compare_by_value() -> None:
     position = Position(2, 3)
     same_position = Position(2, 3, PositionEncoding.CODE_POINT)
-    source_range = SourceRange(0, position, Position(2, 4))
-    edit = SourceEdit(source_range, "x")
 
     assert position == same_position
     assert hash(position) == hash(same_position)
-    assert edit == SourceEdit(source_range, "x")
-    assert hash(edit) == hash(SourceEdit(source_range, "x"))
     with pytest.raises(AttributeError):
         position.line = 4
-    with pytest.raises(AttributeError):
-        edit.replacement = "y"
 
     first = parser.parse("OPENQASM 3.0;").document
     second = parser.parse("OPENQASM 3.0;").document
@@ -112,7 +105,6 @@ def test_source_values_are_frozen_and_compare_by_value() -> None:
 def test_source_value_repr_and_hash_policy_is_explicit() -> None:
     position = Position(2, 3, PositionEncoding.UTF8)
     source_range = SourceRange(0, position, Position(2, 4, PositionEncoding.UTF8))
-    edit = SourceEdit(source_range, "x")
     first = parser.parse("OPENQASM 3.0;").document
     second = parser.parse("OPENQASM 3.0;").document
 
@@ -120,7 +112,6 @@ def test_source_value_repr_and_hash_policy_is_explicit() -> None:
         parser.Span(1, 2),
         position,
         source_range,
-        edit,
         first.entry,
     ]
     for value in scalar_values:

@@ -110,7 +110,6 @@ from .._native import (  # type: ignore
     ReturnStatement,
     Severity,
     SourceDocument,
-    SourceEdit,
     SourceFile,
     SourceMap,
     SourceRange,
@@ -127,8 +126,6 @@ from .._native import (  # type: ignore
     qasm_dumps as _qasm_dumps,
 )
 from ._visitor import QASMVisitor
-from .rewriter import QASMRewriteError, QASMRewriter, RewriteReturn
-from .tokens import RawToken, RawTokenKind, tokenize
 
 CANONICAL_FORMAT_VERSION = 1
 IncludeResolver = dict[str, str] | Callable[[str], str | None] | None
@@ -143,13 +140,7 @@ __all__ = [
     "dump",
     "CANONICAL_FORMAT_VERSION",
     "QASMUnparseError",
-    "QASMRewriteError",
-    "tokenize",
-    "RawToken",
-    "RawTokenKind",
     "QASMVisitor",
-    "QASMRewriter",
-    "RewriteReturn",
     "Annotation",
     "ParseResult",
     "Diagnostic",
@@ -158,7 +149,6 @@ __all__ = [
     "Position",
     "PositionEncoding",
     "SourceDocument",
-    "SourceEdit",
     "SourceFile",
     "SourceMap",
     "SourceRange",
