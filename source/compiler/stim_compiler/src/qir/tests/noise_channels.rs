@@ -875,3 +875,57 @@ fn loss_error_without_probability_yields_error() {
         "#]],
     );
 }
+
+#[test]
+fn noise_intrinsics_are_memoized() {
+    let source = "
+X_ERROR(0.01) 0
+X_ERROR(0.02) 1
+X_ERROR(0.01) 2
+";
+    check(source, &expect![[r#"
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                X: 0.01
+
+            1: NoiseTable:
+                qubits: 1
+                X: 0.02
+
+
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+          call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+          call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr))
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @noise_intrinsic_1(ptr) #2
+        declare void @noise_intrinsic_0(ptr) #2
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        attributes #2 = { "qdk_noise" }
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]]);
+}

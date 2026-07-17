@@ -19,22 +19,15 @@ fn depolarize1_yields_expected_qir() {
                     Y: 0.0033333333333333335
                     Z: 0.0033333333333333335
 
-                1: NoiseTable:
-                    qubits: 1
-                    X: 0.0033333333333333335
-                    Y: 0.0033333333333333335
-                    Z: 0.0033333333333333335
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -104,34 +97,15 @@ fn depolarize2_yields_expected_qir() {
                     ZY: 0.0006666666666666666
                     ZZ: 0.0006666666666666666
 
-                1: NoiseTable:
-                    qubits: 2
-                    IX: 0.0006666666666666666
-                    IY: 0.0006666666666666666
-                    IZ: 0.0006666666666666666
-                    XI: 0.0006666666666666666
-                    XX: 0.0006666666666666666
-                    XY: 0.0006666666666666666
-                    XZ: 0.0006666666666666666
-                    YI: 0.0006666666666666666
-                    YX: 0.0006666666666666666
-                    YY: 0.0006666666666666666
-                    YZ: 0.0006666666666666666
-                    ZI: 0.0006666666666666666
-                    ZX: 0.0006666666666666666
-                    ZY: 0.0006666666666666666
-                    ZZ: 0.0006666666666666666
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr, ptr) #2
             declare void @noise_intrinsic_0(ptr, ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -284,20 +258,15 @@ fn x_error_yields_expected_qir() {
                     qubits: 1
                     X: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    X: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -336,20 +305,15 @@ fn y_error_yields_expected_qir() {
                     qubits: 1
                     Y: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    Y: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -388,20 +352,15 @@ fn z_error_yields_expected_qir() {
                     qubits: 1
                     Z: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    Z: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -440,20 +399,15 @@ fn loss_error_yields_expected_qir() {
                     qubits: 1
                     L: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    L: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
