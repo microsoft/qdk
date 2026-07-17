@@ -4,7 +4,9 @@
 use std::hint::black_box;
 
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
-use qdk_openqasm::{analyze_source, parse_source, semantic::lower_parse_result};
+use qdk_openqasm::{
+    analyze_source, parse_source, semantic::lower_parse_result, tokens::tokenize, unparse::unparse,
+};
 
 mod corpus;
 
@@ -58,6 +60,24 @@ fn bench_corpus(c: &mut Criterion, corpus: &Corpus) {
 
     group.bench_function("parse", |b| {
         b.iter(|| black_box(parse(black_box(corpus))));
+    });
+
+    group.bench_function("qdk_dumps", |b| {
+        b.iter_batched(
+            || parse(corpus),
+            |parse_result| {
+                let program = parse_result
+                    .source
+                    .program()
+                    .expect("successful syntax parse should retain its program");
+                black_box(unparse(program).expect("valid corpus should serialize"));
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.bench_function("qdk_tokenize", |b| {
+        b.iter(|| black_box(tokenize(black_box(&corpus.source))));
     });
 
     group.bench_function("semantic_lower", |b| {

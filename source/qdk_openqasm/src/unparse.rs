@@ -4,7 +4,7 @@
 //! Checked canonical serialization for the syntactic `OpenQASM` AST.
 
 use num_bigint::Sign;
-use std::fmt::Write as _;
+use std::{fmt::Write as _, io::Write};
 use thiserror::Error;
 
 use crate::{
@@ -34,6 +34,9 @@ pub enum UnparseError {
     /// The AST contains syntax that this format version cannot serialize.
     #[error("unsupported syntax variant {kind} at {span}")]
     UnsupportedSyntax { kind: &'static str, span: Span },
+    /// The canonical output could not be written to the provided sink.
+    #[error("cannot write canonical output: {message}")]
+    Write { message: String },
 }
 
 impl UnparseError {
@@ -45,6 +48,7 @@ impl UnparseError {
             Self::NonFiniteFloat { .. } => "non-finite-float",
             Self::InvalidString { .. } => "invalid-string",
             Self::UnsupportedSyntax { .. } => "unsupported-syntax",
+            Self::Write { .. } => "write",
         }
     }
 
@@ -56,8 +60,28 @@ impl UnparseError {
             | Self::NonFiniteFloat { span }
             | Self::InvalidString { span, .. }
             | Self::UnsupportedSyntax { span, .. } => *span,
+            Self::Write { .. } => Span::default(),
         }
     }
+}
+
+/// Writes canonical source for a syntactic `OpenQASM` program.
+///
+/// Output uses LF line endings, two spaces per indentation level, one
+/// statement per line, and exactly one trailing newline. Comments and original
+/// whitespace are intentionally not preserved.
+///
+/// # Errors
+///
+/// Returns an error if the program contains recovered or unsupported syntax,
+/// or if writing to `output` fails.
+pub fn write<W: Write>(output: W, program: &Program) -> Result<(), UnparseError> {
+    let mut output = Output::new(output);
+    Emitter {
+        qasm2: program.version.is_some_and(|version| version.major == 2),
+    }
+    .program(&mut output, program)?;
+    output.finish()
 }
 
 /// Emits canonical source for a syntactic `OpenQASM` program.
@@ -66,10 +90,60 @@ impl UnparseError {
 /// statement per line, and exactly one trailing newline. Comments and original
 /// whitespace are intentionally not preserved.
 pub fn unparse(program: &Program) -> Result<String, UnparseError> {
-    Emitter {
-        qasm2: program.version.is_some_and(|version| version.major == 2),
+    let mut output = Vec::new();
+    write(&mut output, program)?;
+    String::from_utf8(output).map_err(|error| UnparseError::Write {
+        message: error.to_string(),
+    })
+}
+
+struct Output<W> {
+    writer: W,
+    error: Option<std::io::Error>,
+    last_byte: Option<u8>,
+}
+
+impl<W: Write> Output<W> {
+    fn new(writer: W) -> Self {
+        Self {
+            writer,
+            error: None,
+            last_byte: None,
+        }
     }
-    .program(program)
+
+    fn push(&mut self, character: char) {
+        let mut encoded = [0; 4];
+        self.push_str(character.encode_utf8(&mut encoded));
+    }
+
+    fn push_str(&mut self, value: &str) {
+        self.last_byte = value.as_bytes().last().copied().or(self.last_byte);
+        if self.error.is_none()
+            && let Err(error) = self.writer.write_all(value.as_bytes())
+        {
+            self.error = Some(error);
+        }
+    }
+
+    fn ends_with_newline(&self) -> bool {
+        self.last_byte == Some(b'\n')
+    }
+
+    fn finish(self) -> Result<(), UnparseError> {
+        self.error.map_or(Ok(()), |error| {
+            Err(UnparseError::Write {
+                message: error.to_string(),
+            })
+        })
+    }
+}
+
+impl<W: Write> std::fmt::Write for Output<W> {
+    fn write_str(&mut self, value: &str) -> std::fmt::Result {
+        self.push_str(value);
+        Ok(())
+    }
 }
 
 struct Emitter {
@@ -77,26 +151,29 @@ struct Emitter {
 }
 
 impl Emitter {
-    fn program(&self, program: &Program) -> Result<String, UnparseError> {
-        let mut output = String::new();
+    fn program<W: Write>(
+        &self,
+        output: &mut Output<W>,
+        program: &Program,
+    ) -> Result<(), UnparseError> {
         if let Some(version) = program.version {
             output.push_str("OPENQASM ");
             output.push_str(&version.to_string());
             output.push_str(";\n");
         }
         for statement in &program.statements {
-            self.statement(&mut output, statement, 0)?;
+            self.statement(output, statement, 0)?;
         }
-        if !output.ends_with('\n') {
+        if !output.ends_with_newline() {
             output.push('\n');
         }
-        Ok(output)
+        Ok(())
     }
 
     #[allow(clippy::too_many_lines)]
-    fn statement(
+    fn statement<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         statement: &Stmt,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -459,9 +536,9 @@ impl Emitter {
         Ok(())
     }
 
-    fn annotation(
+    fn annotation<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         annotation: &Annotation,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -477,9 +554,9 @@ impl Emitter {
         Ok(())
     }
 
-    fn pragma(
+    fn pragma<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         pragma: &Pragma,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -496,9 +573,9 @@ impl Emitter {
         Ok(())
     }
 
-    fn for_statement(
+    fn for_statement<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         statement: &ForStmt,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -516,9 +593,9 @@ impl Emitter {
         Ok(())
     }
 
-    fn if_statement(
+    fn if_statement<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         statement: &IfStmt,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -538,9 +615,9 @@ impl Emitter {
         Ok(())
     }
 
-    fn while_statement(
+    fn while_statement<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         statement: &WhileLoop,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -556,9 +633,9 @@ impl Emitter {
         Ok(())
     }
 
-    fn switch_statement(
+    fn switch_statement<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         statement: &SwitchStmt,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -591,7 +668,12 @@ impl Emitter {
         Ok(())
     }
 
-    fn block(&self, output: &mut String, block: &Block, indent: usize) -> Result<(), UnparseError> {
+    fn block<W: Write>(
+        &self,
+        output: &mut Output<W>,
+        block: &Block,
+        indent: usize,
+    ) -> Result<(), UnparseError> {
         output.push_str("{\n");
         for statement in &block.stmts {
             self.statement(output, statement, indent + 1)?;
@@ -601,9 +683,9 @@ impl Emitter {
         Ok(())
     }
 
-    fn body(
+    fn body<W: Write>(
         &self,
-        output: &mut String,
+        output: &mut Output<W>,
         statement: &Stmt,
         indent: usize,
     ) -> Result<(), UnparseError> {
@@ -764,10 +846,17 @@ impl Emitter {
             )),
             ExprKind::Paren(inner) => self.expression(inner, indent),
             ExprKind::DurationOf(duration) => {
-                let mut rendered = String::from("durationof(");
-                self.block(&mut rendered, &duration.scope, indent)?;
-                rendered.push(')');
-                Ok(rendered)
+                let mut rendered = Vec::new();
+                {
+                    let mut output = Output::new(&mut rendered);
+                    output.push_str("durationof(");
+                    self.block(&mut output, &duration.scope, indent)?;
+                    output.push(')');
+                    output.finish()?;
+                }
+                String::from_utf8(rendered).map_err(|error| UnparseError::Write {
+                    message: error.to_string(),
+                })
             }
         }
     }
@@ -1038,22 +1127,22 @@ impl Emitter {
         }
     }
 
-    fn line(&self, output: &mut String, indent: usize, value: &str) {
+    fn line<W: Write>(&self, output: &mut Output<W>, indent: usize, value: &str) {
         self.pad(output, indent);
         output.push_str(value);
         output.push('\n');
     }
 
-    fn raw_statement(&self, output: &mut String, indent: usize, value: &str) {
+    fn raw_statement<W: Write>(&self, output: &mut Output<W>, indent: usize, value: &str) {
         self.pad(output, indent);
         output.push_str(&normalize_line_endings(value));
-        if !output.ends_with('\n') {
+        if !output.ends_with_newline() {
             output.push('\n');
         }
     }
 
     #[allow(clippy::unused_self)]
-    fn pad(&self, output: &mut String, indent: usize) {
+    fn pad<W: Write>(&self, output: &mut Output<W>, indent: usize) {
         output.push_str(&"  ".repeat(indent));
     }
 }

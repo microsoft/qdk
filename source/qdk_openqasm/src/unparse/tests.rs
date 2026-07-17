@@ -2,13 +2,14 @@
 // Licensed under the MIT License.
 
 use num_bigint::BigInt;
+use std::io;
 
 use crate::{
     io::InMemorySourceResolver,
     parse_source,
     parser::ast::{Expr, ExprKind, Lit, LiteralKind, Program, Stmt, StmtKind, Version},
     span::Span,
-    unparse::{UnparseError, unparse},
+    unparse::{UnparseError, unparse, write},
 };
 
 fn parse(source: &str) -> crate::parser::ParseResult {
@@ -218,6 +219,40 @@ fn unsupported_bitstring_values_are_rejected() {
     let program = expression_program(span, LiteralKind::Bitstring(BigInt::from(-1), 1));
     let error = unparse(&program).expect_err("invalid bitstring should not serialize");
     assert_eq!(error.code(), "unsupported-syntax");
+}
+
+#[test]
+fn write_streams_canonical_output_to_sink() {
+    let parsed = parse("OPENQASM 3.0; qubit q;");
+    let program = parsed
+        .source
+        .program()
+        .expect("syntax parse should retain its program");
+    let mut output = Vec::new();
+
+    write(&mut output, program).expect("valid source should serialize");
+
+    assert_eq!(output, b"OPENQASM 3.0;\nqubit q;\n");
+}
+
+#[test]
+fn write_reports_sink_failures() {
+    let program = expression_program(Span::default(), LiteralKind::Int(1));
+    let error = write(FailingWriter, &program).expect_err("sink failure should propagate");
+
+    assert_eq!(error.code(), "write");
+}
+
+struct FailingWriter;
+
+impl io::Write for FailingWriter {
+    fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
+        Err(io::Error::other("expected sink failure"))
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 fn expression_program(span: Span, literal: LiteralKind) -> Program {
