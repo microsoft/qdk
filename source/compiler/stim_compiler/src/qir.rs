@@ -1443,7 +1443,6 @@ impl<'noise> Compiler<'noise> {
         target: &Target,
         allow_negated: bool,
     ) -> Option<(u32, bool)> {
-        // TODO: lacks support for negated qubits and pauli targets
         let TargetKind::Qubit { value, negated } = target.kind else {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
