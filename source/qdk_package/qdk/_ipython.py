@@ -9,22 +9,22 @@ execution within Jupyter notebooks.
 """
 
 from time import monotonic
-from IPython.display import display, clear_output
-from IPython.core.magic import register_cell_magic
+from IPython.display import display, clear_output  # type: ignore[import-not-found]
+from IPython.core.magic import register_cell_magic  # type: ignore[import-not-found]
 from ._native import QSharpError
 from ._interpreter import get_interpreter, qsharp_value_to_python_value
 from . import telemetry_events
 
 
-def register_magic():
+def register_magic() -> None:
     @register_cell_magic
-    def qsharp(line, cell):
+    def qsharp(line: str, cell: str) -> object:
         """Cell magic to interpret Q# code in Jupyter notebooks."""
         # This effectively pings the kernel to ensure it recognizes the cell is running and helps with
         # accureate cell execution timing.
         clear_output()
 
-        def callback(output):
+        def callback(output: object) -> None:
             display(output)
             # This is a workaround to ensure that the output is flushed. This avoids an issue
             # where the output is not displayed until the next output is generated or the cell
@@ -56,7 +56,7 @@ class QSharpCellError(BaseException):
     def __init__(self, traceback: str):
         self.traceback = traceback.splitlines()
 
-    def _render_traceback_(self):
+    def _render_traceback_(self) -> list[str]:
         # We want to specifically override the traceback so that
         # the Q# error directly from the interpreter is shown
         # instead of the Python error.

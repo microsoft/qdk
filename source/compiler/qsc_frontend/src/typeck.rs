@@ -114,108 +114,108 @@ impl From<Ty> for TyInfo {
 #[derive(Clone, Debug, Diagnostic, Error)]
 enum ErrorKind {
     #[error("expected {0}, found {1}")]
-    #[diagnostic(code("Qsc.TypeCk.TyMismatch"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.TyMismatch"))]
     TyMismatch(
         /*expected*/ TyInfo,
         /*actual*/ TyInfo,
         #[label] Span,
     ),
     #[error("expected {0}, found {1}")]
-    #[diagnostic(code("Qsc.TypeCk.CallableMismatch"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.CallableMismatch"))]
     CallableMismatch(CallableKind, CallableKind, #[label] Span),
     #[error("expected {0}, found {1}")]
-    #[diagnostic(code("Qsc.TypeCk.FunctorMismatch"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.FunctorMismatch"))]
     FunctorMismatch(FunctorSet, FunctorSet, #[label] Span),
     #[error("type {0} does not support plus")]
     #[diagnostic(help("only arrays, BigInt, Double, Int and String support plus"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassAdd"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassAdd"))]
     MissingClassAdd(String, #[label] Span),
     #[error("type {0} does not support the adjoint functor")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassAdj"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassAdj"))]
     MissingClassAdj(String, #[label] Span),
     #[error("type {0} is not callable")]
     #[diagnostic(help("only operations, functions, and newtype constructors can be called"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassCall"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassCall"))]
     MissingClassCall(String, #[label] Span),
     #[error("type {0} does not support the controlled functor")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassCtl"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassCtl"))]
     MissingClassCtl(String, #[label] Span),
     #[error("type {0} does not support equality")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassEq"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassEq"))]
     MissingClassEq(String, #[label] Span),
     #[error("type {0} does not support exponentiation")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassExp"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassExp"))]
     MissingClassExp(String, #[label] Span),
     #[error("type {0} does not have a field `{1}`")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassHasField"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassHasField"))]
     MissingClassHasField(String, String, #[label] Span),
     #[error("type {0} is not a struct")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassStruct"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassStruct"))]
     MissingClassStruct(String, #[label] Span),
     #[error("duplicate field `{1}` listed in constructor for type {0}")]
-    #[diagnostic(code("Qsc.TypeCk.DuplicateField"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.DuplicateField"))]
     DuplicateField(String, String, #[label] Span),
     #[error("incorrect number of field assignments for type {0}")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassCorrectFieldCount"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassCorrectFieldCount"))]
     MissingClassCorrectFieldCount(String, #[label] Span),
     #[error("type {0} cannot be indexed by type {1}")]
     #[diagnostic(help(
         "only array types can be indexed, and only Int and Range can be used as the index"
     ))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassHasIndex"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassHasIndex"))]
     MissingClassHasIndex(String, String, #[label] Span),
     #[error("type {0} is not an integer")]
     #[diagnostic(help("only BigInt and Int are integers"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassInteger"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassInteger"))]
     MissingClassInteger(String, #[label] Span),
     #[error("type {0} is not iterable")]
     #[diagnostic(help("only arrays and ranges are iterable"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassIterable"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassIterable"))]
     MissingClassIterable(String, #[label] Span),
     #[error("Type {0} cannot be used in subtraction")]
     #[diagnostic(help("only BigInt, Double, and Int are numbers"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassSub"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassSub"))]
     MissingClassSub(String, #[label] Span),
     #[error("Type {0} cannot be used in multiplication")]
     #[diagnostic(help("only BigInt, Double, and Int are numbers"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassMul"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassMul"))]
     MissingClassMul(String, #[label] Span),
     #[error("Type {0} cannot be used in division")]
     #[diagnostic(help("only BigInt, Double, and Int are numbers"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassDiv"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassDiv"))]
     MissingClassDiv(String, #[label] Span),
     #[error("Type {0} cannot be used with comparison operators (less than/greater than)")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassOrd"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassOrd"))]
     MissingClassOrd(String, #[label] Span),
     #[error("Type {0} cannot be used with the modulo operator")]
     #[diagnostic(help("only BigInt and Int are numbers"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassMod"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassMod"))]
     MissingClassMod(String, #[label] Span),
     #[error("Type {0} cannot have a sign applied to it")]
     #[diagnostic(help("only BigInt, Double, and Int are numbers"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassSigned"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassSigned"))]
     MissingClassSigned(String, #[label] Span),
     #[error("type {0} cannot be converted into a string")]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassShow"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassShow"))]
     MissingClassShow(String, #[label] Span),
     #[error("type {0} cannot be unwrapped")]
     #[diagnostic(help("only newtypes support unwrap"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingClassUnwrap"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingClassUnwrap"))]
     MissingClassUnwrap(String, #[label] Span),
     #[error("expected superset of {0}, found {1}")]
-    #[diagnostic(code("Qsc.TypeCk.MissingFunctor"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingFunctor"))]
     MissingFunctor(FunctorSet, FunctorSet, #[label] Span),
     #[error("found hole with type {0}")]
     #[diagnostic(help("replace this hole with an expression of the expected type"))]
-    #[diagnostic(code("Qsc.TypeCk.TyHole"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.TyHole"))]
     TyHole(String, #[label] Span),
     #[error("insufficient type information to infer type")]
     #[diagnostic(help("provide a type annotation"))]
-    #[diagnostic(code("Qsc.TypeCk.AmbiguousTy"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.AmbiguousTy"))]
     AmbiguousTy(#[label] Span),
     #[error("missing type in item signature")]
     #[diagnostic(help("a type must be provided for this item"))]
-    #[diagnostic(code("Qsc.TypeCk.MissingTy"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.MissingTy"))]
     MissingTy {
         #[label]
         span: Span,
@@ -224,7 +224,7 @@ enum ErrorKind {
     #[help(
         "supported classes are Eq, Add, Sub, Mul, Div, Mod, Signed, Ord, Exp, Integral, and Show"
     )]
-    #[diagnostic(code("Qsc.TypeCk.UnrecognizedClass"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.UnrecognizedClass"))]
     UnrecognizedClass {
         #[label]
         span: Span,
@@ -234,14 +234,14 @@ enum ErrorKind {
     #[help(
         "if a type refers to itself via its constraints, it is self-referential and cannot ever be resolved"
     )]
-    #[diagnostic(code("Qsc.TypeCk.RecursiveClassConstraint"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.RecursiveClassConstraint"))]
     RecursiveClassConstraint {
         #[label]
         span: Span,
         name: String,
     },
     #[error("expected {expected} parameters for constraint, found {found}")]
-    #[diagnostic(code("Qsc.TypeCk.IncorrectNumberOfConstraintParameters"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.IncorrectNumberOfConstraintParameters"))]
     IncorrectNumberOfConstraintParameters {
         expected: usize,
         found: usize,
@@ -252,13 +252,13 @@ enum ErrorKind {
     #[diagnostic(help(
         "the inferred type `{0}` is large enough that it may significantly impact performance"
     ))]
-    #[diagnostic(code("Qsc.TypeCk.TySizeLimitExceeded"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.TySizeLimitExceeded"))]
     TySizeLimitExceeded(String, #[label] Span),
     #[error("unsupported recursive type constraint")]
     #[diagnostic(help(
         "try using explicit type annotations to avoid this recursive constraint in type inference"
     ))]
-    #[diagnostic(code("Qsc.TypeCk.RecursiveTypeConstraint"))]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.RecursiveTypeConstraint"))]
     RecursiveTypeConstraint(#[label] Span),
 }
 

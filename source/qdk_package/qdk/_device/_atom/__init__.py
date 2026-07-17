@@ -8,7 +8,7 @@ from ..._native import try_create_gpu_adapter
 from ..._types import QirInputData
 from ... import telemetry_events
 
-from typing import List, Literal, Optional, TYPE_CHECKING
+from typing import Any, List, Literal, Optional, TYPE_CHECKING
 import time
 
 if TYPE_CHECKING:
@@ -198,17 +198,20 @@ class NeutralAtomDevice(Device):
         """
 
         try:
-            from qsharp_widgets import Atoms
+            from qsharp_widgets import Atoms  # type: ignore[import-not-found]
         except ImportError:
             raise ImportError(
                 "The qsharp-widgets package is required for showing atom trace visualization. "
                 "Please install it via 'pip install \"qdk[jupyter]\"' or 'pip install qsharp-widgets'."
             )
         from ._trace import Trace
-        from ._validate import ValidateNoConditionalBranches
+        from ._validate import (
+            ValidateNoConditionalBranches,
+            ValidateNoFunctionCalls,
+        )
         from ._scheduler import Schedule
         from pyqir import Module, Context
-        from IPython.display import display
+        from IPython.display import display  # type: ignore[import-not-found]
 
         start_time = time.monotonic()
         telemetry_events.on_neutral_atom_trace()
@@ -217,6 +220,7 @@ class NeutralAtomDevice(Device):
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
         ValidateNoConditionalBranches().run(module)
+        ValidateNoFunctionCalls().run(module)
         Schedule(self).run(module)
         tracer = Trace(self)
         tracer.run(module)
@@ -228,11 +232,11 @@ class NeutralAtomDevice(Device):
     def simulate(
         self,
         qir: str | QirInputData,
-        shots=1,
+        shots: int = 1,
         noise: NoiseConfig | None = None,
         type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
         seed: Optional[int] = None,
-    ) -> List:
+    ) -> List[Any]:
         """
         Simulate a QIR program on the NeutralAtomDevice device. This includes approximate layout and scheduling of the program
         to model the parallelism of gates and movement of qubits during execution. The simulation can optionally
@@ -257,7 +261,6 @@ class NeutralAtomDevice(Device):
             run_qir_cpu,
             run_qir_gpu,
         )
-        from ._validate import ValidateNoConditionalBranches
         from ._scheduler import Schedule
         from ._decomp import DecomposeRzAnglesToCliffordGates
         from pyqir import Module, Context
@@ -298,7 +301,6 @@ class NeutralAtomDevice(Device):
 
         compiled = self.compile(qir)
         module = Module.from_ir(Context(), str(compiled))
-        ValidateNoConditionalBranches().run(module)
         Schedule(self).run(module)
 
         if type is None:

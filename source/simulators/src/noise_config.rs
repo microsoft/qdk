@@ -59,8 +59,60 @@ impl CumulativeNoiseConfig {
     /// Returns true if an idle fault has triggered.
     #[must_use]
     pub fn gen_idle_fault(&self, rng: &mut impl rand::Rng, idle_steps: u32) -> bool {
+        // With no idle noise configured the fault probability is always 0, so avoid
+        // consuming a random sample from `rng`.
+        if self.idle.is_noiseless() {
+            return false;
+        }
         let sample: f32 = rng.random_range(0.0..1.0);
         sample < self.idle.s_probability(idle_steps)
+    }
+}
+
+/// Specifies the behavior of a multi-qubit gate when at least one of its qubit
+/// operands is lost.
+///
+/// This lets users experiment with different lost-qubit gate behaviors
+/// from Python (via the per-gate `on_loss` field of the noise config)
+/// without modifying and recompiling the simulator.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LossPolicy {
+    /// If any of the qubit operands of a gate is lost, skip the gate entirely.
+    /// This policy can apply to all multi-qubit gates.
+    #[default]
+    Skip,
+    /// If any operand of a gate is lost, propagate the loss to the other operands.
+    /// This policy can apply to all multi-qubit gates.
+    Propagate,
+    /// For multi-qubit rotations, degrade the unitary to its single-qubit version
+    /// on the surviving operand (e.g. rxx -> rx). Falls back to SKIP for gates with
+    /// no single-qubit reduction (cx, cy, cz, swap, and single-qubit gates).
+    /// This policy only applies to the rxx, ryy, and rzz gates, in which case
+    /// they degrade to rx, ry, and rz on the remaining qubit respectively.
+    Degrade,
+    /// Skip the gate and instead apply an S adjoint to each surviving operand.
+    /// This policy can apply to all multi-qubit gates.
+    ResidualSDagger,
+    /// This policy only applies to the swap gate, in which case the qubit states
+    /// are exchanged, including their loss flags.
+    ApplyAnyway,
+}
+
+impl LossPolicy {
+    /// Encodes the policy as a `u32` for transport to the GPU shader.
+    ///
+    /// The values match the Python `LossPolicy` enum (`SKIP = 0` ..
+    /// `APPLY_ANYWAY = 4`). The value `0` is reserved by the shader to mean
+    /// "no policy stamped" and is never produced here.
+    #[must_use]
+    pub fn as_u32(self) -> u32 {
+        match self {
+            Self::Skip => 0,
+            Self::Propagate => 1,
+            Self::Degrade => 2,
+            Self::ResidualSDagger => 3,
+            Self::ApplyAnyway => 4,
+        }
     }
 }
 
@@ -127,10 +179,10 @@ impl<T, Q> NoiseConfig<T, Q> {
         cx: NoiseTable::<T>::noiseless(2),
         cy: NoiseTable::<T>::noiseless(2),
         cz: NoiseTable::<T>::noiseless(2),
-        rxx: NoiseTable::<T>::noiseless(2),
-        ryy: NoiseTable::<T>::noiseless(2),
-        rzz: NoiseTable::<T>::noiseless(2),
-        swap: NoiseTable::<T>::noiseless(2),
+        rxx: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        ryy: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        rzz: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::Degrade),
+        swap: NoiseTable::<T>::noiseless_with_loss_policy(2, LossPolicy::ApplyAnyway),
         ccx: NoiseTable::<T>::noiseless(3),
         mov: NoiseTable::<T>::noiseless(1),
         mz: NoiseTable::<T>::noiseless(1),
@@ -284,15 +336,23 @@ pub struct NoiseTable<T> {
     pub qubits: u32,
     pub pauli_strings: Vec<PauliAndLossString>,
     pub probabilities: Vec<T>,
+    /// The behavior of this gate when at least one of its operands is lost.
+    pub on_loss: LossPolicy,
 }
 
 impl<T> NoiseTable<T> {
     #[must_use]
     pub const fn noiseless(qubits: u32) -> Self {
+        Self::noiseless_with_loss_policy(qubits, LossPolicy::Skip)
+    }
+
+    #[must_use]
+    pub const fn noiseless_with_loss_policy(qubits: u32, on_loss: LossPolicy) -> Self {
         Self {
             qubits,
             pauli_strings: Vec::new(),
             probabilities: Vec::new(),
+            on_loss,
         }
     }
 
@@ -404,6 +464,8 @@ impl From<NoiseConfig<f64, f64>> for CumulativeNoiseConfig {
 /// This is the internal format used by the simulator.
 #[derive(Default)]
 pub struct CumulativeNoiseTable {
+    /// The behavior of this gate when at least one of its operands is lost.
+    pub on_loss: LossPolicy,
     pub sampler: Sampler,
 }
 
@@ -416,6 +478,7 @@ impl From<NoiseTable<f64>> for CumulativeNoiseTable {
             .map(|p| Fault::from((p, qubits)));
         let probs = value.probabilities.into_iter().map(uq1_63::from_prob);
         Self {
+            on_loss: value.on_loss,
             sampler: Sampler::new(choices, probs),
         }
     }
@@ -493,6 +556,11 @@ impl<T> Sampler<T> {
 
     #[must_use]
     pub fn sample(&self, rng: &mut impl rand::Rng) -> Option<&T> {
+        // A table with zero total probability (e.g. a noiseless gate) can never return a
+        // choice, so skip drawing from `rng` entirely.
+        if self.total_probability == 0 {
+            return None;
+        }
         let distr = rand::distr::Uniform::new(0, uq1_63::ONE).expect("valid range");
         let random_sample: u64 = rng.sample(distr);
         self.sample_with_value(random_sample)

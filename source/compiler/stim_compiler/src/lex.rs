@@ -18,21 +18,21 @@ use thiserror::Error;
 pub enum Error {
     /// A character that does not start any valid token, e.g. `@` or `$`.
     #[error("unrecognized character")]
-    #[diagnostic(code("Stim.UnrecognizedCharacter"))]
+    #[diagnostic(code("Qdk.Stim.Lex.UnrecognizedCharacter"))]
     UnrecognizedCharacter {
         #[label]
         span: Span,
     },
     /// A sign (`+` or `-`) that is not followed by any digits, e.g. `+` or `-`.
     #[error("expected digits after sign")]
-    #[diagnostic(code("Stim.MissingDigitsAfterSign"))]
+    #[diagnostic(code("Qdk.Stim.Lex.MissingDigitsAfterSign"))]
     MissingDigitsAfterSign {
         #[label]
         span: Span,
     },
     /// A decimal point that is not followed by any digits, e.g. `3.`.
     #[error("expected digits after decimal point")]
-    #[diagnostic(code("Stim.MissingFractionalDigits"))]
+    #[diagnostic(code("Qdk.Stim.Lex.MissingFractionalDigits"))]
     MissingFractionalDigits {
         #[label]
         span: Span,
@@ -40,7 +40,7 @@ pub enum Error {
     /// An exponent marker (`e`/`E`, optionally signed) that is not followed by
     /// any digits, e.g. `1e` or `1e-`.
     #[error("expected digits in exponent")]
-    #[diagnostic(code("Stim.MissingExponentDigits"))]
+    #[diagnostic(code("Qdk.Stim.Lex.MissingExponentDigits"))]
     MissingExponentDigits {
         #[label]
         span: Span,
@@ -254,13 +254,8 @@ impl Iterator for Lexer<'_> {
                 return self.next();
             }
             '#' => {
-                if self.chars.next_if(|(_, c)| *c == '!').is_some() {
-                    self.eat_while(|c| !c.is_whitespace());
-                    TokenKind::InstructionName
-                } else {
-                    self.comment();
-                    return self.next();
-                }
+                self.comment();
+                return self.next();
             }
             '(' => TokenKind::Open(Paren),
             ')' => TokenKind::Close(Paren),

@@ -362,7 +362,7 @@ pub(crate) fn compile_qasm_program_to_qir(
 
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
-    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::Adaptive));
+    let target = user_profile.unwrap_or(pragma_profile.unwrap_or(Profile::AdaptiveRIF));
     let mut interpreter =
         create_interpreter_from_ast(package, source_map, target, language_features, package_type)
             .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
@@ -591,6 +591,7 @@ fn estimate_qasm(
 /// Args:
 ///     source (str): An `OpenQASM` program. Alternatively, a callable can be provided,
 ///         which must be an already imported global callable.
+///     config (&CircuitConfig): Circuit generation options.
 ///     `read_file` (Callable[[str], Tuple[str, str]]): A callable that reads a file and returns its content and path.
 ///     `list_directory` (Callable[[str], List[Dict[str, str]]]): A callable that lists the contents of a directory.
 ///     `resolve_path` (Callable[[str, str], str]): A callable that resolves a file path given a base path and a relative path.

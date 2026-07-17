@@ -4,10 +4,11 @@
 use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 use crate::debug::Frame;
+use crate::function_evaluator::FunctionEvaluator;
 use crate::val::{self, Value};
 use crate::{noise::PauliNoise, val::unwrap_tuple};
 use ndarray::Array2;
-use num_bigint::BigUint;
+use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::{
@@ -16,6 +17,7 @@ use qdk_simulators::{
     stabilizer_simulator::StabilizerSimulator,
 };
 use qsc_data_structures::index_map::IndexMap;
+use qsc_fir::fir::PackageStoreLookup;
 use rand::{Rng, RngExt};
 use rand::{SeedableRng, rngs::StdRng};
 
@@ -118,7 +120,12 @@ pub trait Backend {
     /// Executes custom intrinsic specified by `_name`.
     /// Returns None if this intrinsic is unknown.
     /// Otherwise returns Some(Result), with the Result from intrinsic.
-    fn custom_intrinsic(&mut self, _name: &str, _arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        _name: &str,
+        _arg: Value,
+        _globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         None
     }
     fn set_seed(&mut self, _seed: Option<u64>) {}
@@ -476,12 +483,13 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         name: &str,
         arg: Value,
         stack: &[Frame],
+        globals: &impl PackageStoreLookup,
     ) -> Option<Result<Value, String>> {
         if let Some(tracer) = &mut self.tracer {
             tracer.custom_intrinsic(stack, name, arg.clone());
         }
         match &mut self.backend {
-            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg),
+            OptionalBackend::Some(backend) => backend.custom_intrinsic(name, arg, globals),
             OptionalBackend::None(_) => {
                 match name {
                     // Special case this known intrinsic to match the simulator
@@ -709,6 +717,33 @@ impl SparseSim {
     /// Checks if the qubit is lost.
     fn is_qubit_lost(&self, q: usize) -> bool {
         self.lost_qubits.bit(q as u64)
+    }
+
+    fn apply_classical_function(
+        &mut self,
+        arg: Value,
+        globals: &impl PackageStoreLookup,
+    ) -> Result<Value, String> {
+        let [function_val, qubits_val] = unwrap_tuple(arg);
+        let mut function_evaluator = FunctionEvaluator::new(function_val)?;
+        let qubits = qubits_val
+            .unwrap_array()
+            .iter()
+            .filter_map(|q| q.clone().unwrap_qubit().try_deref().map(|q| q.0))
+            .collect::<Vec<_>>();
+
+        let func = |x| {
+            let result = function_evaluator.evaluate(globals, Value::BigInt(BigInt::from(x)))?;
+            let Value::BigInt(output) = result else {
+                return Err("classical arithmetic function must return a BigInt".to_string());
+            };
+            output
+                .to_biguint()
+                .ok_or_else(|| "function result must be non-negative".to_string())
+        };
+
+        self.sim.apply_arithmetic_gate(func, &qubits)?;
+        Ok(Value::unit())
     }
 }
 
@@ -1040,7 +1075,12 @@ impl Backend for SparseSim {
         Ok(self.sim.qubit_is_zero(q))
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         // These intrinsics aren't subject to noise.
         match name {
             "GlobalPhase" => {
@@ -1143,6 +1183,7 @@ impl Backend for SparseSim {
                 }
                 Some(Ok(Value::unit()))
             }
+            "ApplyClassicalFunctionInternal" => Some(self.apply_classical_function(arg, globals)),
             _ => None,
         }
     }
@@ -1390,7 +1431,12 @@ impl Backend for CliffordSim {
         Err("adjoint T gate is not supported in Clifford simulation".to_string())
     }
 
-    fn custom_intrinsic(&mut self, name: &str, _arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        _globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
             "GlobalPhase"
@@ -1413,9 +1459,14 @@ impl Backend for CliffordSim {
             "Apply" => Some(Err(
                 "arbitrary unitary application not supported in Clifford simulation".to_string(),
             )),
-            "PostSelectZ" => Some(Err(
-                "post-selection not supported in Clifford simulation".to_string()
-            )),
+            "PostSelectZ" => {
+                let [result, qubit] = unwrap_tuple(arg);
+                let id = qubit.unwrap_qubit().deref().0;
+                let Value::Result(val::Result::Val(val)) = result else {
+                    panic!("first argument to PostSelectZ should be a measurement result");
+                };
+                Some(self.sim.post_select_z(val, id).map(|()| Value::unit()))
+            }
             _ => None,
         }
     }

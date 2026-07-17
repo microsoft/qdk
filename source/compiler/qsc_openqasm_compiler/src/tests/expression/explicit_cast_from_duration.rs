@@ -27,7 +27,7 @@ fn duration_to_bool_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type bool
                ,-[Test.qasm:3:9]
@@ -37,7 +37,7 @@ fn duration_to_bool_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -47,7 +47,7 @@ fn duration_to_bool_fails() {
              3 |         bool(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -73,7 +73,7 @@ fn duration_to_duration() {
     check(
         source,
         &expect![[r#"
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -83,7 +83,7 @@ fn duration_to_duration() {
              3 |         duration(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -109,7 +109,7 @@ fn duration_to_stretch_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -119,7 +119,7 @@ fn duration_to_stretch_fails() {
              3 |         stretch(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -145,7 +145,7 @@ fn duration_to_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type int
                ,-[Test.qasm:3:9]
@@ -155,7 +155,7 @@ fn duration_to_int_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -165,7 +165,7 @@ fn duration_to_int_fails() {
              3 |         int(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -187,7 +187,7 @@ fn duration_to_sized_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type int[32]
                ,-[Test.qasm:3:9]
@@ -197,7 +197,7 @@ fn duration_to_sized_int_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -207,7 +207,7 @@ fn duration_to_sized_int_fails() {
              3 |         int[32](a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -233,7 +233,7 @@ fn duration_to_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type uint
                ,-[Test.qasm:3:9]
@@ -243,7 +243,7 @@ fn duration_to_uint_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -253,7 +253,7 @@ fn duration_to_uint_fails() {
              3 |         uint(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -275,7 +275,7 @@ fn duration_to_sized_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type uint[32]
                ,-[Test.qasm:3:9]
@@ -285,7 +285,7 @@ fn duration_to_sized_uint_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -295,7 +295,7 @@ fn duration_to_sized_uint_fails() {
              3 |         uint[32](a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -321,7 +321,7 @@ fn duration_to_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type float
                ,-[Test.qasm:3:9]
@@ -331,7 +331,7 @@ fn duration_to_float_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -341,7 +341,7 @@ fn duration_to_float_fails() {
              3 |         float(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -363,7 +363,7 @@ fn duration_to_sized_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type float[32]
                ,-[Test.qasm:3:9]
@@ -373,7 +373,7 @@ fn duration_to_sized_float_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -383,7 +383,7 @@ fn duration_to_sized_float_fails() {
              3 |         float[32](a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -409,7 +409,7 @@ fn duration_to_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type angle
                ,-[Test.qasm:3:9]
@@ -419,7 +419,7 @@ fn duration_to_angle_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -429,7 +429,7 @@ fn duration_to_angle_fails() {
              3 |         angle(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -451,7 +451,7 @@ fn duration_to_sized_angle_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type angle[32]
                ,-[Test.qasm:3:9]
@@ -461,7 +461,7 @@ fn duration_to_sized_angle_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -471,7 +471,7 @@ fn duration_to_sized_angle_fails() {
              3 |         angle[32](a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -497,7 +497,7 @@ fn duration_to_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type complex[float]
                ,-[Test.qasm:3:9]
@@ -507,7 +507,7 @@ fn duration_to_complex_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -517,7 +517,7 @@ fn duration_to_complex_fails() {
              3 |         complex(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -539,7 +539,7 @@ fn duration_to_sized_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type complex[float[32]]
                ,-[Test.qasm:3:9]
@@ -549,7 +549,7 @@ fn duration_to_sized_complex_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -559,7 +559,7 @@ fn duration_to_sized_complex_fails() {
              3 |         complex[float[32]](a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -585,7 +585,7 @@ fn duration_to_bit_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type bit
                ,-[Test.qasm:3:9]
@@ -595,7 +595,7 @@ fn duration_to_bit_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -605,7 +605,7 @@ fn duration_to_bit_fails() {
              3 |         bit(a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]
@@ -627,7 +627,7 @@ fn duration_to_bitarray_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type duration to type bit[32]
                ,-[Test.qasm:3:9]
@@ -637,7 +637,7 @@ fn duration_to_bitarray_fails() {
              4 |     
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x duration type values are not supported
                ,-[Test.qasm:2:9]
@@ -647,7 +647,7 @@ fn duration_to_bitarray_fails() {
              3 |         bit[32](a);
                `----
 
-            Qasm.Compiler.NotSupported
+            Qdk.Qasm.Compiler.NotSupported
 
               x timing literals are not supported
                ,-[Test.qasm:2:9]

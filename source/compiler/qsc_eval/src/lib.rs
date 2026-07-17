@@ -20,6 +20,7 @@ mod tests;
 pub mod backend;
 pub mod debug;
 mod error;
+pub mod function_evaluator;
 pub mod intrinsic;
 pub mod noise;
 pub mod output;
@@ -61,133 +62,133 @@ use val::{Qubit, update_functor_app};
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("array too large")]
-    #[diagnostic(code("Qsc.Eval.ArrayTooLarge"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ArrayTooLarge"))]
     ArrayTooLarge(#[label("this array has too many items")] PackageSpan),
 
     #[error("callable already counted")]
     #[diagnostic(help(
         "counting for a given callable must be stopped before it can be started again"
     ))]
-    #[diagnostic(code("Qsc.Eval.CallableAlreadyCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.CallableAlreadyCounted"))]
     CallableAlreadyCounted(#[label] PackageSpan),
 
     #[error("callable not counted")]
     #[diagnostic(help("counting for a given callable must be started before it can be stopped"))]
-    #[diagnostic(code("Qsc.Eval.CallableNotCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.CallableNotCounted"))]
     CallableNotCounted(#[label] PackageSpan),
 
     #[error("invalid array length: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidArrayLength"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidArrayLength"))]
     InvalidArrayLength(i64, #[label("cannot be used as a length")] PackageSpan),
 
     #[error("division by zero")]
-    #[diagnostic(code("Qsc.Eval.DivZero"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.DivZero"))]
     DivZero(#[label("cannot divide by zero")] PackageSpan),
 
     #[error("empty range")]
-    #[diagnostic(code("Qsc.Eval.EmptyRange"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.EmptyRange"))]
     EmptyRange(#[label("the range cannot be empty")] PackageSpan),
 
     #[error("value cannot be used as an index: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidIndex"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidIndex"))]
     InvalidIndex(i64, #[label("invalid index")] PackageSpan),
 
     #[error("integer too large for operation")]
-    #[diagnostic(code("Qsc.Eval.IntTooLarge"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.IntTooLarge"))]
     IntTooLarge(i64, #[label("this value is too large")] PackageSpan),
 
     #[error("index out of range: {0}")]
-    #[diagnostic(code("Qsc.Eval.IndexOutOfRange"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.IndexOutOfRange"))]
     IndexOutOfRange(i64, #[label("out of range")] PackageSpan),
 
     #[error("intrinsic callable `{0}` failed: {1}")]
-    #[diagnostic(code("Qsc.Eval.IntrinsicFail"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.IntrinsicFail"))]
     IntrinsicFail(String, String, #[label] PackageSpan),
 
     #[error("invalid rotation angle: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidRotationAngle"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidRotationAngle"))]
     InvalidRotationAngle(f64, #[label("invalid rotation angle")] PackageSpan),
 
     #[error("negative integers cannot be used here: {0}")]
-    #[diagnostic(code("Qsc.Eval.InvalidNegativeInt"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.InvalidNegativeInt"))]
     InvalidNegativeInt(i64, #[label("invalid negative integer")] PackageSpan),
 
     #[error("output failure")]
-    #[diagnostic(code("Qsc.Eval.OutputFail"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.OutputFail"))]
     OutputFail(#[label("failed to generate output")] PackageSpan),
 
     #[error("qubits in invocation are not unique")]
-    #[diagnostic(code("Qsc.Eval.QubitUniqueness"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitUniqueness"))]
     QubitUniqueness(#[label] PackageSpan),
 
     #[error("qubit used after release")]
     #[diagnostic(help(
         "qubits should not be used after being released, which typically occurs when a qubit is used after it has gone out of scope"
     ))]
-    #[diagnostic(code("Qsc.Eval.QubitUsedAfterRelease"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitUsedAfterRelease"))]
     QubitUsedAfterRelease(#[label] PackageSpan),
 
     #[error("qubit double release")]
-    #[diagnostic(code("Qsc.Eval.QubitDoubleRelease"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitDoubleRelease"))]
     QubitDoubleRelease(#[label("qubit has already been released")] PackageSpan),
 
     #[error("qubits already counted")]
     #[diagnostic(help("counting for qubits must be stopped before it can be started again"))]
-    #[diagnostic(code("Qsc.Eval.QubitsAlreadyCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitsAlreadyCounted"))]
     QubitsAlreadyCounted(#[label] PackageSpan),
 
     #[error("qubits not counted")]
     #[diagnostic(help("counting for qubits must be started before it can be stopped"))]
-    #[diagnostic(code("Qsc.Eval.QubitsNotCounted"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitsNotCounted"))]
     QubitsNotCounted(#[label] PackageSpan),
 
     #[error("qubits are not separable")]
     #[diagnostic(help(
         "subset of qubits provided as arguments must not be entangled with any qubits outside of the subset"
     ))]
-    #[diagnostic(code("Qsc.Eval.QubitsNotSeparable"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.QubitsNotSeparable"))]
     QubitsNotSeparable(#[label] PackageSpan),
 
     #[error("range with step size of zero")]
-    #[diagnostic(code("Qsc.Eval.RangeStepZero"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.RangeStepZero"))]
     RangeStepZero(#[label("invalid range")] PackageSpan),
 
     #[error("qubit arrays used in relabeling must be a permutation of the same set of qubits")]
     #[diagnostic(help("ensure that each qubit is present exactly once in both arrays"))]
-    #[diagnostic(code("Qsc.Eval.RelabelingMismatch"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.RelabelingMismatch"))]
     RelabelingMismatch(#[label] PackageSpan),
 
     #[error("Qubit{0} released while not in |0⟩ state")]
     #[diagnostic(help(
         "qubits should be returned to the |0⟩ state before being released to satisfy the assumption that allocated qubits start in the |0⟩ state"
     ))]
-    #[diagnostic(code("Qsc.Eval.ReleasedQubitNotZero"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ReleasedQubitNotZero"))]
     ReleasedQubitNotZero(usize, #[label("Qubit{0}")] PackageSpan),
 
     #[error("cannot compare measurement results")]
-    #[diagnostic(code("Qsc.Eval.ResultComparisonUnsupported"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ResultComparisonUnsupported"))]
     #[diagnostic(help(
         "comparing measurement results is not supported when performing circuit synthesis or base profile QIR generation"
     ))]
     ResultComparisonUnsupported(#[label("cannot compare to result")] PackageSpan),
 
     #[error("cannot compare measurement result from qubit loss")]
-    #[diagnostic(code("Qsc.Eval.ResultLossComparisonUnsupported"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.ResultLossComparisonUnsupported"))]
     #[diagnostic(help(
         "use of a measurement result from a qubit that was lost is not supported, use `IsLossResult` to ensure the result is valid before using it in a comparison"
     ))]
     ResultLossComparisonUnsupported(#[label("cannot compare result from qubit loss")] PackageSpan),
 
     #[error("simulation error: {0}")]
-    #[diagnostic(code("Qsc.Eval.SimulationError"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.SimulationError"))]
     SimulationError(String, #[label("simulation error")] PackageSpan),
 
     #[error("name is not bound")]
-    #[diagnostic(code("Qsc.Eval.UnboundName"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UnboundName"))]
     UnboundName(#[label] PackageSpan),
 
     #[error("unknown intrinsic `{0}`")]
-    #[diagnostic(code("Qsc.Eval.UnknownIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UnknownIntrinsic"))]
     UnknownIntrinsic(
         String,
         #[label("callable has no implementation")] PackageSpan,
@@ -195,11 +196,11 @@ pub enum Error {
 
     #[error("unsupported return type for intrinsic `{0}`")]
     #[diagnostic(help("intrinsic callable return type should be `Unit`"))]
-    #[diagnostic(code("Qsc.Eval.UnsupportedIntrinsicType"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UnsupportedIntrinsicType"))]
     UnsupportedIntrinsicType(String, #[label] PackageSpan),
 
     #[error("program failed: {0}")]
-    #[diagnostic(code("Qsc.Eval.UserFail"))]
+    #[diagnostic(code("Qdk.Qsc.Eval.UserFail"))]
     UserFail(String, #[label("explicit fail")] PackageSpan),
 }
 
@@ -1264,6 +1265,7 @@ impl State {
                 functor,
                 callee,
                 sim,
+                globals,
                 callee_span,
                 arg,
                 arg_span,
@@ -1328,6 +1330,7 @@ impl State {
         functor: FunctorApp,
         callee: &fir::CallableDecl,
         sim: &mut TracingBackend<'_, B>,
+        globals: &impl PackageStoreLookup,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
@@ -1379,6 +1382,7 @@ impl State {
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,
+                    globals,
                 )?;
                 if val == Value::unit() && callee.output != Ty::UNIT {
                     return Err(Error::UnsupportedIntrinsicType(

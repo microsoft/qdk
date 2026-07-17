@@ -148,17 +148,17 @@ fn shor_sample_full_pipeline_reachable_items() {
                 Fact(value >= 0, $"`value` must be non-negative.");
                 mutable runningValue : Int = value;
                 {
-                    let _array_id_47710 : Qubit[] = target;
-                    let _len_id_47714 : Int = Length(_array_id_47710);
-                    mutable _index_id_47719 : Int = 0;
-                    while _index_id_47719 < _len_id_47714 {
-                        let q : Qubit = _array_id_47710[_index_id_47719];
+                    let _array_id_47915 : Qubit[] = target;
+                    let _len_id_47919 : Int = Length(_array_id_47915);
+                    mutable _index_id_47924 : Int = 0;
+                    while _index_id_47924 < _len_id_47919 {
+                        let q : Qubit = _array_id_47915[_index_id_47924];
                         if runningValue &&& 1 != 0 {
                             X(q);
                         }
 
                         runningValue >>>= 1;
-                        _index_id_47719 += 1;
+                        _index_id_47924 += 1;
                     }
 
                 }
@@ -169,17 +169,17 @@ fn shor_sample_full_pipeline_reachable_items() {
                 Fact(value >= 0, $"`value` must be non-negative.");
                 mutable runningValue : Int = value;
                 {
-                    let _array_id_47738 : Qubit[] = target;
-                    let _len_id_47742 : Int = Length(_array_id_47738);
-                    mutable _index_id_47747 : Int = 0;
-                    while _index_id_47747 < _len_id_47742 {
-                        let q : Qubit = _array_id_47738[_index_id_47747];
+                    let _array_id_47943 : Qubit[] = target;
+                    let _len_id_47947 : Int = Length(_array_id_47943);
+                    mutable _index_id_47952 : Int = 0;
+                    while _index_id_47952 < _len_id_47947 {
+                        let q : Qubit = _array_id_47943[_index_id_47952];
                         if runningValue &&& 1 != 0 {
                             X(q);
                         }
 
                         runningValue >>>= 1;
-                        _index_id_47747 += 1;
+                        _index_id_47952 += 1;
                     }
 
                 }
@@ -190,17 +190,17 @@ fn shor_sample_full_pipeline_reachable_items() {
                 Fact(value >= 0, $"`value` must be non-negative.");
                 mutable runningValue : Int = value;
                 {
-                    let _array_id_47766 : Qubit[] = target;
-                    let _len_id_47770 : Int = Length(_array_id_47766);
-                    mutable _index_id_47775 : Int = 0;
-                    while _index_id_47775 < _len_id_47770 {
-                        let q : Qubit = _array_id_47766[_index_id_47775];
+                    let _array_id_47971 : Qubit[] = target;
+                    let _len_id_47975 : Int = Length(_array_id_47971);
+                    mutable _index_id_47980 : Int = 0;
+                    while _index_id_47980 < _len_id_47975 {
+                        let q : Qubit = _array_id_47971[_index_id_47980];
                         if runningValue &&& 1 != 0 {
                             Controlled X(ctls, q);
                         }
 
                         runningValue >>>= 1;
-                        _index_id_47775 += 1;
+                        _index_id_47980 += 1;
                     }
 
                 }
@@ -211,17 +211,17 @@ fn shor_sample_full_pipeline_reachable_items() {
                 Fact(value >= 0, $"`value` must be non-negative.");
                 mutable runningValue : Int = value;
                 {
-                    let _array_id_47794 : Qubit[] = target;
-                    let _len_id_47798 : Int = Length(_array_id_47794);
-                    mutable _index_id_47803 : Int = 0;
-                    while _index_id_47803 < _len_id_47798 {
-                        let q : Qubit = _array_id_47794[_index_id_47803];
+                    let _array_id_47999 : Qubit[] = target;
+                    let _len_id_48003 : Int = Length(_array_id_47999);
+                    mutable _index_id_48008 : Int = 0;
+                    while _index_id_48008 < _len_id_48003 {
+                        let q : Qubit = _array_id_47999[_index_id_48008];
                         if runningValue &&& 1 != 0 {
                             Controlled X(ctls, q);
                         }
 
                         runningValue >>>= 1;
-                        _index_id_47803 += 1;
+                        _index_id_48008 += 1;
                     }
 
                 }
@@ -430,27 +430,27 @@ fn shor_sample_full_pipeline_reachable_items() {
         operation CollectControls(ctls : Qubit[], aux : Qubit[], adjustment : Int) : Unit is Adj {
             body ... {
                 {
-                    let _range_id_48878 : Range = 0..2..Length(ctls) - 2;
-                    mutable _index_id_48881 : Int = _range_id_48878::Start;
-                    let _step_id_48886 : Int = _range_id_48878::Step;
-                    let _end_id_48891 : Int = _range_id_48878::End;
-                    while _step_id_48886 > 0 and _index_id_48881 <= _end_id_48891 or _step_id_48886 < 0 and _index_id_48881 >= _end_id_48891 {
-                        let i : Int = _index_id_48881;
+                    let _range_id_49083 : Range = 0..2..Length(ctls) - 2;
+                    mutable _index_id_49086 : Int = _range_id_49083::Start;
+                    let _step_id_49091 : Int = _range_id_49083::Step;
+                    let _end_id_49096 : Int = _range_id_49083::End;
+                    while _step_id_49091 > 0 and _index_id_49086 <= _end_id_49096 or _step_id_49091 < 0 and _index_id_49086 >= _end_id_49096 {
+                        let i : Int = _index_id_49086;
                         CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
-                        _index_id_48881 += _step_id_48886;
+                        _index_id_49086 += _step_id_49091;
                     }
 
                 }
 
                 {
-                    let _range_id_48921 : Range = 0..Length(ctls) / 2 - 2 - adjustment;
-                    mutable _index_id_48924 : Int = _range_id_48921::Start;
-                    let _step_id_48929 : Int = _range_id_48921::Step;
-                    let _end_id_48934 : Int = _range_id_48921::End;
-                    while _step_id_48929 > 0 and _index_id_48924 <= _end_id_48934 or _step_id_48929 < 0 and _index_id_48924 >= _end_id_48934 {
-                        let i : Int = _index_id_48924;
+                    let _range_id_49126 : Range = 0..Length(ctls) / 2 - 2 - adjustment;
+                    mutable _index_id_49129 : Int = _range_id_49126::Start;
+                    let _step_id_49134 : Int = _range_id_49126::Step;
+                    let _end_id_49139 : Int = _range_id_49126::End;
+                    while _step_id_49134 > 0 and _index_id_49129 <= _end_id_49139 or _step_id_49134 < 0 and _index_id_49129 >= _end_id_49139 {
+                        let i : Int = _index_id_49129;
                         CCNOT(aux[i * 2], aux[i * 2 + 1], aux[i + Length(ctls) / 2]);
-                        _index_id_48924 += _step_id_48929;
+                        _index_id_49129 += _step_id_49134;
                     }
 
                 }
@@ -460,14 +460,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 0..Length(ctls) / 2 - 2 - adjustment;
                     {
-                        let _range_id_48964 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_48967 : Int = _range_id_48964::Start;
-                        let _step_id_48972 : Int = _range_id_48964::Step;
-                        let _end_id_48977 : Int = _range_id_48964::End;
-                        while _step_id_48972 > 0 and _index_id_48967 <= _end_id_48977 or _step_id_48972 < 0 and _index_id_48967 >= _end_id_48977 {
-                            let i : Int = _index_id_48967;
+                        let _range_id_49169 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_49172 : Int = _range_id_49169::Start;
+                        let _step_id_49177 : Int = _range_id_49169::Step;
+                        let _end_id_49182 : Int = _range_id_49169::End;
+                        while _step_id_49177 > 0 and _index_id_49172 <= _end_id_49182 or _step_id_49177 < 0 and _index_id_49172 >= _end_id_49182 {
+                            let i : Int = _index_id_49172;
                             Adjoint CCNOT(aux[i * 2], aux[i * 2 + 1], aux[i + Length(ctls) / 2]);
-                            _index_id_48967 += _step_id_48972;
+                            _index_id_49172 += _step_id_49177;
                         }
 
                     }
@@ -477,14 +477,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 0..2..Length(ctls) - 2;
                     {
-                        let _range_id_49007 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_49010 : Int = _range_id_49007::Start;
-                        let _step_id_49015 : Int = _range_id_49007::Step;
-                        let _end_id_49020 : Int = _range_id_49007::End;
-                        while _step_id_49015 > 0 and _index_id_49010 <= _end_id_49020 or _step_id_49015 < 0 and _index_id_49010 >= _end_id_49020 {
-                            let i : Int = _index_id_49010;
+                        let _range_id_49212 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_49215 : Int = _range_id_49212::Start;
+                        let _step_id_49220 : Int = _range_id_49212::Step;
+                        let _end_id_49225 : Int = _range_id_49212::End;
+                        while _step_id_49220 > 0 and _index_id_49215 <= _end_id_49225 or _step_id_49220 < 0 and _index_id_49215 >= _end_id_49225 {
+                            let i : Int = _index_id_49215;
                             Adjoint CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
-                            _index_id_49010 += _step_id_49015;
+                            _index_id_49215 += _step_id_49220;
                         }
 
                     }
@@ -597,7 +597,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             CCH(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1 - Length(ctls) % 2);
-                            let _generated_ident_53981 : Unit = {
+                            let _generated_ident_54242 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 0);
                                 }
@@ -618,7 +618,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_53981
+                            _generated_ident_54242
                         }
 
                     }
@@ -643,7 +643,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             CCH(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1 - Length(ctls) % 2);
-                            let _generated_ident_53995 : Unit = {
+                            let _generated_ident_54256 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 0);
                                 }
@@ -664,7 +664,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_53995
+                            _generated_ident_54256
                         }
 
                     }
@@ -749,13 +749,13 @@ fn shor_sample_full_pipeline_reachable_items() {
         }
         operation ResetAll(qubits : Qubit[]) : Unit {
             {
-                let _array_id_49379 : Qubit[] = qubits;
-                let _len_id_49383 : Int = Length(_array_id_49379);
-                mutable _index_id_49388 : Int = 0;
-                while _index_id_49388 < _len_id_49383 {
-                    let q : Qubit = _array_id_49379[_index_id_49388];
+                let _array_id_49584 : Qubit[] = qubits;
+                let _len_id_49588 : Int = Length(_array_id_49584);
+                mutable _index_id_49593 : Int = 0;
+                while _index_id_49593 < _len_id_49588 {
+                    let q : Qubit = _array_id_49584[_index_id_49593];
                     Reset(q);
-                    _index_id_49388 += 1;
+                    _index_id_49593 += 1;
                 }
 
             }
@@ -865,7 +865,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                         CRz(ctls[0], theta, qubit);
                     } else {
                         let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
-                        let _generated_ident_54051 : Unit = {
+                        let _generated_ident_54312 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
                                 AdjustForSingleControl(ctls, aux);
@@ -882,7 +882,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             _apply_res
                         };
                         ReleaseQubitArray(aux);
-                        _generated_ident_54051
+                        _generated_ident_54312
                     }
 
                 }
@@ -916,7 +916,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             Controlled CS([ctls[0]], (ctls[1], qubit));
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54079 : Unit = {
+                            let _generated_ident_54340 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -937,7 +937,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54079
+                            _generated_ident_54340
                         }
 
                     }
@@ -962,7 +962,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             Controlled Adjoint CS([ctls[0]], (ctls[1], qubit));
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54093 : Unit = {
+                            let _generated_ident_54354 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -983,7 +983,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54093
+                            _generated_ident_54354
                         }
 
                     }
@@ -1064,7 +1064,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                         CT(ctls[0], qubit);
                     } else {
                         let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
-                        let _generated_ident_54135 : Unit = {
+                        let _generated_ident_54396 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
                                 AdjustForSingleControl(ctls, aux);
@@ -1081,7 +1081,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             _apply_res
                         };
                         ReleaseQubitArray(aux);
-                        _generated_ident_54135
+                        _generated_ident_54396
                     }
 
                 }
@@ -1098,7 +1098,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                         Adjoint CT(ctls[0], qubit);
                     } else {
                         let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
-                        let _generated_ident_54149 : Unit = {
+                        let _generated_ident_54410 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
                                 AdjustForSingleControl(ctls, aux);
@@ -1115,7 +1115,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             _apply_res
                         };
                         ReleaseQubitArray(aux);
-                        _generated_ident_54149
+                        _generated_ident_54410
                     }
 
                 }
@@ -1146,7 +1146,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             __quantum__qis__ccx__body(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54163 : Unit = {
+                            let _generated_ident_54424 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -1167,7 +1167,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54163
+                            _generated_ident_54424
                         }
 
                     }
@@ -1192,7 +1192,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                             __quantum__qis__ccx__body(ctls[0], ctls[1], qubit);
                         } else {
                             let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
-                            let _generated_ident_54177 : Unit = {
+                            let _generated_ident_54438 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 1 - Length(ctls) % 2);
                                 }
@@ -1213,7 +1213,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                                 _apply_res
                             };
                             ReleaseQubitArray(aux);
-                            _generated_ident_54177
+                            _generated_ident_54438
                         }
 
                     }
@@ -1359,8 +1359,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                 (t1, t2) = (t2, t1 - quotient * t2);
             }
 
-            let __cond_0 : Bool = r2 == 0 and AbsI(s2) <= denominatorBound;
-            if __cond_0 {
+            if r2 == 0 and AbsI(s2) <= denominatorBound {
                 (-t2 * signB, s2 * signA)
             } else {
                 (-t1 * signB, s1 * signA)
@@ -1462,8 +1461,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     if xsLen > 1 {
                         {
@@ -1484,41 +1481,33 @@ fn shor_sample_full_pipeline_reachable_items() {
                     }
 
                     CNOT(xs[0], ys[0]);
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        if xsLen > 1 {
-                            CNOT(xs[xsLen - 1], ys[ysLen - 1]);
+                } else if xsLen + 1 == ysLen {
+                    if xsLen > 1 {
+                        CNOT(xs[xsLen - 1], ys[ysLen - 1]);
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    ApplyInnerTTKAdderWithCarry(xs, ys);
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                        } else {
-                            CCNOT(xs[0], ys[0], ys[1]);
+                            let _apply_res : Unit = {
+                                ApplyInnerTTKAdderWithCarry(xs, ys);
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
-                        CNOT(xs[0], ys[0]);
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            RippleCarryTTKIncByLE(xs + padding, ys);
-                            ReleaseQubitArray(padding);
-                        }
-
+                        CCNOT(xs[0], ys[0], ys[1]);
                     }
 
+                    CNOT(xs[0], ys[0]);
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    RippleCarryTTKIncByLE(xs + padding, ys);
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -1527,8 +1516,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     Adjoint CNOT(xs[0], ys[0]);
                     if xsLen > 1 {
@@ -1549,41 +1536,33 @@ fn shor_sample_full_pipeline_reachable_items() {
 
                     }
 
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        Adjoint CNOT(xs[0], ys[0]);
-                        if xsLen > 1 {
+                } else if xsLen + 1 == ysLen {
+                    Adjoint CNOT(xs[0], ys[0]);
+                    if xsLen > 1 {
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    Adjoint ApplyInnerTTKAdderWithCarry(xs, ys);
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                            Adjoint CNOT(xs[xsLen - 1], ys[ysLen - 1]);
-                        } else {
-                            Adjoint CCNOT(xs[0], ys[0], ys[1]);
+                            let _apply_res : Unit = {
+                                Adjoint ApplyInnerTTKAdderWithCarry(xs, ys);
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
+                        Adjoint CNOT(xs[xsLen - 1], ys[ysLen - 1]);
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            Adjoint RippleCarryTTKIncByLE(xs + padding, ys);
-                            ReleaseQubitArray(padding);
-                        }
-
+                        Adjoint CCNOT(xs[0], ys[0], ys[1]);
                     }
 
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    Adjoint RippleCarryTTKIncByLE(xs + padding, ys);
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -1592,8 +1571,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     if xsLen > 1 {
                         {
@@ -1614,41 +1591,33 @@ fn shor_sample_full_pipeline_reachable_items() {
                     }
 
                     Controlled CNOT(ctls, (xs[0], ys[0]));
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        if xsLen > 1 {
-                            Controlled CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
+                } else if xsLen + 1 == ysLen {
+                    if xsLen > 1 {
+                        Controlled CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    Controlled ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                        } else {
-                            Controlled CCNOT(ctls, (xs[0], ys[0], ys[1]));
+                            let _apply_res : Unit = {
+                                Controlled ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
-                        Controlled CNOT(ctls, (xs[0], ys[0]));
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            Controlled RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
-                            ReleaseQubitArray(padding);
-                        }
-
+                        Controlled CCNOT(ctls, (xs[0], ys[0], ys[1]));
                     }
 
+                    Controlled CNOT(ctls, (xs[0], ys[0]));
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    Controlled RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -1657,8 +1626,6 @@ fn shor_sample_full_pipeline_reachable_items() {
                 let ysLen : Int = Length(ys);
                 Fact(ysLen >= xsLen, $"Register `ys` must be longer than register `xs`.");
                 Fact(xsLen >= 1, $"Registers `xs` and `ys` must contain at least one qubit.");
-                mutable __cond_0 : Bool = false;
-                mutable __cond_1 : Bool = false;
                 if xsLen == ysLen {
                     Controlled Adjoint CNOT(ctls, (xs[0], ys[0]));
                     if xsLen > 1 {
@@ -1679,41 +1646,33 @@ fn shor_sample_full_pipeline_reachable_items() {
 
                     }
 
-                } else {
-                    __cond_0 = xsLen + 1 == ysLen;
-                    if __cond_0 {
-                        Controlled Adjoint CNOT(ctls, (xs[0], ys[0]));
-                        if xsLen > 1 {
+                } else if xsLen + 1 == ysLen {
+                    Controlled Adjoint CNOT(ctls, (xs[0], ys[0]));
+                    if xsLen > 1 {
+                        {
                             {
-                                {
-                                    ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                let _apply_res : Unit = {
-                                    Controlled Adjoint ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
-                                };
-                                {
-                                    Adjoint ApplyOuterTTKAdder(xs, ys);
-                                }
-
-                                _apply_res
+                                ApplyOuterTTKAdder(xs, ys);
                             }
 
-                            Controlled Adjoint CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
-                        } else {
-                            Controlled Adjoint CCNOT(ctls, (xs[0], ys[0], ys[1]));
+                            let _apply_res : Unit = {
+                                Controlled Adjoint ApplyInnerTTKAdderWithCarry(ctls, (xs, ys));
+                            };
+                            {
+                                Adjoint ApplyOuterTTKAdder(xs, ys);
+                            }
+
+                            _apply_res
                         }
 
+                        Controlled Adjoint CNOT(ctls, (xs[xsLen - 1], ys[ysLen - 1]));
                     } else {
-                        __cond_1 = xsLen + 2 <= ysLen;
-                        if __cond_1 {
-                            let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
-                            Controlled Adjoint RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
-                            ReleaseQubitArray(padding);
-                        }
-
+                        Controlled Adjoint CCNOT(ctls, (xs[0], ys[0], ys[1]));
                     }
 
+                } else if xsLen + 2 <= ysLen {
+                    let padding : Qubit[] = AllocateQubitArray(ysLen - xsLen - 1);
+                    Controlled Adjoint RippleCarryTTKIncByLE(ctls, (xs + padding, ys));
+                    ReleaseQubitArray(padding);
                 }
 
             }
@@ -1722,27 +1681,27 @@ fn shor_sample_full_pipeline_reachable_items() {
             body ... {
                 Fact(Length(xs) <= Length(ys), $"Input register ys must be at least as long as xs.");
                 {
-                    let _range_id_51179 : Range = 1..Length(xs) - 1;
-                    mutable _index_id_51182 : Int = _range_id_51179::Start;
-                    let _step_id_51187 : Int = _range_id_51179::Step;
-                    let _end_id_51192 : Int = _range_id_51179::End;
-                    while _step_id_51187 > 0 and _index_id_51182 <= _end_id_51192 or _step_id_51187 < 0 and _index_id_51182 >= _end_id_51192 {
-                        let i : Int = _index_id_51182;
+                    let _range_id_51440 : Range = 1..Length(xs) - 1;
+                    mutable _index_id_51443 : Int = _range_id_51440::Start;
+                    let _step_id_51448 : Int = _range_id_51440::Step;
+                    let _end_id_51453 : Int = _range_id_51440::End;
+                    while _step_id_51448 > 0 and _index_id_51443 <= _end_id_51453 or _step_id_51448 < 0 and _index_id_51443 >= _end_id_51453 {
+                        let i : Int = _index_id_51443;
                         CNOT(xs[i], ys[i]);
-                        _index_id_51182 += _step_id_51187;
+                        _index_id_51443 += _step_id_51448;
                     }
 
                 }
 
                 {
-                    let _range_id_51222 : Range = Length(xs) - 2..-1..1;
-                    mutable _index_id_51225 : Int = _range_id_51222::Start;
-                    let _step_id_51230 : Int = _range_id_51222::Step;
-                    let _end_id_51235 : Int = _range_id_51222::End;
-                    while _step_id_51230 > 0 and _index_id_51225 <= _end_id_51235 or _step_id_51230 < 0 and _index_id_51225 >= _end_id_51235 {
-                        let i : Int = _index_id_51225;
+                    let _range_id_51483 : Range = Length(xs) - 2..-1..1;
+                    mutable _index_id_51486 : Int = _range_id_51483::Start;
+                    let _step_id_51491 : Int = _range_id_51483::Step;
+                    let _end_id_51496 : Int = _range_id_51483::End;
+                    while _step_id_51491 > 0 and _index_id_51486 <= _end_id_51496 or _step_id_51491 < 0 and _index_id_51486 >= _end_id_51496 {
+                        let i : Int = _index_id_51486;
                         CNOT(xs[i], xs[i + 1]);
-                        _index_id_51225 += _step_id_51230;
+                        _index_id_51486 += _step_id_51491;
                     }
 
                 }
@@ -1753,14 +1712,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = Length(xs) - 2..-1..1;
                     {
-                        let _range_id_51265 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51268 : Int = _range_id_51265::Start;
-                        let _step_id_51273 : Int = _range_id_51265::Step;
-                        let _end_id_51278 : Int = _range_id_51265::End;
-                        while _step_id_51273 > 0 and _index_id_51268 <= _end_id_51278 or _step_id_51273 < 0 and _index_id_51268 >= _end_id_51278 {
-                            let i : Int = _index_id_51268;
+                        let _range_id_51526 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_51529 : Int = _range_id_51526::Start;
+                        let _step_id_51534 : Int = _range_id_51526::Step;
+                        let _end_id_51539 : Int = _range_id_51526::End;
+                        while _step_id_51534 > 0 and _index_id_51529 <= _end_id_51539 or _step_id_51534 < 0 and _index_id_51529 >= _end_id_51539 {
+                            let i : Int = _index_id_51529;
                             Adjoint CNOT(xs[i], xs[i + 1]);
-                            _index_id_51268 += _step_id_51273;
+                            _index_id_51529 += _step_id_51534;
                         }
 
                     }
@@ -1770,14 +1729,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 1..Length(xs) - 1;
                     {
-                        let _range_id_51308 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51311 : Int = _range_id_51308::Start;
-                        let _step_id_51316 : Int = _range_id_51308::Step;
-                        let _end_id_51321 : Int = _range_id_51308::End;
-                        while _step_id_51316 > 0 and _index_id_51311 <= _end_id_51321 or _step_id_51316 < 0 and _index_id_51311 >= _end_id_51321 {
-                            let i : Int = _index_id_51311;
+                        let _range_id_51569 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_51572 : Int = _range_id_51569::Start;
+                        let _step_id_51577 : Int = _range_id_51569::Step;
+                        let _end_id_51582 : Int = _range_id_51569::End;
+                        while _step_id_51577 > 0 and _index_id_51572 <= _end_id_51582 or _step_id_51577 < 0 and _index_id_51572 >= _end_id_51582 {
+                            let i : Int = _index_id_51572;
                             Adjoint CNOT(xs[i], ys[i]);
-                            _index_id_51311 += _step_id_51316;
+                            _index_id_51572 += _step_id_51577;
                         }
 
                     }
@@ -1788,27 +1747,27 @@ fn shor_sample_full_pipeline_reachable_items() {
             controlled (ctls, ...) {
                 Fact(Length(xs) <= Length(ys), $"Input register ys must be at least as long as xs.");
                 {
-                    let _range_id_51351 : Range = 1..Length(xs) - 1;
-                    mutable _index_id_51354 : Int = _range_id_51351::Start;
-                    let _step_id_51359 : Int = _range_id_51351::Step;
-                    let _end_id_51364 : Int = _range_id_51351::End;
-                    while _step_id_51359 > 0 and _index_id_51354 <= _end_id_51364 or _step_id_51359 < 0 and _index_id_51354 >= _end_id_51364 {
-                        let i : Int = _index_id_51354;
+                    let _range_id_51612 : Range = 1..Length(xs) - 1;
+                    mutable _index_id_51615 : Int = _range_id_51612::Start;
+                    let _step_id_51620 : Int = _range_id_51612::Step;
+                    let _end_id_51625 : Int = _range_id_51612::End;
+                    while _step_id_51620 > 0 and _index_id_51615 <= _end_id_51625 or _step_id_51620 < 0 and _index_id_51615 >= _end_id_51625 {
+                        let i : Int = _index_id_51615;
                         Controlled CNOT(ctls, (xs[i], ys[i]));
-                        _index_id_51354 += _step_id_51359;
+                        _index_id_51615 += _step_id_51620;
                     }
 
                 }
 
                 {
-                    let _range_id_51394 : Range = Length(xs) - 2..-1..1;
-                    mutable _index_id_51397 : Int = _range_id_51394::Start;
-                    let _step_id_51402 : Int = _range_id_51394::Step;
-                    let _end_id_51407 : Int = _range_id_51394::End;
-                    while _step_id_51402 > 0 and _index_id_51397 <= _end_id_51407 or _step_id_51402 < 0 and _index_id_51397 >= _end_id_51407 {
-                        let i : Int = _index_id_51397;
+                    let _range_id_51655 : Range = Length(xs) - 2..-1..1;
+                    mutable _index_id_51658 : Int = _range_id_51655::Start;
+                    let _step_id_51663 : Int = _range_id_51655::Step;
+                    let _end_id_51668 : Int = _range_id_51655::End;
+                    while _step_id_51663 > 0 and _index_id_51658 <= _end_id_51668 or _step_id_51663 < 0 and _index_id_51658 >= _end_id_51668 {
+                        let i : Int = _index_id_51658;
                         Controlled CNOT(ctls, (xs[i], xs[i + 1]));
-                        _index_id_51397 += _step_id_51402;
+                        _index_id_51658 += _step_id_51663;
                     }
 
                 }
@@ -1819,14 +1778,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = Length(xs) - 2..-1..1;
                     {
-                        let _range_id_51437 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51440 : Int = _range_id_51437::Start;
-                        let _step_id_51445 : Int = _range_id_51437::Step;
-                        let _end_id_51450 : Int = _range_id_51437::End;
-                        while _step_id_51445 > 0 and _index_id_51440 <= _end_id_51450 or _step_id_51445 < 0 and _index_id_51440 >= _end_id_51450 {
-                            let i : Int = _index_id_51440;
+                        let _range_id_51698 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_51701 : Int = _range_id_51698::Start;
+                        let _step_id_51706 : Int = _range_id_51698::Step;
+                        let _end_id_51711 : Int = _range_id_51698::End;
+                        while _step_id_51706 > 0 and _index_id_51701 <= _end_id_51711 or _step_id_51706 < 0 and _index_id_51701 >= _end_id_51711 {
+                            let i : Int = _index_id_51701;
                             Controlled Adjoint CNOT(ctls, (xs[i], xs[i + 1]));
-                            _index_id_51440 += _step_id_51445;
+                            _index_id_51701 += _step_id_51706;
                         }
 
                     }
@@ -1836,14 +1795,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 1..Length(xs) - 1;
                     {
-                        let _range_id_51480 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51483 : Int = _range_id_51480::Start;
-                        let _step_id_51488 : Int = _range_id_51480::Step;
-                        let _end_id_51493 : Int = _range_id_51480::End;
-                        while _step_id_51488 > 0 and _index_id_51483 <= _end_id_51493 or _step_id_51488 < 0 and _index_id_51483 >= _end_id_51493 {
-                            let i : Int = _index_id_51483;
+                        let _range_id_51741 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_51744 : Int = _range_id_51741::Start;
+                        let _step_id_51749 : Int = _range_id_51741::Step;
+                        let _end_id_51754 : Int = _range_id_51741::End;
+                        while _step_id_51749 > 0 and _index_id_51744 <= _end_id_51754 or _step_id_51749 < 0 and _index_id_51744 >= _end_id_51754 {
+                            let i : Int = _index_id_51744;
                             Controlled Adjoint CNOT(ctls, (xs[i], ys[i]));
-                            _index_id_51483 += _step_id_51488;
+                            _index_id_51744 += _step_id_51749;
                         }
 
                     }
@@ -1862,28 +1821,28 @@ fn shor_sample_full_pipeline_reachable_items() {
             controlled (controls, ...) {
                 Fact(Length(xs) == Length(ys), $"Input registers must have the same number of qubits.");
                 {
-                    let _range_id_51523 : Range = 0..Length(xs) - 2;
-                    mutable _index_id_51526 : Int = _range_id_51523::Start;
-                    let _step_id_51531 : Int = _range_id_51523::Step;
-                    let _end_id_51536 : Int = _range_id_51523::End;
-                    while _step_id_51531 > 0 and _index_id_51526 <= _end_id_51536 or _step_id_51531 < 0 and _index_id_51526 >= _end_id_51536 {
-                        let idx : Int = _index_id_51526;
+                    let _range_id_51784 : Range = 0..Length(xs) - 2;
+                    mutable _index_id_51787 : Int = _range_id_51784::Start;
+                    let _step_id_51792 : Int = _range_id_51784::Step;
+                    let _end_id_51797 : Int = _range_id_51784::End;
+                    while _step_id_51792 > 0 and _index_id_51787 <= _end_id_51797 or _step_id_51792 < 0 and _index_id_51787 >= _end_id_51797 {
+                        let idx : Int = _index_id_51787;
                         CCNOT(xs[idx], ys[idx], xs[idx + 1]);
-                        _index_id_51526 += _step_id_51531;
+                        _index_id_51787 += _step_id_51792;
                     }
 
                 }
 
                 {
-                    let _range_id_51566 : Range = Length(xs) - 1..-1..1;
-                    mutable _index_id_51569 : Int = _range_id_51566::Start;
-                    let _step_id_51574 : Int = _range_id_51566::Step;
-                    let _end_id_51579 : Int = _range_id_51566::End;
-                    while _step_id_51574 > 0 and _index_id_51569 <= _end_id_51579 or _step_id_51574 < 0 and _index_id_51569 >= _end_id_51579 {
-                        let idx : Int = _index_id_51569;
+                    let _range_id_51827 : Range = Length(xs) - 1..-1..1;
+                    mutable _index_id_51830 : Int = _range_id_51827::Start;
+                    let _step_id_51835 : Int = _range_id_51827::Step;
+                    let _end_id_51840 : Int = _range_id_51827::End;
+                    while _step_id_51835 > 0 and _index_id_51830 <= _end_id_51840 or _step_id_51835 < 0 and _index_id_51830 >= _end_id_51840 {
+                        let idx : Int = _index_id_51830;
                         Controlled CNOT(controls, (xs[idx], ys[idx]));
                         CCNOT(xs[idx - 1], ys[idx - 1], xs[idx]);
-                        _index_id_51569 += _step_id_51574;
+                        _index_id_51830 += _step_id_51835;
                     }
 
                 }
@@ -1894,15 +1853,15 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = Length(xs) - 1..-1..1;
                     {
-                        let _range_id_51609 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51612 : Int = _range_id_51609::Start;
-                        let _step_id_51617 : Int = _range_id_51609::Step;
-                        let _end_id_51622 : Int = _range_id_51609::End;
-                        while _step_id_51617 > 0 and _index_id_51612 <= _end_id_51622 or _step_id_51617 < 0 and _index_id_51612 >= _end_id_51622 {
-                            let idx : Int = _index_id_51612;
+                        let _range_id_51870 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_51873 : Int = _range_id_51870::Start;
+                        let _step_id_51878 : Int = _range_id_51870::Step;
+                        let _end_id_51883 : Int = _range_id_51870::End;
+                        while _step_id_51878 > 0 and _index_id_51873 <= _end_id_51883 or _step_id_51878 < 0 and _index_id_51873 >= _end_id_51883 {
+                            let idx : Int = _index_id_51873;
                             Adjoint CCNOT(xs[idx - 1], ys[idx - 1], xs[idx]);
                             Adjoint Controlled CNOT(controls, (xs[idx], ys[idx]));
-                            _index_id_51612 += _step_id_51617;
+                            _index_id_51873 += _step_id_51878;
                         }
 
                     }
@@ -1912,14 +1871,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 0..Length(xs) - 2;
                     {
-                        let _range_id_51652 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51655 : Int = _range_id_51652::Start;
-                        let _step_id_51660 : Int = _range_id_51652::Step;
-                        let _end_id_51665 : Int = _range_id_51652::End;
-                        while _step_id_51660 > 0 and _index_id_51655 <= _end_id_51665 or _step_id_51660 < 0 and _index_id_51655 >= _end_id_51665 {
-                            let idx : Int = _index_id_51655;
+                        let _range_id_51913 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_51916 : Int = _range_id_51913::Start;
+                        let _step_id_51921 : Int = _range_id_51913::Step;
+                        let _end_id_51926 : Int = _range_id_51913::End;
+                        while _step_id_51921 > 0 and _index_id_51916 <= _end_id_51926 or _step_id_51921 < 0 and _index_id_51916 >= _end_id_51926 {
+                            let idx : Int = _index_id_51916;
                             Adjoint CCNOT(xs[idx], ys[idx], xs[idx + 1]);
-                            _index_id_51655 += _step_id_51660;
+                            _index_id_51916 += _step_id_51921;
                         }
 
                     }
@@ -1940,29 +1899,29 @@ fn shor_sample_full_pipeline_reachable_items() {
                 Fact(Length(xs) > 0, $"Array should not be empty.");
                 let nQubits : Int = Length(xs);
                 {
-                    let _range_id_51695 : Range = 0..nQubits - 2;
-                    mutable _index_id_51698 : Int = _range_id_51695::Start;
-                    let _step_id_51703 : Int = _range_id_51695::Step;
-                    let _end_id_51708 : Int = _range_id_51695::End;
-                    while _step_id_51703 > 0 and _index_id_51698 <= _end_id_51708 or _step_id_51703 < 0 and _index_id_51698 >= _end_id_51708 {
-                        let idx : Int = _index_id_51698;
+                    let _range_id_51956 : Range = 0..nQubits - 2;
+                    mutable _index_id_51959 : Int = _range_id_51956::Start;
+                    let _step_id_51964 : Int = _range_id_51956::Step;
+                    let _end_id_51969 : Int = _range_id_51956::End;
+                    while _step_id_51964 > 0 and _index_id_51959 <= _end_id_51969 or _step_id_51964 < 0 and _index_id_51959 >= _end_id_51969 {
+                        let idx : Int = _index_id_51959;
                         CCNOT(xs[idx], ys[idx], xs[idx + 1]);
-                        _index_id_51698 += _step_id_51703;
+                        _index_id_51959 += _step_id_51964;
                     }
 
                 }
 
                 Controlled CCNOT(controls, (xs[nQubits - 1], ys[nQubits - 1], ys[nQubits]));
                 {
-                    let _range_id_51738 : Range = nQubits - 1..-1..1;
-                    mutable _index_id_51741 : Int = _range_id_51738::Start;
-                    let _step_id_51746 : Int = _range_id_51738::Step;
-                    let _end_id_51751 : Int = _range_id_51738::End;
-                    while _step_id_51746 > 0 and _index_id_51741 <= _end_id_51751 or _step_id_51746 < 0 and _index_id_51741 >= _end_id_51751 {
-                        let idx : Int = _index_id_51741;
+                    let _range_id_51999 : Range = nQubits - 1..-1..1;
+                    mutable _index_id_52002 : Int = _range_id_51999::Start;
+                    let _step_id_52007 : Int = _range_id_51999::Step;
+                    let _end_id_52012 : Int = _range_id_51999::End;
+                    while _step_id_52007 > 0 and _index_id_52002 <= _end_id_52012 or _step_id_52007 < 0 and _index_id_52002 >= _end_id_52012 {
+                        let idx : Int = _index_id_52002;
                         Controlled CNOT(controls, (xs[idx], ys[idx]));
                         CCNOT(xs[idx - 1], ys[idx - 1], xs[idx]);
-                        _index_id_51741 += _step_id_51746;
+                        _index_id_52002 += _step_id_52007;
                     }
 
                 }
@@ -1975,15 +1934,15 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = nQubits - 1..-1..1;
                     {
-                        let _range_id_51781 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51784 : Int = _range_id_51781::Start;
-                        let _step_id_51789 : Int = _range_id_51781::Step;
-                        let _end_id_51794 : Int = _range_id_51781::End;
-                        while _step_id_51789 > 0 and _index_id_51784 <= _end_id_51794 or _step_id_51789 < 0 and _index_id_51784 >= _end_id_51794 {
-                            let idx : Int = _index_id_51784;
+                        let _range_id_52042 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_52045 : Int = _range_id_52042::Start;
+                        let _step_id_52050 : Int = _range_id_52042::Step;
+                        let _end_id_52055 : Int = _range_id_52042::End;
+                        while _step_id_52050 > 0 and _index_id_52045 <= _end_id_52055 or _step_id_52050 < 0 and _index_id_52045 >= _end_id_52055 {
+                            let idx : Int = _index_id_52045;
                             Adjoint CCNOT(xs[idx - 1], ys[idx - 1], xs[idx]);
                             Adjoint Controlled CNOT(controls, (xs[idx], ys[idx]));
-                            _index_id_51784 += _step_id_51789;
+                            _index_id_52045 += _step_id_52050;
                         }
 
                     }
@@ -1994,14 +1953,14 @@ fn shor_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 0..nQubits - 2;
                     {
-                        let _range_id_51824 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_51827 : Int = _range_id_51824::Start;
-                        let _step_id_51832 : Int = _range_id_51824::Step;
-                        let _end_id_51837 : Int = _range_id_51824::End;
-                        while _step_id_51832 > 0 and _index_id_51827 <= _end_id_51837 or _step_id_51832 < 0 and _index_id_51827 >= _end_id_51837 {
-                            let idx : Int = _index_id_51827;
+                        let _range_id_52085 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        mutable _index_id_52088 : Int = _range_id_52085::Start;
+                        let _step_id_52093 : Int = _range_id_52085::Step;
+                        let _end_id_52098 : Int = _range_id_52085::End;
+                        while _step_id_52093 > 0 and _index_id_52088 <= _end_id_52098 or _step_id_52093 < 0 and _index_id_52088 >= _end_id_52098 {
+                            let idx : Int = _index_id_52088;
                             Adjoint CCNOT(xs[idx], ys[idx], xs[idx + 1]);
-                            _index_id_51827 += _step_id_51832;
+                            _index_id_52088 += _step_id_52093;
                         }
 
                     }
@@ -2079,7 +2038,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                 if c != 0 {
                     let j : Int = TrailingZeroCountI(c);
                     let x : Qubit[] = AllocateQubitArray(ysLen - j);
-                    let _generated_ident_54421 : Unit = {
+                    let _generated_ident_54682 : Unit = {
                         {
                             ApplyXorInPlace(c >>> j, x);
                         }
@@ -2094,7 +2053,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                         _apply_res
                     };
                     ReleaseQubitArray(x);
-                    _generated_ident_54421
+                    _generated_ident_54682
                 }
 
             }
@@ -2106,7 +2065,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                 if c != 0 {
                     let j : Int = TrailingZeroCountI(c);
                     let x : Qubit[] = AllocateQubitArray(ysLen - j);
-                    let _generated_ident_54435 : Unit = {
+                    let _generated_ident_54696 : Unit = {
                         {
                             ApplyXorInPlace(c >>> j, x);
                         }
@@ -2121,7 +2080,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                         _apply_res
                     };
                     ReleaseQubitArray(x);
-                    _generated_ident_54435
+                    _generated_ident_54696
                 }
 
             }
@@ -2133,7 +2092,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                 if c != 0 {
                     let j : Int = TrailingZeroCountI(c);
                     let x : Qubit[] = AllocateQubitArray(ysLen - j);
-                    let _generated_ident_54449 : Unit = {
+                    let _generated_ident_54710 : Unit = {
                         {
                             ApplyXorInPlace(c >>> j, x);
                         }
@@ -2148,7 +2107,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                         _apply_res
                     };
                     ReleaseQubitArray(x);
-                    _generated_ident_54449
+                    _generated_ident_54710
                 }
 
             }
@@ -2160,7 +2119,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                 if c != 0 {
                     let j : Int = TrailingZeroCountI(c);
                     let x : Qubit[] = AllocateQubitArray(ysLen - j);
-                    let _generated_ident_54463 : Unit = {
+                    let _generated_ident_54724 : Unit = {
                         {
                             ApplyXorInPlace(c >>> j, x);
                         }
@@ -2175,7 +2134,7 @@ fn shor_sample_full_pipeline_reachable_items() {
                         _apply_res
                     };
                     ReleaseQubitArray(x);
-                    _generated_ident_54463
+                    _generated_ident_54724
                 }
 
             }
@@ -2188,11 +2147,10 @@ fn shor_sample_full_pipeline_reachable_items() {
             (a, b)
         }
         operation FactorSemiprimeInteger(number : Int) : (Int, Int) {
-            mutable __cond_1 : Bool = false;
+            mutable __cond_0 : Bool = false;
             mutable __has_returned : Bool = false;
             mutable __ret_val : (Int, Int) = (0, 0);
-            let __cond_0 : Bool = number % 2 == 0;
-            if __cond_0 {
+            if number % 2 == 0 {
                 Message($"An even number has been given; 2 is a factor.");
                 {
                     __ret_val = (number / 2, 2);
@@ -2219,8 +2177,8 @@ fn shor_sample_full_pipeline_reachable_items() {
                     while _continue_cond_1475 {
                         Message($"*** Factorizing {number}, attempt {attempt}.");
                         let generator : Int = 2;
-                        __cond_1 = GreatestCommonDivisorI(generator, number) == 1;
-                        if __cond_1 {
+                        __cond_0 = GreatestCommonDivisorI(generator, number) == 1;
+                        if __cond_0 {
                             Message($"Estimating period of {generator}.");
                             let period : Int = EstimatePeriod(generator, number);
                             (foundFactors, factors) = MaybeFactorsFromPeriod(number, generator, period);
@@ -2255,14 +2213,11 @@ fn shor_sample_full_pipeline_reachable_items() {
             __ret_val
         }
         function MaybeFactorsFromPeriod(modulus : Int, generator : Int, period : Int) : (Bool, (Int, Int)) {
-            mutable __cond_1 : Bool = false;
             mutable __has_returned : Bool = false;
             mutable __ret_val : (Bool, (Int, Int)) = (false, (0, 0));
-            let __cond_0 : Bool = period % 2 == 0;
-            if __cond_0 {
+            if period % 2 == 0 {
                 let halfPower : Int = ExpModI(generator, period / 2, modulus);
-                __cond_1 = halfPower != modulus - 1;
-                if __cond_1 {
+                if halfPower != modulus - 1 {
                     let factor : Int = MaxI(GreatestCommonDivisorI(halfPower - 1, modulus), GreatestCommonDivisorI(halfPower + 1, modulus));
                     if factor != 1 and factor != modulus {
                         Message($"Found factor={factor}");
@@ -2682,437 +2637,417 @@ fn shor_sample_full_pipeline_reachable_items() {
         operation ApplyActionIfGreaterThanOrEqualConstant_Qubit__AdjCtl__X_(invertControl : Bool, c : BigInt, x : Qubit[], target : Qubit) : Unit is Adj + Ctl {
             body ... {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         X(target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        X(target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            X(target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54592 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54853 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_52540 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_52543 : Int = _range_id_52540::Start;
-                                    let _step_id_52548 : Int = _range_id_52540::Step;
-                                    let _end_id_52553 : Int = _range_id_52540::End;
-                                    while _step_id_52548 > 0 and _index_id_52543 <= _end_id_52553 or _step_id_52548 < 0 and _index_id_52543 >= _end_id_52553 {
-                                        let i : Int = _index_id_52543;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_52543 += _step_id_52548;
-                                    }
-
+                                let _range_id_52801 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_52804 : Int = _range_id_52801::Start;
+                                let _step_id_52809 : Int = _range_id_52801::Step;
+                                let _end_id_52814 : Int = _range_id_52801::End;
+                                while _step_id_52809 > 0 and _index_id_52804 <= _end_id_52814 or _step_id_52809 < 0 and _index_id_52804 >= _end_id_52814 {
+                                    let i : Int = _index_id_52804;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_52804 += _step_id_52809;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled X([control], target);
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_52583 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_52586 : Int = _range_id_52583::Start;
-                                        let _step_id_52591 : Int = _range_id_52583::Step;
-                                        let _end_id_52596 : Int = _range_id_52583::End;
-                                        while _step_id_52591 > 0 and _index_id_52586 <= _end_id_52596 or _step_id_52591 < 0 and _index_id_52586 >= _end_id_52596 {
-                                            let i : Int = _index_id_52586;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_52586 += _step_id_52591;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled X([control], target);
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_52844 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_52847 : Int = _range_id_52844::Start;
+                                    let _step_id_52852 : Int = _range_id_52844::Step;
+                                    let _end_id_52857 : Int = _range_id_52844::End;
+                                    while _step_id_52852 > 0 and _index_id_52847 <= _end_id_52857 or _step_id_52852 < 0 and _index_id_52847 >= _end_id_52857 {
+                                        let i : Int = _index_id_52847;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_52847 += _step_id_52852;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54592
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54853
                 }
 
             }
             adjoint ... {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         Adjoint X(target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        Adjoint X(target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            Adjoint X(target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54606 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54867 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_52626 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_52629 : Int = _range_id_52626::Start;
-                                    let _step_id_52634 : Int = _range_id_52626::Step;
-                                    let _end_id_52639 : Int = _range_id_52626::End;
-                                    while _step_id_52634 > 0 and _index_id_52629 <= _end_id_52639 or _step_id_52634 < 0 and _index_id_52629 >= _end_id_52639 {
-                                        let i : Int = _index_id_52629;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_52629 += _step_id_52634;
-                                    }
-
+                                let _range_id_52887 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_52890 : Int = _range_id_52887::Start;
+                                let _step_id_52895 : Int = _range_id_52887::Step;
+                                let _end_id_52900 : Int = _range_id_52887::End;
+                                while _step_id_52895 > 0 and _index_id_52890 <= _end_id_52900 or _step_id_52895 < 0 and _index_id_52890 >= _end_id_52900 {
+                                    let i : Int = _index_id_52890;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_52890 += _step_id_52895;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled Adjoint X([control], target);
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_52669 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_52672 : Int = _range_id_52669::Start;
-                                        let _step_id_52677 : Int = _range_id_52669::Step;
-                                        let _end_id_52682 : Int = _range_id_52669::End;
-                                        while _step_id_52677 > 0 and _index_id_52672 <= _end_id_52682 or _step_id_52677 < 0 and _index_id_52672 >= _end_id_52682 {
-                                            let i : Int = _index_id_52672;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_52672 += _step_id_52677;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled Adjoint X([control], target);
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_52930 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_52933 : Int = _range_id_52930::Start;
+                                    let _step_id_52938 : Int = _range_id_52930::Step;
+                                    let _end_id_52943 : Int = _range_id_52930::End;
+                                    while _step_id_52938 > 0 and _index_id_52933 <= _end_id_52943 or _step_id_52938 < 0 and _index_id_52933 >= _end_id_52943 {
+                                        let i : Int = _index_id_52933;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_52933 += _step_id_52938;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54606
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54867
                 }
 
             }
             controlled (ctls, ...) {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         Controlled X(ctls, target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        Controlled X(ctls, target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            Controlled X(ctls, target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54620 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54881 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_52712 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_52715 : Int = _range_id_52712::Start;
-                                    let _step_id_52720 : Int = _range_id_52712::Step;
-                                    let _end_id_52725 : Int = _range_id_52712::End;
-                                    while _step_id_52720 > 0 and _index_id_52715 <= _end_id_52725 or _step_id_52720 < 0 and _index_id_52715 >= _end_id_52725 {
-                                        let i : Int = _index_id_52715;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_52715 += _step_id_52720;
-                                    }
-
+                                let _range_id_52973 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_52976 : Int = _range_id_52973::Start;
+                                let _step_id_52981 : Int = _range_id_52973::Step;
+                                let _end_id_52986 : Int = _range_id_52973::End;
+                                while _step_id_52981 > 0 and _index_id_52976 <= _end_id_52986 or _step_id_52981 < 0 and _index_id_52976 >= _end_id_52986 {
+                                    let i : Int = _index_id_52976;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_52976 += _step_id_52981;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled Controlled X(ctls, ([control], target));
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_52755 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_52758 : Int = _range_id_52755::Start;
-                                        let _step_id_52763 : Int = _range_id_52755::Step;
-                                        let _end_id_52768 : Int = _range_id_52755::End;
-                                        while _step_id_52763 > 0 and _index_id_52758 <= _end_id_52768 or _step_id_52763 < 0 and _index_id_52758 >= _end_id_52768 {
-                                            let i : Int = _index_id_52758;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_52758 += _step_id_52763;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled Controlled X(ctls, ([control], target));
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_53016 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_53019 : Int = _range_id_53016::Start;
+                                    let _step_id_53024 : Int = _range_id_53016::Step;
+                                    let _end_id_53029 : Int = _range_id_53016::End;
+                                    while _step_id_53024 > 0 and _index_id_53019 <= _end_id_53029 or _step_id_53024 < 0 and _index_id_53019 >= _end_id_53029 {
+                                        let i : Int = _index_id_53019;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_53019 += _step_id_53024;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54620
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54881
                 }
 
             }
             controlled adjoint (ctls, ...) {
                 let bitWidth : Int = Length(x);
-                mutable __cond_0 : Bool = false;
                 if c == 0L {
                     if not invertControl {
                         Controlled Adjoint X(ctls, target);
                     }
 
+                } else if c >= 2L^bitWidth {
+                    if invertControl {
+                        Controlled Adjoint X(ctls, target);
+                    }
+
                 } else {
-                    __cond_0 = c >= 2L^bitWidth;
-                    if __cond_0 {
-                        if invertControl {
-                            Controlled Adjoint X(ctls, target);
-                        }
-
+                    let l : Int = TrailingZeroCountL(c);
+                    let cNormalized : BigInt = c >>> l;
+                    let xNormalized : Qubit[] = x[l...];
+                    let bitWidthNormalized : Int = Length(xNormalized);
+                    let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
+                    let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
+                        []
                     } else {
-                        let l : Int = TrailingZeroCountL(c);
-                        let cNormalized : BigInt = c >>> l;
-                        let xNormalized : Qubit[] = x[l...];
-                        let bitWidthNormalized : Int = Length(xNormalized);
-                        let qs : Qubit[] = AllocateQubitArray(bitWidthNormalized - 1);
-                        let cs1 : Qubit[] = if IsEmpty_Qubit_(qs) {
-                            []
-                        } else {
-                            [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
-                        };
-                        Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
-                        let _generated_ident_54634 : Unit = {
+                        [Head_Qubit_(xNormalized)] + Most_Qubit_(qs)
+                    };
+                    Fact(Length(cs1) == Length(qs), $"Arrays should be of the same length.");
+                    let _generated_ident_54895 : Unit = {
+                        {
                             {
-                                {
-                                    let _range_id_52798 : Range = 0..Length(cs1) - 1;
-                                    mutable _index_id_52801 : Int = _range_id_52798::Start;
-                                    let _step_id_52806 : Int = _range_id_52798::Step;
-                                    let _end_id_52811 : Int = _range_id_52798::End;
-                                    while _step_id_52806 > 0 and _index_id_52801 <= _end_id_52811 or _step_id_52806 < 0 and _index_id_52801 >= _end_id_52811 {
-                                        let i : Int = _index_id_52801;
-                                        if cNormalized &&& 1L <<< i + 1 != 0L {
-                                            AND(cs1[i], xNormalized[i + 1], qs[i])
-                                        } else {
-                                            ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                        };
-                                        _index_id_52801 += _step_id_52806;
-                                    }
-
+                                let _range_id_53059 : Range = 0..Length(cs1) - 1;
+                                mutable _index_id_53062 : Int = _range_id_53059::Start;
+                                let _step_id_53067 : Int = _range_id_53059::Step;
+                                let _end_id_53072 : Int = _range_id_53059::End;
+                                while _step_id_53067 > 0 and _index_id_53062 <= _end_id_53072 or _step_id_53067 < 0 and _index_id_53062 >= _end_id_53072 {
+                                    let i : Int = _index_id_53062;
+                                    if cNormalized &&& 1L <<< i + 1 != 0L {
+                                        AND(cs1[i], xNormalized[i + 1], qs[i])
+                                    } else {
+                                        ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                    };
+                                    _index_id_53062 += _step_id_53067;
                                 }
 
                             }
 
-                            let _apply_res : Unit = {
-                                let control : Qubit = if IsEmpty_Qubit_(qs) {
-                                    Tail_Qubit_(x)
-                                } else {
-                                    Tail_Qubit_(qs)
-                                };
-                                {
-                                    {
-                                        if invertControl {
-                                            X(control);
-                                        }
+                        }
 
-                                    }
-
-                                    let _apply_res : Unit = {
-                                        Controlled Controlled Adjoint X(ctls, ([control], target));
-                                    };
-                                    {
-                                        if invertControl {
-                                            Adjoint X(control);
-                                        }
-
-                                    }
-
-                                    _apply_res
-                                }
-
+                        let _apply_res : Unit = {
+                            let control : Qubit = if IsEmpty_Qubit_(qs) {
+                                Tail_Qubit_(x)
+                            } else {
+                                Tail_Qubit_(qs)
                             };
                             {
                                 {
-                                    let _range : Range = 0..Length(cs1) - 1;
-                                    {
-                                        let _range_id_52841 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                                        mutable _index_id_52844 : Int = _range_id_52841::Start;
-                                        let _step_id_52849 : Int = _range_id_52841::Step;
-                                        let _end_id_52854 : Int = _range_id_52841::End;
-                                        while _step_id_52849 > 0 and _index_id_52844 <= _end_id_52854 or _step_id_52849 < 0 and _index_id_52844 >= _end_id_52854 {
-                                            let i : Int = _index_id_52844;
-                                            if cNormalized &&& 1L <<< i + 1 != 0L {
-                                                Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
-                                            } else {
-                                                Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
-                                            };
-                                            _index_id_52844 += _step_id_52849;
-                                        }
+                                    if invertControl {
+                                        X(control);
+                                    }
 
+                                }
+
+                                let _apply_res : Unit = {
+                                    Controlled Controlled Adjoint X(ctls, ([control], target));
+                                };
+                                {
+                                    if invertControl {
+                                        Adjoint X(control);
+                                    }
+
+                                }
+
+                                _apply_res
+                            }
+
+                        };
+                        {
+                            {
+                                let _range : Range = 0..Length(cs1) - 1;
+                                {
+                                    let _range_id_53102 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                                    mutable _index_id_53105 : Int = _range_id_53102::Start;
+                                    let _step_id_53110 : Int = _range_id_53102::Step;
+                                    let _end_id_53115 : Int = _range_id_53102::End;
+                                    while _step_id_53110 > 0 and _index_id_53105 <= _end_id_53115 or _step_id_53110 < 0 and _index_id_53105 >= _end_id_53115 {
+                                        let i : Int = _index_id_53105;
+                                        if cNormalized &&& 1L <<< i + 1 != 0L {
+                                            Adjoint AND(cs1[i], xNormalized[i + 1], qs[i])
+                                        } else {
+                                            Adjoint ApplyOrAssuming0Target(cs1[i], xNormalized[i + 1], qs[i])
+                                        };
+                                        _index_id_53105 += _step_id_53110;
                                     }
 
                                 }
 
                             }
 
-                            _apply_res
-                        };
-                        ReleaseQubitArray(qs);
-                        _generated_ident_54634
-                    }
+                        }
 
+                        _apply_res
+                    };
+                    ReleaseQubitArray(qs);
+                    _generated_ident_54895
                 }
 
             }

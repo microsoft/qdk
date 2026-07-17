@@ -3,6 +3,7 @@
 
 from ._utils import as_qis_gate, get_used_values, uses_any_value
 from pyqir import (
+    BasicBlock,
     Call,
     Instruction,
     Function,
@@ -13,6 +14,7 @@ from pyqir import (
     Linkage,
     ptr_id,
     IntType,
+    Module,
     Value,
 )
 from .._device import Device, Zone, ZoneType
@@ -116,7 +118,7 @@ def is_invalid_move_pair(move1: Move, move2: Move) -> bool:
 
 
 @lru_cache(maxsize=1 << 14)
-def scale_factor_helper(source_diff, destination_diff):
+def scale_factor_helper(source_diff: int, destination_diff: int) -> bool | Fraction | None:
     if destination_diff == 0:
         return True
     if (s := Fraction(source_diff, destination_diff)) >= 0:
@@ -533,7 +535,7 @@ class MoveScheduler:
         self,
         pool: MoveGroupPool,
         partial_move: PartialMove,
-        is_pair=False,
+        is_pair: bool = False,
     ) -> Optional[Move]:
         # First, try finding a large enough group to place the partial move in.
         if self.zone.type != ZoneType.MEAS:
@@ -588,7 +590,7 @@ class Schedule(QirModuleVisitor):
         self.num_qubits = len(self.device.home_locs)
         self.pending_moves: list[list[Move]] = []
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         i64_ty = IntType(module.context, 64)
         # Find or create the necessary runtime functions.
         for func in module.functions:
@@ -628,7 +630,7 @@ class Schedule(QirModuleVisitor):
 
         super()._on_module(module)
 
-    def _on_block(self, block):
+    def _on_block(self, block: BasicBlock) -> None:
         # Use only the first interaction and measurement zone; more could be supported in future.
         interaction_zone = self.device.get_interaction_zones()[0]
         measurement_zone = self.device.get_measurement_zones()[0]
@@ -905,7 +907,7 @@ class Schedule(QirModuleVisitor):
         # Clear pending moves.
         self.pending_moves = []
 
-    def flush_single_qubit_ops(self, target_qubits):
+    def flush_single_qubit_ops(self, target_qubits: list[int]) -> None:
         # Flush all pending single qubit ops for the given target qubits, combining
         # consecutive ops of the same type into a single parallel region by row in
         # the interaction zone.

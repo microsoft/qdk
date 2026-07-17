@@ -2283,11 +2283,11 @@ fn value_returning_ir_function_rir_reloads_after_same_block_store() {
             dbg_scopes:
                 0 = SubProgram name=Main location=(2-282)
                 1 = SubProgram name=Foo location=(2-29)
-                2 = SubProgram name=MResetZ location=(1-182278)
+                2 = SubProgram name=MResetZ location=(1-182276)
             dbg_locations:
                 [1]: scope=0 location=(2-363)
                 [2]: scope=1 location=(2-112) inlined_at=1
-                [3]: scope=2 location=(1-182327) inlined_at=2
+                [3]: scope=2 location=(1-182325) inlined_at=2
                 [4]: scope=1 location=(2-109) inlined_at=1
             tags:
                 [0]: 0_i
@@ -2323,39 +2323,39 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @S__Adj(ptr %var_4) {
+        define void @S__Adj(ptr %var_3) {
         block_1:
-          call void @__quantum__qis__s__adj(ptr %var_4)
+          call void @__quantum__qis__s__adj(ptr %var_3)
           ret void
         }
 
         declare void @__quantum__qis__s__adj(ptr)
 
-        define void @H(ptr %var_5) {
+        define void @H(ptr %var_4) {
         block_2:
-          call void @__quantum__qis__h__body(ptr %var_5)
+          call void @__quantum__qis__h__body(ptr %var_4)
           ret void
         }
 
         declare void @__quantum__qis__h__body(ptr)
 
-        define void @Rz(double %var_13, ptr %var_14) {
+        define void @Rz(double %var_11, ptr %var_12) {
         block_3:
-          call void @__quantum__qis__rz__body(double %var_13, ptr %var_14)
+          call void @__quantum__qis__rz__body(double %var_11, ptr %var_12)
           ret void
         }
 
         declare void @__quantum__qis__rz__body(double, ptr)
 
-        define void @H__Adj(ptr %var_15) {
+        define void @H__Adj(ptr %var_13) {
         block_4:
-          call void @__quantum__qis__h__body(ptr %var_15)
+          call void @__quantum__qis__h__body(ptr %var_13)
           ret void
         }
 
-        define void @S(ptr %var_16) {
+        define void @S(ptr %var_14) {
         block_5:
-          call void @__quantum__qis__s__body(ptr %var_16)
+          call void @__quantum__qis__s__body(ptr %var_14)
           ret void
         }
 

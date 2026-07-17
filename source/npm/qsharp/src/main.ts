@@ -97,7 +97,15 @@ export async function instantiateWasm() {
   await wasmInstancePromise;
 
   // Once ready, set up logging and telemetry as soon as possible after instantiating
-  wasm.initLogging(log.logWithLevel, log.getLogLevel());
+  wasm.initLogging((level: number, target: string, ...args: any) => {
+    // Emit telemetry for all error-level log messages from Wasm.
+    // Only the target is included to distinguish errors; message
+    // content (including stack) is omitted for privacy.
+    if (level === 1) {
+      log.logTelemetry({ id: "wasm-error", data: { target } });
+    }
+    log.logWithLevel(level, target, ...args);
+  }, log.getLogLevel());
   log.onLevelChanged = (level) => wasm.setLogLevel(level);
 }
 

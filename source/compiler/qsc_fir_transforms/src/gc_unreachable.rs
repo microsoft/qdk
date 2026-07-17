@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! FIR arena garbage collection — runs after argument promotion, before item
-//! DCE (and again after item DCE).
+//! FIR arena garbage collection — runs immediately after item-level DCE, as
+//! the last cleanup before exec graph rebuild.
 //!
 //! Tombstones blocks, stmts, exprs, and pats in a package's `IndexMap` arenas
 //! that are no longer reachable from any callable spec body or the entry

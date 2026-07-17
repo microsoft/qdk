@@ -2,12 +2,16 @@
 # Licensed under the MIT License.
 
 from pyqir import (
+    BasicBlock,
+    Call,
     Type,
     Function,
     FunctionType,
     FloatConstant,
     Linkage,
+    Module,
     PointerType,
+    Value,
     const,
     ptr_id,
     is_entry_point,
@@ -27,7 +31,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
     sx_func: Function
     mresetz_func: Function
 
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         void = Type.void(module.context)
         qubit_ty = PointerType(Type.void(module.context))
         result_ty = qubit_ty
@@ -56,7 +60,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             )
         super()._on_module(module)
 
-    def _drop_ops(self, qubits):
+    def _drop_ops(self, qubits: list[Value]) -> None:
         # Since instructions are only removed when they are canceled out by their adjoint or folded with another
         # instruction, we can just pop the entries for these qubits so they start fresh with the next gates.
         for qubit in qubits:
@@ -65,7 +69,9 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             self.last_meas.pop(q, None)
             self.used_qubits.add(q)
 
-    def _schedule_gate(self, instr, key, name, adj):
+    def _schedule_gate(
+        self, instr: Call, key: int | None, name: str, adj: str
+    ) -> None:
         if key in self.qubit_ops:
             # There are previous operations on this qubit, so check if the last one was the adjoint of this one.
             if self.qubit_ops[key][-1][1] == adj:
@@ -103,7 +109,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             self.used_qubits.add(key)
             self.last_meas.pop(key, None)
 
-    def _schedule_rotation(self, instr, key, name):
+    def _schedule_rotation(self, instr: Call, key: int | None, name: str) -> None:
         if isinstance(instr.args[0], FloatConstant):
             # The angle is constant, so we can try to fold this rotation with other instances of the same rotation
             # tht are constant.
@@ -161,7 +167,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
             self.used_qubits.add(key)
             self.last_meas.pop(key, None)
 
-    def _on_function(self, function):
+    def _on_function(self, function: Function) -> None:
         self.last_meas = {}
         self.qubit_ops = {}
         super()._on_function(function)
@@ -180,13 +186,13 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
                 (instr, _) = self.qubit_ops[key].pop()
                 instr.erase()
 
-    def _on_block(self, block):
+    def _on_block(self, block: BasicBlock) -> None:
         # Each block is independent, so start from an empty list of operations per qubit.
         self.qubit_ops = {}
         self.last_meas = {}
         super()._on_block(block)
 
-    def _on_call_instr(self, call):
+    def _on_call_instr(self, call: Call) -> None:
         if call.callee.name == "__quantum__qis__sx__body":
             self._drop_ops([call.args[0]])
         elif call.callee.name == "__quantum__qis__move__body":
@@ -199,74 +205,82 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
         else:
             super()._on_call_instr(call)
 
-    def _on_qis_h(self, call, target):
+    def _on_qis_h(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "h", "h")
 
-    def _on_qis_s(self, call, target):
+    def _on_qis_s(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "s", "s_adj")
 
-    def _on_qis_s_adj(self, call, target):
+    def _on_qis_s_adj(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "s_adj", "s")
 
-    def _on_qis_t(self, call, target):
+    def _on_qis_t(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "t", "t_adj")
 
-    def _on_qis_t_adj(self, call, target):
+    def _on_qis_t_adj(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "t_adj", "t")
 
-    def _on_qis_x(self, call, target):
+    def _on_qis_x(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "x", "x")
 
-    def _on_qis_y(self, call, target):
+    def _on_qis_y(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "y", "y")
 
-    def _on_qis_z(self, call, target):
+    def _on_qis_z(self, call: Call, target: Value) -> None:
         self._schedule_gate(call, ptr_id(target), "z", "z")
 
-    def _on_qis_rx(self, call, angle, target):
+    def _on_qis_rx(self, call: Call, angle: Value, target: Value) -> None:
         self._schedule_rotation(call, ptr_id(target), "rx")
 
-    def _on_qis_rxx(self, call, angle, target1, target2):
+    def _on_qis_rxx(
+        self, call: Call, angle: Value, target1: Value, target2: Value
+    ) -> None:
         self._drop_ops([target1, target2])
 
-    def _on_qis_ry(self, call, angle, target):
+    def _on_qis_ry(self, call: Call, angle: Value, target: Value) -> None:
         self._schedule_rotation(call, ptr_id(target), "ry")
 
-    def _on_qis_ryy(self, call, angle, target1, target2):
+    def _on_qis_ryy(
+        self, call: Call, angle: Value, target1: Value, target2: Value
+    ) -> None:
         self._drop_ops([target1, target2])
 
-    def _on_qis_rz(self, call, angle, target):
+    def _on_qis_rz(self, call: Call, angle: Value, target: Value) -> None:
         self._schedule_rotation(call, ptr_id(target), "rz")
 
-    def _on_qis_rzz(self, call, angle, target1, target2):
+    def _on_qis_rzz(
+        self, call: Call, angle: Value, target1: Value, target2: Value
+    ) -> None:
         self._drop_ops([target1, target2])
 
-    def _on_qis_ccx(self, call, ctrl1, ctrl2, target):
+    def _on_qis_ccx(
+        self, call: Call, ctrl1: Value, ctrl2: Value, target: Value
+    ) -> None:
         self._drop_ops([ctrl1, ctrl2, target])
 
-    def _on_qis_cx(self, call, target1, target2):
+    def _on_qis_cx(self, call: Call, target1: Value, target2: Value) -> None:
         self._drop_ops([target1, target2])
 
-    def _on_qis_cy(self, call, target1, target2):
+    def _on_qis_cy(self, call: Call, target1: Value, target2: Value) -> None:
         self._drop_ops([target1, target2])
 
-    def _on_qis_cz(self, call, target1, target2):
+    def _on_qis_cz(self, call: Call, target1: Value, target2: Value) -> None:
         self._drop_ops([target1, target2])
 
-    def _on_qis_swap(self, call, target1, target2):
+    def _on_qis_swap(self, call: Call, target1: Value, target2: Value) -> None:
         self._drop_ops([target1, target2])
 
-    def _on_qis_m(self, call, target, result):
+    def _on_qis_m(self, call: Call, target: Value, result: Value) -> None:
         self._drop_ops([target])
         self.last_meas[ptr_id(target)] = (call, target, result)
 
-    def _on_qis_mz(self, call, target, result):
+    def _on_qis_mz(self, call: Call, target: Value, result: Value) -> None:
         self._on_qis_m(call, target, result)
 
-    def _on_qis_mresetz(self, call, target, result):
+    def _on_qis_mresetz(self, call: Call, target: Value, result: Value) -> None:
         self._on_qis_m(call, target, result)
 
-    def _on_qis_reset(self, call, target):
+    def _on_qis_reset(self, call: Call, target: Value) -> None:
         id = ptr_id(target)
         if id in self.last_meas:
             # Since the last operation on this qubit was a measurement,
@@ -293,7 +307,7 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
 
 
 class PruneUnusedFunctions(QirModuleVisitor):
-    def _on_module(self, module):
+    def _on_module(self, module: Module) -> None:
         # Assume every non-entry point function is unused.
         self.funcs_to_drop = [f for f in module.functions if not is_entry_point(f)]
         super()._on_module(module)
@@ -301,7 +315,7 @@ class PruneUnusedFunctions(QirModuleVisitor):
         for func in self.funcs_to_drop:
             func.delete()
 
-    def _on_call_instr(self, call):
+    def _on_call_instr(self, call: Call) -> None:
         # Remove calls to initialization and barrier functions, since they aren't handled
         # by most of the stack.
         if call.callee.name == "__quantum__rt__initialize":

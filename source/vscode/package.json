@@ -482,25 +482,25 @@
     ],
     "chatInstructions": [
       {
-        "path": "./resources/chat-instructions/qsharp.instructions.md"
+        "path": "./ai/qsharp.instructions.md"
       },
       {
-        "path": "./resources/chat-instructions/openqasm.instructions.md"
+        "path": "./ai/openqasm.instructions.md"
       }
     ],
     "chatSkills": [
       {
-        "path": "./skills/qdk-programming/SKILL.md"
+        "path": "./ai/qdk-programming/SKILL.md"
       }
     ],
     "chatPromptFiles": [
       {
-        "path": "./prompts/qdk-learning.prompt.md"
+        "path": "./ai/qdk-learning.prompt.md"
       }
     ],
     "chatAgents": [
       {
-        "path": "./agents/qdk-learning.agent.md"
+        "path": "./ai/qdk-learning.agent.md"
       }
     ],
     "commands": [
@@ -762,6 +762,17 @@
           ".deq"
         ],
         "configuration": "./language-configuration-deq.json"
+      },
+      {
+        "id": "stim",
+        "aliases": [
+          "Stim",
+          "stim"
+        ],
+        "extensions": [
+          ".stim"
+        ],
+        "configuration": "./language-configuration-stim.json"
       }
     ],
     "grammars": [
@@ -784,6 +795,11 @@
           "meta.embedded.line.python.mako": "python",
           "meta.embedded.expression.mako": "python"
         }
+      },
+      {
+        "language": "stim",
+        "scopeName": "source.stim",
+        "path": "./syntaxes/stim.tmLanguage.json"
       }
     ],
     "jsonValidation": [

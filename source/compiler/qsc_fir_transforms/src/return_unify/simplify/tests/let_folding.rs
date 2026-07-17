@@ -583,7 +583,7 @@ mod q_driven {
             "#},
             "Main",
             "let_folding",
-            let_folding::apply,
+            |p, a, _pkg_id, b, s| let_folding::apply(p, a, b, s),
             &expect![[r#"
                 // before let_folding (fired=true)
                 function Main() : Int {
@@ -659,7 +659,7 @@ mod q_driven {
             "#},
             "Main",
             "let_folding",
-            let_folding::apply,
+            |p, a, _pkg_id, b, s| let_folding::apply(p, a, b, s),
             &expect![[r#"
                 // before let_folding (fired=false)
                 function Main() : Int {
@@ -730,7 +730,7 @@ mod q_driven {
             "#},
             "Main",
             "let_folding",
-            let_folding::apply,
+            |p, a, _pkg_id, b, s| let_folding::apply(p, a, b, s),
             &expect![[r#"
                 // before let_folding (fired=false)
                 function Main() : Int {

@@ -32,6 +32,7 @@ pub(crate) fn register_qre_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DynamicMemoryCompute>()?;
     m.add_class::<Unmemory>()?;
     m.add_class::<EstimationResult>()?;
+    m.add_class::<ErrorComposition>()?;
     m.add_class::<EstimationCollection>()?;
     m.add_class::<FactoryResult>()?;
     m.add_class::<InstructionFrontier>()?;
@@ -1023,6 +1024,66 @@ impl EstimationCollectionIterator {
 #[pyclass]
 pub struct EstimationResult(qre::EstimationResult);
 
+/// Controls how per-item error contributions are composed into the total error
+/// reported by an estimation.
+///
+/// Both modes estimate the probability that at least one error occurs across
+/// many fault-prone operations, each with failure probability ``p_i``. They
+/// differ in the assumptions they make:
+///
+/// - ``UnionBound`` computes ``sum(p_i)`` (Boole's inequality). It is a strict
+///   upper bound that holds for any events, whether or not they are
+///   independent.
+///
+///   Advantages: always conservative (never underestimates); requires no
+///   independence assumption; cheap; additive, so contributions from
+///   subsystems simply add together.
+///
+///   Disadvantages: can exceed 1.0, which is meaningless as a probability; it
+///   grows increasingly loose as the individual errors grow, because it
+///   overcounts the overlap between simultaneous failures.
+///
+/// - ``Product`` computes ``1 - prod(1 - p_i)``, i.e. one minus the probability
+///   that no operation fails, assuming the failures are independent.
+///
+///   Advantages: always stays in ``[0, 1)``; it is tight (in fact exact) when
+///   the errors are independent.
+///
+///   Disadvantages: it relies on independence, so it can underestimate when
+///   errors are positively correlated; it is slightly more work to compute; for
+///   small ``p_i`` it barely differs from the union-bound sum, so the two only
+///   diverge noticeably in the high-error regime; and it is prone to
+///   finite-precision loss when composing many small probabilities, because
+///   each ``1 - p_i`` factor rounds toward 1 and the final ``1 - prod(...)``
+///   subtraction cancels most significant digits.
+#[pyclass(name = "ErrorComposition", eq, eq_int, from_py_object)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ErrorComposition {
+    /// Union bound: contributions are summed (`sum(p_i)`). This is the default
+    /// and can exceed 1.0.
+    UnionBound,
+    /// Product composition: contributions combine as `1 - prod(1 - p_i)`.
+    Product,
+}
+
+impl From<ErrorComposition> for qre::ErrorComposition {
+    fn from(value: ErrorComposition) -> Self {
+        match value {
+            ErrorComposition::UnionBound => qre::ErrorComposition::UnionBound,
+            ErrorComposition::Product => qre::ErrorComposition::Product,
+        }
+    }
+}
+
+impl From<qre::ErrorComposition> for ErrorComposition {
+    fn from(value: qre::ErrorComposition) -> Self {
+        match value {
+            qre::ErrorComposition::UnionBound => ErrorComposition::UnionBound,
+            qre::ErrorComposition::Product => ErrorComposition::Product,
+        }
+    }
+}
+
 #[pymethods]
 impl EstimationResult {
     #[new]
@@ -1031,7 +1092,7 @@ impl EstimationResult {
         let mut result = qre::EstimationResult::new();
         result.add_qubits(qubits);
         result.add_runtime(runtime);
-        result.add_error(error);
+        result.add_error(error, 1.0);
 
         EstimationResult(result)
     }
@@ -1064,6 +1125,16 @@ impl EstimationResult {
     #[setter]
     pub fn set_error(&mut self, error: f64) {
         self.0.set_error(error);
+    }
+
+    #[getter]
+    pub fn error_composition(&self) -> ErrorComposition {
+        self.0.error_composition().into()
+    }
+
+    #[setter]
+    pub fn set_error_composition(&mut self, composition: ErrorComposition) {
+        self.0.set_error_composition(composition.into());
     }
 
     #[allow(clippy::needless_pass_by_value)]
@@ -1288,10 +1359,15 @@ impl Trace {
         Ok(dict)
     }
 
-    #[pyo3(signature = (isa, max_error = None))]
-    pub fn estimate(&self, isa: &ISA, max_error: Option<f64>) -> Option<EstimationResult> {
+    #[pyo3(signature = (isa, max_error = None, composition = ErrorComposition::UnionBound))]
+    pub fn estimate(
+        &self,
+        isa: &ISA,
+        max_error: Option<f64>,
+        composition: ErrorComposition,
+    ) -> Option<EstimationResult> {
         self.0
-            .estimate(&isa.0, max_error)
+            .estimate(&isa.0, max_error, composition.into())
             .map(|mut r| {
                 r.set_isa(isa.0.clone());
                 EstimationResult(r)
@@ -1645,13 +1721,14 @@ impl InstructionFrontierIterator {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0, post_process = false))]
+#[pyfunction(name = "_estimate_parallel", signature = (traces, isas, max_error = 1.0, post_process = false, composition = ErrorComposition::UnionBound))]
 pub fn estimate_parallel(
     py: Python<'_>,
     traces: Vec<PyRef<'_, Trace>>,
     isas: Vec<PyRef<'_, ISA>>,
     max_error: f64,
     post_process: bool,
+    composition: ErrorComposition,
 ) -> EstimationCollection {
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
     let isas: Vec<_> = isas.iter().map(|i| &i.0).collect();
@@ -1662,24 +1739,37 @@ pub fn estimate_parallel(
     // If the calling thread holds the GIL while blocked in
     // std::thread::scope, the worker threads deadlock.
     let collection = release_gil(py, || {
-        qre::estimate_parallel(&traces, &isas, Some(max_error), post_process)
+        qre::estimate_parallel(
+            &traces,
+            &isas,
+            Some(max_error),
+            post_process,
+            composition.into(),
+        )
     });
     EstimationCollection(collection)
 }
 
 #[allow(clippy::needless_pass_by_value)]
-#[pyfunction(name = "_estimate_with_graph", signature = (traces, graph, max_error = 1.0, post_process = false))]
+#[pyfunction(name = "_estimate_with_graph", signature = (traces, graph, max_error = 1.0, post_process = false, composition = ErrorComposition::UnionBound))]
 pub fn estimate_with_graph(
     py: Python<'_>,
     traces: Vec<PyRef<'_, Trace>>,
     graph: &ProvenanceGraph,
     max_error: f64,
     post_process: bool,
+    composition: ErrorComposition,
 ) -> PyResult<EstimationCollection> {
     let traces: Vec<_> = traces.iter().map(|t| &t.0).collect();
 
     let collection = release_gil(py, || {
-        qre::estimate_with_graph(&traces, &graph.0, Some(max_error), post_process)
+        qre::estimate_with_graph(
+            &traces,
+            &graph.0,
+            Some(max_error),
+            post_process,
+            composition.into(),
+        )
     });
     Ok(EstimationCollection(collection))
 }

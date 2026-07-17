@@ -28,7 +28,7 @@ def check_invoke(source: str, callable: str, expect: str):
     e = None
     f = None
 
-    def _make_callable(callable, namespace, callable_name):
+    def _make_callable(callable, namespace, callable_name, _is_test):
         nonlocal f
         f = callable
 
@@ -253,7 +253,7 @@ def test_value_udt() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -273,7 +273,7 @@ def test_value_nested_udts() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -290,7 +290,7 @@ def test_value_udts_with_complex_field() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -307,7 +307,7 @@ def test_value_udts_with_array_field() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -324,7 +324,7 @@ def test_value_udts_with_tuple_field() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -341,7 +341,7 @@ def test_value_array_of_udts() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -357,7 +357,7 @@ def test_value_array_of_complex() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
 
@@ -374,7 +374,7 @@ def test_value_tuple_of_udts() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(udt_def + callable, "makeData()", "")
 
 
@@ -390,7 +390,7 @@ def test_value_tuple_of_complex() -> None:
     check_circuit(entry_expr, "")
     check_estimate(entry_expr)
     check_logical_counts(entry_expr)
-    with pytest.raises(QSharpError, match="Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
+    with pytest.raises(QSharpError, match="Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"):
         check_qir(callable, "makeData()", "")
 
 
@@ -400,7 +400,7 @@ def test_target_error() -> None:
         e.interpret(
             "operation Program() : Result { use q = Qubit(); if M(q) == Zero { return Zero } else { return One } }"
         )
-    assert str(excinfo.value).startswith("Qsc.CapabilitiesCk.UseOfDynamicBool")
+    assert str(excinfo.value).startswith("Qdk.Qsc.CapabilitiesCk.UseOfDynamicBool")
 
 
 def test_qirgen_compile_error() -> None:
@@ -408,20 +408,20 @@ def test_qirgen_compile_error() -> None:
     e.interpret("operation Program() : Int { return 0 }")
     with pytest.raises(QSharpError) as excinfo:
         e.qir("Foo()")
-    assert str(excinfo.value).startswith("Qsc.Resolve.NotFound")
+    assert str(excinfo.value).startswith("Qdk.Qsc.Resolve.NotFound")
 
 
 def test_error_spans_from_multiple_lines() -> None:
     e = Interpreter(TargetProfile.Unrestricted)
 
-    # Qsc.Resolve.Ambiguous is chosen as a test case
+    # Qdk.Qsc.Resolve.Ambiguous is chosen as a test case
     # because it contains multiple spans which can be from different lines
     e.interpret("namespace Other { operation DumpMachine() : Unit { } }")
     e.interpret("open Other;")
     e.interpret("open Microsoft.Quantum.Diagnostics;")
     with pytest.raises(QSharpError) as excinfo:
         e.interpret("DumpMachine()")
-    assert str(excinfo.value).startswith("Qsc.Resolve.Ambiguous")
+    assert str(excinfo.value).startswith("Qdk.Qsc.Resolve.Ambiguous")
 
 
 def test_qirgen() -> None:
@@ -436,7 +436,7 @@ def test_estimate_from_udt_returning_callable_matches_logical_counts_on_base_pro
 ):
     counted = None
 
-    def make_callable(callable_value, _namespace, callable_name):
+    def make_callable(callable_value, _namespace, callable_name, _is_test):
         nonlocal counted
         if callable_name == "Counted":
             counted = callable_value
@@ -546,14 +546,14 @@ def test_callables_failing_profile_validation_are_not_registered() -> None:
         e.interpret(
             "operation Foo() : Double { use q = Qubit(); mutable x = 1.0; if MResetZ(q) == One { set x = 2.0; } x }"
         )
-    assert "Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
+    assert "Qdk.Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
     # In this case, the callable Foo failed compilation late enough that the symbol is bound. This makes later
     # use of `Foo` valid from a name resolution standpoint, but the callable cannot be invoked because it was found
     # to be invalid for the current profile. To stay consistent with the behavior of other compilations that
     # leave unbound symbols, the call will compile but fail to run.
     with pytest.raises(Exception) as excinfo:
         e.interpret("Foo()")
-    assert "Qsc.Eval.UnboundName" in str(excinfo)
+    assert "Qdk.Qsc.Eval.UnboundName" in str(excinfo)
 
 
 def test_once_callable_fails_profile_validation_it_fails_compile_to_QIR() -> None:
@@ -562,10 +562,10 @@ def test_once_callable_fails_profile_validation_it_fails_compile_to_QIR() -> Non
         e.interpret(
             "operation Foo() : Double { use q = Qubit(); mutable x = 1.0; if MResetZ(q) == One { set x = 2.0; } x }"
         )
-    assert "Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
+    assert "Qdk.Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
     with pytest.raises(Exception) as excinfo:
         e.qir("{Foo();}")
-    assert "Qsc.PartialEval.EvaluationFailed" in str(excinfo)
+    assert "Qdk.Qsc.PartialEval.EvaluationFailed" in str(excinfo)
     assert "name is not bound" in str(excinfo)
 
 
@@ -575,7 +575,7 @@ def test_once_rca_validation_fails_following_calls_do_not_fail() -> None:
         e.interpret(
             "operation Foo() : Double { use q = Qubit(); mutable x = 1.0; if MResetZ(q) == One { set x = 2.0; } x }"
         )
-    assert "Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
+    assert "Qdk.Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
     value = e.interpret("let x = 5; x")
     assert value == 5
 
@@ -586,7 +586,7 @@ def test_adaptive_errors_are_raised_when_interpreting() -> None:
         e.interpret(
             "operation Foo() : Double { use q = Qubit(); mutable x = 1.0; if MResetZ(q) == One { set x = 2.0; } x }"
         )
-    assert "Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
+    assert "Qdk.Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
 
 
 def test_adaptive_errors_are_raised_from_entry_expr() -> None:
@@ -594,7 +594,7 @@ def test_adaptive_errors_are_raised_from_entry_expr() -> None:
     e.interpret("use q = Qubit();")
     with pytest.raises(Exception) as excinfo:
         e.run("{mutable x = 1.0; if MResetZ(q) == One { set x = 2.0; }}")
-    assert "Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
+    assert "Qdk.Qsc.CapabilitiesCk.UseOfDynamicDouble" in str(excinfo)
 
 
 def test_adaptive_ri_entrypoint_generates_expected_qir() -> None:

@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn instruction_span_with_no_targets() {
@@ -61,24 +62,28 @@ fn negated_target_span_includes_the_bang() {
 #[test]
 fn block_span_covers_through_closing_brace() {
     check(
-        "REPEAT 2 {\n    TICK\n}\n",
+        indoc! {"
+            REPEAT 2 {
+              TICK
+            }
+        "},
         &expect![[r#"
-        Circuit [0-22]:
-            items:
-                Block [0-21]:
-                    block_instruction: Instruction [0-8]:
-                        name: REPEAT
-                        tag: <none>
-                        args: <empty>
-                        targets:
-                            Target [7-8]:
-                                kind: Qubit(2)
-                    items:
-                        Instruction [15-19]:
-                            name: TICK
+            Circuit [0-20]:
+                items:
+                    Block [0-19]:
+                        block_instruction: Instruction [0-8]:
+                            name: REPEAT
                             tag: <none>
                             args: <empty>
-                            targets: <empty>"#]],
+                            targets:
+                                Target [7-8]:
+                                    kind: Qubit(2)
+                        items:
+                            Instruction [13-17]:
+                                name: TICK
+                                tag: <none>
+                                args: <empty>
+                                targets: <empty>"#]],
     );
 }
 

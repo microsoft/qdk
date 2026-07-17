@@ -73,6 +73,8 @@ mod given_interpreter {
         use expect_test::expect;
         use indoc::indoc;
 
+        use crate::interpret::PackageGlobal;
+
         use super::*;
 
         mod without_stdlib {
@@ -674,17 +676,17 @@ mod given_interpreter {
             let items = interpreter.user_globals();
             assert_eq!(items.len(), 2);
             // No namespace for top-level items
-            assert!(items[0].0.is_empty());
+            assert!(items[0].namespace.is_empty());
             expect![[r#"
                 "Foo"
             "#]]
-            .assert_debug_eq(&items[0].1);
+            .assert_debug_eq(&items[0].name);
             // No namespace for top-level items
-            assert!(items[1].0.is_empty());
+            assert!(items[1].namespace.is_empty());
             expect![[r#"
                 "Bar"
             "#]]
-            .assert_debug_eq(&items[1].1);
+            .assert_debug_eq(&items[1].name);
         }
 
         #[test]
@@ -706,11 +708,11 @@ mod given_interpreter {
                     "Foo",
                 ]
             "#]]
-            .assert_debug_eq(&items[0].0);
+            .assert_debug_eq(&items[0].namespace);
             expect![[r#"
                 "Bar"
             "#]]
-            .assert_debug_eq(&items[0].1);
+            .assert_debug_eq(&items[0].name);
         }
 
         #[test]
@@ -737,29 +739,29 @@ mod given_interpreter {
             let items = interpreter.user_globals();
             assert_eq!(items.len(), 4);
             // No namespace for top-level items
-            assert!(items[0].0.is_empty());
+            assert!(items[0].namespace.is_empty());
             expect![[r#"
                 "Foo"
             "#]]
-            .assert_debug_eq(&items[0].1);
+            .assert_debug_eq(&items[0].name);
             // No namespace for top-level items
-            assert!(items[1].0.is_empty());
+            assert!(items[1].namespace.is_empty());
             expect![[r#"
                 "Bar"
             "#]]
-            .assert_debug_eq(&items[1].1);
+            .assert_debug_eq(&items[1].name);
             // No namespace for top-level items
-            assert!(items[2].0.is_empty());
+            assert!(items[2].namespace.is_empty());
             expect![[r#"
                 "Baz"
             "#]]
-            .assert_debug_eq(&items[2].1);
+            .assert_debug_eq(&items[2].name);
             // No namespace for top-level items
-            assert!(items[3].0.is_empty());
+            assert!(items[3].namespace.is_empty());
             expect![[r#"
                 "Qux"
             "#]]
-            .assert_debug_eq(&items[3].1);
+            .assert_debug_eq(&items[3].name);
         }
 
         #[test]
@@ -1105,7 +1107,13 @@ mod given_interpreter {
             interpreter
                 .user_globals()
                 .into_iter()
-                .find_map(|(_, global_name, value)| (global_name.as_ref() == name).then_some(value))
+                .find_map(
+                    |PackageGlobal {
+                         name: global_name,
+                         value,
+                         ..
+                     }| { (global_name.as_ref() == name).then_some(value) },
+                )
                 .unwrap_or_else(|| panic!("{name} should be present in user globals"))
         }
 
@@ -1308,6 +1316,52 @@ mod given_interpreter {
                 .expect("expected success");
 
             assert_qir_has_three_h_gates(&qir);
+        }
+
+        #[test]
+        fn qirgen_from_callable_with_nested_closure_arg_generates_inner_effect() {
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    operation InvokeOne(op : Qubit => Unit) : Unit {
+                        use q = Qubit();
+                        op(q);
+                    }
+
+                    function MakeRz(theta : Double) : Qubit => Unit {
+                        Rz(theta, _)
+                    }
+
+                    function MakeOuter(inner : Qubit => Unit) : Qubit => Unit {
+                        inner(_)
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+
+            let invoke_one = user_global(&interpreter, "InvokeOne");
+
+            let (closure_result, closure_output) = line(
+                &mut interpreter,
+                "let inner = MakeRz(4.0); MakeOuter(inner)",
+            );
+            assert!(
+                closure_output.is_empty(),
+                "unexpected output while creating nested closure: {closure_output}"
+            );
+            let outer = closure_result.expect("expected nested closure value");
+
+            let qir = interpreter
+                .qirgen_from_callable(&invoke_one, outer)
+                .expect("expected success");
+
+            assert_eq!(
+                qir.matches("call void @__quantum__qis__rz__body(double 4.0,")
+                    .count(),
+                1,
+                "expected one inner captured rotation in QIR:\n{qir}"
+            );
         }
 
         #[test]
@@ -2952,11 +3006,11 @@ mod given_interpreter {
                     "A",
                 ]
             "#]]
-            .assert_debug_eq(&items[0].0);
+            .assert_debug_eq(&items[0].namespace);
             expect![[r#"
                 "B"
             "#]]
-            .assert_debug_eq(&items[0].1);
+            .assert_debug_eq(&items[0].name);
         }
 
         #[test]

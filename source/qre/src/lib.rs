@@ -16,7 +16,9 @@ pub use isa::{
     ConstraintBound, Encoding, ISA, ISARequirements, Instruction, InstructionConstraint, LockedISA,
     ProvenanceGraph, VariableArityFunction,
 };
-pub use result::{EstimationCollection, EstimationResult, FactoryResult, ResultSummary};
+pub use result::{
+    ErrorComposition, EstimationCollection, EstimationResult, FactoryResult, ResultSummary,
+};
 mod trace;
 pub use trace::instruction_ids;
 pub use trace::instruction_ids::instruction_name;
@@ -35,29 +37,29 @@ pub use utils::{binom_ppf, float_from_bits, float_to_bits};
 pub enum Error {
     /// The resource estimation exceeded the maximum allowed error.
     #[error("resource estimation exceeded the maximum allowed error: {actual_error} > {max_error}")]
-    #[diagnostic(code("Qre.MaximumErrorExceeded"))]
+    #[diagnostic(code("Qdk.Qre.MaximumErrorExceeded"))]
     MaximumErrorExceeded { actual_error: f64, max_error: f64 },
     /// Missing instruction in the ISA.
     #[error("requested instruction {0} not present in ISA")]
-    #[diagnostic(code("Qre.InstructionNotFound"))]
+    #[diagnostic(code("Qdk.Qre.InstructionNotFound"))]
     InstructionNotFound(u64),
     /// Cannot extract space from instruction.
     #[error("cannot extract space from instruction {0} for fixed arity")]
-    #[diagnostic(code("Qre.CannotExtractSpace"))]
+    #[diagnostic(code("Qdk.Qre.CannotExtractSpace"))]
     CannotExtractSpace(u64),
     /// Cannot extract time from instruction.
     #[error("cannot extract time from instruction {0} for fixed arity")]
-    #[diagnostic(code("Qre.CannotExtractTime"))]
+    #[diagnostic(code("Qdk.Qre.CannotExtractTime"))]
     CannotExtractTime(u64),
     /// Cannot extract error rate from instruction.
     #[error("cannot extract error rate from instruction {0} for fixed arity")]
-    #[diagnostic(code("Qre.CannotExtractErrorRate"))]
+    #[diagnostic(code("Qdk.Qre.CannotExtractErrorRate"))]
     CannotExtractErrorRate(u64),
     /// Factory time exceeds algorithm runtime
     #[error(
         "factory instruction {id} time {factory_time} exceeds algorithm runtime {algorithm_runtime}"
     )]
-    #[diagnostic(code("Qre.FactoryTimeExceedsAlgorithmRuntime"))]
+    #[diagnostic(code("Qdk.Qre.FactoryTimeExceedsAlgorithmRuntime"))]
     FactoryTimeExceedsAlgorithmRuntime {
         id: u64,
         factory_time: u64,
@@ -65,14 +67,14 @@ pub enum Error {
     },
     /// Unsupported instruction in trace transformation
     #[error("unsupported instruction {} in trace transformation '{name}'", instruction_name(*id).unwrap_or(&id.to_string()))]
-    #[diagnostic(code("Qre.UnsupportedInstruction"))]
+    #[diagnostic(code("Qdk.Qre.UnsupportedInstruction"))]
     UnsupportedInstruction { id: u64, name: &'static str },
     /// Compute capacity must be at least 1.
     #[error("compute capacity must be at least 1")]
-    #[diagnostic(code("Qre.ZeroComputeCapacity"))]
+    #[diagnostic(code("Qdk.Qre.ZeroComputeCapacity"))]
     ZeroComputeCapacity,
     /// Gate arity exceeds compute capacity.
     #[error("gate {} requires {arity} distinct qubits but compute capacity is {capacity}", instruction_name(*id).unwrap_or(&id.to_string()))]
-    #[diagnostic(code("Qre.GateArityExceedsCapacity"))]
+    #[diagnostic(code("Qdk.Qre.GateArityExceedsCapacity"))]
     GateArityExceedsCapacity { id: u64, arity: u64, capacity: u64 },
 }
