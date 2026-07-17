@@ -2,7 +2,7 @@
   "exercises": [
     {
       "id": "cat_circuit",
-      "cellIndex": 22,
+      "cellId": "12d649d7",
       "title": "Render with operation=",
       "description": "Implement cat_circuit() to return a circuit built with circuit() using the operation= parameter for PrepareCatState.",
       "hints": [
@@ -14,7 +14,7 @@
     },
     {
       "id": "flat_circuit",
-      "cellIndex": 24,
+      "cellId": "c8d8aca1",
       "title": "Flatten a grouped circuit",
       "description": "Implement flat_circuit() to return a circuit for GHZ(3) with grouping disabled so each gate is shown individually.",
       "hints": [

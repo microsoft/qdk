@@ -277,8 +277,8 @@ export interface NotebookExerciseInfo {
   hints: string[];
   solution: string;
   solutionExplanation: string;
-  /** 1-based cell index in the notebook where this exercise lives. */
-  cellIndex?: number;
+  /** Stable cell ID (from the notebook's cell metadata) for this exercise. */
+  cellId?: string;
 }
 
 export interface CatalogUnit {

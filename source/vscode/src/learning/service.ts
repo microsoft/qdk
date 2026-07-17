@@ -457,15 +457,15 @@ export class LearningService {
   }
 
   /**
-   * Navigate to the exercise activity whose `cellIndex` matches the given
-   * 1-based cell number. Returns `true` if the position was updated.
+   * Navigate to the exercise activity whose `cellId` matches the given
+   * notebook cell ID. Returns `true` if the position was updated.
    * Only meaningful for python-notebook courses.
    *
    * Updates the position silently — does **not** fire the state-change
    * event, so the lesson panel won't pop up or rearrange the editor layout.
    */
-  async goToExerciseByCellIndex(
-    cellIndex: number,
+  async goToExerciseByCellId(
+    cellId: string,
     source?: TelemetrySource,
   ): Promise<boolean> {
     if (this.activeCourse.kind !== "python-notebook") {
@@ -473,7 +473,7 @@ export class LearningService {
     }
     const unit = this.findUnit(this.position.unitId);
     const exercise = unit.notebookExercises?.find(
-      (e) => e.cellIndex === cellIndex,
+      (e) => e.cellId === cellId,
     );
     if (!exercise) {
       return false;
@@ -497,17 +497,17 @@ export class LearningService {
   }
 
   /**
-   * Mark the exercise activity at the given 1-based cell index as complete.
+   * Mark the exercise activity with the given cell ID as complete.
    * Returns `true` if the exercise was found and marked (or already complete).
    * Fires the state-change event so the treeview updates.
    */
-  async markExerciseCompleteByCellIndex(cellIndex: number): Promise<boolean> {
+  async markExerciseCompleteByCellId(cellId: string): Promise<boolean> {
     if (this.activeCourse.kind !== "python-notebook") {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
     const exercise = unit.notebookExercises?.find(
-      (e) => e.cellIndex === cellIndex,
+      (e) => e.cellId === cellId,
     );
     if (!exercise) {
       return false;

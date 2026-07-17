@@ -50,10 +50,13 @@ export function initLearning(
       }
       for (const change of e.cellChanges) {
         if (change.executionSummary !== undefined) {
-          const cellIndex = change.cell.index + 1;
-          void learningService.goToExerciseByCellIndex(cellIndex, "panel");
+          const cellId = change.cell.metadata?.id;
+          if (typeof cellId !== "string") {
+            continue;
+          }
+          void learningService.goToExerciseByCellId(cellId, "panel");
           if (change.executionSummary.success) {
-            void learningService.markExerciseCompleteByCellIndex(cellIndex);
+            void learningService.markExerciseCompleteByCellId(cellId);
           }
         }
       }

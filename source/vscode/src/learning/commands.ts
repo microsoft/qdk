@@ -168,7 +168,7 @@ export function registerLearningCommands(
 
     vscode.commands.registerCommand(
       "qsharp-vscode.learningNotebookHint",
-      async (arg?: number | { cell: vscode.NotebookCell }) => {
+      async (arg?: string | { cell: vscode.NotebookCell }) => {
         if (!service.initialized) {
           return;
         }
@@ -178,19 +178,22 @@ export function registerLearningCommands(
           return;
         }
 
-        // Resolve 1-based cell number from the argument:
-        // - number: passed directly from the cell status bar item
+        // Resolve cell ID from the argument:
+        // - string: passed directly from the cell status bar item
         // - { cell }: passed by VS Code when invoked from notebook/cell/title
-        let cellNumber: number | undefined;
-        if (typeof arg === "number") {
-          cellNumber = arg;
+        let cellId: string | undefined;
+        if (typeof arg === "string") {
+          cellId = arg;
         } else if (arg && "cell" in arg) {
-          cellNumber = arg.cell.index + 1;
+          const id = arg.cell.metadata?.id;
+          if (typeof id === "string") {
+            cellId = id;
+          }
         }
 
         // Navigate to the exercise so the service state matches.
-        if (cellNumber) {
-          await service.goToExerciseByCellIndex(cellNumber, "panel");
+        if (cellId) {
+          await service.goToExerciseByCellId(cellId, "panel");
         }
 
         await vscode.commands.executeCommand("workbench.action.chat.open", {

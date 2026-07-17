@@ -5,14 +5,12 @@ import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import type { LearningService } from "./service.js";
 
-// TODO (acasey): populate from _exercises.json
-// TODO (acasey): might want _exercises.json to use cell IDs, rather than indices, if they're more stable
 /**
  * Pattern that identifies exercise/verification cells in python-notebook
  * courses. These cells import check functions from the per-unit `_unit`
  * module (e.g. `from _unit import check_value`).
  */
-const exerciseCellPattern = /from\s+_unit\s+import\s+check/;
+// const exerciseCellPattern = /from\s+_unit\s+import\s+check/;
 
 /**
  * Registers a {@link vscode.NotebookCellStatusBarItemProvider} that adds a
@@ -51,22 +49,27 @@ export function createNotebookCellStatusBarProvider(
         return [];
       }
 
-      const text = cell.document.getText();
-      if (!exerciseCellPattern.test(text)) {
+      // TODO (acasey): populate from _exercises.json
+      // const text = cell.document.getText();
+      // if (!exerciseCellPattern.test(text)) {
+      //   log.debug(
+      //     "Skipping status bar: cell %d does not match exercise pattern",
+      //     cell.index,
+      //   );
+      //   return [];
+      // }
+
+      // Use the cell's stable ID from notebook metadata.
+      const cellId = cell.metadata?.id;
+      if (typeof cellId !== "string") {
         log.debug(
-          "Skipping status bar: cell %d does not match exercise pattern",
+          "Skipping status bar: cell %d has no metadata.id",
           cell.index,
         );
         return [];
       }
 
-      // Use 1-based cell index as a definitive reference.
-      const cellNumber = cell.index + 1;
-
-      log.debug(
-        "Adding 'Ask for a Hint' status bar item for cell %d",
-        cellNumber,
-      );
+      log.debug("Adding 'Ask for a Hint' status bar item for cell %s", cellId);
 
       const item = new vscode.NotebookCellStatusBarItem(
         "$(comment-discussion-sparkle) Ask for a Hint",
@@ -75,7 +78,7 @@ export function createNotebookCellStatusBarProvider(
       item.command = {
         title: "Ask for a Hint",
         command: "qsharp-vscode.learningNotebookHint",
-        arguments: [cellNumber],
+        arguments: [cellId],
       };
       item.tooltip = "Open Copilot Chat for a hint on this exercise";
       return [item];
