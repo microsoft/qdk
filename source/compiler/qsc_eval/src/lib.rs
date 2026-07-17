@@ -19,7 +19,6 @@ mod tests;
 
 pub mod backend;
 pub mod debug;
-mod error;
 pub mod intrinsic;
 pub mod noise;
 pub mod output;
@@ -32,7 +31,6 @@ use crate::val::{
 };
 use core::panic;
 use debug::{CallStack, Frame};
-pub use error::PackageSpan;
 use miette::Diagnostic;
 use num_bigint::BigInt;
 use output::Receiver;
@@ -44,6 +42,7 @@ use qsc_fir::fir::{
     StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
+pub use qsc_hir::hir::PackageSpan;
 use qsc_lowerer::map_fir_package_to_hir;
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
