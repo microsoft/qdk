@@ -660,6 +660,8 @@ fn next_rand_f32(shot_idx: u32) -> f32 {
 
 //#endregion
 
+//#region Operation classification helpers
+
 fn is_1q_phase_gate(op_id: u32) -> bool {
     return (op_id == OPID_S || op_id == OPID_SAdj || op_id == OPID_T || op_id == OPID_TAdj || op_id == OPID_RZ);
 }
@@ -669,6 +671,10 @@ fn is_1q_op(op_id: u32) -> bool {
         op_id == OPID_MZ || op_id == OPID_MRESETZ ||
         op_id == OPID_MAT1Q || op_id == OPID_SHOT_BUFF_1Q);
 }
+
+//#endregion
+
+//#region Per-shot setup and reset
 
 fn shot_init_per_op(shot_idx: u32) {
     let shot = &shots[shot_idx];
@@ -735,6 +741,10 @@ fn reset_all(shot_idx: i32) {
 
     // unitary will be set in prepare_op
 }
+
+//#endregion
+
+//#region Qubit probability tracking
 
 fn update_qubit_state(shot_idx: u32) {
     let shot = &shots[shot_idx];
@@ -818,6 +828,68 @@ fn update_qubit_state(shot_idx: u32) {
         }
     }
 }
+
+// For the state vector index and amplitude probability, update all the qubit probabilities for this thread
+fn update_all_qubit_probs(stateVectorIndex: u32, amplitude: vec2f, tid: u32) {
+    var mask: u32 = 1u;
+    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
+        let is_one: bool = (stateVectorIndex & mask) != 0u;
+        let prob: f32 = cplxMag2(amplitude);
+        if (is_one) {
+            qubitProbabilities[tid].one[q] += prob;
+        } else {
+            qubitProbabilities[tid].zero[q] += prob;
+        }
+        mask = mask << 1u;
+    }
+}
+
+fn sum_thread_totals_to_shot(q: u32, shot_idx: i32, wkg_collation_idx: i32) {
+    var total_zero: f32 = 0.0;
+    var total_one: f32 = 0.0;
+    for (var j = 0; j < THREADS_PER_WORKGROUP; j++) {
+        total_zero += qubitProbabilities[j].zero[q];
+        total_one += qubitProbabilities[j].one[q];
+    }
+    if (wkg_collation_idx >= 0) {
+        // Write to the workgroup collation buffer for later summation into the shot state
+        workgroup_collation.sums[wkg_collation_idx].qubits[q] = vec2f(total_zero, total_one);
+    } else {
+        // Single workgroup per shot case - write directly to the shot state
+        let within_threshold = abs(1.0 - (total_zero + total_one)) < PROB_THRESHOLD;
+        if !within_threshold {
+            // Populate the diagnostics buffer, if not already set
+            let old_value = atomicCompareExchangeWeak(
+                &diagnostics.error_code,
+                0u,
+                ERR_INVALID_THREAD_TOTAL);
+            if old_value.exchanged {
+                // This is the first error - fill in the details
+                let shot = &shots[shot_idx];
+                diagnostics.extra1 = q;
+                diagnostics.extra2 = total_zero;
+                diagnostics.extra3 = total_one;
+                // DX12 backend has issues copying structs. See https://github.com/gfx-rs/wgpu/issues/8552
+                // DX12-start-strip
+                diagnostics.shot = *shot;
+                diagnostics.op = ops[shot.op_idx];
+                // DX12-end-strip
+            }
+            let err_index = (shot_idx + 1) * i32(RESULT_COUNT) - 1;
+            atomicCompareExchangeWeak(
+                    &results[err_index],
+                    0u,
+                    ERR_INVALID_THREAD_TOTAL);
+        } else {
+            shots[shot_idx].qubit_state[q].zero_probability = total_zero;
+            shots[shot_idx].qubit_state[q].one_probability = total_one;
+        }
+    }
+}
+
+//#endregion
+
+//#region Measurement and reset ops
 
 // Build a measure-and-reset (or measure-only) instrument for `qubit` given a
 // measured `result`, store it in the shot buffer, set up renormalization, and
@@ -912,39 +984,9 @@ fn prep_measure_reset(shot_idx: u32, op_idx: u32, qubit: u32, result_id: u32, is
     shot.op_type = OPID_MRESETZ;
 }
 
-// Starting from the given index, return the next index if pauli noise, else 0
-fn get_pauli_noise_idx(op_idx: u32) -> u32 {
-    if (arrayLength(&ops) > (op_idx + 1)) {
-        let op = &ops[op_idx + 1];
-        if (op.id == OPID_PAULI_NOISE_1Q || op.id == OPID_PAULI_NOISE_2Q) {
-            return op_idx + 1u;
-        }
-    }
-    return 0u;
-}
+//#endregion
 
-// From the starting index given, return the next index if loss noise, else 0
-fn get_loss_idx(op_idx: u32) -> u32 {
-    if (arrayLength(&ops) > (op_idx + 1)) {
-        let op = &ops[op_idx + 1];
-        if (op.id == OPID_LOSS_NOISE) {
-            return op_idx + 1u;
-        }
-    }
-    return 0u;
-}
-
-// Returns true if the gate at `op_idx` touches at least one lost qubit.
-// `q1`/`q2` are the (resolved) operands of the gate.
-fn gate_has_lost_operand(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> bool {
-    let shot = &shots[shot_idx];
-    let op = &ops[op_idx];
-    if (shot.qubit_state[q1].heat == -1.0) {
-        return true;
-    }
-    let is_2q = !is_1q_op(op.id);
-    return is_2q && (shot.qubit_state[q2].heat == -1.0);
-}
+//#region Unitary construction helpers
 
 // Builds a 4x4 (in shot.unitary) that applies the 1-qubit matrix `m` (given as
 // m00,m01,m10,m11) to `target_is_q2 ? q2 : q1` and identity to the other qubit
@@ -995,6 +1037,33 @@ fn finish_2q_shot_buffer(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
     shot.qubits_updated_last_op_mask = (1u << q1) | (1u << q2);
 }
 
+//#endregion
+
+//#region Qubit loss handling
+
+// From the starting index given, return the next index if loss noise, else 0
+fn get_loss_idx(op_idx: u32) -> u32 {
+    if (arrayLength(&ops) > (op_idx + 1)) {
+        let op = &ops[op_idx + 1];
+        if (op.id == OPID_LOSS_NOISE) {
+            return op_idx + 1u;
+        }
+    }
+    return 0u;
+}
+
+// Returns true if the gate at `op_idx` touches at least one lost qubit.
+// `q1`/`q2` are the (resolved) operands of the gate.
+fn gate_has_lost_operand(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> bool {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+    if (shot.qubit_state[q1].heat == -1.0) {
+        return true;
+    }
+    let is_2q = !is_1q_op(op.id);
+    return is_2q && (shot.qubit_state[q2].heat == -1.0);
+}
+
 // Loses a single surviving `qubit` for the PROPAGATE policy: samples a
 // measurement outcome, collapses the qubit to that outcome and resets it to
 // |0>, and marks it lost (heat = -1.0). The collapse is expressed as a 2-qubit
@@ -1030,16 +1099,6 @@ fn propagate_loss_to_qubit(shot_idx: u32, op_idx: u32, q1: u32, q2: u32, qubit: 
     shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~(1u << qubit);
 
     finish_2q_shot_buffer(shot_idx, op_idx, q1, q2);
-}
-
-// Records an error `code` for `shot_idx` in both the diagnostics buffer and the
-// shot's result-code slot, mirroring the reporting done elsewhere in this file.
-// Used for conditions the host guarantees never occur (e.g. a loss policy that
-// is not valid for a given gate).
-fn report_shot_error(shot_idx: u32, code: u32) {
-    atomicCompareExchangeWeak(&diagnostics.error_code, 0u, code);
-    let err_index = (shot_idx + 1u) * RESULT_COUNT - 1u;
-    atomicCompareExchangeWeak(&results[err_index], 0u, code);
 }
 
 // Handles a gate whose operand(s) include at least one lost qubit, according to
@@ -1195,6 +1254,35 @@ fn handle_lost_operand_policy(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
     // skip the gate entirely.
     shot.op_type = OPID_ID;
     shot.op_idx = op_idx;
+}
+
+//#endregion
+
+//#region Error reporting
+
+// Records an error `code` for `shot_idx` in both the diagnostics buffer and the
+// shot's result-code slot, mirroring the reporting done elsewhere in this file.
+// Used for conditions the host guarantees never occur (e.g. a loss policy that
+// is not valid for a given gate).
+fn report_shot_error(shot_idx: u32, code: u32) {
+    atomicCompareExchangeWeak(&diagnostics.error_code, 0u, code);
+    let err_index = (shot_idx + 1u) * RESULT_COUNT - 1u;
+    atomicCompareExchangeWeak(&results[err_index], 0u, code);
+}
+
+//#endregion
+
+//#region Independent Pauli noise
+
+// Starting from the given index, return the next index if pauli noise, else 0
+fn get_pauli_noise_idx(op_idx: u32) -> u32 {
+    if (arrayLength(&ops) > (op_idx + 1)) {
+        let op = &ops[op_idx + 1];
+        if (op.id == OPID_PAULI_NOISE_1Q || op.id == OPID_PAULI_NOISE_2Q) {
+            return op_idx + 1u;
+        }
+    }
+    return 0u;
 }
 
 fn apply_1q_pauli_noise(shot_idx: u32, op_idx: u32, noise_idx: u32, q1: u32) {
@@ -1520,6 +1608,10 @@ fn apply_2q_pauli_noise_on_survivor(shot_idx: u32, op_idx: u32, noise_idx: u32, 
     shot.qubit_is_1_mask = shot.qubit_is_1_mask & ~(1u << survivor);
 }
 
+//#endregion
+
+//#region Shot and kernel params
+
 fn get_shot_params(
         workgroupId: u32,
         tid: u32,
@@ -1550,6 +1642,10 @@ fn get_shot_params(
         op_iterations
     );
 }
+
+//#endregion
+
+//#region Gate application (execute stage)
 
 fn apply_1q_op(workgroupId: u32, tid: u32, q1: u32) {
     let params = get_shot_params(workgroupId, tid, 1 /* qubits per op */);
@@ -1783,63 +1879,9 @@ fn apply_correlated_noise(workgroupId: u32, tid: u32) {
     }
 }
 
-// For the state vector index and amplitude probability, update all the qubit probabilities for this thread
-fn update_all_qubit_probs(stateVectorIndex: u32, amplitude: vec2f, tid: u32) {
-    var mask: u32 = 1u;
-    for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
-        let is_one: bool = (stateVectorIndex & mask) != 0u;
-        let prob: f32 = cplxMag2(amplitude);
-        if (is_one) {
-            qubitProbabilities[tid].one[q] += prob;
-        } else {
-            qubitProbabilities[tid].zero[q] += prob;
-        }
-        mask = mask << 1u;
-    }
-}
+//#endregion
 
-fn sum_thread_totals_to_shot(q: u32, shot_idx: i32, wkg_collation_idx: i32) {
-    var total_zero: f32 = 0.0;
-    var total_one: f32 = 0.0;
-    for (var j = 0; j < THREADS_PER_WORKGROUP; j++) {
-        total_zero += qubitProbabilities[j].zero[q];
-        total_one += qubitProbabilities[j].one[q];
-    }
-    if (wkg_collation_idx >= 0) {
-        // Write to the workgroup collation buffer for later summation into the shot state
-        workgroup_collation.sums[wkg_collation_idx].qubits[q] = vec2f(total_zero, total_one);
-    } else {
-        // Single workgroup per shot case - write directly to the shot state
-        let within_threshold = abs(1.0 - (total_zero + total_one)) < PROB_THRESHOLD;
-        if !within_threshold {
-            // Populate the diagnostics buffer, if not already set
-            let old_value = atomicCompareExchangeWeak(
-                &diagnostics.error_code,
-                0u,
-                ERR_INVALID_THREAD_TOTAL);
-            if old_value.exchanged {
-                // This is the first error - fill in the details
-                let shot = &shots[shot_idx];
-                diagnostics.extra1 = q;
-                diagnostics.extra2 = total_zero;
-                diagnostics.extra3 = total_one;
-                // DX12 backend has issues copying structs. See https://github.com/gfx-rs/wgpu/issues/8552
-                // DX12-start-strip
-                diagnostics.shot = *shot;
-                diagnostics.op = ops[shot.op_idx];
-                // DX12-end-strip
-            }
-            let err_index = (shot_idx + 1) * i32(RESULT_COUNT) - 1;
-            atomicCompareExchangeWeak(
-                    &results[err_index],
-                    0u,
-                    ERR_INVALID_THREAD_TOTAL);
-        } else {
-            shots[shot_idx].qubit_state[q].zero_probability = total_zero;
-            shots[shot_idx].qubit_state[q].one_probability = total_one;
-        }
-    }
-}
+//#region Correlated noise
 
 // Samples the correlated noise table to determine whether noise should be applied, and if so,
 // which Pauli string was selected. If no noise is applied, the shot is set to ID and the caller
@@ -2014,6 +2056,8 @@ fn prep_correlated_noise(shot_idx: u32, op_idx: u32) {
     commit_correlated_noise(shot_idx, op_idx, bit_flip_mask, phase_flip_mask, loss_mask);
 }
 
+//#endregion
+
 //#region Adaptive QIR utility functions
 
 // -----------------------------------------------------------------------------
@@ -2172,6 +2216,8 @@ fn prep_correlated_noise_adaptive(shot_idx: u32, op_idx: u32, qubit_count: u32, 
 
 //#region Kernels
 
+//#region Shared kernel helpers
+
 // Shared kernel helpers used by both the base and adaptive code paths.
 
 // Zero this shot's slice of the state vector and set the |0...0> amplitude to 1,
@@ -2235,6 +2281,10 @@ fn finalize_gate_op(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
       }
     }
 }
+
+//#endregion
+
+//#region Base prepare_op implementation
 
 // *******************************
 // PREPARE OP
@@ -2366,6 +2416,10 @@ fn prepare_op_base_impl(shot_idx: u32) {
     finalize_gate_op(shot_idx, op_idx, op.q1, op.q2);
 }
 
+//#endregion
+
+//#region initialize kernel
+
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
 fn initialize(
         @builtin(workgroup_id) workgroupId: vec3<u32>,
@@ -2395,6 +2449,10 @@ fn initialize(
         }
     }
 }
+
+//#endregion
+
+//#region interpret_classical kernel
 
 // -----------------------------------------------------------------------------
 // Adaptive interpreter — interpret_classical entry point
@@ -3251,6 +3309,10 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
     shots[shot_idx].interp.previous_block_id = prev_block;
 }
 
+//#endregion
+
+//#region Adaptive prepare_op implementation
+
 // -----------------------------------------------------------------------------
 // Adaptive interpreter — prepare_op entry point
 // -----------------------------------------------------------------------------
@@ -3452,6 +3514,10 @@ fn prepare_op_adaptive_impl(shot_idx: u32) {
     shots[shot_idx].interp.status = STATUS_RUNNING;
 }
 
+//#endregion
+
+//#region prepare_op and execute kernels
+
 // Single prepare_op entry point. Dispatches to the base or adaptive
 // implementation based on the compile-time IS_ADAPTIVE flag; the unused
 // implementation is eliminated by the compiler.
@@ -3520,5 +3586,7 @@ fn execute(
         }
     }
 }
+
+//#endregion
 
 //#endregion
