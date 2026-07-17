@@ -1041,17 +1041,6 @@ fn finish_2q_shot_buffer(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
 
 //#region Qubit loss handling
 
-// From the starting index given, return the next index if loss noise, else 0
-fn get_loss_idx(op_idx: u32) -> u32 {
-    if (arrayLength(&ops) > (op_idx + 1)) {
-        let op = &ops[op_idx + 1];
-        if (op.id == OPID_LOSS_NOISE) {
-            return op_idx + 1u;
-        }
-    }
-    return 0u;
-}
-
 // Returns true if the gate at `op_idx` touches at least one lost qubit.
 // `q1`/`q2` are the (resolved) operands of the gate.
 fn gate_has_lost_operand(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) -> bool {
@@ -2099,8 +2088,6 @@ fn fetch_instr(pc: u32) -> Instruction {
 fn get_opcode(packed: u32) -> u32   { return packed & 0xFFu; }
 fn get_subcond(packed: u32) -> u32  { return (packed >> 8u) & 0xFFu; }
 fn get_flags(packed: u32) -> u32    { return (packed >> 16u) & 0xFFu; }
-fn is_src0_imm(flags: u32) -> bool  { return (flags & 1u) != 0u; }
-fn is_src1_imm(flags: u32) -> bool  { return (flags & 2u) != 0u; }
 
 fn resolve_i32(shot_idx: u32, operand: u32, flags: u32, operand_idx: u32) -> i32 {
     if (flags & (1u << operand_idx)) != 0u {
