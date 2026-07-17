@@ -7,6 +7,7 @@ from typing import (
     Callable,
     Optional,
     Dict,
+    Iterator,
     List,
     Tuple,
     TypedDict,
@@ -1312,6 +1313,117 @@ class Span:
     @property
     def hi(self) -> int: ...
 
+class PositionEncoding(Enum):
+    """The column encoding used by a source position."""
+
+    UTF8: PositionEncoding
+    CODE_POINT: PositionEncoding
+    UTF16: PositionEncoding
+    @property
+    def value(self) -> str: ...
+
+class Position:
+    """A zero-based line and column in a source file.
+
+    Raises ``OverflowError`` if ``line`` or ``column`` is negative or greater
+    than ``2**32 - 1``.
+    """
+
+    def __init__(
+        self,
+        line: int,
+        column: int,
+        encoding: PositionEncoding = ...,
+    ) -> None: ...
+    @property
+    def line(self) -> int: ...
+    @property
+    def column(self) -> int: ...
+    @property
+    def encoding(self) -> PositionEncoding: ...
+
+class SourceRange:
+    """A range within one source file.
+
+    Raises ``OverflowError`` if ``source_id`` is negative or greater than
+    ``2**32 - 1``.
+    """
+
+    def __init__(self, source_id: int, start: Position, end: Position) -> None: ...
+    @property
+    def source_id(self) -> int: ...
+    @property
+    def start(self) -> Position: ...
+    @property
+    def end(self) -> Position: ...
+
+class SourceEdit:
+    """A replacement for one source range."""
+
+    def __init__(self, range: SourceRange, replacement: str) -> None: ...
+    @property
+    def range(self) -> SourceRange: ...
+    @property
+    def replacement(self) -> str: ...
+
+class SourceFile:
+    """One immutable source file in a parse snapshot."""
+
+    @property
+    def id(self) -> int: ...
+    @property
+    def path(self) -> str: ...
+    @property
+    def text(self) -> str: ...
+    @property
+    def span(self) -> Span: ...
+    @property
+    def is_entry(self) -> bool: ...
+    @property
+    def is_resolved(self) -> bool: ...
+    @property
+    def resolution_status(self) -> str: ...
+
+class SourceMap:
+    """An immutable collection of source files in parser pre-order.
+
+    Lines and columns are zero based. Coordinate conversion is strict and
+    raises ``ValueError`` rather than clamping invalid boundaries.
+    """
+
+    @property
+    def entry(self) -> SourceFile: ...
+    @property
+    def files(self) -> Tuple[SourceFile, ...]: ...
+    def __len__(self) -> int: ...
+    def __iter__(self) -> Iterator[SourceFile]: ...
+    def get(self, source_id: int) -> SourceFile: ...
+    def find(self, path: str) -> Optional[SourceFile]: ...
+    def find_all(self, path: str) -> Tuple[SourceFile, ...]: ...
+    def position_at(
+        self,
+        source_id: int,
+        byte_offset: int,
+        *,
+        encoding: PositionEncoding = ...,
+    ) -> Position: ...
+    def byte_offset(self, source_id: int, position: Position) -> int: ...
+    def range_from_span(
+        self,
+        span: Span,
+        *,
+        encoding: PositionEncoding = ...,
+    ) -> SourceRange: ...
+    def span_from_range(self, source_range: SourceRange) -> Span: ...
+
+class SourceDocument:
+    """The immutable sources retained by one syntactic parse snapshot."""
+
+    @property
+    def entry(self) -> SourceFile: ...
+    @property
+    def source_map(self) -> SourceMap: ...
+
 class Severity(Enum):
     """The severity of a :class:`Diagnostic`."""
 
@@ -1393,6 +1505,8 @@ class Program(QASMNode):
 
     @property
     def version(self) -> Optional[str]: ...
+    @property
+    def document(self) -> SourceDocument: ...
     @property
     def statements(self) -> List[QASMNode]: ...
     def children(self) -> List[QASMNode]: ...
@@ -2435,11 +2549,20 @@ class ParseResult:
     @property
     def program(self) -> Program: ...
     @property
+    def document(self) -> SourceDocument: ...
+    @property
     def diagnostics(self) -> List[Diagnostic]: ...
     @property
     def errors(self) -> List[Diagnostic]: ...
     @property
     def has_errors(self) -> bool: ...
+
+class _QASMUnparseError(ValueError):
+    """Internal checked serialization error carrier."""
+
+    code: str
+    span: Optional[Span]
+    diagnostics: Tuple[Diagnostic, ...]
 
 def parse(
     source: str,
@@ -2447,4 +2570,8 @@ def parse(
     includes: Optional[Any] = ...,
 ) -> ParseResult:
     """Parses `OpenQASM` source text into a syntax tree."""
+    ...
+
+def qasm_dumps(program: Program) -> str:
+    """Canonically serializes a syntactic program from its entry source."""
     ...

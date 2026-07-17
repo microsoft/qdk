@@ -5,6 +5,8 @@
 
 use std::sync::Arc;
 
+use crate::span::Span;
+
 #[derive(Clone, Debug, Default)]
 pub struct SourceMap {
     sources: Vec<Source>,
@@ -86,7 +88,21 @@ impl SourceMap {
             .iter()
             .rev()
             .chain(&self.entry)
-            .find(|source| offset >= source.offset)
+            .find(|source| source.contains_offset(offset))
+    }
+
+    /// Finds the one source that fully contains a global half-open span and
+    /// returns its source-local span.
+    #[must_use]
+    pub fn find_by_span(&self, span: Span) -> Option<(&Source, Span)> {
+        if span.hi < span.lo {
+            return None;
+        }
+
+        self.sources
+            .iter()
+            .chain(&self.entry)
+            .find_map(|source| source.local_span(span).map(|local| (source, local)))
     }
 
     #[must_use]
@@ -128,6 +144,34 @@ pub struct Source {
     pub name: SourceName,
     pub contents: SourceContents,
     pub offset: u32,
+}
+
+impl Source {
+    #[must_use]
+    pub fn contains_offset(&self, offset: u32) -> bool {
+        let end = self
+            .offset
+            .checked_add(
+                u32::try_from(self.contents.len()).expect("contents length should fit into u32"),
+            )
+            .expect("source end should fit into u32");
+        (self.offset..=end).contains(&offset)
+    }
+
+    #[must_use]
+    fn local_span(&self, span: Span) -> Option<Span> {
+        let end = self
+            .offset
+            .checked_add(u32::try_from(self.contents.len()).ok()?)?;
+        if self.offset <= span.lo && span.hi <= end {
+            Some(Span {
+                lo: span.lo - self.offset,
+                hi: span.hi - self.offset,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 pub type SourceName = Arc<str>;
@@ -175,4 +219,43 @@ fn next_offset(last_source: Option<&Source>) -> u32 {
     last_source.map_or(0, |s| {
         1 + s.offset + u32::try_from(s.contents.len()).expect("contents length should fit into u32")
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SourceMap;
+    use crate::span::Span;
+
+    #[test]
+    fn find_by_offset_rejects_offsets_past_source_end() {
+        let source_map = SourceMap::new([("main.qasm".into(), "".into())], None);
+
+        assert_eq!(
+            source_map
+                .find_by_offset(0)
+                .map(|source| source.name.as_ref()),
+            Some("main.qasm")
+        );
+        assert!(source_map.find_by_offset(1).is_none());
+    }
+
+    #[test]
+    fn find_by_span_accepts_source_eof_and_rejects_gap_and_cross_source_spans() {
+        let source_map = SourceMap::new(
+            [
+                ("first.qasm".into(), "abc".into()),
+                ("second.qasm".into(), "de".into()),
+            ],
+            None,
+        );
+
+        let (source, local) = source_map
+            .find_by_span(Span { lo: 3, hi: 3 })
+            .expect("zero-length span at EOF should belong to the first source");
+        assert_eq!(source.name.as_ref(), "first.qasm");
+        assert_eq!(local, Span { lo: 3, hi: 3 });
+        assert!(source_map.find_by_span(Span { lo: 3, hi: 4 }).is_none());
+        assert!(source_map.find_by_span(Span { lo: 2, hi: 5 }).is_none());
+        assert!(source_map.find_by_span(Span { lo: 5, hi: 4 }).is_none());
+    }
 }

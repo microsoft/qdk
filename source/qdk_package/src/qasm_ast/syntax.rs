@@ -90,6 +90,7 @@
 //! * A gate modifier (`ctrl @`, `pow(2) @`) -> `QuantumGateModifier`
 
 use crate::qasm_ast::nodes::{Annotation, Expression, QASMNode, Statement};
+use crate::qasm_ast::source::SourceDocument;
 use crate::qasm_ast::span::Span;
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
@@ -119,6 +120,13 @@ fn syntax_stmt_base(span: Span, annotations: Vec<Py<Annotation>>) -> PyClassInit
 pub(crate) struct Program {
     statements: Vec<Py<PyAny>>,
     version: Option<String>,
+    document: Py<SourceDocument>,
+}
+
+impl Program {
+    pub(crate) fn source_document(&self, py: Python<'_>) -> Py<SourceDocument> {
+        self.document.clone_ref(py)
+    }
 }
 
 #[pymethods]
@@ -136,6 +144,12 @@ impl Program {
     #[getter]
     fn version(&self) -> Option<String> {
         self.version.clone()
+    }
+
+    /// The immutable source document for this parse snapshot.
+    #[getter]
+    fn document(&self, py: Python<'_>) -> Py<SourceDocument> {
+        self.document.clone_ref(py)
     }
 
     /// The program's child nodes: its top-level statements.
@@ -529,6 +543,7 @@ pub(crate) fn register_syntax_nodes(m: &Bound<'_, PyModule>) -> PyResult<()> {
 pub(crate) fn build_program(
     py: Python<'_>,
     program: Option<&SyntaxProgram>,
+    document: Py<SourceDocument>,
 ) -> PyResult<Py<Program>> {
     let (span, statements, version) = match program {
         Some(program) => {
@@ -545,6 +560,7 @@ pub(crate) fn build_program(
     let init = PyClassInitializer::from(QASMNode { span }).add_subclass(Program {
         statements,
         version,
+        document,
     });
     Py::new(py, init)
 }

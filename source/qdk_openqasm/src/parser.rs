@@ -8,6 +8,7 @@ use crate::source::SourceMap;
 use crate::span::Span;
 use ast::{Program, StmtKind};
 use mut_visit::MutVisitor;
+use rustc_hash::FxHashMap;
 use scan::ParserContext;
 use std::path::Component;
 use std::path::Path;
@@ -41,13 +42,18 @@ impl MutVisitor for Offsetter {
 pub struct ParseResult {
     pub source: QasmSource,
     pub source_map: SourceMap,
+    pub source_snapshot: SourceSnapshot,
 }
 
 impl ParseResult {
     #[must_use]
     pub fn new(mut source: QasmSource) -> ParseResult {
-        let source_map = create_source_map_and_update_offsets(&mut source);
-        ParseResult { source, source_map }
+        let (source_map, source_snapshot) = create_source_map_and_update_offsets(&mut source);
+        ParseResult {
+            source,
+            source_map,
+            source_snapshot,
+        }
     }
 
     #[must_use]
@@ -86,12 +92,59 @@ impl ParseResult {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum SourceStatus {
+    Entry,
+    #[default]
+    Resolved,
+    Unresolved,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceFileSnapshot {
+    pub id: u32,
+    pub path: Arc<str>,
+    pub text: Arc<str>,
+    pub offset: u32,
+    pub status: SourceStatus,
+    pub aliases: Arc<[Arc<str>]>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceSnapshot {
+    files: Arc<[SourceFileSnapshot]>,
+}
+
+impl SourceSnapshot {
+    #[must_use]
+    pub fn files(&self) -> &[SourceFileSnapshot] {
+        &self.files
+    }
+
+    #[must_use]
+    pub fn entry(&self) -> &SourceFileSnapshot {
+        self.files
+            .first()
+            .expect("source snapshot should have an entry")
+    }
+
+    #[must_use]
+    pub fn resolve(&self, path: &str) -> Option<&SourceFileSnapshot> {
+        self.files.iter().find(|source| {
+            source.status != SourceStatus::Unresolved
+                && (source.path.as_ref() == path
+                    || source.aliases.iter().any(|alias| alias.as_ref() == path))
+        })
+    }
+}
+
 /// All spans and error spans are relative to the start of their own file. Update
 /// them to match the offsets `SourceMap` assigns while collecting files in the same
 /// order `SourceMap` receives them.
 fn collect_source_files_and_update_offsets(
     source: &mut QasmSource,
     files: &mut Vec<(Arc<str>, Arc<str>)>,
+    snapshots: &mut Vec<SourceFileSnapshot>,
     offset: u32,
 ) -> u32 {
     // Update the errors' offset
@@ -105,11 +158,21 @@ fn collect_source_files_and_update_offsets(
         offsetter.visit_program(program);
     }
 
+    let id = u32::try_from(files.len()).expect("source count should fit into u32");
     files.push((source.path.clone(), source.source.clone()));
+    snapshots.push(SourceFileSnapshot {
+        id,
+        path: source.path.clone(),
+        text: source.source.clone(),
+        offset,
+        status: source.status,
+        aliases: source.aliases.clone().into(),
+    });
 
     let mut next_offset = next_source_offset(offset, &source.source);
     for include in &mut source.included {
-        next_offset = collect_source_files_and_update_offsets(include, files, next_offset);
+        next_offset =
+            collect_source_files_and_update_offsets(include, files, snapshots, next_offset);
     }
 
     next_offset
@@ -118,7 +181,7 @@ fn collect_source_files_and_update_offsets(
 /// Parse a QASM file and return the parse result.
 /// This function will resolve includes using the provided resolver.
 /// If an include file cannot be resolved, an error will be returned.
-/// If a file is included recursively, a stack overflow occurs.
+/// Recursive and duplicate includes are reported as parse errors.
 pub fn parse_source<R: SourceResolver, S: Into<Arc<str>>, P: Into<Arc<str>>>(
     source: S,
     path: P,
@@ -135,10 +198,36 @@ pub fn parse_source<R: SourceResolver, S: Into<Arc<str>>, P: Into<Arc<str>>>(
 
 /// Creates a Q# source map from a QASM parse output while updating source and
 /// include spans to match the offsets assigned by the source map.
-fn create_source_map_and_update_offsets(source: &mut QasmSource) -> SourceMap {
+fn create_source_map_and_update_offsets(source: &mut QasmSource) -> (SourceMap, SourceSnapshot) {
     let mut files: Vec<(Arc<str>, Arc<str>)> = Vec::new();
-    collect_source_files_and_update_offsets(source, &mut files, 0);
-    SourceMap::new(files, None)
+    let mut snapshots = Vec::new();
+    source.status = SourceStatus::Entry;
+    collect_source_files_and_update_offsets(source, &mut files, &mut snapshots, 0);
+    validate_snapshot_aliases(&snapshots);
+    (
+        SourceMap::new(files, None),
+        SourceSnapshot {
+            files: snapshots.into(),
+        },
+    )
+}
+
+fn validate_snapshot_aliases(snapshots: &[SourceFileSnapshot]) {
+    let mut source_ids = FxHashMap::default();
+    for source in snapshots
+        .iter()
+        .filter(|source| source.status != SourceStatus::Unresolved)
+    {
+        for key in std::iter::once(&source.path).chain(source.aliases.iter()) {
+            if let Some(existing_id) = source_ids.insert(key.clone(), source.id) {
+                assert_eq!(
+                    existing_id, source.id,
+                    "source alias collision for {key}: source {existing_id} conflicts with source {}",
+                    source.id
+                );
+            }
+        }
+    }
 }
 
 fn next_source_offset(offset: u32, source: &str) -> u32 {
@@ -161,6 +250,8 @@ pub struct QasmSource {
     /// Any included files that were resolved.
     /// Note that this is a recursive structure.
     included: Vec<QasmSource>,
+    status: SourceStatus,
+    aliases: Vec<Arc<str>>,
 }
 
 impl QasmSource {
@@ -178,6 +269,8 @@ impl QasmSource {
             program: Some(program),
             errors,
             included,
+            status: SourceStatus::Resolved,
+            aliases: Vec::new(),
         }
     }
 
@@ -243,6 +336,12 @@ impl QasmSource {
     #[must_use]
     pub fn source(&self) -> Arc<str> {
         self.source.clone()
+    }
+
+    fn record_resolution(&mut self, requested_path: Arc<str>) {
+        if requested_path != self.path {
+            self.aliases.push(requested_path);
+        }
     }
 }
 
@@ -331,7 +430,8 @@ where
 
     match resolver.resolve(&resolved_path, path) {
         Ok((path, source)) => {
-            let parse_result = parse_qasm_source(source, path.clone(), resolver);
+            let mut parse_result = parse_qasm_source(source, path.clone(), resolver);
+            parse_result.record_resolution(resolved_path);
 
             // Once we finish parsing the source, we pop the file from the
             // resolver. This is needed to keep track of multiple includes
@@ -340,7 +440,10 @@ where
 
             Ok(parse_result)
         }
-        Err(e) => Err(io_to_parse_error(span, e)),
+        Err(e) => {
+            resolver.ctx().pop_current_file();
+            Err(io_to_parse_error(span, e))
+        }
     }
 }
 
@@ -414,6 +517,8 @@ where
                         }),
                         errors: vec![],
                         included: vec![],
+                        status: SourceStatus::Unresolved,
+                        aliases: vec![],
                     }
                 }
             };

@@ -91,12 +91,12 @@ impl SourceResolverContext {
         loop {
             let file = current_file.clone();
             paths.push(file.clone());
-            current_file = self.get_parent(&current_file)?;
             if file == *path {
                 paths.reverse();
                 paths.push(path.clone());
                 return Some(Cycle { paths });
             }
+            current_file = self.get_parent(&current_file)?;
         }
     }
 
@@ -205,5 +205,63 @@ impl SourceResolver for InMemorySourceResolver {
                 format!("Could not resolve include file: {original_path}"),
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErrorKind, SourceResolverContext};
+    use crate::span::Span;
+    use std::sync::Arc;
+
+    #[test]
+    fn direct_include_cycle_is_rejected() {
+        let mut context = SourceResolverContext::default();
+        let main: Arc<str> = "main.qasm".into();
+        context
+            .check_include_errors(&main, Span::default())
+            .expect("entry should be accepted");
+
+        let error = context
+            .check_include_errors(&main, Span::default())
+            .expect_err("direct cycle should be rejected");
+        assert!(matches!(error.0, ErrorKind::CyclicInclude(..)));
+    }
+
+    #[test]
+    fn indirect_include_cycle_is_rejected() {
+        let mut context = SourceResolverContext::default();
+        let main: Arc<str> = "main.qasm".into();
+        let child: Arc<str> = "child.qasm".into();
+        context
+            .check_include_errors(&main, Span::default())
+            .expect("entry should be accepted");
+        context
+            .check_include_errors(&child, Span::default())
+            .expect("child should be accepted");
+
+        let error = context
+            .check_include_errors(&main, Span::default())
+            .expect_err("indirect cycle should be rejected");
+        assert!(matches!(error.0, ErrorKind::CyclicInclude(..)));
+    }
+
+    #[test]
+    fn duplicate_include_is_rejected() {
+        let mut context = SourceResolverContext::default();
+        let main: Arc<str> = "main.qasm".into();
+        let child: Arc<str> = "child.qasm".into();
+        context
+            .check_include_errors(&main, Span::default())
+            .expect("entry should be accepted");
+        context
+            .check_include_errors(&child, Span::default())
+            .expect("child should be accepted");
+        context.pop_current_file();
+
+        let error = context
+            .check_include_errors(&child, Span::default())
+            .expect_err("duplicate include should be rejected");
+        assert!(matches!(error.0, ErrorKind::MultipleInclude(..)));
     }
 }

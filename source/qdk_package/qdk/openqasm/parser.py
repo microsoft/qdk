@@ -41,7 +41,7 @@ call returns.
 
 from __future__ import annotations
 
-from typing import Callable, Dict, Optional, Union
+from typing import Callable, Dict, Optional, TextIO, Union
 
 from .._native import (  # type: ignore
     AliasStatement,
@@ -84,6 +84,8 @@ from .._native import (  # type: ignore
     LiteralExpression,
     ParenExpression,
     ParseResult,
+    Position,
+    PositionEncoding,
     Pragma,
     Program,
     QASMNode,
@@ -99,6 +101,11 @@ from .._native import (  # type: ignore
     RangeDefinition,
     ReturnStatement,
     Severity,
+    SourceDocument,
+    SourceEdit,
+    SourceFile,
+    SourceMap,
+    SourceRange,
     Span,
     Statement,
     SubroutineParameter,
@@ -107,18 +114,34 @@ from .._native import (  # type: ignore
     SwitchStatement,
     UnaryExpression,
     WhileLoop,
+    _QASMUnparseError as _NativeQASMUnparseError,
     parse as _parse,
+    qasm_dumps as _qasm_dumps,
 )
 from ._visitor import QASMVisitor
 
+CANONICAL_FORMAT_VERSION = 1
+
 __all__ = [
     "parse",
+    "dumps",
+    "unparse",
+    "dump",
+    "CANONICAL_FORMAT_VERSION",
+    "QASMUnparseError",
     "QASMVisitor",
     "Annotation",
     "ParseResult",
     "Diagnostic",
     "Label",
     "Severity",
+    "Position",
+    "PositionEncoding",
+    "SourceDocument",
+    "SourceEdit",
+    "SourceFile",
+    "SourceMap",
+    "SourceRange",
     "Span",
     "QASMNode",
     "Expression",
@@ -180,6 +203,46 @@ __all__ = [
 ]
 
 
+class QASMUnparseError(ValueError):
+    """Raised when a syntax program cannot be canonically serialized.
+
+    Attributes:
+        code: Stable machine-readable error code.
+        span: Source span associated with the error, when available.
+        diagnostics: Entry-source parser diagnostics that prevented output.
+    """
+
+    __slots__ = ("_code", "_span", "_diagnostics")
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str,
+        span: Optional[Span],
+        diagnostics: tuple[Diagnostic, ...],
+    ) -> None:
+        super().__init__(message)
+        self._code = code
+        self._span = span
+        self._diagnostics = diagnostics
+
+    @property
+    def code(self) -> str:
+        """Stable machine-readable error code."""
+        return self._code
+
+    @property
+    def span(self) -> Optional[Span]:
+        """Source span associated with the error, when available."""
+        return self._span
+
+    @property
+    def diagnostics(self) -> tuple[Diagnostic, ...]:
+        """Entry-source diagnostics that prevented canonical output."""
+        return self._diagnostics
+
+
 def parse(
     source: str,
     *,
@@ -202,3 +265,55 @@ def parse(
         collected rather than raised.
     """
     return _parse(source, path, includes)
+
+
+def dumps(program: Program, /) -> str:
+    """Serialize a syntactic program to canonical OpenQASM source.
+
+    Canonical format version 1 uses LF line endings, two-space indentation,
+    one statement per line, normalized whitespace and parentheses, and exactly
+    one trailing newline. It preserves the entry source's version, include
+    directives, annotations, pragmas, and calibration bodies while omitting
+    comments and original formatting. During the preview period, byte-level
+    stability is not promised across QDK releases.
+
+    Args:
+        program: A syntactic :class:`Program` returned by this parser.
+
+    Returns:
+        Canonical OpenQASM source.
+
+    Raises:
+        TypeError: If ``program`` is a semantic or foreign program object.
+        QASMUnparseError: If the entry source contains recovered or unsupported
+            syntax, an invalid string, or a non-finite floating-point value.
+    """
+    try:
+        return _qasm_dumps(program)
+    except _NativeQASMUnparseError as error:
+        raise QASMUnparseError(
+            str(error),
+            code=error.code,
+            span=error.span,
+            diagnostics=error.diagnostics,
+        ) from None
+
+
+unparse = dumps
+
+
+def dump(program: Program, stream: TextIO, /) -> None:
+    """Write canonical OpenQASM source to a text stream exactly once.
+
+    The stream is not flushed or closed. Exceptions from ``stream.write``
+    propagate unchanged.
+
+    Args:
+        program: A syntactic :class:`Program` returned by this parser.
+        stream: A text stream with a ``write(str)`` method.
+
+    Raises:
+        TypeError: If ``program`` is a semantic or foreign program object.
+        QASMUnparseError: If canonical serialization fails.
+    """
+    stream.write(dumps(program))

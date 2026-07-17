@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import pytest
+
 from qdk.openqasm import parser, semantic
 from qdk.openqasm.semantic import (
     BinaryExpression,
@@ -30,6 +32,12 @@ def test_analyze_returns_semantic_program() -> None:
     assert isinstance(program, Program)
     assert type(program).__name__ == "Program"
     assert program.version == "3.0"
+
+
+def test_canonical_dump_rejects_semantic_program() -> None:
+    program = semantic.analyze(_STDGATES).program
+    with pytest.raises(TypeError):
+        parser.dumps(program)  # type: ignore[arg-type]
 
 
 def test_semantic_node_names_and_isinstance() -> None:

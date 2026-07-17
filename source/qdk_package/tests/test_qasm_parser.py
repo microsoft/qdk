@@ -28,6 +28,15 @@ def test_parse_returns_program() -> None:
     assert program.version == "3.0"
 
 
+def test_parse_result_exposes_program_document() -> None:
+    source = "OPENQASM 3.0; qubit q;"
+    result = parser.parse(source, path="main.qasm")
+
+    assert result.document is result.program.document
+    assert result.document.entry.path == "main.qasm"
+    assert result.document.entry.text == source
+
+
 def test_node_names_and_isinstance() -> None:
     result = parser.parse("OPENQASM 3.0; qubit q; x q;")
     statements = result.program.statements

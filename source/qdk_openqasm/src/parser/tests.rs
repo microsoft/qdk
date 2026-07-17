@@ -5,14 +5,16 @@ use std::sync::Arc;
 
 use crate::io::InMemorySourceResolver;
 use crate::io::SourceResolver;
+use crate::io::{self, SourceResolverContext};
 
-use super::ParseResult;
 use super::parse_source;
+use super::{ParseResult, SourceStatus};
 use miette::Report;
 
 use super::prim::FinalSep;
 use super::{Parser, scan::ParserContext};
 use expect_test::Expect;
+use rustc_hash::FxHashMap;
 use std::fmt::Display;
 
 pub(crate) fn parse_all<S: Into<Arc<str>>>(
@@ -168,4 +170,209 @@ fn programs_with_includes_with_includes_can_be_parsed() -> miette::Result<(), Ve
     assert!(res.source.includes().len() == 1);
     assert!(res.source.includes()[0].includes().len() == 1);
     Ok(())
+}
+
+#[test]
+fn source_snapshot_uses_preorder_ids_and_explicit_status() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"empty.inc\"; ",
+        "include \"missing.inc\"; include \"nested.inc\";"
+    );
+    let sources = [
+        ("empty.inc".into(), "".into()),
+        ("nested.inc".into(), "include \"leaf.inc\";".into()),
+        ("leaf.inc".into(), "gate leaf q {}".into()),
+    ];
+    let mut resolver = InMemorySourceResolver::from_iter(sources);
+    let result = parse_source(source, "main.qasm", &mut resolver);
+    let files = result.source_snapshot.files();
+
+    assert_eq!(files.len(), 5);
+    assert_eq!(
+        files.iter().map(|file| file.id).collect::<Vec<_>>(),
+        (0..5).collect::<Vec<_>>()
+    );
+    assert_eq!(files[0].status, SourceStatus::Entry);
+    assert_eq!(files[1].status, SourceStatus::Resolved);
+    assert_eq!(files[1].text.as_ref(), "");
+    assert_eq!(files[2].status, SourceStatus::Unresolved);
+    assert_eq!(files[2].text.as_ref(), "");
+    assert_eq!(files[3].path.as_ref(), "nested.inc");
+    assert_eq!(files[4].path.as_ref(), "leaf.inc");
+}
+
+struct RenamingResolver {
+    sources: FxHashMap<String, (Arc<str>, Arc<str>)>,
+    context: SourceResolverContext,
+}
+
+impl SourceResolver for RenamingResolver {
+    fn ctx(&mut self) -> &mut SourceResolverContext {
+        &mut self.context
+    }
+
+    fn resolve(
+        &mut self,
+        path: &Arc<str>,
+        original_path: &Arc<str>,
+    ) -> miette::Result<(Arc<str>, Arc<str>), io::Error> {
+        self.sources.get(path.as_ref()).cloned().ok_or_else(|| {
+            io::Error(io::ErrorKind::NotFound(
+                crate::span::Span::default(),
+                format!("Could not resolve include file: {original_path}"),
+            ))
+        })
+    }
+}
+
+fn renaming_resolver(
+    sources: impl IntoIterator<Item = (&'static str, &'static str, &'static str)>,
+) -> RenamingResolver {
+    RenamingResolver {
+        sources: sources
+            .into_iter()
+            .map(|(requested, resolved, text)| {
+                (
+                    requested.to_string(),
+                    (Arc::from(resolved), Arc::from(text)),
+                )
+            })
+            .collect(),
+        context: SourceResolverContext::default(),
+    }
+}
+
+#[test]
+fn source_snapshot_records_relative_and_uri_aliases() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"../shared.inc\"; ",
+        "include \"uri.inc\";"
+    );
+    let mut resolver = renaming_resolver([
+        ("pkg/shared.inc", "memory://shared.inc", ""),
+        ("pkg/app/uri.inc", "https://example.test/uri.inc", ""),
+    ]);
+    let result = parse_source(source, "pkg/app/main.qasm", &mut resolver);
+    let files = result.source_snapshot.files();
+
+    assert_eq!(
+        files[1].aliases.as_ref(),
+        [Arc::<str>::from("pkg/shared.inc")]
+    );
+    assert_eq!(
+        files[2].aliases.as_ref(),
+        [Arc::<str>::from("pkg/app/uri.inc")]
+    );
+    assert_eq!(
+        result
+            .source_snapshot
+            .resolve("pkg/shared.inc")
+            .map(|file| file.id),
+        Some(files[1].id)
+    );
+    assert_eq!(
+        result
+            .source_snapshot
+            .resolve("memory://shared.inc")
+            .map(|file| file.id),
+        Some(files[1].id)
+    );
+    assert_eq!(
+        result
+            .source_snapshot
+            .resolve("pkg/app/uri.inc")
+            .map(|file| file.id),
+        Some(files[2].id)
+    );
+    assert_eq!(
+        result
+            .source_snapshot
+            .resolve("https://example.test/uri.inc")
+            .map(|file| file.id),
+        Some(files[2].id)
+    );
+}
+
+#[test]
+fn same_basename_in_different_directories_has_distinct_aliases() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"a/shared.inc\"; ",
+        "include \"b/shared.inc\";"
+    );
+    let mut resolver = renaming_resolver([
+        ("root/a/shared.inc", "memory://a/shared.inc", ""),
+        ("root/b/shared.inc", "memory://b/shared.inc", ""),
+    ]);
+    let result = parse_source(source, "root/main.qasm", &mut resolver);
+    let files = result.source_snapshot.files();
+
+    assert_eq!(
+        files[1].aliases.as_ref(),
+        [Arc::<str>::from("root/a/shared.inc")]
+    );
+    assert_eq!(
+        files[2].aliases.as_ref(),
+        [Arc::<str>::from("root/b/shared.inc")]
+    );
+    assert_eq!(
+        result
+            .source_snapshot
+            .resolve("root/a/shared.inc")
+            .map(|file| file.id),
+        Some(files[1].id)
+    );
+    assert_eq!(
+        result
+            .source_snapshot
+            .resolve("root/b/shared.inc")
+            .map(|file| file.id),
+        Some(files[2].id)
+    );
+}
+
+#[test]
+#[should_panic(expected = "source alias collision")]
+fn source_snapshot_rejects_alias_collisions() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"one.inc\"; ",
+        "include \"two.inc\";"
+    );
+    let mut resolver = renaming_resolver([
+        ("one.inc", "memory://same.inc", ""),
+        ("two.inc", "memory://same.inc", ""),
+    ]);
+
+    let _ = parse_source(source, "main.qasm", &mut resolver);
+}
+
+#[test]
+fn resolver_failure_does_not_change_later_include_base_path() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"missing/first.inc\"; ",
+        "include \"second.inc\";"
+    );
+    let mut resolver =
+        InMemorySourceResolver::from_iter([("root/second.inc".into(), "gate second q {}".into())]);
+    let result = parse_source(source, "root/main.qasm", &mut resolver);
+    let files = result.source_snapshot.files();
+
+    assert_eq!(files[1].status, SourceStatus::Unresolved);
+    assert_eq!(files[2].path.as_ref(), "root/second.inc");
+    assert_eq!(files[2].status, SourceStatus::Resolved);
+}
+
+#[test]
+fn duplicate_include_publishes_unresolved_placeholder() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"shared.inc\"; ",
+        "include \"shared.inc\";"
+    );
+    let mut resolver = InMemorySourceResolver::from_iter([("shared.inc".into(), "".into())]);
+    let result = parse_source(source, "main.qasm", &mut resolver);
+    let files = result.source_snapshot.files();
+
+    assert_eq!(files.len(), 3);
+    assert_eq!(files[1].status, SourceStatus::Resolved);
+    assert_eq!(files[2].status, SourceStatus::Unresolved);
+    assert!(result.has_errors());
 }

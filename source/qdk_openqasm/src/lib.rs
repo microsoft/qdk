@@ -10,15 +10,17 @@ mod keyword;
 mod lex;
 pub mod parser;
 pub mod semantic;
+pub mod source;
 pub mod stdlib;
+pub mod unparse;
 
 #[cfg(test)]
 pub(crate) mod tests;
 
 mod vendor;
 
+pub use vendor::span;
 pub(crate) use vendor::{display, index_map};
-pub use vendor::{source, span};
 
 use std::sync::Arc;
 

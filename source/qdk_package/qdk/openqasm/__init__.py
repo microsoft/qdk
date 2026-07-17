@@ -33,7 +33,15 @@ Key exports:
   walking either the syntactic or semantic AST.
 """
 
-from . import parser, semantic
+from . import parser, semantic, source
+from .parser import (
+  CANONICAL_FORMAT_VERSION,
+  QASMUnparseError,
+  dump,
+  dumps,
+  unparse,
+)
+from .source import Position, PositionEncoding, SourceEdit, SourceRange
 from ._circuit import circuit
 from ._compile import compile
 from ._estimate import estimate
@@ -47,8 +55,18 @@ __all__ = [
     "estimate",
     "import_openqasm",
     "run",
+    "dumps",
+    "unparse",
+    "dump",
+    "CANONICAL_FORMAT_VERSION",
+    "QASMUnparseError",
     "parser",
     "semantic",
+    "source",
+    "Position",
+    "PositionEncoding",
+    "SourceEdit",
+    "SourceRange",
     "ProgramType",
     "OutputSemantics",
     "QasmError",

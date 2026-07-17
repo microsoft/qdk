@@ -107,7 +107,7 @@ pub fn parse<S: Into<Arc<str>>, P: Into<Arc<str>>>(source: S, path: P) -> Analys
 /// Parse a QASM file and return the parse result.
 /// This function will resolve includes using the provided resolver.
 /// If an include file cannot be resolved, an error will be returned.
-/// If a file is included recursively, a stack overflow occurs.
+/// Recursive and duplicate includes are reported as parse errors.
 pub fn parse_source<R: SourceResolver, S: Into<Arc<str>>, P: Into<Arc<str>>>(
     source: S,
     path: P,
