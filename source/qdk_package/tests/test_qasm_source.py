@@ -102,6 +102,12 @@ def test_source_values_are_frozen_and_compare_by_value() -> None:
     with pytest.raises(AttributeError):
         edit.replacement = "y"
 
+    first = parser.parse("OPENQASM 3.0;").document
+    second = parser.parse("OPENQASM 3.0;").document
+    assert first == second
+    assert first.source_map == second.source_map
+    assert first.entry == second.entry
+
 
 def test_document_program_and_result_have_independent_lifetimes() -> None:
     result = parser.parse("OPENQASM 3.0; qubit q;")

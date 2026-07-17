@@ -119,6 +119,7 @@ from .._native import (  # type: ignore
     qasm_dumps as _qasm_dumps,
 )
 from ._visitor import QASMVisitor
+from .rewriter import QASMRewriteError, QASMRewriter, RewriteReturn
 from .tokens import RawToken, RawTokenKind, tokenize
 
 CANONICAL_FORMAT_VERSION = 1
@@ -134,10 +135,13 @@ __all__ = [
     "dump",
     "CANONICAL_FORMAT_VERSION",
     "QASMUnparseError",
+    "QASMRewriteError",
     "tokenize",
     "RawToken",
     "RawTokenKind",
     "QASMVisitor",
+    "QASMRewriter",
+    "RewriteReturn",
     "Annotation",
     "ParseResult",
     "Diagnostic",

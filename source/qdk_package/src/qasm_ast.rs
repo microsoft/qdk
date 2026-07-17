@@ -40,8 +40,9 @@ use pyo3::create_exception;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use resolver::PySourceResolver;
+use resolver::{PySourceResolver, SnapshotResolver};
 use semantic::{build_program as build_semantic_program, build_symbol_table};
+use source::RewriteError;
 use syntax::build_program;
 
 create_exception!(
@@ -49,6 +50,12 @@ create_exception!(
     NativeQASMUnparseError,
     PyValueError,
     "An internal checked OpenQASM serialization error."
+);
+create_exception!(
+    qdk._native,
+    NativeQASMRewriteError,
+    PyValueError,
+    "An invalid transactional OpenQASM source edit."
 );
 
 /// The result of a syntactic [`parse`].
@@ -157,6 +164,13 @@ fn parse(
 ) -> PyResult<ParseResult> {
     let mut resolver = resolver_for(py, includes);
     let result = qdk_openqasm::parse_source(source, path, Some(&mut resolver));
+    project_parse_result(py, &result)
+}
+
+fn project_parse_result(
+    py: Python<'_>,
+    result: &qdk_openqasm::parser::ParseResult,
+) -> PyResult<ParseResult> {
     let diagnostics = result
         .all_errors()
         .iter()
@@ -171,6 +185,27 @@ fn parse(
         diagnostics,
         has_errors,
     })
+}
+
+/// Applies validated entry-source edits and reparses against immutable include snapshots.
+#[pyfunction]
+#[allow(clippy::needless_pass_by_value)]
+fn qasm_apply_edits(
+    py: Python<'_>,
+    result: PyRef<'_, ParseResult>,
+    edits: Vec<SourceEdit>,
+) -> PyResult<ParseResult> {
+    let document = result.document.bind(py).borrow();
+    let source = document
+        .apply_edits(&edits)
+        .map_err(|error| rewrite_error(py, &error))?;
+    let (_, path) = document.entry_source();
+    let path = path.to_string();
+    let mut resolver = SnapshotResolver::from_document(&document);
+    drop(document);
+
+    let reparsed = qdk_openqasm::parse_source(source, path, Some(&mut resolver));
+    project_parse_result(py, &reparsed)
 }
 
 /// Parses and semantically analyzes `OpenQASM` source text.
@@ -305,6 +340,33 @@ fn unparse_error(
     error
 }
 
+fn rewrite_error(py: Python<'_>, error: &RewriteError) -> PyErr {
+    let code = error.code.as_str();
+    let exception = NativeQASMRewriteError::new_err(format!(
+        "invalid OpenQASM source edit: {}",
+        code.replace('-', " ")
+    ));
+    let value = exception.value(py);
+    value
+        .setattr("code", code)
+        .expect("native rewrite exception should accept code");
+    value
+        .setattr("edit_index", error.edit_index)
+        .expect("native rewrite exception should accept edit index");
+    match error.range {
+        Some(range) => value
+            .setattr(
+                "range",
+                Py::new(py, range).expect("source range projection should be constructible"),
+            )
+            .expect("native rewrite exception should accept range"),
+        None => value
+            .setattr("range", py.None())
+            .expect("native rewrite exception should accept range"),
+    }
+    exception
+}
+
 /// Registers the `qdk.openqasm` native AST classes and functions on `_native`.
 pub(crate) fn register_qasm_ast_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<QASMNode>()?;
@@ -326,8 +388,13 @@ pub(crate) fn register_qasm_ast_submodule(m: &Bound<'_, PyModule>) -> PyResult<(
         "_QASMUnparseError",
         m.py().get_type::<NativeQASMUnparseError>(),
     )?;
+    m.add(
+        "_QASMRewriteError",
+        m.py().get_type::<NativeQASMRewriteError>(),
+    )?;
     m.add_function(wrap_pyfunction!(parse, m)?)?;
     m.add_function(wrap_pyfunction!(analyze, m)?)?;
+    m.add_function(wrap_pyfunction!(qasm_apply_edits, m)?)?;
     m.add_function(wrap_pyfunction!(qasm_dumps, m)?)?;
     m.add_function(wrap_pyfunction!(tokens::qasm_tokenize, m)?)?;
     Ok(())

@@ -13,7 +13,74 @@ use qdk_openqasm::source::{
     byte_offset as native_byte_offset, position_at as native_position_at,
     range_from_span as native_range_from_span, span_from_range as native_span_from_range,
 };
+use std::hash::{Hash, Hasher};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static NEXT_DOCUMENT_ID: AtomicU64 = AtomicU64::new(1);
+
+pub(crate) type ResolvedSource = (Arc<str>, Arc<str>, Arc<[Arc<str>]>);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RewriteErrorCode {
+    UnknownSource,
+    IncludeEdit,
+    InvalidPosition,
+    MixedEncoding,
+    ReversedRange,
+    Overlap,
+    AmbiguousInsertion,
+    DocumentTooLarge,
+}
+
+impl RewriteErrorCode {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::UnknownSource => "unknown-source",
+            Self::IncludeEdit => "include-edit",
+            Self::InvalidPosition => "invalid-position",
+            Self::MixedEncoding => "mixed-encoding",
+            Self::ReversedRange => "reversed-range",
+            Self::Overlap => "overlap",
+            Self::AmbiguousInsertion => "ambiguous-insertion",
+            Self::DocumentTooLarge => "document-too-large",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct RewriteError {
+    pub(crate) code: RewriteErrorCode,
+    pub(crate) edit_index: Option<usize>,
+    pub(crate) range: Option<SourceRange>,
+}
+
+impl RewriteError {
+    fn for_edit(code: RewriteErrorCode, edit_index: usize, range: SourceRange) -> Self {
+        Self {
+            code,
+            edit_index: Some(edit_index),
+            range: Some(range),
+        }
+    }
+
+    fn document_too_large() -> Self {
+        Self {
+            code: RewriteErrorCode::DocumentTooLarge,
+            edit_index: None,
+            range: None,
+        }
+    }
+}
+
+#[derive(Debug)]
+struct NormalizedEdit<'a> {
+    index: usize,
+    start: usize,
+    end: usize,
+    replacement: &'a str,
+    range: SourceRange,
+}
 
 #[pyclass(module = "qdk._native", eq, eq_int, frozen, from_py_object)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -136,7 +203,7 @@ impl Position {
 }
 
 #[pyclass(module = "qdk._native", frozen, eq, hash, skip_from_py_object)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct SourceRange {
     #[pyo3(get)]
     source_id: u32,
@@ -144,6 +211,23 @@ pub(crate) struct SourceRange {
     start: Position,
     #[pyo3(get)]
     end: Position,
+    document_id: Option<u64>,
+}
+
+impl PartialEq for SourceRange {
+    fn eq(&self, other: &Self) -> bool {
+        self.source_id == other.source_id && self.start == other.start && self.end == other.end
+    }
+}
+
+impl Eq for SourceRange {}
+
+impl Hash for SourceRange {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.source_id.hash(state);
+        self.start.hash(state);
+        self.end.hash(state);
+    }
 }
 
 impl From<SourceRange> for NativeRange {
@@ -164,6 +248,7 @@ impl SourceRange {
             source_id,
             start: *start,
             end: *end,
+            document_id: None,
         }
     }
 
@@ -175,7 +260,7 @@ impl SourceRange {
     }
 }
 
-#[pyclass(module = "qdk._native", frozen, eq, hash, skip_from_py_object)]
+#[pyclass(module = "qdk._native", frozen, eq, hash, from_py_object)]
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct SourceEdit {
     #[pyo3(get)]
@@ -213,9 +298,24 @@ struct SourceFileInner {
     aliases: Arc<[Arc<str>]>,
 }
 
-#[derive(Debug, Eq, Hash, PartialEq)]
+#[derive(Debug)]
 pub(crate) struct SourceDocumentInner {
+    id: u64,
     files: Arc<[SourceFileInner]>,
+}
+
+impl PartialEq for SourceDocumentInner {
+    fn eq(&self, other: &Self) -> bool {
+        self.files == other.files
+    }
+}
+
+impl Eq for SourceDocumentInner {}
+
+impl Hash for SourceDocumentInner {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.files.hash(state);
+    }
 }
 
 impl From<&SourceSnapshot> for SourceDocumentInner {
@@ -243,9 +343,162 @@ impl From<&SourceSnapshot> for SourceDocumentInner {
             })
             .collect::<Vec<_>>();
         Self {
+            id: NEXT_DOCUMENT_ID.fetch_add(1, Ordering::Relaxed),
             files: files.into(),
         }
     }
+}
+
+impl SourceDocumentInner {
+    fn entry(&self) -> &SourceFileInner {
+        self.files
+            .first()
+            .expect("source document should have an entry")
+    }
+
+    fn apply_edits(&self, edits: &[SourceEdit]) -> Result<String, RewriteError> {
+        let entry = self.entry();
+        let mut normalized = edits
+            .iter()
+            .enumerate()
+            .map(|(index, edit)| self.normalize_edit(entry, index, edit))
+            .collect::<Result<Vec<_>, _>>()?;
+        normalized.sort_unstable_by_key(|edit| (edit.start, edit.end, edit.index));
+        validate_ordered_edits(&normalized)?;
+
+        let output_len = checked_output_len(
+            entry.text.len(),
+            normalized
+                .iter()
+                .map(|edit| (edit.end - edit.start, edit.replacement.len())),
+        )?;
+        let mut output = String::with_capacity(output_len);
+        let mut cursor = 0;
+        for edit in normalized {
+            output.push_str(&entry.text[cursor..edit.start]);
+            output.push_str(edit.replacement);
+            cursor = edit.end;
+        }
+        output.push_str(&entry.text[cursor..]);
+        Ok(output)
+    }
+
+    fn normalize_edit<'a>(
+        &self,
+        entry: &SourceFileInner,
+        index: usize,
+        edit: &'a SourceEdit,
+    ) -> Result<NormalizedEdit<'a>, RewriteError> {
+        let range = edit.range;
+        if range
+            .document_id
+            .is_some_and(|document_id| document_id != self.id)
+        {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::InvalidPosition,
+                index,
+                range,
+            ));
+        }
+        let Some(source) = self
+            .files
+            .iter()
+            .find(|source| source.id == range.source_id)
+        else {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::UnknownSource,
+                index,
+                range,
+            ));
+        };
+        if source.id != entry.id {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::IncludeEdit,
+                index,
+                range,
+            ));
+        }
+        if range.start.encoding != range.end.encoding {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::MixedEncoding,
+                index,
+                range,
+            ));
+        }
+        if range.start.encoding != PositionEncoding::Utf8 {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::InvalidPosition,
+                index,
+                range,
+            ));
+        }
+
+        let start = native_byte_offset(&entry.text, range.start.into())
+            .map_err(|_| RewriteError::for_edit(RewriteErrorCode::InvalidPosition, index, range))?;
+        let end = native_byte_offset(&entry.text, range.end.into())
+            .map_err(|_| RewriteError::for_edit(RewriteErrorCode::InvalidPosition, index, range))?;
+        if end < start {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::ReversedRange,
+                index,
+                range,
+            ));
+        }
+
+        Ok(NormalizedEdit {
+            index,
+            start: start as usize,
+            end: end as usize,
+            replacement: &edit.replacement,
+            range,
+        })
+    }
+}
+
+fn validate_ordered_edits(edits: &[NormalizedEdit<'_>]) -> Result<(), RewriteError> {
+    for pair in edits.windows(2) {
+        let previous = &pair[0];
+        let current = &pair[1];
+        if previous.start == previous.end
+            && current.start == current.end
+            && previous.start == current.start
+        {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::AmbiguousInsertion,
+                current.index,
+                current.range,
+            ));
+        }
+        if current.start < previous.end {
+            return Err(RewriteError::for_edit(
+                RewriteErrorCode::Overlap,
+                current.index,
+                current.range,
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn checked_output_len(
+    source_len: usize,
+    edits: impl IntoIterator<Item = (usize, usize)>,
+) -> Result<usize, RewriteError> {
+    let mut removed_total = 0usize;
+    let mut replacement_total = 0usize;
+    for (removed_len, replacement_len) in edits {
+        removed_total = removed_total
+            .checked_add(removed_len)
+            .ok_or_else(RewriteError::document_too_large)?;
+        replacement_total = replacement_total
+            .checked_add(replacement_len)
+            .ok_or_else(RewriteError::document_too_large)?;
+    }
+    source_len
+        .checked_sub(removed_total)
+        .and_then(|length| length.checked_add(replacement_total))
+        .filter(|length| u32::try_from(*length).is_ok())
+        .ok_or_else(RewriteError::document_too_large)
 }
 
 #[pyclass(module = "qdk._native", frozen, eq, hash, skip_from_py_object)]
@@ -351,13 +604,15 @@ impl SourceMap {
             .files
             .iter()
             .find_map(|file| {
-                (file.span.lo <= span.lo && span.hi <= file.span.hi).then_some((
-                    file,
-                    qdk_openqasm::span::Span {
-                        lo: span.lo - file.span.lo,
-                        hi: span.hi - file.span.lo,
-                    },
-                ))
+                (file.span.lo <= span.lo && span.hi <= file.span.hi).then(|| {
+                    (
+                        file,
+                        qdk_openqasm::span::Span {
+                            lo: span.lo - file.span.lo,
+                            hi: span.hi - file.span.lo,
+                        },
+                    )
+                })
             })
             .ok_or_else(|| PyValueError::new_err("span is not contained in one source"))
     }
@@ -463,11 +718,20 @@ impl SourceMap {
             source_id: source.id,
             start: range.start.into(),
             end: range.end.into(),
+            document_id: Some(self.document.id),
         })
     }
 
     #[allow(clippy::needless_pass_by_value)]
     fn span_from_range(&self, source_range: PyRef<'_, SourceRange>) -> PyResult<Span> {
+        if source_range
+            .document_id
+            .is_some_and(|document_id| document_id != self.document.id)
+        {
+            return Err(PyValueError::new_err(
+                "source range belongs to a different document",
+            ));
+        }
         let source = self.source(source_range.source_id)?;
         let local_span = native_span_from_range(&source.text, (*source_range).into())
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
@@ -504,12 +768,27 @@ impl SourceDocument {
     }
 
     pub(crate) fn entry_source(&self) -> (&str, &str) {
-        let entry = self
-            .inner
-            .files
-            .first()
-            .expect("source document should have an entry");
+        let entry = self.inner.entry();
         (&entry.text, &entry.path)
+    }
+
+    pub(crate) fn apply_edits(&self, edits: &[SourceEdit]) -> Result<String, RewriteError> {
+        self.inner.apply_edits(edits)
+    }
+
+    pub(crate) fn resolved_sources(&self) -> Vec<ResolvedSource> {
+        self.inner
+            .files
+            .iter()
+            .filter(|source| source.status == SourceStatus::Resolved)
+            .map(|source| {
+                (
+                    source.path.clone(),
+                    source.text.clone(),
+                    source.aliases.clone(),
+                )
+            })
+            .collect()
     }
 }
 
@@ -551,3 +830,114 @@ const _: fn() = || {
     assert_send_sync::<SourceMap>();
     assert_send_sync::<SourceDocument>();
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qdk_openqasm::io::InMemorySourceResolver;
+
+    fn document(source: &str) -> SourceDocument {
+        let result =
+            qdk_openqasm::parse_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
+        SourceDocument::from_snapshot(&result.source_snapshot)
+    }
+
+    fn utf8_range(start: u32, end: u32) -> SourceRange {
+        SourceRange {
+            source_id: 0,
+            start: Position {
+                line: 0,
+                column: start,
+                encoding: PositionEncoding::Utf8,
+            },
+            end: Position {
+                line: 0,
+                column: end,
+                encoding: PositionEncoding::Utf8,
+            },
+            document_id: None,
+        }
+    }
+
+    fn edit(start: u32, end: u32, replacement: &str) -> SourceEdit {
+        SourceEdit {
+            range: utf8_range(start, end),
+            replacement: replacement.to_string(),
+        }
+    }
+
+    #[test]
+    fn edits_apply_deterministically_and_allow_adjacency() {
+        let document = document("abcdef");
+        let edits = [edit(4, 6, "Z"), edit(0, 2, "X"), edit(2, 4, "Y")];
+
+        let output = document.apply_edits(&edits).expect("edits should apply");
+
+        assert_eq!(output, "XYZ");
+    }
+
+    #[test]
+    fn edits_reject_overlap_before_application() {
+        let document = document("abcdef");
+        let edits = [edit(1, 4, "X"), edit(3, 5, "Y")];
+
+        let error = document
+            .apply_edits(&edits)
+            .expect_err("overlapping edits should fail");
+
+        assert_eq!(error.code, RewriteErrorCode::Overlap);
+        assert_eq!(error.edit_index, Some(1));
+    }
+
+    #[test]
+    fn edits_reject_duplicate_insertions() {
+        let document = document("abcdef");
+        let edits = [edit(2, 2, "X"), edit(2, 2, "Y")];
+
+        let error = document
+            .apply_edits(&edits)
+            .expect_err("duplicate insertions should fail");
+
+        assert_eq!(error.code, RewriteErrorCode::AmbiguousInsertion);
+    }
+
+    #[test]
+    fn edits_reject_non_utf8_and_invalid_boundaries() {
+        let document = document("aé");
+        let mut non_utf8 = edit(0, 1, "X");
+        non_utf8.range.end.encoding = PositionEncoding::CodePoint;
+
+        let mixed_error = document
+            .apply_edits(&[non_utf8])
+            .expect_err("mixed encodings should fail");
+        let boundary_error = document
+            .apply_edits(&[edit(2, 3, "X")])
+            .expect_err("invalid UTF-8 boundaries should fail");
+
+        assert_eq!(mixed_error.code, RewriteErrorCode::MixedEncoding);
+        assert_eq!(boundary_error.code, RewriteErrorCode::InvalidPosition);
+    }
+
+    #[test]
+    fn checked_output_len_rejects_u32_overflow() {
+        let error = checked_output_len(u32::MAX as usize, [(0, 1)])
+            .expect_err("output larger than u32 should fail");
+
+        assert_eq!(error.code, RewriteErrorCode::DocumentTooLarge);
+        assert_eq!(error.edit_index, None);
+    }
+
+    #[test]
+    fn edits_reject_ranges_from_another_snapshot() {
+        let original = document("abcdef");
+        let rewritten = document("abcdef");
+        let mut stale_edit = edit(1, 2, "X");
+        stale_edit.range.document_id = Some(original.inner.id);
+
+        let error = rewritten
+            .apply_edits(&[stale_edit])
+            .expect_err("stale ranges should fail");
+
+        assert_eq!(error.code, RewriteErrorCode::InvalidPosition);
+    }
+}

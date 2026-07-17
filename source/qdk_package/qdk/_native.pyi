@@ -2597,12 +2597,23 @@ class _QASMUnparseError(ValueError):
     span: Optional[Span]
     diagnostics: Tuple[Diagnostic, ...]
 
+class _QASMRewriteError(ValueError):
+    """Internal transactional source edit validation error carrier."""
+
+    code: str
+    edit_index: Optional[int]
+    range: Optional[SourceRange]
+
 def parse(
     source: str,
     path: str = ...,
     includes: Optional[Any] = ...,
 ) -> ParseResult:
     """Parses `OpenQASM` source text into a syntax tree."""
+    ...
+
+def qasm_apply_edits(result: ParseResult, edits: List[SourceEdit]) -> ParseResult:
+    """Applies validated entry-source edits and reparses from snapshots."""
     ...
 
 def qasm_dumps(program: Program) -> str:

@@ -33,10 +33,12 @@ Key exports:
   walking either the syntactic or semantic AST.
 """
 
-from . import parser, semantic, source
+from . import parser, rewriter, semantic, source, tokens
 from .parser import (
   CANONICAL_FORMAT_VERSION,
   QASM3ParsingError,
+  QASMRewriteError,
+  QASMRewriter,
   QASMUnparseError,
   dump,
   dumps,
@@ -63,10 +65,14 @@ __all__ = [
     "CANONICAL_FORMAT_VERSION",
     "parse_program",
     "QASM3ParsingError",
+    "QASMRewriteError",
+    "QASMRewriter",
     "QASMUnparseError",
     "parser",
+    "rewriter",
     "semantic",
     "source",
+    "tokens",
     "Position",
     "PositionEncoding",
     "SourceEdit",
