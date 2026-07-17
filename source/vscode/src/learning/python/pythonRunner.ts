@@ -5,6 +5,8 @@ import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import type { CatalogCourse } from "../types.js";
 
+// TODO (acasey): rename this
+
 /**
  * Manages `python-notebook` course files. All Jupyter/notebook execution
  * is handled by VS Code's native notebook UI — this class only handles
@@ -47,6 +49,7 @@ export class PythonCourseRunner {
     if (vscode.env.uiKind === vscode.UIKind.Web) {
       return;
     }
+    // TODO (acasey): share code with ensureExtensions
     const required: { id: string; name: string }[] = [
       { id: "ms-python.python", name: "Python" },
       { id: "ms-toolsai.jupyter", name: "Jupyter" },

@@ -56,6 +56,8 @@ export function registerLearningCommands(
       },
     ),
 
+    // In spite of the name, this is used to start the learning experience
+    // (typically, via a button on the Welcome screen).
     vscode.commands.registerCommand(
       "qsharp-vscode.learningContinue",
       async () => {
@@ -96,6 +98,7 @@ export function registerLearningCommands(
           node.kind === "activity" &&
           node.activity.type === "exercise"
         ) {
+        // TODO (acasey): is there a way to focus on a particular cell? (maybe goToExerciseByCellId?)
           const notebookUri = service.getCurrentCodeFileUri();
           if (notebookUri) {
             await vscode.commands.executeCommand(
@@ -119,6 +122,7 @@ export function registerLearningCommands(
       async (node?: LearningProgressNode) => {
         const courseId = await resolveCourseId(service, node);
         if (!courseId) {
+          // TODO (acasey): at least log this
           return;
         }
         await service.switchCourse(courseId, "tree");
@@ -131,6 +135,7 @@ export function registerLearningCommands(
       async (node?: LearningProgressNode) => {
         const courseId = await resolveCourseId(service, node);
         if (!courseId) {
+          // TODO (acasey): at least log this
           return;
         }
         await showCourseInfo(service, courseId);
@@ -247,6 +252,7 @@ function nodeToLocation(
  * Resolve a target course id from a tree node, or prompt the user with a
  * quick pick when invoked without one (e.g. from the command palette).
  */
+// TODO (acasey): is this actually in the command palette?  If not, do we need a picker?
 async function resolveCourseId(
   service: LearningService,
   node?: LearningProgressNode,
@@ -285,6 +291,7 @@ async function showCourseInfo(
   const courses = await service.getCourses();
   const descriptor = courses.find((c) => c.id === courseId);
   if (!descriptor) {
+    // TODO (acasey): log
     return;
   }
   if (descriptor.readmePath) {
@@ -357,6 +364,7 @@ async function runEnvironmentCheckCommand(
   ].join("\n");
 
   const actions = report.fixes.map((r) => r.label);
+  // TODO (acasey): this is ugly and unthemed - can we do better?
   const choice = await vscode.window.showInformationMessage(
     body,
     { modal: true },

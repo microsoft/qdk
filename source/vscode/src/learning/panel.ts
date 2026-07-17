@@ -327,6 +327,7 @@ export class LessonPanelManager {
     }
 
     if (msg.command === "browseCourses") {
+      // TODO (acasey): was this supposed to be list courses?
       await vscode.commands.executeCommand(
         "qsharp-vscode.learningSwitchCourse",
       );
@@ -346,6 +347,7 @@ export class LessonPanelManager {
     try {
       switch (action) {
         case "next": {
+          // Activity-level navigation doesn't make sense in python notebooks
           const result = this.isPythonNotebook
             ? await this.service.nextUnit("panel")
             : await this.service.next("panel");
@@ -353,6 +355,7 @@ export class LessonPanelManager {
           break;
         }
         case "back": {
+          // Activity-level navigation doesn't make sense in python notebooks
           const result = this.isPythonNotebook
             ? await this.service.previousUnit("panel")
             : await this.service.previous("panel");
@@ -425,6 +428,7 @@ export class LessonPanelManager {
     if (!notebookUri) {
       return;
     }
+    // TODO (acasey): we can get rid of columns if we drop the web view panel
     // Set a two-column layout: lesson panel left, notebook right.
     await vscode.commands.executeCommand("vscode.setEditorLayout", {
       orientation: 0,
@@ -501,6 +505,8 @@ export class LessonPanelManager {
   private async checkSolutionAndSendResult(
     source?: TelemetrySource,
   ): Promise<boolean> {
+    // TODO (acasey): why isn't this state okay?
+    // TODO (acasey): update checkSolution or other callers
     const { result } = await this.service.checkSolution(source);
     this.sendMessage({
       command: "result",

@@ -85,6 +85,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       // environment check) can be scoped to them.
       item.contextValue =
         descriptor.kind === "python-notebook" ? "coursePython" : "course";
+      // TODO (acasey): is this valuable?  It just adds " - Python environment" to the tooltip
       const envNote =
         descriptor.kind === "python-notebook"
           ? " \u00b7 Python environment"
@@ -99,6 +100,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
     }
 
     if (node.kind === "continue") {
+      // TODO (acasey): does this make sense for notebook courses?
       const item = new vscode.TreeItem(
         `Up next: ${node.activityTitle}`,
         vscode.TreeItemCollapsibleState.None,
@@ -245,6 +247,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
         node.courseId === this.service.getActiveCourseId();
       // Hide the synthetic "intro" lesson for python-notebook courses —
       // the panel already shows unit-level content.
+      // TODO (acasey): can we just not synthesize it?
       const activities =
         node.courseKind === "python-notebook"
           ? node.unit.activities.filter((a) => a.id !== "intro")

@@ -44,6 +44,7 @@ export class CourseRegistry {
         continue;
       }
       for (const descriptor of descriptors) {
+        // TODO (acasey): what is this guarding against?  Multiple providers offering the same course?  One provider offering multiple courses with the same ID?
         if (seen.has(descriptor.id)) {
           continue;
         }
@@ -75,6 +76,7 @@ export class CourseRegistry {
   }
 }
 
+// TODO (acasey): separate file (if it survives)
 /** Provider for the built-in Quantum Katas course. */
 export class KatasProvider implements CourseProvider {
   readonly id = "katas-provider";

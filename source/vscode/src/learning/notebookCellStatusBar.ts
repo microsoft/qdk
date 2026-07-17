@@ -12,6 +12,7 @@ import type { LearningService } from "./service.js";
 export function createNotebookCellStatusBarProvider(
   service: LearningService,
 ): vscode.NotebookCellStatusBarItemProvider {
+  // TODO (acasey): clean up logging
   log.debug("createNotebookCellStatusBarProvider");
   return {
     provideCellStatusBarItems(

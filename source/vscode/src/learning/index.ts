@@ -39,6 +39,7 @@ export function initLearning(
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeNotebookDocument((e) => {
+      // TODO (acasey): auto-save?
       // When a cell finishes executing (executionSummary changes), check
       // if it corresponds to an exercise in the active python-notebook
       // course and update focus. If execution succeeded, mark complete.

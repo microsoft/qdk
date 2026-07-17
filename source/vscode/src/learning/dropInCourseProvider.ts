@@ -167,6 +167,7 @@ export class DropInCourseProvider implements CourseProvider {
       shortDescription: manifestString(loc.manifest.shortDescription),
       environment: manifestEnvironment(loc.manifest.environment),
     };
+    // TODO (acasey): well-known location (or eliminate)
     const readme = manifestString(loc.manifest.readme);
     if (readme) {
       const readmeUri = vscode.Uri.joinPath(loc.dir, readme);
@@ -247,9 +248,9 @@ export class DropInCourseProvider implements CourseProvider {
         (e) =>
           e.type === vscode.FileType.File &&
           e.name.toLowerCase().endsWith(".ipynb") &&
-          !e.name.toLowerCase().endsWith(".workbook.ipynb"),
+          !e.name.toLowerCase().endsWith(".workbook.ipynb"), // TODO (acasey): constant for .workbook
       )
-      .sort((a, b) => a.name.localeCompare(b.name))[0];
+      .sort((a, b) => a.name.localeCompare(b.name))[0]; // TODO (acasey): log finding multiple
     if (!notebookEntry) {
       log.warn(
         `Unit "${unit.id}" has no .ipynb notebook in ${unitDir.fsPath}.`,
@@ -281,8 +282,6 @@ export class DropInCourseProvider implements CourseProvider {
       } satisfies CatalogLesson);
     }
 
-    // TODO (acasey): might want multiple solutions
-
     // Load exercise metadata from _exercises.json (optional).
     const exercisesJson = await tryReadText(
       vscode.Uri.joinPath(unitDir, "_exercises.json"),
@@ -305,7 +304,7 @@ export class DropInCourseProvider implements CourseProvider {
         }
       } catch (e) {
         log.warn(
-          `Failed to parse _exercises.json in unit "${unit.id}": ${String(e)}`,
+          `Failed to parse _exercises.json in unit "${unit.id}": ${String(e)}`, // TODO (acasey): Include course name?
         );
       }
     }
@@ -322,7 +321,7 @@ export class DropInCourseProvider implements CourseProvider {
           placeholderCode: "",
           sourceIds: [],
           hints: ex.hints,
-          solutionCodes: ex.solution ? [ex.solution] : [],
+          solutionCodes: ex.solution ? [ex.solution] : [], // TODO (acasey): might want multiple solutions in python courses too
           solutionExplanation: ex.solutionExplanation ?? "",
         } satisfies CatalogExercise);
       }
@@ -412,7 +411,7 @@ async function readDirSafe(
 async function tryReadText(uri: vscode.Uri): Promise<string | undefined> {
   try {
     const bytes = await vscode.workspace.fs.readFile(uri);
-    return new TextDecoder().decode(bytes);
+    return new TextDecoder().decode(bytes); // TODO (acasey): encoding?
   } catch {
     return undefined;
   }
@@ -428,6 +427,8 @@ async function uriExists(uri: vscode.Uri): Promise<boolean> {
 }
 
 // ─── Text helpers ───
+
+// TODO (acasey): do we need this level of support?  Can we just insist on metadata?
 
 /** First markdown ATX heading (`# Title`) in the text, if any. */
 function firstHeading(markdown: string): string | undefined {

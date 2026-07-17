@@ -5,6 +5,8 @@ import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { LEARNING_VENV_DIR } from "../constants.js";
 
+// TODO (acasey): rewrite in terms of VS Code API
+
 /**
  * Manages per-course Python environments for `python-notebook` courses.
  *
@@ -50,6 +52,7 @@ export class EnvironmentManager {
       return undefined;
     }
     const fromExtension = await this.activeInterpreterPath();
+    // TODO (acasey): confirm availability of python3?
     return fromExtension ?? "python3";
   }
 
@@ -260,6 +263,8 @@ export class EnvironmentManager {
     if (!this.supported) {
       return;
     }
+
+    // TODO (acasey): confirm this is working (or could work)
 
     // Primary, stable path: point the Python extension at the venv
     // interpreter for this notebook resource.

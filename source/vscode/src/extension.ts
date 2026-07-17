@@ -108,6 +108,7 @@ export async function activate(
     if (context.extensionMode === vscode.ExtensionMode.Test) {
       // Test-only seam: expose the learning service so integration tests can
       // drive multi-course flows without UI automation.
+      // TODO (acasey): seems kind of suspicious that this would be the only test suite that needs this
       api.learning = learningService;
     }
   }

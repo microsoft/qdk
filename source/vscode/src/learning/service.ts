@@ -286,6 +286,7 @@ export class LearningService {
    * Other course kinds fall through to {@link getState}.
    */
   getStateForPanel(): LearningState {
+    // TODO (acasey): might be moot if exercise-level navigation works?
     if (this.activeCourse.kind !== "python-notebook") {
       return this.getState();
     }
@@ -506,6 +507,7 @@ export class LearningService {
     const unit = this.findUnit(this.position.unitId);
     const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
     if (!exercise) {
+      // TODO (acasey): log unknown exercise
       return false;
     }
     const location: ActivityLocation = {
@@ -548,11 +550,12 @@ export class LearningService {
 
   /** The id of the currently-active course. */
   getActiveCourseId(): string {
+    // Don't do the extra work that this.activeCourse.id would require
     return this.requireWorkspace().progressData.position.courseId;
   }
 
   /** Compact info about the active course for serialization to chat tools. */
-  getActiveCourseInfo(): { id: string; title: string; kind: CourseKind } {
+  getActiveCourseInfo(): Pick<CourseDescriptor, "id" | "title" | "kind"> {
     const course = this.activeCourse;
     return { id: course.id, title: course.title, kind: course.kind };
   }
@@ -669,7 +672,7 @@ export class LearningService {
 
     // Hard stop: environment management can't run on the Web.
     if (!env.supported) {
-      log.info(`[env-check] Web host — environment management unavailable.`);
+      log.info(`[env-check] Environment management unavailable in current editor.`);
       const checks: EnvironmentCheckItem[] = [
         check("host", "Desktop VS Code", "fail", {
           detail: "Python courses require the desktop version of VS Code.",
@@ -701,6 +704,7 @@ export class LearningService {
     checks.push(
       check(
         "extensions",
+        // TODO (acasey): Shouldn't need to keep these in sync with ensureExtensions
         "Python & Jupyter extensions",
         extMessage ? "fail" : "ok",
         {
@@ -724,6 +728,7 @@ export class LearningService {
         detail: interpreter ?? "No interpreter found.",
         hint: interpreter
           ? undefined
+          // TODO (acasey): how did we pick 3.9?
           : "Install Python (3.9+) and select an interpreter via the Python extension.",
       }),
     );
@@ -756,10 +761,12 @@ export class LearningService {
           venvModuleOk ? "warn" : "fail",
           {
             detail: venvModuleOk
+              // TODO (acasey): do we want to recommend uv?
               ? "Using the standard-library `venv` (install `uv` for faster setup)."
               : "The `venv`/`ensurepip` modules are missing from this Python.",
             hint: venvModuleOk
               ? undefined
+              // TODO (acasey): can we determine the actual version number?
               : "On Debian/Ubuntu install them with `sudo apt install python3-venv` " +
                 "(matching your Python version, e.g. `python3.12-venv`).",
           },
@@ -1490,7 +1497,7 @@ export class LearningService {
     const descriptors = await registry.listCourses();
     for (const descriptor of descriptors) {
       try {
-        // TODO (acasey): do this lazily?
+        // TODO (acasey): other code (and Mine) mentioned doing this lazily
         const course = await registry.loadCourse(descriptor.id);
         courses.set(course.id, course);
       } catch {

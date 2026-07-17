@@ -27,7 +27,7 @@ import { CopilotToolError } from "./types.js";
  */
 export interface SerializedLearningState {
   /** The currently-active course. */
-  course: { id: string; title: string; kind: string };
+  course: Pick<CourseDescriptor, "id" | "title" | "kind">;
   position: CurrentActivity;
   progress: {
     totalActivities: number;
@@ -174,6 +174,7 @@ export class LearningTools {
     descriptor: CourseDescriptor | undefined;
     readme?: string;
   }> {
+    // TODO (acasey): drop readme?
     await this.ensureInitialized();
     return this.invoke(async () => {
       const courseId = input?.courseId ?? this.service.getActiveCourseId();
@@ -200,6 +201,7 @@ export class LearningTools {
    * environment setup is available).
    */
   async checkEnvironment(): Promise<EnvironmentCheckReport> {
+    // TODO (acasey): ensure only one can run at a time
     await this.ensureInitialized();
     return this.invoke(() => this.service.runEnvironmentCheck());
   }
@@ -214,7 +216,7 @@ export class LearningTools {
       const uri = this.getCurrentFileUri();
       if (this.service.getActiveCourseInfo().kind === "python-notebook") {
         return {
-          code: "",
+          code: "", // TODO (acasey): can/should we get the code in the active cell?
           filePath: uri.fsPath,
         };
       }
