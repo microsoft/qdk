@@ -53,8 +53,8 @@ fn pure_flag_merge_collapses_to_slot_read() {
         "#},
         "Main",
         "identical_branches",
-        |package, _assigner, block_id, _slots| {
-            super::super::run_identical_branches(package, block_id)
+        |package, _assigner, package_id, block_id, _slots| {
+            super::super::run_identical_branches(package, package_id, block_id)
         },
         &expect![[r#"
             // before identical_branches (fired=true)
@@ -131,8 +131,8 @@ fn impure_condition_refuses_to_collapse() {
         "#},
         "Main",
         "identical_branches",
-        |package, _assigner, block_id, _slots| {
-            super::super::run_identical_branches(package, block_id)
+        |package, _assigner, package_id, block_id, _slots| {
+            super::super::run_identical_branches(package, package_id, block_id)
         },
         &expect![[r#"
             // before identical_branches (fired=false)

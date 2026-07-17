@@ -146,6 +146,7 @@ impl Backend for QuantumIntrinsicsChecker {
         &mut self,
         name: &str,
         _arg: Value,
+        _globals: &impl qsc_fir::fir::PackageStoreLookup,
     ) -> Option<std::result::Result<Value, String>> {
         match name {
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),

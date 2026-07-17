@@ -6052,13 +6052,12 @@ fn operand_block_tuple_pattern_dispatch_resolves_field_path() {
     );
 }
 
-/// When the index selecting a callable from an array is a non-trivial
-/// expression (here `i + 1`), the synthesized dispatch hoists it into a single
-/// shared `let` so it is evaluated once rather than re-evaluated in every
-/// `index == k` guard. Contrast `operand_block_tuple_pattern_dispatch_resolves_field_path`,
-/// where a bare-variable index keeps referencing the original expression.
+/// When the index selecting a callable from an array is pure arithmetic, the
+/// synthesized dispatch can reuse the original expression in each guard. This
+/// keeps "non-trivial" from being mistaken for "effectful"; the separate
+/// side-effecting index tests cover the single-evaluation hoist path.
 #[test]
-fn non_trivial_array_index_dispatch_hoists_index_once() {
+fn pure_arithmetic_array_index_dispatch_reuses_index_expression() {
     let source = r#"
         operation Main() : Unit {
             let ops = [I, X, Y];
@@ -6107,7 +6106,192 @@ fn non_trivial_array_index_dispatch_hoists_index_once() {
                     while _step_id_48 > 0 and _index_id_43 <= _end_id_53 or _step_id_48 < 0 and _index_id_43 >= _end_id_53 {
                         let i : Int = _index_id_43;
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        let index : Int = i + 1;
+                        if i + 1 == 0 {
+                            I(q)
+                        } else if i + 1 == 1 {
+                            X(q)
+                        } else {
+                            Y(q)
+                        };
+                        _index_id_43 += _step_id_48;
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A pure, non-trivial index expression does not need the single-evaluation
+/// hoist used for side-effecting indices. Reusing the original block
+/// expression keeps index-dispatch cleanup aligned with the shared purity
+/// predicate.
+#[test]
+fn pure_array_index_dispatch_reuses_index_expression() {
+    let source = r#"
+        operation Main() : Unit {
+            let ops = [I, X, Y];
+            for i in 0..1 {
+                use q = Qubit();
+                let op = ops[{ i }];
+                op(q);
+            }
+        }
+        "#;
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert_no_defunctionalization_errors("defunctionalization", &errors);
+
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    assert!(
+        after.contains("if i == 0") && after.contains("else if i == 1"),
+        "pure index dispatch should reuse the original block index:\n{after}"
+    );
+    assert!(
+        !after.contains("let index : Int ="),
+        "pure index dispatch should not hoist a side-effect-free block:\n{after}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Main() : Unit {
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [I, X, Y];
+                {
+                    let _range_id_41 : Range = 0..1;
+                    mutable _index_id_44 : Int = _range_id_41::Start;
+                    let _step_id_49 : Int = _range_id_41::Step;
+                    let _end_id_54 : Int = _range_id_41::End;
+                    while _step_id_49 > 0 and _index_id_44 <= _end_id_54 or _step_id_49 < 0 and _index_id_44 >= _end_id_54 {
+                        let i : Int = _index_id_44;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[{
+                            i
+                        }];
+                        op(q);
+                        _index_id_44 += _step_id_49;
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Main() : Unit {
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [I, X, Y];
+                {
+                    let _range_id_41 : Range = 0..1;
+                    mutable _index_id_44 : Int = _range_id_41::Start;
+                    let _step_id_49 : Int = _range_id_41::Step;
+                    let _end_id_54 : Int = _range_id_41::End;
+                    while _step_id_49 > 0 and _index_id_44 <= _end_id_54 or _step_id_49 < 0 and _index_id_44 >= _end_id_54 {
+                        let i : Int = _index_id_44;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        if i == 0 {
+                            I(q)
+                        } else if i == 1 {
+                            X(q)
+                        } else {
+                            Y(q)
+                        };
+                        _index_id_44 += _step_id_49;
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A side-effecting index expression must be evaluated once before the
+/// synthesized dispatch. Hoisting the block into an `index` local prevents
+/// its `X(q)` call from being repeated by each branch guard.
+#[test]
+fn impure_array_index_dispatch_hoists_index_expression() {
+    let source = r#"
+        operation Main() : Unit {
+            let ops = [I, X, Y];
+            for i in 0..1 {
+                use q = Qubit();
+                let op = ops[{ X(q); i }];
+                op(q);
+            }
+        }
+        "#;
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert_no_defunctionalization_errors("defunctionalization", &errors);
+
+    let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
+    assert!(
+        after.contains("let index : Int = {")
+            && after.contains("if index == 0")
+            && after.contains("else if index == 1"),
+        "side-effecting index should be hoisted and reused by the dispatch:\n{after}"
+    );
+    assert!(
+        !after.contains("if i == 0") && !after.contains("else if i == 1"),
+        "dispatch guards should not re-evaluate the side-effecting index block:\n{after}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Main() : Unit {
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [I, X, Y];
+                {
+                    let _range_id_45 : Range = 0..1;
+                    mutable _index_id_48 : Int = _range_id_45::Start;
+                    let _step_id_53 : Int = _range_id_45::Step;
+                    let _end_id_58 : Int = _range_id_45::End;
+                    while _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
+                        let i : Int = _index_id_48;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[{
+                            X(q);
+                            i
+                        }];
+                        op(q);
+                        _index_id_48 += _step_id_53;
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Main() : Unit {
+                let ops : (Qubit => Unit is Adj + Ctl)[] = [I, X, Y];
+                {
+                    let _range_id_45 : Range = 0..1;
+                    mutable _index_id_48 : Int = _range_id_45::Start;
+                    let _step_id_53 : Int = _range_id_45::Step;
+                    let _end_id_58 : Int = _range_id_45::End;
+                    while _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
+                        let i : Int = _index_id_48;
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        let index : Int = {
+                            X(q);
+                            i
+                        };
                         if index == 0 {
                             I(q)
                         } else if index == 1 {
@@ -6115,7 +6299,7 @@ fn non_trivial_array_index_dispatch_hoists_index_once() {
                         } else {
                             Y(q)
                         };
-                        _index_id_43 += _step_id_48;
+                        _index_id_48 += _step_id_53;
                         __quantum__rt__qubit_release(q);
                     }
 

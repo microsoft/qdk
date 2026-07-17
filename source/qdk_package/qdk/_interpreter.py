@@ -182,11 +182,11 @@ def get_config() -> Config:
     return _get_default_context()._config
 
 
-def python_args_to_interpreter_args(args) -> Any:
+def python_args_to_interpreter_args(args: Tuple[Any, ...]) -> Any:
     return _get_default_context()._python_args_to_interpreter_args(args)
 
 
-def qsharp_value_to_python_value(obj):
+def qsharp_value_to_python_value(obj: Any) -> Any:
     return _get_default_context()._qsharp_value_to_python_value(obj)
 
 
@@ -217,7 +217,7 @@ def eval(
 def run(
     entry_expr: Union[str, Callable, GlobalCallable, Closure],
     shots: int,
-    *args,
+    *args: Any,
     on_result: Optional[Callable[[ShotResult], None]] = None,
     save_events: bool = False,
     noise: Optional[
@@ -259,7 +259,7 @@ def run(
     :raises QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
     """
-    return _get_default_context().run(
+    return _get_context_or_default(entry_expr).run(
         entry_expr,
         shots,
         *args,
@@ -274,7 +274,7 @@ def run(
 
 
 def compile(
-    entry_expr: Union[str, Callable, GlobalCallable, Closure], *args
+    entry_expr: Union[str, Callable, GlobalCallable, Closure], *args: Any
 ) -> QirInputData:
     """
     Compiles the Q# source code into a program that can be submitted to a target.
@@ -295,12 +295,12 @@ def compile(
         with open('myfile.ll', 'w') as file:
             file.write(str(program))
     """
-    return _get_default_context().compile(entry_expr, *args)
+    return _get_context_or_default(entry_expr).compile(entry_expr, *args)
 
 
 def circuit(
     entry_expr: Optional[Union[str, Callable, GlobalCallable, Closure]] = None,
-    *args,
+    *args: Any,
     operation: Optional[str] = None,
     generation_method: Optional[CircuitGenerationMethod] = None,
     max_operations: Optional[int] = None,
@@ -351,7 +351,7 @@ def circuit(
     :rtype: Circuit
     :raises QSharpError: If there is an error synthesizing the circuit.
     """
-    return _get_default_context().circuit(
+    return _get_context_or_default(entry_expr).circuit(
         entry_expr,
         *args,
         operation=operation,
@@ -366,7 +366,7 @@ def circuit(
 def estimate(
     entry_expr: Union[str, Callable, GlobalCallable, Closure],
     params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
-    *args,
+    *args: Any,
 ) -> EstimatorResult:
     """
     Estimates resources for Q# source code.
@@ -414,7 +414,7 @@ def estimate(
     param_str = json.dumps(params)
     telemetry_events.on_estimate()
     start = monotonic()
-    context = _get_default_context()
+    context = _get_context_or_default(entry_expr)
     if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
         args = context._python_args_to_interpreter_args(args)
         res_str = context._interpreter.estimate(
@@ -442,7 +442,7 @@ def estimate(
 
 def logical_counts(
     entry_expr: Union[str, Callable, GlobalCallable, Closure],
-    *args,
+    *args: Any,
 ) -> LogicalCounts:
     """
     Extracts logical resource counts from Q# source code.
@@ -454,7 +454,7 @@ def logical_counts(
     :return: Program resources in terms of logical gate counts.
     :rtype: LogicalCounts
     """
-    return _get_default_context().logical_counts(entry_expr, *args)
+    return _get_context_or_default(entry_expr).logical_counts(entry_expr, *args)
 
 
 def set_quantum_seed(seed: Optional[int]) -> None:

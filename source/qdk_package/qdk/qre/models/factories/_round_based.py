@@ -181,7 +181,9 @@ class RoundBasedFactory(ISATransform):
                 ctx.add_instruction(state, transform=self, source=[impl_isa[T]])
             )
 
-    def _physical_units(self, gate_time, clifford_error) -> list[_DistillationUnit]:
+    def _physical_units(
+        self, gate_time: int, clifford_error: float
+    ) -> list[_DistillationUnit]:
         """Return physical distillation units for the given gate parameters."""
         return [
             _DistillationUnit(

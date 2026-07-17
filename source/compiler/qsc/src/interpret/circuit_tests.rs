@@ -5,7 +5,7 @@
 
 use super::{CircuitEntryPoint, Debugger, Interpreter};
 use crate::{
-    interpret::{CircuitGenerationMethod, Error},
+    interpret::{CircuitGenerationMethod, Error, PackageGlobal},
     target::Profile,
 };
 use expect_test::expect;
@@ -280,15 +280,15 @@ fn static_circuit_from_callable_with_callable_arg_matches_classical_eval() {
     let globals = interp.source_globals();
     let invoke = globals
         .iter()
-        .find(|(_, n, _)| &**n == "InvokeWithQubits")
+        .find(|PackageGlobal { name, .. }| &**name == "InvokeWithQubits")
         .expect("InvokeWithQubits should be a source global")
-        .2
+        .value
         .clone();
     let all_h = globals
         .iter()
-        .find(|(_, n, _)| &**n == "AllH")
+        .find(|PackageGlobal { name, .. }| &**name == "AllH")
         .expect("AllH should be a source global")
-        .2
+        .value
         .clone();
     let args = Value::Tuple(vec![Value::Int(3), all_h].into(), None);
 

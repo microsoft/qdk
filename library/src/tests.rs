@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 mod arithmetic;
+mod arithmetic_test_utils;
 mod arrays;
 mod canon;
 mod convert;

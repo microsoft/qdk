@@ -28,7 +28,7 @@ def check_invoke(source: str, callable: str, expect: str):
     e = None
     f = None
 
-    def _make_callable(callable, namespace, callable_name):
+    def _make_callable(callable, namespace, callable_name, _is_test):
         nonlocal f
         f = callable
 
@@ -436,7 +436,7 @@ def test_estimate_from_udt_returning_callable_matches_logical_counts_on_base_pro
 ):
     counted = None
 
-    def make_callable(callable_value, _namespace, callable_name):
+    def make_callable(callable_value, _namespace, callable_name, _is_test):
         nonlocal counted
         if callable_name == "Counted":
             counted = callable_value

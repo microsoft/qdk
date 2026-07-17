@@ -612,7 +612,7 @@ fn process_callable_returns(
             return_slot_strategy,
         );
         if run_simplify {
-            simplify::run_to_fixpoint(package, assigner, block_id, errors, &slots);
+            simplify::run_to_fixpoint(package, assigner, owning_pkg, block_id, errors, &slots);
         }
     }
 }
