@@ -143,13 +143,11 @@ pub mod qir {
     /// to produce codegen-ready FIR satisfying full invariants.
     pub fn run_codegen_pipeline(
         package_store: &PackageStore,
-        package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
     ) -> Result<Vec<Error>, Vec<Error>> {
         run_codegen_pipeline_to(
             package_store,
-            package_id,
             fir_store,
             fir_package_id,
             qsc_fir_transforms::PipelineStage::Full,
@@ -169,7 +167,6 @@ pub mod qir {
     /// removed during dead-code elimination. Pinning preserves these for specialization.
     pub fn run_codegen_pipeline_to(
         package_store: &PackageStore,
-        _package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         stage: qsc_fir_transforms::PipelineStage,
@@ -2020,7 +2017,6 @@ pub mod qir {
         let pinned_items: &[qsc_fir::fir::StoreItemId] = &[];
         let warnings = run_codegen_pipeline_to(
             package_store,
-            callable.package,
             &mut fir_store,
             fir_package_id,
             qsc_fir_transforms::PipelineStage::Full,
@@ -2081,7 +2077,6 @@ pub mod qir {
         pinned_callables.push(target_callable);
         let warnings = run_codegen_pipeline_to(
             package_store,
-            callable.package,
             &mut fir_store,
             fir_package_id,
             qsc_fir_transforms::PipelineStage::Full,
@@ -2166,8 +2161,7 @@ pub mod qir {
         fir_package_id: qsc_fir::fir::PackageId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
-        let warnings =
-            run_codegen_pipeline(package_store, package_id, &mut fir_store, fir_package_id)?;
+        let warnings = run_codegen_pipeline(package_store, &mut fir_store, fir_package_id)?;
 
         let compute_properties =
             PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, capabilities)
@@ -2232,12 +2226,7 @@ pub mod qir {
         }
 
         seed_entry_with_callable(&mut fir_store, fir_package_id, callable);
-        let warnings = run_codegen_pipeline(
-            package_store,
-            callable.package,
-            &mut fir_store,
-            fir_package_id,
-        )?;
+        let warnings = run_codegen_pipeline(package_store, &mut fir_store, fir_package_id)?;
 
         let compute_properties = qsc_rca::Analyzer::init(&fir_store, capabilities).analyze_all();
         validate_callable_capabilities(
