@@ -6,7 +6,7 @@ use std::mem::size_of;
 
 use bytemuck::{Zeroable, cast_slice};
 
-use crate::bytecode::AdaptiveProgram;
+use crate::bytecode::{AdaptiveProgram, Block, Function, Instruction, PhiNodeEntry, SwitchCase};
 use crate::correlated_noise::NoiseTables;
 use crate::gpu_resources::GpuResources;
 use crate::noise_config::NoiseConfig;
@@ -407,12 +407,18 @@ impl GpuContext {
                 self.pipeline_is_dirty = true;
             }
 
-            // Upload combined noise batch_data buffer
+            // Upload combined noise batch_data buffer.
+            // The unified shader's BatchData always ends with the adaptive
+            // `program` struct, so even in base mode the buffer must reserve
+            // space for it (the bytes stay zeroed and unused). Its size is
+            // determined by the same clamped table sizes stamped into the shader.
             let noise_metadata_bytes: &[u8] = cast_slice(&self.noise_tables.metadata);
             let noise_entries_bytes: &[u8] = cast_slice(&self.noise_tables.entries);
             let noise_table_padded_size = self.run_params.noise_table_count * 16;
             let noise_entry_padded_size = self.run_params.noise_entry_count * 16;
-            let total_size = noise_table_padded_size + noise_entry_padded_size;
+            let total_size = noise_table_padded_size
+                + noise_entry_padded_size
+                + program_region_size(&self.run_params);
             let mut batch_buf = vec![0u8; total_size];
             batch_buf[..noise_metadata_bytes.len()].copy_from_slice(noise_metadata_bytes);
             batch_buf[noise_table_padded_size..noise_table_padded_size + noise_entries_bytes.len()]
@@ -425,20 +431,8 @@ impl GpuContext {
 
         if self.pipeline_is_dirty {
             // The pipeline is marked as dirty if the qubit or result count changed (shot count doesn't impact it)
-            self.resources.create_shaders(
-                params.qubit_count,
-                params.result_count,
-                // The next two params are derived from qubit count and result count, so will only change if those do
-                params.workgroups_per_shot,
-                params.entries_per_thread,
-                // The below are constants so will not change from run to run
-                THREADS_PER_WORKGROUP,
-                MAX_QUBIT_COUNT,
-                MAX_QUBITS_PER_WORKGROUP,
-                // These only change if the size of the noise table changes
-                params.noise_table_count,
-                params.noise_entry_count,
-            )?;
+            self.resources
+                .create_shaders(&self.run_params, self.is_adaptive)?;
         }
 
         self.resources.ensure_run_buffers(
@@ -460,16 +454,16 @@ impl GpuContext {
         let state_vector_size_per_shot = entries_per_shot * 8; // Each entry is a complex containing 2 * f32
 
         // Figure out the per-shot GPU struct size first, since it's needed for batching limits.
-        // In adaptive mode, each shot's GPU struct includes the interpreter state + registers + memory.
+        // The unified shader's ShotData always embeds the interpreter state + registers + memory,
+        // so both base and adaptive modes reserve that space (base clamps the counts to a minimum
+        // of 1, matching the shader constants; the region is unused in base mode).
         // WGSL requires struct size to be a multiple of the struct's alignment (8 bytes due to vec2f).
-        let gpu_shot_size = if self.is_adaptive {
+        let gpu_shot_size = {
             let raw = SIZEOF_SHOTDATA
                 + size_of::<InterpreterState>()
-                + params.num_registers * 4
-                + params.max_memory * 4;
+                + params.num_registers.max(1) * 4
+                + params.max_memory.max(1) * 4;
             (raw + 7) & !7 // round up to 8-byte alignment
-        } else {
-            SIZEOF_SHOTDATA
         };
 
         // Figure out some limits based on buffer size limits, structure sizes, and number of qubits
@@ -681,8 +675,7 @@ impl GpuContext {
         }
 
         if self.pipeline_is_dirty {
-            let params = &self.run_params;
-            self.resources.create_shaders_adaptive(params)?;
+            self.resources.create_shaders(&self.run_params, true)?;
         }
 
         if self.program_is_dirty || self.noise_config_is_dirty || self.batch_data_is_dirty {
@@ -1023,4 +1016,18 @@ fn i32_to_usize(value: i32) -> usize {
 
 fn u32_to_i32(value: u32) -> i32 {
     i32::try_from(value).unwrap_or_else(|_| panic!("{value} should fit in a i32"))
+}
+
+/// Byte size of the adaptive `Program` region at the end of the unified shader's
+/// `BatchData` struct, using the same clamped (minimum 1) table sizes that are
+/// stamped into the shader constants. In base mode the program data is unused,
+/// but the binding must still reserve this space for the layout to match.
+fn program_region_size(params: &RunParams) -> usize {
+    params.num_instructions.max(1) * size_of::<Instruction<u32>>()
+        + params.num_blocks.max(1) * size_of::<Block<u32>>()
+        + params.num_functions.max(1) * size_of::<Function<u32>>()
+        + params.num_phi_entries.max(1) * size_of::<PhiNodeEntry<u32>>()
+        + params.num_switch_cases.max(1) * size_of::<SwitchCase<u32>>()
+        + params.num_call_args.max(1) * size_of::<u32>()
+        + params.num_constant_data.max(1) * size_of::<u32>()
 }

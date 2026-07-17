@@ -27,6 +27,12 @@ const SWITCH_CASES_SIZE: u32 = 0; // REPLACE
 const CALL_ARGS_SIZE: u32 = 0; // REPLACE
 const CONSTANT_DATA_SIZE: u32 = 0; // REPLACE
 
+// Selects the adaptive (QIR bytecode interpreter) code paths when true, or the
+// base (linear op-list) paths when false. String-replaced by the host per run.
+// Because it is a `const`, the compiler folds the branches and eliminates the
+// unused path, so there is no runtime cost to the shared kernels below.
+const IS_ADAPTIVE: bool = false; // REPLACE
+
 //#endregion
 
 //#region Error codes
@@ -1549,8 +1555,8 @@ fn apply_1q_op(workgroupId: u32, tid: u32, q1: u32) {
     let params = get_shot_params(workgroupId, tid, 1 /* qubits per op */);
     let shot = &shots[params.shot_idx];
     let scale = shot.renormalize;
-    let lowMask = (1u << q1) - 1;
-    let highMask = (1u << u32(QUBIT_COUNT)) - 1 - lowMask;
+    let lowMask = (1 << q1) - 1;
+    let highMask = (1 << u32(QUBIT_COUNT)) - 1 - lowMask;
     let qubit_is_0_mask = i32(shots[params.shot_idx].qubit_is_0_mask);
     let qubit_is_1_mask = i32(shots[params.shot_idx].qubit_is_1_mask);
 
@@ -2166,6 +2172,70 @@ fn prep_correlated_noise_adaptive(shot_idx: u32, op_idx: u32, qubit_count: u32, 
 
 //#region Kernels
 
+// Shared kernel helpers used by both the base and adaptive code paths.
+
+// Zero this shot's slice of the state vector and set the |0...0> amplitude to 1,
+// then reset the shot's tracking state. Shared by the initialize kernel.
+fn init_state_vector(params: ShotParams) {
+    // We want every thread to zero out its portion of the state vector for the shot
+    // We also want threads executing in lockstep to update adjacent entries for better memory access patterns
+    for (var i = 0; i < params.op_iterations; i++) {
+        let entry_index: i32 = params.thread_idx_in_shot + i * params.total_threads_per_shot;
+        stateVector[params.shot_state_vector_start + entry_index] = vec2f(0.0, 0.0);
+    }
+
+    // NOTE: No need to synchronize here, as each thread is writing to unique locations
+    if (params.thread_idx_in_shot == 0) {
+        // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
+        stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
+        reset_all(params.shot_idx);
+    }
+}
+
+// Finalize the setup of a plain (no-noise, no-loss) gate op for execution:
+// translate the op id into the execute-stage op_type (shot-buffer conversions,
+// phase gates as RZ) and record which qubit probabilities to update next round.
+// `q1`/`q2` are the resolved operands (ops-pool values for base, register/
+// immediate resolved for adaptive). Shared by both prepare_op paths.
+fn finalize_gate_op(shot_idx: u32, op_idx: u32, q1: u32, q2: u32) {
+    let shot = &shots[shot_idx];
+    let op = &ops[op_idx];
+
+    shot.op_idx = op_idx;
+    shot.op_type = op.id;
+
+    // Turn any Rxx, Ryy, or Rzz gates into a gate from the shot buffer
+    // NOTE: Should probably just do this for all gates
+    if (op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_MAT2Q || op.id == OPID_SWAP) {
+        shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
+    }
+
+    if (op.id >= OPID_X && op.id < OPID_CX) {
+        shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
+    }
+
+    if (is_1q_phase_gate(op.id)) {
+        // For phase gates, treat everything as RZ for execution purposes
+        shot.op_type = OPID_RZ;
+    }
+
+    // Set this so the next prepare_op stage knows which qubits to update probabilities for
+    switch shot.op_type {
+      case OPID_ID, OPID_CZ, OPID_RZ, OPID_RZZ {
+        shot.qubits_updated_last_op_mask = 0u;
+      }
+      case OPID_SHOT_BUFF_1Q {
+        shot.qubits_updated_last_op_mask = 1u << q1;
+      }
+      case OPID_CX, OPID_CY, OPID_SHOT_BUFF_2Q {
+        shot.qubits_updated_last_op_mask = (1u << q1) | (1u << q2);
+      }
+      default {
+        // TODO: Set error/diagnostic info here
+      }
+    }
+}
+
 // *******************************
 // PREPARE OP
 // This stage prepares the shot state for the next operation to execute (and any updates needed from the prior op)
@@ -2182,10 +2252,8 @@ fn prep_correlated_noise_adaptive(shot_idx: u32, op_idx: u32, qubit_count: u32, 
 
 // NOTE: Run with workgroup size of 1 for now, as threads may diverge too much in prepare_op stage causing performance issues.
 // TODO: Try to increase later if lack of parallelism is a bottleneck. (Update the dispatch call accordingly).
-@compute @workgroup_size(1)
-fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
+fn prepare_op_base_impl(shot_idx: u32) {
     // For the 'prepare_op' stage, each thread dispatched handles one shot, so the globalId.x is the shot index
-    let shot_idx = globalId.x;
     let shot = &shots[shot_idx];
 
     // WebGPU guarantees that buffers are zero-initialized, so next_op_idx will correctly be 0 on the first dispatch
@@ -2295,39 +2363,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
     }
 
     // No noise to apply, just set up the shot to execute the op as-is
-    shot.op_idx = op_idx;
-    shot.op_type = op.id;
-
-    // Turn any Rxx, Ryy, or Rzz gates into a gate from the shot buffer
-    // NOTE: Should probably just do this for all gates
-    if (op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_MAT2Q || op.id == OPID_SWAP) {
-        shot.op_type = OPID_SHOT_BUFF_2Q; // Indicate to use the matrix in the shot buffer
-    }
-
-    if (op.id >= OPID_X && op.id < OPID_CX) {
-        shot.op_type = OPID_SHOT_BUFF_1Q; // Indicate to use the matrix in the shot buffer
-    }
-
-    if (is_1q_phase_gate(op.id)) {
-        // For phase gates, treat everything as RZ for execution purposes
-        shot.op_type = OPID_RZ;
-    }
-
-    // Set this so the next prepare_op stage knows which qubits to update probabilities for
-    switch shot.op_type {
-      case OPID_ID, OPID_CZ, OPID_RZ, OPID_RZZ {
-        shot.qubits_updated_last_op_mask = 0u;
-      }
-      case OPID_SHOT_BUFF_1Q {
-        shot.qubits_updated_last_op_mask = 1u << op.q1;
-      }
-            case OPID_CX, OPID_CY, OPID_SHOT_BUFF_2Q {
-        shot.qubits_updated_last_op_mask = (1u << op.q1) | (1u << op.q2);
-      }
-      default {
-        // TODO: Set error/diagnostic info here
-      }
-    }
+    finalize_gate_op(shot_idx, op_idx, op.q1, op.q2);
 }
 
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
@@ -2337,41 +2373,11 @@ fn initialize(
     // Get the params
     let params = get_shot_params(workgroupId.x, tid, 0 /* qubits per op */);
 
-    // We want every thread to zero out its portion of the state vector for the shot
-    // We also want threads executing in lockstep to update adjacent entries for better memory access patterns
-    for (var i = 0; i < params.op_iterations; i++) {
-        let entry_index: i32 = params.thread_idx_in_shot + i * params.total_threads_per_shot;
-        stateVector[params.shot_state_vector_start + entry_index] = vec2f(0.0, 0.0);
-    }
+    // Zero the state vector and set the |0...0> amplitude to 1.0 for this shot.
+    init_state_vector(params);
 
-    // NOTE: No need to synchronize here, as each thread is writing to unique locations
-    if (params.thread_idx_in_shot == 0) {
-        // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
-        stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
-        reset_all(params.shot_idx);
-    }
-}
-
-@compute @workgroup_size(THREADS_PER_WORKGROUP)
-fn initialize_adaptive(
-        @builtin(workgroup_id) workgroupId: vec3<u32>,
-        @builtin(local_invocation_index) tid: u32) {
-    // Get the params
-    let params = get_shot_params(workgroupId.x, tid, 0 /* qubits per op */);
-
-    // We want every thread to zero out its portion of the state vector for the shot
-    // We also want threads executing in lockstep to update adjacent entries for better memory access patterns
-    for (var i = 0; i < params.op_iterations; i++) {
-        let entry_index: i32 = params.thread_idx_in_shot + i * params.total_threads_per_shot;
-        stateVector[params.shot_state_vector_start + entry_index] = vec2f(0.0, 0.0);
-    }
-
-    // NOTE: No need to synchronize here, as each thread is writing to unique locations
-    if (params.thread_idx_in_shot == 0) {
-        // Set the |0...0> amplitude to 1.0 from the first workgroup & thread for the shot
-        stateVector[params.shot_state_vector_start] = vec2f(1.0, 0.0);
-        reset_all(params.shot_idx);
-
+    // The adaptive interpreter needs additional per-shot state initialized.
+    if (IS_ADAPTIVE && params.thread_idx_in_shot == 0) {
         // Zero the results buffer for this shot so stale exit codes from
         // prior runs do not leak via atomicCompareExchangeWeak in OP_RET.
         let results_base = u32(params.shot_idx) * RESULT_COUNT;
@@ -3251,9 +3257,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
 // Prepares a quantum operation for shots that have STATUS_QUANTUM_PENDING.
 // Shots not in that state are set to OPID_ID so execute is a no-op.
 
-@compute @workgroup_size(1)
-fn prepare_op_adaptive(@builtin(global_invocation_id) globalId: vec3<u32>) {
-    let shot_idx = globalId.x;
+fn prepare_op_adaptive_impl(shot_idx: u32) {
     let shot = &shots[shot_idx];
     let state = shots[shot_idx].interp;
     let status = state.status;
@@ -3412,35 +3416,7 @@ fn prepare_op_adaptive(@builtin(global_invocation_id) globalId: vec3<u32>) {
             }
 
             // No noise — set up the op for execution
-
-            // Turn multi-qubit matrix ops into shot buffer ops
-            if op.id == OPID_RXX || op.id == OPID_RYY || op.id == OPID_MAT2Q || op.id == OPID_SWAP {
-                shot.op_type = OPID_SHOT_BUFF_2Q;
-            }
-
-            // Turn 1Q matrix ops into shot buffer ops
-            if op.id >= OPID_X && op.id < OPID_CX {
-                shot.op_type = OPID_SHOT_BUFF_1Q;
-            }
-
-            // Phase gates all execute as RZ
-            if is_1q_phase_gate(op.id) {
-                shot.op_type = OPID_RZ;
-            }
-
-            // Set qubits_updated mask so next round knows which probabilities to update
-            switch shot.op_type {
-                case OPID_ID, OPID_CZ, OPID_RZ, OPID_RZZ {
-                    shot.qubits_updated_last_op_mask = 0u;
-                }
-                case OPID_SHOT_BUFF_1Q {
-                    shot.qubits_updated_last_op_mask = 1u << q1;
-                }
-                case OPID_CX, OPID_CY, OPID_SHOT_BUFF_2Q {
-                    shot.qubits_updated_last_op_mask = (1u << q1) | (1u << q2);
-                }
-                default {}
-            }
+            finalize_gate_op(shot_idx, op_idx, q1, q2);
         }
         case 1u { // Measure
             // Check for noise ops before the measure op
@@ -3476,6 +3452,18 @@ fn prepare_op_adaptive(@builtin(global_invocation_id) globalId: vec3<u32>) {
     shots[shot_idx].interp.status = STATUS_RUNNING;
 }
 
+// Single prepare_op entry point. Dispatches to the base or adaptive
+// implementation based on the compile-time IS_ADAPTIVE flag; the unused
+// implementation is eliminated by the compiler.
+@compute @workgroup_size(1)
+fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
+    if (IS_ADAPTIVE) {
+        prepare_op_adaptive_impl(globalId.x);
+    } else {
+        prepare_op_base_impl(globalId.x);
+    }
+}
+
 @compute @workgroup_size(THREADS_PER_WORKGROUP)
 fn execute(
         @builtin(workgroup_id) workgroupId: vec3<u32>,
@@ -3492,60 +3480,27 @@ fn execute(
         // IGNORE
     } else if (shot.op_type == OPID_CORRELATED_NOISE) {
         apply_correlated_noise(workgroupId.x, tid);
-    } else if (is_1q_op(shot.op_type)) {
-        let q1: u32 = ops[shot.op_idx].q1;
-        apply_1q_op(workgroupId.x, tid, q1);
-    } else /* 2 qubit op */ {
-        let q1: u32 = ops[shot.op_idx].q1;
-        let q2: u32 = ops[shot.op_idx].q2;
-        apply_2q_op(workgroupId.x, tid, q1, q2);
-    }
-
-    // workgroupBarrier can't be conditional in DX12 backend, so we have to do an unconditional one here
-    // outside of the skip_work conditional above.
-    workgroupBarrier();
-
-    // If the workgroup is done updating, have the first thread reduce the per-thread probabilities into the
-    // totals for this workgroup. The subsequent 'prepare_op' will sum the workgroup entries into the shot state.
-    // Skip for correlated noise since probabilities were already updated in prepare_op.
-    if (tid == 0 && update_probs) {
-        let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
-        let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), WORKGROUPS_PER_SHOT > 1);
-        for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
-            if (shot.qubits_updated_last_op_mask & (1u << q)) != 0u {
-                sum_thread_totals_to_shot(q, shot_idx, workgroup_collation_idx);
-            }
-        }
-    }
-}
-
-// TODO: Seems to only differ in OPID_LOSS_NOISE case. See if can unify
-@compute @workgroup_size(THREADS_PER_WORKGROUP)
-fn execute_adaptive(
-        @builtin(workgroup_id) workgroupId: vec3<u32>,
-        @builtin(local_invocation_index) tid: u32) {
-    let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
-    let shot_idx_u32: u32 = u32(shot_idx);
-    let shot = &shots[shot_idx];
-
-    // If it's an ID gate, or a pure phase gate (including CZ) then probabilities don't need updating
-    // Correlated noise also updates probabilities in prepare_op, so can skip doing that here
-    let update_probs = shot.op_type != OPID_ID && shot.op_type != OPID_CORRELATED_NOISE &&
-            shot.op_type != OPID_RZ && shot.op_type != OPID_CZ && shot.op_type != OPID_RZZ;
-
-    if (shot.op_type == OPID_ID) {
-        // IGNORE
-    } else if (shot.op_type == OPID_CORRELATED_NOISE) {
-        apply_correlated_noise(workgroupId.x, tid);
-    } else if (shot.op_type == OPID_LOSS_NOISE) {
+    } else if (IS_ADAPTIVE && shot.op_type == OPID_LOSS_NOISE) {
         // Loss commit: the lost qubit is carried in op_idx (set by prep_loss_commit).
         apply_1q_op(workgroupId.x, tid, shot.op_idx);
     } else if (is_1q_op(shot.op_type)) {
-        let q1: u32 = resolve_q1(shot_idx_u32);
+        var q1: u32;
+        if (IS_ADAPTIVE) {
+            q1 = resolve_q1(u32(shot_idx));
+        } else {
+            q1 = ops[shot.op_idx].q1;
+        }
         apply_1q_op(workgroupId.x, tid, q1);
     } else /* 2 qubit op */ {
-        let q1: u32 = resolve_q1(shot_idx_u32);
-        let q2: u32 = resolve_q2(shot_idx_u32);
+        var q1: u32;
+        var q2: u32;
+        if (IS_ADAPTIVE) {
+            q1 = resolve_q1(u32(shot_idx));
+            q2 = resolve_q2(u32(shot_idx));
+        } else {
+            q1 = ops[shot.op_idx].q1;
+            q2 = ops[shot.op_idx].q2;
+        }
         apply_2q_op(workgroupId.x, tid, q1, q2);
     }
 
@@ -3557,7 +3512,6 @@ fn execute_adaptive(
     // totals for this workgroup. The subsequent 'prepare_op' will sum the workgroup entries into the shot state.
     // Skip for correlated noise since probabilities were already updated in prepare_op.
     if (tid == 0 && update_probs) {
-        let shot_idx: i32 = i32(workgroupId.x) / WORKGROUPS_PER_SHOT;
         let workgroup_collation_idx: i32 = select(-1, i32(workgroupId.x), WORKGROUPS_PER_SHOT > 1);
         for (var q: u32 = 0u; q < u32(QUBIT_COUNT); q++) {
             if (shot.qubits_updated_last_op_mask & (1u << q)) != 0u {
