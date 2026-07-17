@@ -693,12 +693,13 @@ def _extract_data_from_simulations(filename: Path, zenodo_path: Path):
     # Extracting and processing simulation data #
     #############################################
     def select_rep_stats(
-        stats: list[sinter.TaskStats], circuit: stim.Circuit
+        stats: list[sinter.TaskStats],
+        circuit: stim.Circuit,  # type: ignore (stim not installed)
     ) -> list[tuple[sinter.TaskStats, float]]:
         stats = [stat for stat in stats if stat.shots > stat.discards]
         vols = []
         errs = []
-        baseline = cultiv.compute_expected_injection_growth_volume(
+        baseline: float = cultiv.compute_expected_injection_growth_volume(
             circuit,
             discard_rate=0,
         )
