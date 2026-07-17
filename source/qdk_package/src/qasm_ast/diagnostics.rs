@@ -18,8 +18,8 @@ use std::fmt;
 use std::io::IsTerminal;
 
 /// The severity of a [`Diagnostic`].
-#[pyclass(module = "qdk._native", eq, eq_int, frozen, skip_from_py_object)]
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[pyclass(module = "qdk._native", eq, eq_int, frozen, hash, skip_from_py_object)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum Severity {
     Error,
     Warning,
@@ -46,9 +46,17 @@ impl From<Severity> for MietteSeverity {
     }
 }
 
+#[pymethods]
+impl Severity {
+    #[allow(clippy::trivially_copy_pass_by_ref)]
+    fn __repr__(&self) -> String {
+        format!("Severity.{self:?}")
+    }
+}
+
 /// A labeled region of source associated with a [`Diagnostic`].
-#[pyclass(module = "qdk._native", frozen, skip_from_py_object)]
-#[derive(Clone)]
+#[pyclass(module = "qdk._native", frozen, eq, hash, skip_from_py_object)]
+#[derive(Clone, Eq, Hash, PartialEq)]
 pub(crate) struct Label {
     /// The span the label points at.
     #[pyo3(get)]
@@ -66,8 +74,8 @@ impl Label {
 }
 
 /// A plain projection of a layered diagnostic.
-#[pyclass(module = "qdk._native", frozen, skip_from_py_object)]
-#[derive(Clone)]
+#[pyclass(module = "qdk._native", frozen, eq, skip_from_py_object)]
+#[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Diagnostic {
     /// The primary, human-readable message.
     #[pyo3(get)]

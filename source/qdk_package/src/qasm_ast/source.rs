@@ -82,7 +82,7 @@ struct NormalizedEdit<'a> {
     range: SourceRange,
 }
 
-#[pyclass(module = "qdk._native", eq, eq_int, frozen, from_py_object)]
+#[pyclass(module = "qdk._native", eq, eq_int, frozen, hash, from_py_object)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum PositionEncoding {
     #[pyo3(name = "UTF8")]

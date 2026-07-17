@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import random
 import threading
 from typing import Any
 
@@ -474,6 +475,58 @@ def test_rewriter_output_can_be_canonicalized_and_semantically_reanalyzed() -> N
         'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit q;\nh q;\n'
     )
     assert not analyzed.has_errors
+
+
+def test_edit_application_is_deterministic_across_generated_boundaries() -> None:
+    randomizer = random.Random(0x45444954)
+    original = parser.parse(
+        "OPENQASM 3.0;\n// abcdefghijklmnopqrstuvwxyz\nqubit q;\n"
+    )
+
+    for _ in range(32):
+        points = sorted(randomizer.sample(range(26), 8))
+        ranges = list(zip(points[::2], points[1::2]))
+        replacements = [
+            "".join(randomizer.choice("XYZ") for _ in range(randomizer.randrange(4)))
+            for _ in ranges
+        ]
+        expected_comment = "abcdefghijklmnopqrstuvwxyz"
+        for (start, end), replacement in reversed(list(zip(ranges, replacements))):
+            expected_comment = (
+                expected_comment[:start] + replacement + expected_comment[end:]
+            )
+        expected = f"OPENQASM 3.0;\n// {expected_comment}\nqubit q;\n"
+
+        for _ in range(4):
+            order = list(range(len(ranges)))
+            randomizer.shuffle(order)
+
+            class GeneratedEdits(parser.QASMRewriter):
+                def visit_Program(self, node: QASMNode) -> parser.RewriteReturn:
+                    del node
+                    return [
+                        parser.SourceEdit(
+                            parser.SourceRange(
+                                0,
+                                parser.Position(
+                                    1,
+                                    ranges[index][0] + 3,
+                                    parser.PositionEncoding.UTF8,
+                                ),
+                                parser.Position(
+                                    1,
+                                    ranges[index][1] + 3,
+                                    parser.PositionEncoding.UTF8,
+                                ),
+                            ),
+                            replacements[index],
+                        )
+                        for index in order
+                    ]
+
+            rewritten = GeneratedEdits().rewrite(original)
+            assert rewritten.document.entry.text == expected
+            assert original.document.entry.text.endswith("abcdefghijklmnopqrstuvwxyz\nqubit q;\n")
 
 
 def test_rewriter_public_contract_and_final_visit() -> None:

@@ -10,6 +10,13 @@ ranges, mixed encodings, unknown sources, and cross-source spans raise
 ``ValueError`` rather than being clamped. ``Position`` and ``SourceRange``
 constructors raise ``OverflowError`` when an unsigned 32-bit argument is
 negative or greater than ``2**32 - 1``.
+
+``Position``, ``SourceRange``, ``SourceEdit``, and ``SourceFile`` use value
+equality, have stable structural representations, and are hashable. The
+collection-backed ``SourceMap`` and ``SourceDocument`` use value equality and
+structural representations but are intentionally unhashable. Source IDs and
+ranges obtained from a source map are meaningful only within that immutable
+parse snapshot, even when equal scalar ranges occur in another snapshot.
 """
 
 from .._native import (  # type: ignore

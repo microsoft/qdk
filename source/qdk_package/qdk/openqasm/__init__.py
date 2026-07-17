@@ -6,6 +6,16 @@
 This module provides functions for compiling, running, estimating, and
 generating circuits from OpenQASM 2.0/3.0 programs.
 
+The parser, source, token, canonical serialization, and rewriter APIs are in
+preview. Their stable public names do not emit a warning merely because they
+are used.
+
+These APIs do not provide mutable syntax nodes, ``openqasm3.ast`` object
+compatibility, comment-preserving serialization, a concrete syntax tree,
+streaming tokens, include-source rewriting, semantic-tree serialization,
+printer style options, filesystem include fallback, or reverse symbol
+references.
+
 Key exports:
 
 - :func:`~qdk.openqasm.import_openqasm` — import an OpenQASM program or
@@ -31,6 +41,8 @@ Key exports:
   :class:`~qdk.openqasm.semantic.BinaryExpression`).
 - :class:`~qdk.openqasm.parser.QASMVisitor` — a read-only visitor base for
   walking either the syntactic or semantic AST.
+- :mod:`~qdk.openqasm.tokens` — lossless eager raw tokenization.
+- :mod:`~qdk.openqasm.rewriter` — transactional entry-source rewriting.
 """
 
 from . import parser, rewriter, semantic, source, tokens

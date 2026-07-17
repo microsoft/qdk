@@ -115,6 +115,24 @@ def test_analyze_diagnostic_full_message() -> None:
     assert "OPENQASM 3.0; int a = b;"[label.span.lo : label.span.hi] == "b"
 
 
+def test_diagnostic_value_repr_and_hash_policy_is_explicit() -> None:
+    result = semantic.analyze("OPENQASM 3.0; int a = b;")
+    diagnostic = result.diagnostics[0]
+    copied_diagnostic = result.errors[0]
+    label = diagnostic.labels[0]
+    copied_label = copied_diagnostic.labels[0]
+
+    assert diagnostic == copied_diagnostic
+    assert repr(diagnostic).startswith("Diagnostic(")
+    with pytest.raises(TypeError):
+        hash(diagnostic)
+    assert label == copied_label
+    assert repr(label).startswith("Label(")
+    assert hash(label) == hash(copied_label)
+    with pytest.raises(AttributeError):
+        diagnostic.message = "changed"  # type: ignore[misc]
+
+
 def test_analyze_diagnostic_pretty_str() -> None:
     result = semantic.analyze("OPENQASM 3.0; int a = b;")
     diagnostic = result.diagnostics[0]

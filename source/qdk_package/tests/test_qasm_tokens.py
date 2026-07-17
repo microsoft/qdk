@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import random
+
 import pytest
 
 from qdk.openqasm import parser, tokens
@@ -20,6 +22,54 @@ def test_tokens_reconstruct_source_with_contiguous_utf8_spans() -> None:
         == source.encode("utf-8")[token.span.lo : token.span.hi]
         for token in result
     )
+
+
+def test_tokens_reconstruct_deterministic_arbitrary_utf8_inputs() -> None:
+    randomizer = random.Random(0x5141534D)
+    alphabet = [
+        "a",
+        "Z",
+        "0",
+        " ",
+        "\t",
+        "\n",
+        "\r",
+        '"',
+        "/",
+        "@",
+        "§",
+        "é",
+        "Σ",
+        "𝑓",
+        "\u0000",
+    ]
+    cases = [
+        "",
+        '"unterminated',
+        '"01',
+        "/* unterminated",
+        "OPENQASM 3.1;\r\n@tag µ\n",
+    ]
+    cases.extend(
+        "".join(randomizer.choice(alphabet) for _ in range(randomizer.randrange(65)))
+        for _ in range(123)
+    )
+
+    for source in cases:
+        source_bytes = source.encode("utf-8")
+        result = tokens.tokenize(source)
+        assert "".join(token.text for token in result) == source
+        assert all(
+            token.text.encode("utf-8") == source_bytes[token.span.lo : token.span.hi]
+            for token in result
+        )
+        assert all(
+            left.span.hi == right.span.lo
+            for left, right in zip(result, result[1:])
+        )
+        if result:
+            assert result[0].span.lo == 0
+            assert result[-1].span.hi == len(source_bytes)
 
 
 def test_raw_token_kind_values_are_stable() -> None:
@@ -106,8 +156,13 @@ def test_unterminated_block_comment_remains_visible_as_trivia() -> None:
 
 def test_tokens_are_frozen_eager_values() -> None:
     token = tokens.tokenize("q")[0]
+    same_token = tokens.tokenize("q")[0]
 
     assert isinstance(token, RawToken)
+    assert token == same_token
+    assert hash(token) == hash(same_token)
+    assert repr(token).startswith("RawToken(")
+    assert repr(token.kind) == "<RawTokenKind.IDENTIFIER: 'identifier'>"
     with pytest.raises(AttributeError):
         token.text = "changed"  # type: ignore[misc]
 

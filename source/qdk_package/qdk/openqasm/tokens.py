@@ -7,6 +7,10 @@ The eager token stream preserves exact text, trivia, unknown characters, and
 unterminated strings and bitstrings. Spans are source-local, half-open UTF-8
 byte ranges. This is a raw lexer surface, not parser tokens or a concrete
 syntax tree.
+
+``RawTokenKind`` and ``RawToken`` use value equality and representation and are
+hashable. Token ``detail`` values remain preview data and may change from
+conformance findings without changing the coarse token categories.
 """
 
 from dataclasses import dataclass

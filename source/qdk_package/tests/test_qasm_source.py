@@ -109,6 +109,36 @@ def test_source_values_are_frozen_and_compare_by_value() -> None:
     assert first.entry == second.entry
 
 
+def test_source_value_repr_and_hash_policy_is_explicit() -> None:
+    position = Position(2, 3, PositionEncoding.UTF8)
+    source_range = SourceRange(0, position, Position(2, 4, PositionEncoding.UTF8))
+    edit = SourceEdit(source_range, "x")
+    first = parser.parse("OPENQASM 3.0;").document
+    second = parser.parse("OPENQASM 3.0;").document
+
+    scalar_values = [
+        parser.Span(1, 2),
+        position,
+        source_range,
+        edit,
+        first.entry,
+    ]
+    for value in scalar_values:
+        assert type(value).__name__ in repr(value)
+        assert hash(value) == hash(value)
+
+    collection_values = [first.source_map, first]
+    for value in collection_values:
+        assert type(value).__name__ in repr(value)
+        with pytest.raises(TypeError):
+            hash(value)
+
+    assert first == second
+    assert first is not second
+    assert first.source_map == second.source_map
+    assert first.source_map is not second.source_map
+
+
 def test_document_program_and_result_have_independent_lifetimes() -> None:
     result = parser.parse("OPENQASM 3.0; qubit q;")
     program = result.program
@@ -203,6 +233,43 @@ def test_source_map_positions_round_trip_every_unicode_boundary(
     assert [(position.line, position.column) for position in positions] == expected
     assert all(position.encoding == encoding for position in positions)
     assert [source_map.byte_offset(0, position) for position in positions] == offsets
+
+
+def test_source_coordinates_match_python_reference_at_generated_boundaries() -> None:
+    fragments = ["a", "é", "Σ", "𝑓", "\r\n", "\n"]
+    sources = [
+        "".join(fragments[(start + index) % len(fragments)] for index in range(9))
+        for start in range(len(fragments))
+    ]
+    sources.extend(["", "aéΣ𝑓", "aé\r\nΣ𝑓\n", "\r\n", "\n\n"])
+
+    for source in sources:
+        source_map = parser.parse(source).document.source_map
+        source_bytes = source.encode("utf-8")
+        boundaries = [0]
+        byte_offset = 0
+        for character in source:
+            byte_offset += len(character.encode("utf-8"))
+            boundaries.append(byte_offset)
+
+        for offset in boundaries:
+            prefix = source_bytes[:offset].decode("utf-8")
+            line = prefix.count("\n")
+            line_prefix = prefix.rsplit("\n", 1)[-1]
+            expected_columns = {
+                PositionEncoding.UTF8: len(line_prefix.encode("utf-8")),
+                PositionEncoding.CODE_POINT: len(line_prefix),
+                PositionEncoding.UTF16: len(line_prefix.encode("utf-16-le")) // 2,
+            }
+            for encoding, expected_column in expected_columns.items():
+                position = source_map.position_at(0, offset, encoding=encoding)
+                assert position == Position(line, expected_column, encoding)
+                assert source_map.byte_offset(0, position) == offset
+
+        invalid_offsets = set(range(len(source_bytes) + 1)) - set(boundaries)
+        for offset in invalid_offsets:
+            with pytest.raises(ValueError):
+                source_map.position_at(0, offset)
 
 
 @pytest.mark.parametrize(

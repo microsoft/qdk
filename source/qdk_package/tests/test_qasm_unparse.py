@@ -4,12 +4,16 @@
 from __future__ import annotations
 
 import io
+from pathlib import Path
 from typing import Any
 
 import pytest
 
 from qdk import openqasm
 from qdk.openqasm import parser
+
+_OPENQASM_SAMPLE_DIR = Path(__file__).resolve().parents[3] / "samples" / "OpenQASM"
+_OPENQASM_SAMPLES = sorted(_OPENQASM_SAMPLE_DIR.glob("*.qasm"))
 
 
 def test_canonical_format_version_and_alias_identity() -> None:
@@ -36,6 +40,42 @@ def test_dumps_canonicalizes_current_versions() -> None:
         reparsed = parser.parse(emitted)
         assert not reparsed.has_errors
         assert parser.dumps(reparsed.program) == emitted
+
+
+@pytest.mark.parametrize("sample_path", _OPENQASM_SAMPLES, ids=lambda path: path.name)
+def test_repository_sample_corpus_strictly_reparses_and_stabilizes(
+    sample_path: Path,
+) -> None:
+    source = sample_path.read_text(encoding="utf-8")
+    result = parser.parse(source, path=str(sample_path))
+
+    assert not result.has_errors
+    emitted = parser.dumps(result.program)
+    strict_program = parser.parse_program(emitted)
+    assert parser.dumps(strict_program) == emitted
+
+
+def test_canonicalization_covers_annotations_pragmas_calibration_and_crlf() -> None:
+    source = (
+        "OPENQASM 3.1;\r\n"
+        "@vendor.tag payload\r\n"
+        "qubit q;\r\n"
+        "pragma vendor.mode exact\r\n"
+        'defcalgrammar "openpulse";\r\n'
+        "cal { pulse frame; }\r\n"
+        "defcal x $0 { play; }\r\n"
+    )
+    result = parser.parse(source)
+
+    assert not result.has_errors
+    emitted = parser.dumps(result.program)
+    assert "\r" not in emitted
+    assert emitted.startswith("OPENQASM 3.1;\n@vendor.tag payload\n")
+    assert "pragma vendor.mode exact\n" in emitted
+    assert 'defcalgrammar "openpulse";\n' in emitted
+    assert "cal { pulse frame; }\n" in emitted
+    assert "defcal x $0 { play; }\n" in emitted
+    assert parser.dumps(parser.parse_program(emitted)) == emitted
 
 
 def test_dumps_preserves_include_without_expanding_or_resolving() -> None:

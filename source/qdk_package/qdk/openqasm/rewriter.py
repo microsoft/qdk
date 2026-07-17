@@ -9,6 +9,13 @@ applied to the immutable entry source before a new independent parse snapshot
 is published. Punctuation and list splicing are not inferred; callers deleting
 or replacing list elements must include separators in an explicit range when
 needed.
+
+Rewriting accepts only a syntactic ``ParseResult`` and edits only source ID 0,
+the entry source. Include contents are immutable snapshots used for reparsing,
+not rewrite targets. Semantic results are rejected. Invalid edit sets raise
+``QASMRewriteError`` with ``code``, ``edit_index``, and ``range`` payloads;
+callback and iterator exceptions propagate unchanged. Rewriting malformed text
+returns a diagnostic-bearing parse result rather than raising a parse error.
 """
 
 from __future__ import annotations

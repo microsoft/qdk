@@ -825,6 +825,7 @@ impl Emitter {
             )),
             LiteralKind::Float(value) => finite_float(*value, span),
             LiteralKind::Imaginary(value) => Ok(format!("{}im", finite_float(*value, span)?)),
+            LiteralKind::Int(value) if *value == i64::MIN => Ok(value.unsigned_abs().to_string()),
             LiteralKind::Int(value) => Ok(value.to_string()),
             LiteralKind::BigInt(value) => Ok(value.to_string()),
             LiteralKind::String(value) => string_literal(value, span),

@@ -119,10 +119,50 @@ fn strings_bitstrings_and_calibration_round_trip_stably() {
 }
 
 #[test]
+fn remaining_statement_expression_and_type_families_round_trip_stably() {
+    assert_round_trip(
+        r#"OPENQASM 3.1;
+input complex[float[32]] input_value;
+output duration elapsed;
+stretch slack;
+complex[float[32]] value = 1.5im;
+int[64] huge = 9223372036854775808;
+bool flag = !false;
+array[int[8], 3] values = {1, 2, 3};
+qubit[2] q;
+gate phase(theta) target { gphase(theta) target; }
+extern inspect(readonly array[int[8], 2, 3]) -> bit;
+def use(mutable array[int[8], #dim = 2] data, qubit target) {
+  duration elapsed = durationof({ delay[10ns] target; });
+  int item = int[32](data[0][0]);
+  item = item + 1;
+  phase(pi / 2) target;
+  box[20ns] { barrier target; }
+  while (flag) { break; continue; }
+  return;
+}
+{ end; }
+"#,
+    );
+}
+
+#[test]
 fn canonical_output_uses_two_space_indentation() {
     assert_eq!(
         emit("OPENQASM 3.0; if (true) { if (false) { end; } }"),
         "OPENQASM 3.0;\nif (true) {\n  if (false) {\n    end;\n  }\n}\n"
+    );
+}
+
+#[test]
+fn i64_minimum_magnitude_and_negative_form_round_trip_stably() {
+    assert_eq!(
+        emit("OPENQASM 3.1; int[64] value = 9223372036854775808;"),
+        "OPENQASM 3.1;\nint[64] value = 9223372036854775808;\n"
+    );
+    assert_eq!(
+        emit("OPENQASM 3.1; int[64] value = -9223372036854775808;"),
+        "OPENQASM 3.1;\nint[64] value = -9223372036854775808;\n"
     );
 }
 

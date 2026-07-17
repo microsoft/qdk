@@ -1305,13 +1305,14 @@ class GpuContext:
 # ---------------------------------------------------------------------------
 
 class Span:
-    """A half-open ``[lo, hi)`` byte range into a source string."""
+    """A hashable value representing a half-open UTF-8 byte range."""
 
     def __init__(self, lo: int, hi: int) -> None: ...
     @property
     def lo(self) -> int: ...
     @property
     def hi(self) -> int: ...
+    def __hash__(self) -> int: ...
 
 class RawTokenKind(Enum):
     """A stable, coarse category for a lossless OpenQASM token."""
@@ -1331,7 +1332,7 @@ class RawTokenKind(Enum):
     def value(self) -> str: ...
 
 class RawToken:
-    """One frozen lossless token with a source-local UTF-8 byte span."""
+    """One frozen, hashable lossless token with a source-local UTF-8 span."""
 
     @property
     def kind(self) -> RawTokenKind: ...
@@ -1345,6 +1346,7 @@ class RawToken:
     def detail(self) -> Optional[str]: ...
     @property
     def is_complete(self) -> bool: ...
+    def __hash__(self) -> int: ...
 
 class PositionEncoding(Enum):
     """The column encoding used by a source position."""
@@ -1354,9 +1356,11 @@ class PositionEncoding(Enum):
     UTF16: PositionEncoding
     @property
     def value(self) -> str: ...
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
 
 class Position:
-    """A zero-based line and column in a source file.
+    """A frozen, hashable zero-based line and column in a source file.
 
     Raises ``OverflowError`` if ``line`` or ``column`` is negative or greater
     than ``2**32 - 1``.
@@ -1374,9 +1378,10 @@ class Position:
     def column(self) -> int: ...
     @property
     def encoding(self) -> PositionEncoding: ...
+    def __hash__(self) -> int: ...
 
 class SourceRange:
-    """A range within one source file.
+    """A frozen, hashable range within one source file.
 
     Raises ``OverflowError`` if ``source_id`` is negative or greater than
     ``2**32 - 1``.
@@ -1389,18 +1394,20 @@ class SourceRange:
     def start(self) -> Position: ...
     @property
     def end(self) -> Position: ...
+    def __hash__(self) -> int: ...
 
 class SourceEdit:
-    """A replacement for one source range."""
+    """A frozen, hashable replacement for one source range."""
 
     def __init__(self, range: SourceRange, replacement: str) -> None: ...
     @property
     def range(self) -> SourceRange: ...
     @property
     def replacement(self) -> str: ...
+    def __hash__(self) -> int: ...
 
 class SourceFile:
-    """One immutable source file in a parse snapshot."""
+    """One immutable, hashable source file in a parse snapshot."""
 
     @property
     def id(self) -> int: ...
@@ -1416,12 +1423,14 @@ class SourceFile:
     def is_resolved(self) -> bool: ...
     @property
     def resolution_status(self) -> str: ...
+    def __hash__(self) -> int: ...
 
 class SourceMap:
     """An immutable collection of source files in parser pre-order.
 
     Lines and columns are zero based. Coordinate conversion is strict and
-    raises ``ValueError`` rather than clamping invalid boundaries.
+    raises ``ValueError`` rather than clamping invalid boundaries. Source maps
+    compare by value and are intentionally unhashable.
     """
 
     @property
@@ -1448,14 +1457,16 @@ class SourceMap:
         encoding: PositionEncoding = ...,
     ) -> SourceRange: ...
     def span_from_range(self, source_range: SourceRange) -> Span: ...
+    __hash__: None
 
 class SourceDocument:
-    """The immutable sources retained by one syntactic parse snapshot."""
+    """The immutable, value-comparable, unhashable sources in one snapshot."""
 
     @property
     def entry(self) -> SourceFile: ...
     @property
     def source_map(self) -> SourceMap: ...
+    __hash__: None
 
 class Severity(Enum):
     """The severity of a :class:`Diagnostic`."""
@@ -1463,17 +1474,20 @@ class Severity(Enum):
     Error: Severity
     Warning: Severity
     Advice: Severity
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
 
 class Label:
-    """A labeled region of source associated with a :class:`Diagnostic`."""
+    """A frozen, hashable labeled region associated with a diagnostic."""
 
     @property
     def span(self) -> Span: ...
     @property
     def message(self) -> Optional[str]: ...
+    def __hash__(self) -> int: ...
 
 class Diagnostic:
-    """A plain projection of a layered `OpenQASM` diagnostic."""
+    """A frozen, value-comparable, unhashable diagnostic projection."""
 
     @property
     def message(self) -> str: ...
@@ -1504,6 +1518,8 @@ class Diagnostic:
         ``unicode`` defaults to ``True``; ``width`` defaults to 80 columns.
         """
         ...
+
+    __hash__: None
 
 class QASMNode:
     """The abstract root of every `OpenQASM` AST node."""

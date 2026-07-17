@@ -36,7 +36,15 @@ method.
 
 Nodes are eagerly materialized and hold no reference back into the parser, so
 they may be freely retained, inspected across threads, and traversed after the
-call returns.
+call returns. Node identity is local to one parse snapshot: repeated access to
+a child within a result preserves identity, but rewriting creates a new graph
+and does not preserve identities for unchanged subtrees.
+
+This API is in preview without an unconditional runtime warning. 
+
+Serialization accepts only syntax ``Program`` objects. It does not serialize
+semantic trees, retain comments or original spelling, expose style options, or
+reconstruct native syntax from Python projections.
 """
 
 from __future__ import annotations
