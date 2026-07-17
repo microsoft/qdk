@@ -860,10 +860,11 @@ fn prep_measure_reset_instrument(shot_idx: u32, qubit: u32, result: u32, resets_
             & ~(shot.qubit_is_0_mask | shot.qubit_is_1_mask);
 }
 
-fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: bool, resets_to_zero: bool) {
+// `qubit` and `result_id` are resolved by the caller: the base pipeline reads
+// them from the ops pool (ops[op_idx].q1/.q2), while the adaptive interpreter
+// resolves them from registers/immediates (resolve_q1/resolve_q2).
+fn prep_measure_reset(shot_idx: u32, op_idx: u32, qubit: u32, result_id: u32, is_loss: bool, stores_result: bool, resets_to_zero: bool) {
     let shot = &shots[shot_idx];
-    let op = &ops[op_idx];
-    let qubit = get_measure_qubit(shot_idx, op_idx);
 
     // Choose measurement result based on qubit probabilities and random number
     let result = select(1u, 0u, shot.rand_measure < shot.qubit_state[qubit].zero_probability);
@@ -872,8 +873,6 @@ fn prep_measure_reset(shot_idx: u32, op_idx: u32, is_loss: bool, stores_result: 
     // Instead, mark the qubit as lost by setting the heat to -1.0
     if !is_loss {
         if stores_result {
-            let result_id = get_measure_result(shot_idx, op_idx); // Result id to store the measurement result in is stored in q2
-
             // If the qubit is already marked as lost, just report that and exit. It's already in the zero
             // state so nothing to update or renormalize. The execute op should be a no-op (ID)
             if shot.qubit_state[qubit].heat == -1.0 {
@@ -1967,14 +1966,6 @@ fn binary_search_noise_table(rand_lo: u32, rand_hi: u32, start: i32, count: i32)
     return low;
 }
 
-fn get_measure_qubit(shot_idx: u32, op_idx: u32) -> u32 {
-    return ops[op_idx].q1;
-}
-
-fn get_measure_result(shot_idx: u32, op_idx: u32) -> u32 {
-    return ops[op_idx].q2;
-}
-
 // Get the qubit id at the given index from the correlated noise op's qubit args
 // Qubit args are stored in the unitary matrix elements as f32 values
 fn get_correlated_noise_qubit(op_idx: u32, index: u32) -> u32 {
@@ -2111,14 +2102,6 @@ fn resolve_gate_angle(shot_idx: u32) -> f32 {
     return resolve_f32(shot_idx, instr.src0, flags, 0u);
 }
 
-fn get_measure_qubit_adaptive(shot_idx: u32, op_idx: u32) -> u32 {
-    return resolve_q1(shot_idx);
-}
-
-fn get_measure_result_adaptive(shot_idx: u32, op_idx: u32) -> u32 {
-    return resolve_q2(shot_idx);
-}
-
 // Read a measurement result from the existing results buffer.
 // Results are stored as atomic<u32> at shot_idx * RESULT_COUNT + result_id.
 fn read_measurement_result(shot_idx: u32, result_id: u32) -> bool {
@@ -2229,17 +2212,17 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
     // Handle MResetZ, MZ, and ResetZ operations. These have unique handling and no associated noise ops, so prep and exit
     if (op.id == OPID_MRESETZ) {
-        prep_measure_reset(shot_idx, op_idx, false /* is_loss */, true /* stores_result */, true /* resets_to_zero */);
+        prep_measure_reset(shot_idx, op_idx, op.q1, op.q2, false /* is_loss */, true /* stores_result */, true /* resets_to_zero */);
         shot.next_op_idx = op_idx + 1u; // No associated noise ops, so just advance by 1
         return;
     }
     if (op.id == OPID_MZ) {
-        prep_measure_reset(shot_idx, op_idx, false /* is_loss */, true /* stores_result */, false /* resets_to_zero */);
+        prep_measure_reset(shot_idx, op_idx, op.q1, op.q2, false /* is_loss */, true /* stores_result */, false /* resets_to_zero */);
         shot.next_op_idx = op_idx + 1u;
         return;
     }
     if (op.id == OPID_RESETZ) {
-        prep_measure_reset(shot_idx, op_idx, false /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
+        prep_measure_reset(shot_idx, op_idx, op.q1, op.q2, false /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
         shot.next_op_idx = op_idx + 1u;
         return;
     }
@@ -2251,7 +2234,7 @@ fn prepare_op(@builtin(global_invocation_id) globalId: vec3<u32>) {
         let loss_bit = 1u << op.q1;
         if ((shot.pending_loss_mask & loss_bit) != 0u) {
             shot.pending_loss_mask &= ~loss_bit;
-            prep_measure_reset(shot_idx, op_idx, true /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
+            prep_measure_reset(shot_idx, op_idx, op.q1, op.q2, true /* is_loss */, false /* stores_result */, true /* resets_to_zero */);
         } else {
             shot.op_type = OPID_ID;
             shot.op_idx = op_idx;
@@ -3312,7 +3295,7 @@ fn prepare_op_adaptive(@builtin(global_invocation_id) globalId: vec3<u32>) {
         let arg_offset = noise_instr.aux2;
         shot.op_idx = op_idx;
         shot.op_type = op.id;
-        prep_correlated_noise(shot_idx, op_idx, qubit_count, arg_offset);
+        prep_correlated_noise_adaptive(shot_idx, op_idx, qubit_count, arg_offset);
         shots[shot_idx].interp.status = STATUS_RUNNING;
         return;
     }
@@ -3479,10 +3462,10 @@ fn prepare_op_adaptive(@builtin(global_invocation_id) globalId: vec3<u32>) {
 
             // No noise — standard measure
             let resets = op.id == OPID_MRESETZ;
-            prep_measure_reset(shot_idx, op_idx, false, true, resets);
+            prep_measure_reset(shot_idx, op_idx, q1, q2, false, true, resets);
         }
         case 2u { // Reset
-            prep_measure_reset(shot_idx, op_idx, false, false, true);
+            prep_measure_reset(shot_idx, op_idx, q1, q2, false, false, true);
         }
         default {
             shot.op_type = OPID_ID;
