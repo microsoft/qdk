@@ -91,6 +91,16 @@ pragma vendor.mode exact
 }
 
 #[test]
+fn canonical_output_uses_bitwise_operator_precedence() {
+    for expression in ["1 | 2 ^ 3", "1 ^ 2 | 3", "1 ^ 2 & 3", "1 & 2 ^ 3"] {
+        assert_eq!(
+            emit(&format!("OPENQASM 3.0; int value = {expression};")),
+            format!("OPENQASM 3.0;\nint value = {expression};\n")
+        );
+    }
+}
+
+#[test]
 fn declarations_types_and_callable_forms_round_trip_stably() {
     assert_round_trip(
         r#"OPENQASM 3.0;

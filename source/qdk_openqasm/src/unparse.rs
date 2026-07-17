@@ -1174,8 +1174,8 @@ fn binary_operator_precedence(operator: BinOp) -> u8 {
         BinOp::Gt | BinOp::Gte | BinOp::Lt | BinOp::Lte => 7,
         BinOp::Eq | BinOp::Neq => 6,
         BinOp::AndB => 5,
-        BinOp::OrB => 4,
-        BinOp::XorB => 3,
+        BinOp::XorB => 4,
+        BinOp::OrB => 3,
         BinOp::AndL => 2,
         BinOp::OrL => 1,
     }

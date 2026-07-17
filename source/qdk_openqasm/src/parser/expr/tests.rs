@@ -565,6 +565,66 @@ fn pratt_parsing_mul_add() {
 }
 
 #[test]
+fn pratt_parsing_bitwise_or_then_xor() {
+    check_expr(
+        "1 | 2 ^ 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: OrB
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [4-9]: BinaryOpExpr:
+                    op: XorB
+                    lhs: Expr [4-5]: Lit: Int(2)
+                    rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_xor_then_or() {
+    check_expr(
+        "1 ^ 2 | 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: OrB
+                lhs: Expr [0-5]: BinaryOpExpr:
+                    op: XorB
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [4-5]: Lit: Int(2)
+                rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_xor_then_and() {
+    check_expr(
+        "1 ^ 2 & 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: XorB
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [4-9]: BinaryOpExpr:
+                    op: AndB
+                    lhs: Expr [4-5]: Lit: Int(2)
+                    rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_and_then_xor() {
+    check_expr(
+        "1 & 2 ^ 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: XorB
+                lhs: Expr [0-5]: BinaryOpExpr:
+                    op: AndB
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [4-5]: Lit: Int(2)
+                rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
 fn pratt_parsing_parens() {
     check_expr(
         "(1 + 2) * 3",
