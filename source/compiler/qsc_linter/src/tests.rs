@@ -880,6 +880,136 @@ fn deprecated_assign_update_expr_code_action() {
 }
 
 #[test]
+fn deprecated_assign_update_expr_nested_code_action() {
+    check(
+        &wrap_in_callable(
+            "mutable a = [[1, 2], [3, 4]]; a w/= 1 <- (a[1] w/ 1 <- 7);",
+            CallableKind::Function,
+        ),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "a w/= 1 <- (a[1] w/ 1 <- 7)",
+                    level: Allow,
+                    message: "deprecated use of update assignment expressions",
+                    help: "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\"",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace update assignment expression with explicit assignment",
+                            edits: [
+                                (
+                                    "a[1][1] = 7",
+                                    Span {
+                                        lo: 101,
+                                        hi: 128,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+                SrcLint {
+                    source: "a[1] w/ 1 <- 7",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn deprecated_assign_update_expr_deep_nested_code_action() {
+    check(
+        &wrap_in_callable(
+            "mutable a = [[[1, 2], [3, 4]], [[5, 6], [7, 8]]]; a w/= 0 <- (a[0] w/ 1 <- (a[0][1] w/ 0 <- 9));",
+            CallableKind::Function,
+        ),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "a w/= 0 <- (a[0] w/ 1 <- (a[0][1] w/ 0 <- 9))",
+                    level: Allow,
+                    message: "deprecated use of update assignment expressions",
+                    help: "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\"",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace update assignment expression with explicit assignment",
+                            edits: [
+                                (
+                                    "a[0][1][0] = 9",
+                                    Span {
+                                        lo: 121,
+                                        hi: 166,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+                SrcLint {
+                    source: "a[0] w/ 1 <- (a[0][1] w/ 0 <- 9)",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+                SrcLint {
+                    source: "a[0][1] w/ 0 <- 9",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn deprecated_assign_update_expr_mismatched_code_action() {
+    check(
+        &wrap_in_callable(
+            "mutable a = [[1, 2], [3, 4]]; a w/= 0 <- (a[1] w/ 1 <- 7);",
+            CallableKind::Function,
+        ),
+        &expect![[r#"
+            [
+                SrcLint {
+                    source: "a w/= 0 <- (a[1] w/ 1 <- 7)",
+                    level: Allow,
+                    message: "deprecated use of update assignment expressions",
+                    help: "update assignment expressions \"a w/= b <- c\" are deprecated; consider using explicit assignment instead \"a[b] = c\"",
+                    code_action: Some(
+                        CodeAction {
+                            title: "Replace update assignment expression with explicit assignment",
+                            edits: [
+                                (
+                                    "a[0] = a[1] w/ 1 <- 7",
+                                    Span {
+                                        lo: 101,
+                                        hi: 128,
+                                    },
+                                ),
+                            ],
+                        },
+                    ),
+                },
+                SrcLint {
+                    source: "a[1] w/ 1 <- 7",
+                    level: Allow,
+                    message: "deprecated use of update expressions",
+                    help: "update expressions \"a w/ b <- c\" are deprecated; consider using explicit assignment instead",
+                    code_action: None,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn ambiguous_unary_operator_after_if() {
     check(
         &wrap_in_callable("if true { 42 } else { 0 } - 1", CallableKind::Function),

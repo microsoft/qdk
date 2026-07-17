@@ -297,13 +297,33 @@ impl AstLintPass for DeprecatedAssignUpdateExpr {
         if let ExprKind::AssignUpdate(record, index, value) = expr.kind.as_ref()
             && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
         {
-            let record_src = compilation.get_source_code(record.span);
-            let index_src = compilation.get_source_code(index.span);
+            let mut lhs = format!(
+                "{}[{}]",
+                compilation.get_source_code(record.span),
+                compilation.get_source_code(index.span)
+            );
+
+            let mut value = value;
+            loop {
+                while let ExprKind::Paren(inner) = value.kind.as_ref() {
+                    value = inner;
+                }
+
+                let ExprKind::TernOp(TernOp::Update, inner_record, inner_index, inner_value) =
+                    value.kind.as_ref()
+                else {
+                    break;
+                };
+                if compilation.get_source_code(inner_record.span) != lhs {
+                    break;
+                }
+
+                lhs = format!("{lhs}[{}]", compilation.get_source_code(inner_index.span));
+                value = inner_value;
+            }
+
             let value_src = compilation.get_source_code(value.span);
-            let edits = vec![(
-                format!("{record_src}[{index_src}] = {value_src}"),
-                expr.span,
-            )];
+            let edits = vec![(format!("{lhs} = {value_src}"), expr.span)];
             buffer.push(lint!(
                 self,
                 expr.span,
