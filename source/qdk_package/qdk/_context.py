@@ -287,7 +287,7 @@ class Context:
             target_profile, language_features, manifest_contents, project_root
         )
 
-    def _qsharp_value_to_python_value(self, obj):
+    def _qsharp_value_to_python_value(self, obj: Any) -> Any:
         """Converts Q# value to Python value."""
         # Base case: Primitive types
         if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
@@ -445,7 +445,7 @@ class Context:
         """Registers a Q# callable in this context's code module."""
         module = self._get_code_module(namespace)
 
-        def _callable_fn(*args):
+        def _callable_fn(*args: Any) -> Any:
             if self._disposed:
                 raise QSharpError(
                     "This callable belongs to a disposed Q# context. "
@@ -620,7 +620,7 @@ class Context:
         self,
         entry_expr: Union[str, Callable, GlobalCallable, Closure],
         shots: int,
-        *args,
+        *args: Any,
         on_result: Optional[Callable[[ShotResult], None]] = None,
         save_events: bool = False,
         noise: Optional[
@@ -760,7 +760,7 @@ class Context:
             return [shot["result"] for shot in results]
 
     def compile(
-        self, entry_expr: Union[str, Callable, GlobalCallable, Closure], *args
+        self, entry_expr: Union[str, Callable, GlobalCallable, Closure], *args: Any
     ) -> QirInputData:
         """
         Compiles the Q# source code into a program that can be submitted to a target.
@@ -808,7 +808,7 @@ class Context:
     def circuit(
         self,
         entry_expr: Optional[Union[str, Callable, GlobalCallable, Closure]] = None,
-        *args,
+        *args: Any,
         operation: Optional[str] = None,
         generation_method: Optional[CircuitGenerationMethod] = None,
         max_operations: Optional[int] = None,
@@ -899,7 +899,7 @@ class Context:
     def logical_counts(
         self,
         entry_expr: Union[str, Callable, GlobalCallable, Closure],
-        *args,
+        *args: Any,
     ) -> LogicalCounts:
         """
         Extracts logical resource counts from Q# source code.

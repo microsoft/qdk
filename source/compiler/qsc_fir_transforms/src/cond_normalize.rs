@@ -44,8 +44,8 @@
 //!
 //! Left untouched: value-position `if`s (defunctionalization removes the
 //! binding and rebuilds a tree referencing each guard once); `while` guards
-//! (re-evaluated per iteration); and provably-pure conditions, per the
-//! conservative [`crate::walk_utils::expr_is_side_effect_free`] predicate.
+//! (re-evaluated per iteration); and conditions whose evaluation is locally
+//! proven side-effect-free by [`crate::walk_utils::expr_is_side_effect_free`].
 //!
 //! # Binding placement
 //!
@@ -154,7 +154,7 @@ fn normalize_conditions_in_package(
     // callables in this package are considered.
     let mut targets: Vec<ConditionTarget> = Vec::new();
     for (_item_id, decl) in reachable_local_callables(package, package_id, reachable) {
-        collect_targets_in_callable_impl(package, &decl.implementation, &mut targets);
+        collect_targets_in_callable_impl(package, package_id, &decl.implementation, &mut targets);
     }
 
     if targets.is_empty() {
@@ -189,6 +189,7 @@ fn normalize_conditions_in_package(
         let cond_temp_counter = cond_temp_counters.entry(root_block).or_default();
         let inserted = hoist_condition(
             package,
+            package_id,
             assigner,
             root_block,
             enclosing_block,
@@ -217,16 +218,23 @@ fn normalize_conditions_in_package(
 /// across all functored specializations of a callable implementation.
 fn collect_targets_in_callable_impl(
     package: &Package,
+    package_id: PackageId,
     callable_impl: &CallableImpl,
     targets: &mut Vec<ConditionTarget>,
 ) {
     match callable_impl {
         CallableImpl::Intrinsic => {}
         CallableImpl::Spec(spec_impl) => {
-            collect_targets_in_spec_impl(package, spec_impl, targets);
+            collect_targets_in_spec_impl(package, package_id, spec_impl, targets);
         }
         CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            collect_targets_in_block(package, spec_decl.block, spec_decl.block, targets);
+            collect_targets_in_block(
+                package,
+                package_id,
+                spec_decl.block,
+                spec_decl.block,
+                targets,
+            );
         }
     }
 }
@@ -235,18 +243,25 @@ fn collect_targets_in_callable_impl(
 /// `adj`, `ctl`, `ctl-adj`) of a spec implementation.
 fn collect_targets_in_spec_impl(
     package: &Package,
+    package_id: PackageId,
     spec_impl: &SpecImpl,
     targets: &mut Vec<ConditionTarget>,
 ) {
-    collect_targets_in_block(package, spec_impl.body.block, spec_impl.body.block, targets);
+    collect_targets_in_block(
+        package,
+        package_id,
+        spec_impl.body.block,
+        spec_impl.body.block,
+        targets,
+    );
     if let Some(adj) = &spec_impl.adj {
-        collect_targets_in_block(package, adj.block, adj.block, targets);
+        collect_targets_in_block(package, package_id, adj.block, adj.block, targets);
     }
     if let Some(ctl) = &spec_impl.ctl {
-        collect_targets_in_block(package, ctl.block, ctl.block, targets);
+        collect_targets_in_block(package, package_id, ctl.block, ctl.block, targets);
     }
     if let Some(ctl_adj) = &spec_impl.ctl_adj {
-        collect_targets_in_block(package, ctl_adj.block, ctl_adj.block, targets);
+        collect_targets_in_block(package, package_id, ctl_adj.block, ctl_adj.block, targets);
     }
 }
 
@@ -255,6 +270,7 @@ fn collect_targets_in_spec_impl(
 /// is threaded unchanged so each target knows the dominating scope.
 fn collect_targets_in_block(
     package: &Package,
+    package_id: PackageId,
     root_block: BlockId,
     block_id: BlockId,
     targets: &mut Vec<ConditionTarget>,
@@ -267,7 +283,7 @@ fn collect_targets_in_block(
             StmtKind::Expr(e) | StmtKind::Semi(e) => {
                 let surface = *e;
                 if matches!(&package.get_expr(surface).kind, ExprKind::If(..))
-                    && if_chain_has_side_effecting_cond(package, surface)
+                    && if_chain_has_side_effecting_cond(package, package_id, surface)
                 {
                     targets.push((root_block, block_id, stmt_index, surface));
                 }
@@ -282,7 +298,7 @@ fn collect_targets_in_block(
         let mut child_blocks = Vec::new();
         collect_child_blocks(package, value_expr, &mut child_blocks);
         for child in child_blocks {
-            collect_targets_in_block(package, root_block, child, targets);
+            collect_targets_in_block(package, package_id, root_block, child, targets);
         }
     }
 }
@@ -299,17 +315,21 @@ fn collect_child_blocks(package: &Package, expr_id: ExprId, out: &mut Vec<BlockI
 }
 
 /// Returns `true` when the outer condition or any `else if` condition in the
-/// chain headed by `if_expr_id` carries side effects (per the conservative
-/// [`expr_is_side_effect_free`] predicate). Only `else if` links — an `If`
+/// chain headed by `if_expr_id` carries side effects (per
+/// [`expr_is_side_effect_free`]). Only `else if` links — an `If`
 /// expression in `otherwise` position — are followed; a final `else { .. }`
 /// block has no condition and stops the walk.
-fn if_chain_has_side_effecting_cond(package: &Package, if_expr_id: ExprId) -> bool {
+fn if_chain_has_side_effecting_cond(
+    package: &Package,
+    package_id: PackageId,
+    if_expr_id: ExprId,
+) -> bool {
     let mut current = if_expr_id;
     loop {
         let ExprKind::If(cond, _, otherwise) = &package.get_expr(current).kind else {
             return false;
         };
-        if !expr_is_side_effect_free(package, *cond) {
+        if !expr_is_side_effect_free(package, package_id, *cond) {
             return true;
         }
         match otherwise {
@@ -338,6 +358,7 @@ fn if_chain_has_side_effecting_cond(package: &Package, if_expr_id: ExprId) -> bo
 #[allow(clippy::too_many_arguments)]
 fn hoist_condition(
     package: &mut Package,
+    package_id: PackageId,
     assigner: &mut Assigner,
     root_block: BlockId,
     enclosing_block: BlockId,
@@ -355,7 +376,7 @@ fn hoist_condition(
     let mut inserted = 0;
 
     // Outer condition: unconditionally evaluated when the statement is reached.
-    if !expr_is_side_effect_free(package, cond_expr_id) {
+    if !expr_is_side_effect_free(package, package_id, cond_expr_id) {
         let cond_ty = package.get_expr(cond_expr_id).ty.clone();
         let cond_span = package.get_expr(cond_expr_id).span;
 
@@ -429,6 +450,7 @@ fn hoist_condition(
     // accumulator and conditionally assign it in its own else scope.
     inserted += hoist_else_if_chain(
         package,
+        package_id,
         assigner,
         root_block,
         enclosing_block,
@@ -454,6 +476,7 @@ fn hoist_condition(
 #[allow(clippy::too_many_arguments)]
 fn hoist_else_if_chain(
     package: &mut Package,
+    package_id: PackageId,
     assigner: &mut Assigner,
     root_block: BlockId,
     enclosing_block: BlockId,
@@ -478,7 +501,7 @@ fn hoist_else_if_chain(
             _ => return inserted,
         };
 
-        if !expr_is_side_effect_free(package, elif_cond) {
+        if !expr_is_side_effect_free(package, package_id, elif_cond) {
             let cond_ty = package.get_expr(elif_cond).ty.clone();
             let cond_span = package.get_expr(elif_cond).span;
             let if_ty = package.get_expr(elif_id).ty.clone();

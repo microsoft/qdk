@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from inspect import signature
 from types import NoneType
 from typing import (
+    Any,
     ClassVar,
     Generic,
     Protocol,
@@ -60,7 +61,7 @@ class Application(ABC, Generic[TraceParameters]):
         """
 
     @staticmethod
-    def q(**kwargs) -> TraceQuery:
+    def q(**kwargs: Any) -> TraceQuery:
         """Create a trace query for this application.
 
         Args:
@@ -83,7 +84,7 @@ class Application(ABC, Generic[TraceParameters]):
 
     def enumerate_traces(
         self,
-        **kwargs,
+        **kwargs: Any,
     ) -> Generator[Trace, None, None]:
         """Yield all traces of an application given its dataclass parameters.
 
@@ -121,7 +122,7 @@ class Application(ABC, Generic[TraceParameters]):
 
     def enumerate_traces_with_parameters(
         self,
-        **kwargs,
+        **kwargs: Any,
     ) -> Generator[tuple[TraceParameters, Trace], None, None]:
         """Yield (parameters, trace) pairs for an application.
 
@@ -168,7 +169,7 @@ class ApplicationContext:
 
     application: Application
 
-    def __init__(self, application: Application, **kwargs):
+    def __init__(self, application: Application, **kwargs: Any):
         """Initialize the context for the given application.
 
         Args:

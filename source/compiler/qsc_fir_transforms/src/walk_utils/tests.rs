@@ -556,10 +556,11 @@ fn classify_local_used_only_in_struct_field_is_recorded() {
 }
 
 // ---------------------------------------------------------------------------
-// Direct unit tests for `expr_is_side_effect_free`.
+// Direct unit tests for `expr_is_side_effect_free` and
+// `expr_is_safe_to_discard`.
 //
-// At least five positive and five negative shapes are covered to pin
-// the conservative purity contract.
+// At least five positive and five negative shapes are covered to pin both
+// the duplicate-safe and discard-safe purity contracts.
 // ---------------------------------------------------------------------------
 
 /// Allocate an `Int` literal `ExprId`.
@@ -578,7 +579,8 @@ fn given_lit_is_side_effect_free() {
     let mut package = Package::default();
     let mut assigner = Assigner::default();
     let e = int_lit(&mut package, &mut assigner, 1);
-    assert!(expr_is_side_effect_free(&package, e));
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -593,7 +595,8 @@ fn given_var_is_side_effect_free() {
         Ty::Prim(Prim::Int),
         Span::default(),
     );
-    assert!(expr_is_side_effect_free(&package, e));
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -609,7 +612,8 @@ fn given_tuple_of_lits_is_side_effect_free() {
         ExprKind::Tuple(vec![a, b]),
         Span::default(),
     );
-    assert!(expr_is_side_effect_free(&package, e));
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -625,7 +629,8 @@ fn given_array_of_lits_is_side_effect_free() {
         ExprKind::Array(vec![a, b]),
         Span::default(),
     );
-    assert!(expr_is_side_effect_free(&package, e));
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -648,7 +653,8 @@ fn given_block_with_single_lit_is_side_effect_free() {
         ExprKind::Block(bid),
         Span::default(),
     );
-    assert!(expr_is_side_effect_free(&package, e));
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -671,7 +677,8 @@ fn given_closure_is_side_effect_free() {
         ExprKind::Closure(vec![some_local], LocalItemId::from(0)),
         Span::default(),
     );
-    assert!(expr_is_side_effect_free(&package, e));
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -699,7 +706,106 @@ fn given_call_is_not_side_effect_free() {
         ExprKind::Call(callee, arg),
         Span::default(),
     );
-    assert!(!expr_is_side_effect_free(&package, e));
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
+}
+
+/// Finds the first call expression whose direct callee resolves to the named
+/// callable in the same package.
+fn find_call_to_callable(package: &Package, pkg_id: PackageId, name: &str) -> ExprId {
+    package
+        .exprs
+        .iter()
+        .find_map(|(expr_id, expr)| {
+            let ExprKind::Call(callee_id, _) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Var(Res::Item(item_id), _) = &package.get_expr(callee_id).kind else {
+                return None;
+            };
+            if item_id.package != pkg_id {
+                return None;
+            }
+            let ItemKind::Callable(decl) = &package.get_item(item_id.item).kind else {
+                return None;
+            };
+            (decl.name.name.as_ref() == name).then_some(expr_id)
+        })
+        .unwrap_or_else(|| panic!("call to callable '{name}' not found"))
+}
+
+#[test]
+fn given_known_pure_function_call_is_side_effect_free_and_safe_to_discard() {
+    let (store, pkg_id) = compile_to_fir(
+        "function Pure(x : Int) : Int { x + 1 }
+         function Main() : Int { Pure(41) }",
+    );
+    let package = store.get(pkg_id);
+    let call = find_call_to_callable(package, pkg_id, "Pure");
+
+    assert!(expr_is_side_effect_free(package, pkg_id, call));
+    assert!(expr_is_safe_to_discard(package, pkg_id, call));
+}
+
+#[test]
+fn given_function_call_with_local_mutation_is_side_effect_free() {
+    let (store, pkg_id) = compile_to_fir(
+        "function PureWithLocalMutation(x : Int) : Int {
+             mutable y = x;
+             set y += 1;
+             y
+         }
+         function Main() : Int { PureWithLocalMutation(41) }",
+    );
+    let package = store.get(pkg_id);
+    let call = find_call_to_callable(package, pkg_id, "PureWithLocalMutation");
+
+    assert!(expr_is_side_effect_free(package, pkg_id, call));
+    assert!(expr_is_safe_to_discard(package, pkg_id, call));
+}
+
+#[test]
+fn given_fallible_pure_function_call_is_side_effect_free_but_not_safe_to_discard() {
+    let (store, pkg_id) = compile_to_fir(
+        "function DivideBy(x : Int) : Int { 1 / x }
+         function Main() : Int { DivideBy(0) }",
+    );
+    let package = store.get(pkg_id);
+    let call = find_call_to_callable(package, pkg_id, "DivideBy");
+
+    assert!(expr_is_side_effect_free(package, pkg_id, call));
+    assert!(!expr_is_safe_to_discard(package, pkg_id, call));
+}
+
+#[test]
+fn given_function_call_that_can_fail_is_side_effect_free_but_not_safe_to_discard() {
+    let (store, pkg_id) = compile_to_fir(
+        "function FailOnZero(x : Int) : Int {
+             if x == 0 { fail \"zero\" } else { x }
+         }
+         function Main() : Int { FailOnZero(0) }",
+    );
+    let package = store.get(pkg_id);
+    let call = find_call_to_callable(package, pkg_id, "FailOnZero");
+
+    assert!(expr_is_side_effect_free(package, pkg_id, call));
+    assert!(!expr_is_safe_to_discard(package, pkg_id, call));
+}
+
+#[test]
+fn given_function_call_that_calls_message_is_not_side_effect_free() {
+    let (store, pkg_id) = compile_to_fir(
+        "function Noisy(x : Int) : Int {
+             Message(\"x\");
+             x
+         }
+         function Main() : Int { Noisy(41) }",
+    );
+    let package = store.get(pkg_id);
+    let call = find_call_to_callable(package, pkg_id, "Noisy");
+
+    assert!(!expr_is_side_effect_free(package, pkg_id, call));
+    assert!(!expr_is_safe_to_discard(package, pkg_id, call));
 }
 
 #[test]
@@ -716,7 +822,8 @@ fn given_assign_is_not_side_effect_free() {
     );
     let rhs = alloc_bool_lit(&mut package, &mut assigner, true, Span::default());
     let e = alloc_assign_expr(&mut package, &mut assigner, lhs, rhs, Span::default());
-    assert!(!expr_is_side_effect_free(&package, e));
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -731,7 +838,8 @@ fn given_return_is_not_side_effect_free() {
         ExprKind::Return(inner),
         Span::default(),
     );
-    assert!(!expr_is_side_effect_free(&package, e));
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -753,7 +861,8 @@ fn given_fail_is_not_side_effect_free() {
         ExprKind::Fail(msg),
         Span::default(),
     );
-    assert!(!expr_is_side_effect_free(&package, e));
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
@@ -775,14 +884,12 @@ fn given_while_is_not_side_effect_free() {
         ExprKind::While(cond, body),
         Span::default(),
     );
-    assert!(!expr_is_side_effect_free(&package, e));
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
-fn given_binop_is_not_side_effect_free() {
-    // BinOp::Add is rejected by the conservative default — the trapping
-    // arithmetic operators could have observable behavior, so classifying
-    // them as pure would risk silently dropping a binding.
+fn given_total_binop_is_side_effect_free_and_safe_to_discard() {
     let mut package = Package::default();
     let mut assigner = Assigner::default();
     let a = int_lit(&mut package, &mut assigner, 1);
@@ -794,13 +901,118 @@ fn given_binop_is_not_side_effect_free() {
         ExprKind::BinOp(BinOp::Add, a, b),
         Span::default(),
     );
-    assert!(!expr_is_side_effect_free(&package, e));
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_fallible_binop_is_side_effect_free_but_not_safe_to_discard() {
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let a = int_lit(&mut package, &mut assigner, 1);
+    let b = int_lit(&mut package, &mut assigner, 0);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::BinOp(BinOp::Div, a, b),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_array_index_is_side_effect_free_but_not_safe_to_discard() {
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let value = int_lit(&mut package, &mut assigner, 1);
+    let array = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Array(Box::new(Ty::Prim(Prim::Int))),
+        ExprKind::Array(vec![value]),
+        Span::default(),
+    );
+    let index = int_lit(&mut package, &mut assigner, 2);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Index(array, index),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_array_repeat_is_side_effect_free_but_not_safe_to_discard() {
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let value = int_lit(&mut package, &mut assigner, 1);
+    let count = int_lit(&mut package, &mut assigner, -1);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Array(Box::new(Ty::Prim(Prim::Int))),
+        ExprKind::ArrayRepeat(value, count),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_result_equality_is_side_effect_free_but_not_safe_to_discard() {
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let some_local = assigner.next_local();
+    let lhs = alloc_local_var_expr(
+        &mut package,
+        &mut assigner,
+        some_local,
+        Ty::Prim(Prim::Result),
+        Span::default(),
+    );
+    let rhs = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Result),
+        ExprKind::Lit(Lit::Result(qsc_fir::fir::Result::Zero)),
+        Span::default(),
+    );
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Bool),
+        ExprKind::BinOp(BinOp::Eq, lhs, rhs),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_negation_is_side_effect_free_and_safe_to_discard() {
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let operand = int_lit(&mut package, &mut assigner, 1);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::UnOp(UnOp::Neg, operand),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
 fn given_if_then_only_is_not_side_effect_free() {
     // The predicate only accepts `If` with both arms present; the absent-else
-    // case is rejected by the conservative default.
+    // case can run its `then` branch for effect.
     let mut package = Package::default();
     let mut assigner = Assigner::default();
     let cond = alloc_bool_lit(&mut package, &mut assigner, true, Span::default());
@@ -814,7 +1026,8 @@ fn given_if_then_only_is_not_side_effect_free() {
         Ty::UNIT,
         Span::default(),
     );
-    assert!(!expr_is_side_effect_free(&package, e));
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+    assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
 #[test]
