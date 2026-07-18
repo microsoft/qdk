@@ -240,8 +240,11 @@ def test_qsharp_config(context: qdk.Context) -> None:
     assert context.eval("""Std.Core.GetConfig("unknown4", 12.0)""") == 12.0
 
     # Wrong type.
-    # TODO: add check that this raises compile-time error about type mismatch.
-    context.eval("""Std.Core.GetConfig("int_config", false)""")
+    with pytest.raises(
+        QSharpError,
+        match="configuration value type does not match GetConfig default value type",
+    ):
+        context.eval("""Std.Core.GetConfig("int_config", false)""")
 
 
 def test_config_invalid_type(context: qdk.Context) -> None:
