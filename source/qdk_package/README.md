@@ -105,20 +105,27 @@ For convenience, the following helpers and types are also importable directly fr
 
 ### Configuration Map
 
-You can provide simple host-side configuration values and read them from Q#.
+You can provide configuration at initialization time as a Python dictionary.
 
-- Python: use `Context.set_config(key, value)` where `value` is one of `int`, `float`, `str`, or `bool`.
-- Q#: read values with `Std.Core.GetConfig(name, defaultValue)`.
+In Python, pass `qsharp_config: dict[str, int | float | str | bool]` to `Context(...)`.
+If `qsharp_config` is omitted, the configuration map is empty. The map is immutable
+after initialization. To use different configuration values, create a new `Context`.
+
+In Q#, read values with `Std.Core.GetConfig(name, defaultValue)`. In Q# code, config
+values are immutable: in the same program, repeated calls with the same 
+`(name, defaultValue)` produce the same result.
+
+Supported types: `int`, `float`, `str`, and `bool`. The type of each value in
+`qsharp_config` must match the type of its corresponding default value.
 
 Example:
 
 ```python
 import qdk
-
-ctx = qdk.Context()
-ctx.set_config("experiment_name", "baseline")
-name = ctx.eval('Std.Core.GetConfig("experiment_name", "")')
-assert name == "baseline"
+context = qdk.Context(qsharp_config={"experiment_name": "baseline", "shots": 1000})
+assert context.eval('Std.Core.GetConfig("experiment_name", "")') == "baseline"
+assert context.eval('Std.Core.GetConfig("shots", 100)') == 1000
+assert context.eval('Std.Core.GetConfig("noise_level", 0.01)') == 0.01
 ```
 
 ## Telemetry
