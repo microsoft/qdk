@@ -158,7 +158,12 @@ mod given_interpreter {
             // Default value.
             let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(\"unknown\", 15)");
             is_only_value(&result, &output, &Value::Int(15));
+        }
 
+        #[test]
+        fn get_config_errors() {
+            let mut interpreter = get_interpreter();
+            interpreter.set_config_value("int_config", Value::Int(123));
             // Error when default type doesn't match stored config value.
             let (result, output) =
                 line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 20.0)");
@@ -167,7 +172,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     configuration value type does not match GetConfig default value type
-                       [line_5] [20.0]
+                       [line_0] [20.0]
                 "#]],
             );
 
@@ -181,7 +186,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     GetConfig arguments must be literals
-                       [line_6] ["int_" + "config"]
+                       [line_1] ["int_" + "config"]
                 "#]],
             );
 
@@ -195,7 +200,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     GetConfig arguments must be literals
-                       [line_7] [10+10]
+                       [line_2] [10+10]
                 "#]],
             );
 
@@ -206,7 +211,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     type error: expected String, found Int
-                       [line_8] [1]
+                       [line_3] [1]
                 "#]],
             );
 
@@ -220,7 +225,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     type error: expected (String, ?), found (String, Int, Int)
-                       [line_9] [("int_config", 20, 30)]
+                       [line_4] [("int_config", 20, 30)]
                 "#]],
             );
 
@@ -236,7 +241,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     unsupported configuration type
-                       [line_10] [Zero]
+                       [line_5] [Zero]
                 "#]],
             );
 
@@ -252,7 +257,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     unsupported configuration type
-                       [line_11] [0.5]
+                       [line_6] [0.5]
                 "#]],
             );
 
@@ -266,7 +271,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     unsupported configuration type
-                       [line_12] [10L]
+                       [line_7] [10L]
                 "#]],
             );
         }
@@ -1236,26 +1241,6 @@ mod given_interpreter {
             "#]].assert_eq(&res);
         }
 
-        #[test]
-        fn qirgen_folds_get_config_values() {
-            let source = indoc! {"
-                operation Main() : Result {
-                    use q = Qubit();
-                    Rx(Std.Core.GetConfig(\"angle1\", 0.1), q);
-                    Ry(Std.Core.GetConfig(\"angle2\", 0.2), q);
-                    MResetZ(q)
-                }
-            "};
-
-            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
-            interpreter.set_config_value("angle1", Value::Double(0.6));
-            _ = line(&mut interpreter, source);
-
-            let qir = interpreter.qirgen("Main()").expect("expected success");
-            assert!(qir.contains(&format!("@__quantum__qis__rx__body(double 0.6,")));
-            assert!(qir.contains(&format!("@__quantum__qis__ry__body(double 0.2,")));
-        }
-
         fn assert_qir_has_three_h_gates(qir: &str) {
             assert!(
                 qir.contains("define i64 @ENTRYPOINT__main()"),
@@ -1680,6 +1665,26 @@ mod given_interpreter {
                 &output,
                 &Value::Result(qsc_eval::val::Result::Val(false)),
             );
+        }
+
+        #[test]
+        fn qirgen_folds_get_config_values() {
+            let source = indoc! {"
+                operation Main() : Result {
+                    use q = Qubit();
+                    Rx(Std.Core.GetConfig(\"angle1\", 0.1), q);
+                    Ry(Std.Core.GetConfig(\"angle2\", 0.2), q);
+                    MResetZ(q)
+                }
+            "};
+
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            interpreter.set_config_value("angle1", Value::Double(0.6));
+            _ = line(&mut interpreter, source);
+
+            let qir = interpreter.qirgen("Main()").expect("expected success");
+            assert!(qir.contains("@__quantum__qis__rx__body(double 0.6,"));
+            assert!(qir.contains("@__quantum__qis__ry__body(double 0.2,"));
         }
 
         #[test]

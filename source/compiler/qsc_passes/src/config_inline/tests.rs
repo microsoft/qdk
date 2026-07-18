@@ -10,7 +10,7 @@ use std::rc::Rc;
 use super::replace_get_config_calls;
 use qsc_eval::val::Value;
 
-fn check(file: &str, config: FxHashMap<Rc<str>, Value>, expect: &Expect) {
+fn check(file: &str, config: &FxHashMap<Rc<str>, Value>, expect: &Expect) {
     let mut store = PackageStore::new(compile::core());
     let std = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
     let sources = SourceMap::new([("test".into(), file.into())], None);
@@ -23,12 +23,12 @@ fn check(file: &str, config: FxHashMap<Rc<str>, Value>, expect: &Expect) {
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
 
-    let errors = replace_get_config_calls(store.core(), &mut unit.package, &config);
+    let errors = replace_get_config_calls(store.core(), &mut unit.package, config);
     assert!(errors.is_empty(), "{errors:?}");
     expect.assert_eq(&unit.package.to_string());
 }
 
-fn check_error(file: &str, config: FxHashMap<Rc<str>, Value>, expect: &Expect) {
+fn check_error(file: &str, config: &FxHashMap<Rc<str>, Value>, expect: &Expect) {
     let mut store = PackageStore::new(compile::core());
     let std = store.insert(compile::std(&store, TargetCapabilityFlags::all()));
     let sources = SourceMap::new([("test".into(), file.into())], None);
@@ -41,7 +41,7 @@ fn check_error(file: &str, config: FxHashMap<Rc<str>, Value>, expect: &Expect) {
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
 
-    let errors = replace_get_config_calls(store.core(), &mut unit.package, &config);
+    let errors = replace_get_config_calls(store.core(), &mut unit.package, config);
     expect.assert_debug_eq(&errors);
 }
 
@@ -53,7 +53,7 @@ fn folds_configured_string_get_config_call() {
             Std.Core.GetConfig("key", "default")
         }
         "#},
-        [(Rc::from("key"), Value::String(Rc::from("configured")))]
+        &[(Rc::from("key"), Value::String(Rc::from("configured")))]
             .into_iter()
             .collect(),
         &expect![[r#"
@@ -85,7 +85,7 @@ fn folds_configured_int_get_config_call() {
             Std.Core.GetConfig(\"key\", 0)
         }
         "},
-        [(Rc::from("key"), Value::Int(1))].into_iter().collect(),
+        &[(Rc::from("key"), Value::Int(1))].into_iter().collect(),
         &expect![[r#"
             Package:
                 Item 0 [0-59] (Public):
@@ -114,7 +114,7 @@ fn folds_configured_bool_get_config_call() {
             Std.Core.GetConfig(\"key\", false)
         }
         "},
-        [(Rc::from("key"), Value::Bool(true))].into_iter().collect(),
+        &[(Rc::from("key"), Value::Bool(true))].into_iter().collect(),
         &expect![[r#"
             Package:
                 Item 0 [0-64] (Public):
@@ -143,7 +143,7 @@ fn folds_configured_double_get_config_call() {
             Std.Core.GetConfig(\"key\", 0.0)
         }
         "},
-        [(Rc::from("key"), Value::Double(1.0))]
+        &[(Rc::from("key"), Value::Double(1.0))]
             .into_iter()
             .collect(),
         &expect![[r#"
@@ -174,7 +174,7 @@ fn folds_default_get_config_call() {
             Std.Core.GetConfig(\"missing\", 123)
         }
         "},
-        FxHashMap::default(),
+        &FxHashMap::default(),
         &expect![[r#"
             Package:
                 Item 0 [0-65] (Public):
@@ -204,7 +204,7 @@ fn rejects_non_literal_get_config_argument() {
             let value = Std.Core.GetConfig(key, 0);
         }
         "},
-        FxHashMap::default(),
+        &FxHashMap::default(),
         &expect![[r#"
             [
                 NonLiteralArgument(
@@ -226,7 +226,7 @@ fn rejects_get_config_value_with_wrong_type() {
             let value = Std.Core.GetConfig(\"key\", 0);
         }
         "},
-        [(Rc::from("key"), Value::Bool(true))].into_iter().collect(),
+        &[(Rc::from("key"), Value::Bool(true))].into_iter().collect(),
         &expect![[r#"
             [
                 TypeMismatch(
@@ -248,7 +248,7 @@ fn rejects_config_value_with_unsupported_type() {
             let value = Std.Core.GetConfig(\"key\", 0);
         }
         "},
-        [(Rc::from("key"), Value::unit())].into_iter().collect(),
+        &[(Rc::from("key"), Value::unit())].into_iter().collect(),
         &expect![[r#"
             [
                 UnsupportedType(
