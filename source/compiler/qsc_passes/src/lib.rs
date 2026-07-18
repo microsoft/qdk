@@ -138,7 +138,7 @@ impl PassContext {
         Validator::default().visit_package(package);
 
         let config_inline_errors =
-            config_inline::replace_get_config_calls(core, package, self.qsharp_config.clone());
+            config_inline::replace_get_config_calls(core, package, &self.qsharp_config);
 
         let measurement_decl_errors = measurement::validate_measurement_declarations(package);
         let reset_decl_errors = reset::validate_reset_declarations(package);

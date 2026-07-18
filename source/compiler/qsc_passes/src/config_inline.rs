@@ -35,21 +35,21 @@ pub enum Error {
 pub(super) fn replace_get_config_calls(
     core: &global::Table,
     package: &mut Package,
-    config: Rc<FxHashMap<Rc<str>, Value>>,
+    config: &FxHashMap<Rc<str>, Value>,
 ) -> Vec<Error> {
     let mut pass = ConfigInline::new(core, config);
     pass.visit_package(package);
     pass.errors
 }
 
-pub(crate) struct ConfigInline {
+pub(crate) struct ConfigInline<'a> {
     get_config_item_id: ItemId,
-    config: Rc<FxHashMap<Rc<str>, Value>>,
+    config: &'a FxHashMap<Rc<str>, Value>,
     pub errors: Vec<Error>,
 }
 
-impl ConfigInline {
-    fn new(core: &global::Table, config: Rc<FxHashMap<Rc<str>, Value>>) -> Self {
+impl<'a> ConfigInline<'a> {
+    fn new(core: &global::Table, config: &'a FxHashMap<Rc<str>, Value>) -> Self {
         let core_namespace_id = core
             .find_namespace(["Std", "Core"])
             .expect("Namespace Std.Core not found");
@@ -111,7 +111,7 @@ impl ConfigInline {
     }
 }
 
-impl MutVisitor for ConfigInline {
+impl MutVisitor for ConfigInline<'_> {
     fn visit_expr(&mut self, expr: &mut Expr) {
         let result = self
             .match_get_config_call(&expr.kind)

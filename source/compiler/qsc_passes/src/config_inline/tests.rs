@@ -23,7 +23,7 @@ fn check(file: &str, config: FxHashMap<Rc<str>, Value>, expect: &Expect) {
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
 
-    let errors = replace_get_config_calls(store.core(), &mut unit.package, Rc::new(config));
+    let errors = replace_get_config_calls(store.core(), &mut unit.package, &config);
     assert!(errors.is_empty(), "{errors:?}");
     expect.assert_eq(&unit.package.to_string());
 }
@@ -41,7 +41,7 @@ fn check_error(file: &str, config: FxHashMap<Rc<str>, Value>, expect: &Expect) {
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
 
-    let errors = replace_get_config_calls(store.core(), &mut unit.package, Rc::new(config));
+    let errors = replace_get_config_calls(store.core(), &mut unit.package, &config);
     expect.assert_debug_eq(&errors);
 }
 

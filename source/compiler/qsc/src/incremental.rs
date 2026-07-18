@@ -17,7 +17,6 @@ use qsc_frontend::{
 };
 use qsc_hir::hir::PackageId;
 use qsc_passes::{PackageType, PassContext};
-use std::rc::Rc;
 
 /// An incremental Q# compiler.
 pub struct Compiler {

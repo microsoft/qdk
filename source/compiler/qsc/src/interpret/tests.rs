@@ -72,7 +72,6 @@ mod given_interpreter {
 
         use expect_test::expect;
         use indoc::indoc;
-        use rustc_hash::FxHashMap;
 
         use crate::interpret::PackageGlobal;
 
@@ -125,25 +124,14 @@ mod given_interpreter {
 
         #[test]
         fn config_values_are_available_via_get_config() {
-            let qsharp_config: FxHashMap<String, Value> = [
-                ("int_config".into(), Value::Int(123)),
-                ("bool_config".into(), Value::Bool(true)),
-                ("string_config".into(), Value::String("value".into())),
-                ("double_config".into(), Value::Double(124.1)),
-            ]
-            .into_iter()
-            .collect();
-
             let mut interpreter = get_interpreter();
-            for (key, value) in qsharp_config {
-                interpreter.set_config(&key, value);
-            }
+            interpreter.set_config_value("int_config", Value::Int(123));
+            interpreter.set_config_value("bool_config", Value::Bool(true));
+            interpreter.set_config_value("string_config", Value::String("value".into()));
+            interpreter.set_config_value("double_config", Value::Double(124.1));
 
             // Integer config.
-            let (result, output) = line(
-                &mut interpreter,
-                "Std.Core.GetConfig(\"int_config\", 0)",
-            );
+            let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 0)");
             is_only_value(&result, &output, &Value::Int(123));
 
             // Boolean config.
@@ -168,21 +156,48 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::Double(124.1));
 
             // Default value.
-            let (result, output) = line(
-                &mut interpreter,
-                "Std.Core.GetConfig(\"unknown\", 15)",
-            );
+            let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(\"unknown\", 15)");
             is_only_value(&result, &output, &Value::Int(15));
 
-            // TODO: type error for
+            // Error when default type doesn't match.
+            let (result, output) =
+                line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 20.0)");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    configuration value type does not match GetConfig default value type
+                       [line_5] [20.0]
+                "#]],
+            );
 
-            // Can overwrite an existing value.
-            interpreter.set_config("int_config", Value::Int(100));
+            // Error when key is not literal.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"int_config\", 0)",
+                "Std.Core.GetConfig(\"int_\" + \"config\", 20)",
             );
-            is_only_value(&result, &output, &Value::Int(100));
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    GetConfig arguments must be literals
+                       [line_6] ["int_" + "config"]
+                "#]],
+            );
+
+            // Error when value is not literal.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.GetConfig(\"int_config\", 10+10)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    GetConfig arguments must be literals
+                       [line_7] [10+10]
+                "#]],
+            );
         }
 
         #[test]
@@ -1162,7 +1177,7 @@ mod given_interpreter {
             "};
 
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
-            interpreter.set_config("angle1", Value::Double(0.6));
+            interpreter.set_config_value("angle1", Value::Double(0.6));
             _ = line(&mut interpreter, source);
 
             let qir = interpreter.qirgen("Main()").expect("expected success");
