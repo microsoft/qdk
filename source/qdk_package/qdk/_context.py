@@ -210,7 +210,7 @@ class Context:
             to use the ``set`` keyword for mutable variable assignments.
 
         :keyword qsharp_config: configuration parameters that will be accessible in Q#
-            code using `Std.Diagnostics.GetConfig`.
+            code using `Std.Core.GetConfig`.
         """
         self._disposed = False
         self._is_global_context = _is_global_context

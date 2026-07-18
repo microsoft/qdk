@@ -108,7 +108,7 @@ For convenience, the following helpers and types are also importable directly fr
 You can provide simple host-side configuration values and read them from Q#.
 
 - Python: use `Context.set_config(key, value)` where `value` is one of `int`, `float`, `str`, or `bool`.
-- Q#: read values with `Std.Diagnostics.GetConfig(name, defaultValue)`.
+- Q#: read values with `Std.Core.GetConfig(name, defaultValue)`.
 
 Example:
 
@@ -117,7 +117,7 @@ import qdk
 
 ctx = qdk.Context()
 ctx.set_config("experiment_name", "baseline")
-name = ctx.eval('Std.Diagnostics.GetConfig("experiment_name", "")')
+name = ctx.eval('Std.Core.GetConfig("experiment_name", "")')
 assert name == "baseline"
 ```
 
