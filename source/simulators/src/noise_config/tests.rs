@@ -1,7 +1,32 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::noise_config::{Sampler, decode_pauli, encode_pauli, uq1_63};
+use crate::noise_config::{CumulativeNoiseConfig, Sampler, decode_pauli, encode_pauli, uq1_63};
+use rand::{Rng, SeedableRng, rngs::StdRng};
+
+#[test]
+fn noiseless_sampler_returns_none_without_consuming_rng() {
+    // A default (noiseless) sampler has zero total probability and can never return a
+    // fault, so it must short-circuit before drawing from the RNG.
+    let sampler = Sampler::default();
+    let mut rng = StdRng::seed_from_u64(42);
+    let mut reference_rng = StdRng::seed_from_u64(42);
+
+    assert_eq!(None, sampler.sample(&mut rng));
+    // The RNG must be left untouched (same next value as an unused, identically-seeded RNG).
+    assert_eq!(rng.next_u64(), reference_rng.next_u64());
+}
+
+#[test]
+fn noiseless_idle_returns_false_without_consuming_rng() {
+    // The default idle configuration is noiseless, so `gen_idle_fault` must not draw.
+    let config = CumulativeNoiseConfig::default();
+    let mut rng = StdRng::seed_from_u64(7);
+    let mut reference_rng = StdRng::seed_from_u64(7);
+
+    assert!(!config.gen_idle_fault(&mut rng, 5));
+    assert_eq!(rng.next_u64(), reference_rng.next_u64());
+}
 
 #[test]
 fn sample_smallest_probability_element_at_start() {

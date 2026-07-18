@@ -51,7 +51,7 @@ use qsc::{
     fir::{self},
     hir::ty::{Prim, Ty},
     interpret::{
-        self, CircuitEntryPoint, PauliNoise, SimType, TaggedItem, Value,
+        self, CircuitEntryPoint, PackageGlobal, PauliNoise, SimType, TaggedItem, Value,
         output::{Error, Receiver},
     },
     openqasm::{
@@ -493,8 +493,14 @@ impl Interpreter {
         if let Some(make_callable) = &make_callable {
             // Add any global callables from the user source as Python functions to the environment.
             let exported_items = interpreter.source_globals();
-            for (namespace, name, val) in exported_items {
-                create_py_callable(py, make_callable, &namespace, &name, val)?;
+            for PackageGlobal {
+                namespace,
+                name,
+                value,
+                is_test,
+            } in exported_items
+            {
+                create_py_callable(py, make_callable, &namespace, &name, value, is_test)?;
             }
         }
         if let Some(make_class) = &make_class {
@@ -542,8 +548,14 @@ impl Interpreter {
                     // This is safe because either the callable will be replaced with itself or a new callable with the
                     // same name will shadow the previous one, which is the expected behavior.
                     let new_items = self.interpreter.user_globals();
-                    for (namespace, name, val) in new_items {
-                        create_py_callable(py, make_callable, &namespace, &name, val)?;
+                    for PackageGlobal {
+                        namespace,
+                        name,
+                        value,
+                        is_test,
+                    } in new_items
+                    {
+                        create_py_callable(py, make_callable, &namespace, &name, value, is_test)?;
                     }
                 }
                 if let Some(make_class) = &self.make_class {
@@ -669,8 +681,14 @@ impl Interpreter {
                     // This is safe because either the callable will be replaced with itself or a new callable with the
                     // same name will shadow the previous one, which is the expected behavior.
                     let new_items = self.interpreter.user_globals();
-                    for (namespace, name, val) in new_items {
-                        create_py_callable(py, make_callable, &namespace, &name, val)?;
+                    for PackageGlobal {
+                        namespace,
+                        name,
+                        value,
+                        is_test,
+                    } in new_items
+                    {
+                        create_py_callable(py, make_callable, &namespace, &name, value, is_test)?;
                     }
                 }
                 value_to_pyobj(&self.interpreter, py, &value)
@@ -1606,6 +1624,7 @@ fn create_py_callable(
     namespace: &[Rc<str>],
     name: &str,
     val: Value,
+    is_test: bool,
 ) -> PyResult<()> {
     if namespace.is_empty() && name.starts_with(".lambda") {
         // We don't want to bind auto-generated lambda callables.
@@ -1616,6 +1635,7 @@ fn create_py_callable(
         Py::new(py, GlobalCallable::from(val)).expect("should be able to create callable"), // callable id
         PyList::new(py, namespace.iter().map(ToString::to_string))?, // namespace as string array
         PyString::new(py, name),                                     // name of callable
+        PyBool::new(py, is_test), // whether the callable has the @Test attribute
     );
 
     // Call into the Python layer to create the function wrapping the callable invocation.

@@ -721,3 +721,82 @@ fn test_global_phase_dropped_when_all_qubits_released() {
     assert_eq!(index, &BigUint::zero());
     assert_eq!(value, &Complex64::one());
 }
+
+#[test]
+fn test_apply_arithmetic_gate_increment() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    let q2 = sim.allocate();
+
+    // Prepare state |5⟩ = |101⟩ (little-endian: q0=1, q1=0, q2=1).
+    sim.x(q0);
+    sim.x(q2);
+
+    sim.apply_arithmetic_gate(|x| Ok(x + BigUint::one()), &[q0, q1, q2])
+        .expect("arithmetic gate should succeed");
+
+    // |5⟩ + 1 = |6⟩.
+    let (state, _) = sim.get_state();
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].0, BigUint::from(6u64));
+
+    sim.release(q2);
+    sim.release(q1);
+    sim.release(q0);
+}
+
+#[test]
+fn test_apply_arithmetic_gate_double() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    let q2 = sim.allocate();
+
+    // Prepare state |3⟩ = |011⟩.
+    sim.x(q0);
+    sim.x(q1);
+
+    sim.apply_arithmetic_gate(|x| Ok(x * 2u64), &[q0, q1, q2])
+        .expect("arithmetic gate should succeed");
+
+    // |3⟩ * 2 = |6⟩.
+    let (state, _) = sim.get_state();
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].0, BigUint::from(6u64));
+
+    sim.release(q2);
+    sim.release(q1);
+    sim.release(q0);
+}
+
+#[test]
+fn test_apply_arithmetic_gate_on_unordered_subset() {
+    let mut sim = SparseStateSim::default();
+    let q0 = sim.allocate();
+    let q1 = sim.allocate();
+    let q2 = sim.allocate();
+    let q3 = sim.allocate();
+    let q4 = sim.allocate();
+
+    // Prepare the operand |3⟩ on the unordered subset [q3, q1, q4], with q3
+    // as the least significant bit. Set unlisted qubits to verify they remain unchanged.
+    sim.x(q0);
+    sim.x(q1);
+    sim.x(q2);
+    sim.x(q3);
+
+    sim.apply_arithmetic_gate(|x| Ok(x * 2u64), &[q3, q1, q4])
+        .expect("arithmetic gate should succeed");
+
+    // The subset becomes |6⟩, leaving q0 and q2 set: |10111⟩ = |23⟩.
+    let (state, _) = sim.get_state();
+    assert_eq!(state.len(), 1);
+    assert_eq!(state[0].0, BigUint::from(23u64));
+
+    sim.release(q4);
+    sim.release(q3);
+    sim.release(q2);
+    sim.release(q1);
+    sim.release(q0);
+}
