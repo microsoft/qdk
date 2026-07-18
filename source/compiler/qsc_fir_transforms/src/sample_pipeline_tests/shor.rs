@@ -37,14 +37,14 @@ fn shor_sample_full_pipeline_reachable_items() {
 
             mutable qs : Qubit[] = [];
             {
-                let _range_id_210 : Range = 0..size - 1;
-                mutable _index_id_213 : Int = _range_id_210::Start;
-                let _step_id_218 : Int = _range_id_210::Step;
-                let _end_id_223 : Int = _range_id_210::End;
-                while _step_id_218 > 0 and _index_id_213 <= _end_id_223 or _step_id_218 < 0 and _index_id_213 >= _end_id_223 {
-                    let _ : Int = _index_id_213;
+                let _range_id_219 : Range = 0..size - 1;
+                mutable _index_id_222 : Int = _range_id_219::Start;
+                let _step_id_227 : Int = _range_id_219::Step;
+                let _end_id_232 : Int = _range_id_219::End;
+                while _step_id_227 > 0 and _index_id_222 <= _end_id_232 or _step_id_227 < 0 and _index_id_222 >= _end_id_232 {
+                    let _ : Int = _index_id_222;
                     qs += [__quantum__rt__qubit_allocate()];
-                    _index_id_213 += _step_id_218;
+                    _index_id_222 += _step_id_227;
                 }
 
             }
@@ -53,13 +53,13 @@ fn shor_sample_full_pipeline_reachable_items() {
         }
         operation ReleaseQubitArray(qs : Qubit[]) : Unit {
             {
-                let _array_id_296 : Qubit[] = qs;
-                let _len_id_300 : Int = Length(_array_id_296);
-                mutable _index_id_305 : Int = 0;
-                while _index_id_305 < _len_id_300 {
-                    let q : Qubit = _array_id_296[_index_id_305];
+                let _array_id_305 : Qubit[] = qs;
+                let _len_id_309 : Int = Length(_array_id_305);
+                mutable _index_id_314 : Int = 0;
+                while _index_id_314 < _len_id_309 {
+                    let q : Qubit = _array_id_305[_index_id_314];
                     __quantum__rt__qubit_release(q);
-                    _index_id_305 += 1;
+                    _index_id_314 += 1;
                 }
 
             }
