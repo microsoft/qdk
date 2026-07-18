@@ -159,7 +159,7 @@ mod given_interpreter {
             let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(\"unknown\", 15)");
             is_only_value(&result, &output, &Value::Int(15));
 
-            // Error when default type doesn't match.
+            // Error when default type doesn't match stored config value.
             let (result, output) =
                 line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 20.0)");
             is_only_error(
@@ -196,6 +196,77 @@ mod given_interpreter {
                 &expect![[r#"
                     GetConfig arguments must be literals
                        [line_7] [10+10]
+                "#]],
+            );
+
+            // Error when key is not string.
+            let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(1, 1)");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    type error: expected String, found Int
+                       [line_8] [1]
+                "#]],
+            );
+
+            // Error with wrong number of arguments key is not string.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.GetConfig(\"int_config\", 20, 30)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    type error: expected (String, ?), found (String, Int, Int)
+                       [line_9] [("int_config", 20, 30)]
+                "#]],
+            );
+
+            // Error when config contains value of unsupported type (same as default type).
+            interpreter
+                .set_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.GetConfig(\"result_config\", Zero)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    unsupported configuration type
+                       [line_10] [Zero]
+                "#]],
+            );
+
+            // Error when config contains value of unsupported type (defferent than default type)
+            interpreter
+                .set_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.GetConfig(\"result_config\", 0.5)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    unsupported configuration type
+                       [line_11] [0.5]
+                "#]],
+            );
+
+            // Error when config is missing and default type is unsupported.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.GetConfig(\"bigint_config\", 10L)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    unsupported configuration type
+                       [line_12] [10L]
                 "#]],
             );
         }

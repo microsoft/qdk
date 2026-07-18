@@ -1,9 +1,9 @@
+use expect_test::{Expect, expect};
+use indoc::indoc;
 use qsc_data_structures::{
     language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
 };
 use qsc_frontend::compile::{self, PackageStore, compile};
-use expect_test::{Expect, expect};
-use indoc::indoc;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
@@ -240,9 +240,8 @@ fn rejects_get_config_value_with_wrong_type() {
     );
 }
 
-// TODO: do we need this error message? Shouldn't we check this in set_config in Interpreter?
 #[test]
-fn rejects_unsupported_get_config_value() {
+fn rejects_config_value_with_unsupported_type() {
     check_error(
         indoc! {"
         operation Main() : Unit {
@@ -252,7 +251,7 @@ fn rejects_unsupported_get_config_value() {
         [(Rc::from("key"), Value::unit())].into_iter().collect(),
         &expect![[r#"
             [
-                UnsupportedValue(
+                UnsupportedType(
                     Span {
                         lo: 68,
                         hi: 69,
