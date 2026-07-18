@@ -90,7 +90,8 @@ pub fn lower_hir_to_fir(
 
 pub struct PassContext {
     borrow_check: borrowck::Checker,
-    qsharp_config: Rc<FxHashMap<Rc<str>, Value>>,
+    /// Read-only config values exposed to Q# via Std.Core.GetConfig.
+    qsharp_config: FxHashMap<Rc<str>, Value>,
 }
 
 impl Default for PassContext {
@@ -104,12 +105,12 @@ impl PassContext {
     pub fn new() -> Self {
         Self {
             borrow_check: borrowck::Checker::default(),
-            qsharp_config: Rc::default(),
+            qsharp_config: FxHashMap::default(),
         }
     }
 
-    pub fn set_qsharp_config(&mut self, qsharp_config: &FxHashMap<Rc<str>, Value>) {
-        self.qsharp_config = Rc::new(qsharp_config.clone());
+    pub fn set_config_value(&mut self, key: &str, value: Value) {
+        self.qsharp_config.insert(Rc::from(key), value);
     }
 
     /// Run the default set of passes required for evaluation.

@@ -17,7 +17,6 @@ use qsc_frontend::{
 };
 use qsc_hir::hir::PackageId;
 use qsc_passes::{PackageType, PassContext};
-use rustc_hash::FxHashMap;
 use std::rc::Rc;
 
 /// An incremental Q# compiler.
@@ -30,8 +29,6 @@ pub struct Compiler {
     source_package_id: PackageId,
     /// Context for passes that is reused across incremental compilations.
     passes: PassContext,
-    /// Q# configuration values to inline in HIR during default passes.
-    qsharp_config: FxHashMap<Rc<str>, Value>,
     /// The frontend incremental compiler.
     frontend: qsc_frontend::incremental::Compiler,
 }
@@ -84,7 +81,6 @@ impl Compiler {
             source_package_id,
             frontend,
             passes: PassContext::default(),
-            qsharp_config: FxHashMap::default(),
         })
     }
 
@@ -112,12 +108,11 @@ impl Compiler {
             source_package_id,
             frontend,
             passes: PassContext::default(),
-            qsharp_config: FxHashMap::default(),
         })
     }
 
-    pub fn set_qsharp_config(&mut self, config: &FxHashMap<Rc<str>, Value>) {
-        self.qsharp_config = config.clone();
+    pub fn set_config_value(&mut self, key: &str, value: Value) {
+        self.passes.set_config_value(key, value);
     }
 
     /// Compiles Q# fragments. Fragments are Q# code that can contain
@@ -187,7 +182,6 @@ impl Compiler {
 
         // Even if we don't fail fast, skip passes if there were compilation errors.
         if !errors {
-            self.passes.set_qsharp_config(&self.qsharp_config);
             let pass_errors = self.passes.run_default_passes(
                 &mut increment.hir,
                 &mut unit.assigner,
@@ -234,7 +228,6 @@ impl Compiler {
 
         // Even if we don't fail fast, skip passes if there were compilation errors.
         if !errors {
-            self.passes.set_qsharp_config(&self.qsharp_config);
             let pass_errors = self.passes.run_default_passes(
                 &mut increment.hir,
                 &mut unit.assigner,
@@ -265,7 +258,6 @@ impl Compiler {
             .compile_entry_expr(unit, expr)
             .map_err(into_errors)?;
 
-        self.passes.set_qsharp_config(&self.qsharp_config);
         let pass_errors = self.passes.run_default_passes(
             &mut increment.hir,
             &mut unit.assigner,
