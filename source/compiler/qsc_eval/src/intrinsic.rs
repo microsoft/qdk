@@ -29,7 +29,6 @@ pub(crate) fn call<B: Backend>(
     call_stack: &[Frame],
     sim: &mut TracingBackend<'_, B>,
     rng: &mut StdRng,
-    config_map: &FxHashMap<Rc<str>, Value>,
     out: &mut dyn Receiver,
 ) -> Result<Value, Error> {
     match name {
@@ -166,14 +165,6 @@ pub(crate) fn call<B: Backend>(
         "DrawRandomBool" => {
             let p = arg.unwrap_double();
             Ok(Value::Bool(rng.random_bool(p)))
-        }
-        "GetConfig" => {
-            let [name, default_value] = unwrap_tuple(arg);
-            let name = name.unwrap_string();
-            Ok(config_map
-                .get(name.as_ref())
-                .cloned()
-                .unwrap_or(default_value))
         }
         #[allow(clippy::cast_possible_truncation)]
         "Truncate" => Ok(Value::Int(arg.unwrap_double() as i64)),
