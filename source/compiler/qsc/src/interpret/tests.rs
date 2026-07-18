@@ -72,6 +72,7 @@ mod given_interpreter {
 
         use expect_test::expect;
         use indoc::indoc;
+        use rustc_hash::FxHashMap;
 
         use super::*;
 
@@ -122,52 +123,62 @@ mod given_interpreter {
 
         #[test]
         fn config_values_are_available_via_get_config() {
+            let qsharp_config: FxHashMap<String, Value> = [
+                ("int_config".into(), Value::Int(123)),
+                ("bool_config".into(), Value::Bool(true)),
+                ("string_config".into(), Value::String("value".into())),
+                ("double_config".into(), Value::Double(124.1)),
+            ]
+            .into_iter()
+            .collect();
+
             let mut interpreter = get_interpreter();
+            for (key, value) in qsharp_config {
+                interpreter.set_config(&key, value);
+            }
 
             // Integer config.
-            interpreter.set_config("int_config", Value::Int(123));
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Diagnostics.GetConfig(\"int_config\", 0)",
+                "Std.Core.GetConfig(\"int_config\", 0)",
             );
             is_only_value(&result, &output, &Value::Int(123));
 
             // Boolean config.
-            interpreter.set_config("bool_config", Value::Bool(true));
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Diagnostics.GetConfig(\"bool_config\", false)",
+                "Std.Core.GetConfig(\"bool_config\", false)",
             );
             is_only_value(&result, &output, &Value::Bool(true));
 
             // String config.
-            interpreter.set_config("string_config", Value::String("value".into()));
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Diagnostics.GetConfig(\"string_config\", \"\")",
+                "Std.Core.GetConfig(\"string_config\", \"\")",
             );
             is_only_value(&result, &output, &Value::String("value".into()));
 
             // Double config.
-            interpreter.set_config("double_config", Value::Double(124.1));
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Diagnostics.GetConfig(\"double_config\", 0.0)",
+                "Std.Core.GetConfig(\"double_config\", 0.0)",
             );
             is_only_value(&result, &output, &Value::Double(124.1));
 
             // Default value.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Diagnostics.GetConfig(\"unknown\", 15)",
+                "Std.Core.GetConfig(\"unknown\", 15)",
             );
             is_only_value(&result, &output, &Value::Int(15));
+
+            // TODO: type error for
 
             // Can overwrite an existing value.
             interpreter.set_config("int_config", Value::Int(100));
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Diagnostics.GetConfig(\"int_config\", 0)",
+                "Std.Core.GetConfig(\"int_config\", 0)",
             );
             is_only_value(&result, &output, &Value::Int(100));
         }
@@ -1135,6 +1146,26 @@ mod given_interpreter {
                 !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
                 !3 = !{i32 1, !"dynamic_result_management", i1 false}
             "#]].assert_eq(&res);
+        }
+
+        #[test]
+        fn qirgen_folds_get_config_values() {
+            let source = indoc! {"
+                operation Main() : Result {
+                    use q = Qubit();
+                    Rx(Std.Core.GetConfig(\"angle1\", 0.1), q);
+                    Ry(Std.Core.GetConfig(\"angle2\", 0.2), q);
+                    MResetZ(q)
+                }
+            "};
+
+            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
+            interpreter.set_config("angle1", Value::Double(0.6));
+            _ = line(&mut interpreter, source);
+
+            let qir = interpreter.qirgen("Main()").expect("expected success");
+            assert!(qir.contains(&format!("@__quantum__qis__rx__body(double 0.6,")));
+            assert!(qir.contains(&format!("@__quantum__qis__ry__body(double 0.2,")));
         }
 
         fn assert_qir_has_three_h_gates(qir: &str) {

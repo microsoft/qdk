@@ -691,7 +691,7 @@ impl Interpreter {
         self.interpreter.set_classical_seed(seed);
     }
 
-    /// Sets a read-only config value available from Q# via Std.Diagnostics.GetConfig.
+    /// Sets a read-only config value available from Q# via Std.Core.GetConfig.
     #[allow(clippy::needless_pass_by_value)]
     fn set_config(&mut self, py: Python, key: &str, value: Py<PyAny>) -> PyResult<()> {
         let value = value.bind(py);

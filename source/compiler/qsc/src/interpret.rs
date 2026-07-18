@@ -175,7 +175,7 @@ pub struct Interpreter {
     /// The classical seed, if any. This needs to be passed to the evaluator for use in intrinsic
     /// calls that produce classical random numbers.
     classical_seed: Option<u64>,
-    /// Read-only config values exposed to Q# via Std.Diagnostics.GetConfig.
+    /// Read-only config values exposed to Q# via Std.Core.GetConfig.
     config_map: FxHashMap<Rc<str>, Value>,
     /// The evaluator environment.
     env: Env,
@@ -710,6 +710,7 @@ impl Interpreter {
 
     pub fn set_config(&mut self, key: &str, value: Value) {
         self.config_map.insert(Rc::from(key), value);
+        self.compiler.set_qsharp_config(&self.config_map);
     }
 
     pub fn check_source_lints(&self) -> Vec<Lint> {
