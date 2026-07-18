@@ -999,7 +999,7 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Pair Measurement Gates
-            "MXX" => self.broadcast_measure_pair(instruction, |s, q0, q1, invert| {
+            "MXX" => self.broadcast_pair_measure(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; H 0; M 0; H 0; CX 0 1
                 s.op_2("cx", q0, q1);
                 s.op("h", q0);
@@ -1007,7 +1007,7 @@ impl<'noise> Compiler<'noise> {
                 s.op("h", q0);
                 s.op_2("cx", q0, q1);
             }),
-            "MYY" => self.broadcast_measure_pair(instruction, |s, q0, q1, invert| {
+            "MYY" => self.broadcast_pair_measure(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
                 s.op("s", q0);
                 s.op("s", q1);
@@ -1020,7 +1020,7 @@ impl<'noise> Compiler<'noise> {
                 s.op("s", q0);
                 s.op("s", q1);
             }),
-            "MZZ" => self.broadcast_measure_pair(instruction, |s, q0, q1, invert| {
+            "MZZ" => self.broadcast_pair_measure(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; M 1; CX 0 1
                 s.op_2("cx", q0, q1);
                 s.op_measure("m", q1, invert);
@@ -1043,7 +1043,7 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn apply_for_each(&mut self, instruction: &Instruction, mut f: impl FnMut(&mut Self, u32)) {
+    fn for_each_qubit(&mut self, instruction: &Instruction, mut f: impl FnMut(&mut Self, u32)) {
         for target in &instruction.targets {
             let Some((q, _)) = self.expect_qubit(instruction, target, false) else {
                 continue;
@@ -1052,12 +1052,11 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn broadcast_measure(
+    fn for_each_negated_qubit(
         &mut self,
         instruction: &Instruction,
         mut f: impl FnMut(&mut Self, u32, bool),
     ) {
-        self.unsupported_args(instruction);
         for target in &instruction.targets {
             let Some((q, negated)) = self.expect_qubit(instruction, target, true) else {
                 continue;
@@ -1066,29 +1065,18 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn broadcast_measure_pair(
-        &mut self,
-        instruction: &Instruction,
-        mut f: impl FnMut(&mut Self, u32, u32, bool),
-    ) {
-        self.unsupported_args(instruction);
-        let Some(pairs) = self.expect_target_pairs(instruction) else {
-            return;
-        };
-        for pair in pairs {
-            let Some((q0, neg0)) = self.expect_qubit(instruction, &pair[0], true) else {
-                continue;
-            };
-            let Some((q1, neg1)) = self.expect_qubit(instruction, &pair[1], true) else {
-                continue;
-            };
-            f(self, q0, q1, neg0 ^ neg1);
-        }
-    }
-
     fn broadcast(&mut self, instruction: &Instruction, f: impl FnMut(&mut Self, u32)) {
         self.unsupported_args(instruction);
-        self.apply_for_each(instruction, f);
+        self.for_each_qubit(instruction, f);
+    }
+
+    fn broadcast_measure(
+        &mut self,
+        instruction: &Instruction,
+        f: impl FnMut(&mut Self, u32, bool),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_negated_qubit(instruction, f);
     }
 
     fn broadcast_noise(
@@ -1099,10 +1087,10 @@ impl<'noise> Compiler<'noise> {
         let Some(probability) = self.expect_probability(instruction) else {
             return;
         };
-        self.apply_for_each(instruction, |s, q| f(s, q, probability));
+        self.for_each_qubit(instruction, |s, q| f(s, q, probability));
     }
 
-    fn apply_for_each_pair(
+    fn for_each_pair(
         &mut self,
         instruction: &Instruction,
         mut f: impl FnMut(&mut Self, u32, u32),
@@ -1121,9 +1109,37 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
+    fn for_each_negated_pair(
+        &mut self,
+        instruction: &Instruction,
+        mut f: impl FnMut(&mut Self, u32, u32, bool),
+    ) {
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
+            let Some((q0, neg0)) = self.expect_qubit(instruction, &pair[0], true) else {
+                continue;
+            };
+            let Some((q1, neg1)) = self.expect_qubit(instruction, &pair[1], true) else {
+                continue;
+            };
+            f(self, q0, q1, neg0 ^ neg1);
+        }
+    }
+
     fn broadcast_pair(&mut self, instruction: &Instruction, f: impl FnMut(&mut Self, u32, u32)) {
         self.unsupported_args(instruction);
-        self.apply_for_each_pair(instruction, f);
+        self.for_each_pair(instruction, f);
+    }
+
+    fn broadcast_pair_measure(
+        &mut self,
+        instruction: &Instruction,
+        f: impl FnMut(&mut Self, u32, u32, bool),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_negated_pair(instruction, f);
     }
 
     fn broadcast_pair_noise(
@@ -1134,7 +1150,7 @@ impl<'noise> Compiler<'noise> {
         let Some(probability) = self.expect_probability(instruction) else {
             return;
         };
-        self.apply_for_each_pair(instruction, |s, q0, q1| f(s, q0, q1, probability));
+        self.for_each_pair(instruction, |s, q0, q1| f(s, q0, q1, probability));
     }
 
     fn broadcast_controlled(
