@@ -18,8 +18,6 @@ use thiserror::Error;
 #[cfg(test)]
 mod tests;
 
-// The rule is correct but needs some improvement.
-
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("GetConfig arguments must be literals")]
@@ -50,9 +48,12 @@ pub(crate) struct ConfigInline<'a> {
     pub errors: Vec<Error>,
 }
 
+/// HIR pass that replaces all calls to `Std.Core.GetConfig(key, default)` with literals.
+/// If key is found in `self.config`, replaces the call with looked up value, otherwise replaces it
+/// with `default`.
 impl<'a> ConfigInline<'a> {
     /// Prepares the pass.
-    /// Looks up and stores ItemId of "Std.Core.GetConfig", panics if not found.
+    /// Looks up and stores `ItemId` of "Std.Core.GetConfig", panics if not found.
     fn new(core: &global::Table, config: &'a FxHashMap<Rc<str>, Value>) -> Self {
         let core_namespace_id = core
             .find_namespace(["Std", "Core"])
@@ -67,7 +68,7 @@ impl<'a> ConfigInline<'a> {
         }
     }
 
-    /// If `expr` is call to GetConfig with exactly two arguments, returns them, otherwise None.
+    /// If `expr` is call to `GetConfig` with exactly two arguments, returns them, otherwise None.
     fn match_get_config_call<'b>(&self, expr: &'b ExprKind) -> Option<(&'b Expr, &'b Expr)> {
         let ExprKind::Call(callee, args) = expr else {
             return None;
@@ -87,9 +88,9 @@ impl<'a> ConfigInline<'a> {
         Some((name, default_value))
     }
 
-    /// Returns a literal that the call to GetConfig with given arguments must be replaced with.
+    /// Returns a literal that the call to `GetConfig` with given arguments must be replaced with.
     /// Returns error in the following cases:
-    ///   * One of arguments to GetConfig is not a literal.
+    ///   * One of arguments to `GetConfig` is not a literal.
     ///   * Value stored in config and the default value have different types.
     ///   * Type of stored value is not supported.
     ///   * Type of default value is not supported.
@@ -157,10 +158,7 @@ fn value_to_kind(value: &Value) -> Option<ExprKind> {
 fn is_supported_type(ty: &Ty) -> bool {
     matches!(
         ty,
-        Ty::Prim(qsc_hir::ty::Prim::Bool)
-            | Ty::Prim(qsc_hir::ty::Prim::Double)
-            | Ty::Prim(qsc_hir::ty::Prim::Int)
-            | Ty::Prim(qsc_hir::ty::Prim::String)
+        Ty::Prim(ty::Prim::Bool | ty::Prim::Double | ty::Prim::Int | ty::Prim::String)
     )
 }
 
