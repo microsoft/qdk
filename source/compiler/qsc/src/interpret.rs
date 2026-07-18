@@ -746,7 +746,6 @@ impl Interpreter {
         eval(
             self.source_package,
             self.classical_seed,
-            &self.config_map,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -772,7 +771,6 @@ impl Interpreter {
         eval(
             self.source_package,
             self.classical_seed,
-            &self.config_map,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -855,7 +853,6 @@ impl Interpreter {
         eval(
             self.package,
             self.classical_seed,
-            &self.config_map,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -873,7 +870,7 @@ impl Interpreter {
         callable: Value,
         args: Value,
     ) -> InterpretResult {
-        qsc_eval::invoke_with_config(
+        qsc_eval::invoke(
             self.package,
             self.classical_seed,
             &self.fir_store,
@@ -883,7 +880,6 @@ impl Interpreter {
             receiver,
             callable,
             args,
-            &self.config_map,
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -1577,7 +1573,6 @@ impl Interpreter {
         eval(
             self.package,
             classical_seed,
-            &self.config_map,
             graph,
             self.eval_config,
             self.compiler.package_store(),
@@ -1609,7 +1604,6 @@ impl Interpreter {
         eval(
             package_id,
             self.classical_seed,
-            &self.config_map,
             graph,
             config,
             self.compiler.package_store(),
@@ -1653,7 +1647,7 @@ impl Interpreter {
             Some(seed) => Some(seed),
             None => self.classical_seed,
         };
-        qsc_eval::invoke_with_config(
+        qsc_eval::invoke(
             self.package,
             classical_seed,
             &self.fir_store,
@@ -1663,7 +1657,6 @@ impl Interpreter {
             receiver,
             callable,
             args,
-            &self.config_map,
         )
         .map_err(|(error, call_stack)| {
             eval_error(
@@ -1875,7 +1868,6 @@ impl Debugger {
                 entry_exec_graph,
                 ExecGraphConfig::Debug,
                 None,
-                FxHashMap::default(),
                 ErrorBehavior::StopOnError,
             ),
         })
@@ -1893,7 +1885,6 @@ impl Debugger {
                 entry_exec_graph,
                 ExecGraphConfig::Debug,
                 None,
-                FxHashMap::default(),
                 ErrorBehavior::StopOnError,
             ),
         }
@@ -2030,7 +2021,6 @@ impl Debugger {
 fn eval<B: Backend>(
     package: PackageId,
     classical_seed: Option<u64>,
-    config_map: &FxHashMap<Rc<str>, Value>,
     exec_graph: ExecGraph,
     exec_graph_config: ExecGraphConfig,
     package_store: &PackageStore,
@@ -2039,7 +2029,7 @@ fn eval<B: Backend>(
     tracing_backend: &mut TracingBackend<'_, B>,
     receiver: &mut impl Receiver,
 ) -> InterpretResult {
-    qsc_eval::eval_with_config(
+    qsc_eval::eval(
         package,
         classical_seed,
         exec_graph,
@@ -2048,7 +2038,6 @@ fn eval<B: Backend>(
         env,
         tracing_backend,
         receiver,
-        config_map,
     )
     .map_err(|(error, call_stack)| eval_error(package_store, fir_store, call_stack, error))
 }
