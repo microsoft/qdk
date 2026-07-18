@@ -601,7 +601,7 @@ impl<'noise> NoiseAccumulator<'noise> {
                 qubits: pauli_string_width as u32,
                 pauli_strings,
                 probabilities,
-                on_loss: LossPolicy::Skip,
+                on_loss: LossPolicy::Skip, // required field; Skip is the default policy
             },
             qubits,
         ))
@@ -970,7 +970,7 @@ impl<'noise> Compiler<'noise> {
                     qubits: 1,
                     pauli_strings: ["X", "Y", "Z"].map(encode_pauli).to_vec(),
                     probabilities: vec![p / 3.0; 3],
-                    on_loss: LossPolicy::Skip,
+                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
                 };
                 s.op_noise(table, &[q]);
             }),
@@ -984,7 +984,7 @@ impl<'noise> Compiler<'noise> {
                     .map(encode_pauli)
                     .to_vec(),
                     probabilities: vec![p / 15.0; 15],
-                    on_loss: LossPolicy::Skip,
+                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
                 };
                 s.op_noise(table, &[q0, q1]);
             }),
@@ -998,7 +998,7 @@ impl<'noise> Compiler<'noise> {
                         qubits: 1,
                         pauli_strings: vec![encode_pauli(fault.as_str())],
                         probabilities: vec![p],
-                        on_loss: LossPolicy::Skip,
+                        on_loss: LossPolicy::Skip, // required field; Skip is the default policy
                     };
                     s.op_noise(table, &[q]);
                 });
