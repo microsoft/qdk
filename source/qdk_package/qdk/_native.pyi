@@ -339,7 +339,7 @@ class Interpreter:
         """
         ...
 
-    def set_config(self, key: str, value: int | float | str | bool) -> None:
+    def set_config_value(self, key: str, value: int | float | str | bool) -> None:
         """
         Sets a read-only config value that can be accessed from Q# with
         ``Std.Core.GetConfig``.

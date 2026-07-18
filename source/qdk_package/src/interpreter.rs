@@ -711,7 +711,7 @@ impl Interpreter {
 
     /// Sets a read-only config value available from Q# via Std.Core.GetConfig.
     #[allow(clippy::needless_pass_by_value)]
-    fn set_config(&mut self, py: Python, key: &str, value: Py<PyAny>) -> PyResult<()> {
+    fn set_config_value(&mut self, py: Python, key: &str, value: Py<PyAny>) -> PyResult<()> {
         let value = value.bind(py);
         let config_value = if value.is_instance_of::<PyBool>() {
             Value::Bool(value.extract::<bool>()?)
@@ -726,8 +726,7 @@ impl Interpreter {
                 "config value must be bool, int, float, or str",
             ));
         };
-
-        self.interpreter.set_config(key, config_value);
+        self.interpreter.set_config_value(key, config_value);
         Ok(())
     }
 

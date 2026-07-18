@@ -288,7 +288,7 @@ class Context:
         )
 
         for key, value in qsharp_config.items():
-            self._interpreter.set_config(key, value)
+            self._interpreter.set_config_value(key, value)
 
         self._config = Config(
             target_profile, language_features, manifest_contents, project_root
