@@ -480,31 +480,6 @@ operation PostSelectZ(res : Result, qubit : Qubit) : Unit {
     body intrinsic;
 }
 
-/// # Summary
-/// Returns a value from the host-provided configuration map.
-///
-/// # Description
-/// Looks up `name` in a read-only configuration map provided by the host runtime.
-/// If the key does not exist, returns `defaultValue`.
-///
-/// # Input
-/// ## name
-/// The configuration key. Must be String literal.
-/// ## defaultValue
-/// The value to return when `name` is not present. Must be literal of one of these 
-/// types: Bool, Int, String, Double.
-///
-/// # Output
-/// The configured value for `name`, or `defaultValue` if the key is absent.
-///
-/// # Example
-/// ```qsharp
-/// let experimentName = Std.Diagnostics.GetConfig("experiment_name", "");
-/// ```
-operation GetConfig<'T>(name : String, defaultValue : 'T) : 'T {
-    body intrinsic;
-}
-
 export
     DumpMachine,
     DumpRegister,
@@ -526,5 +501,4 @@ export
     PhaseFlipNoise,
     DepolarizingNoise,
     NoNoise,
-    PostSelectZ,
-    GetConfig;
+    PostSelectZ;
