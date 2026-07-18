@@ -5,6 +5,7 @@ mod borrowck;
 mod callable_limits;
 mod capabilitiesck;
 mod common;
+mod config_inline;
 mod conjugate_invert;
 mod entry_point;
 mod id_update;
@@ -29,6 +30,7 @@ use index_assignment::ConvertToWSlash;
 use loop_unification::LoopUni;
 use miette::Diagnostic;
 use qsc_data_structures::target::TargetCapabilityFlags;
+use qsc_eval::val::Value;
 use qsc_fir::fir;
 use qsc_frontend::compile::CompileUnit;
 use qsc_hir::{
@@ -42,6 +44,8 @@ use qsc_hir::{
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_rca::{PackageComputeProperties, PackageStoreComputeProperties};
 use replace_qubit_allocation::ReplaceQubitAllocation;
+use rustc_hash::FxHashMap;
+use std::rc::Rc;
 use thiserror::Error;
 
 pub(crate) static CORE_NAMESPACE: &[&str] = &["Std", "Core"];
@@ -54,6 +58,7 @@ pub enum Error {
     BorrowCk(borrowck::Error),
     CallableLimits(callable_limits::Error),
     CapabilitiesCk(qsc_rca::errors::Error),
+    ConfigInline(config_inline::Error),
     ConjInvert(conjugate_invert::Error),
     EntryPoint(entry_point::Error),
     Measurement(measurement::Error),
@@ -85,6 +90,7 @@ pub fn lower_hir_to_fir(
 
 pub struct PassContext {
     borrow_check: borrowck::Checker,
+    qsharp_config: Rc<FxHashMap<Rc<str>, Value>>,
 }
 
 impl Default for PassContext {
@@ -98,7 +104,12 @@ impl PassContext {
     pub fn new() -> Self {
         Self {
             borrow_check: borrowck::Checker::default(),
+            qsharp_config: Rc::default(),
         }
+    }
+
+    pub fn set_qsharp_config(&mut self, qsharp_config: &FxHashMap<Rc<str>, Value>) {
+        self.qsharp_config = Rc::new(qsharp_config.clone());
     }
 
     /// Run the default set of passes required for evaluation.
@@ -125,6 +136,9 @@ impl PassContext {
         let conjugate_errors = conjugate_invert::invert_conjugate_exprs(core, package, assigner);
         Validator::default().visit_package(package);
 
+        let config_inline_errors =
+            config_inline::replace_get_config_calls(core, package, self.qsharp_config.clone());
+
         let measurement_decl_errors = measurement::validate_measurement_declarations(package);
         let reset_decl_errors = reset::validate_reset_declarations(package);
         let noise_intrinsic_decl_errors =
@@ -149,6 +163,7 @@ impl PassContext {
             .chain(spec_errors.into_iter().map(Error::SpecGen))
             .chain(conjugate_errors.into_iter().map(Error::ConjInvert))
             .chain(entry_point_errors)
+            .chain(config_inline_errors.into_iter().map(Error::ConfigInline))
             .chain(measurement_decl_errors.into_iter().map(Error::Measurement))
             .chain(reset_decl_errors.into_iter().map(Error::Reset))
             .chain(
