@@ -518,7 +518,6 @@ impl Interpreter {
             }
         }
 
-        // Apply configuration from qsharp_config.
         if let Some(config_dict) = qsharp_config {
             for (key, value) in config_dict.iter() {
                 let key_str: String = key.extract()?;
@@ -535,7 +534,7 @@ impl Interpreter {
                         "config value must be bool, int, float, or str",
                     ));
                 };
-                interpreter.set_config_value(key_str.as_str(), config_value);
+                interpreter.set_qsharp_config_value(key_str.as_str(), config_value);
             }
         }
 

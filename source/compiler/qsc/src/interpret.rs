@@ -706,8 +706,8 @@ impl Interpreter {
         self.classical_seed = seed;
     }
 
-    pub fn set_config_value(&mut self, key: &str, value: Value) {
-        self.compiler.set_config_value(key, value);
+    pub fn set_qsharp_config_value(&mut self, key: &str, value: Value) {
+        self.compiler.set_qsharp_config_value(key, value);
     }
 
     pub fn check_source_lints(&self) -> Vec<Lint> {

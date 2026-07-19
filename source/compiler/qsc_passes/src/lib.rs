@@ -109,7 +109,7 @@ impl PassContext {
         }
     }
 
-    pub fn set_config_value(&mut self, key: &str, value: Value) {
+    pub fn set_qsharp_config_value(&mut self, key: &str, value: Value) {
         self.qsharp_config.insert(Rc::from(key), value);
     }
 
