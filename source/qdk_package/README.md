@@ -115,8 +115,9 @@ In Q#, read values with `Std.Core.GetConfig(name, defaultValue)`. In Q# code, co
 values are immutable: in the same program, repeated calls with the same 
 `(name, defaultValue)` produce the same result.
 
-Supported types: `int`, `float`, `str`, and `bool`. The type of each value in
-`qsharp_config` must match the type of its corresponding default value.
+Supported types: `int`, `float`, `str`, and `bool` (corresponding to `Int`, `Double`, 
+`String` and `Bool` in Q#). The type of each value in `qsharp_config` must match the 
+type of its corresponding default value.
 
 Example:
 

@@ -159,6 +159,7 @@ class Interpreter:
         make_callable: Optional[Callable[[GlobalCallable, List[str], str, bool], None]],
         make_class: Optional[Callable[[TypeIR, List[str], str], None]],
         trace_circuit: Optional[bool],
+        qsharp_config: Optional[Dict[str, int | float | str | bool]] = None,
     ) -> None:
         """
         Initializes the Q# interpreter.
@@ -172,6 +173,8 @@ class Interpreter:
         :param trace_circuit: Enables tracing of circuit during execution.
             Passing `True` is required for the `dump_circuit` function to return a circuit.
             The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+        :param qsharp_config: A dictionary of configuration parameters that will be accessible
+            in Q# code using ``Std.Core.GetConfig``.
         """
         ...
 
@@ -336,17 +339,6 @@ class Interpreter:
 
         :param seed: The seed to use for the classical random number generator. If None,
             the seed will be generated from entropy.
-        """
-        ...
-
-    def set_config_value(self, key: str, value: int | float | str | bool) -> None:
-        """
-        Sets a read-only config value that can be accessed from Q# with
-        ``Std.Core.GetConfig``.
-
-        :param key: The config key.
-        :param value: The config value. Supported types are
-            ``int``, ``float``, ``str``, and ``bool``.
         """
         ...
 

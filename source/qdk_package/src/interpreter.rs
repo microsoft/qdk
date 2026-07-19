@@ -409,7 +409,7 @@ thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default();
 impl Interpreter {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_pass_by_value)]
-    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None))]
+    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None, qsharp_config=None))]
     #[new]
     /// Initializes a new Q# interpreter.
     pub(crate) fn new(
@@ -424,6 +424,7 @@ impl Interpreter {
         make_callable: Option<Py<PyAny>>,
         make_class: Option<Py<PyAny>>,
         trace_circuit: Option<bool>,
+        qsharp_config: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let target = Into::<Profile>::into(target_profile).into();
 
@@ -460,7 +461,7 @@ impl Interpreter {
         };
 
         let trace_circuit = trace_circuit.unwrap_or(false);
-        let interpreter = if trace_circuit {
+        let mut interpreter = if trace_circuit {
             interpret::Interpreter::with_circuit_trace(
                 SourceMap::new(buildable_program.user_code.sources, None),
                 PackageType::Lib,
@@ -516,6 +517,28 @@ impl Interpreter {
                 create_py_class(&interpreter, py, make_class, &namespace, &name, &ty)?;
             }
         }
+
+        // Apply configuration from qsharp_config.
+        if let Some(config_dict) = qsharp_config {
+            for (key, value) in config_dict.iter() {
+                let key_str: String = key.extract()?;
+                let config_value = if value.is_instance_of::<PyBool>() {
+                    Value::Bool(value.extract::<bool>()?)
+                } else if let Ok(val) = value.extract::<i64>() {
+                    Value::Int(val)
+                } else if let Ok(val) = value.extract::<f64>() {
+                    Value::Double(val)
+                } else if let Ok(val) = value.extract::<String>() {
+                    Value::String(val.into())
+                } else {
+                    return Err(PyTypeError::new_err(
+                        "config value must be bool, int, float, or str",
+                    ));
+                };
+                interpreter.set_config_value(key_str.as_str(), config_value);
+            }
+        }
+
         Ok(Self {
             interpreter,
             make_callable,
@@ -707,27 +730,6 @@ impl Interpreter {
     #[pyo3(signature=(seed=None))]
     fn set_classical_seed(&mut self, seed: Option<u64>) {
         self.interpreter.set_classical_seed(seed);
-    }
-
-    /// Sets a read-only config value available from Q# via Std.Core.GetConfig.
-    #[allow(clippy::needless_pass_by_value)]
-    fn set_config_value(&mut self, py: Python, key: &str, value: Py<PyAny>) -> PyResult<()> {
-        let value = value.bind(py);
-        let config_value = if value.is_instance_of::<PyBool>() {
-            Value::Bool(value.extract::<bool>()?)
-        } else if let Ok(value) = value.extract::<i64>() {
-            Value::Int(value)
-        } else if let Ok(value) = value.extract::<f64>() {
-            Value::Double(value)
-        } else if let Ok(value) = value.extract::<String>() {
-            Value::String(value.into())
-        } else {
-            return Err(PyTypeError::new_err(
-                "config value must be bool, int, float, or str",
-            ));
-        };
-        self.interpreter.set_config_value(key, config_value);
-        Ok(())
     }
 
     /// Dumps the quantum state of the interpreter.

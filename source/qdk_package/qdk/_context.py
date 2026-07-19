@@ -210,7 +210,8 @@ class Context:
             to use the ``set`` keyword for mutable variable assignments.
 
         :keyword qsharp_config: configuration parameters that will be accessible in Q#
-            code using `Std.Core.GetConfig`.
+            code using `Std.Core.GetConfig`. Keys must be strings. Values must be of 
+            type `int`, `float`, `str`, or `bool`.
         """
         self._disposed = False
         self._is_global_context = _is_global_context
@@ -285,10 +286,8 @@ class Context:
             make_callable_weak,
             make_class_weak,
             _trace_circuit,
+            qsharp_config,
         )
-
-        for key, value in qsharp_config.items():
-            self._interpreter.set_config_value(key, value)
 
         self._config = Config(
             target_profile, language_features, manifest_contents, project_root

@@ -248,5 +248,10 @@ def test_qsharp_config(context: qdk.Context) -> None:
 
 
 def test_config_invalid_type(context: qdk.Context) -> None:
-    with pytest.raises(TypeError):
-        qdk.Context(qsharp_config={"invalid", {"a": 1}})  # type: ignore
+    with pytest.raises(
+        TypeError, match="config value must be bool, int, float, or str"
+    ):
+        qdk.Context(qsharp_config={"invalid": {"a": 1}})  # type: ignore
+
+    with pytest.raises(TypeError, match="'int' object is not an instance of 'str'"):
+        qdk.Context(qsharp_config={1: 1})  # type: ignore
