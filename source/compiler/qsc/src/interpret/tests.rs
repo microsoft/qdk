@@ -230,8 +230,10 @@ mod given_interpreter {
             );
 
             // Error when config contains value of unsupported type (same as default type).
-            interpreter
-                .set_qsharp_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
+            interpreter.set_qsharp_config_value(
+                "result_config",
+                Value::Result(qsc_eval::val::Result::Loss),
+            );
             let (result, output) = line(
                 &mut interpreter,
                 "Std.Core.GetConfig(\"result_config\", Zero)",
@@ -246,8 +248,10 @@ mod given_interpreter {
             );
 
             // Error when config contains value of unsupported type (defferent than default type)
-            interpreter
-                .set_qsharp_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
+            interpreter.set_qsharp_config_value(
+                "result_config",
+                Value::Result(qsc_eval::val::Result::Loss),
+            );
             let (result, output) = line(
                 &mut interpreter,
                 "Std.Core.GetConfig(\"result_config\", 0.5)",
