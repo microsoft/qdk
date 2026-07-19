@@ -161,6 +161,7 @@ mod given_interpreter {
         }
 
         #[test]
+        #[allow(clippy::too_many_lines)]
         fn get_config_errors() {
             let mut interpreter = get_interpreter();
             interpreter.set_qsharp_config_value("int_config", Value::Int(123));
