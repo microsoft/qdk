@@ -125,10 +125,10 @@ mod given_interpreter {
         #[test]
         fn config_values_are_available_via_get_config() {
             let mut interpreter = get_interpreter();
-            interpreter.set_config_value("int_config", Value::Int(123));
-            interpreter.set_config_value("bool_config", Value::Bool(true));
-            interpreter.set_config_value("string_config", Value::String("value".into()));
-            interpreter.set_config_value("double_config", Value::Double(124.1));
+            interpreter.set_qsharp_config_value("int_config", Value::Int(123));
+            interpreter.set_qsharp_config_value("bool_config", Value::Bool(true));
+            interpreter.set_qsharp_config_value("string_config", Value::String("value".into()));
+            interpreter.set_qsharp_config_value("double_config", Value::Double(124.1));
 
             // Integer config.
             let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 0)");
@@ -163,7 +163,7 @@ mod given_interpreter {
         #[test]
         fn get_config_errors() {
             let mut interpreter = get_interpreter();
-            interpreter.set_config_value("int_config", Value::Int(123));
+            interpreter.set_qsharp_config_value("int_config", Value::Int(123));
             // Error when default type doesn't match stored config value.
             let (result, output) =
                 line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 20.0)");
@@ -231,7 +231,7 @@ mod given_interpreter {
 
             // Error when config contains value of unsupported type (same as default type).
             interpreter
-                .set_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
+                .set_qsharp_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
             let (result, output) = line(
                 &mut interpreter,
                 "Std.Core.GetConfig(\"result_config\", Zero)",
@@ -247,7 +247,7 @@ mod given_interpreter {
 
             // Error when config contains value of unsupported type (defferent than default type)
             interpreter
-                .set_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
+                .set_qsharp_config_value("result_config", Value::Result(qsc_eval::val::Result::Loss));
             let (result, output) = line(
                 &mut interpreter,
                 "Std.Core.GetConfig(\"result_config\", 0.5)",
@@ -1670,21 +1670,64 @@ mod given_interpreter {
         #[test]
         fn qirgen_folds_get_config_values() {
             let source = indoc! {"
-                operation Main() : Result {
-                    use q = Qubit();
-                    Rx(Std.Core.GetConfig(\"angle1\", 0.1), q);
-                    Ry(Std.Core.GetConfig(\"angle2\", 0.2), q);
-                    MResetZ(q)
+                operation Main() : Unit {
+                    use q = Qubit[3];
+                    Rx(Std.Core.GetConfig(\"angle1\", 0.1), q[0]);
+                    Ry(Std.Core.GetConfig(\"angle2\", 0.2), q[1]);
+                    let loop_iterations = Std.Core.GetConfig(\"loop_iterations\", 0);
+                    for i in 1..loop_iterations {
+                        X(q[2]);
+                    }
                 }
             "};
 
             let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
-            interpreter.set_config_value("angle1", Value::Double(0.6));
+            interpreter.set_qsharp_config_value("angle1", Value::Double(0.6));
+            interpreter.set_qsharp_config_value("loop_iterations", Value::Int(3));
             _ = line(&mut interpreter, source);
 
             let qir = interpreter.qirgen("Main()").expect("expected success");
-            assert!(qir.contains("@__quantum__qis__rx__body(double 0.6,"));
-            assert!(qir.contains("@__quantum__qis__ry__body(double 0.2,"));
+            expect![[r#"
+                %Result = type opaque
+                %Qubit = type opaque
+
+                @0 = internal constant [4 x i8] c"0_t\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__rx__body(double 0.6, %Qubit* inttoptr (i64 0 to %Qubit*))
+                  call void @__quantum__qis__ry__body(double 0.2, %Qubit* inttoptr (i64 1 to %Qubit*))
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+                  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
+                }
+
+                declare void @__quantum__rt__initialize(i8*)
+
+                declare void @__quantum__qis__rx__body(double, %Qubit*)
+
+                declare void @__quantum__qis__ry__body(double, %Qubit*)
+
+                declare void @__quantum__qis__x__body(%Qubit*)
+
+                declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="3" "required_num_results"="0" }
+                attributes #1 = { "irreversible" }
+
+                ; module flags
+
+                !llvm.module.flags = !{!0, !1, !2, !3}
+
+                !0 = !{i32 1, !"qir_major_version", i32 1}
+                !1 = !{i32 7, !"qir_minor_version", i32 0}
+                !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+                !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            "#]]
+            .assert_eq(&qir);
         }
 
         #[test]

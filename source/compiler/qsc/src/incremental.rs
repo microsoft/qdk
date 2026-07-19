@@ -110,8 +110,8 @@ impl Compiler {
         })
     }
 
-    pub fn set_config_value(&mut self, key: &str, value: Value) {
-        self.passes.set_config_value(key, value);
+    pub fn set_qsharp_config_value(&mut self, key: &str, value: Value) {
+        self.passes.set_qsharp_config_value(key, value);
     }
 
     /// Compiles Q# fragments. Fragments are Q# code that can contain
