@@ -29,6 +29,9 @@ pub enum Error {
     #[error("unsupported configuration type")]
     #[diagnostic(code("Qdk.Qsc.ConfigValue.UnsupportedType"))]
     UnsupportedType(#[label] Span),
+    #[error("ConfigValue must be called directly")]
+    #[diagnostic(code("Qdk.Qsc.ConfigValue.ConfigValueMustBeCalled"))]
+    ConfigValueMustBeCalled(#[label] Span),
 }
 
 /// Replaces calls to `Std.Core.ConfigValue` with compile-time literals.
@@ -69,10 +72,11 @@ impl<'a> ConfigInline<'a> {
     }
 
     /// If `expr` is call to `ConfigValue` with exactly two arguments, returns them, otherwise None.
-    fn match_get_config_call<'b>(&self, expr: &'b ExprKind) -> Option<(&'b Expr, &'b Expr)> {
-        let ExprKind::Call(callee, args) = expr else {
-            return None;
-        };
+    fn match_get_config_call<'b>(
+        &self,
+        callee: &'b Box<Expr>,
+        args: &'b Box<Expr>,
+    ) -> Option<(&'b Expr, &'b Expr)> {
         let ExprKind::Var(Res::Item(item_id), _) = &callee.kind else {
             return None;
         };
@@ -126,13 +130,23 @@ impl<'a> ConfigInline<'a> {
 
 impl MutVisitor for ConfigInline<'_> {
     fn visit_expr(&mut self, expr: &mut Expr) {
-        let result = self
-            .match_get_config_call(&expr.kind)
-            .map(|(name, default_value)| self.replace_get_config_call(name, default_value));
-        match result {
-            None => mut_visit::walk_expr(self, expr),
-            Some(Ok(new_expr)) => expr.kind = new_expr,
-            Some(Err(error)) => self.errors.push(error),
+        match &expr.kind {
+            ExprKind::Call(callee, args) => {
+                let result = self
+                    .match_get_config_call(&callee, &args)
+                    .map(|(name, default_value)| self.replace_get_config_call(name, default_value));
+                match result {
+                    None => mut_visit::walk_expr(self, expr),
+                    Some(Ok(new_expr)) => expr.kind = new_expr,
+                    Some(Err(error)) => self.errors.push(error),
+                }
+            }
+            ExprKind::Var(Res::Item(item_id), _) => {
+                if *item_id == self.get_config_item_id {
+                    self.errors.push(Error::ConfigValueMustBeCalled(expr.span))
+                }
+            }
+            _ => mut_visit::walk_expr(self, expr),
         }
     }
 }

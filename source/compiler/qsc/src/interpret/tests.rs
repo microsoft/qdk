@@ -131,7 +131,8 @@ mod given_interpreter {
             interpreter.set_qsharp_config_value("double_config", Value::Double(124.1));
 
             // Integer config.
-            let (result, output) = line(&mut interpreter, "Std.Core.ConfigValue(\"int_config\", 0)");
+            let (result, output) =
+                line(&mut interpreter, "Std.Core.ConfigValue(\"int_config\", 0)");
             is_only_value(&result, &output, &Value::Int(123));
 
             // Boolean config.
@@ -166,8 +167,10 @@ mod given_interpreter {
             let mut interpreter = get_interpreter();
             interpreter.set_qsharp_config_value("int_config", Value::Int(123));
             // Error when default type doesn't match stored config value.
-            let (result, output) =
-                line(&mut interpreter, "Std.Core.ConfigValue(\"int_config\", 20.0)");
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"int_config\", 20.0)",
+            );
             is_only_error(
                 &result,
                 &output,
@@ -266,6 +269,20 @@ mod given_interpreter {
                 &expect![[r#"
                     unsupported configuration type
                        [line_6] [10L]
+                "#]],
+            );
+
+            // Error when using ConfigValue not in a call.
+            let (result, output) = line(
+                &mut interpreter,
+                "let f = Std.Core.ConfigValue; f(\"key\", 5)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    ConfigValue must be called directly
+                       [line_7] [Std.Core.ConfigValue]
                 "#]],
             );
         }

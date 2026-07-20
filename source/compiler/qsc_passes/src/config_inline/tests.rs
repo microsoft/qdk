@@ -58,18 +58,18 @@ fn folds_configured_string_get_config_call() {
             .collect(),
         &expect![[r#"
             Package:
-                Item 0 [0-70] (Public):
-                    Namespace (Ident 11 [0-70] "test"): Item 1
-                Item 1 [0-70] (Internal):
+                Item 0 [0-72] (Public):
+                    Namespace (Ident 11 [0-72] "test"): Item 1
+                Item 1 [0-72] (Internal):
                     Parent: 0
-                    Callable 0 [0-70] (operation):
+                    Callable 0 [0-72] (operation):
                         name: Ident 1 [10-14] "Main"
                         input: Pat 2 [14-16] [Type Unit]: Unit
                         output: String
                         functors: empty set
-                        body: SpecDecl 3 [0-70]: Impl:
-                            Block 4 [26-70] [Type String]:
-                                Stmt 5 [32-68]: Expr: Expr 6 [32-68] [Type String]: String:
+                        body: SpecDecl 3 [0-72]: Impl:
+                            Block 4 [26-72] [Type String]:
+                                Stmt 5 [32-70]: Expr: Expr 6 [32-70] [Type String]: String:
                                     Lit: "configured"
                         adj: <none>
                         ctl: <none>
@@ -88,18 +88,18 @@ fn folds_configured_int_get_config_call() {
         &[(Rc::from("key"), Value::Int(1))].into_iter().collect(),
         &expect![[r#"
             Package:
-                Item 0 [0-59] (Public):
-                    Namespace (Ident 11 [0-59] "test"): Item 1
-                Item 1 [0-59] (Internal):
+                Item 0 [0-61] (Public):
+                    Namespace (Ident 11 [0-61] "test"): Item 1
+                Item 1 [0-61] (Internal):
                     Parent: 0
-                    Callable 0 [0-59] (operation):
+                    Callable 0 [0-61] (operation):
                         name: Ident 1 [10-14] "Main"
                         input: Pat 2 [14-16] [Type Unit]: Unit
                         output: Int
                         functors: empty set
-                        body: SpecDecl 3 [0-59]: Impl:
-                            Block 4 [23-59] [Type Int]:
-                                Stmt 5 [29-57]: Expr: Expr 6 [29-57] [Type Int]: Lit: Int(1)
+                        body: SpecDecl 3 [0-61]: Impl:
+                            Block 4 [23-61] [Type Int]:
+                                Stmt 5 [29-59]: Expr: Expr 6 [29-59] [Type Int]: Lit: Int(1)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
@@ -117,18 +117,18 @@ fn folds_configured_bool_get_config_call() {
         &[(Rc::from("key"), Value::Bool(true))].into_iter().collect(),
         &expect![[r#"
             Package:
-                Item 0 [0-64] (Public):
-                    Namespace (Ident 11 [0-64] "test"): Item 1
-                Item 1 [0-64] (Internal):
+                Item 0 [0-66] (Public):
+                    Namespace (Ident 11 [0-66] "test"): Item 1
+                Item 1 [0-66] (Internal):
                     Parent: 0
-                    Callable 0 [0-64] (operation):
+                    Callable 0 [0-66] (operation):
                         name: Ident 1 [10-14] "Main"
                         input: Pat 2 [14-16] [Type Unit]: Unit
                         output: Bool
                         functors: empty set
-                        body: SpecDecl 3 [0-64]: Impl:
-                            Block 4 [24-64] [Type Bool]:
-                                Stmt 5 [30-62]: Expr: Expr 6 [30-62] [Type Bool]: Lit: Bool(true)
+                        body: SpecDecl 3 [0-66]: Impl:
+                            Block 4 [24-66] [Type Bool]:
+                                Stmt 5 [30-64]: Expr: Expr 6 [30-64] [Type Bool]: Lit: Bool(true)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
@@ -148,18 +148,18 @@ fn folds_configured_double_get_config_call() {
             .collect(),
         &expect![[r#"
             Package:
-                Item 0 [0-64] (Public):
-                    Namespace (Ident 11 [0-64] "test"): Item 1
-                Item 1 [0-64] (Internal):
+                Item 0 [0-66] (Public):
+                    Namespace (Ident 11 [0-66] "test"): Item 1
+                Item 1 [0-66] (Internal):
                     Parent: 0
-                    Callable 0 [0-64] (operation):
+                    Callable 0 [0-66] (operation):
                         name: Ident 1 [10-14] "Main"
                         input: Pat 2 [14-16] [Type Unit]: Unit
                         output: Double
                         functors: empty set
-                        body: SpecDecl 3 [0-64]: Impl:
-                            Block 4 [26-64] [Type Double]:
-                                Stmt 5 [32-62]: Expr: Expr 6 [32-62] [Type Double]: Lit: Double(1)
+                        body: SpecDecl 3 [0-66]: Impl:
+                            Block 4 [26-66] [Type Double]:
+                                Stmt 5 [32-64]: Expr: Expr 6 [32-64] [Type Double]: Lit: Double(1)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
@@ -177,18 +177,18 @@ fn folds_default_get_config_call() {
         &FxHashMap::default(),
         &expect![[r#"
             Package:
-                Item 0 [0-65] (Public):
-                    Namespace (Ident 11 [0-65] "test"): Item 1
-                Item 1 [0-65] (Internal):
+                Item 0 [0-67] (Public):
+                    Namespace (Ident 11 [0-67] "test"): Item 1
+                Item 1 [0-67] (Internal):
                     Parent: 0
-                    Callable 0 [0-65] (operation):
+                    Callable 0 [0-67] (operation):
                         name: Ident 1 [10-14] "Main"
                         input: Pat 2 [14-16] [Type Unit]: Unit
                         output: Int
                         functors: empty set
-                        body: SpecDecl 3 [0-65]: Impl:
-                            Block 4 [23-65] [Type Int]:
-                                Stmt 5 [29-63]: Expr: Expr 6 [29-63] [Type Int]: Lit: Int(123)
+                        body: SpecDecl 3 [0-67]: Impl:
+                            Block 4 [23-67] [Type Int]:
+                                Stmt 5 [29-65]: Expr: Expr 6 [29-65] [Type Int]: Lit: Int(123)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],
@@ -209,8 +209,8 @@ fn rejects_non_literal_get_config_argument() {
             [
                 NonLiteralArgument(
                     Span {
-                        lo: 82,
-                        hi: 85,
+                        lo: 84,
+                        hi: 87,
                     },
                 ),
             ]
@@ -231,8 +231,8 @@ fn rejects_get_config_value_with_wrong_type() {
             [
                 TypeMismatch(
                     Span {
-                        lo: 68,
-                        hi: 69,
+                        lo: 70,
+                        hi: 71,
                     },
                 ),
             ]
@@ -253,8 +253,8 @@ fn rejects_config_value_with_unsupported_type() {
             [
                 UnsupportedType(
                     Span {
-                        lo: 68,
-                        hi: 69,
+                        lo: 70,
+                        hi: 71,
                     },
                 ),
             ]
