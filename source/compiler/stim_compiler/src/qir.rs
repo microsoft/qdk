@@ -350,10 +350,19 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("missing probability argument in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MissingProbability"))]
-    MissingProbability {
+    #[error("missing argument in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MissingArg"))]
+    MissingArg {
         instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("instruction {instruction} requires {expected} arguments, but found {found}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.WrongArgCount"))]
+    WrongArgCount {
+        instruction: String,
+        expected: usize,
+        found: usize,
         #[label]
         span: Span,
     },
@@ -995,7 +1004,39 @@ impl<'noise> Compiler<'noise> {
                 self.expect_target_pairs(instruction);
             }
             "I_ERROR" => (),
-            "PAULI_CHANNEL_1" | "PAULI_CHANNEL_2" => self.unsupported(instruction),
+            "PAULI_CHANNEL_1" => {
+                let Some(probabilities) = self.expect_args(instruction, 3) else {
+                    return;
+                };
+                let table = NoiseTable {
+                    qubits: 1,
+                    pauli_strings: ["X", "Y", "Z"].map(encode_pauli).to_vec(),
+                    probabilities,
+                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+                };
+                self.for_each_qubit(instruction, |s, q| {
+                    s.op_noise(table.clone(), &[q]);
+                });
+            }
+            "PAULI_CHANNEL_2" => {
+                let Some(probabilities) = self.expect_args(instruction, 15) else {
+                    return;
+                };
+                let table = NoiseTable {
+                    qubits: 2,
+                    pauli_strings: [
+                        "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
+                        "ZX", "ZY", "ZZ",
+                    ]
+                    .map(encode_pauli)
+                    .to_vec(),
+                    probabilities,
+                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+                };
+                self.for_each_pair(instruction, |s, q0, q1| {
+                    s.op_noise(table.clone(), &[q0, q1]);
+                });
+            }
             "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
                 let fault = FaultChar::from_instruction_name(&instruction.name);
                 self.broadcast_noise(instruction, |s, q, p| {
@@ -1143,14 +1184,14 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         mut f: impl FnMut(&mut Self, u32, f64),
     ) {
-        let Some(probability) = self.expect_probability(instruction) else {
+        let Some(probability) = self.expect_arg(instruction) else {
             return;
         };
         self.for_each_qubit(instruction, |s, q| f(s, q, probability));
     }
 
     fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
-        let Some(probability) = self.expect_probability(instruction) else {
+        let Some(probability) = self.expect_arg(instruction) else {
             return;
         };
         let mut terms = Vec::with_capacity(instruction.targets.len());
@@ -1239,7 +1280,7 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         mut f: impl FnMut(&mut Self, u32, u32, f64),
     ) {
-        let Some(probability) = self.expect_probability(instruction) else {
+        let Some(probability) = self.expect_arg(instruction) else {
             return;
         };
         self.for_each_pair(instruction, |s, q0, q1| f(s, q0, q1, probability));
@@ -1584,15 +1625,28 @@ impl<'noise> Compiler<'noise> {
         Some((value, negated))
     }
 
-    fn expect_probability(&mut self, instruction: &Instruction) -> Option<f64> {
-        let Some(&probability) = instruction.args.first() else {
-            self.push_error(Error::MissingProbability {
+    fn expect_arg(&mut self, instruction: &Instruction) -> Option<f64> {
+        self.expect_args(instruction, 1).map(|args| args[0])
+    }
+
+    fn expect_args(&mut self, instruction: &Instruction, expected: usize) -> Option<Vec<f64>> {
+        if instruction.args.is_empty() {
+            self.push_error(Error::MissingArg {
                 instruction: instruction.name.clone(),
                 span: instruction.span,
             });
             return None;
-        };
-        Some(probability)
+        }
+        if instruction.args.len() != expected {
+            self.push_error(Error::WrongArgCount {
+                instruction: instruction.name.clone(),
+                expected,
+                found: instruction.args.len(),
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(instruction.args.clone())
     }
 
     fn expect_target_pairs<'a>(

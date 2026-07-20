@@ -40,40 +40,6 @@ fn heralded_pauli_channel_1_yields_unsupported_error() {
 }
 
 #[test]
-fn pauli_channel_1_yields_unsupported_error() {
-    let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedInstruction
-
-              x unsupported instruction: PAULI_CHANNEL_1
-               ,----
-             1 | PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
-fn pauli_channel_2_yields_unsupported_error() {
-    let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1";
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedInstruction
-
-              x unsupported instruction: PAULI_CHANNEL_2
-               ,----
-             1 | PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn mpp_yields_unsupported_error() {
     let source = indoc! {"
         # Measure the two-body +X1*Y2 observable.
