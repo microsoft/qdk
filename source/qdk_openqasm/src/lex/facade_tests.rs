@@ -60,6 +60,17 @@ fn raw_tokens_preserve_trivia_details_and_incomplete_literals() {
 }
 
 #[test]
+fn uppercase_octal_prefix_is_preserved_as_an_extension() {
+    let tokens = tokenize("0O7");
+
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, RawTokenKind::Number);
+    assert_eq!(tokens[0].detail, Some("octal"));
+    assert_eq!(tokens[0].text, "0O7");
+    assert!(tokens[0].is_complete);
+}
+
+#[test]
 fn unterminated_block_comment_remains_visible_as_trivia() {
     let source = "/* unterminated µ";
     let tokens = tokenize(source);
@@ -69,11 +80,33 @@ fn unterminated_block_comment_remains_visible_as_trivia() {
     assert_eq!(tokens[0].detail, Some("block"));
     assert_eq!(tokens[0].text, source);
     assert!(tokens[0].is_trivia);
-    assert!(tokens[0].is_complete);
+    assert!(!tokens[0].is_complete);
     assert_eq!(
         tokens[0].span.hi,
         u32::try_from(source.len()).expect("test source length should fit")
     );
+}
+
+#[test]
+fn invalid_lexical_forms_are_visible_through_facade() {
+    for source in ["1__2", "0b1__0", "0o7__0", "0xA__B"] {
+        let tokens = tokenize(source);
+        assert_eq!(tokens.len(), 1, "source: {source}");
+        assert_eq!(tokens[0].kind, RawTokenKind::Unknown, "source: {source}");
+        assert_eq!(tokens[0].text, source);
+    }
+
+    for source in [r#""""#, "'\n'", r#""1__0""#] {
+        let tokens = tokenize(source);
+        assert_eq!(tokens.len(), 1, "source: {source:?}");
+        assert_eq!(tokens[0].kind, RawTokenKind::String);
+        assert!(!tokens[0].is_complete);
+    }
+
+    let tokens = tokenize("π٢");
+    assert_eq!(tokens.len(), 2);
+    assert_eq!(tokens[0].kind, RawTokenKind::Identifier);
+    assert_eq!(tokens[1].kind, RawTokenKind::Unknown);
 }
 
 #[test]

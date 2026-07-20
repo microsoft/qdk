@@ -5,6 +5,7 @@ mod arccos;
 mod arcsin;
 mod arctan;
 mod ceiling;
+mod complex_accessors;
 mod cos;
 mod exp;
 mod floor;

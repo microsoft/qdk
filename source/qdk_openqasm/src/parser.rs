@@ -32,6 +32,10 @@ mod stmt;
 struct Offsetter(pub(super) u32);
 
 impl MutVisitor for Offsetter {
+    fn visit_version(&mut self, version: &mut ast::Version) {
+        self.visit_span(&mut version.span);
+    }
+
     fn visit_span(&mut self, span: &mut Span) {
         span.lo += self.0;
         span.hi += self.0;

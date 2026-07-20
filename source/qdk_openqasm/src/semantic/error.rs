@@ -166,6 +166,9 @@ pub enum SemanticErrorKind {
     #[error("include {0} must be declared in global scope")]
     #[diagnostic(code("Qdk.Qasm.Lowerer.IncludeStatementMissingPath"))]
     IncludeStatementMissingPath(#[label] Span),
+    #[error("included source must not declare OPENQASM version {0}")]
+    #[diagnostic(code("Qdk.Qasm.Lowerer.VersionInIncludedSource"))]
+    VersionInIncludedSource(String, #[label] Span),
     #[error("inconsistent types in alias expression: {0}")]
     #[diagnostic(code("Qdk.Qasm.Lowerer.InconsistentTypesInAlias"))]
     InconsistentTypesInAlias(String, #[label] Span),

@@ -136,6 +136,54 @@ fn dotted_version_can_be_parsed() -> miette::Result<(), Vec<Report>> {
 }
 
 #[test]
+fn lexical_errors_recover_to_following_statement() {
+    for malformed in [
+        "int bad = 1__2;",
+        "int bad = 0O7;",
+        "bit[4] bad = \"1__0\";",
+        "int π٢ = 0;",
+    ] {
+        let source: Arc<str> = format!("{malformed}\nint good = 1;").into();
+        let good_offset = u32::try_from(source.find("int good").expect("sentinel statement"))
+            .expect("source offset should fit into u32");
+        let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
+        let result = parse_source(source, "test", &mut resolver);
+
+        assert!(result.source.has_errors(), "source: {malformed:?}");
+        assert!(
+            result
+                .source
+                .program()
+                .expect("program")
+                .statements
+                .iter()
+                .any(|statement| statement.span.lo >= good_offset),
+            "source: {malformed:?}"
+        );
+    }
+}
+
+#[test]
+fn invalid_strings_are_parse_errors() {
+    for source in ["include \"\";", "include \"line\nbreak\";"] {
+        let source: Arc<str> = source.into();
+        let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
+        let result = parse_source(source, "test", &mut resolver);
+
+        assert!(result.source.has_errors());
+    }
+}
+
+#[test]
+fn unterminated_block_comment_is_a_parse_error() {
+    let source: Arc<str> = "/* unterminated".into();
+    let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
+    let result = parse_source(source, "test", &mut resolver);
+
+    assert!(result.source.has_errors());
+}
+
+#[test]
 fn programs_with_includes_can_be_parsed() -> miette::Result<(), Vec<Report>> {
     let source0 = r#"OPENQASM 3.0;
     include "stdgates.inc";

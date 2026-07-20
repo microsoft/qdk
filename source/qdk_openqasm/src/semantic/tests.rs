@@ -7,8 +7,10 @@ pub mod assignment;
 pub mod decls;
 
 pub mod expression;
+mod lexical_conformance;
 mod lowerer_errors;
 pub mod statements;
+mod version_policy;
 
 use super::lower_parse_result;
 use super::parse_source;

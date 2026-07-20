@@ -30,6 +30,8 @@ enum NumberLexError {
     EndsInUnderscore,
     /// An incomplete binary, octal, or hex number.
     Incomplete,
+    /// A numeric literal that does not conform to the OpenQASM grammar.
+    Invalid,
     /// The token wasn't parsed and no characters were consumed
     /// when trying to parse the token.
     None,
@@ -50,11 +52,13 @@ pub enum TokenKind {
     Comment(CommentKind),
     HardwareQubit,
     Ident,
+    InvalidString { terminated: bool },
     LiteralFragment(LiteralFragmentKind),
     Newline,
     Number(Number),
     Single(Single),
     String { terminated: bool },
+    UnterminatedBlockComment,
     Unknown,
     Whitespace,
 }
@@ -63,10 +67,13 @@ impl Display for TokenKind {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match self {
             TokenKind::Bitstring { .. } => f.write_str("bitstring"),
-            TokenKind::Comment(CommentKind::Block) => f.write_str("block comment"),
+            TokenKind::Comment(CommentKind::Block) | TokenKind::UnterminatedBlockComment => {
+                f.write_str("block comment")
+            }
             TokenKind::Comment(CommentKind::Normal) => f.write_str("comment"),
             TokenKind::HardwareQubit => f.write_str("hardware qubit"),
             TokenKind::Ident => f.write_str("identifier"),
+            TokenKind::InvalidString { .. } => f.write_str("invalid string"),
             TokenKind::LiteralFragment(_) => f.write_str("literal fragment"),
             TokenKind::Newline => f.write_str("newline"),
             TokenKind::Number(Number::Float) => f.write_str("float"),
@@ -267,17 +274,17 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn comment(&mut self, c: char) -> Option<CommentKind> {
+    fn comment(&mut self, c: char) -> Option<TokenKind> {
         if c == '/' && self.next_if_eq('/') {
             self.eat_while(|c| !is_newline(c));
-            Some(CommentKind::Normal)
+            Some(TokenKind::Comment(CommentKind::Normal))
         } else if c == '/' && self.next_if_eq('*') {
             loop {
                 let Some((_, c)) = self.chars.next() else {
-                    return Some(CommentKind::Block);
+                    return Some(TokenKind::UnterminatedBlockComment);
                 };
                 if c == '*' && self.next_if_eq('/') {
-                    return Some(CommentKind::Block);
+                    return Some(TokenKind::Comment(CommentKind::Block));
                 }
             }
         } else {
@@ -290,13 +297,13 @@ impl<'a> Lexer<'a> {
         // We need to check that the character following the fragment isn't an
         // underscore or an alphanumeric character, else it is an identifier.
         let first = self.first();
-        if c == 's' && first.is_none_or(|c1| c1 != '_' && !c1.is_alphanumeric()) {
+        if c == 's' && first.is_none_or(|c1| !is_identifier_continue(c1)) {
             return Some(TokenKind::LiteralFragment(LiteralFragmentKind::S));
         }
 
         let second = self.second();
         if let Some(c1) = first
-            && second.is_none_or(|c1| c1 != '_' && !c1.is_alphanumeric())
+            && second.is_none_or(|c1| !is_identifier_continue(c1))
         {
             let fragment = match (c, c1) {
                 ('i', 'm') => Some(TokenKind::LiteralFragment(LiteralFragmentKind::Imag)),
@@ -314,8 +321,8 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        if c == '_' || c.is_alphabetic() {
-            self.eat_while(|c| c == '_' || c.is_alphanumeric());
+        if is_identifier_start(c) {
+            self.eat_while(is_identifier_continue);
             Some(TokenKind::Ident)
         } else {
             None
@@ -371,6 +378,7 @@ impl<'a> Lexer<'a> {
                             Err(_) => Err(NumberLexError::EndsInUnderscore),
                         },
                         Err(NumberLexError::Incomplete) => unreachable!(),
+                        Err(NumberLexError::Invalid) => Err(NumberLexError::Invalid),
                     }
                 }
                 Some('e' | 'E') => match self.exp() {
@@ -406,7 +414,7 @@ impl<'a> Lexer<'a> {
             Radix::Decimal
         };
 
-        let last_eaten = self.eat_while(|c| c == '_' || c.is_digit(radix.into()));
+        let last_eaten = self.eat_number_characters(|c| c.is_digit(radix.into()))?;
 
         match radix {
             Radix::Binary | Radix::Octal | Radix::Hexadecimal => match last_eaten {
@@ -438,7 +446,7 @@ impl<'a> Lexer<'a> {
             return Err(NumberLexError::None);
         }
 
-        let last_eaten = self.eat_while(|c| c == '_' || c.is_ascii_digit());
+        let last_eaten = self.eat_number_characters(|c| c.is_ascii_digit())?;
 
         match last_eaten {
             None if c == '_' => Err(NumberLexError::None),
@@ -461,6 +469,7 @@ impl<'a> Lexer<'a> {
                 Ok(()) => Ok(Number::Float),
                 Err(NumberLexError::None) => Ok(Number::Int(Radix::Decimal)),
                 Err(NumberLexError::EndsInUnderscore) => Err(NumberLexError::EndsInUnderscore),
+                Err(NumberLexError::Invalid) => Err(NumberLexError::Invalid),
                 Err(NumberLexError::Incomplete) => unreachable!(),
             },
         }
@@ -488,6 +497,7 @@ impl<'a> Lexer<'a> {
                 match self.decimal(first) {
                     Ok(_) => Ok(()),
                     Err(NumberLexError::EndsInUnderscore) => Err(NumberLexError::EndsInUnderscore),
+                    Err(NumberLexError::Invalid) => Err(NumberLexError::Invalid),
                     Err(NumberLexError::None | NumberLexError::Incomplete) => unreachable!(),
                 }
             } else {
@@ -495,6 +505,32 @@ impl<'a> Lexer<'a> {
             }
         } else {
             Err(NumberLexError::None)
+        }
+    }
+
+    fn eat_number_characters(
+        &mut self,
+        mut is_digit: impl FnMut(char) -> bool,
+    ) -> Result<Option<char>, NumberLexError> {
+        let mut last_eaten = None;
+        let mut previous_was_underscore = false;
+        let mut has_repeated_separator = false;
+
+        while let Some(c) = self.first()
+            && (c == '_' || is_digit(c))
+        {
+            self.chars.next();
+            if c == '_' && previous_was_underscore {
+                has_repeated_separator = true;
+            }
+            previous_was_underscore = c == '_';
+            last_eaten = Some(c);
+        }
+
+        if has_repeated_separator {
+            Err(NumberLexError::Invalid)
+        } else {
+            Ok(last_eaten)
         }
     }
 
@@ -512,18 +548,26 @@ impl<'a> Lexer<'a> {
             return Some(bitstring);
         }
 
-        let mut invalid_escape = false;
+        let mut has_content = false;
+        let mut has_control_character = false;
 
         while self.first().is_some_and(|c| c != string_start) {
-            self.eat_while(|c| c != '\\' && c != string_start);
-            if self.next_if_eq('\\') {
-                self.chars.next();
+            let (_, c) = self.chars.next().expect("first returned Some");
+            has_content = true;
+            has_control_character |= matches!(c, '\r' | '\n' | '\t');
+            if c == '\\'
+                && let Some((_, escaped)) = self.chars.next()
+            {
+                has_control_character |= matches!(escaped, '\r' | '\n' | '\t');
             }
         }
 
-        Some(TokenKind::String {
-            terminated: self.next_if_eq(string_start),
-        })
+        let terminated = self.next_if_eq(string_start);
+        if has_content && !has_control_character {
+            Some(TokenKind::String { terminated })
+        } else {
+            Some(TokenKind::InvalidString { terminated })
+        }
     }
 
     /// Parses the body of a bitstring. Bitstrings can only contain 0s and 1s.
@@ -536,8 +580,11 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        // A bitstring must end in a 0 or a 1.
-        if let Some('_') = self.eat_while(is_bitstring_char) {
+        // A bitstring must use single separators and end in a 0 or a 1.
+        let Ok(last_eaten) = self.eat_number_characters(|c| matches!(c, '0' | '1')) else {
+            return None;
+        };
+        if last_eaten == Some('_') {
             return None;
         }
 
@@ -568,7 +615,7 @@ impl Iterator for Lexer<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         let (offset, c) = self.chars.next()?;
         let kind = if let Some(kind) = self.comment(c) {
-            TokenKind::Comment(kind)
+            kind
         } else if self.whitespace(c) {
             TokenKind::Whitespace
         } else if self.newline(c) {
@@ -580,9 +627,11 @@ impl Iterator for Lexer<'_> {
         } else {
             match self.number(c) {
                 Ok(number) => TokenKind::Number(number),
-                Err(NumberLexError::EndsInUnderscore | NumberLexError::Incomplete) => {
-                    TokenKind::Unknown
-                }
+                Err(
+                    NumberLexError::EndsInUnderscore
+                    | NumberLexError::Incomplete
+                    | NumberLexError::Invalid,
+                ) => TokenKind::Unknown,
                 Err(NumberLexError::None) => self
                     .string(c)
                     .or_else(|| single(c).map(TokenKind::Single))
@@ -595,6 +644,14 @@ impl Iterator for Lexer<'_> {
             offset: offset + self.starting_offset,
         })
     }
+}
+
+fn is_identifier_start(c: char) -> bool {
+    c == '_' || c.is_alphabetic()
+}
+
+fn is_identifier_continue(c: char) -> bool {
+    is_identifier_start(c) || c.is_ascii_digit()
 }
 
 fn single(c: char) -> Option<Single> {

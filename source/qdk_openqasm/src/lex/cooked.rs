@@ -49,6 +49,14 @@ pub enum Error {
     #[diagnostic(code("Qdk.Qasm.Lex.UnterminatedString"))]
     UnterminatedString(#[label] Span),
 
+    #[error("unterminated block comment")]
+    #[diagnostic(code("Qdk.Qasm.Lex.UnterminatedBlockComment"))]
+    UnterminatedBlockComment(#[label] Span),
+
+    #[error("invalid string literal")]
+    #[diagnostic(code("Qdk.Qasm.Lex.InvalidStringLiteral"))]
+    InvalidStringLiteral(#[label] Span),
+
     #[error("string literal with an invalid escape sequence")]
     #[diagnostic(code("Qdk.Qasm.Lex.InvalidEscapeSequence"))]
     InvalidEscapeSequence(#[label] Span),
@@ -68,6 +76,8 @@ impl Error {
                 Self::IncompleteEof(expected, token, span + offset)
             }
             Self::UnterminatedString(span) => Self::UnterminatedString(span + offset),
+            Self::UnterminatedBlockComment(span) => Self::UnterminatedBlockComment(span + offset),
+            Self::InvalidStringLiteral(span) => Self::InvalidStringLiteral(span + offset),
             Self::InvalidEscapeSequence(span) => Self::InvalidEscapeSequence(span + offset),
             Self::Unknown(c, span) => Self::Unknown(c, span + offset),
         }
@@ -78,6 +88,8 @@ impl Error {
             Error::Incomplete(_, _, _, s)
             | Error::IncompleteEof(_, _, s)
             | Error::UnterminatedString(s)
+            | Error::UnterminatedBlockComment(s)
+            | Error::InvalidStringLiteral(s)
             | Error::InvalidEscapeSequence(s)
             | Error::Unknown(_, s) => s,
         }
@@ -497,6 +509,12 @@ impl<'a> Lexer<'a> {
                 }))
             }
             raw::TokenKind::Comment(_) | raw::TokenKind::Whitespace => Ok(None),
+            raw::TokenKind::UnterminatedBlockComment => {
+                Err(Error::UnterminatedBlockComment(Span {
+                    lo: token.offset,
+                    hi: self.offset(),
+                }))
+            }
             raw::TokenKind::Newline => {
                 // AnnotationKeyword: '@' Identifier ('.' Identifier)* ->  pushMode(EAT_TO_LINE_END);
                 self.next_if_eq(raw::TokenKind::Whitespace);
@@ -596,6 +614,18 @@ impl<'a> Lexer<'a> {
                 lo: token.offset,
                 hi: token.offset,
             })),
+            raw::TokenKind::InvalidString { terminated: false } => {
+                Err(Error::UnterminatedString(Span {
+                    lo: token.offset,
+                    hi: self.offset(),
+                }))
+            }
+            raw::TokenKind::InvalidString { terminated: true } => {
+                Err(Error::InvalidStringLiteral(Span {
+                    lo: token.offset,
+                    hi: self.offset(),
+                }))
+            }
             raw::TokenKind::Unknown => {
                 let c = self.input[(token.offset as usize)..]
                     .chars()

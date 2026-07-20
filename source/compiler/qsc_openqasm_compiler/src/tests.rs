@@ -87,6 +87,17 @@ fn compile<S: Into<Arc<str>>>(source: S) -> miette::Result<QasmCompileUnit, Vec<
     compile_with_config(source, config)
 }
 
+#[test]
+fn qasm2_version_selects_qasm2_environment() -> miette::Result<(), Vec<Report>> {
+    let unit = compile(concat!(
+        "OPENQASM 2.0; include \"qelib1.inc\"; ",
+        "qreg q[1]; creg c[1]; h q[0]; measure q[0] -> c[0];"
+    ))?;
+
+    fail_on_compilation_errors(&unit);
+    Ok(())
+}
+
 fn compile_with_config<S: Into<Arc<str>>>(
     source: S,
     config: CompilerConfig,

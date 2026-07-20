@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{Lexer, Token, TokenKind};
+use super::{Error, Lexer, Token, TokenKind};
 use crate::lex::Delim;
 use crate::span::Span;
 use expect_test::{Expect, expect};
@@ -230,6 +230,26 @@ fn int() {
                         kind: Literal(
                             Integer(
                                 Decimal,
+                            ),
+                        ),
+                        span: Span {
+                            lo: 0,
+                            hi: 3,
+                        },
+                    },
+                ),
+            ]
+        "#]],
+    );
+    check(
+        "0O7",
+        &expect![[r#"
+            [
+                Ok(
+                    Token {
+                        kind: Literal(
+                            Integer(
+                                Octal,
                             ),
                         ),
                         span: Span {
@@ -822,19 +842,60 @@ fn string_empty() {
         r#""""#,
         &expect![[r#"
             [
-                Ok(
-                    Token {
-                        kind: Literal(
-                            String,
-                        ),
-                        span: Span {
+                Err(
+                    InvalidStringLiteral(
+                        Span {
                             lo: 0,
                             hi: 2,
                         },
-                    },
+                    ),
                 ),
             ]
         "#]],
+    );
+}
+
+#[test]
+fn control_containing_strings_are_invalid() {
+    for input in ["\"line\nbreak\"", "'\r'", "\"\t\"", r#""1__0""#] {
+        let actual = Lexer::new(input).collect::<Vec<_>>();
+        assert!(
+            matches!(actual.as_slice(), [Err(Error::InvalidStringLiteral(_))]),
+            "input: {input:?}, actual: {actual:?}"
+        );
+    }
+}
+
+#[test]
+fn unterminated_block_comment_errors() {
+    assert_eq!(
+        Lexer::new("/* comment").collect::<Vec<_>>(),
+        vec![Err(Error::UnterminatedBlockComment(Span { lo: 0, hi: 10 }))]
+    );
+}
+
+#[test]
+fn invalid_numeric_forms_error() {
+    for input in ["1__2", "0b1__0", "0o7__0", "0xA__B", "1.0__2", "1e1__2"] {
+        let actual = Lexer::new(input).collect::<Vec<_>>();
+        assert!(
+            matches!(actual.as_slice(), [Err(Error::Unknown(_, _))]),
+            "input: {input}, actual: {actual:?}"
+        );
+    }
+}
+
+#[test]
+fn non_ascii_digit_does_not_continue_identifier() {
+    assert_eq!(
+        Lexer::new("π٢").collect::<Vec<_>>(),
+        vec![
+            Ok(Token {
+                kind: TokenKind::Identifier,
+                span: Span { lo: 0, hi: 2 },
+            }),
+            Err(Error::Unknown('٢', Span { lo: 2, hi: 4 })),
+        ]
     );
 }
 

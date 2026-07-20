@@ -611,6 +611,20 @@ fn floor_float(inputs: &[Expr], _: Span) -> Result<LiteralKind, ConstEvalError> 
 }
 
 // ----------------------------------
+// imag
+
+pub(crate) fn imag(
+    inputs: &[Expr],
+    name_span: Span,
+    call_span: Span,
+    ctx: &mut Lowerer,
+) -> PolymorphicFunctionOutput {
+    complex_component("imag", inputs, name_span, call_span, ctx, |value| {
+        value.imag
+    })
+}
+
+// ----------------------------------
 // log
 
 pub(crate) fn log(
@@ -736,6 +750,56 @@ fn pow_complex(inputs: &[Expr], _: Span) -> Result<LiteralKind, ConstEvalError> 
     unwrap_lit!(inputs[0], LiteralKind::Complex(a));
     unwrap_lit!(inputs[1], LiteralKind::Complex(b));
     Ok(a.pow(b).into())
+}
+
+// ----------------------------------
+// real
+
+pub(crate) fn real(
+    inputs: &[Expr],
+    name_span: Span,
+    call_span: Span,
+    ctx: &mut Lowerer,
+) -> PolymorphicFunctionOutput {
+    complex_component("real", inputs, name_span, call_span, ctx, |value| {
+        value.real
+    })
+}
+
+fn complex_component(
+    name: &str,
+    inputs: &[Expr],
+    name_span: Span,
+    call_span: Span,
+    ctx: &mut Lowerer,
+    component: fn(Complex) -> f64,
+) -> PolymorphicFunctionOutput {
+    let width = match inputs.first().map(|input| &input.ty) {
+        Some(Type::Complex(width, _)) => *width,
+        _ => None,
+    };
+    let signature = fun(&[Type::Complex(width, true)], Type::Float(width, true));
+    let fn_table: FnTable = vec![(
+        signature,
+        Box::new(move |inputs, _| {
+            unwrap_lit!(inputs[0], LiteralKind::Complex(value));
+            Ok(LiteralKind::Float(component(value)))
+        }),
+    )];
+
+    if inputs
+        .iter()
+        .any(|input| !input.ty.is_const() || input.const_value.is_none())
+    {
+        return None;
+    }
+
+    if inputs.len() == 1 && !matches!(inputs[0].ty, Type::Complex(_, _)) {
+        ctx.push_const_eval_error(no_valid_overload_error(name, call_span, inputs, &fn_table));
+        return None;
+    }
+
+    dispatch(name, name_span, call_span, inputs, &fn_table, ctx)
 }
 
 // ----------------------------------

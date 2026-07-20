@@ -159,10 +159,9 @@ impl Lowerer {
         let program_span = source
             .program()
             .map_or_else(Span::default, |program| program.span);
-        // Should we fail if we see a version in included files?
         self.version = self.lower_version(source.program().and_then(|p| p.version));
 
-        self.lower_source(&source);
+        self.lower_source(&source, true);
 
         assert!(
             self.symbols.is_current_scope_global(),
@@ -194,18 +193,11 @@ impl Lowerer {
 
     fn lower_version(&mut self, version: Option<syntax::Version>) -> Option<Version> {
         if let Some(version) = version {
+            let minor = version.minor.unwrap_or(0);
             if version.major == 2 && version.minor == Some(0) {
                 return Some(QASM2_VERSION);
             }
-            if version.major != 3 {
-                self.push_semantic_error(SemanticErrorKind::UnsupportedVersion(
-                    format!("{version}"),
-                    version.span,
-                ));
-            } else if let Some(minor) = version.minor
-                && minor != 0
-                && minor != 1
-            {
+            if version.major != 3 || (minor != 0 && minor != 1) {
                 self.push_semantic_error(SemanticErrorKind::UnsupportedVersion(
                     format!("{version}"),
                     version.span,
@@ -214,14 +206,14 @@ impl Lowerer {
             return Some(crate::semantic::ast::Version {
                 span: version.span,
                 major: version.major,
-                minor: version.minor,
+                minor: Some(minor),
             });
         }
         None
     }
 
     /// Root recursive function for lowering the source.
-    fn lower_source(&mut self, source: &QasmSource) {
+    fn lower_source(&mut self, source: &QasmSource, is_entry: bool) {
         // we keep an iterator of the includes so we can match them with the
         // source includes. The include statements only have the path, but
         // we have already loaded all of source files in the
@@ -233,6 +225,13 @@ impl Lowerer {
         let Some(program) = source.program() else {
             return;
         };
+
+        if !is_entry && let Some(version) = program.version {
+            self.push_semantic_error(SemanticErrorKind::VersionInIncludedSource(
+                version.to_string(),
+                version.span,
+            ));
+        }
 
         for stmt in &program.statements {
             match &*stmt.kind {
@@ -281,7 +280,7 @@ impl Lowerer {
                     }
 
                     let include = includes.next().expect("missing include");
-                    self.lower_source(include);
+                    self.lower_source(include, false);
                 }
                 syntax::StmtKind::Pragma(stmt) => {
                     let pragma = Self::lower_pragma(stmt);
@@ -2176,10 +2175,12 @@ impl Lowerer {
             Cos => builtin_functions::cos(&inputs, name_span, call_span, self),
             Exp => builtin_functions::exp(&inputs, name_span, call_span, self),
             Floor => builtin_functions::floor(&inputs, name_span, call_span, self),
+            Imag => builtin_functions::imag(&inputs, name_span, call_span, self),
             Log => builtin_functions::log(&inputs, name_span, call_span, self),
             Mod => builtin_functions::mod_(&inputs, name_span, call_span, self),
             Popcount => builtin_functions::popcount(&inputs, name_span, call_span, self),
             Pow => builtin_functions::pow(&inputs, name_span, call_span, self),
+            Real => builtin_functions::real(&inputs, name_span, call_span, self),
             Rotl => builtin_functions::rotl(&inputs, name_span, call_span, self),
             Rotr => builtin_functions::rotr(&inputs, name_span, call_span, self),
             Sin => builtin_functions::sin(&inputs, name_span, call_span, self),
@@ -5192,10 +5193,12 @@ enum BuiltinFunction {
     Cos,
     Exp,
     Floor,
+    Imag,
     Log,
     Mod,
     Popcount,
     Pow,
+    Real,
     Rotl,
     Rotr,
     Sin,
@@ -5215,10 +5218,12 @@ impl FromStr for BuiltinFunction {
             "cos" => Ok(Self::Cos),
             "exp" => Ok(Self::Exp),
             "floor" => Ok(Self::Floor),
+            "imag" => Ok(Self::Imag),
             "log" => Ok(Self::Log),
             "mod" => Ok(Self::Mod),
             "popcount" => Ok(Self::Popcount),
             "pow" => Ok(Self::Pow),
+            "real" => Ok(Self::Real),
             "rotl" => Ok(Self::Rotl),
             "rotr" => Ok(Self::Rotr),
             "sin" => Ok(Self::Sin),

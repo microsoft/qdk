@@ -135,6 +135,17 @@ fn block_comment() {
 }
 
 #[test]
+fn unterminated_block_comment() {
+    assert_eq!(
+        Lexer::new("/* comment").collect::<Vec<_>>(),
+        vec![Token {
+            kind: TokenKind::UnterminatedBlockComment,
+            offset: 0,
+        }]
+    );
+}
+
+#[test]
 fn comment_four_slashes() {
     check(
         "////comment\nx",
@@ -296,6 +307,20 @@ fn string_invalid_escape() {
 }
 
 #[test]
+fn empty_and_control_containing_strings_are_invalid() {
+    for input in [r#""""#, "''", "\"line\nbreak\"", "'\t'"] {
+        assert_eq!(
+            Lexer::new(input).collect::<Vec<_>>(),
+            vec![Token {
+                kind: TokenKind::InvalidString { terminated: true },
+                offset: 0,
+            }],
+            "input: {input:?}"
+        );
+    }
+}
+
+#[test]
 fn binary() {
     check(
         "0b10110",
@@ -398,6 +423,28 @@ fn number_seps() {
                 },
             ]
         "#]],
+    );
+}
+
+#[test]
+fn repeated_numeric_separators_are_invalid() {
+    for input in ["1__2", "0b1__0", "0o7__0", "0xA__B", "1.0__2", "1e1__2"] {
+        assert_eq!(
+            Lexer::new(input).collect::<Vec<_>>(),
+            vec![Token {
+                kind: TokenKind::Unknown,
+                offset: 0,
+            }],
+            "input: {input}"
+        );
+    }
+
+    assert_eq!(
+        Lexer::new(r#""1__0""#).collect::<Vec<_>>(),
+        vec![Token {
+            kind: TokenKind::InvalidString { terminated: true },
+            offset: 0,
+        }]
     );
 }
 
@@ -1062,6 +1109,30 @@ fn identifiers_with_fragment_prefixes() {
                 },
             ]
         "#]],
+    );
+}
+
+#[test]
+fn identifier_continuation_allows_ascii_digits_only() {
+    assert_eq!(
+        Lexer::new("π2").collect::<Vec<_>>(),
+        vec![Token {
+            kind: TokenKind::Ident,
+            offset: 0,
+        }]
+    );
+    assert_eq!(
+        Lexer::new("π٢").collect::<Vec<_>>(),
+        vec![
+            Token {
+                kind: TokenKind::Ident,
+                offset: 0,
+            },
+            Token {
+                kind: TokenKind::Unknown,
+                offset: 2,
+            },
+        ]
     );
 }
 

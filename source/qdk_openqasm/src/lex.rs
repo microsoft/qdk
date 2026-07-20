@@ -80,6 +80,9 @@ impl RawToken {
                 }),
                 true,
             ),
+            raw::TokenKind::UnterminatedBlockComment => {
+                (RawTokenKind::Comment, true, Some("block"), false)
+            }
             raw::TokenKind::HardwareQubit => (RawTokenKind::HardwareQubit, false, None, true),
             raw::TokenKind::Ident => (RawTokenKind::Identifier, false, None, true),
             raw::TokenKind::LiteralFragment(fragment) => (
@@ -117,6 +120,7 @@ impl RawToken {
             raw::TokenKind::String { terminated } => {
                 (RawTokenKind::String, false, None, terminated)
             }
+            raw::TokenKind::InvalidString { .. } => (RawTokenKind::String, false, None, false),
             raw::TokenKind::Unknown => (RawTokenKind::Unknown, false, None, true),
             raw::TokenKind::Whitespace => (RawTokenKind::Whitespace, true, None, true),
         };
