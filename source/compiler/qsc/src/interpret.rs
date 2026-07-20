@@ -2127,14 +2127,9 @@ impl<'a> Visitor<'a> for BreakpointCollector<'a> {
     fn visit_stmt(&mut self, stmt: StmtId) {
         let stmt_res = self.get_stmt(stmt);
         match stmt_res.kind {
-            // Recurse into the statement's expression so that nested statements
-            // become individually breakpointable. `Semi` is included alongside
-            // `Expr`/`Local` because block-like statements written with a
-            // trailing semicolon, notably a desugared `repeat ... until cond;`
-            // that is always a `Semi`, carry their loop body inside this
-            // expression. Recursing into a simple `Semi` such as `foo();` or
-            // `set x = 1;` adds no breakpoints, since `walk_expr` only surfaces
-            // breakpoints when it re-enters a nested statement.
+            // Walk the expression-bearing statement kinds so nested statements
+            // become individually breakpointable. `Item` only references an item
+            // and package traversal visits item bodies separately.
             fir::StmtKind::Expr(expr)
             | fir::StmtKind::Local(_, _, expr)
             | fir::StmtKind::Semi(expr) => {

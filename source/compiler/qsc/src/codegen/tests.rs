@@ -5475,15 +5475,7 @@ fn while_and_repeat_with_break_continue_generate_qir_on_base_profile() {
 
 #[test]
 fn return_and_break_in_loop_composes_with_return_unify() {
-    // A loop containing both a `return` and a `break`. The `break` desugar in HIR
-    // `loop_unification` rewrites the loop condition to `(not .broke_<id>) and cond`;
-    // `return_unify` in FIR then wraps it again as
-    // `(not __has_returned) and ((not .broke_<id>) and cond)`. Because the synthetic
-    // break flag `.broke_<id>` uses a distinct name from the return flags, the
-    // `check_no_flag_writes_in_operand_position` invariant, which scans only the
-    // return-flag names, never fires on it. Successful QIR generation therefore
-    // demonstrates the two flag lowerings compose cleanly with no invariant
-    // conflict and no residual early exit.
+    // Check that `return` and `break` play nicely together in the same loop.
     let source = r#"
         namespace Test {
             @EntryPoint()
@@ -5618,5 +5610,33 @@ fn bare_operand_break_lowers_to_qir_and_skips_eager_consumer() {
     assert!(
         !qir.contains("call void @__quantum__qis__h__body"),
         "expected no H gate: the eager consumer must not run on the break path:\n{qir}"
+    );
+}
+
+#[test]
+fn bare_operand_break_preserves_prior_argument_effects_and_skips_later_arguments() {
+    let source = r#"
+        namespace Test {
+            operation Foo(first : Unit, second : Unit, third : Unit) : Unit {}
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for _ in 0..10 {
+                    Foo(H(q), break, Y(q));
+                }
+                Reset(q);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H to run before the operand-position break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected Y after the operand-position break to be skipped:\n{qir}"
     );
 }
