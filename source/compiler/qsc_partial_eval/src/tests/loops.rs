@@ -869,6 +869,97 @@ fn for_loop_over_qubits_unrolled() {
 }
 
 #[test]
+fn for_loop_over_empty_array_emits_successfully() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for theta in [] {
+                    Rx(theta, q);
+                }
+            }
+        }
+        "#,
+    });
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: Rx
+                    call_type: Regular
+                    input_type:
+                        [0]: Double
+                        [1]: Qubit
+                    input_vars:
+                        [0]: 4
+                        [1]: 5
+                    output_type: <VOID>
+                    body: 4
+                Callable 3: Callable:
+                    name: __quantum__qis__rx__body
+                    call_type: Regular
+                    input_type:
+                        [0]: Double
+                        [1]: Qubit
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 4: Callable:
+                    name: __quantum__rt__tuple_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Variable(0, Integer) = Store Integer(0)
+                    Jump(1)
+                Block 1: Block:
+                    Variable(1, Boolean) = Icmp Slt, Variable(0, Integer), Integer(0)
+                    Branch Variable(1, Boolean), 3, 2
+                Block 2: Block:
+                    Call id(4), args( Integer(0), Tag(0, 3), )
+                    Return Integer(0)
+                Block 3: Block:
+                    Variable(2, Double) = Index Array(0), Variable(0, Integer)
+                    Variable(3, Double) = Store Variable(2, Double)
+                    Call id(2), args( Variable(3, Double), Qubit(0), )
+                    Variable(6, Integer) = Add Variable(0, Integer), Integer(1)
+                    Variable(0, Integer) = Store Variable(6, Integer)
+                    Jump(1)
+                Block 4: Block:
+                    Call id(3), args( Variable(4, Double), Variable(5, Qubit), )
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
+            num_qubits: 1
+            num_results: 0
+            tags:
+                [0]: 0_t
+            array_literals:
+                [0]: []
+    "#]].assert_eq(&program.to_string());
+}
+
+#[test]
 fn rotation_call_within_a_while_loop() {
     let program = get_rir_program_with_adaptive_profile(indoc! {
         r#"
