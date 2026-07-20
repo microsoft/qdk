@@ -18,7 +18,7 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     ExprId, ExprKind, Functor, ItemId, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
-    PatId, StoreItemId, UnOp,
+    PackageSpan, PatId, StoreExprId, StoreItemId, UnOp,
 };
 use qsc_fir::ty::Ty;
 
@@ -419,7 +419,7 @@ pub struct AnalysisResult {
     /// (over-defined), recorded so the driver can emit a `DynamicCallable`
     /// diagnostic with the call-site span. `Bottom` callees are excluded to
     /// avoid spurious errors on intermediate fixpoint iterations.
-    pub unresolved_direct_call_sites: Vec<ExprId>,
+    pub unresolved_direct_call_sites: Vec<StoreExprId>,
     /// Per-callable lattice states for all callable-typed local variables
     /// after flow analysis.
     pub lattice_states: LatticeStates,
@@ -450,7 +450,7 @@ pub enum Error {
     #[error("callable argument could not be resolved statically")]
     #[diagnostic(code("Qdk.Qsc.Defunctionalize.DynamicCallable"))]
     #[diagnostic(help("ensure all callable arguments are known at compile time"))]
-    DynamicCallable(#[label] Span),
+    DynamicCallable(#[label] PackageSpan),
 
     /// Emitted when a higher-order function forwards two or more distinct
     /// arrays of callables through a single call. The callables are statically
@@ -469,7 +469,7 @@ pub enum Error {
         "pass at most one array-of-callables argument to a higher-order function; combine the \
          arrays or specialize the callers so each forwards a single callable array"
     ))]
-    UnsupportedMultipleCallableArrays(#[label] Span),
+    UnsupportedMultipleCallableArrays(#[label] PackageSpan),
 
     /// Emitted when the analysis => specialize => rewrite fixpoint loop exits
     /// without eliminating every reachable closure or arrow-typed parameter.
@@ -482,7 +482,11 @@ pub enum Error {
     )]
     #[diagnostic(code("Qdk.Qsc.Defunctionalize.FixpointNotReached"))]
     #[diagnostic(help("consider reducing the nesting depth of higher-order function chains"))]
-    FixpointNotReached(usize, usize, #[label("remaining callable value")] Span),
+    FixpointNotReached(
+        usize,
+        usize,
+        #[label("remaining callable value")] PackageSpan,
+    ),
 
     /// Warning emitted when a single HOF generates more than the warning
     /// threshold of distinct specializations during a pass. The string is
@@ -499,11 +503,28 @@ pub enum Error {
     ExcessiveSpecializations(
         String,
         usize,
-        #[label("excessive specializations generated here")] Span,
+        #[label("excessive specializations generated here")] PackageSpan,
     ),
 }
 
 impl Error {
+    /// Returns the package that owns this diagnostic.
+    #[must_use]
+    pub fn owner(&self) -> PackageId {
+        self.package_span().package
+    }
+
+    /// Returns the package-qualified source label for this diagnostic.
+    #[must_use]
+    pub fn package_span(&self) -> PackageSpan {
+        match self {
+            Self::DynamicCallable(span)
+            | Self::UnsupportedMultipleCallableArrays(span)
+            | Self::FixpointNotReached(_, _, span)
+            | Self::ExcessiveSpecializations(_, _, span) => *span,
+        }
+    }
+
     /// Returns `true` when the diagnostic is non-fatal to the FIR transform
     /// pipeline.
     #[must_use]

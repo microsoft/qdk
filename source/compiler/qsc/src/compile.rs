@@ -14,6 +14,24 @@ use thiserror::Error;
 
 pub type Error = WithSource<ErrorKind>;
 
+/// Attaches a FIR transform diagnostic to the source map owned by the package
+/// that produced its labels.
+#[must_use]
+pub fn attach_fir_transform_source(
+    store: &PackageStore,
+    diagnostic: qsc_fir_transforms::PipelineError,
+) -> WithSource<qsc_fir_transforms::PipelineError> {
+    let owner = diagnostic.owner();
+    let package_id = qsc_lowerer::map_fir_package_to_hir(owner);
+    let unit = store.get(package_id).unwrap_or_else(|| {
+        panic!(
+            "FIR transform diagnostic owner {owner:?} maps to HIR package {package_id:?}, \
+             which must exist in the package store before source attachment"
+        )
+    });
+    WithSource::from_map(&unit.sources, diagnostic)
+}
+
 #[derive(Clone, Debug, Diagnostic, Error)]
 #[error(transparent)]
 /// `ErrorKind` represents the different kinds of errors that can occur in the compiler.

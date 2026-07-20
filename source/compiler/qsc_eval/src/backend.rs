@@ -495,6 +495,7 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
                     // Special case this known intrinsic to match the simulator
                     // behavior, so that our samples will work
                     "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
+                    "IsResourceEstimating" => Some(Ok(Value::Bool(false))),
                     _ => Some(Ok(Value::unit())),
                 }
             }
@@ -1106,6 +1107,7 @@ impl Backend for SparseSim {
                 Some(Ok(Value::unit()))
             }
             "BeginEstimateCaching" => Some(Ok(Value::Bool(true))),
+            "IsResourceEstimating" => Some(Ok(Value::Bool(false))),
             "EndEstimateCaching"
             | "AccountForEstimatesInternal"
             | "BeginRepeatEstimatesInternal"

@@ -657,3 +657,21 @@ fn manual_memory_rejects_load_on_compute_qubit() {
         "unexpected error: {err}"
     );
 }
+
+#[test]
+fn is_resource_estimating_is_true() {
+    let counts = run_logical_counts(indoc! {r#"
+            namespace Test {
+                import Std.ResourceEstimation.*;
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    if IsResourceEstimating() {
+                        T(q);
+                    }
+                }
+            }
+        "#});
+    assert_eq!(counts.t_count, 1);
+}

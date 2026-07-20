@@ -27,6 +27,31 @@ def test_compile() -> None:
     assert isinstance(program._repr_qir_(), bytes)
 
 
+@pytest.mark.parametrize(
+    "target_profile",
+    [
+        pytest.param(qdk.TargetProfile.Adaptive_RI, id="adaptive-ri"),
+        pytest.param(qdk.TargetProfile.Adaptive_RIF, id="adaptive-rif"),
+        pytest.param(qdk.TargetProfile.Adaptive, id="adaptive"),
+    ],
+)
+def test_compile_adaptive_string_entry_across_profiles(
+    target_profile: qdk.TargetProfile,
+) -> None:
+    ctx = qdk.Context(target_profile=target_profile)
+    entry = """
+        {
+            use address = Qubit[1];
+            use output = Qubit[1];
+            Std.TableLookup.Select([[false], [true]], address, output);
+        }
+    """
+    qir = ctx.compile(entry)._repr_qir_()
+    assert isinstance(qir, bytes)
+    assert qir
+    assert b'"qir_profiles"="adaptive_profile"' in qir
+
+
 def test_circuit() -> None:
     ctx = qdk.Context()
     ctx.eval("operation Program() : Result { use q = Qubit(); H(q); MResetZ(q) }")

@@ -34,8 +34,8 @@ use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field, FieldAssign,
     FieldPath, ItemId, ItemKind, Lit, LocalVarId, Mutability, Package, PackageId, PackageLookup,
-    PackageStore, Pat, PatId, PatKind, Res, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId,
-    StringComponent, UnOp,
+    PackageStore, Pat, PatId, PatKind, Res, SpecImpl, Stmt, StmtId, StmtKind, StoreExprId,
+    StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
@@ -248,17 +248,16 @@ struct CallRecorder<'a> {
     /// Call expressions whose direct `Var(Res::Local)` callee resolved to
     /// `Dynamic`, recorded so the driver can emit a `DynamicCallable`
     /// diagnostic instead of only `FixpointNotReached`.
-    unresolved_direct_call_sites: &'a mut Vec<ExprId>,
+    unresolved_direct_call_sites: &'a mut Vec<StoreExprId>,
     /// Spans of lambda bodies discarded by the identity-closure peephole,
     /// keyed by the collapsed init-expr node, stamped onto surviving direct
     /// calls so circuit instructions point at the original lambda body.
     collapsed_spans: &'a FxHashMap<ExprId, Span>,
     /// Whether already-direct concrete calls in the body being walked should be
     /// recorded. `true` for the entry package; `false` for foreign bodies,
-    /// where only the empty-capture closure callees that specialization
-    /// materializes in place are recorded (recording every already-direct call
-    /// would re-introduce the standard library's entire call graph as spurious
-    /// direct call sites).
+    /// where only closure, local, or field-projection callees are recorded.
+    /// Recording ordinary foreign item calls would re-introduce the standard
+    /// library's entire call graph as spurious direct call sites.
     record_direct_calls: bool,
 }
 
@@ -266,8 +265,8 @@ struct CallRecorder<'a> {
 /// and collects call sites where a HOF is invoked with a concrete callable
 /// argument. Entry-package bodies additionally record already-direct concrete
 /// call sites; foreign bodies (e.g. generic HOFs relocated into their owning
-/// package by monomorphization) record only HOF call sites and the
-/// empty-capture closure callees that specialization materializes in place.
+/// package by monomorphization) record only HOF call sites and closure, local,
+/// or field-projection callees that require defunctionalization.
 fn collect_call_sites(
     store: &PackageStore,
     package_id: PackageId,
@@ -277,7 +276,7 @@ fn collect_call_sites(
 ) -> (
     Vec<CallSite>,
     Vec<DirectCallSite>,
-    Vec<ExprId>,
+    Vec<StoreExprId>,
     LatticeStates,
 ) {
     let package = store.get(package_id);
@@ -376,7 +375,7 @@ fn inspect_call_expr(
     locals: &LocalState,
     call_sites: &mut Vec<CallSite>,
     direct_call_sites: &mut Vec<DirectCallSite>,
-    unresolved_direct_call_sites: &mut Vec<ExprId>,
+    unresolved_direct_call_sites: &mut Vec<StoreExprId>,
     package_id: PackageId,
     collapsed_spans: &FxHashMap<ExprId, Span>,
     record_direct_calls: bool,
@@ -424,8 +423,9 @@ fn inspect_call_expr(
     // that closure into a direct item call, or the `PostDefunc` invariant breaks
     // and the convergence metric never reaches zero.
     //
-    // So, in a foreign body, skip every direct call whose callee — after peeling
-    // functor wrappers like `Adjoint`/`Controlled` — is not a closure literal.
+    // So, in a foreign body, retain only closure, local, and projected callees
+    // after peeling functor wrappers like `Adjoint`/`Controlled`. Ordinary item
+    // calls remain skipped.
     //
     // Example (`LibApply` lives in a library, i.e. a foreign package; the
     // no-capture closure `x => H(x)` is threaded into it):
@@ -441,9 +441,11 @@ fn inspect_call_expr(
     // body — an internal helper call, or an `op(q)` whose callee is still an
     // arrow-typed parameter — is skipped.
     if !record_direct_calls {
-        // Skip unless the (functor-peeled) callee is a closure literal.
         let (base_id, _) = peel_body_functors(pkg, *callee_expr_id);
-        if !matches!(pkg.get_expr(base_id).kind, ExprKind::Closure(_, _)) {
+        if !matches!(
+            pkg.get_expr(base_id).kind,
+            ExprKind::Closure(_, _) | ExprKind::Var(Res::Local(_), _) | ExprKind::Field(_, _)
+        ) {
             return;
         }
     }
@@ -582,7 +584,7 @@ fn inspect_direct_call_expr(
     locals: &LocalState,
     hof_params: &FxHashMap<StoreItemId, Vec<CallableParam>>,
     direct_call_sites: &mut Vec<DirectCallSite>,
-    unresolved_direct_call_sites: &mut Vec<ExprId>,
+    unresolved_direct_call_sites: &mut Vec<StoreExprId>,
     package_id: PackageId,
     collapsed_spans: &FxHashMap<ExprId, Span>,
 ) {
@@ -684,7 +686,7 @@ fn inspect_direct_call_expr(
                 // dispatch. Record the site so the driver emits an actionable
                 // `DynamicCallable` (cleared per-pass by the driver's `retain`,
                 // so only the converged state surfaces).
-                unresolved_direct_call_sites.push(expr_id);
+                unresolved_direct_call_sites.push((package_id, expr_id).into());
             }
         }
         // `Bottom`: the callee has not yet been observed reaching this point
@@ -823,7 +825,9 @@ fn resolve_callee_at_path(
     let field_path = FieldPath {
         indices: path.to_vec(),
     };
-    if let Some(field_value_id) = resolve_struct_field(pkg, locals, args_expr_id, &field_path, 0) {
+    if let Some(field_value_id) =
+        resolve_struct_field(pkg, store, locals, args_expr_id, &field_path, 0)
+    {
         if matches!(pkg.get_expr(field_value_id).ty, Ty::Array(_))
             && let Some(candidates) = resolve_indexed_callable_candidates(
                 pkg,
@@ -980,6 +984,7 @@ fn resolve_callee(
         ExprKind::Index(array_expr_id, index_expr_id) => {
             if let Some(elem_expr_id) = resolve_indexed_array_element(
                 pkg,
+                store,
                 locals,
                 *array_expr_id,
                 *index_expr_id,
@@ -1111,7 +1116,7 @@ fn resolve_callee(
         }
         ExprKind::Field(inner_expr_id, Field::Path(path)) => {
             if let Some(field_value_id) =
-                resolve_struct_field(pkg, locals, *inner_expr_id, path, depth + 1)
+                resolve_struct_field(pkg, store, locals, *inner_expr_id, path, depth + 1)
             {
                 resolve_callee(
                     pkg,
@@ -2340,6 +2345,7 @@ fn apply_outer_functor_lattice(resolved: CalleeLattice, outer: FunctorApp) -> Ca
 /// nested field accesses to locate the struct construction site.
 fn resolve_struct_field(
     pkg: &Package,
+    store: &PackageStore,
     locals: &LocalState,
     inner_expr_id: ExprId,
     path: &FieldPath,
@@ -2358,6 +2364,7 @@ fn resolve_struct_field(
             } else {
                 resolve_struct_field(
                     pkg,
+                    store,
                     locals,
                     field_expr_id,
                     &FieldPath {
@@ -2368,20 +2375,32 @@ fn resolve_struct_field(
             }
         }
         ExprKind::Struct(_, _, fields) => extract_field_value(fields, path),
-        ExprKind::Call(_, args_id) => resolve_struct_field(pkg, locals, *args_id, path, depth + 1),
+        ExprKind::Call(callee_id, args_id) if is_type_constructor(pkg, store, *callee_id) => {
+            resolve_struct_field(pkg, store, locals, *args_id, path, depth + 1)
+        }
         ExprKind::Var(Res::Local(var), _) => {
             let &init_id = locals.exprs.get(var)?;
-            resolve_struct_field(pkg, locals, init_id, path, depth + 1)
+            resolve_struct_field(pkg, store, locals, init_id, path, depth + 1)
         }
         ExprKind::Field(nested_inner_id, Field::Path(nested_path)) => {
             // Two-level field access: resolve the outer field to get the inner
             // struct expression, then resolve the target field within that.
             let intermediate_id =
-                resolve_struct_field(pkg, locals, *nested_inner_id, nested_path, depth + 1)?;
-            resolve_struct_field(pkg, locals, intermediate_id, path, depth + 1)
+                resolve_struct_field(pkg, store, locals, *nested_inner_id, nested_path, depth + 1)?;
+            resolve_struct_field(pkg, store, locals, intermediate_id, path, depth + 1)
         }
         _ => None,
     }
+}
+
+fn is_type_constructor(pkg: &Package, store: &PackageStore, expr_id: ExprId) -> bool {
+    let ExprKind::Var(Res::Item(item_id), _) = pkg.get_expr(expr_id).kind else {
+        return false;
+    };
+    matches!(
+        store.get(item_id.package).get_item(item_id.item).kind,
+        ItemKind::Ty(..)
+    )
 }
 
 /// Resolves a single `Index(array, index)` expression to the concrete
@@ -2389,6 +2408,7 @@ fn resolve_struct_field(
 /// statically known.
 fn resolve_indexed_array_element(
     pkg: &Package,
+    store: &PackageStore,
     locals: &LocalState,
     array_expr_id: ExprId,
     index_expr_id: ExprId,
@@ -2405,7 +2425,7 @@ fn resolve_indexed_array_element(
         depth + 1,
     )?)
     .ok()?;
-    resolve_array_element_at_index(pkg, locals, array_expr_id, index, depth + 1)
+    resolve_array_element_at_index(pkg, store, locals, array_expr_id, index, depth + 1)
 }
 
 /// Resolves an `Index(array, index)` where the array is known but the
@@ -2422,7 +2442,7 @@ fn resolve_indexed_callable_candidates(
     scoped_capture_vars: &FxHashSet<LocalVarId>,
     package_id: PackageId,
 ) -> Option<Vec<ConcreteCallable>> {
-    let element_expr_ids = resolve_array_elements(pkg, locals, array_expr_id, depth + 1)?;
+    let element_expr_ids = resolve_array_elements(pkg, store, locals, array_expr_id, depth + 1)?;
     let mut candidates = Vec::new();
 
     for elem_expr_id in element_expr_ids {
@@ -2470,6 +2490,7 @@ fn resolve_indexed_callable_candidates(
 /// known.
 fn resolve_array_elements(
     pkg: &Package,
+    store: &PackageStore,
     locals: &LocalState,
     expr_id: ExprId,
     depth: usize,
@@ -2483,10 +2504,9 @@ fn resolve_array_elements(
         ExprKind::Array(elements) | ExprKind::ArrayLit(elements) | ExprKind::Tuple(elements) => {
             Some(elements.clone())
         }
-        ExprKind::Var(Res::Local(var), _) => locals
-            .exprs
-            .get(var)
-            .and_then(|&init_expr_id| resolve_array_elements(pkg, locals, init_expr_id, depth + 1)),
+        ExprKind::Var(Res::Local(var), _) => locals.exprs.get(var).and_then(|&init_expr_id| {
+            resolve_array_elements(pkg, store, locals, init_expr_id, depth + 1)
+        }),
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
             let stmt_id = *block.stmts.last()?;
@@ -2495,15 +2515,15 @@ fn resolve_array_elements(
                 StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => *expr_id,
                 _ => return None,
             };
-            resolve_array_elements(pkg, locals, tail_expr_id, depth + 1)
+            resolve_array_elements(pkg, store, locals, tail_expr_id, depth + 1)
         }
         ExprKind::Return(inner_expr_id) => {
-            resolve_array_elements(pkg, locals, *inner_expr_id, depth + 1)
+            resolve_array_elements(pkg, store, locals, *inner_expr_id, depth + 1)
         }
         ExprKind::Field(inner_expr_id, Field::Path(path)) => {
             let field_value_id =
-                resolve_struct_field(pkg, locals, *inner_expr_id, path, depth + 1)?;
-            resolve_array_elements(pkg, locals, field_value_id, depth + 1)
+                resolve_struct_field(pkg, store, locals, *inner_expr_id, path, depth + 1)?;
+            resolve_array_elements(pkg, store, locals, field_value_id, depth + 1)
         }
         _ => None,
     }
@@ -2513,6 +2533,7 @@ fn resolve_array_elements(
 /// expression (after [`resolve_array_elements`] has resolved each slot).
 fn resolve_array_element_at_index(
     pkg: &Package,
+    store: &PackageStore,
     locals: &LocalState,
     expr_id: ExprId,
     index: usize,
@@ -2528,7 +2549,7 @@ fn resolve_array_element_at_index(
             elements.get(index).copied()
         }
         ExprKind::Var(Res::Local(var), _) => locals.exprs.get(var).and_then(|&init_expr_id| {
-            resolve_array_element_at_index(pkg, locals, init_expr_id, index, depth + 1)
+            resolve_array_element_at_index(pkg, store, locals, init_expr_id, index, depth + 1)
         }),
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
@@ -2538,15 +2559,15 @@ fn resolve_array_element_at_index(
                 StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => *expr_id,
                 _ => return None,
             };
-            resolve_array_element_at_index(pkg, locals, tail_expr_id, index, depth + 1)
+            resolve_array_element_at_index(pkg, store, locals, tail_expr_id, index, depth + 1)
         }
         ExprKind::Return(inner_expr_id) => {
-            resolve_array_element_at_index(pkg, locals, *inner_expr_id, index, depth + 1)
+            resolve_array_element_at_index(pkg, store, locals, *inner_expr_id, index, depth + 1)
         }
         ExprKind::Field(inner_expr_id, Field::Path(path)) => {
             let field_value_id =
-                resolve_struct_field(pkg, locals, *inner_expr_id, path, depth + 1)?;
-            resolve_array_element_at_index(pkg, locals, field_value_id, index, depth + 1)
+                resolve_struct_field(pkg, store, locals, *inner_expr_id, path, depth + 1)?;
+            resolve_array_element_at_index(pkg, store, locals, field_value_id, index, depth + 1)
         }
         _ => None,
     }
@@ -3130,7 +3151,7 @@ fn bind_callable_pats_from_indexed_array(
     package_id: PackageId,
 ) {
     // Resolve the array to its element ExprIds.
-    let Some(array_elem_ids) = resolve_array_elements(pkg, state, array_expr_id, 0) else {
+    let Some(array_elem_ids) = resolve_array_elements(pkg, store, state, array_expr_id, 0) else {
         return; // Cannot resolve array — leave sub-patterns unbound (conservative).
     };
 

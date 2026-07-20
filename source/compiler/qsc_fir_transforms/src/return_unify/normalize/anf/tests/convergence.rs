@@ -80,7 +80,8 @@ fn nonconverging_operand_lift_pushes_fixpoint_not_reached_without_aborting() {
         "the stalled measure should surface exactly one guard error, got {errors:?}"
     );
     assert!(
-        matches!(errors[0], Error::FixpointNotReached("anf", reported) if reported == block_id),
+        matches!(errors[0], Error::FixpointNotReached("anf", reported)
+            if reported == (pkg_id, block_id).into()),
         "expected FixpointNotReached(\"anf\", {block_id:?}), got {:?}",
         errors[0]
     );

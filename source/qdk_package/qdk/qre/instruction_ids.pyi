@@ -81,6 +81,29 @@ RZZ: int
 ONE_QUBIT_UNITARY: int
 TWO_QUBIT_UNITARY: int
 
+# Block operations (applies operation to each qubit in the block), logical arity
+# of operations corresponds to number of blocks
+BLOCK_H: int
+BLOCK_H_XZ: int
+BLOCK_H_XY: int
+BLOCK_H_YZ: int
+BLOCK_SQRT_X: int
+BLOCK_SQRT_X_DAG: int
+BLOCK_SQRT_Y: int
+BLOCK_SQRT_Y_DAG: int
+BLOCK_S: int
+BLOCK_S_DAG: int
+BLOCK_SQRT_Z: int
+BLOCK_SQRT_Z_DAG: int
+BLOCK_CNOT: int
+BLOCK_CX: int
+BLOCK_CY: int
+BLOCK_CZ: int
+BLOCK_SWAP: int
+BLOCK_RX: int
+BLOCK_RY: int
+BLOCK_RZ: int
+
 # Multi-qubit Pauli measurement
 MULTI_PAULI_MEAS: int
 
@@ -93,9 +116,10 @@ WRITE_TO_MEMORY: int
 MEMORY: int
 
 # Some special hardware physical instructions
-CYCLIC_SHIFT: int
+CYCLIC_SHIFT: int  # may also be used as a logical operation
 PHYSICAL_MOVE: int
 HAND_OFF: int
+CYCLIC_SHIFT_ADJ: int  # may also be used as a logical operation
 
 # Generic operation (for unified RE)
 GENERIC: int

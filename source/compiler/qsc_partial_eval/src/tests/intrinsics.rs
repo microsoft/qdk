@@ -1399,3 +1399,20 @@ fn call_to_simulatable_intrinsic_with_tuple_param_should_fail() {
         ]],
     );
 }
+
+#[test]
+fn call_to_is_resource_estimating_yields_false() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                if (Std.ResourceEstimation.IsResourceEstimating()) { 1111 } else { 2222 }
+            }
+        }
+        "#,
+    });
+    let instructions = program.get_block(BlockId(0)).to_string();
+    assert!(instructions.contains("Integer(2222)"));
+    assert!(!instructions.contains("Integer(1111)"));
+}
