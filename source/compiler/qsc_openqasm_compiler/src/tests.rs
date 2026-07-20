@@ -93,7 +93,7 @@ fn compile_with_config<S: Into<Arc<str>>>(
 ) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let res = parse(source)?;
     if res.has_syntax_errors() {
-        for e in res.sytax_errors() {
+        for e in res.syntax_errors() {
             println!("{:?}", Report::new(e.clone()));
         }
     }

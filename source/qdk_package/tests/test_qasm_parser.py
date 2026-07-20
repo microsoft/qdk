@@ -106,6 +106,39 @@ def test_parse_broken_program_reports_diagnostics() -> None:
         assert isinstance(label.span, Span)
 
 
+@pytest.mark.parametrize(
+    ("includes", "expected_source_id"),
+    [
+        ({"broken.inc": "int included = ;"}, 1),
+        (
+            {
+                "nested.inc": 'include "broken.inc";',
+                "broken.inc": "int included = ;",
+            },
+            2,
+        ),
+    ],
+)
+def test_parse_included_syntax_diagnostics_use_owning_source(
+    includes: dict[str, str], expected_source_id: int
+) -> None:
+    include_path = "nested.inc" if "nested.inc" in includes else "broken.inc"
+    result = parser.parse(
+        f'OPENQASM 3.0; include "{include_path}";',
+        path="main.qasm",
+        includes=includes,
+    )
+
+    assert result.has_errors
+    diagnostic = result.diagnostics[0]
+    source_ids = {
+        result.document.source_map.range_from_span(label.span).source_id
+        for label in diagnostic.labels
+    }
+    assert source_ids == {expected_source_id}
+    assert "broken.inc" in str(diagnostic)
+
+
 def test_parse_program_strict_calls_parse_once_and_preserves_error_payload(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

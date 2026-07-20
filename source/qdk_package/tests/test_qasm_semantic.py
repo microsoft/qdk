@@ -21,6 +21,7 @@ from qdk.openqasm.semantic import (
     SymbolTable,
     Type,
 )
+from qdk.openqasm.source import SourceDocument
 
 _STDGATES = 'OPENQASM 3.0; include "stdgates.inc"; qubit q; x q;'
 
@@ -32,6 +33,42 @@ def test_analyze_returns_semantic_program() -> None:
     assert isinstance(program, Program)
     assert type(program).__name__ == "Program"
     assert program.version == "3.0"
+
+
+def test_analysis_result_and_program_share_document_with_truthful_root_span() -> None:
+    source = 'OPENQASM 3.0; include "child.inc"; int entry = 1;'
+    result = semantic.analyze(
+        source,
+        path="main.qasm",
+        includes={"child.inc": "int included = 2;"},
+    )
+
+    assert result.program.document is result.document
+    assert isinstance(result.document, SourceDocument)
+    assert result.program.span == result.document.entry.span
+    root_range = result.document.source_map.range_from_span(result.program.span)
+    assert root_range.source_id == 0
+
+
+def test_semantic_entry_and_included_nodes_and_symbols_map_through_document() -> None:
+    result = semantic.analyze(
+        'OPENQASM 3.0; include "child.inc"; int entry = 1;',
+        path="main.qasm",
+        includes={"child.inc": "int included = 2;"},
+    )
+    source_map = result.document.source_map
+    statement_source_ids = {
+        source_map.range_from_span(statement.span).source_id
+        for statement in result.program.statements
+    }
+    entry_symbol = result.symbols.lookup("entry")
+    included_symbol = result.symbols.lookup("included")
+
+    assert statement_source_ids == {0, 1}
+    assert entry_symbol is not None
+    assert included_symbol is not None
+    assert source_map.range_from_span(entry_symbol.span).source_id == 0
+    assert source_map.range_from_span(included_symbol.span).source_id == 1
 
 
 def test_canonical_dump_rejects_semantic_program() -> None:
@@ -95,6 +132,43 @@ def test_analyze_semantic_error_reports_diagnostics() -> None:
     assert isinstance(diagnostic.message, str)
     assert diagnostic.message
     assert isinstance(diagnostic.severity, Severity)
+
+
+@pytest.mark.parametrize(
+    ("includes", "expected_source_id"),
+    [
+        ({"broken.inc": "int included = missing;"}, 1),
+        (
+            {
+                "nested.inc": 'include "broken.inc";',
+                "broken.inc": "int included = missing;",
+            },
+            2,
+        ),
+    ],
+)
+def test_analyze_included_semantic_diagnostics_use_owning_source(
+    includes: dict[str, str], expected_source_id: int
+) -> None:
+    include_path = "nested.inc" if "nested.inc" in includes else "broken.inc"
+    result = semantic.analyze(
+        f'OPENQASM 3.0; include "{include_path}";',
+        path="main.qasm",
+        includes=includes,
+    )
+
+    assert result.has_errors
+    diagnostic = next(
+        diagnostic
+        for diagnostic in result.diagnostics
+        if diagnostic.code == "Qdk.Qasm.Lowerer.UndefinedSymbol"
+    )
+    source_ids = {
+        result.document.source_map.range_from_span(label.span).source_id
+        for label in diagnostic.labels
+    }
+    assert source_ids == {expected_source_id}
+    assert "broken.inc" in str(diagnostic)
 
 
 def test_analyze_diagnostic_full_message() -> None:

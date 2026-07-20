@@ -104,6 +104,7 @@
 //! dropped.
 
 use crate::openqasm::nodes::{Annotation, Expression, QASMNode, Statement};
+use crate::openqasm::source::SourceDocument;
 use crate::openqasm::span::Span;
 use pyo3::IntoPyObjectExt;
 use pyo3::prelude::*;
@@ -353,10 +354,17 @@ pub(crate) struct SemProgram {
     /// The program's top-level statements, in source order.
     #[pyo3(get)]
     statements: Vec<Py<PyAny>>,
+    document: Py<SourceDocument>,
 }
 
 #[pymethods]
 impl SemProgram {
+    /// The immutable source document for this analysis snapshot.
+    #[getter]
+    fn document(&self, py: Python<'_>) -> Py<SourceDocument> {
+        self.document.clone_ref(py)
+    }
+
     /// The program's child nodes: pragmas followed by statements.
     fn children(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
         let mut out = Vec::with_capacity(self.pragmas.len() + self.statements.len());
@@ -753,6 +761,7 @@ pub(crate) fn build_program(
     py: Python<'_>,
     program: &sem::Program,
     symbols: &SymbolTable,
+    document: Py<SourceDocument>,
 ) -> PyResult<Py<SemProgram>> {
     let mut statements = Vec::with_capacity(program.statements.len());
     for stmt in &program.statements {
@@ -764,12 +773,13 @@ pub(crate) fn build_program(
     }
     let version = program.version.map(|version| version.to_string());
     let init = PyClassInitializer::from(QASMNode {
-        span: Span { lo: 0, hi: 0 },
+        span: Span::from(program.span),
     })
     .add_subclass(SemProgram {
         version,
         pragmas,
         statements,
+        document,
     });
     Py::new(py, init)
 }

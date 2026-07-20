@@ -29,6 +29,7 @@ use crate::parser::ast as syntax;
 
 #[derive(Clone, Debug)]
 pub struct Program {
+    pub span: Span,
     pub version: Option<Version>,
     pub pragmas: List<Pragma>,
     pub statements: List<Stmt>,

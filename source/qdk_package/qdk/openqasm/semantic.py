@@ -36,6 +36,11 @@ names.
 Nodes are eagerly materialized and hold no reference back into the analyzer, so
 they may be freely retained, inspected across threads, and traversed after the
 call returns.
+
+``AnalysisResult.document`` and ``Program.document`` are the same immutable
+source snapshot. Semantic node, symbol, and diagnostic spans are global,
+half-open UTF-8 byte ranges and can be mapped to their owning source through
+``result.document.source_map``.
 """
 
 from __future__ import annotations
@@ -223,7 +228,9 @@ def analyze(
     Returns:
         An :class:`AnalysisResult` whose ``program`` is the root
         :class:`Program`, whose ``symbols`` is the resolved
-        :class:`SymbolTable`, and whose ``diagnostics`` list any errors.
-        Diagnostics are collected rather than raised.
+        :class:`SymbolTable`, whose ``document`` owns every source in the
+        analysis snapshot, and whose ``diagnostics`` list any errors.
+        Diagnostics are collected rather than raised. All spans are global,
+        half-open UTF-8 byte ranges resolved through ``document.source_map``.
     """
     return _analyze(source, path, includes)

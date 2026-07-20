@@ -6,6 +6,7 @@
 #[cfg(test)]
 mod tests;
 
+use crate::parser::{SourceFileSnapshot, SourceSnapshot};
 use crate::vendor::source::{Source, SourceMap};
 use miette::{Diagnostic, MietteError, MietteSpanContents, SourceCode, SourceSpan, SpanContents};
 use std::{
@@ -17,6 +18,48 @@ use std::{
 pub struct WithSource<E> {
     sources: Vec<Source>,
     error: E,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SourceSnapshotSourceCode {
+    snapshot: SourceSnapshot,
+}
+
+impl SourceSnapshotSourceCode {
+    #[must_use]
+    pub fn new(snapshot: &SourceSnapshot) -> Self {
+        Self {
+            snapshot: snapshot.clone(),
+        }
+    }
+
+    pub fn resolve_span(
+        &self,
+        span: &SourceSpan,
+    ) -> Result<(&SourceFileSnapshot, SourceSpan), MietteError> {
+        let offset = u32::try_from(span.offset()).map_err(|_| MietteError::OutOfBounds)?;
+        let len = u32::try_from(span.len()).map_err(|_| MietteError::OutOfBounds)?;
+        let end = offset.checked_add(len).ok_or(MietteError::OutOfBounds)?;
+        let source = self
+            .snapshot
+            .files()
+            .iter()
+            .find(|source| {
+                u32::try_from(source.text.len())
+                    .ok()
+                    .and_then(|text_len| source.offset.checked_add(text_len))
+                    .is_some_and(|source_end| source.offset <= offset && end <= source_end)
+            })
+            .ok_or(MietteError::OutOfBounds)?;
+        Ok((
+            source,
+            with_offset(span, |span_offset| {
+                span_offset
+                    - usize::try_from(source.offset)
+                        .expect("u32 source offset should fit into usize")
+            }),
+        ))
+    }
 }
 
 impl<E: Diagnostic + Send + Sync> WithSource<E> {
@@ -40,11 +83,11 @@ impl<E: Diagnostic + Send + Sync> WithSource<E> {
             .labels()
             .into_iter()
             .flatten()
-            .map(|label| u32::try_from(label.offset()).expect("offset should fit into u32"))
+            .filter_map(|label| u32::try_from(label.offset()).ok())
         {
-            let source = sources
-                .find_by_offset(offset)
-                .expect("expected to find source at offset");
+            let Some(source) = sources.find_by_offset(offset) else {
+                continue;
+            };
 
             // Keep the vector sorted by source offsets
             match filtered.binary_search_by_key(&source.offset, |s| s.offset) {
@@ -72,15 +115,8 @@ impl<E: Diagnostic + Send + Sync> WithSource<E> {
     /// Takes a span that uses `SourceMap` offsets, and returns
     /// a span that is relative to the `Source` that the span falls into,
     /// along with a reference to the `Source`.
-    pub fn resolve_span(&self, span: &SourceSpan) -> (&Source, SourceSpan) {
-        let offset = u32::try_from(span.offset()).expect("expected the offset to fit into u32");
-        let source = self
-            .sources
-            .iter()
-            .rev()
-            .find(|source| offset >= source.offset)
-            .expect("expected to find source at span");
-        (source, with_offset(span, |o| o - (source.offset as usize)))
+    pub fn resolve_span(&self, span: &SourceSpan) -> Result<(&Source, SourceSpan), MietteError> {
+        self.try_resolve_span(span).ok_or(MietteError::OutOfBounds)
     }
 
     /// Like [`resolve_span`](Self::resolve_span), but returns `None` when no
@@ -93,7 +129,14 @@ impl<E: Diagnostic + Send + Sync> WithSource<E> {
             .iter()
             .rev()
             .find(|source| offset >= source.offset)?;
-        Some((source, with_offset(span, |o| o - (source.offset as usize))))
+        Some((
+            source,
+            with_offset(span, |offset| {
+                offset
+                    - usize::try_from(source.offset)
+                        .expect("u32 source offset should fit into usize")
+            }),
+        ))
     }
 }
 
@@ -150,7 +193,7 @@ impl<E: Diagnostic + Sync + Send> SourceCode for WithSource<E> {
         context_lines_before: usize,
         context_lines_after: usize,
     ) -> Result<Box<dyn SpanContents<'a> + 'a>, MietteError> {
-        let (source, source_relative_span) = self.resolve_span(span);
+        let (source, source_relative_span) = self.resolve_span(span)?;
 
         let contents = source.contents.read_span(
             &source_relative_span,
@@ -161,7 +204,40 @@ impl<E: Diagnostic + Sync + Send> SourceCode for WithSource<E> {
         Ok(Box::new(MietteSpanContents::new_named(
             source.name.to_string(),
             contents.data(),
-            with_offset(contents.span(), |o| o + (source.offset as usize)),
+            with_offset(contents.span(), |offset| {
+                offset
+                    + usize::try_from(source.offset)
+                        .expect("u32 source offset should fit into usize")
+            }),
+            contents.line(),
+            contents.column(),
+            contents.line_count(),
+        )))
+    }
+}
+
+impl SourceCode for SourceSnapshotSourceCode {
+    fn read_span<'a>(
+        &'a self,
+        span: &SourceSpan,
+        context_lines_before: usize,
+        context_lines_after: usize,
+    ) -> Result<Box<dyn SpanContents<'a> + 'a>, MietteError> {
+        let (source, source_relative_span) = self.resolve_span(span)?;
+        let contents = source.text.read_span(
+            &source_relative_span,
+            context_lines_before,
+            context_lines_after,
+        )?;
+
+        Ok(Box::new(MietteSpanContents::new_named(
+            source.path.to_string(),
+            contents.data(),
+            with_offset(contents.span(), |offset| {
+                offset
+                    + usize::try_from(source.offset)
+                        .expect("u32 source offset should fit into usize")
+            }),
             contents.line(),
             contents.column(),
             contents.line_count(),

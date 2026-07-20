@@ -4,6 +4,7 @@
 use miette::Diagnostic;
 use thiserror::Error;
 
+pub use crate::vendor::error::SourceSnapshotSourceCode;
 pub(crate) use crate::vendor::error::WithSource;
 
 #[derive(Clone, Debug, Diagnostic, Eq, Error, PartialEq)]

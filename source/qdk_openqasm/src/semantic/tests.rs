@@ -10,12 +10,15 @@ pub mod expression;
 mod lowerer_errors;
 pub mod statements;
 
+use super::lower_parse_result;
 use super::parse_source;
 use crate::io::InMemorySourceResolver;
 use crate::io::SourceResolver;
+use crate::io::SourceResolverContext;
 use expect_test::Expect;
 use expect_test::expect;
 use miette::Report;
+use rustc_hash::FxHashMap;
 use std::sync::Arc;
 
 pub(super) fn check<S: Into<Arc<str>>>(input: S, expect: &Expect) {
@@ -109,7 +112,7 @@ fn check_map<S: Into<Arc<str>>>(
     assert!(
         !res.has_syntax_errors(),
         "syntax errors: {:?}",
-        res.sytax_errors()
+        res.syntax_errors()
     );
 
     if errors.is_empty() {
@@ -136,7 +139,7 @@ pub(super) fn check_err<S: Into<Arc<str>>>(input: S, expect: &Expect) {
     assert!(
         !res.has_syntax_errors(),
         "syntax errors: {:?}",
-        res.sytax_errors()
+        res.syntax_errors()
     );
 
     assert!(res.has_errors(), "no errors");
@@ -178,7 +181,7 @@ fn check_map_all<P: Into<Arc<str>>>(
     assert!(
         !res.has_syntax_errors(),
         "syntax errors: {:?}",
-        res.sytax_errors()
+        res.syntax_errors()
     );
 
     if errors.is_empty() {
@@ -193,6 +196,122 @@ fn check_map_all<P: Into<Arc<str>>>(
                 .collect::<Vec<_>>()
         ));
     }
+}
+
+#[test]
+fn analysis_preserves_entry_nested_and_unresolved_source_snapshots() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"nested.inc\"; ",
+        "include \"missing.inc\";"
+    );
+    let sources = [
+        ("nested.inc".into(), "include \"leaf.inc\";".into()),
+        ("leaf.inc".into(), "gate leaf q {}".into()),
+    ];
+    let mut resolver = InMemorySourceResolver::from_iter(sources);
+    let parse_result = crate::parser::parse_source(source, "main.qasm", &mut resolver);
+    let expected_snapshot = parse_result.source_snapshot.clone();
+    let expected_text = expected_snapshot.entry().text.clone();
+
+    let result = lower_parse_result(parse_result);
+
+    assert_eq!(result.source_snapshot, expected_snapshot);
+    assert!(Arc::ptr_eq(
+        &result.source_snapshot.entry().text,
+        &expected_text
+    ));
+}
+
+struct RenamingResolver {
+    sources: FxHashMap<String, (Arc<str>, Arc<str>)>,
+    context: SourceResolverContext,
+}
+
+impl SourceResolver for RenamingResolver {
+    fn ctx(&mut self) -> &mut SourceResolverContext {
+        &mut self.context
+    }
+
+    fn resolve(
+        &mut self,
+        path: &Arc<str>,
+        _original_path: &Arc<str>,
+    ) -> miette::Result<(Arc<str>, Arc<str>), crate::io::Error> {
+        self.sources.get(path.as_ref()).cloned().ok_or_else(|| {
+            crate::io::Error(crate::io::ErrorKind::NotFound(
+                crate::span::Span::default(),
+                format!("Could not resolve include file: {path}"),
+            ))
+        })
+    }
+}
+
+#[test]
+fn analysis_preserves_source_aliases() {
+    let source = "OPENQASM 3.0; include \"alias.inc\";";
+    let included_text: Arc<str> = "gate aliased q {}".into();
+    let mut resolver = RenamingResolver {
+        sources: [(
+            "alias.inc".to_string(),
+            ("memory://canonical.inc".into(), included_text.clone()),
+        )]
+        .into_iter()
+        .collect(),
+        context: SourceResolverContext::default(),
+    };
+
+    let result = parse_source(source, "main.qasm", &mut resolver);
+    let aliased = result
+        .source_snapshot
+        .resolve("alias.inc")
+        .expect("requested alias should resolve after analysis");
+
+    assert_eq!(aliased.path.as_ref(), "memory://canonical.inc");
+    assert_eq!(aliased.aliases.as_ref(), [Arc::<str>::from("alias.inc")]);
+    assert!(Arc::ptr_eq(&aliased.text, &included_text));
+}
+
+#[test]
+fn diagnostics_are_stored_once_and_aggregated_in_category_order() {
+    let result = super::parse("OPENQASM 3.0; qubit; int value = missing;", "main.qasm");
+    let syntax_errors = result.syntax_errors();
+    let semantic_errors = result.semantic_errors();
+    let all_errors = result.all_errors();
+
+    assert_eq!(syntax_errors.len(), 1);
+    assert_eq!(semantic_errors.len(), 1);
+    assert_eq!(all_errors.len(), 2);
+    assert!(all_errors[0].error().is_syntax_error());
+    assert!(all_errors[1].error().is_semantic_error());
+}
+
+#[test]
+fn included_syntax_and_semantic_diagnostics_appear_once() {
+    let source = concat!(
+        "OPENQASM 3.0; include \"syntax.inc\"; ",
+        "include \"semantic.inc\";"
+    );
+    let sources = [
+        ("syntax.inc".into(), "int broken = ;".into()),
+        ("semantic.inc".into(), "int value = missing;".into()),
+    ];
+    let mut resolver = InMemorySourceResolver::from_iter(sources);
+    let result = parse_source(source, "main.qasm", &mut resolver);
+
+    assert_eq!(result.syntax_errors().len(), 1);
+    assert_eq!(result.semantic_errors().len(), 1);
+    assert_eq!(result.all_errors().len(), 2);
+}
+
+#[test]
+#[allow(deprecated)]
+fn misspelled_syntax_errors_forwards_to_correct_accessor() {
+    let result = super::parse("OPENQASM 3.0; qubit;", "main.qasm");
+    let syntax_errors = result.syntax_errors();
+    let compatibility_errors = result.sytax_errors();
+
+    assert_eq!(compatibility_errors.len(), syntax_errors.len());
+    assert_eq!(compatibility_errors[0].error(), syntax_errors[0].error());
 }
 
 #[test]

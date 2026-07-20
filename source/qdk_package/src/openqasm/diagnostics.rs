@@ -8,12 +8,16 @@
 //! Python objects so callers do not need any `miette` knowledge to inspect
 //! parse and analysis diagnostics.
 
+#[cfg(test)]
+mod tests;
+
 use crate::openqasm::span::Span;
 use miette::{
     Diagnostic as MietteDiagnostic, GraphicalReportHandler, GraphicalTheme, LabeledSpan,
-    NamedSource, Severity as MietteSeverity, SourceCode, SourceSpan,
+    Severity as MietteSeverity, SourceCode,
 };
 use pyo3::prelude::*;
+use qdk_openqasm::{error::SourceSnapshotSourceCode, parser::SourceSnapshot};
 use std::fmt;
 use std::io::IsTerminal;
 
@@ -97,13 +101,8 @@ pub(crate) struct Diagnostic {
     /// This is the `miette` graphical rendering (no color, fixed width), the
     /// same style used elsewhere in the QDK to display diagnostics.
     rendered: String,
-    /// The name of the source the diagnostic refers to, if any.
-    source_name: Option<String>,
-    /// The full source text the diagnostic refers to, if any.
-    ///
-    /// Retained so [`Diagnostic::render`] can redraw the source-annotated form
-    /// with caller-chosen color, Unicode, and width settings.
-    source_text: Option<String>,
+    /// The complete immutable source snapshot used to resolve global labels.
+    source: SourceSnapshotSourceCode,
 }
 
 #[pymethods]
@@ -137,10 +136,9 @@ impl Diagnostic {
         if let Some(width) = width {
             handler = handler.with_width(width);
         }
-        let renderable = RenderableDiagnostic::new(self);
         let mut out = String::new();
         handler
-            .render_report(&mut out, &renderable)
+            .render_report(&mut out, self)
             .expect("rendering a diagnostic into a String should not fail");
         out
     }
@@ -161,54 +159,36 @@ fn color_auto_enabled() -> bool {
     std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
 }
 
-/// A `miette::Diagnostic` view over a projected [`Diagnostic`], used to redraw
-/// the source-annotated form on demand from the retained flat fields and source.
-struct RenderableDiagnostic<'a> {
-    diag: &'a Diagnostic,
-    source: Option<NamedSource<String>>,
-}
-
-impl<'a> RenderableDiagnostic<'a> {
-    fn new(diag: &'a Diagnostic) -> Self {
-        let source = diag.source_text.as_ref().map(|text| {
-            let name = diag.source_name.as_deref().unwrap_or("<source>");
-            NamedSource::new(name, text.clone())
-        });
-        RenderableDiagnostic { diag, source }
-    }
-}
-
-impl fmt::Debug for RenderableDiagnostic<'_> {
+impl fmt::Debug for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.diag.message)
+        f.write_str(&self.message)
     }
 }
 
-impl fmt::Display for RenderableDiagnostic<'_> {
+impl fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.diag.message)
+        f.write_str(&self.message)
     }
 }
 
-impl std::error::Error for RenderableDiagnostic<'_> {}
+impl std::error::Error for Diagnostic {}
 
-impl MietteDiagnostic for RenderableDiagnostic<'_> {
+impl MietteDiagnostic for Diagnostic {
     fn code<'b>(&'b self) -> Option<Box<dyn fmt::Display + 'b>> {
-        self.diag
-            .code
+        self.code
             .as_ref()
             .map(|code| Box::new(code.clone()) as Box<dyn fmt::Display>)
     }
 
     fn severity(&self) -> Option<MietteSeverity> {
-        Some(self.diag.severity.into())
+        Some(self.severity.into())
     }
 
     fn labels(&self) -> Option<Box<dyn Iterator<Item = LabeledSpan> + '_>> {
-        if self.diag.labels.is_empty() {
+        if self.labels.is_empty() {
             return None;
         }
-        let labels = self.diag.labels.iter().map(|label| {
+        let labels = self.labels.iter().map(|label| {
             let len = (label.span.hi - label.span.lo) as usize;
             LabeledSpan::new(label.message.clone(), label.span.lo as usize, len)
         });
@@ -216,58 +196,58 @@ impl MietteDiagnostic for RenderableDiagnostic<'_> {
     }
 
     fn source_code(&self) -> Option<&dyn SourceCode> {
-        self.source.as_ref().map(|source| source as &dyn SourceCode)
+        Some(&self.source)
+    }
+
+    fn related<'a>(&'a self) -> Option<Box<dyn Iterator<Item = &'a dyn MietteDiagnostic> + 'a>> {
+        if self.related.is_empty() {
+            return None;
+        }
+        Some(Box::new(
+            self.related
+                .iter()
+                .map(|related| related as &dyn MietteDiagnostic),
+        ))
     }
 }
 
 /// Projects a `miette::Diagnostic` (such as the crate's `WithSource<Error>`)
 /// into the plain [`Diagnostic`] surface exposed to Python.
-pub(crate) fn diagnostic_from(diag: &dyn MietteDiagnostic) -> Diagnostic {
+pub(crate) fn diagnostic_from(
+    diag: &dyn MietteDiagnostic,
+    source_snapshot: &SourceSnapshot,
+) -> Diagnostic {
     let severity = diag.severity().map_or(Severity::Error, Severity::from);
     let code = diag.code().map(|code| code.to_string());
     let labels = diag.labels().map_or_else(Vec::new, |labels| {
         labels
-            .map(|labeled| {
-                let lo = u32::try_from(labeled.offset()).expect("offset should fit into u32");
-                let len = u32::try_from(labeled.len()).expect("length should fit into u32");
-                Label {
-                    span: Span { lo, hi: lo + len },
+            .filter_map(|labeled| {
+                let lo = u32::try_from(labeled.offset()).ok()?;
+                let len = u32::try_from(labeled.len()).ok()?;
+                let hi = lo.checked_add(len)?;
+                Some(Label {
+                    span: Span { lo, hi },
                     message: labeled.label().map(ToString::to_string),
-                }
+                })
             })
             .collect()
     });
-    let related = diag
-        .related()
-        .map_or_else(Vec::new, |related| related.map(diagnostic_from).collect());
-    let (source_name, source_text) = extract_source(diag);
-    Diagnostic {
+    let related = diag.related().map_or_else(Vec::new, |related| {
+        related
+            .map(|related| diagnostic_from(related, source_snapshot))
+            .collect()
+    });
+    let mut projected = Diagnostic {
         message: diag.to_string(),
         severity,
         code,
         labels,
         related,
-        rendered: render_diagnostic(diag),
-        source_name,
-        source_text,
-    }
-}
-
-/// Extracts the source name and full text a diagnostic refers to, if available.
-///
-/// Reads the whole source starting at offset 0 so the retained text aligns with
-/// the diagnostic's absolute label offsets.
-fn extract_source(diag: &dyn MietteDiagnostic) -> (Option<String>, Option<String>) {
-    let Some(source_code) = diag.source_code() else {
-        return (None, None);
+        rendered: String::new(),
+        source: SourceSnapshotSourceCode::new(source_snapshot),
     };
-    let span = SourceSpan::new(0.into(), 0);
-    let Ok(contents) = source_code.read_span(&span, 0, usize::MAX) else {
-        return (None, None);
-    };
-    let text = String::from_utf8_lossy(contents.data()).into_owned();
-    let name = contents.name().map(ToString::to_string);
-    (name, Some(text))
+    projected.rendered = render_diagnostic(&projected);
+    projected
 }
 
 /// Renders a diagnostic to its pretty, source-annotated form.

@@ -5,6 +5,7 @@ use crate::io::InMemorySourceResolver;
 use crate::io::SourceResolver;
 use crate::parser::ParseResult;
 use crate::parser::QasmSource;
+use crate::parser::SourceSnapshot;
 
 use crate::error::WithSource;
 use crate::source::SourceMap;
@@ -31,6 +32,7 @@ pub(crate) mod tests;
 pub struct AnalysisResult {
     pub source: QasmSource,
     pub source_map: SourceMap,
+    pub source_snapshot: SourceSnapshot,
     pub symbols: self::symbols::SymbolTable,
     pub program: self::ast::Program,
     pub errors: Vec<WithSource<crate::error::Error>>,
@@ -52,7 +54,7 @@ impl AnalysisResult {
         !self.errors.is_empty()
     }
 
-    pub fn sytax_errors(&self) -> Vec<WithSource<crate::error::Error>> {
+    pub fn syntax_errors(&self) -> Vec<WithSource<crate::error::Error>> {
         let mut self_errors = self
             .source
             .errors()
@@ -72,13 +74,19 @@ impl AnalysisResult {
     }
 
     #[must_use]
+    #[deprecated(note = "use syntax_errors instead")]
+    pub fn sytax_errors(&self) -> Vec<WithSource<crate::error::Error>> {
+        self.syntax_errors()
+    }
+
+    #[must_use]
     pub fn semantic_errors(&self) -> Vec<WithSource<crate::error::Error>> {
-        self.errors().clone()
+        self.errors.clone()
     }
 
     #[must_use]
     pub fn all_errors(&self) -> Vec<WithSource<crate::error::Error>> {
-        let mut parse_errors = self.sytax_errors();
+        let mut parse_errors = self.syntax_errors();
         let sem_errors = self.semantic_errors();
         parse_errors.extend(sem_errors);
         parse_errors
@@ -129,14 +137,10 @@ pub fn parse_sources(sources: &[(Arc<str>, Arc<str>)]) -> AnalysisResult {
 
 #[must_use]
 pub fn lower_parse_result(parse_result: ParseResult) -> AnalysisResult {
-    let analyzer = Lowerer::new(parse_result.source, parse_result.source_map);
-    let sem_res = analyzer.lower();
-    let errors = sem_res.all_errors();
-    AnalysisResult {
-        source: sem_res.source,
-        source_map: sem_res.source_map,
-        symbols: sem_res.symbols,
-        program: sem_res.program,
-        errors,
-    }
+    let analyzer = Lowerer::new(
+        parse_result.source,
+        parse_result.source_map,
+        parse_result.source_snapshot,
+    );
+    analyzer.lower()
 }

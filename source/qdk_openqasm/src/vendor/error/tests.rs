@@ -3,11 +3,12 @@
 
 //! Vendored from `qsc_data_structures::error::tests`.
 
-use super::WithSource;
+use super::{SourceSnapshotSourceCode, WithSource};
+use crate::io::InMemorySourceResolver;
 use crate::vendor::source::SourceMap;
 use crate::vendor::span::Span;
 use expect_test::expect;
-use miette::Diagnostic;
+use miette::{Diagnostic, MietteError, SourceCode, SourceSpan};
 use std::{error::Error, fmt::Write, iter, str::from_utf8};
 use thiserror::Error;
 
@@ -138,7 +139,9 @@ fn resolve_spans() {
         .labels()
         .expect("expected labels to exist")
         .map(|l| {
-            let resolved = with_source.resolve_span(l.inner());
+            let resolved = with_source
+                .resolve_span(l.inner())
+                .expect("expected labeled span to resolve");
             (
                 resolved.0.name.to_string(),
                 resolved.1.offset(),
@@ -162,6 +165,47 @@ fn resolve_spans() {
         ]
     "#]]
     .assert_debug_eq(&resolved_spans);
+}
+
+#[test]
+fn source_snapshot_adapter_resolves_each_source_and_rejects_invalid_spans() {
+    let source = "OPENQASM 3.0; include \"child.inc\";";
+    let mut resolver =
+        InMemorySourceResolver::from_iter([("child.inc".into(), "int child = 1;".into())]);
+    let result = crate::parser::parse_source(source, "main.qasm", &mut resolver);
+    let adapter = SourceSnapshotSourceCode::new(&result.source_snapshot);
+    let entry = &result.source_snapshot.files()[0];
+    let child = &result.source_snapshot.files()[1];
+
+    let entry_contents = adapter
+        .read_span(
+            &SourceSpan::new(
+                usize::try_from(entry.offset)
+                    .expect("u32 source offset should fit into usize")
+                    .into(),
+                8,
+            ),
+            0,
+            0,
+        )
+        .expect("entry span should resolve");
+    let child_contents = adapter
+        .read_span(
+            &SourceSpan::new(
+                usize::try_from(child.offset)
+                    .expect("u32 source offset should fit into usize")
+                    .into(),
+                3,
+            ),
+            0,
+            0,
+        )
+        .expect("included span should resolve");
+    let invalid = adapter.read_span(&SourceSpan::new(usize::MAX.into(), 1), 0, 0);
+
+    assert_eq!(entry_contents.name(), Some("main.qasm"));
+    assert_eq!(child_contents.name(), Some("child.inc"));
+    assert!(matches!(invalid, Err(MietteError::OutOfBounds)));
 }
 
 fn span_with_offset(offset: u32, lo: u32, hi: u32) -> Span {

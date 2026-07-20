@@ -33,6 +33,7 @@ use super::symbols::{IOKind, Symbol, SymbolTable};
 
 use crate::convert::safe_i64_to_f64;
 use crate::parser::QasmSource;
+use crate::parser::SourceSnapshot;
 use crate::parser::ast::List;
 use crate::parser::ast::list_from_iter;
 use crate::semantic::ast::Expr;
@@ -103,6 +104,7 @@ pub(crate) struct Lowerer {
     pub source: QasmSource,
     /// The source map of QASM sources for error reporting.
     pub source_map: SourceMap,
+    pub source_snapshot: SourceSnapshot,
     pub errors: Vec<WithSource<crate::error::Error>>,
     /// The file stack is used to track the current file for error reporting.
     /// When we include a file, we push the file path to the stack and pop it
@@ -117,7 +119,7 @@ pub(crate) struct Lowerer {
 }
 
 impl Lowerer {
-    pub fn new(source: QasmSource, source_map: SourceMap) -> Self {
+    pub fn new(source: QasmSource, source_map: SourceMap, source_snapshot: SourceSnapshot) -> Self {
         // do a quick check for the version to set up the symbol table
         // lowering and validation come later
         let version = source.program().and_then(|p| p.version);
@@ -139,6 +141,7 @@ impl Lowerer {
         Self {
             source,
             source_map,
+            source_snapshot,
             errors,
             symbols,
             version,
@@ -153,6 +156,9 @@ impl Lowerer {
         // cloning the entire syntax AST just to read it; the source is moved back
         // into the result at the end.
         let mut source = std::mem::take(&mut self.source);
+        let program_span = source
+            .program()
+            .map_or_else(Span::default, |program| program.span);
         // Should we fail if we see a version in included files?
         self.version = self.lower_version(source.program().and_then(|p| p.version));
 
@@ -170,6 +176,7 @@ impl Lowerer {
         source.drop_program();
 
         let program = semantic::Program {
+            span: program_span,
             version: self.version,
             statements: syntax::list_from_iter(self.stmts),
             pragmas: syntax::list_from_iter(self.pragmas),
@@ -178,6 +185,7 @@ impl Lowerer {
         super::AnalysisResult {
             source,
             source_map: self.source_map,
+            source_snapshot: self.source_snapshot,
             symbols: self.symbols,
             program,
             errors: self.errors,

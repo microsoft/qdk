@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Immutable source documents and strict coordinates for OpenQASM syntax.
+"""Immutable source documents and strict coordinates for OpenQASM.
 
 ``SourceMap`` converts among source-local UTF-8 byte offsets, Unicode code
 points, and UTF-16 code units. Lines and columns are zero based, ranges are
@@ -17,6 +17,8 @@ collection-backed ``SourceMap`` and ``SourceDocument`` use value equality and
 structural representations but are intentionally unhashable. Source IDs and
 ranges obtained from a source map are meaningful only within that immutable
 parse snapshot, even when equal scalar ranges occur in another snapshot.
+Syntax and semantic node, symbol, and diagnostic spans are global half-open
+UTF-8 byte ranges resolved through the owning result's ``SourceDocument``.
 """
 
 from .._native import (  # type: ignore

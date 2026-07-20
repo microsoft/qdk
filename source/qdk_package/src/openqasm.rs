@@ -103,6 +103,7 @@ impl ParseResult {
 #[pyclass(module = "qdk._native", frozen)]
 pub(crate) struct AnalysisResult {
     program: Py<SemProgram>,
+    document: Py<SourceDocument>,
     symbols: Py<SemSymbolTable>,
     /// All diagnostics (syntax and semantic errors) produced while analyzing.
     #[pyo3(get)]
@@ -118,6 +119,12 @@ impl AnalysisResult {
     #[getter]
     fn program(&self, py: Python<'_>) -> Py<SemProgram> {
         self.program.clone_ref(py)
+    }
+
+    /// The immutable source document for this analysis snapshot.
+    #[getter]
+    fn document(&self, py: Python<'_>) -> Py<SourceDocument> {
+        self.document.clone_ref(py)
     }
 
     /// The resolved symbol table produced during analysis.
@@ -173,7 +180,7 @@ fn project_parse_result(
     let diagnostics = result
         .all_errors()
         .iter()
-        .map(|error| diagnostic_from(error))
+        .map(|error| diagnostic_from(error, &result.source_snapshot))
         .collect();
     let has_errors = result.has_errors();
     let document = Py::new(py, SourceDocument::from_snapshot(&result.source_snapshot))?;
@@ -204,13 +211,16 @@ fn analyze(
     let diagnostics = result
         .all_errors()
         .iter()
-        .map(|error| diagnostic_from(error))
+        .map(|error| diagnostic_from(error, &result.source_snapshot))
         .collect();
     let has_errors = result.has_errors();
-    let program = build_semantic_program(py, &result.program, &result.symbols)?;
+    let document = Py::new(py, SourceDocument::from_snapshot(&result.source_snapshot))?;
+    let program =
+        build_semantic_program(py, &result.program, &result.symbols, document.clone_ref(py))?;
     let symbols = build_symbol_table(py, &result.symbols)?;
     Ok(AnalysisResult {
         program,
+        document,
         symbols,
         diagnostics,
         has_errors,
@@ -237,7 +247,7 @@ fn qasm_dumps(py: Python<'_>, program: PyRef<'_, Program>) -> PyResult<String> {
     if !errors.is_empty() {
         let diagnostics = errors
             .iter()
-            .map(|error| diagnostic_from(error))
+            .map(|error| diagnostic_from(error, &result.source_snapshot))
             .collect::<Vec<_>>();
         let span = diagnostics
             .iter()

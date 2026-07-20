@@ -17,7 +17,7 @@ pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<AnalysisResu
     let res = parse_source(source, name, &mut resolver);
     if res.source.has_errors() {
         let errors = res
-            .errors()
+            .all_errors()
             .into_iter()
             .map(|e| Report::new(e.clone()))
             .collect();
