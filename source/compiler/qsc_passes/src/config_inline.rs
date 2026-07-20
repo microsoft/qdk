@@ -112,16 +112,16 @@ impl MutVisitor for ConfigInline<'_> {
         match &expr.kind {
             ExprKind::Call(callee, args) => {
                 let ExprKind::Var(Res::Item(item_id), _) = &callee.kind else {
-                    return ();
+                    return;
                 };
                 if *item_id != self.get_config_item_id {
                     return mut_visit::walk_expr(self, expr);
                 }
                 let ExprKind::Tuple(tuple_args) = &args.kind else {
-                    return ();
+                    return;
                 };
                 let [name, default_value] = tuple_args.as_slice() else {
-                    return ();
+                    return;
                 };
                 let result = self.replace_get_config_call(name, default_value);
                 match result {
@@ -133,7 +133,6 @@ impl MutVisitor for ConfigInline<'_> {
                 if *item_id == self.get_config_item_id {
                     self.errors.push(Error::ConfigValueMustBeCalled(expr.span))
                 }
-                return ();
             }
             _ => mut_visit::walk_expr(self, expr),
         }
