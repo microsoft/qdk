@@ -573,7 +573,9 @@ fn i_error_yields_expected_qir() {
         # checks for you that the disjoint probabilities in the arguments are legal
         I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
     "};
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__rt__array_record_output(i64 0, ptr null)
@@ -599,7 +601,8 @@ fn i_error_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -617,7 +620,9 @@ fn ii_error_yields_expected_qir() {
         # checks for you that the disjoint probabilities in the arguments are legal
         II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
     "};
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__rt__array_record_output(i64 0, ptr null)
@@ -643,13 +648,16 @@ fn ii_error_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn ii_error_with_odd_number_of_targets_yields_error() {
     let source = "II_ERROR 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.OddTargetCount
 
           x instruction II_ERROR requires an even number of targets
@@ -657,13 +665,16 @@ fn ii_error_with_odd_number_of_targets_yields_error() {
          1 | II_ERROR 0
            : ^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn pauli_channel_1_yields_expected_qir() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         NoiseConfig:
         intrinsics:
             0: NoiseTable:
@@ -702,13 +713,16 @@ fn pauli_channel_1_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2) 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.WrongArgCount
 
           x instruction PAULI_CHANNEL_1 requires 3 arguments, but found 2
@@ -716,13 +730,16 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
          1 | PAULI_CHANNEL_1(0.1, 0.2) 0
            : ^^^^^^^^^^^^^^^^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn pauli_channel_2_yields_expected_qir() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         NoiseConfig:
         intrinsics:
             0: NoiseTable:
@@ -773,13 +790,16 @@ fn pauli_channel_2_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn pauli_channel_2_with_odd_number_of_targets_yields_error() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.OddTargetCount
 
           x instruction PAULI_CHANNEL_2 requires an even number of targets
@@ -787,13 +807,16 @@ fn pauli_channel_2_with_odd_number_of_targets_yields_error() {
          1 | PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0
            : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
     let source = "PAULI_CHANNEL_2(0.1) 0 1";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.WrongArgCount
 
           x instruction PAULI_CHANNEL_2 requires 15 arguments, but found 1
@@ -801,7 +824,8 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
          1 | PAULI_CHANNEL_2(0.1) 0 1
            : ^^^^^^^^^^^^^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]

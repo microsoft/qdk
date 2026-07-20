@@ -421,7 +421,9 @@ fn ii_gate_yields_expected_qir() {
 #[test]
 fn ii_gate_with_odd_number_of_targets_yields_error() {
     let source = "II 0";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.OddTargetCount
 
           x instruction II requires an even number of targets
@@ -429,7 +431,8 @@ fn ii_gate_with_odd_number_of_targets_yields_error() {
          1 | II 0
            : ^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
