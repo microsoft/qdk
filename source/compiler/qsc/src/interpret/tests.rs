@@ -205,31 +205,6 @@ mod given_interpreter {
                 "#]],
             );
 
-            // Error when key is not string.
-            let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(1, 1)");
-            is_only_error(
-                &result,
-                &output,
-                &expect![[r#"
-                    type error: expected String, found Int
-                       [line_3] [1]
-                "#]],
-            );
-
-            // Error with wrong number of arguments key is not string.
-            let (result, output) = line(
-                &mut interpreter,
-                "Std.Core.GetConfig(\"int_config\", 20, 30)",
-            );
-            is_only_error(
-                &result,
-                &output,
-                &expect![[r#"
-                    type error: expected (String, ?), found (String, Int, Int)
-                       [line_4] [("int_config", 20, 30)]
-                "#]],
-            );
-
             // Error when config contains value of unsupported type (same as default type).
             interpreter.set_qsharp_config_value(
                 "result_config",

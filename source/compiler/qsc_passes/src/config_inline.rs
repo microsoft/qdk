@@ -42,7 +42,7 @@ pub(super) fn replace_get_config_calls(
     pass.errors
 }
 
-pub(crate) struct ConfigInline<'a> {
+struct ConfigInline<'a> {
     get_config_item_id: ItemId,
     config: &'a FxHashMap<Rc<str>, Value>,
     pub errors: Vec<Error>,

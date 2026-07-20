@@ -112,11 +112,11 @@ If `qsharp_config` is omitted, the configuration map is empty. The map is immuta
 after initialization. To use different configuration values, create a new `Context`.
 
 In Q#, read values with `Std.Core.GetConfig(name, defaultValue)`. In Q# code, config
-values are immutable: in the same program, repeated calls with the same 
+values are immutable: in the same program, repeated calls with the same
 `(name, defaultValue)` produce the same result.
 
-Supported types: `int`, `float`, `str`, and `bool` (corresponding to `Int`, `Double`, 
-`String` and `Bool` in Q#). The type of each value in `qsharp_config` must match the 
+Supported types: `int`, `float`, `str`, and `bool` (corresponding to `Int`, `Double`,
+`String` and `Bool` in Q#). The type of each value in `qsharp_config` must match the
 type of its corresponding default value.
 
 Example:
