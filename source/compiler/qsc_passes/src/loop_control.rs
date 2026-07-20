@@ -15,15 +15,15 @@ use thiserror::Error;
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("break and continue expressions can only be used inside a loop")]
-    #[diagnostic(code("Qsc.LoopControl.BreakContinueOutsideLoop"))]
+    #[diagnostic(code("Qdk.Qsc.LoopControl.BreakContinueOutsideLoop"))]
     OutsideLoop(#[label] Span),
 
     #[error("break and continue expressions cannot be used in a loop condition")]
-    #[diagnostic(code("Qsc.LoopControl.BreakContinueInLoopHeader"))]
+    #[diagnostic(code("Qdk.Qsc.LoopControl.BreakContinueInLoopHeader"))]
     InLoopHeader(#[label] Span),
 
     #[error("break and continue expressions cannot be used in a repeat-loop fixup block")]
-    #[diagnostic(code("Qsc.LoopControl.BreakContinueInFixup"))]
+    #[diagnostic(code("Qdk.Qsc.LoopControl.BreakContinueInFixup"))]
     InFixup(#[label] Span),
 }
 

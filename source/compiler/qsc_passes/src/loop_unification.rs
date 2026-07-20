@@ -36,7 +36,7 @@ pub enum Error {
     #[error(
         "cannot desugar `break`/`continue` nested in a value of type `{0}` that has no classical default"
     )]
-    #[diagnostic(code("Qsc.LoopUnification.UnsupportedBreakContinueType"))]
+    #[diagnostic(code("Qdk.Qsc.LoopUnification.UnsupportedBreakContinueType"))]
     #[diagnostic(help(
         "on the branch that breaks or continues, this value is never produced, but its type has \
          no classical default to stand in for it while the surrounding effects are skipped. \
@@ -50,7 +50,7 @@ pub enum Error {
     ),
 
     #[error("internal error: `break`/`continue` was not eliminated by loop desugaring")]
-    #[diagnostic(code("Qsc.LoopUnification.ResidualBreakContinue"))]
+    #[diagnostic(code("Qdk.Qsc.LoopUnification.ResidualBreakContinue"))]
     #[diagnostic(help(
         "this indicates a compiler invariant was violated; every `break`/`continue` should be \
          rewritten to loop-flag writes during desugaring"

@@ -75,7 +75,7 @@ use crate::common::{IdentTemplate, LoopDepthScan, gen_ident};
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("cannot hoist `break`/`continue` out of an operand-position value of type `{0}`")]
-    #[diagnostic(code("Qsc.LoopNormalize.UnsupportedBreakContinueType"))]
+    #[diagnostic(code("Qdk.Qsc.LoopNormalize.UnsupportedBreakContinueType"))]
     #[diagnostic(help(
         "the operand's type could not be resolved to a representable form, so the temporary \
          introduced to lift the break/continue cannot be synthesized; restructure the code so \

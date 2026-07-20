@@ -50,7 +50,7 @@ pub enum Error {
     #[diagnostic(help(
         "a break or continue in an apply-block must be contained in a loop within that apply-block; one that binds to a loop outside the conjugate expression cannot be reversed"
     ))]
-    #[diagnostic(code("Qsc.ConjugateInvert.BreakContinueForbidden"))]
+    #[diagnostic(code("Qdk.Qsc.ConjugateInvert.BreakContinueForbidden"))]
     BreakContinueForbidden(#[label] Span),
 }
 
