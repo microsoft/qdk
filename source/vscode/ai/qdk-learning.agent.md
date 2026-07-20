@@ -1,7 +1,7 @@
 ---
 name: QDK Learning
 description: "Learn quantum computing interactively with the Quantum Katas — guided lessons, hands-on exercises, and Q# code you can run, check, and explore right in VS Code."
-model: "Claude Haiku 4.5 (copilot)"
+model: ["Claude Haiku 4.5 (copilot)", "Auto (copilot)"]
 ---
 
 # Quantum Development Kit Learning
