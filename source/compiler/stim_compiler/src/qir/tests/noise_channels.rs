@@ -559,7 +559,6 @@ fn heralded_pauli_channel_1_yields_expected_qir() {
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
 fn i_error_yields_expected_qir() {
     let source = indoc! {"
         # does nothing
@@ -574,11 +573,36 @@ fn i_error_yields_expected_qir() {
         # checks for you that the disjoint probabilities in the arguments are legal
         I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0
     "};
-    check(source, &expect![[""]]);
+    check(source, &expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]]);
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
 fn ii_error_yields_expected_qir() {
     let source = indoc! {"
         # does nothing
@@ -593,14 +617,47 @@ fn ii_error_yields_expected_qir() {
         # checks for you that the disjoint probabilities in the arguments are legal
         II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
     "};
-    check(source, &expect![[""]]);
+    check(source, &expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]]);
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
-fn ii_error_with_odd_number_of_targets_yields_expected_qir() {
+fn ii_error_with_odd_number_of_targets_yields_error() {
     let source = "II_ERROR 0";
-    check(source, &expect![[""]]);
+    check(source, &expect![[r#"
+        Qdk.Stim.Compiler.OddTargetCount
+
+          x instruction II_ERROR requires an even number of targets
+           ,----
+         1 | II_ERROR 0
+           : ^^^^^^^^^^
+           `----
+    "#]]);
 }
 
 #[test]
@@ -883,7 +940,9 @@ X_ERROR(0.01) 0
 X_ERROR(0.02) 1
 X_ERROR(0.01) 2
 ";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         NoiseConfig:
         intrinsics:
             0: NoiseTable:
@@ -927,5 +986,59 @@ X_ERROR(0.01) 2
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
+}
+
+#[test]
+fn correlated_error_chains_with_same_shape_are_memoized() {
+    let source = indoc! {"
+            CORRELATED_ERROR(0.01) X0 Z1
+            ELSE_CORRELATED_ERROR(0.02) Y0 Y1
+            CORRELATED_ERROR(0.01) X2 Z3
+            ELSE_CORRELATED_ERROR(0.02) Y2 Y3
+        "};
+    check(
+        source,
+        &expect![[r#"
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 2
+                XZ: 0.01
+                YY: 0.0198
+
+
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @noise_intrinsic_0(ptr, ptr) #2
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        attributes #2 = { "qdk_noise" }
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
 }

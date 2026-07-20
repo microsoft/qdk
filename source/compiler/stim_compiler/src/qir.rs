@@ -819,7 +819,9 @@ impl<'noise> Compiler<'noise> {
                 s.op_2("cx", q1, q0);
                 s.op("h", q1);
             }),
-            "II" => (),
+            "II" => {
+                self.expect_target_pairs(instruction);
+            }
             "ISWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1; S 1; S 0
                 s.op("h", q0);
@@ -989,7 +991,10 @@ impl<'noise> Compiler<'noise> {
                 s.op_noise(table, &[q0, q1]);
             }),
             "HERALDED_ERASE" | "HERALDED_PAULI_CHANNEL_1" => self.unsupported(instruction),
-            "II_ERROR" | "I_ERROR" => (),
+            "II_ERROR" => {
+                self.expect_target_pairs(instruction);
+            }
+            "I_ERROR" => (),
             "PAULI_CHANNEL_1" | "PAULI_CHANNEL_2" => self.unsupported(instruction),
             "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
                 let fault = FaultChar::from_instruction_name(&instruction.name);
