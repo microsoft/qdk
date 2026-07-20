@@ -50,7 +50,7 @@ fn folds_configured_string_get_config_call() {
     check(
         indoc! {r#"
         operation Main() : String {
-            Std.Core.GetConfig("key", "default")
+            Std.Core.ConfigValue("key", "default")
         }
         "#},
         &[(Rc::from("key"), Value::String(Rc::from("configured")))]
@@ -82,7 +82,7 @@ fn folds_configured_int_get_config_call() {
     check(
         indoc! {"
         operation Main() : Int {
-            Std.Core.GetConfig(\"key\", 0)
+            Std.Core.ConfigValue(\"key\", 0)
         }
         "},
         &[(Rc::from("key"), Value::Int(1))].into_iter().collect(),
@@ -111,7 +111,7 @@ fn folds_configured_bool_get_config_call() {
     check(
         indoc! {"
         operation Main() : Bool {
-            Std.Core.GetConfig(\"key\", false)
+            Std.Core.ConfigValue(\"key\", false)
         }
         "},
         &[(Rc::from("key"), Value::Bool(true))].into_iter().collect(),
@@ -140,7 +140,7 @@ fn folds_configured_double_get_config_call() {
     check(
         indoc! {"
         operation Main() : Double {
-            Std.Core.GetConfig(\"key\", 0.0)
+            Std.Core.ConfigValue(\"key\", 0.0)
         }
         "},
         &[(Rc::from("key"), Value::Double(1.0))]
@@ -171,7 +171,7 @@ fn folds_default_get_config_call() {
     check(
         indoc! {"
         operation Main() : Int {
-            Std.Core.GetConfig(\"missing\", 123)
+            Std.Core.ConfigValue(\"missing\", 123)
         }
         "},
         &FxHashMap::default(),
@@ -201,7 +201,7 @@ fn rejects_non_literal_get_config_argument() {
         indoc! {"
         operation Main() : Unit {
             let key = \"key\";
-            let value = Std.Core.GetConfig(key, 0);
+            let value = Std.Core.ConfigValue(key, 0);
         }
         "},
         &FxHashMap::default(),
@@ -223,7 +223,7 @@ fn rejects_get_config_value_with_wrong_type() {
     check_error(
         indoc! {"
         operation Main() : Unit {
-            let value = Std.Core.GetConfig(\"key\", 0);
+            let value = Std.Core.ConfigValue(\"key\", 0);
         }
         "},
         &[(Rc::from("key"), Value::Bool(true))].into_iter().collect(),
@@ -245,7 +245,7 @@ fn rejects_config_value_with_unsupported_type() {
     check_error(
         indoc! {"
         operation Main() : Unit {
-            let value = Std.Core.GetConfig(\"key\", 0);
+            let value = Std.Core.ConfigValue(\"key\", 0);
         }
         "},
         &[(Rc::from("key"), Value::unit())].into_iter().collect(),

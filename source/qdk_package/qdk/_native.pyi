@@ -174,7 +174,7 @@ class Interpreter:
             Passing `True` is required for the `dump_circuit` function to return a circuit.
             The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
         :param qsharp_config: A dictionary of configuration parameters that will be accessible
-            in Q# code using ``Std.Core.GetConfig``.
+            in Q# code using ``Std.Core.ConfigValue``.
         """
         ...
 

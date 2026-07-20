@@ -111,7 +111,7 @@ In Python, pass `qsharp_config: dict[str, int | float | str | bool]` to `Context
 If `qsharp_config` is omitted, the configuration map is empty. The map is immutable
 after initialization. To use different configuration values, create a new `Context`.
 
-In Q#, read values with `Std.Core.GetConfig(name, defaultValue)`. In Q# code, config
+In Q#, read values with `Std.Core.ConfigValue(name, defaultValue)`. In Q# code, config
 values are immutable: in the same program, repeated calls with the same
 `(name, defaultValue)` produce the same result.
 
@@ -124,9 +124,9 @@ Example:
 ```python
 import qdk
 context = qdk.Context(qsharp_config={"experiment_name": "baseline", "shots": 1000})
-assert context.eval('Std.Core.GetConfig("experiment_name", "")') == "baseline"
-assert context.eval('Std.Core.GetConfig("shots", 100)') == 1000
-assert context.eval('Std.Core.GetConfig("noise_level", 0.01)') == 0.01
+assert context.eval('Std.Core.ConfigValue("experiment_name", "")') == "baseline"
+assert context.eval('Std.Core.ConfigValue("shots", 100)') == 1000
+assert context.eval('Std.Core.ConfigValue("noise_level", 0.01)') == 0.01
 ```
 
 ## Telemetry

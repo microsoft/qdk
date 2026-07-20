@@ -210,7 +210,7 @@ class Context:
             to use the ``set`` keyword for mutable variable assignments.
 
         :keyword qsharp_config: configuration parameters that will be accessible in Q#
-            code using `Std.Core.GetConfig`. Keys must be strings. Values must be of 
+            code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of 
             type `int`, `float`, `str`, or `bool`.
         """
         self._disposed = False

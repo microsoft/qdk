@@ -91,11 +91,11 @@ namespace Std.Core {
     ///
     /// # Example
     /// ```qsharp
-    /// let experimentName = Std.Core.GetConfig("experiment_name", "");
+    /// let experimentName = Std.Core.ConfigValue("experiment_name", "");
     /// ```
-    function GetConfig<'T>(name : String, defaultValue : 'T) : 'T {
+    function ConfigValue<'T>(name : String, defaultValue : 'T) : 'T {
         body intrinsic;
     }
 
-    export Length, Repeated, Complex, GetConfig;
+    export Length, Repeated, Complex, ConfigValue;
 }

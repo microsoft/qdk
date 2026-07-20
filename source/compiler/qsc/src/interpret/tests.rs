@@ -131,32 +131,32 @@ mod given_interpreter {
             interpreter.set_qsharp_config_value("double_config", Value::Double(124.1));
 
             // Integer config.
-            let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 0)");
+            let (result, output) = line(&mut interpreter, "Std.Core.ConfigValue(\"int_config\", 0)");
             is_only_value(&result, &output, &Value::Int(123));
 
             // Boolean config.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"bool_config\", false)",
+                "Std.Core.ConfigValue(\"bool_config\", false)",
             );
             is_only_value(&result, &output, &Value::Bool(true));
 
             // String config.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"string_config\", \"\")",
+                "Std.Core.ConfigValue(\"string_config\", \"\")",
             );
             is_only_value(&result, &output, &Value::String("value".into()));
 
             // Double config.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"double_config\", 0.0)",
+                "Std.Core.ConfigValue(\"double_config\", 0.0)",
             );
             is_only_value(&result, &output, &Value::Double(124.1));
 
             // Default value.
-            let (result, output) = line(&mut interpreter, "Std.Core.GetConfig(\"unknown\", 15)");
+            let (result, output) = line(&mut interpreter, "Std.Core.ConfigValue(\"unknown\", 15)");
             is_only_value(&result, &output, &Value::Int(15));
         }
 
@@ -167,12 +167,12 @@ mod given_interpreter {
             interpreter.set_qsharp_config_value("int_config", Value::Int(123));
             // Error when default type doesn't match stored config value.
             let (result, output) =
-                line(&mut interpreter, "Std.Core.GetConfig(\"int_config\", 20.0)");
+                line(&mut interpreter, "Std.Core.ConfigValue(\"int_config\", 20.0)");
             is_only_error(
                 &result,
                 &output,
                 &expect![[r#"
-                    configuration value type does not match GetConfig default value type
+                    configuration value type does not match ConfigValue default value type
                        [line_0] [20.0]
                 "#]],
             );
@@ -180,13 +180,13 @@ mod given_interpreter {
             // Error when key is not literal.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"int_\" + \"config\", 20)",
+                "Std.Core.ConfigValue(\"int_\" + \"config\", 20)",
             );
             is_only_error(
                 &result,
                 &output,
                 &expect![[r#"
-                    GetConfig arguments must be literals
+                    ConfigValue arguments must be literals
                        [line_1] ["int_" + "config"]
                 "#]],
             );
@@ -194,13 +194,13 @@ mod given_interpreter {
             // Error when value is not literal.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"int_config\", 10+10)",
+                "Std.Core.ConfigValue(\"int_config\", 10+10)",
             );
             is_only_error(
                 &result,
                 &output,
                 &expect![[r#"
-                    GetConfig arguments must be literals
+                    ConfigValue arguments must be literals
                        [line_2] [10+10]
                 "#]],
             );
@@ -208,13 +208,13 @@ mod given_interpreter {
             // Error when value is a variable.
             let (result, output) = line(
                 &mut interpreter,
-                "let default=10; Std.Core.GetConfig(\"int_config\", default)",
+                "let default=10; Std.Core.ConfigValue(\"int_config\", default)",
             );
             is_only_error(
                 &result,
                 &output,
                 &expect![[r#"
-                    GetConfig arguments must be literals
+                    ConfigValue arguments must be literals
                        [line_3] [default]
                 "#]],
             );
@@ -226,7 +226,7 @@ mod given_interpreter {
             );
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"result_config\", Zero)",
+                "Std.Core.ConfigValue(\"result_config\", Zero)",
             );
             is_only_error(
                 &result,
@@ -244,7 +244,7 @@ mod given_interpreter {
             );
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"result_config\", 0.5)",
+                "Std.Core.ConfigValue(\"result_config\", 0.5)",
             );
             is_only_error(
                 &result,
@@ -258,7 +258,7 @@ mod given_interpreter {
             // Error when config is missing and default type is unsupported.
             let (result, output) = line(
                 &mut interpreter,
-                "Std.Core.GetConfig(\"bigint_config\", 10L)",
+                "Std.Core.ConfigValue(\"bigint_config\", 10L)",
             );
             is_only_error(
                 &result,
@@ -1716,9 +1716,9 @@ mod given_interpreter {
             let source = indoc! {"
                 operation Main() : Unit {
                     use q = Qubit[3];
-                    Rx(Std.Core.GetConfig(\"angle1\", 0.1), q[0]);
-                    Ry(Std.Core.GetConfig(\"angle2\", 0.2), q[1]);
-                    let loop_iterations = Std.Core.GetConfig(\"loop_iterations\", 0);
+                    Rx(Std.Core.ConfigValue(\"angle1\", 0.1), q[0]);
+                    Ry(Std.Core.ConfigValue(\"angle2\", 0.2), q[1]);
+                    let loop_iterations = Std.Core.ConfigValue(\"loop_iterations\", 0);
                     for i in 1..loop_iterations {
                         X(q[2]);
                     }
