@@ -20,7 +20,7 @@ use qsc_hir::{
 
 use crate::loop_unification::{
     Error, check_no_break_continue,
-    test_utils::{check, check_normalized, desugar, desugar_normalized},
+    test_utils::{check, check_normalized, desugar},
 };
 
 #[test]
