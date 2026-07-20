@@ -15,6 +15,10 @@ import functools
 import tomllib
 
 from prereqs import check_prereqs, add_wasm_tools_to_path
+from performance_logging import (
+    performance_logging_enabled,
+    run_native_wheel_build_with_logging,
+)
 
 # Disable buffered output so that the log statements and subprocess output get interleaved in proper order
 print = functools.partial(print, flush=True)
@@ -219,7 +223,13 @@ def build_wheel(python_bin, src, env=None, outdir=None, maturin=False):
         if platform.system() == "Linux":
             args.append("--config-setting=build-args='--compatibility'")
     args.extend(["--outdir", outdir, src])
-    run(args, cwd=src, env=env)
+    target_is_qdk_native = maturin and os.path.abspath(src) == os.path.abspath(
+        qdk_python_src
+    )
+    if performance_logging_enabled() and target_is_qdk_native:
+        run_native_wheel_build_with_logging(args, cwd=src, env=env, repo_root=root_dir)
+    else:
+        run(args, cwd=src, env=env)
 
 
 def install_from_wheels(python_bin, *positional_args, cwd, env=None):
