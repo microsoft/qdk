@@ -672,7 +672,9 @@ export class LearningService {
 
     // Hard stop: environment management can't run on the Web.
     if (!env.supported) {
-      log.info(`[env-check] Environment management unavailable in current editor.`);
+      log.info(
+        `[env-check] Environment management unavailable in current editor.`,
+      );
       const checks: EnvironmentCheckItem[] = [
         check("host", "Desktop VS Code", "fail", {
           detail: "Python courses require the desktop version of VS Code.",
@@ -728,8 +730,8 @@ export class LearningService {
         detail: interpreter ?? "No interpreter found.",
         hint: interpreter
           ? undefined
-          // TODO (acasey): how did we pick 3.9?
-          : "Install Python (3.9+) and select an interpreter via the Python extension.",
+          : // TODO (acasey): how did we pick 3.9?
+            "Install Python (3.9+) and select an interpreter via the Python extension.",
       }),
     );
 
@@ -761,13 +763,13 @@ export class LearningService {
           venvModuleOk ? "warn" : "fail",
           {
             detail: venvModuleOk
-              // TODO (acasey): do we want to recommend uv?
-              ? "Using the standard-library `venv` (install `uv` for faster setup)."
+              ? // TODO (acasey): do we want to recommend uv?
+                "Using the standard-library `venv` (install `uv` for faster setup)."
               : "The `venv`/`ensurepip` modules are missing from this Python.",
             hint: venvModuleOk
               ? undefined
-              // TODO (acasey): can we determine the actual version number?
-              : "On Debian/Ubuntu install them with `sudo apt install python3-venv` " +
+              : // TODO (acasey): can we determine the actual version number?
+                "On Debian/Ubuntu install them with `sudo apt install python3-venv` " +
                 "(matching your Python version, e.g. `python3.12-venv`).",
           },
         ),
@@ -2070,6 +2072,9 @@ export class LearningService {
     this._lastSnapshot = this.getProgress();
     this._onDidChangeProgress.fire(this._lastSnapshot);
   }
+
+  // TODO (acasey): consider having a state.json file for the whole course instead of a bunch of little sentinel files
+  // This may require more coordination than is comfortable for content authors.
 
   /**
    * Start watching for `.qdk-unit-complete` sentinel files in the active

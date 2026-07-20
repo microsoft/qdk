@@ -7,6 +7,10 @@ import { loadKatasCourse } from "./catalog.js";
 import { KATAS_COURSE_ID } from "./constants.js";
 import type { CatalogCourse, CourseDescriptor } from "./types.js";
 
+// TODO (acasey): there are a bunch of places where we disable things in notebook courses -
+// it seems like we should have a property on the interface instead of using the course kind string
+// e.g. `this.activeCourse.kind === "python-notebook"`
+
 /**
  * A source of learning courses. Implementations know how to enumerate the
  * courses they provide and how to fully load a course by id.
