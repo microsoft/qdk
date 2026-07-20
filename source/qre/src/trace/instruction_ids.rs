@@ -117,6 +117,26 @@ define_instructions! {
         (ONE_QUBIT_UNITARY, 0x500),
         (TWO_QUBIT_UNITARY, 0x501),
 
+        // Block operations (applies operation to each qubit in the block),
+        // logical arity of operations corresponds to number of blocks
+        (BLOCK_H, 0x600),
+        (BLOCK_H_XY, 0x601),
+        (BLOCK_H_YZ, 0x602),
+        (BLOCK_SQRT_X, 0x603),
+        (BLOCK_SQRT_X_DAG, 0x604),
+        (BLOCK_SQRT_Y, 0x605),
+        (BLOCK_SQRT_Y_DAG, 0x606),
+        (BLOCK_S, 0x607),
+        (BLOCK_S_DAG, 0x608),
+        (BLOCK_CNOT, 0x609),
+        (BLOCK_CY, 0x60A),
+        (BLOCK_CZ, 0x60B),
+        (BLOCK_SWAP, 0x60C),
+        (BLOCK_RX, 0x60D),
+        (BLOCK_RY, 0x60E),
+        (BLOCK_RZ, 0x60F),
+
+
         // Multi-qubit Pauli measurement
         (MULTI_PAULI_MEAS, 0x1000),
 
@@ -129,19 +149,24 @@ define_instructions! {
         (MEMORY, 0x1210),
 
         // Some special hardware physical instructions
-        (CYCLIC_SHIFT, 0x1300),
+        (CYCLIC_SHIFT, 0x1300), // may also be used as a logical operation
         (PHYSICAL_MOVE, 0x1301),
         (HAND_OFF, 0x1302),
+        (CYCLIC_SHIFT_ADJ, 0x1303), // may also be used as a logical operation
 
         // Generic operation (for unified RE)
         (GENERIC, 0xFFFF),
     ],
     aliases: [
         // Clifford gate aliases
-        (H_XZ, 0x10),       // alias for H
-        (SQRT_Z, 0x17),     // alias for S
-        (SQRT_Z_DAG, 0x18), // alias for S_DAG
-        (CX, 0x19),         // alias for CNOT
+        (H_XZ, 0x10),              // alias for H
+        (SQRT_Z, 0x17),            // alias for S
+        (SQRT_Z_DAG, 0x18),        // alias for S_DAG
+        (CX, 0x19),                // alias for CNOT
+        (BLOCK_H_XZ, 0x600),       // alias for BLOCK_H
+        (BLOCK_SQRT_Z, 0x607),     // alias for BLOCK_S
+        (BLOCK_SQRT_Z_DAG, 0x608), // alias for BLOCK_S_DAG
+        (BLOCK_CX, 0x609),         // alias for BLOCK_CNOT
 
         // Non-Clifford aliases
         (SQRT_SQRT_Z, 0x404),     // alias for T
@@ -219,5 +244,20 @@ pub fn is_clifford(id: u64) -> bool {
             | ONE_QUBIT_CLIFFORD
             | TWO_QUBIT_CLIFFORD
             | N_QUBIT_CLIFFORD
+            | BLOCK_H
+            | BLOCK_H_XY
+            | BLOCK_H_YZ
+            | BLOCK_SQRT_X
+            | BLOCK_SQRT_X_DAG
+            | BLOCK_SQRT_Y
+            | BLOCK_SQRT_Y_DAG
+            | BLOCK_S
+            | BLOCK_S_DAG
+            | BLOCK_CNOT
+            | BLOCK_CY
+            | BLOCK_CZ
+            | BLOCK_SWAP
+            | CYCLIC_SHIFT
+            | CYCLIC_SHIFT_ADJ
     )
 }
