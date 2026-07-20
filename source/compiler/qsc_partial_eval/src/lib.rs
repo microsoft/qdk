@@ -4740,8 +4740,8 @@ impl<'a> PartialEvaluator<'a> {
 // to full evaluation without requiring any emission of RIR instructions.
 fn is_static_value(args_value: &Value) -> bool {
     match args_value {
-        // Qubit/Result ids and variables values cannot be treated as static.
-        Value::Qubit(_) | Value::Result(val::Result::Id(_)) | Value::Var(_) => false,
+        // Result ids and variables values cannot be treated as static.
+        Value::Result(val::Result::Id(_)) | Value::Var(_) => false,
         Value::Array(inner) => inner.iter().all(is_static_value),
         Value::Tuple(inner, _) => inner.iter().all(is_static_value),
         Value::Closure(c) => c.fixed_args.iter().all(is_static_value),

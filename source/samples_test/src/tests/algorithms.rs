@@ -10,8 +10,8 @@ pub const BERNSTEINVAZIRANI_EXPECT: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 29822"];
 pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE_RIF: Expect =
-    expect!["generated QIR of length 20287"];
-pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 20214"];
+    expect!["generated QIR of length 20277"];
+pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 18472"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =
