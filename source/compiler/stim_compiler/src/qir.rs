@@ -694,7 +694,9 @@ impl<'noise> Compiler<'noise> {
 
         match instruction.name.as_str() {
             // Pauli Gates
-            "I" => (),
+            "I" => {
+                self.unsupported_args(instruction);
+            }
             "X" | "Y" | "Z" => self.broadcast(instruction, |s, q| {
                 s.op(&instruction.name.to_lowercase(), q);
             }),
@@ -829,6 +831,7 @@ impl<'noise> Compiler<'noise> {
                 s.op("h", q1);
             }),
             "II" => {
+                self.unsupported_args(instruction);
                 self.expect_target_pairs(instruction);
             }
             "ISWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
