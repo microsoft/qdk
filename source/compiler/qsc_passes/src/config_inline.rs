@@ -71,27 +71,6 @@ impl<'a> ConfigInline<'a> {
         }
     }
 
-    /// If `expr` is call to `ConfigValue` with exactly two arguments, returns them, otherwise None.
-    fn match_get_config_call<'b>(
-        &self,
-        callee: &'b Box<Expr>,
-        args: &'b Box<Expr>,
-    ) -> Option<(&'b Expr, &'b Expr)> {
-        let ExprKind::Var(Res::Item(item_id), _) = &callee.kind else {
-            return None;
-        };
-        if *item_id != self.get_config_item_id {
-            return None;
-        }
-        let ExprKind::Tuple(tuple_args) = &args.kind else {
-            return None;
-        };
-        let [name, default_value] = tuple_args.as_slice() else {
-            return None;
-        };
-        Some((name, default_value))
-    }
-
     /// Returns a literal that the call to `ConfigValue` with given arguments must be replaced with.
     /// Returns error in the following cases:
     ///   * One of arguments to `ConfigValue` is not a literal.
@@ -132,19 +111,29 @@ impl MutVisitor for ConfigInline<'_> {
     fn visit_expr(&mut self, expr: &mut Expr) {
         match &expr.kind {
             ExprKind::Call(callee, args) => {
-                let result = self
-                    .match_get_config_call(&callee, &args)
-                    .map(|(name, default_value)| self.replace_get_config_call(name, default_value));
+                let ExprKind::Var(Res::Item(item_id), _) = &callee.kind else {
+                    return ();
+                };
+                if *item_id != self.get_config_item_id {
+                    return mut_visit::walk_expr(self, expr);
+                }
+                let ExprKind::Tuple(tuple_args) = &args.kind else {
+                    return ();
+                };
+                let [name, default_value] = tuple_args.as_slice() else {
+                    return ();
+                };
+                let result = self.replace_get_config_call(name, default_value);
                 match result {
-                    None => mut_visit::walk_expr(self, expr),
-                    Some(Ok(new_expr)) => expr.kind = new_expr,
-                    Some(Err(error)) => self.errors.push(error),
+                    Ok(new_expr) => expr.kind = new_expr,
+                    Err(error) => self.errors.push(error),
                 }
             }
             ExprKind::Var(Res::Item(item_id), _) => {
                 if *item_id == self.get_config_item_id {
                     self.errors.push(Error::ConfigValueMustBeCalled(expr.span))
                 }
+                return ();
             }
             _ => mut_visit::walk_expr(self, expr),
         }
