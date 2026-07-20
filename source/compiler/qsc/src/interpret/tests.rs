@@ -157,6 +157,13 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::Double(124.1));
 
             // Default value.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Math.MaxI(1, Std.Core.ConfigValue(\"int_config\", 0))",
+            );
+            is_only_value(&result, &output, &Value::Int(123));
+
+            // GetConfig can be used as argument to another function.
             let (result, output) = line(&mut interpreter, "Std.Core.ConfigValue(\"unknown\", 15)");
             is_only_value(&result, &output, &Value::Int(15));
         }
