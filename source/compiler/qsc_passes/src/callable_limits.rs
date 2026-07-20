@@ -31,10 +31,6 @@ pub enum Error {
     #[diagnostic(code("Qdk.Qsc.CallableLimits.QubitAlloc"))]
     QubitAlloc(#[label] Span),
 
-    #[error("functions cannot use repeat-loop expressions")]
-    #[diagnostic(code("Qdk.Qsc.CallableLimits.Repeat"))]
-    Repeat(#[label] Span),
-
     #[error("functions cannot have specializations")]
     #[diagnostic(code("Qdk.Qsc.CallableLimits.Spec"))]
     Spec(#[label] Span),
@@ -78,9 +74,6 @@ impl Visitor<'_> for CallableLimits {
             }
             ExprKind::Conjugate(..) => {
                 self.errors.push(Error::Conjugate(expr.span));
-            }
-            ExprKind::Repeat(..) => {
-                self.errors.push(Error::Repeat(expr.span));
             }
             _ => {}
         }
