@@ -485,6 +485,49 @@ test("user expand choice survives an external circuit update via updateCircuit",
   );
 });
 
+test("a fresh Sqore does not inherit a prior circuit's expand choice (non-editable host guard)", async () => {
+  // Circuit A: group `Foo` at "0,0". Circuit B: a DIFFERENT group `Bar` at the same "0,0".
+  const groupA = () =>
+    singleCircuit(
+      circuit(3, [
+        [group("Foo", [[gate("H", 0)]], { span: [0, 1] })],
+        [gate("X", 2)],
+      ]),
+    );
+  const groupB = () =>
+    singleCircuit(
+      circuit(3, [
+        [group("Bar", [[gate("Y", 0)]], { span: [0, 1] })],
+        [gate("Z", 2)],
+      ]),
+    );
+
+  // Render A and expand Foo at "0,0".
+  const { container: containerA } = await drawWithSqore(groupA());
+  const nestedA = () => nestedUnder(collectDropzones(containerA));
+  clickExpandButton(containerA, "0,0");
+  assert.ok(nestedA().length > 0, "Foo should be expanded after click");
+
+  // The non-editable host renders the unrelated circuit B through a brand-new `Sqore` (mirroring
+  // `circuit.tsx`'s fresh-`draw` path), so B starts from clean view state.
+  const { sqore: sqoreB, container: containerB } =
+    await drawWithSqore(groupB());
+  const nestedB = () => nestedUnder(collectDropzones(containerB));
+
+  // Bar shares the "0,0" location with the previously-expanded Foo, but must render collapsed — the
+  // fresh instance carries none of A's view state.
+  assert.equal(
+    nestedB().length,
+    0,
+    "Bar must render collapsed — a fresh Sqore inherits no view state from circuit A",
+  );
+  assert.equal(
+    sqoreB.viewState.expanded.has("0,0"),
+    false,
+    "a fresh Sqore's viewState has no entry for the reused location",
+  );
+});
+
 // ---------------------------------------------------------------------------
 // Pixel-coordinate tests: for every rendered gate, the on-column dropzone with the matching
 // `data-dropzone-location` must cover the gate's x range. Dropping a gate on top of an existing
