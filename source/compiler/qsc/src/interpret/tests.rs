@@ -205,6 +205,20 @@ mod given_interpreter {
                 "#]],
             );
 
+            // Error when value is a variable.
+            let (result, output) = line(
+                &mut interpreter,
+                "let default=10; Std.Core.GetConfig(\"int_config\", default)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    GetConfig arguments must be literals
+                       [line_3] [default]
+                "#]],
+            );
+
             // Error when config contains value of unsupported type (same as default type).
             interpreter.set_qsharp_config_value(
                 "result_config",
@@ -219,7 +233,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     unsupported configuration type
-                       [line_5] [Zero]
+                       [line_4] [Zero]
                 "#]],
             );
 
@@ -237,7 +251,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     unsupported configuration type
-                       [line_6] [0.5]
+                       [line_5] [0.5]
                 "#]],
             );
 
@@ -251,7 +265,7 @@ mod given_interpreter {
                 &output,
                 &expect![[r#"
                     unsupported configuration type
-                       [line_7] [10L]
+                       [line_6] [10L]
                 "#]],
             );
         }
