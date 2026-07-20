@@ -1245,6 +1245,25 @@ fn repeat_with_diverging_body_is_divergent() {
 }
 
 #[test]
+fn unreachable_loop_control_does_not_suppress_body_divergence() {
+    for body in [
+        r#"for _ in [1] { fail "body"; break }"#,
+        r#"for _ in [1] { fail "body"; continue }"#,
+        r#"while true { fail "body"; break }"#,
+        r#"while true { fail "body"; continue }"#,
+        r#"repeat { fail "body"; break } until true"#,
+        r#"repeat { fail "body"; continue } until true"#,
+    ] {
+        let source = format!("namespace Test {{ function First<'T>() : 'T {{ {body} }} }}");
+        let (_, _, errors) = compile(&source, "", false);
+        assert!(
+            errors.is_empty(),
+            "unexpected errors for `{body}`: {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn repeat_with_diverging_until_is_divergent() {
     let (_, _, errors) = compile(
         r#"namespace Test { function First<'T>() : 'T {

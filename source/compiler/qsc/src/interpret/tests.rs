@@ -4889,6 +4889,48 @@ mod given_interpreter {
         }
 
         #[test]
+        fn compound_and_assign_if_break_does_not_commit_default() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation AndAssignIfBreak() : Bool {
+                        mutable keep = true;
+                        while true {
+                            keep and= if true { break } else { true };
+                        }
+                        keep
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "AndAssignIfBreak()");
+            is_only_value(&result, &output, &Value::Bool(true));
+        }
+
+        #[test]
+        fn compound_and_assign_if_continue_does_not_commit_default() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation AndAssignIfContinue() : Bool {
+                        mutable keep = true;
+                        mutable iterations = 0;
+                        while iterations < 1 {
+                            set iterations += 1;
+                            keep and= if true { continue } else { true };
+                        }
+                        keep
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "AndAssignIfContinue()");
+            is_only_value(&result, &output, &Value::Bool(true));
+        }
+
+        #[test]
         fn operand_compound_or_assign_continue_skips_consumer() {
             let mut interpreter = get_interpreter();
             let (result, output) = line(

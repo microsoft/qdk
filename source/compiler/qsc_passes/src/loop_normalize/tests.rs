@@ -123,7 +123,7 @@ fn operand_temp_bind_count(package: &str) -> usize {
 }
 
 #[test]
-fn logical_assign_rhs_is_not_hoisted() {
+fn logical_assign_if_rhs_is_reshaped() {
     let package = normalize_to_string(indoc! {"
         namespace Test {
             operation Main() : Unit {
@@ -138,8 +138,8 @@ fn logical_assign_rhs_is_not_hoisted() {
 
     assert_eq!(
         operand_temp_bind_count(&package),
-        0,
-        "short-circuit assignment RHS must stay conditional\n{package}"
+        1,
+        "reshaped assignment RHS should be lifted inside its conditional branch\n{package}"
     );
 
     expect![[r#"
@@ -147,10 +147,13 @@ fn logical_assign_rhs_is_not_hoisted() {
             mutable cond = false;
             mutable keepGoing = false;
             while cond {
-                keepGoing and= if cond {
-                    break
-                } else {
-                    true
+                if keepGoing {
+                    let _operand_tmp_36 = if cond {
+                        break
+                    } else {
+                        true
+                    };
+                    keepGoing = _operand_tmp_36;
                 };
             }
         }

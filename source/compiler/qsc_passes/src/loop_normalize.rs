@@ -184,7 +184,8 @@ impl<'a> LoopNormalize<'a> {
             // here. A `BinOp` right operand that itself buries escaping control
             // flow was already reshaped into an `If` above, so any right operand
             // still reaching this arm is conditional and stays put. A compound
-            // `and=`/`or=` is never reshaped, so its conditional RHS also stays.
+            // `and=`/`or=` with control flow in its right operand was already
+            // reshaped into an `If`, so its assignment can be guarded as a whole.
             ExprKind::BinOp(BinOp::AndL | BinOp::OrL, lhs, _)
             | ExprKind::AssignOp(BinOp::AndL | BinOp::OrL, lhs, _) => {
                 self.lift_short_circuit_lhs(lhs.as_mut())
@@ -310,12 +311,11 @@ impl<'a> LoopNormalize<'a> {
     ///
     /// A short-circuit whose right operand carries no escaping control flow is
     /// left untouched, and its left operand is lifted by the caller instead. For
-    /// the `and=`/`or=` form the reshape is applied only when the right operand
-    /// buries the control flow in a bare operand position, `!is_candidate`,
-    /// such as `set p and= Foo(break)`. A statement-carrying wrapper right
-    /// operand such as `set p and= if c { break } else v` already exposes the
-    /// break at a branch boundary the desugar guards in place, so it needs no
-    /// reshape. The assignment place is a simple mutable variable, so re-reading
+    /// the `and=`/`or=` form the assignment itself must be reshaped whenever the
+    /// right operand contains control flow. Even when an `If` already exposes a
+    /// `break` at a branch boundary, leaving the compound assignment intact would
+    /// let the desugar's synthesized branch value commit to the assignment after
+    /// the break. The assignment place is a simple mutable variable, so re-reading
     /// it for the guard condition is side-effect-free. Mirrors
     /// `return_unify::normalize::hoist_short_circuit`.
     fn rewrite_short_circuit_rhs_in_place(&mut self, expr: &mut Expr) -> bool {
@@ -328,9 +328,7 @@ impl<'a> LoopNormalize<'a> {
                 ShortCircuitForm::BinOp(matches!(op, BinOp::AndL))
             }
             ExprKind::AssignOp(op @ (BinOp::AndL | BinOp::OrL), place, rhs)
-                if contains_control_flow(rhs)
-                    && !is_candidate(rhs)
-                    && matches!(place.kind, ExprKind::Var(_, _)) =>
+                if contains_control_flow(rhs) && matches!(place.kind, ExprKind::Var(_, _)) =>
             {
                 ShortCircuitForm::AssignOp(matches!(op, BinOp::AndL))
             }

@@ -482,6 +482,21 @@ mod given_debugger {
         }
 
         #[test]
+        fn for_break_locals_hide_compiler_generated_variables() {
+            let mut debugger = make_debugger(FOR_BREAK_SOURCE);
+            let break_id = breakpoint_id_for_text(&debugger, "test", FOR_BREAK_SOURCE, "break");
+            expect_bp(&mut debugger, &[break_id], break_id);
+
+            let mut names = debugger
+                .get_locals(1)
+                .into_iter()
+                .map(|variable| variable.name.to_string())
+                .collect::<Vec<_>>();
+            names.sort();
+            assert_eq!(names, ["i", "total"]);
+        }
+
+        #[test]
         fn stepping_through_for_break_loop_never_reports_inverted_span() {
             let mut debugger = make_debugger(FOR_BREAK_SOURCE);
             // Run to the first user statement, then step `Next` through the whole
