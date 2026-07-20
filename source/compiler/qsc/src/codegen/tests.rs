@@ -5630,3 +5630,69 @@ fn bare_operand_break_preserves_prior_argument_effects_and_skips_later_arguments
         "expected Y after the operand-position break to be skipped:\n{qir}"
     );
 }
+
+#[test]
+fn operand_breaks_in_qubit_allocation_and_controlled_call_generate_qir() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Result {
+                use qq = Qubit[2];
+                repeat {
+                    H(qq[0]);
+                    use rr = Qubit[break];
+                    Controlled X(break);
+                } until (M(qq[1]) == One)
+                fixup {
+                    ResetAll(qq);
+                }
+                let r = M(qq[0]);
+                ResetAll(qq);
+                r
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H before the first operand-position break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__x__body"),
+        "expected the controlled X after the first break to be skipped:\n{qir}"
+    );
+}
+
+#[test]
+fn operand_break_in_index_skips_following_controlled_continue() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Result {
+                use qq = Qubit[2];
+                repeat {
+                    H(qq[break]);
+                    Controlled X(continue, qq[1]);
+                } until (M(qq[1]) == One)
+                fixup {
+                    ResetAll(qq);
+                }
+                let r = M(qq[0]);
+                ResetAll(qq);
+                r
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    assert!(
+        !qir.contains("call void @__quantum__qis__h__body"),
+        "the index break should prevent H from running:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__x__body"),
+        "the controlled X after the break should be unreachable:\n{qir}"
+    );
+}

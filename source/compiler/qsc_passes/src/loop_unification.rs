@@ -10,8 +10,8 @@ use qsc_hir::{
     assigner::Assigner,
     global::Table,
     hir::{
-        BinOp, Block, Expr, ExprKind, Lit, Mutability, Package, Pat, Pauli, PrimField, Result,
-        Stmt, StmtKind, UnOp,
+        BinOp, Block, Expr, ExprKind, Lit, Mutability, Package, Pat, Pauli, PrimField, QubitInit,
+        QubitInitKind, Result, Stmt, StmtKind, UnOp,
     },
     mut_visit::{MutVisitor, walk_expr},
     ty::{GenericArg, Prim, Ty},
@@ -967,7 +967,9 @@ impl MutVisitor for BreakContinueDesugar<'_> {
         while let Some(mut stmt) = iter.next() {
             let is_last = iter.peek().is_none();
             let fires = stmt_escapes(&stmt);
-            if let Some((is_break, kw_span)) = bare_break_continue(&stmt) {
+            let always_fires = stmt_always_escapes(&stmt);
+            let bare = bare_break_continue(&stmt);
+            if let Some((is_break, kw_span)) = bare {
                 let flag = if is_break {
                     self.broke.expect("break implies a broke flag was minted")
                 } else {
@@ -1008,6 +1010,9 @@ impl MutVisitor for BreakContinueDesugar<'_> {
                     stmt
                 };
                 out.push(stmt);
+            }
+            if always_fires && bare.is_none() {
+                break;
             }
             seen_control_flow = seen_control_flow || fires;
         }
@@ -1428,6 +1433,39 @@ fn stmt_escapes(stmt: &Stmt) -> bool {
     };
     scan.visit_stmt(stmt);
     scan.has_break || scan.has_continue
+}
+
+/// Returns `true` when evaluating `stmt` necessarily executes a `break` or
+/// `continue` bound to the enclosing loop. Normalization exposes operand
+/// control flow in sequential blocks, so this only needs to model blocks and
+/// conditionals; nested loops remain opaque.
+fn stmt_always_escapes(stmt: &Stmt) -> bool {
+    match &stmt.kind {
+        StmtKind::Expr(expr) | StmtKind::Semi(expr) | StmtKind::Local(_, _, expr) => {
+            expr_always_escapes(expr)
+        }
+        StmtKind::Qubit(_, _, init, _) => qubit_init_always_escapes(init),
+        StmtKind::Item(_) => false,
+    }
+}
+
+fn qubit_init_always_escapes(init: &QubitInit) -> bool {
+    match &init.kind {
+        QubitInitKind::Array(size) => expr_always_escapes(size),
+        QubitInitKind::Tuple(items) => items.iter().any(qubit_init_always_escapes),
+        QubitInitKind::Single | QubitInitKind::Err => false,
+    }
+}
+
+fn expr_always_escapes(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Break | ExprKind::Continue => true,
+        ExprKind::Block(block) => block.stmts.iter().any(stmt_always_escapes),
+        ExprKind::If(_, then_branch, Some(else_branch)) => {
+            expr_always_escapes(then_branch) && expr_always_escapes(else_branch)
+        }
+        _ => false,
+    }
 }
 
 /// Scans for a `break`/`continue` that binds to the loop being desugared,

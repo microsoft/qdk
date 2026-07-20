@@ -61,8 +61,8 @@ use qsc_data_structures::span::Span;
 use qsc_hir::{
     assigner::Assigner,
     hir::{
-        BinOp, Block, Expr, ExprKind, Lit, Mutability, QubitInit, QubitInitKind, Res, Stmt,
-        StmtKind, StringComponent, UnOp,
+        BinOp, Block, Expr, ExprKind, Field, FieldPath, Lit, Mutability, QubitInit, QubitInitKind,
+        Res, Stmt, StmtKind, StringComponent, UnOp,
     },
     mut_visit::MutVisitor,
     ty::{Prim, Ty},
@@ -580,10 +580,53 @@ impl<'a> LoopNormalize<'a> {
     fn bind_array_backed_temp(&mut self, op: &mut Expr, ty: &Ty, span: Span) -> Stmt {
         let array_ty = Ty::Array(Box::new(ty.clone()));
         let ident = gen_ident(self.assigner, "operand_tmp", array_ty, span);
-        let read = self.gen_singleton_index_read(&ident, ty);
+        let read = self.gen_array_backed_read(&ident, ty, &[]);
         let mut init = std::mem::replace(op, read);
         self.arrayify_value_in_place(&mut init, ty);
         ident.gen_id_init(Mutability::Immutable, init, self.assigner)
+    }
+
+    /// Reads an array-backed value while preserving explicit tuple structure.
+    /// Controlled-call analysis peels control layers from tuple expressions, so
+    /// tuple-valued temps are rebuilt from projections instead of exposed as one
+    /// opaque index expression.
+    fn gen_array_backed_read(&mut self, ident: &IdentTemplate, ty: &Ty, path: &[usize]) -> Expr {
+        if let Ty::Tuple(items) = ty {
+            let items = items
+                .iter()
+                .enumerate()
+                .map(|(index, item_ty)| {
+                    let mut item_path = path.to_vec();
+                    item_path.push(index);
+                    self.gen_array_backed_read(ident, item_ty, &item_path)
+                })
+                .collect();
+            return Expr {
+                id: self.assigner.next_node(),
+                span: ident.span,
+                ty: ty.clone(),
+                kind: ExprKind::Tuple(items),
+            };
+        }
+
+        let Ty::Array(elem_ty) = &ident.ty else {
+            unreachable!("array-backed temporary should have array type");
+        };
+        let read = self.gen_singleton_index_read(ident, elem_ty);
+        if path.is_empty() {
+            return read;
+        }
+        Expr {
+            id: self.assigner.next_node(),
+            span: ident.span,
+            ty: ty.clone(),
+            kind: ExprKind::Field(
+                Box::new(read),
+                Field::Path(FieldPath {
+                    indices: path.to_vec(),
+                }),
+            ),
+        }
     }
 
     /// Builds `@<ident>[0]`, reading element 0 (of type `elem_ty`) out of the

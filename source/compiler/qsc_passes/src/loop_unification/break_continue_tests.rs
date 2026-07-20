@@ -20,7 +20,7 @@ use qsc_hir::{
 
 use crate::loop_unification::{
     Error, check_no_break_continue,
-    test_utils::{check, check_normalized, desugar},
+    test_utils::{check, check_normalized, desugar, desugar_normalized},
 };
 
 #[test]
@@ -1349,6 +1349,41 @@ fn break_guards_following_qubit_allocation_suffix() {
             }
         }
     "#]].assert_eq(&qsharp);
+}
+
+#[test]
+fn operand_breaks_in_qubit_allocation_and_controlled_call_are_guarded() {
+    check_normalized(
+        indoc! {r#"
+            namespace test {
+                operation Foo(q : Qubit) : Unit is Ctl {}
+                operation Main() : Unit {
+                    repeat {
+                        use rr = Qubit[break];
+                        Controlled Foo(break);
+                    } until true;
+                }
+            }
+        "#},
+        &expect![[r#"
+            operation Foo(q : Qubit) : Unit is Ctl {}
+            operation Main() : Unit {
+                {
+                    mutable _continue_cond_46 = true;
+                    mutable _broke_50 = false;
+                    while not _broke_50 and _continue_cond_46 {
+                        let _operand_tmp_26 = {
+                            _broke_50 = true;
+                            0
+                        };
+                        if not _broke_50 {
+                            _continue_cond_46 = not true;
+                        }
+                    }
+                };
+            }
+        "#]],
+    );
 }
 
 #[test]

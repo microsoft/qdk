@@ -830,6 +830,34 @@ fn hoist_break_in_tuple_with_qubit_operand_array_backed() {
 }
 
 #[test]
+fn hoist_break_in_controlled_call_preserves_control_tuple() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation Foo(q : Qubit) : Unit is Ctl {}
+                operation Main() : Unit {
+                    mutable cond = true;
+                    while cond {
+                        Controlled Foo(break);
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            operation Foo(q : Qubit) : Unit is Ctl {}
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    let _operand_tmp_25 = Controlled Foo;
+                    let _operand_tmp_29 = break;
+                    _operand_tmp_25(_operand_tmp_29[0]::Item < 0 >, _operand_tmp_29[0]::Item < 1 >);
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
 fn idempotent_after_array_backing_qubit_operand() {
     let package = check_idempotent(indoc! {"
         namespace Test {
