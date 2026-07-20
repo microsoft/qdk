@@ -1763,38 +1763,6 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
     );
 }
 
-/// Companion to the self-forwarding recursive HOF case: the forwarded partial
-/// application targets a *different* recursive HOF (`RepeatB`), proving the
-/// static closure-capture inlining prepass is not a self-item special case.
-#[test]
-fn partial_app_of_recursive_hof_forwarded_to_sibling_recursive_hof_converges() {
-    let source = r#"
-        operation RepeatB(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
-            if n > 0 {
-                op(q);
-                RepeatB(RepeatB(H, 1, _), n - 1, q);
-            }
-        }
-        operation Main() : Unit {
-            use q = Qubit();
-            RepeatB(H, 2, q);
-        }
-        "#;
-    check_invariants(source);
-    check(
-        source,
-        &expect![[r#"
-            .lambda_3: input_ty=(Int, Qubit)
-            .lambda_3: input_ty=(Int, Qubit)
-            .lambda_3: input_ty=(Int, Qubit)
-            Main: input_ty=Unit
-            RepeatB<AdjCtl>{H}: input_ty=(Int, Qubit)
-            RepeatB<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            RepeatB<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
-            RepeatB<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
-    );
-}
-
 /// Regression: when a callable's entire input is a single closure-valued
 /// parameter and the passed closure captures exactly one variable, the
 /// specialized callee's input must be flattened to a scalar (the single

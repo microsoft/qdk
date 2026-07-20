@@ -2922,6 +2922,101 @@ fn single_param_recursive_tuple_callable_specializes_end_to_end() {
 }
 
 #[test]
+fn recursive_hof_function_specialization_remaps_self_call_to_specialization() {
+    let source = r#"
+        function Repeat(op : Int -> Int, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let i : Int = op(n);
+                Repeat(Id, i - 1, q);
+            }
+        }
+        function Id(x : Int) : Int { x }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(Id, 2, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("Repeat") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let repeat_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{Id}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        repeat_specializations.len(),
+        1,
+        "expected one H-specialized Repeat callable, got {repeat_specializations:?} from {repeat_names:?}"
+    );
+
+    let repeat_specialization = repeat_specializations[0];
+    let targets = callable_call_targets_after_defunc(source, repeat_specialization);
+    assert!(
+        targets.contains(repeat_specialization),
+        "recursive specialization {repeat_specialization} should call itself, got targets {targets:?}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            function Repeat(op : (Int -> Int), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    let i : Int = op(n);
+                    Repeat(Id, i - 1, q);
+                }
+
+            }
+            function Id(x : Int) : Int {
+                x
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat(Id, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            function Repeat(op : (Int -> Int), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    let i : Int = op(n);
+                    Repeat_Id_(i - 1, q);
+                }
+
+            }
+            function Id(x : Int) : Int {
+                x
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_Id_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            function Repeat_Id_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    let i : Int = Id(n);
+                    Repeat_Id_(i - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
 fn recursive_hof_specialization_remaps_self_call_to_specialization() {
     let source = r#"
         operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
