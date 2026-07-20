@@ -37,7 +37,10 @@ serde_json = { workspace = true }
 rustc-hash = { workspace = true }
 async-trait = { workspace = true }
 
-# Transitive dependency via rand 0.10; wasm builds require the "wasm_js" feature for getrandom 0.3+.
+# The Paulimer stack uses rand 0.8 and getrandom 0.2, whose WASM backend is named "js".
+# Cargo features do not unify across dependency versions, so both entries are required.
+getrandom_02 = { workspace = true, features = ["js"] }
+# rand 0.10 uses getrandom 0.4, whose WASM backend is named "wasm_js".
 getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]

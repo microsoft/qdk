@@ -19,6 +19,7 @@ mod tests;
 
 pub mod backend;
 pub mod debug;
+pub mod function_evaluator;
 pub mod intrinsic;
 pub mod noise;
 pub mod output;
@@ -1263,6 +1264,7 @@ impl State {
                 functor,
                 callee,
                 sim,
+                globals,
                 callee_span,
                 arg,
                 arg_span,
@@ -1327,6 +1329,7 @@ impl State {
         functor: FunctorApp,
         callee: &fir::CallableDecl,
         sim: &mut TracingBackend<'_, B>,
+        globals: &impl PackageStoreLookup,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
@@ -1378,6 +1381,7 @@ impl State {
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,
+                    globals,
                 )?;
                 if val == Value::unit() && callee.output != Ty::UNIT {
                     return Err(Error::UnsupportedIntrinsicType(

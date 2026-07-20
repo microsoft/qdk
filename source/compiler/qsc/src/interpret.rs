@@ -443,7 +443,7 @@ impl Interpreter {
 
     /// Given a package ID, returns all the global items in the package.
     /// Note this does not currently include re-exports.
-    fn package_globals(&self, package_id: PackageId) -> Vec<(Vec<Rc<str>>, Rc<str>, Value)> {
+    fn package_globals(&self, package_id: PackageId) -> Vec<PackageGlobal> {
         let mut exported_items = Vec::new();
         let package = &self
             .compiler
@@ -457,24 +457,25 @@ impl Interpreter {
                     package: package_id,
                     item: fir::LocalItemId::from(usize::from(term.id.item)),
                 };
-                exported_items.push((
-                    global.namespace,
-                    global.name,
-                    Value::Global(store_item_id, FunctorApp::default()),
-                ));
+                exported_items.push(PackageGlobal {
+                    namespace: global.namespace,
+                    name: global.name,
+                    value: Value::Global(store_item_id, FunctorApp::default()),
+                    is_test: term.is_test,
+                });
             }
         }
         exported_items
     }
 
     /// Get the global callables defined in the user source passed into initialization of the interpreter as `Value` instances.
-    pub fn source_globals(&self) -> Vec<(Vec<Rc<str>>, Rc<str>, Value)> {
+    pub fn source_globals(&self) -> Vec<PackageGlobal> {
         self.package_globals(self.source_package)
     }
 
     /// Get the global callables defined in the open package being interpreted as `Value` instances, which will include any items
     /// defined by calls to `eval_fragments` and the like.
-    pub fn user_globals(&self) -> Vec<(Vec<Rc<str>>, Rc<str>, Value)> {
+    pub fn user_globals(&self) -> Vec<PackageGlobal> {
         self.package_globals(self.package)
     }
 
@@ -1813,6 +1814,14 @@ pub enum CircuitGenerationMethod {
     /// Compile the program and transform to a circuit with only partial evaluation.
     /// Only works for `AdaptiveRIF` compliant programs.
     Static,
+}
+
+/// A global item as enumerated from a package.
+pub struct PackageGlobal {
+    pub namespace: Vec<Rc<str>>,
+    pub name: Rc<str>,
+    pub value: Value,
+    pub is_test: bool,
 }
 
 /// A debugger that enables step-by-step evaluation of code

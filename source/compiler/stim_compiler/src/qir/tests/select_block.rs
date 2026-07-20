@@ -22,16 +22,19 @@ fn simple_select_block() {
               br label %select_0
             select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %select_0, label %continue_0
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
               ret i64 0
             }
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
@@ -81,12 +84,18 @@ fn long_select_block() {
               call void @__quantum__qis__x__body(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
               call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+              %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
               %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+              %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              %x_0 = xor i1 %r_0, %r_1
-              %x_1 = xor i1 %x_0, %r_2
-              br i1 %x_1, label %select_0, label %continue_0
+              %loss_0 = or i1 %l_0, %l_1
+              %loss_1 = or i1 %loss_0, %l_2
+              %parity_0 = xor i1 %r_0, %r_1
+              %parity_1 = xor i1 %parity_0, %r_2
+              %restart_0 = or i1 %loss_1, %parity_1
+              br i1 %restart_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 3, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -95,11 +104,12 @@ fn long_select_block() {
               ret i64 0
             }
 
-            declare void @__quantum__qis__h__body(ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare i1 @__quantum__rt__read_result(ptr)
+            declare void @__quantum__qis__h__body(ptr)
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__qis__x__body(ptr)
-            declare i1 @__quantum__rt__read_result(ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
 
@@ -140,14 +150,20 @@ fn multiple_requires_in_block() {
               br label %select_0
             select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %select_0, label %continue_0
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
               %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+              %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              %x_0 = xor i1 %r_1, %r_2
-              br i1 %x_0, label %select_0, label %continue_1
+              %loss_0 = or i1 %l_1, %l_2
+              %parity_0 = xor i1 %r_1, %r_2
+              %restart_1 = or i1 %loss_0, %parity_0
+              br i1 %restart_1, label %select_0, label %continue_1
             continue_1:
               call void @__quantum__rt__array_record_output(i64 2, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -155,13 +171,87 @@ fn multiple_requires_in_block() {
               ret i64 0
             }
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
 
             attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+            attributes #1 = { "irreversible" }
+
+            ; module flags
+
+            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+            !0 = !{i32 1, !"qir_major_version", i32 2}
+            !1 = !{i32 7, !"qir_minor_version", i32 1}
+            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+            !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            !4 = !{i32 5, !"int_computations", !{!"i64"}}
+            !5 = !{i32 5, !"float_computations", !{!"double"}}
+            !6 = !{i32 7, !"backwards_branching", i2 3}
+            !7 = !{i32 1, !"arrays", i1 true}
+        "#]],
+    );
+}
+
+#[test]
+fn multiple_targets_in_require() {
+    let source = indoc! {"
+      SELECT {
+        M 0
+        M 1
+        M 2
+        M 3
+        REQUIRE rec[-1] rec[-2] rec[-3] rec[-4]
+      }
+    "};
+    check(
+        source,
+        &expect![[r#"
+            define i64 @ENTRYPOINT__main() #0 {
+              call void @__quantum__rt__initialize(ptr null)
+              br label %select_0
+            select_0:
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 3 to ptr), ptr inttoptr (i64 3 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 3 to ptr))
+              %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+              %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
+              %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+              %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
+              %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+              %l_3 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+              %r_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %loss_0 = or i1 %l_0, %l_1
+              %loss_1 = or i1 %loss_0, %l_2
+              %loss_2 = or i1 %loss_1, %l_3
+              %parity_0 = xor i1 %r_0, %r_1
+              %parity_1 = xor i1 %parity_0, %r_2
+              %parity_2 = xor i1 %parity_1, %r_3
+              %restart_0 = or i1 %loss_2, %parity_2
+              br i1 %restart_0, label %select_0, label %continue_0
+            continue_0:
+              call void @__quantum__rt__array_record_output(i64 4, ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 2 to ptr), ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 3 to ptr), ptr null)
+              ret i64 0
+            }
+
+            declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
+            declare i1 @__quantum__rt__read_result(ptr)
+            declare void @__quantum__rt__initialize(ptr)
+            declare void @__quantum__qis__m__body(ptr, ptr)
+
+            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="4" }
             attributes #1 = { "irreversible" }
 
             ; module flags
@@ -333,16 +423,19 @@ fn select_block_with_tag() {
               br label %select_0
             select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %select_0, label %continue_0
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
               ret i64 0
             }
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
@@ -382,17 +475,20 @@ fn require_with_negated_target() {
               br label %select_0
             select_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              %r_1 = xor i1 %r_0, true
-              br i1 %r_1, label %select_0, label %continue_0
+              %n_0 = xor i1 %r_0, true
+              %restart_0 = or i1 %l_0, %n_0
+              br i1 %restart_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
               ret i64 0
             }
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
@@ -644,16 +740,19 @@ fn measure_reset_counts_as_measurement() {
               br label %select_0
             select_0:
               call void @__quantum__qis__mresetz__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %select_0, label %continue_0
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
               ret i64 0
             }
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__mresetz__body(ptr, ptr)
@@ -695,8 +794,10 @@ fn pair_measurement_record_in_select() {
               call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 0 to ptr))
               call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %select_0, label %continue_0
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
             continue_0:
               call void @__quantum__rt__array_record_output(i64 1, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -704,8 +805,9 @@ fn pair_measurement_record_in_select() {
             }
 
             declare void @__quantum__qis__cx__body(ptr, ptr)
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
@@ -777,12 +879,16 @@ fn nested_select_blocks() {
               br label %select_1
             select_1:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %select_1, label %continue_0
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_1, label %continue_0
             continue_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
               %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-              br i1 %r_1, label %select_0, label %continue_1
+              %restart_1 = or i1 %l_1, %r_1
+              br i1 %restart_1, label %select_0, label %continue_1
             continue_1:
               call void @__quantum__rt__array_record_output(i64 2, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -790,8 +896,9 @@ fn nested_select_blocks() {
               ret i64 0
             }
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
@@ -843,16 +950,22 @@ fn deeply_nested_select_blocks() {
               br label %select_2
             select_2:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
               %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %r_0, label %select_2, label %continue_0
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_2, label %continue_0
             continue_0:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
               %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-              br i1 %r_1, label %select_1, label %continue_1
+              %restart_1 = or i1 %l_1, %r_1
+              br i1 %restart_1, label %select_1, label %continue_1
             continue_1:
               call void @__quantum__qis__m__body(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 2 to ptr))
+              %l_2 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 2 to ptr))
               %r_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
-              br i1 %r_2, label %select_0, label %continue_2
+              %restart_2 = or i1 %l_2, %r_2
+              br i1 %restart_2, label %select_0, label %continue_2
             continue_2:
               call void @__quantum__rt__array_record_output(i64 3, ptr null)
               call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
@@ -861,8 +974,9 @@ fn deeply_nested_select_blocks() {
               ret i64 0
             }
 
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
             declare i1 @__quantum__rt__read_result(ptr)
             declare void @__quantum__rt__initialize(ptr)
             declare void @__quantum__qis__m__body(ptr, ptr)
@@ -899,43 +1013,46 @@ fn outer_select_reaches_into_inner_select() {
     check(
         source,
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          br label %select_0
-        select_0:
-          br label %select_1
-        select_1:
-          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %r_0, label %select_0, label %continue_0
-        continue_0:
-          call void @__quantum__rt__array_record_output(i64 1, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          ret i64 0
-        }
+            define i64 @ENTRYPOINT__main() #0 {
+              call void @__quantum__rt__initialize(ptr null)
+              br label %select_0
+            select_0:
+              br label %select_1
+            select_1:
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+              %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
+            continue_0:
+              call void @__quantum__rt__array_record_output(i64 1, ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+              ret i64 0
+            }
 
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare i1 @__quantum__rt__read_result(ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__m__body(ptr, ptr)
+            declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
+            declare i1 @__quantum__rt__read_result(ptr)
+            declare void @__quantum__rt__initialize(ptr)
+            declare void @__quantum__qis__m__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-        attributes #1 = { "irreversible" }
+            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+            attributes #1 = { "irreversible" }
 
-        ; module flags
+            ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
 
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            !0 = !{i32 1, !"qir_major_version", i32 2}
+            !1 = !{i32 7, !"qir_minor_version", i32 1}
+            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+            !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            !4 = !{i32 5, !"int_computations", !{!"i64"}}
+            !5 = !{i32 5, !"float_computations", !{!"double"}}
+            !6 = !{i32 7, !"backwards_branching", i2 3}
+            !7 = !{i32 1, !"arrays", i1 true}
+        "#]],
     );
 }
 
@@ -954,45 +1071,48 @@ fn outer_select_reaches_into_deeply_nested_inner_select() {
     check(
         source,
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          br label %select_0
-        select_0:
-          br label %select_1
-        select_1:
-          br label %select_2
-        select_2:
-          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %r_0, label %select_0, label %continue_0
-        continue_0:
-          call void @__quantum__rt__array_record_output(i64 1, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          ret i64 0
-        }
+            define i64 @ENTRYPOINT__main() #0 {
+              call void @__quantum__rt__initialize(ptr null)
+              br label %select_0
+            select_0:
+              br label %select_1
+            select_1:
+              br label %select_2
+            select_2:
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+              %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
+            continue_0:
+              call void @__quantum__rt__array_record_output(i64 1, ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+              ret i64 0
+            }
 
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare i1 @__quantum__rt__read_result(ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__m__body(ptr, ptr)
+            declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
+            declare i1 @__quantum__rt__read_result(ptr)
+            declare void @__quantum__rt__initialize(ptr)
+            declare void @__quantum__qis__m__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-        attributes #1 = { "irreversible" }
+            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+            attributes #1 = { "irreversible" }
 
-        ; module flags
+            ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
 
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            !0 = !{i32 1, !"qir_major_version", i32 2}
+            !1 = !{i32 7, !"qir_minor_version", i32 1}
+            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+            !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            !4 = !{i32 5, !"int_computations", !{!"i64"}}
+            !5 = !{i32 5, !"float_computations", !{!"double"}}
+            !6 = !{i32 7, !"backwards_branching", i2 3}
+            !7 = !{i32 1, !"arrays", i1 true}
+        "#]],
     );
 }
 
@@ -1038,48 +1158,53 @@ fn sibling_select_blocks() {
     check(
         source,
         &expect![[r#"
-        define i64 @ENTRYPOINT__main() #0 {
-          call void @__quantum__rt__initialize(ptr null)
-          br label %select_0
-        select_0:
-          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %r_0, label %select_0, label %continue_0
-        continue_0:
-          br label %select_1
-        select_1:
-          call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
-          %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
-          br i1 %r_1, label %select_1, label %continue_1
-        continue_1:
-          call void @__quantum__rt__array_record_output(i64 2, ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
-          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
-          ret i64 0
-        }
+            define i64 @ENTRYPOINT__main() #0 {
+              call void @__quantum__rt__initialize(ptr null)
+              br label %select_0
+            select_0:
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+              %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+              %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+              %restart_0 = or i1 %l_0, %r_0
+              br i1 %restart_0, label %select_0, label %continue_0
+            continue_0:
+              br label %select_1
+            select_1:
+              call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+              %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
+              %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+              %restart_1 = or i1 %l_1, %r_1
+              br i1 %restart_1, label %select_1, label %continue_1
+            continue_1:
+              call void @__quantum__rt__array_record_output(i64 2, ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+              call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
+              ret i64 0
+            }
 
-        declare void @__quantum__rt__result_record_output(ptr, ptr)
-        declare void @__quantum__rt__array_record_output(i64, ptr)
-        declare i1 @__quantum__rt__read_result(ptr)
-        declare void @__quantum__rt__initialize(ptr)
-        declare void @__quantum__qis__m__body(ptr, ptr)
+            declare void @__quantum__rt__array_record_output(i64, ptr)
+            declare void @__quantum__rt__result_record_output(ptr, ptr)
+            declare i1 @__quantum__rt__read_loss(ptr)
+            declare i1 @__quantum__rt__read_result(ptr)
+            declare void @__quantum__rt__initialize(ptr)
+            declare void @__quantum__qis__m__body(ptr, ptr)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
-        attributes #1 = { "irreversible" }
+            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+            attributes #1 = { "irreversible" }
 
-        ; module flags
+            ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
 
-        !0 = !{i32 1, !"qir_major_version", i32 2}
-        !1 = !{i32 7, !"qir_minor_version", i32 1}
-        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-        !3 = !{i32 1, !"dynamic_result_management", i1 false}
-        !4 = !{i32 5, !"int_computations", !{!"i64"}}
-        !5 = !{i32 5, !"float_computations", !{!"double"}}
-        !6 = !{i32 7, !"backwards_branching", i2 3}
-        !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
+            !0 = !{i32 1, !"qir_major_version", i32 2}
+            !1 = !{i32 7, !"qir_minor_version", i32 1}
+            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+            !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            !4 = !{i32 5, !"int_computations", !{!"i64"}}
+            !5 = !{i32 5, !"float_computations", !{!"double"}}
+            !6 = !{i32 7, !"backwards_branching", i2 3}
+            !7 = !{i32 1, !"arrays", i1 true}
+        "#]],
     );
 }
 
