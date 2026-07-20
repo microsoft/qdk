@@ -102,6 +102,9 @@ impl Hash for NodeId {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PackageId(usize);
 
+/// A span qualified by the HIR package that owns it.
+pub type PackageSpan = qsc_data_structures::span::PackageSpan<PackageId>;
+
 impl PackageId {
     /// The package ID of the core library.
     pub const CORE: Self = Self(0);

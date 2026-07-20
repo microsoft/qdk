@@ -14,8 +14,7 @@
 mod tests;
 
 use miette::Diagnostic;
-use qsc_data_structures::span::Span;
-use qsc_fir::fir::{Attr, CallableImpl, ItemKind, PackageId, PackageStore};
+use qsc_fir::fir::{Attr, CallableImpl, ItemKind, PackageId, PackageSpan, PackageStore};
 use qsc_fir::ty::Ty;
 use thiserror::Error;
 
@@ -29,14 +28,40 @@ pub enum Error {
     #[diagnostic(help(
         "intrinsic callable parameters cannot be non-empty tuples or user-defined types"
     ))]
-    UnsupportedParamType(String, String, #[label("unsupported parameter type")] Span),
+    UnsupportedParamType(
+        String,
+        String,
+        #[label("unsupported parameter type")] PackageSpan,
+    ),
 
     #[error("intrinsic callable `{0}` has unsupported return type `{1}`")]
     #[diagnostic(code("Qdk.Qsc.FirTransform.UnsupportedIntrinsicReturnType"))]
     #[diagnostic(help(
         "intrinsic callable return types cannot be non-empty tuples or user-defined types"
     ))]
-    UnsupportedReturnType(String, String, #[label("unsupported return type")] Span),
+    UnsupportedReturnType(
+        String,
+        String,
+        #[label("unsupported return type")] PackageSpan,
+    ),
+}
+
+impl Error {
+    /// Returns the package that owns this diagnostic.
+    #[must_use]
+    pub fn owner(&self) -> PackageId {
+        self.package_span().package
+    }
+
+    /// Returns the package-qualified source label for this diagnostic.
+    #[must_use]
+    pub fn package_span(&self) -> PackageSpan {
+        match self {
+            Self::UnsupportedParamType(_, _, span) | Self::UnsupportedReturnType(_, _, span) => {
+                *span
+            }
+        }
+    }
 }
 
 /// Returns `true` when `ty` is a tuple (non-unit) or UDT, which are
@@ -80,7 +105,7 @@ pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> 
                 errors.push(Error::UnsupportedParamType(
                     name.clone(),
                     format!("{}", param.ty),
-                    decl.span,
+                    (item_id.package, decl.span).into(),
                 ));
             }
         }
@@ -93,7 +118,7 @@ pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> 
             errors.push(Error::UnsupportedReturnType(
                 name,
                 format!("{}", decl.output),
-                decl.span,
+                (item_id.package, decl.span).into(),
             ));
         }
     }

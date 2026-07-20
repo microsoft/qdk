@@ -10,6 +10,7 @@ use crate::package_assigners::PackageAssigners;
 use super::*;
 use expect_test::expect;
 use indoc::indoc;
+use miette::Diagnostic;
 
 use super::super::build_spec_key;
 use super::super::types::CallSite;
@@ -487,6 +488,147 @@ fn cross_package_function_typed_return_flows_across_packages() {
         lib_source,
         user_source,
         crate::PipelineStage::Full,
+    );
+}
+
+#[test]
+fn foreign_factory_capturing_callable_field_is_defunctionalized() {
+    let lib_source = r#"
+        namespace TestLib {
+            struct Config {
+                Count : Int,
+                Apply : Qubit[] => Unit,
+            }
+
+            function MakeConfig(angle : Double) : Config {
+                new Config {
+                    Count = 1,
+                    Apply = qs => {
+                        for q in qs {
+                            Rz(angle, q);
+                        }
+                    },
+                }
+            }
+
+            operation InvokeFactory(angle : Double, qs : Qubit[]) : Unit {
+                let config = MakeConfig(angle);
+                config.Apply(qs);
+            }
+
+            export InvokeFactory;
+        }
+    "#;
+    let user_source = r#"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            InvokeFactory(0.25, [q]);
+            Reset(q);
+        }
+    "#;
+
+    let (mut fir_store, fir_pkg_id) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert_no_defunctionalization_errors(
+        "foreign_factory_capturing_callable_field_is_defunctionalized",
+        &errors,
+    );
+    fir_invariants::check(&fir_store, fir_pkg_id, InvariantLevel::PostDefunc);
+    assert_no_dangling_cross_package_closures(&fir_store);
+
+    let _ = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        crate::PipelineStage::Full,
+    );
+}
+
+#[test]
+fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
+    let lib_source = r#"
+        namespace TestLib {
+            struct Config {
+                Count : Int,
+                Apply : Qubit => Unit,
+                Keep : Qubit => Unit,
+            }
+
+            operation InvokeDynamic(q : Qubit) : Unit {
+                mutable op = H;
+                for _ in 0..3 {
+                    op = X;
+                }
+                let config = new Config {
+                    Count = 1,
+                    Apply = op,
+                    Keep = q2 => {
+                        H(q2);
+                        S(q2);
+                    },
+                };
+                config.Apply(q);
+            }
+
+            export InvokeDynamic;
+        }
+    "#;
+    let user_source = r#"
+        import TestLib.*;
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            InvokeDynamic(q);
+        }
+    "#;
+
+    let (mut fir_store, fir_pkg_id) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
+
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert_eq!(
+        errors.len(),
+        1,
+        "the unresolved foreign projected call should produce one diagnostic: {errors:?}"
+    );
+    let error = &errors[0];
+    assert!(
+        matches!(error, crate::defunctionalize::Error::DynamicCallable(_)),
+        "the unresolved foreign projected call should produce DynamicCallable: {errors:?}"
+    );
+    assert_ne!(
+        error.owner(),
+        fir_pkg_id,
+        "the diagnostic should be owned by the foreign library package"
+    );
+    assert_eq!(error.owner(), error.package_span().package);
+    assert_eq!(
+        error
+            .code()
+            .expect("DynamicCallable should have a code")
+            .to_string(),
+        "Qdk.Qsc.Defunctionalize.DynamicCallable"
+    );
+
+    let label = error
+        .labels()
+        .and_then(|mut labels| labels.next())
+        .expect("DynamicCallable should have a source label");
+    assert_eq!(label.inner(), &error.package_span().span.into());
+    let span = error.package_span().span;
+    assert_eq!(
+        &lib_source[span.lo as usize..span.hi as usize],
+        "config.Apply(q)",
+        "the foreign diagnostic label should retain the unresolved call expression"
     );
 }
 

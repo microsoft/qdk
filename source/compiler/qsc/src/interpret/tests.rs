@@ -1146,6 +1146,56 @@ mod given_interpreter {
         }
 
         #[test]
+        fn ordinary_restricted_entry_failure_reverts_increment() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                qsc_data_structures::target::Profile::AdaptiveRI.into(),
+            );
+            let (result, output) = line(&mut interpreter, "function Prior() : Int { 7 }");
+            is_only_value(&result, &output, &Value::unit());
+
+            let errors = interpreter
+                .compile_entry_expr(indoc! {r#"
+                    {
+                        operation Rejected() : Int {
+                            use q = Qubit();
+                            H(q);
+                            if MResetZ(q) == One {
+                                return 1;
+                            }
+                            return 2;
+                        }
+                        Rejected()
+                    }
+                "#})
+                .expect_err("ordinary restricted entry should fail raw-FIR capability validation");
+            assert!(
+                errors
+                    .iter()
+                    .all(|error| matches!(error, crate::interpret::Error::Pass(_))),
+                "expected capability-check pass errors, got {errors:?}"
+            );
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| format!("{error:?}").contains("ReturnWithinDynamicScope")),
+                "expected a return-within-dynamic-scope diagnostic, got {errors:?}"
+            );
+
+            let (result, output) = line(&mut interpreter, "Prior()");
+            is_only_value(&result, &output, &Value::Int(7));
+
+            let (result, output) = line(&mut interpreter, "Rejected()");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `Rejected` not found
+                       [line_2] [Rejected]
+                "#]],
+            );
+        }
+
+        #[test]
         fn qirgen_twice_on_shared_interpreter_store_is_byte_identical() {
             // The FIR transform pipeline mutates every reachable package in
             // place, including std, so codegen must run on a throwaway clone of

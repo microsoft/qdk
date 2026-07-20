@@ -11,7 +11,7 @@ mod base_profile;
 use std::{io::Cursor, rc::Rc, sync::Arc};
 
 use expect_test::expect;
-use miette::Report;
+use miette::{Diagnostic, Report};
 use qsc_data_structures::{
     functors::FunctorApp,
     language_features::LanguageFeatures,
@@ -141,6 +141,72 @@ fn compile_source_to_qir_with_library_result(
         store,
         &user_dependencies,
     )
+}
+
+#[test]
+fn package_aware_foreign_fir_transform_diagnostic() {
+    let lib_source = r#"
+        namespace ForeignLib {
+            struct Config {
+                Count : Int,
+                Apply : Qubit => Unit,
+                Keep : Qubit => Unit,
+            }
+
+            operation InvokeDynamic(q : Qubit) : Unit {
+                mutable op = H;
+                for _ in 0..3 {
+                    op = X;
+                }
+                let config = new Config {
+                    Count = 1,
+                    Apply = op,
+                    Keep = q2 => {
+                        H(q2);
+                        S(q2);
+                    },
+                };
+                config.Apply(q);
+            }
+
+            export InvokeDynamic;
+        }
+    "#;
+    let user_source = r#"
+        import ForeignLib.*;
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            InvokeDynamic(q);
+        }
+    "#;
+
+    let errors = compile_source_to_qir_with_library_result(
+        lib_source,
+        user_source,
+        TargetCapabilityFlags::empty(),
+    )
+    .expect_err("the foreign projected dynamic call should fail defunctionalization");
+    let [crate::interpret::Error::FirTransform(error)] = errors.as_slice() else {
+        panic!("expected one FIR transform diagnostic, got {errors:?}");
+    };
+    let code = error.code().expect("diagnostic should have a code");
+    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
+
+    let label = error
+        .labels()
+        .into_iter()
+        .flatten()
+        .next()
+        .expect("diagnostic should have a source label");
+    let (source, relative_span) = error.resolve_span(label.inner());
+    let span_start = relative_span.offset();
+    let span_end = span_start + relative_span.len();
+
+    assert_eq!(source.name.as_ref(), "lib.qs");
+    assert_eq!(&source.contents[span_start..span_end], "config.Apply(q)");
+    assert_ne!(source.name.as_ref(), "OutOfBounds");
 }
 
 fn compile_source_to_qir_from_ast(source: &str, capabilities: TargetCapabilityFlags) -> String {

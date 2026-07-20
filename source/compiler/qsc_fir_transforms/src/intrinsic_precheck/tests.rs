@@ -7,6 +7,8 @@ use crate::test_utils::compile_and_run_pipeline_to_with_errors;
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use miette::Diagnostic;
+use qsc_data_structures::span::Span;
+use qsc_fir::fir::{PackageId, PackageSpan};
 
 fn check_precheck_errors(source: &str, expect: &Expect) {
     let (_, _, result) = compile_and_run_pipeline_to_with_errors(source, PipelineStage::Mono);
@@ -20,17 +22,43 @@ fn check_precheck_errors(source: &str, expect: &Expect) {
 }
 
 #[test]
-fn unsupported_param_type_has_diagnostic_code() {
-    let error = Error::UnsupportedParamType(
-        "MyOp".to_string(),
-        "(Int, Int)".to_string(),
-        Span::default(),
-    );
-    let code = error.code().expect("should have diagnostic code");
-    assert_eq!(
-        code.to_string(),
-        "Qdk.Qsc.FirTransform.UnsupportedIntrinsicParamType"
-    );
+fn located_errors_preserve_metadata_and_report_matching_owner() {
+    let package = PackageId::from(7usize);
+    let package_span = PackageSpan::new(package, Span { lo: 2, hi: 5 });
+    let errors = [
+        (
+            Error::UnsupportedParamType("MyOp".to_string(), "(Int, Int)".to_string(), package_span),
+            "Qdk.Qsc.FirTransform.UnsupportedIntrinsicParamType",
+            "unsupported parameter type",
+        ),
+        (
+            Error::UnsupportedReturnType(
+                "MyOp".to_string(),
+                "(Int, Int)".to_string(),
+                package_span,
+            ),
+            "Qdk.Qsc.FirTransform.UnsupportedIntrinsicReturnType",
+            "unsupported return type",
+        ),
+    ];
+
+    for (error, expected_code, expected_label) in errors {
+        assert_eq!(error.owner(), package);
+        assert_eq!(error.package_span(), package_span);
+        assert_eq!(
+            error
+                .code()
+                .expect("should have diagnostic code")
+                .to_string(),
+            expected_code
+        );
+        let label = error
+            .labels()
+            .and_then(|mut labels| labels.next())
+            .expect("should have a source label");
+        assert_eq!(label.label(), Some(expected_label));
+        assert_eq!(label.inner(), &package_span.span.into());
+    }
 }
 
 #[test]

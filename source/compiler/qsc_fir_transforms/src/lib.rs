@@ -165,11 +165,27 @@ pub enum PipelineError {
     /// its hard cap. Residual tuple locals may remain (suboptimal codegen), but
     /// the emitted FIR is still correct.
     #[error(
-        "tuple-decompose/argument-promotion fixed-point loop did not converge within {0} rounds"
+        "tuple-decompose/argument-promotion fixed-point loop did not converge within {rounds} rounds"
     )]
     #[diagnostic(code("Qdk.Qsc.FirTransform.TupleDecomposeArgPromoteFixpointNotReached"))]
     #[diagnostic(severity(Warning))]
-    TupleDecomposeArgPromoteFixpointNotReached(usize),
+    TupleDecomposeArgPromoteFixpointNotReached { rounds: usize, package: PackageId },
+}
+
+impl PipelineError {
+    /// Returns the FIR package that owns this diagnostic.
+    #[must_use]
+    pub fn owner(&self) -> PackageId {
+        match self {
+            Self::ReturnUnify(error) => error.owner(),
+            Self::Defunctionalize(error) => error.owner(),
+            Self::IntrinsicPrecheck(error) => error.owner(),
+            Self::MissingPinnedItem(item_id) | Self::PinnedItemNotCallable(item_id) => {
+                item_id.package
+            }
+            Self::TupleDecomposeArgPromoteFixpointNotReached { package, .. } => *package,
+        }
+    }
 }
 
 /// Warning-aware result for the FIR transform pipeline.
@@ -577,9 +593,10 @@ fn tuple_decompose_arg_promote_fixed_point(
             // if somehow an adversarial input is created.
             result
                 .warnings
-                .push(PipelineError::TupleDecomposeArgPromoteFixpointNotReached(
-                    TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP,
-                ));
+                .push(PipelineError::TupleDecomposeArgPromoteFixpointNotReached {
+                    rounds: TUPLE_DECOMPOSE_ARG_PROMOTE_FIXPOINT_CAP,
+                    package: package_id,
+                });
             break;
         }
     }

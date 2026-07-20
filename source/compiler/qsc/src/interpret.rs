@@ -387,8 +387,11 @@ impl Interpreter {
                     return Err(transform_result
                         .errors
                         .into_iter()
-                        .map(|e| {
-                            Error::FirTransform(WithSource::from_map(&source_package.sources, e))
+                        .map(|error| {
+                            Error::FirTransform(crate::compile::attach_fir_transform_source(
+                                compiler.package_store(),
+                                error,
+                            ))
                         })
                         .collect());
                 }
@@ -1728,6 +1731,7 @@ impl Interpreter {
             // and revert the update to the lowerer/FIR store.
             let fir_package = self.fir_store.get_mut(self.package);
             self.lowerer.revert_last_increment(fir_package);
+            let _ = self.lowerer.take_exec_graph();
 
             let source_package = self
                 .compiler

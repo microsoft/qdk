@@ -61,7 +61,7 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     ExprId, ExprKind, ItemId, ItemKind, LocalItemId, Package, PackageId, PackageLookup,
-    PackageStore, Res, StoreItemId,
+    PackageStore, Res, StoreExprId, StoreItemId,
 };
 use qsc_fir::ty::Ty;
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -126,12 +126,12 @@ pub(crate) fn defunctionalize(
     // only if the loop terminates with work remaining (see
     // `emit_fixpoint_error`), so transient forwarding calls resolved by a later
     // specialization never reach that terminal state.
-    let mut unresolved_direct_call_sites: Vec<ExprId> = Vec::new();
+    let mut unresolved_direct_call_sites: Vec<StoreExprId> = Vec::new();
 
     // Capture the initial callable-value count for before/after progress
     // tracking, mirroring LLVM's DevirtSCCRepeatedPass: detect when an
     // iteration fails to reduce the remaining work set.
-    let (_, mut prev_remaining_count, _) = remaining_callable_value_info(store, package_id);
+    let (_, mut prev_remaining_count, _, _) = remaining_callable_value_info(store, package_id);
 
     while iteration_count < max_iterations {
         iteration_count += 1;
@@ -410,7 +410,7 @@ fn check_convergence(
     max_iterations: &mut usize,
     prev_remaining_count: &mut usize,
 ) -> bool {
-    let (has_remaining, remaining_count, _) = remaining_callable_value_info(store, package_id);
+    let (has_remaining, remaining_count, _, _) = remaining_callable_value_info(store, package_id);
 
     let made_progress = remaining_count < *prev_remaining_count || !analysis.call_sites.is_empty();
     *prev_remaining_count = remaining_count;
@@ -447,21 +447,24 @@ fn emit_fixpoint_error(
     store: &PackageStore,
     package_id: PackageId,
     iteration_count: usize,
-    unresolved_direct_call_sites: &[ExprId],
+    unresolved_direct_call_sites: &[StoreExprId],
     errors: &mut Vec<Error>,
 ) {
-    let (has_remaining, remaining_count, span) = remaining_callable_value_info(store, package_id);
+    let (has_remaining, remaining_count, owner, span) =
+        remaining_callable_value_info(store, package_id);
     if has_remaining && errors.is_empty() {
         if unresolved_direct_call_sites.is_empty() {
             errors.push(Error::FixpointNotReached(
                 iteration_count,
                 remaining_count,
-                span,
+                (owner, span).into(),
             ));
         } else {
-            let package = store.get(package_id);
-            for &call_expr_id in unresolved_direct_call_sites {
-                errors.push(Error::DynamicCallable(package.get_expr(call_expr_id).span));
+            for &call_site in unresolved_direct_call_sites {
+                let package = store.get(call_site.package);
+                errors.push(Error::DynamicCallable(
+                    (call_site.package, package.get_expr(call_site.expr).span).into(),
+                ));
             }
         }
     }
@@ -699,17 +702,20 @@ fn collect_all_expr_ids(package: &Package, expr_id: ExprId, ids: &mut FxHashSet<
 /// Checks whether any reachable callable value still requires
 /// defunctionalization work.
 ///
-/// Returns `(has_remaining, count, first_span)` in a single reachability scan.
+/// Returns `(has_remaining, count, first_package, first_span)` in a single
+/// reachability scan.
 fn remaining_callable_value_info(
     store: &PackageStore,
     package_id: PackageId,
-) -> (bool, usize, Span) {
+) -> (bool, usize, PackageId, Span) {
     let reachable = collect_reachable_from_entry(store, package_id);
     let mut count = 0;
+    let mut first_package = package_id;
     let mut first_span = Span::default();
 
-    let mut record_remaining = |span: Span| {
+    let mut record_remaining = |owner: PackageId, span: Span| {
         if count == 0 {
+            first_package = owner;
             first_span = span;
         }
         count += 1;
@@ -731,7 +737,7 @@ fn remaining_callable_value_info(
         if let ItemKind::Callable(decl) = &item.kind {
             let input_pat = package.get_pat(decl.input);
             if ty_contains_arrow_through_udts(store, &input_pat.ty) {
-                record_remaining(input_pat.span);
+                record_remaining(store_id.package, input_pat.span);
             }
 
             crate::walk_utils::for_each_expr_in_callable_impl(
@@ -739,7 +745,7 @@ fn remaining_callable_value_info(
                 &decl.implementation,
                 &mut |_expr_id, expr| {
                     if matches!(expr.kind, ExprKind::Closure(_, _)) {
-                        record_remaining(expr.span);
+                        record_remaining(store_id.package, expr.span);
                     }
                     // Count indirect calls through arrow-typed local variables.
                     // After defunc iteration 1 specializes HOFs and removes callable
@@ -756,7 +762,7 @@ fn remaining_callable_value_info(
                         if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
                             && ty_contains_arrow(&base_expr.ty)
                         {
-                            record_remaining(base_expr.span);
+                            record_remaining(store_id.package, base_expr.span);
                         }
                     }
                 },
@@ -768,7 +774,7 @@ fn remaining_callable_value_info(
     if let Some(entry_id) = package.entry {
         crate::walk_utils::for_each_expr(package, entry_id, &mut |_expr_id, expr| {
             if matches!(expr.kind, ExprKind::Closure(_, _)) {
-                record_remaining(expr.span);
+                record_remaining(package_id, expr.span);
             }
             // Same indirect-call check as callable body walker.
             if let ExprKind::Call(callee_id, _) = &expr.kind {
@@ -777,13 +783,13 @@ fn remaining_callable_value_info(
                 if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
                     && ty_contains_arrow(&base_expr.ty)
                 {
-                    record_remaining(base_expr.span);
+                    record_remaining(package_id, base_expr.span);
                 }
             }
         });
     }
 
-    (count > 0, count, first_span)
+    (count > 0, count, first_package, first_span)
 }
 
 /// Checks whether a type contains an arrow type anywhere within its structure.

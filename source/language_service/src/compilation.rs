@@ -425,19 +425,17 @@ fn run_fir_passes(
             qsc::fir_transforms::run_pipeline_with_diagnostics(&mut fir_store, fir_package_id);
         if !transform_result.errors.is_empty() {
             for err in transform_result.errors {
-                errors.push(WithSource::from_map(
-                    &unit.sources,
-                    compile::ErrorKind::FirTransform(err),
-                ));
+                errors.push(
+                    compile::attach_fir_transform_source(package_store, err).into_with_source(),
+                );
             }
             return; // Don't run RCA on invalid FIR
         }
 
         for warning in transform_result.warnings {
-            errors.push(WithSource::from_map(
-                &unit.sources,
-                compile::ErrorKind::FirTransform(warning),
-            ));
+            errors.push(
+                compile::attach_fir_transform_source(package_store, warning).into_with_source(),
+            );
         }
     }
 
