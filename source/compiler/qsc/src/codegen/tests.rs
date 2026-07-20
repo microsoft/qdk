@@ -3431,10 +3431,8 @@ fn synthetic_path_array_arg_preserves_element_values() {
 
 #[test]
 fn synthetic_path_empty_array_arg_does_not_panic() {
-    // Regression: an empty `Value::Array` argument previously lowered to
-    // `Ty::Array(Ty::Err)`, which panicked at `PostAll` in release builds.
-    // The element-type hint fix lets the empty array carry its real element
-    // type, so codegen succeeds and emits no `op(q)` calls.
+    // An empty `Value::Array` retains its element type through synthetic-entry
+    // lowering, so codegen succeeds and emits no `op(q)` calls.
     let source = indoc::indoc! {r#"
         namespace Test {
             operation RunWith(op : Qubit => Unit, data : Int[]) : Result {
@@ -3467,10 +3465,8 @@ fn synthetic_path_empty_array_arg_does_not_panic() {
 
 #[test]
 fn synthetic_path_nested_empty_array_arg_does_not_panic() {
-    // Regression: a nested array `[[]] : Int[][]` whose inner array is empty
-    // previously poisoned the OUTER element type with `Ty::Err`, panicking at
-    // `PostAll`. The element-type hint must recurse so the outer array keeps
-    // its `Int[]` element type even when an inner array is empty.
+    // A nested array `[[]] : Int[][]` retains its element types through
+    // synthetic-entry lowering, so codegen succeeds and emits no `op(q)` calls.
     let source = indoc::indoc! {r#"
         namespace Test {
             operation RunNested(op : Qubit => Unit, data : Int[][]) : Result {
@@ -4198,10 +4194,8 @@ fn synthetic_path_callable_with_pauli_and_result_values() {
 
 #[test]
 fn callable_returning_closure_arg_generates_qir() {
-    // `MakeOp` returns a closure (`() => H(First(qs))`). Passing it to `DoOp`
-    // previously panicked with "global not present" because codegen re-invoked
-    // the original target after the producer closure had been erased. The
-    // synthetic-entry route must generate QIR containing the H gate instead.
+    // `MakeOp` returns a closure (`() => H(First(qs))`). The synthetic-entry
+    // route must preserve that closure and generate QIR containing the H gate.
     let source = indoc::indoc! {r#"
         namespace Test {
             function First<'T>(arr : 'T[]) : 'T { arr[0] }
@@ -4780,9 +4774,8 @@ fn chemistry_like_standard_qpe_callable_array_generates_qir() {
     // `ControlledFirst` (Controlled X -> cx) and index 1 is `ControlledSecond`
     // (Controlled Z -> cz). Both act on the single system/target qubit (index 2);
     // there is no QFT in this variant, so the controlled gates are exactly the two
-    // dispatch calls. The pre-fix defect collapsed every array element to element
-    // 0, which would emit two identical cx and no cz. Anchoring on the qubit-2
-    // target isolates the dispatch subsequence from the state-prep `X`.
+    // dispatch calls. Anchoring on the qubit-2 target isolates the expected
+    // per-index dispatch sequence [cx, cz] from the state-prep `X`.
     let dispatch_gates: Vec<&str> = qir
         .lines()
         .filter(|line| line.trim_end().ends_with("inttoptr (i64 2 to %Qubit*))"))
@@ -4994,10 +4987,9 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
     // The dispatch loop calls controlledUnitary[0..5] in order. Each element is a
     // closure over `RepControlled` capturing `angle`: even indices capture 1.0
     // (angle > 0.0 -> Controlled X -> cx) and odd indices capture -1.0
-    // (Controlled Z -> cz), so the correct dispatch sequence alternates
-    // cx, cz, cx, cz, cx, cz. The pre-fix defect collapsed every closure to
-    // closure 0's captured angle (1.0), emitting six identical cx and no dispatch
-    // cz. All six dispatch gates act on the single system qubit (index 6). The
+    // (Controlled Z -> cz), so the expected dispatch sequence alternates
+    // cx, cz, cx, cz, cx, cz. All six dispatch gates act on the single system
+    // qubit (index 6). The
     // `Adjoint ApplyQFT(ancillas)` that follows emits many cx among the ancilla
     // qubits (indices 0..5) but never targets qubit 6 and emits no cz, so
     // anchoring on the qubit-6 target isolates the dispatch subsequence.
@@ -5573,13 +5565,8 @@ fn break_continue_loops_lower_to_rir_without_early_exit() {
 #[test]
 fn bare_operand_break_lowers_to_qir_and_skips_eager_consumer() {
     // A bare-operand `break` buried in a call argument such as `Sink(q, break)` is
-    // hoisted to statement position and desugared to flags, so the whole
-    // HIR -> FIR -> RIR -> QIR pipeline lowers with no residual early-exit node,
-    // since the lowerer panics on any leftover `break`. The eager consumer `Sink`
-    // applies an `H` gate, so a successful lowering with no `H` in the QIR
-    // proves the break fires before the argument is consumed. Previously the
-    // buried break was left in operand position, which would instead run
-    // `Sink`, emitting `H`, on the break iteration.
+    // hoisted and lowered without evaluating the eager consumer. `Sink` applies
+    // an `H` gate, so no H call in the QIR proves the break fires first.
     let source = r#"
         namespace Test {
             operation Sink(q : Qubit, x : Int) : Int { H(q); x }
