@@ -1763,6 +1763,103 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
     );
 }
 
+/// Regression for a recursive HOF with an auto-generated adjoint body.
+///
+/// The partial application `Repeat(H, 1, _)` is copied into both the body and
+/// adjoint implementations, so both closure expressions reference the same
+/// lifted lambda target. Static closure-capture inlining must recognize that
+/// the copies make an identical target rewrite, inline `H` once in the shared
+/// target, and remove the corresponding capture from both closure occurrences.
+/// The invariant and pipeline checks ensure the resulting body and adjoint
+/// specialization chains converge without `DynamicCallable` diagnostics or
+/// stale callable arguments.
+#[test]
+fn adjoint_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Adj, n : Int, q : Qubit) : Unit is Adj {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            Main: input_ty=Unit
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+    );
+}
+
+/// Regression for a recursive HOF with an auto-generated controlled body.
+///
+/// The recursive partial application captures `H`, while `Controlled Repeat`
+/// nests the operation input beneath the controls array and causes functor
+/// generation to copy the recursive body. Defunctionalization must apply a
+/// compatible shared-target capture rewrite to every generated occurrence,
+/// locate the callable slot through the controlled input path, and route the
+/// reduced recursive calls to type-correct specializations.
+#[test]
+fn controlled_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Ctl, n : Int, q : Qubit) : Unit is Ctl {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            use ctls = Qubit[2];
+            Controlled Repeat(ctls, (H, 2, q));
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
+}
+
+/// Regression for recursive partial applications under combined controlled and
+/// adjoint functors.
+///
+/// One recursive call applies `Adjoint` to a call receiving `Repeat(H, 1, _)`;
+/// the other forwards `Adjoint Repeat(H, 1, _)` as the callable argument. Along
+/// with the controlled entry call, these shapes exercise shared lifted-target
+/// rewrites, nested controlled input paths, and functor composition on both the
+/// HOF callee and its closure argument. Every generated body must converge
+/// without dynamic callable values, stale capture slots, or malformed reduced
+/// calls.
+#[test]
+fn controlled_adjoint_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Ctl + Adj, n : Int, q : Qubit) : Unit is Ctl + Adj {
+            if n > 0 {
+                op(q);
+                Adjoint Repeat(Repeat(H, 1, _), n - 1, q);
+                Repeat(Adjoint Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            use ctls = Qubit[2];
+            Controlled Repeat(ctls, (H, 2, q));
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
+}
+
 /// Regression: when a callable's entire input is a single closure-valued
 /// parameter and the passed closure captures exactly one variable, the
 /// specialized callee's input must be flattened to a scalar (the single

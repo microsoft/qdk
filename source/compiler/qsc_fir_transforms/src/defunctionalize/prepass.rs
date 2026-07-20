@@ -62,6 +62,8 @@ pub(super) fn run(
 /// This is computed under an immutable borrow and applied under a mutable
 /// borrow, mirroring [`promote_single_use_callable_locals`].
 struct ClosureCaptureInlining {
+    /// The lifted target shared by the closure expressions in this plan group.
+    target: LocalItemId,
     /// The closure expression whose capture list shrinks.
     closure_expr_id: ExprId,
     /// The rewritten capture list with the inlined capture slots removed.
@@ -107,9 +109,9 @@ struct ClosureCaptureInlining {
 /// - A capture is inlined only when its enclosing initializer is a bare global
 ///   item reference (`Var(Res::Item(_))`), so no enclosing local escapes into the
 ///   lifted body.
-/// - The target must be referenced by exactly one closure across reachable code
-///   (`target_ref_count == 1`), so the in-place body rewrite never affects a
-///   target shared by a differently-captured closure.
+/// - When multiple reachable closures reference one target, every reference
+///   must produce the same target rewrite. This permits equivalent copies in
+///   generated functor bodies without affecting a differently-captured closure.
 /// - The target's top-level input must be a flat tuple of bindings; nested or
 ///   tuple-destructuring parameters are skipped as a safe no-op.
 /// - A capture parameter re-captured by a nested closure in the target body is
@@ -126,47 +128,71 @@ fn inline_static_closure_captures(
         collect_static_closure_capture_inlinings(pkg, reachable_expr_ids)
     };
 
-    // Apply the planned inlinings using a mutable borrow.
+    // Apply the planned inlinings using a mutable borrow. The target-level
+    // rewrite is identical within each group, so apply it once before updating
+    // each closure occurrence independently.
     if !inlinings.is_empty() {
         let pkg = store.get_mut(package_id);
-        for inlining in inlinings {
-            for (expr_id, new_kind) in inlining.body_rewrites {
+        for mut group in inlinings {
+            let target_rewrite = group.pop().expect("inlining group should not be empty");
+            let ClosureCaptureInlining {
+                closure_expr_id,
+                new_captures,
+                target_input_pat_id,
+                new_input_sub_pats,
+                new_input_ty,
+                body_rewrites,
+                ..
+            } = target_rewrite;
+            for (expr_id, new_kind) in body_rewrites {
                 pkg.exprs
                     .get_mut(expr_id)
                     .expect("expression should exist")
                     .kind = new_kind;
             }
+            let pat = pkg
+                .pats
+                .get_mut(target_input_pat_id)
+                .expect("pattern should exist");
+            pat.kind = PatKind::Tuple(new_input_sub_pats);
+            pat.ty = new_input_ty;
+
             if let ExprKind::Closure(captures, _) = &mut pkg
                 .exprs
-                .get_mut(inlining.closure_expr_id)
+                .get_mut(closure_expr_id)
                 .expect("expression should exist")
                 .kind
             {
-                *captures = inlining.new_captures;
+                *captures = new_captures;
             }
-            let pat = pkg
-                .pats
-                .get_mut(inlining.target_input_pat_id)
-                .expect("pattern should exist");
-            pat.kind = PatKind::Tuple(inlining.new_input_sub_pats);
-            pat.ty = inlining.new_input_ty;
+            for inlining in group {
+                if let ExprKind::Closure(captures, _) = &mut pkg
+                    .exprs
+                    .get_mut(inlining.closure_expr_id)
+                    .expect("expression should exist")
+                    .kind
+                {
+                    *captures = inlining.new_captures;
+                }
+            }
         }
     }
 }
 
 /// Scans reachable closures and collects a [`ClosureCaptureInlining`] for each one
-/// whose statically known callable captures can be inlined into a singly-referenced
-/// lifted target. Capture-to-binding matching is scoped per owner boundary (via
+/// whose statically known callable captures can be inlined. Plans are grouped by
+/// lifted target and retained only when every reachable reference has a compatible
+/// target rewrite. Capture-to-binding matching is scoped per owner boundary (via
 /// [`collect_promotion_scopes`]) because `LocalVarId`s are unique only within a
 /// single callable and collide across callables.
 fn collect_static_closure_capture_inlinings(
     pkg: &Package,
     reachable_expr_ids: &[ExprId],
-) -> Vec<ClosureCaptureInlining> {
+) -> Vec<Vec<ClosureCaptureInlining>> {
     let reachable: FxHashSet<ExprId> = reachable_expr_ids.iter().copied().collect();
 
-    // Count how many reachable closures reference each lifted target so the
-    // in-place body rewrite is only applied to singly-referenced targets.
+    // Count every reachable reference so a target is rewritten only when all
+    // of its closure occurrences participate in the same normalization.
     let mut target_ref_count: FxHashMap<LocalItemId, usize> = FxHashMap::default();
     for &expr_id in reachable_expr_ids {
         if let ExprKind::Closure(_, target) = &pkg.get_expr(expr_id).kind {
@@ -174,7 +200,8 @@ fn collect_static_closure_capture_inlinings(
         }
     }
 
-    let mut inlinings = Vec::new();
+    let mut inlinings_by_target: FxHashMap<LocalItemId, Vec<ClosureCaptureInlining>> =
+        FxHashMap::default();
     for scope in collect_promotion_scopes(pkg) {
         let callable_inits = collect_scope_callable_inits(pkg, &scope, &reachable);
         if callable_inits.is_empty() {
@@ -187,17 +214,50 @@ fn collect_static_closure_capture_inlinings(
             let ExprKind::Closure(captures, target) = &pkg.get_expr(expr_id).kind else {
                 continue;
             };
-            if target_ref_count.get(target) != Some(&1) {
-                continue;
-            }
             if let Some(inlining) =
                 plan_closure_capture_inlining(pkg, expr_id, captures, *target, &callable_inits)
             {
-                inlinings.push(inlining);
+                inlinings_by_target
+                    .entry(*target)
+                    .or_default()
+                    .push(inlining);
             }
         }
     }
-    inlinings
+
+    inlinings_by_target
+        .into_iter()
+        .filter_map(|(target, group)| {
+            let expected_count = target_ref_count.get(&target).copied()?;
+            shared_target_group_is_compatible(&group, expected_count).then_some(group)
+        })
+        .collect()
+}
+
+/// Returns whether every reachable closure reference produced the same rewrite
+/// for its shared lifted target.
+fn shared_target_group_is_compatible(
+    group: &[ClosureCaptureInlining],
+    expected_count: usize,
+) -> bool {
+    let Some(first) = group.first() else {
+        return false;
+    };
+    group.len() == expected_count
+        && group
+            .iter()
+            .all(|candidate| target_rewrites_match(first, candidate))
+}
+
+/// Returns whether two closure plans make the same in-place change to their
+/// shared lifted target. Closure expression ids and retained capture locals are
+/// intentionally excluded because those belong to each occurrence's owner.
+fn target_rewrites_match(left: &ClosureCaptureInlining, right: &ClosureCaptureInlining) -> bool {
+    left.target == right.target
+        && left.target_input_pat_id == right.target_input_pat_id
+        && left.new_input_sub_pats == right.new_input_sub_pats
+        && left.new_input_ty == right.new_input_ty
+        && left.body_rewrites == right.body_rewrites
 }
 
 /// Collects the immutable `let arg = <item>;` bindings in one owner scope whose
@@ -331,6 +391,7 @@ fn plan_closure_capture_inlining(
     );
 
     Some(ClosureCaptureInlining {
+        target,
         closure_expr_id,
         new_captures,
         target_input_pat_id: decl.input,
