@@ -131,7 +131,7 @@ impl MutVisitor for ConfigInline<'_> {
             }
             ExprKind::Var(Res::Item(item_id), _) => {
                 if *item_id == self.get_config_item_id {
-                    self.errors.push(Error::ConfigValueMustBeCalled(expr.span))
+                    self.errors.push(Error::ConfigValueMustBeCalled(expr.span));
                 }
             }
             _ => mut_visit::walk_expr(self, expr),
