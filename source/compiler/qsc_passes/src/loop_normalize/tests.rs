@@ -822,7 +822,7 @@ fn hoist_break_in_tuple_with_qubit_operand_array_backed() {
                     } else {
                         [(1, q)]
                     };
-                    _operand_tmp_39(_operand_tmp_43[0]);
+                    _operand_tmp_39(_operand_tmp_43[0]::Item < 0 >, _operand_tmp_43[0]::Item < 1 >);
                 }
             }
         "#]],
