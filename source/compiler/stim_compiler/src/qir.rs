@@ -45,29 +45,35 @@ impl QirWriter {
 
     /// `__quantum__qis__{intrinsic}__body`
     fn write_qis_call(&mut self, intrinsic: &str, ids: &[u32]) {
-        self.call_intrinsic(&format!("__quantum__qis__{intrinsic}__body"), ids, false);
+        self.call_intrinsic(&format!("__quantum__qis__{intrinsic}__body"), ids);
     }
 
     /// `__quantum__qis__{intrinsic}__adj`
     fn write_qis_adj_call(&mut self, intrinsic: &str, ids: &[u32]) {
-        self.call_intrinsic(&format!("__quantum__qis__{intrinsic}__adj"), ids, false);
+        self.call_intrinsic(&format!("__quantum__qis__{intrinsic}__adj"), ids);
+    }
+
+    fn call_intrinsic(&mut self, intrinsic: &str, ids: &[u32]) {
+        self.write_call(intrinsic, ids);
+        self.declare(intrinsic, || {
+            let params = vec!["ptr"; ids.len()].join(", ");
+            format!("declare void @{intrinsic}({params})")
+        });
     }
 
     /// `noise_intrinsic_{id}`
     fn write_noise_call(&mut self, name: &str, ids: &[u32]) {
-        self.call_intrinsic(name, ids, true);
+        self.call_noise_intrinsic(name, ids);
     }
 
-    fn call_intrinsic(&mut self, intrinsic: &str, ids: &[u32], noise: bool) {
+    fn call_noise_intrinsic(&mut self, intrinsic: &str, ids: &[u32]) {
         self.write_call(intrinsic, ids);
-        let attribute = if noise { " #2" } else { "" };
+        let attribute = " #2";
         self.declare(intrinsic, || {
             let params = vec!["ptr"; ids.len()].join(", ");
             format!("declare void @{intrinsic}({params}){attribute}")
         });
-        if noise {
-            self.has_noise_intrinsic = true;
-        }
+        self.has_noise_intrinsic = true;
     }
 
     // Writes: `  call void @{name}(ptr inttoptr (i64 N to ptr), ...)` without declaring `name`.
