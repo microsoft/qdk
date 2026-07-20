@@ -5556,10 +5556,13 @@ fn break_continue_loops_lower_to_rir_without_early_exit() {
         rir_text.contains("name: __quantum__qis__y__body"),
         "expected the Y gate callable to survive into RIR:\n{rir_text}"
     );
-    assert!(
-        rir_text.contains("Return Integer(0)"),
-        "expected the desugared program to lower to a single clean return:\n{rir_text}"
-    );
+    for rir_form in &rir {
+        assert_eq!(
+            rir_form.matches("Return Integer(0)").count(),
+            1,
+            "expected each desugared RIR form to contain exactly one return:\n{rir_form}"
+        );
+    }
 }
 
 #[test]
