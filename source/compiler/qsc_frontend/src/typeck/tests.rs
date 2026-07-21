@@ -1264,6 +1264,84 @@ fn unreachable_loop_control_does_not_suppress_body_divergence() {
 }
 
 #[test]
+fn unreachable_loop_control_in_later_call_argument_does_not_suppress_divergence() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Consume(a : Unit, b : Unit) : Unit {}
+            function First<'T>() : 'T {
+                repeat {
+                    Consume(fail "body", break);
+                } until true
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn unreachable_loop_control_after_diverging_condition_does_not_suppress_divergence() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function First<'T>() : 'T {
+                repeat {
+                    if fail "condition" { break }
+                } until true
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn short_circuit_rhs_break_does_not_make_expression_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Main(cond : Bool) : Unit {
+                while true {
+                    let value = if cond { false and break } else { 0 };
+                }
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a branch type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn break_in_struct_field_makes_struct_expression_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            struct Pair { First : Int, Second : Int }
+            function Main(cond : Bool) : Unit {
+                while true {
+                    let value = if cond {
+                        new Pair { First = break, Second = 0 }
+                    } else {
+                        1
+                    };
+                }
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
 fn repeat_with_diverging_until_is_divergent() {
     let (_, _, errors) = compile(
         r#"namespace Test { function First<'T>() : 'T {
@@ -1306,20 +1384,67 @@ fn repeat_with_continue_and_diverging_until_is_divergent() {
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
 }
 
-#[test]
-fn repeat_ignores_break_bound_to_nested_loop() {
-    let (_, _, errors) = compile(
-        r#"namespace Test { function First<'T>() : 'T {
-            repeat {
-                while true { break }
-                fail "body"
-            } until true
-        } }"#,
-        "",
-        false,
-    );
+fn assert_nested_loop_control_does_not_suppress_divergence(cases: [(&str, &str); 2]) {
+    for (case, body) in cases {
+        let source = format!(
+            r#"namespace Test {{ function First<'T>() : 'T {{
+                repeat {{ {body} }} until true
+            }} }}"#
+        );
+        let (_, _, errors) = compile(&source, "", false);
+        assert!(
+            errors.is_empty(),
+            "unexpected errors for {case}: {errors:?}"
+        );
+    }
+}
 
-    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+#[test]
+fn repeat_ignores_loop_control_bound_to_two_level_nested_loop() {
+    assert_nested_loop_control_does_not_suppress_divergence([
+        (
+            "two-level break",
+            r#"while true { break }
+                fail "body""#,
+        ),
+        (
+            "two-level continue",
+            r#"while true { continue }
+                fail "body""#,
+        ),
+    ]);
+}
+
+#[test]
+fn repeat_ignores_loop_control_bound_to_three_level_nested_loop() {
+    assert_nested_loop_control_does_not_suppress_divergence([
+        (
+            "three-level break",
+            r#"while true { for _ in [1] { break } }
+                fail "body""#,
+        ),
+        (
+            "three-level continue",
+            r#"while true { for _ in [1] { continue } }
+                fail "body""#,
+        ),
+    ]);
+}
+
+#[test]
+fn repeat_ignores_loop_control_bound_to_four_level_nested_loop() {
+    assert_nested_loop_control_does_not_suppress_divergence([
+        (
+            "four-level break",
+            r#"while true { for _ in [1] { repeat { break } until true } }
+                fail "body""#,
+        ),
+        (
+            "four-level continue",
+            r#"while true { for _ in [1] { repeat { continue } until true } }
+                fail "body""#,
+        ),
+    ]);
 }
 
 #[test]
