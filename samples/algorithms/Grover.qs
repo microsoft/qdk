@@ -1,14 +1,14 @@
-/// # Sample
-/// Grover's Search Algorithm
-///
-/// # Description
-/// Grover's search algorithm is a quantum algorithm that finds with high
-/// probability the unique input to a black box function that produces a
-/// particular output value.
-///
-/// This Q# program implements the Grover's search algorithm and applies it
-/// to a specific problem: finding a marked state in a register of qubits.
-/// The marked state selected for this sample is |01010⟩.
+// # Sample
+// Grover's Search Algorithm
+//
+// # Description
+// Grover's search algorithm is a quantum algorithm that finds with high
+// probability the unique input to a black box function that produces a
+// particular output value.
+//
+// This Q# program implements the Grover's search algorithm and applies it
+// to a specific problem: finding a marked state in a register of qubits.
+// The marked state selected for this sample is |01010⟩.
 
 import Std.Convert.*;
 import Std.Math.*;

@@ -1,9 +1,9 @@
-/// A set of gates built upon the custom measurements
-/// provided by the hardware provider.
-///
-/// Source:
-///  [1] Surface code compilation via edge-disjoint paths
-///      https://arxiv.org/pdf/2110.11493
+// A set of gates built upon the custom measurements
+// provided by the hardware provider.
+//
+// Source:
+//  [1] Surface code compilation via edge-disjoint paths
+//      https://arxiv.org/pdf/2110.11493
 
 /// Apply a CNOT gate to the given qubits.
 /// Source: [1] Figure 3.
