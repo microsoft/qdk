@@ -234,6 +234,86 @@ result = code.GenerateRandomBits(5)  # pass Q# function arguments directly
 
 For OpenQASM syntax details, see [openqasm.md](./openqasm.md).
 
+### Parse, analyze, and navigate source
+
+Parsing and semantic analysis return diagnostics as result data. Their nodes
+and diagnostics use global, half-open UTF-8 byte spans resolved through the
+result's immutable source document:
+
+```python
+from qdk.openqasm import parser, semantic
+
+parsed = parser.parse(
+    'OPENQASM 3.0; include "defs.inc"; qubit q;',
+    path="memory://workspace/main.qasm",
+    includes={"memory://workspace/defs.inc": "gate local q { x q; }"},
+)
+assert not parsed.has_errors
+
+included = parsed.document.source_map.find("memory://workspace/defs.inc")
+assert included is not None
+position = parsed.document.source_map.position_at(included.id, 5)
+assert parsed.document.source_map.byte_offset(included.id, position) == 5
+
+analysis = semantic.analyze(
+    'OPENQASM 3.0; include "stdgates.inc"; qubit q; h q; int value = missing;'
+)
+assert analysis.has_errors
+assert any(d.code == "Qdk.Qasm.Lowerer.UndefinedSymbol" for d in analysis.diagnostics)
+```
+
+### Include resolver contract
+
+Resolver keys are platform-neutral logical identifiers. Use `/` separators.
+Relative `.` and `..` components are normalized against the including source;
+URI-like schemes are preserved but not decoded or fetched. Caller keys match
+exactly and case-sensitively on every host:
+
+```python
+from qdk.openqasm import parser
+
+result = parser.parse(
+    'OPENQASM 3.0; include "./Case.inc"; include "case.inc";',
+    path="memory://workspace/main.qasm",
+    includes={
+        "memory://workspace/Case.inc": "int upper = 1;",
+        "memory://workspace/case.inc": "int lower = 2;",
+    },
+)
+assert not result.has_errors
+```
+
+`stdgates.inc` and `qelib1.inc` are built in. Other keys have no filesystem or
+network fallback. Missing keys, wrong callback return types, and callback
+exceptions become diagnostics and unresolved source entries. Results do not
+retain resolver callbacks.
+
+### Visit and serialize syntax
+
+`QASMVisitor` propagates optional context through syntax and semantic trees.
+Canonical serialization accepts syntax programs only and may change between
+preview releases:
+
+```python
+from qdk.openqasm import parser
+from qdk.openqasm.parser import QASMVisitor
+
+class GateNames(QASMVisitor):
+    def visit_QuantumGate(self, node: object, context: list[str]) -> None:
+        context.append(node.name.name)  # type: ignore[attr-defined]
+        self.generic_visit(node, context)
+
+names: list[str] = []
+program = parser.parse_program("OPENQASM 3.0; qubit q; x q; y q;")
+GateNames().visit(program, names)
+assert names == ["x", "y"]
+assert parser.dumps(program) == "OPENQASM 3.0;\nqubit q;\nx q;\ny q;\n"
+```
+
+`parser.dumps` raises `QASMUnparseError` for recovered or unsupported syntax,
+invalid strings, and non-finite floats. `parser.dump` writes once to a text
+stream, propagates writer exceptions, and does not flush or close the stream.
+
 ### Multishot Simulation
 
 ```python

@@ -1,13 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The [`ValidWordCollector`] provides a mechanism to hook into the parser
+//! The valid-word collector provides a mechanism to hook into the parser
 //! to collect the possible valid words at a specific cursor location in the
 //! code. It's meant to be used by the code completion feature in the
 //! language service.
 //!
 //! Any time the parser is about to try parsing a word token, it records the
-//! expected word(s) through a call to [`ValidWordCollector::expect()`].
+//! expected word or words through the collector.
 //! These are considered to be valid words for that location.
 //!
 //! If the parser is not at the cursor position yet, this call is ignored.
@@ -15,7 +15,7 @@
 //! Once the parser has reached the cursor position, the expected word(s)
 //! are recorded into a list.
 //!
-//! At this point, the [`ValidWordCollector`] tricks the parser by
+//! At this point, the collector tricks the parser by
 //! intercepting the lexer and returning an EOF token to the parser instead
 //! of the real next token from the source.
 //!
@@ -24,23 +24,24 @@
 //! recording the expected words in the process. Finally, it gives up.
 //!
 //! As soon as the parser reports a parse error at the cursor location,
-//! the [`ValidWordCollector`] stops recording expected words. This
+//! the collector stops recording expected words. This
 //! is to prevent the word list from getting polluted with words that are
 //! expected after recovery occurs.
 //!
 //! For example, consider the code sample below, where `|` denotes the
 //! cursor location:
 //!
-//! ```qsharp
-//! operation Main() : Unit { let x: |
+//! ```qasm
+//! OPENQASM 3.0;
+//! def main(int[| value) {}
 //! ```
 //!
 //! When the parser gets to the cursor location, it looks for the words that are
-//! applicable at a type position (paths, type parameters, etc). But it
-//! keeps finding the EOF that was inserted by the [`ValidWordCollector`].As the
+//! applicable at a type position. But it keeps finding the EOF that was inserted
+//! by the collector. As the
 //! parser goes through each possible word, the word is recorded by the collector.
 //! Finally, the parser gives up and reports a parse error. The parser then recovers,
-//! and and starts looking for words that can start statements instead (`let`, etc).
+//! and starts looking for words that can start statements instead (`let`, etc.).
 //! These words are *not* recorded by the collector since they occur
 //! after the parser has already reported an error.
 //!
@@ -48,12 +49,12 @@
 //! parser will never run further than the cursor location, meaning the two
 //! below code inputs are equivalent:
 //!
-//! ```qsharp
-//! operation Foo() : | Unit {}
+//! ```qasm
+//! def foo(int[| value) {}
 //! ```
 //!
-//! ```qsharp
-//! operation Foo() : |
+//! ```qasm
+//! def foo(int[|
 //! ```
 
 use super::WordKinds;

@@ -146,16 +146,16 @@ impl WordKinds {
 
 /// A hardcoded identifier.
 ///
-/// Maps to a subset of values in [`Predictions`], but an enum
+/// Maps to a subset of values in [`WordKinds`], but an enum
 /// for friendly consumption.
 pub enum HardcodedIdentKind {
     /// An attribute, without the leading `@`.
     Annotation,
 }
 
-/// A name (see: [`Predictions`])
+/// A name represented by [`WordKinds`].
 ///
-/// Maps to a subset of values in [`Predictions`], but an enum
+/// Maps to a subset of values in [`WordKinds`], but an enum
 /// for friendly consumption.
 pub enum NameKind {
     /// A path.
@@ -165,9 +165,9 @@ pub enum NameKind {
     PathSegment,
 }
 
-/// A path (see: [`Predictions`])
+/// A path represented by [`WordKinds`].
 ///
-/// Maps to a subset of values in [`Predictions`], but an enum
+/// Maps to a subset of values in [`WordKinds`], but an enum
 /// for friendly consumption.
 #[derive(Debug, Clone, Copy)]
 pub enum PathKind {

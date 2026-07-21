@@ -41,6 +41,17 @@ call returns.
 source snapshot. Semantic node, symbol, and diagnostic spans are global,
 half-open UTF-8 byte ranges and can be mapped to their owning source through
 ``result.document.source_map``.
+
+The ``includes`` argument follows the parser's logical resolver contract:
+relative ``.`` and ``..`` components are normalized using ``/``-separated
+logical paths, URI-like schemes remain opaque, and caller keys match exactly
+and case-sensitively. ``stdgates.inc`` and ``qelib1.inc`` are built in. There is
+no filesystem or network fallback. Missing sources and callback failures become
+diagnostics and unresolved source entries instead of escaping as callback
+exceptions. Each analysis call creates a fresh resolver bridge.
+
+Semantic type and constant values are analysis data. Do not persist their
+human-readable string forms as a stable interchange format.
 """
 
 from __future__ import annotations
@@ -221,9 +232,12 @@ def analyze(
         source: The OpenQASM 2.0 or 3.0 source text to analyze.
         path: A display name for the source, used in diagnostics.
         includes: How to resolve ``include`` directives. Either a mapping from
-            include name to source text, or a callable that maps an include name
-            to source text (returning ``None`` when the name is unknown). When
-            ``None``, includes cannot be resolved from the caller.
+            normalized logical identifier to source text, or a callable that
+            maps that identifier to source text (returning ``None`` when the
+            identifier is unknown). Matching is exact and case-sensitive.
+            Built-in standard includes remain available when this is ``None``;
+            other includes produce diagnostics because there is no filesystem
+            fallback. Callback exceptions are converted to diagnostics.
 
     Returns:
         An :class:`AnalysisResult` whose ``program`` is the root

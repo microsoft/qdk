@@ -19,6 +19,20 @@ Use :func:`parse` as the entry point::
             print(diagnostic.message)
     program = result.program
 
+``result.document`` is the immutable source snapshot for the parse. Syntax and
+diagnostic spans are global, half-open UTF-8 byte ranges; map them to a source
+with ``result.document.source_map.range_from_span(span)``.
+
+The ``includes`` argument accepts a mapping or callback over platform-neutral
+logical identifiers. Use ``/`` separators. Relative ``.`` and ``..`` components
+are normalized against the including source's logical parent, and URI-like
+schemes are preserved without URL decoding or fetching. Caller-provided key
+matching is exact and case-sensitive. ``stdgates.inc`` and ``qelib1.inc`` are
+built in; no other include falls back to the filesystem or network. Missing
+keys and callback exceptions become result diagnostics with unresolved source
+entries. A new resolver bridge is used for each call, and the result does not
+retain the mapping or callback.
+
 Class names follow the ``openqasm3`` reference AST wherever an equivalent class
 exists (for example :class:`BinaryExpression`, :class:`QuantumGate`,
 :class:`ClassicalDeclaration`, and :class:`ForInLoop`); variants with no
@@ -40,7 +54,7 @@ call returns. Node identity is local to one parse snapshot: repeated access to
 a child within a result preserves identity, but rewriting creates a new graph
 and does not preserve identities for unchanged subtrees.
 
-This API is in preview without an unconditional runtime warning. 
+This API is in preview without an unconditional runtime warning.
 
 Serialization accepts only syntax ``Program`` objects. It does not serialize
 semantic trees, retain comments or original spelling, expose style options, or
@@ -295,9 +309,12 @@ def parse(
         source: The OpenQASM 2.0 or 3.0 source text to parse.
         path: A display name for the source, used in diagnostics.
         includes: How to resolve ``include`` directives. Either a mapping from
-            include name to source text, or a callable that maps an include name
-            to source text (returning ``None`` when the name is unknown). When
-            ``None``, includes cannot be resolved from the caller.
+            normalized logical identifier to source text, or a callable that
+            maps that identifier to source text (returning ``None`` when the
+            identifier is unknown). Matching is exact and case-sensitive.
+            Built-in standard includes remain available when this is ``None``;
+            other includes produce diagnostics because there is no filesystem
+            fallback. Callback exceptions are converted to diagnostics.
 
     Returns:
         A :class:`ParseResult` whose ``program`` is the root :class:`Program`

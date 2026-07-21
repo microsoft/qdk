@@ -892,7 +892,7 @@ impl From<ArrayDimensions> for ArrayRank {
 
 impl From<ArrayRank> for ArrayDimensions {
     /// This implementation is only meant to be used as a helper method
-    /// for [`Type::get_indexed_type`].
+    /// when deriving the remaining dimensions after indexing an array type.
     fn from(value: ArrayRank) -> Self {
         match value {
             ArrayRank::One => Self::One(0),

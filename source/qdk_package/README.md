@@ -49,6 +49,142 @@ result = qsharp.run("{ use q = Qubit(); H(q); return MResetZ(q); }", shots=100)
 print(result)
 ```
 
+## OpenQASM parsing and analysis
+
+The preview `qdk.openqasm.parser` and `qdk.openqasm.semantic` modules expose
+read-only syntax and semantic trees. Both entry points return diagnostics on a
+result object, including diagnostics from resolved sources.
+
+### Parse and navigate sources
+
+`parser.parse` performs recovery-oriented syntactic parsing. Node and diagnostic
+spans are global, half-open UTF-8 byte ranges. Resolve a span through the
+immutable document owned by the result:
+
+```python
+from qdk.openqasm import parser
+
+parsed = parser.parse(
+    'OPENQASM 3.0; include "defs.inc"; qubit q;',
+    path="memory://workspace/main.qasm",
+    includes={"memory://workspace/defs.inc": "gate local q { x q; }"},
+)
+assert not parsed.has_errors
+assert parsed.program.document is parsed.document
+
+source_file = parsed.document.source_map.find("memory://workspace/defs.inc")
+assert source_file is not None
+position = parsed.document.source_map.position_at(source_file.id, 5)
+assert parsed.document.source_map.byte_offset(source_file.id, position) == 5
+assert source_file.path == "memory://workspace/defs.inc"
+```
+
+`parser.parse_program` is a strict-by-default convenience wrapper. It raises
+`QASM3ParsingError` when the underlying parse result has diagnostics, unless
+`permissive=True` is supplied. The exception retains the complete result.
+
+### Analyze symbols and diagnostics
+
+`semantic.analyze` resolves symbols, checks types, and evaluates constants. Its
+program and result share the same source document. Diagnostics are result data,
+not exceptions:
+
+```python
+from qdk.openqasm import semantic
+
+analysis = semantic.analyze(
+    'OPENQASM 3.0; include "stdgates.inc"; qubit q; h q; int value = missing;',
+    path="main.qasm",
+)
+assert analysis.has_errors
+assert analysis.program.document is analysis.document
+assert any(diagnostic.code == "Qdk.Qasm.Lowerer.UndefinedSymbol" for diagnostic in analysis.diagnostics)
+
+missing = analysis.diagnostics[-1].labels[0]
+source_range = analysis.document.source_map.range_from_span(missing.span)
+assert source_range.source_id == analysis.document.entry.id
+```
+
+Semantic types and constant values describe the current analysis result. Their
+human-readable string forms are not a cross-release serialization format.
+
+### Resolve includes
+
+The `includes` argument accepts a `dict[str, str]`, a callback returning source
+text or `None`, or `None`. Keys are platform-neutral logical identifiers and
+should use `/` separators. Relative `.` and `..` path components are resolved
+against the including source's logical parent. URI-like `scheme://` prefixes
+are preserved, but QDK does not percent-decode, fetch, or otherwise interpret
+them. Caller-provided key matching is exact and case-sensitive on every host:
+
+```python
+from qdk.openqasm import parser
+
+resolved = parser.parse(
+    'OPENQASM 3.0; include "./Case.inc"; include "case.inc";',
+    path="memory://workspace/main.qasm",
+    includes={
+        "memory://workspace/Case.inc": "int upper = 1;",
+        "memory://workspace/case.inc": "int lower = 2;",
+    },
+)
+assert not resolved.has_errors
+assert resolved.document.source_map.find("memory://workspace/Case.inc") is not None
+assert resolved.document.source_map.find("memory://workspace/case.inc") is not None
+```
+
+`stdgates.inc` and `qelib1.inc` are built in and do not invoke the callback.
+There is no filesystem or network fallback for other keys. A missing key, a
+callback exception, or a callback result with the wrong type becomes a result
+diagnostic and an unresolved source snapshot; it does not escape as the
+callback's exception. A fresh resolver bridge is created for each `parse` or
+`analyze` call, and returned results do not retain the callback.
+
+### Visit syntax and semantic trees
+
+`QASMVisitor` walks either tree. An optional context is propagated to callbacks
+and `generic_visit`; one-argument callbacks remain supported:
+
+```python
+from qdk.openqasm import parser
+from qdk.openqasm.parser import QASMVisitor
+
+class GateNames(QASMVisitor):
+    def visit_QuantumGate(self, node: object, context: list[str]) -> None:
+        context.append(node.name.name)  # type: ignore[attr-defined]
+        self.generic_visit(node, context)
+
+names: list[str] = []
+program = parser.parse("OPENQASM 3.0; qubit q; x q; y q;").program
+GateNames().visit(program, names)
+assert names == ["x", "y"]
+```
+
+### Write canonical source
+
+`parser.dumps` (also exported as `qdk.openqasm.dumps` and `unparse`) emits the
+current canonical format from a syntax program. It omits comments and original
+formatting, preserves include directives without expanding them, and does not
+accept semantic programs. The preview format can change between QDK releases:
+
+```python
+import io
+
+from qdk.openqasm import parser
+
+program = parser.parse_program("OPENQASM 3.0; qubit q; x q;")
+canonical = parser.dumps(program)
+assert canonical == "OPENQASM 3.0;\nqubit q;\nx q;\n"
+
+stream = io.StringIO()
+parser.dump(program, stream)
+assert stream.getvalue() == canonical
+```
+
+`dumps` raises `QASMUnparseError` for recovered or unsupported syntax, invalid
+strings, and non-finite float spellings. `dump` calls `stream.write` once and
+propagates stream exceptions unchanged; it does not flush or close the stream.
+
 To use widgets (installed via `qdk[jupyter]` extra):
 
 ```python
@@ -71,7 +207,8 @@ Histogram(results)
 Submodules:
 
 - `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, `dump_machine`, `dump_circuit`, `dump_operation`, and related types.
-- `qdk.openqasm` – OpenQASM compilation and execution.
+- `qdk.openqasm` – OpenQASM compilation, execution, parsing, semantic analysis,
+  source navigation, visitors, and canonical serialization.
 - `qdk.estimator` – resource estimation utilities.
 - `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
 - `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.
