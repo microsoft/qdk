@@ -700,18 +700,18 @@ fn analysis_apply_operation_power_ca_consumer() {
                 }, qs);
                 ReleaseQubitArray(qs);
             }
-            operation _lambda_4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole : Qubit[])) : Unit is Adj + Ctl {
+            operation _lambda_4(arg : (Qubit[] => Unit is Adj + Ctl), (hole : Int, hole_1 : Qubit[])) : Unit is Adj + Ctl {
                 body ... {
-                    ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole)
+                    ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole_1)
                 }
                 adjoint ... {
-                    Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole)
+                    Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(hole, arg, hole_1)
                 }
                 controlled (ctls, ...) {
-                    Controlled ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole))
+                    Controlled ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole_1))
                 }
                 controlled adjoint (ctls, ...) {
-                    Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole))
+                    Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl_(ctls, (hole, arg, hole_1))
                 }
             }
             operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
@@ -743,18 +743,18 @@ fn analysis_apply_operation_power_ca_consumer() {
                 Consume_AdjCtl__closure_(qs);
                 ReleaseQubitArray(qs);
             }
-            operation _lambda_4(hole : Int, hole : Qubit[]) : Unit is Adj + Ctl {
+            operation _lambda_4(hole : Int, hole_1 : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
-                    ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole)
+                    ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole_1)
                 }
                 adjoint ... {
-                    Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole)
+                    Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl__U_(hole, hole_1)
                 }
                 controlled (ctls, ...) {
-                    Controlled ApplyOperationPowerCA__Qubit_____AdjCtl__U_(ctls, (hole, hole))
+                    Controlled ApplyOperationPowerCA__Qubit_____AdjCtl__U_(ctls, (hole, hole_1))
                 }
                 controlled adjoint (ctls, ...) {
-                    Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl__U_(ctls, (hole, hole))
+                    Controlled Adjoint ApplyOperationPowerCA__Qubit_____AdjCtl__U_(ctls, (hole, hole_1))
                 }
             }
             operation Consume_AdjCtl_(apply_power_of_u : ((Int, Qubit[]) => Unit is Adj + Ctl), target : Qubit[]) : Unit {
@@ -994,8 +994,8 @@ fn analysis_bernstein_vazirani_sample_shape() {
                     / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
-            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation BernsteinVazirani_Empty_(Uf : ((Qubit[], Qubit) => Unit), n : Int) : Result[] {
                 let queryRegister : Qubit[] = AllocateQubitArray(n);
@@ -1098,8 +1098,8 @@ fn analysis_bernstein_vazirani_sample_shape() {
                     ()
                 };
             }
-            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation BernsteinVazirani_Empty_(Uf : ((Qubit[], Qubit) => Unit), n : Int) : Result[] {
                 let queryRegister : Qubit[] = AllocateQubitArray(n);
@@ -1363,8 +1363,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -1383,8 +1383,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -1469,8 +1469,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -1489,8 +1489,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -1565,8 +1565,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -1585,8 +1585,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -1671,8 +1671,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -1691,8 +1691,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -1811,8 +1811,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -1831,8 +1831,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -1881,8 +1881,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -1901,8 +1901,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -1951,8 +1951,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -1971,8 +1971,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -2021,8 +2021,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                                 let _end_id_313 : Int = _range_id_300::End;
                                 while _step_id_308 > 0 and _index_id_303 <= _end_id_313 or _step_id_308 < 0 and _index_id_303 >= _end_id_313 {
                                     let _index : Int = _index_id_303;
-                                    let q : Qubit = _array[_index];
-                                    Adjoint H(q);
+                                    let q_1 : Qubit = _array[_index];
+                                    Adjoint H(q_1);
                                     _index_id_303 += _step_id_308;
                                 }
 
@@ -2041,8 +2041,8 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_347 : Int = Length(_array_id_343);
                     mutable _index_id_352 : Int = 0;
                     while _index_id_352 < _len_id_347 {
-                        let q : Qubit = _array_id_343[_index_id_352];
-                        if MResetZ(q) == One {
+                        let q_2 : Qubit = _array_id_343[_index_id_352];
+                        if MResetZ(q_2) == One {
                             result = false;
                         }
 
@@ -3215,14 +3215,14 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
                 let incrementByOneLambda : (Int -> Int) = / * closure item = 5 captures = [] * / _lambda_5;
                 let _ : Int = incrementByOne(4);
                 let sumAndAddOne : ((Int, Int, Int) -> Int) = {
-                    let arg : Int = 1;
-                    / * closure item = 6 captures = [arg] * / _lambda_6
+                    let arg_1 : Int = 1;
+                    / * closure item = 6 captures = [arg_1] * / _lambda_6
                 };
                 let sumAndAddOneLambda : ((Int, Int, Int) -> Int) = / * closure item = 7 captures = [] * / _lambda_7;
                 let intArray : Int[] = [1, 2, 3, 4, 5];
                 let _ : Int[] = Mapped_Int__Int_({
-                    let arg : Int = 1;
-                    / * closure item = 8 captures = [arg] * / _lambda_8
+                    let arg_2 : Int = 1;
+                    / * closure item = 8 captures = [arg_2] * / _lambda_8
                 }, intArray);
             }
             function Add(x : Int, y : Int) : Int {
@@ -3237,8 +3237,8 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
             function _lambda_5(x : Int, ) : Int {
                 Add(x, 1)
             }
-            function _lambda_6(arg : Int, (hole : Int, hole : Int, hole : Int)) : Int {
-                AddMany(hole, hole, hole, arg)
+            function _lambda_6(arg : Int, (hole : Int, hole_1 : Int, hole_2 : Int)) : Int {
+                AddMany(hole, hole_1, hole_2, arg)
             }
             function _lambda_7((a : Int, b : Int, c : Int), ) : Int {
                 AddMany(a, b, c, 1)
@@ -3267,8 +3267,8 @@ fn partial_application_sample_shape_has_no_defunctionalization_errors() {
             function _lambda_5(x : Int, ) : Int {
                 Add(x, 1)
             }
-            function _lambda_6(arg : Int, (hole : Int, hole : Int, hole : Int)) : Int {
-                AddMany(hole, hole, hole, arg)
+            function _lambda_6(arg : Int, (hole : Int, hole_1 : Int, hole_2 : Int)) : Int {
+                AddMany(hole, hole_1, hole_2, arg)
             }
             function _lambda_7((a : Int, b : Int, c : Int), ) : Int {
                 AddMany(a, b, c, 1)
