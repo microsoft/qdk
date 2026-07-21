@@ -2146,6 +2146,34 @@ fn for_with_diverging_body_is_divergent() {
 }
 
 #[test]
+fn for_with_nonempty_range_and_diverging_body_is_divergent() {
+    for range in ["1..15", "15..-1..1"] {
+        let source = format!(
+            "namespace Test {{ function Main() : Bool {{ for _ in {range} {{ return true; }} }} }}"
+        );
+        let (_, _, errors) = compile(&source, "", false);
+
+        assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+    }
+}
+
+#[test]
+fn for_with_empty_literal_range_and_diverging_body_is_not_divergent() {
+    for range in ["15..1", "1..-1..15", "1..0..15"] {
+        let source = format!(
+            "namespace Test {{ function Main() : Bool {{ for _ in {range} {{ return true; }} }} }}"
+        );
+        let (_, _, errors) = compile(&source, "", false);
+
+        assert_eq!(
+            errors.len(),
+            1,
+            "expected a return type mismatch for `{range}`: {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn for_with_empty_container_and_diverging_body_is_not_divergent() {
     let (_, _, errors) = compile(
         r#"namespace Test {
