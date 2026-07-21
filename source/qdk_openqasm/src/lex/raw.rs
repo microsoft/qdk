@@ -617,9 +617,7 @@ impl Iterator for Lexer<'_> {
 
     fn next(&mut self) -> Option<Self::Item> {
         let (offset, c) = self.chars.next()?;
-        let kind = if let Some(kind) = self.comment(c) {
-            kind
-        } else if self.whitespace(c) {
+        let kind = if self.whitespace(c) {
             TokenKind::Whitespace
         } else if self.newline(c) {
             TokenKind::Newline
@@ -636,7 +634,8 @@ impl Iterator for Lexer<'_> {
                     | NumberLexError::Invalid,
                 ) => TokenKind::Unknown,
                 Err(NumberLexError::None) => self
-                    .string(c)
+                    .comment(c)
+                    .or_else(|| self.string(c))
                     .or_else(|| single(c).map(TokenKind::Single))
                     .unwrap_or(TokenKind::Unknown),
             }

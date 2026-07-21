@@ -104,6 +104,11 @@ pub(super) fn parse(s: &mut ParserContext) -> Result<Stmt> {
         let err_item = default(Span { lo, hi });
         s.push_error(Error::new(ErrorKind::FloatingAnnotation(err_item.span)));
         return Ok(err_item);
+    // Gate calls and assignments dominate typical programs, and keyword parsers
+    // cannot match an identifier token.
+    } else if s.peek().kind == TokenKind::Identifier {
+        let ident_or_indexed_ident = ident_or_indexed_ident(s)?;
+        disambiguate_ident(s, ident_or_indexed_ident)?
     } else if let Some(decl) = opt(s, parse_gatedef)? {
         decl
     } else if let Some(decl) = opt(s, parse_def)? {
@@ -140,8 +145,6 @@ pub(super) fn parse(s: &mut ParserContext) -> Result<Stmt> {
         StmtKind::Break(stmt)
     } else if let Some(stmt) = opt(s, parse_end_stmt)? {
         StmtKind::End(stmt)
-    } else if let Some(ident_or_indexed_ident) = opt(s, ident_or_indexed_ident)? {
-        disambiguate_ident(s, ident_or_indexed_ident)?
     } else if let Some(stmt_kind) = opt(s, parse_gate_call_stmt)? {
         stmt_kind
     } else if let Some(stmt) = opt(s, |s| parse_expression_stmt(s, None))? {
