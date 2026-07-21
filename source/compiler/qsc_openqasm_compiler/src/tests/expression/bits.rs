@@ -69,6 +69,31 @@ fn bit_array_left_shift() -> miette::Result<(), Vec<Report>> {
 }
 
 #[test]
+fn creg_left_and_right_shifts() -> miette::Result<(), Vec<Report>> {
+    let source = r#"
+        creg a[3];
+        a = "101";
+        creg left[3];
+        left = a << 2;
+        creg right[3];
+        right = a >> 2;
+    "#;
+
+    let qsharp = compile_qasm_to_qsharp(source)?;
+    expect![[r#"
+        import Std.OpenQASM.Intrinsic.*;
+        mutable a = [Zero, Zero, Zero];
+        set a = [One, Zero, One];
+        mutable left = [Zero, Zero, Zero];
+        set left = Std.OpenQASM.Convert.IntAsResultArrayBE(Std.OpenQASM.Convert.ResultArrayAsIntBE(a) <<< 2, 3);
+        mutable right = [Zero, Zero, Zero];
+        set right = Std.OpenQASM.Convert.IntAsResultArrayBE(Std.OpenQASM.Convert.ResultArrayAsIntBE(a) >>> 2, 3);
+    "#]]
+    .assert_eq(&qsharp);
+    Ok(())
+}
+
+#[test]
 fn endianness() {
     let source = r#"
     int[32] myInt = 15; // 0xF or 0b1111

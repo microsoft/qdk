@@ -37,7 +37,7 @@ use crate::{
         build_unary_op_expr, build_while_stmt, build_wrapped_block_expr, managed_qubit_alloc_array,
         map_qsharp_type_to_ast_ty, wrap_expr_in_parens,
     },
-    get_semantic_errors_from_lowering_result,
+    get_errors_from_analysis_result,
     parser_types::{ParserSpanExt, to_qsharp_source_map},
 };
 use qdk_openqasm::semantic::ast as semast;
@@ -118,7 +118,7 @@ pub fn compile_to_qsharp_ast_with_config(
     config: CompilerConfig,
 ) -> QasmCompileUnit {
     let source_map = to_qsharp_source_map(&res.source_map);
-    let errors = get_semantic_errors_from_lowering_result(&res, &source_map);
+    let errors = get_errors_from_analysis_result(&res, &source_map);
     let program = res.program;
     let compiler = crate::compiler::QasmCompiler {
         source_map,

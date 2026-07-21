@@ -222,7 +222,6 @@ fn next_offset(last_source: Option<&Source>) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::{SourceMap, longest_common_prefix};
-    use crate::span::Span;
 
     #[test]
     fn longest_common_prefix_preserves_separator_behavior() {

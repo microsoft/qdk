@@ -50,13 +50,13 @@ impl Error {
     }
 }
 
-pub(crate) fn get_semantic_errors_from_lowering_result(
+pub(crate) fn get_errors_from_analysis_result(
     res: &AnalysisResult,
     source_map: &SourceMap,
 ) -> Vec<WithSource<crate::Error>> {
-    res.errors
-        .iter()
-        .map(|e| WithSource::from_map(source_map, e.clone().into_error().into()))
+    res.all_errors()
+        .into_iter()
+        .map(|e| WithSource::from_map(source_map, e.into_error().into()))
         .collect()
 }
 

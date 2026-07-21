@@ -4,7 +4,7 @@
 use crate::compiler::{PragmaConfig, parse_and_compile_to_qsharp_ast_with_config};
 use crate::{
     CompilerConfig, OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
-    get_semantic_errors_from_lowering_result, parser_types::to_qsharp_source_map,
+    get_errors_from_analysis_result, parser_types::to_qsharp_source_map,
 };
 use expect_test::Expect;
 use miette::Report;
@@ -110,7 +110,7 @@ fn compile_with_config<S: Into<Arc<str>>>(
     }
     assert!(!res.has_syntax_errors());
     let source_map = to_qsharp_source_map(&res.source_map);
-    let errors = get_semantic_errors_from_lowering_result(&res, &source_map);
+    let errors = get_errors_from_analysis_result(&res, &source_map);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
@@ -178,7 +178,7 @@ pub fn compile_all_with_config<P: Into<Arc<str>>>(
     let res = parse_all(path, sources)?;
     assert!(!res.has_syntax_errors());
     let source_map = to_qsharp_source_map(&res.source_map);
-    let errors = get_semantic_errors_from_lowering_result(&res, &source_map);
+    let errors = get_errors_from_analysis_result(&res, &source_map);
     let program = res.program;
 
     let compiler = crate::compiler::QasmCompiler {
@@ -267,12 +267,8 @@ pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<AnalysisResu
     let sources = [(name.clone(), source.clone())];
     let mut resolver = InMemorySourceResolver::from_iter(sources);
     let res = parse_source(source, name, &mut resolver);
-    if res.source.has_errors() {
-        let errors = res
-            .errors()
-            .into_iter()
-            .map(|e| Report::new(e.clone()))
-            .collect();
+    if res.has_syntax_errors() {
+        let errors = res.syntax_errors().into_iter().map(Report::new).collect();
         return Err(errors);
     }
     Ok(res)
@@ -289,12 +285,8 @@ pub(crate) fn parse_all<P: Into<Arc<str>>>(
         .map_err(|e| vec![Report::new(e)])?
         .1;
     let res = parse_source(source, path, &mut resolver);
-    if res.source.has_errors() {
-        let errors = res
-            .errors()
-            .into_iter()
-            .map(|e| Report::new(e.clone()))
-            .collect();
+    if res.has_syntax_errors() {
+        let errors = res.syntax_errors().into_iter().map(Report::new).collect();
         Err(errors)
     } else {
         Ok(res)
