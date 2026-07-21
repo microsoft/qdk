@@ -176,7 +176,7 @@ mod given_interpreter {
         }
 
         #[test]
-        fn config_value_from_sources_uses_updated_host_config() {
+        fn config_value_works_with_sources() {
             let source = indoc! { r#"
             namespace OptimizationConfig {
                 function IsMinimizingQubits() : Bool {
