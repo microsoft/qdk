@@ -9,7 +9,8 @@ mod given_interpreter {
     use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
     use qsc_eval::{output::CursorReceiver, val::Value};
     use qsc_passes::PackageType;
-    use std::{fmt::Write, io::Cursor, iter, str::from_utf8};
+    use rustc_hash::FxHashMap;
+    use std::{fmt::Write, io::Cursor, iter, rc::Rc, str::from_utf8};
 
     fn line(interpreter: &mut Interpreter, line: &str) -> (InterpretResult, String) {
         let mut cursor = Cursor::new(Vec::<u8>::new());
@@ -93,6 +94,7 @@ mod given_interpreter {
                     LanguageFeatures::default(),
                     store,
                     &[],
+                    Default::default(),
                 )
                 .expect("interpreter should be created");
 
@@ -123,12 +125,17 @@ mod given_interpreter {
         }
 
         #[test]
-        fn config_values_are_available_via_get_config() {
-            let mut interpreter = get_interpreter();
-            interpreter.set_qsharp_config_value("int_config", Value::Int(123));
-            interpreter.set_qsharp_config_value("bool_config", Value::Bool(true));
-            interpreter.set_qsharp_config_value("string_config", Value::String("value".into()));
-            interpreter.set_qsharp_config_value("double_config", Value::Double(124.1));
+        fn config_value_works() {
+            let mut interpreter = get_interpreter_with_config(
+                [
+                    (Rc::from("int_config"), Value::Int(123)),
+                    (Rc::from("bool_config"), Value::Bool(true)),
+                    (Rc::from("string_config"), Value::String("value".into())),
+                    (Rc::from("double_config"), Value::Double(124.1)),
+                ]
+                .into_iter()
+                .collect(),
+            );
 
             // Integer config.
             let (result, output) =
@@ -169,10 +176,57 @@ mod given_interpreter {
         }
 
         #[test]
+        fn config_value_from_sources_uses_updated_host_config() {
+            let source = indoc! { r#"
+            namespace OptimizationConfig {
+                function IsMinimizingQubits() : Bool {
+                    Std.Core.ConfigValue("minimize_qubits", true)
+                }
+            }
+
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Bool {
+                    OptimizationConfig.IsMinimizingQubits()
+                }
+            }
+            "#};
+
+            let sources =
+                SourceMap::new([("test".into(), source.into())], Some("Test.Main()".into()));
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let mut interpreter = Interpreter::new(
+                sources,
+                PackageType::Exe,
+                TargetCapabilityFlags::all(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+                [(Rc::from("minimize_qubits"), Value::Bool(false))]
+                    .into_iter()
+                    .collect(),
+            )
+            .expect("interpreter should be created");
+
+            let (result, output) = entry(&mut interpreter);
+            is_only_value(&result, &output, &Value::Bool(false));
+        }
+
+        #[test]
         #[allow(clippy::too_many_lines)]
-        fn get_config_errors() {
-            let mut interpreter = get_interpreter();
-            interpreter.set_qsharp_config_value("int_config", Value::Int(123));
+        fn config_value_errors() {
+            let mut interpreter = get_interpreter_with_config(
+                [
+                    (Rc::from("int_config"), Value::Int(123)),
+                    (
+                        Rc::from("result_config"),
+                        Value::Result(qsc_eval::val::Result::Loss),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            );
             // Error when default type doesn't match stored config value.
             let (result, output) = line(
                 &mut interpreter,
@@ -230,10 +284,6 @@ mod given_interpreter {
             );
 
             // Error when config contains value of unsupported type (same as default type).
-            interpreter.set_qsharp_config_value(
-                "result_config",
-                Value::Result(qsc_eval::val::Result::Loss),
-            );
             let (result, output) = line(
                 &mut interpreter,
                 "Std.Core.ConfigValue(\"result_config\", Zero)",
@@ -248,10 +298,6 @@ mod given_interpreter {
             );
 
             // Error when config contains value of unsupported type (defferent than default type)
-            interpreter.set_qsharp_config_value(
-                "result_config",
-                Value::Result(qsc_eval::val::Result::Loss),
-            );
             let (result, output) = line(
                 &mut interpreter,
                 "Std.Core.ConfigValue(\"result_config\", 0.5)",
@@ -1749,9 +1795,15 @@ mod given_interpreter {
                 }
             "};
 
-            let mut interpreter = get_interpreter_with_capabilities(TargetCapabilityFlags::empty());
-            interpreter.set_qsharp_config_value("angle1", Value::Double(0.6));
-            interpreter.set_qsharp_config_value("loop_iterations", Value::Int(3));
+            let mut interpreter = get_interpreter_with_capabilities_and_config(
+                TargetCapabilityFlags::empty(),
+                [
+                    (Rc::from("angle1"), Value::Double(0.6)),
+                    (Rc::from("loop_iterations"), Value::Int(3)),
+                ]
+                .into_iter()
+                .collect(),
+            );
             _ = line(&mut interpreter, source);
 
             let qir = interpreter.qirgen("Main()").expect("expected success");
@@ -2536,21 +2588,24 @@ mod given_interpreter {
     }
 
     fn get_interpreter() -> Interpreter {
-        let (std_id, store) =
-            crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
-        let dependencies = &[(std_id, None)];
-        Interpreter::new(
-            SourceMap::default(),
-            PackageType::Lib,
+        get_interpreter_with_capabilities_and_config(
             TargetCapabilityFlags::all(),
-            LanguageFeatures::default(),
-            store,
-            dependencies,
+            FxHashMap::default(),
         )
-        .expect("interpreter should be created")
+    }
+
+    fn get_interpreter_with_config(qsharp_config: FxHashMap<Rc<str>, Value>) -> Interpreter {
+        get_interpreter_with_capabilities_and_config(TargetCapabilityFlags::all(), qsharp_config)
     }
 
     fn get_interpreter_with_capabilities(capabilities: TargetCapabilityFlags) -> Interpreter {
+        get_interpreter_with_capabilities_and_config(capabilities, FxHashMap::default())
+    }
+
+    fn get_interpreter_with_capabilities_and_config(
+        capabilities: TargetCapabilityFlags,
+        qsharp_config: FxHashMap<Rc<str>, Value>,
+    ) -> Interpreter {
         let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
         let dependencies = &[(std_id, None)];
         Interpreter::new(
@@ -2560,6 +2615,7 @@ mod given_interpreter {
             LanguageFeatures::default(),
             store,
             dependencies,
+            qsharp_config,
         )
         .expect("interpreter should be created")
     }
@@ -2676,6 +2732,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -2698,6 +2755,7 @@ mod given_interpreter {
                     LanguageFeatures::default(),
                     store,
                     &[(std_id, None)],
+                    Default::default(),
                 )
                 .is_err(),
                 "interpreter should fail with error"
@@ -2719,6 +2777,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2774,6 +2833,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created without a false-positive capability rejection");
 
@@ -2808,6 +2868,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2862,6 +2923,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2910,6 +2972,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             assert!(
@@ -2955,6 +3018,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2998,6 +3062,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 dependencies,
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3027,6 +3092,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3211,6 +3277,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                Default::default(),
             )
             .expect("interpreter should be created");
             let (result, output) = line(&mut interpreter, "Test.Hello()");
@@ -3244,6 +3311,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3281,6 +3349,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3392,6 +3461,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3428,6 +3498,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3507,6 +3578,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3541,6 +3613,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3574,6 +3647,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             ) {
                 Ok(_) => panic!("interpreter should fail with error"),
                 Err(errors) => {

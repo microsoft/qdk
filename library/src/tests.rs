@@ -76,6 +76,7 @@ pub fn test_expression_with_lib_and_profile_and_sim(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     )
     .expect("test should compile");
 
@@ -124,6 +125,7 @@ pub fn test_expression_fails_with_lib_and_profile_and_sim(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     )
     .expect("test should compile");
 

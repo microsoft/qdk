@@ -78,6 +78,7 @@ fn import_and_call_reexport() {
         LanguageFeatures::default(),
         store,
         &user_code_dependencies,
+        Default::default(),
     )
     .expect("interpreter creation should succeed");
 
@@ -158,6 +159,7 @@ fn directly_call_reexport() {
         LanguageFeatures::default(),
         store,
         &user_code_dependencies,
+        Default::default(),
     )
     .expect("interpreter creation should succeed");
 

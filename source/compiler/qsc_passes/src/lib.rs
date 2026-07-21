@@ -96,21 +96,17 @@ pub struct PassContext {
 
 impl Default for PassContext {
     fn default() -> Self {
-        Self::new()
+        Self::new(FxHashMap::default())
     }
 }
 
 impl PassContext {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(qsharp_config: FxHashMap<Rc<str>, Value>) -> Self {
         Self {
             borrow_check: borrowck::Checker::default(),
-            qsharp_config: FxHashMap::default(),
+            qsharp_config,
         }
-    }
-
-    pub fn set_qsharp_config_value(&mut self, key: &str, value: Value) {
-        self.qsharp_config.insert(Rc::from(key), value);
     }
 
     /// Run the default set of passes required for evaluation.
@@ -191,7 +187,12 @@ pub fn run_default_passes(
     unit: &mut CompileUnit,
     package_type: PackageType,
 ) -> Vec<Error> {
-    PassContext::new().run_default_passes(&mut unit.package, &mut unit.assigner, core, package_type)
+    PassContext::default().run_default_passes(
+        &mut unit.package,
+        &mut unit.assigner,
+        core,
+        package_type,
+    )
 }
 
 pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {

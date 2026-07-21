@@ -66,6 +66,7 @@ use qsc::{
 use resource_estimator::{
     self as re, estimate_call, estimate_expr, logical_counts_call, logical_counts_expr,
 };
+use rustc_hash::FxHashMap;
 use std::{cell::RefCell, fmt::Write, path::PathBuf, rc::Rc, str::FromStr, sync::Arc};
 
 /// If the classes are not Send, the Python interpreter
@@ -404,6 +405,33 @@ pub(crate) struct Interpreter {
 
 thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default(); }
 
+// Converts Q# config from PyDict to FxHashMap.
+fn convert_qsharp_config(
+    qsharp_config: Option<Bound<'_, PyDict>>,
+) -> PyResult<FxHashMap<Rc<str>, Value>> {
+    let mut config = FxHashMap::default();
+    if let Some(config_dict) = qsharp_config {
+        for (key, value) in config_dict.iter() {
+            let key: String = key.extract()?;
+            let value = if value.is_instance_of::<PyBool>() {
+                Value::Bool(value.extract::<bool>()?)
+            } else if let Ok(value) = value.extract::<i64>() {
+                Value::Int(value)
+            } else if let Ok(value) = value.extract::<f64>() {
+                Value::Double(value)
+            } else if let Ok(value) = value.extract::<String>() {
+                Value::String(value.into())
+            } else {
+                return Err(PyTypeError::new_err(
+                    "config value must be bool, int, float, or str",
+                ));
+            };
+            config.insert(key.into(), value);
+        }
+    }
+    Ok(config)
+}
+
 #[pymethods]
 /// A Q# interpreter.
 impl Interpreter {
@@ -461,8 +489,9 @@ impl Interpreter {
             BuildableProgram::new(target, graph)
         };
 
+        let qsharp_config = convert_qsharp_config(qsharp_config)?;
         let trace_circuit = trace_circuit.unwrap_or(false);
-        let mut interpreter = if trace_circuit {
+        let interpreter = if trace_circuit {
             interpret::Interpreter::with_circuit_trace(
                 SourceMap::new(buildable_program.user_code.sources, None),
                 PackageType::Lib,
@@ -479,6 +508,7 @@ impl Interpreter {
                     group_by_scope: false,
                     prune_classical_qubits: false,
                 },
+                qsharp_config,
             )
         } else {
             interpret::Interpreter::new(
@@ -488,6 +518,7 @@ impl Interpreter {
                 buildable_program.user_code.language_features,
                 buildable_program.store,
                 &buildable_program.user_code_dependencies,
+                qsharp_config,
             )
         }
         .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
@@ -516,26 +547,6 @@ impl Interpreter {
             {
                 let ty = Ty::Udt(name.clone(), qsc::hir::Res::Item(item_id));
                 create_py_class(&interpreter, py, make_class, &namespace, &name, &ty)?;
-            }
-        }
-
-        if let Some(config_dict) = qsharp_config {
-            for (key, value) in config_dict.iter() {
-                let key_str: String = key.extract()?;
-                let config_value = if value.is_instance_of::<PyBool>() {
-                    Value::Bool(value.extract::<bool>()?)
-                } else if let Ok(val) = value.extract::<i64>() {
-                    Value::Int(val)
-                } else if let Ok(val) = value.extract::<f64>() {
-                    Value::Double(val)
-                } else if let Ok(val) = value.extract::<String>() {
-                    Value::String(val.into())
-                } else {
-                    return Err(PyTypeError::new_err(
-                        "config value must be bool, int, float, or str",
-                    ));
-                };
-                interpreter.set_qsharp_config_value(key_str.as_str(), config_value);
             }
         }
 

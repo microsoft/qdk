@@ -31,6 +31,7 @@ fn run_logical_counts_result(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
@@ -299,6 +300,7 @@ fn logical_counts_call_counts_callable_with_udt_output() {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     )
     .expect("compilation should succeed");
 

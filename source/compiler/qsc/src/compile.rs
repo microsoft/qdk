@@ -9,7 +9,7 @@ use qsc_data_structures::{
 pub use qsc_frontend::compile::Dependencies;
 use qsc_frontend::compile::{CompileUnit, PackageStore};
 pub use qsc_frontend::typeck::{TyInfo, TyInfoKind};
-use qsc_passes::{PackageType, run_core_passes, run_default_passes};
+use qsc_passes::{PackageType, PassContext, run_core_passes, run_default_passes};
 use thiserror::Error;
 
 pub type Error = WithSource<ErrorKind>;
@@ -119,11 +119,42 @@ pub fn compile(
 }
 
 #[must_use]
+pub fn compile_with_pass_context(
+    store: &PackageStore,
+    dependencies: &Dependencies,
+    sources: SourceMap,
+    package_type: PackageType,
+    capabilities: TargetCapabilityFlags,
+    language_features: LanguageFeatures,
+    pass_context: &mut PassContext,
+) -> (CompileUnit, Vec<Error>) {
+    let unit = qsc_frontend::compile::compile(
+        store,
+        dependencies,
+        sources,
+        capabilities,
+        language_features,
+    );
+    process_compile_unit_with_pass_context(store, package_type, unit, pass_context)
+}
+
+#[must_use]
 #[allow(clippy::module_name_repetitions)]
 fn process_compile_unit(
     store: &PackageStore,
     package_type: PackageType,
+    unit: CompileUnit,
+) -> (CompileUnit, Vec<Error>) {
+    let mut pass_context = PassContext::default();
+    process_compile_unit_with_pass_context(store, package_type, unit, &mut pass_context)
+}
+
+#[allow(clippy::module_name_repetitions)]
+fn process_compile_unit_with_pass_context(
+    store: &PackageStore,
+    package_type: PackageType,
     mut unit: CompileUnit,
+    pass_context: &mut PassContext,
 ) -> (CompileUnit, Vec<Error>) {
     let mut errors = Vec::new();
     for error in unit.errors.drain(..) {
@@ -131,7 +162,12 @@ fn process_compile_unit(
     }
 
     if errors.is_empty() {
-        for error in run_default_passes(store.core(), &mut unit, package_type) {
+        for error in pass_context.run_default_passes(
+            &mut unit.package,
+            &mut unit.assigner,
+            store.core(),
+            package_type,
+        ) {
             errors.push(WithSource::from_map(&unit.sources, error.into()));
         }
     }

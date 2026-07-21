@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::compile::{self, compile};
+use crate::compile::{self, compile_with_pass_context};
 use miette::Diagnostic;
 
 use qsc_ast::ast;
@@ -17,6 +17,8 @@ use qsc_frontend::{
 };
 use qsc_hir::hir::PackageId;
 use qsc_passes::{PackageType, PassContext};
+use rustc_hash::FxHashMap;
+use std::rc::Rc;
 
 /// An incremental Q# compiler.
 pub struct Compiler {
@@ -46,14 +48,17 @@ impl Compiler {
         language_features: LanguageFeatures,
         mut store: PackageStore,
         dependencies: &Dependencies,
+        qsharp_config: FxHashMap<Rc<str>, Value>,
     ) -> Result<Self, Errors> {
-        let (mut unit, errors) = compile(
+        let mut passes = PassContext::new(qsharp_config);
+        let (mut unit, errors) = compile_with_pass_context(
             &store,
             dependencies,
             sources,
             package_type,
             capabilities,
             language_features,
+            &mut passes,
         );
         if !errors.is_empty() {
             return Err(errors);
@@ -78,8 +83,8 @@ impl Compiler {
         Ok(Self {
             store,
             source_package_id,
+            passes,
             frontend,
-            passes: PassContext::default(),
         })
     }
 
@@ -108,10 +113,6 @@ impl Compiler {
             frontend,
             passes: PassContext::default(),
         })
-    }
-
-    pub fn set_qsharp_config_value(&mut self, key: &str, value: Value) {
-        self.passes.set_qsharp_config_value(key, value);
     }
 
     /// Compiles Q# fragments. Fragments are Q# code that can contain
