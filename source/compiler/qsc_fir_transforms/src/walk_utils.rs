@@ -236,6 +236,12 @@ pub(crate) fn for_each_direct_child<F: FnMut(DirectChild)>(kind: &ExprKind, mut 
             visit(DirectChild::Expr(*cond));
             visit(DirectChild::Block(*block));
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                visit(DirectChild::Expr(*l));
+            }
+            visit(DirectChild::Expr(*body));
+        }
     }
 }
 
@@ -641,6 +647,12 @@ fn for_each_use_event<F: FnMut(UseEvent)>(
                 for_each_use_event(package, fa.value, local_id, false, visit);
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                for_each_use_event(package, *l, local_id, false, visit);
+            }
+            for_each_use_event(package, *body, local_id, false, visit);
+        }
         ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -880,7 +892,15 @@ fn expr_has_purity(
             scope,
             active_callables,
         ),
+        ExprKind::Parallel(limit, body) => {
+            (if let Some(l) = limit {
+                expr_has_purity(package, package_id, *l, mode, scope, active_callables)
+            } else {
+                true
+            }) && expr_has_purity(package, package_id, *body, mode, scope, active_callables)
+        }
         // Effectful or caller-control-flow-changing variants. `If` without an
+        // Side-effecting or potentially-trapping variants. `If` without an
         // else arm is included here: it has `Unit` type but its `then` branch
         // may run for effect. No wildcard arm — a new `ExprKind` variant breaks
         // the build here so its purity is decided explicitly.
