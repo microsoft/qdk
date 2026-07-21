@@ -1552,6 +1552,137 @@ fn repeat_ignores_loop_control_bound_to_four_level_nested_loop() {
 }
 
 #[test]
+fn diverging_struct_copy_makes_field_break_unreachable() {
+    // Struct copy source is evaluated before fields, so a diverging copy makes a
+    // later field `break` unreachable -> the loop is divergent.
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            struct Pair { Fst : Int, Snd : Int }
+            function First<'T>() : 'T {
+                while true {
+                    let v = new Pair { ...(fail "x"), Fst = break };
+                }
+            }
+        }"#,
+        "",
+        false,
+    );
+    assert!(
+        errors.is_empty(),
+        "expected divergent (copy fails first): {errors:?}"
+    );
+}
+
+#[test]
+fn struct_copy_field_break_prevents_loop_divergence() {
+    // With a non-diverging copy, a field `break` is reachable -> the loop can exit.
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            struct Pair { Fst : Int, Snd : Int }
+            function First<'T>(base : Pair) : 'T {
+                while true {
+                    let v = new Pair { ...base, Fst = break };
+                    fail "after";
+                }
+            }
+        }"#,
+        "",
+        false,
+    );
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn normal_call_callee_break_prevents_loop_divergence() {
+    // A normal (non-partial) call evaluates the callee first, so a `break` in the
+    // callee is reachable -> the loop can exit.
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Foo(x : Int) : Unit {}
+            function First<'T>(cond : Bool) : 'T {
+                while true {
+                    let f = (if cond { break } else { Foo })(0);
+                    fail "after";
+                }
+            }
+        }"#,
+        "",
+        false,
+    );
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn index_container_break_prevents_loop_divergence() {
+    // An index expression evaluates the container before the index, so a `break`
+    // in the container is reachable -> the loop can exit.
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function First<'T>(cond : Bool, arr : Int[]) : 'T {
+                while true {
+                    let x = (if cond { break } else { arr })[0];
+                    fail "after";
+                }
+            }
+        }"#,
+        "",
+        false,
+    );
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn break_before_fail_in_call_args_prevents_loop_divergence() {
+    // Call arguments evaluate left to right, so a `break` before a `fail` is
+    // reached first -> the loop can exit (complements the fail-then-break case).
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Consume(a : Unit, b : Unit) : Unit {}
+            function First<'T>() : 'T {
+                while true { Consume(break, fail "x"); }
+            }
+        }"#,
+        "",
+        false,
+    );
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn break_in_loop_condition_is_typeck_divergent_but_rejected_by_loop_control() {
+    // Raw typeck marks `while break {}` divergent via `cond.diverges`, so no
+    // return-type mismatch is reported here. This is unobservable end to end: the
+    // `LoopControl` HIR pass (run after typeck) rejects break/continue in a loop
+    // header (`InLoopHeader`). Revisit this expectation when the shared
+    // loop-control model lands (planning WI-01).
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T { while break {} } }"#,
+        "",
+        false,
+    );
+    assert!(
+        errors.is_empty(),
+        "typeck alone treats the loop as divergent: {errors:?}"
+    );
+}
+
+#[test]
 fn if_cond_error() {
     check(
         "",
