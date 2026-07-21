@@ -87,14 +87,13 @@ parameters:
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
   parameters:
-    featureFlags:
-      sbomtoolkitPipelineRunnerGenerationEnabled: false
-      sbomtoolkitPipelineRunnerValidationEnabled: false
     sdl:
       sourceAnalysisPool:
         name: "Azure-Pipelines-DevTools-EO"
         image: windows-2025
         os: windows
+      sbom:
+        continueOnError: false
     stages:
       - stage: build
         displayName: Build
@@ -135,6 +134,12 @@ extends:
               - task: UseNode@1
                 inputs:
                   version: "22.x"
+
+              - task: UseDotNet@2
+                displayName: Install .NET SDK
+                inputs:
+                  packageType: sdk
+                  version: "8.x"
 
               # See the note on AZURE_ARTIFACTS_FEED
               - task: npmAuthenticate@0
