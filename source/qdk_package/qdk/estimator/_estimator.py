@@ -19,6 +19,13 @@ except ImportError:
     has_markdown = False
 
 
+def _get_markdown() -> Optional[Any]:
+    """Returns new Markdown object if markdown is available, None otherwise."""
+    if has_markdown:
+        return markdown.Markdown(extensions=["mdx_math"])  # pyright: ignore
+    return None
+
+
 class EstimatorError(BaseException):
     """
     An error returned from the resource estimation.
@@ -921,8 +928,7 @@ class EstimatorResult(dict):
     def _item_result_table(self):
         html = ""
 
-        if has_markdown:
-            md = markdown.Markdown(extensions=["mdx_math"])
+        md = _get_markdown()
         for group in self["reportData"]["groups"]:
             html += f"""
                 <details {"open" if group["alwaysVisible"] else ""}>
@@ -936,7 +942,7 @@ class EstimatorResult(dict):
                     if key not in val and "frontierEntries" in val:
                         val = val["frontierEntries"][0]
                     val = val[key]
-                if has_markdown:
+                if md is not None:
                     explanation = md.convert(entry["explanation"])
                 else:
                     explanation = entry["explanation"]
@@ -954,7 +960,7 @@ class EstimatorResult(dict):
             html += "</table></details>"
 
         html += f'<details><summary style="display:list-item"><strong>Assumptions</strong></summary><ul>'
-        if has_markdown:
+        if md is not None:
             for assumption in self["reportData"]["assumptions"]:
                 html += f"<li>{md.convert(assumption)}</li>"
         html += "</ul></details>"
@@ -1002,8 +1008,7 @@ class EstimatorResult(dict):
                 }
             </style>"""
 
-        if has_markdown:
-            md = markdown.Markdown(extensions=["mdx_math"])
+        md = _get_markdown()
         for group in self["reportData"]["groups"]:
             html += f"""
                 <details {"open" if group["alwaysVisible"] else ""}>
@@ -1015,7 +1020,7 @@ class EstimatorResult(dict):
                 val = self
                 for key in entry["path"].split("/"):
                     val = val[key]
-                if has_markdown:
+                if md is not None:
                     explanation = md.convert(entry["explanation"])
                 else:
                     explanation = entry["explanation"]
@@ -1029,7 +1034,7 @@ class EstimatorResult(dict):
             html += "</table></details>"
 
         html += f"<details><summary style='display:list-item'><strong>Assumptions</strong></summary><ul>"
-        if has_markdown:
+        if md is not None:
             for assumption in self["reportData"]["assumptions"]:
                 html += f"<li>{md.convert(assumption)}</li>"
         html += "</ul></details>"
@@ -1048,8 +1053,7 @@ class EstimatorResult(dict):
 
         html = ""
 
-        if has_markdown:
-            md = markdown.Markdown(extensions=["mdx_math"])
+        md = _get_markdown()
 
         item_headers = "".join(f"<th>{i}</th>" for i in indices)
 
@@ -1102,7 +1106,7 @@ class EstimatorResult(dict):
             html += "</table></details>"
 
         html += f'<details><summary style="display:list-item"><strong>Assumptions</strong></summary><ul>'
-        if has_markdown:
+        if md is not None:
             for assumption in self[0]["reportData"]["assumptions"]:
                 html += f"<li>{md.convert(assumption)}</li>"
         html += "</ul></details>"
