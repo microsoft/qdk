@@ -113,6 +113,20 @@ def test_source_values_are_frozen_and_compare_by_value() -> None:
     assert first.entry == second.entry
 
 
+def test_source_ranges_from_different_documents_are_not_equal() -> None:
+    first = parser.parse("OPENQASM 3.0; qubit a;").document.source_map
+    second = parser.parse("OPENQASM 3.0; qubit b;").document.source_map
+
+    first_range = first.range_from_span(first.entry.span)
+    second_range = second.range_from_span(second.entry.span)
+
+    assert first_range != second_range
+    assert len({first_range, second_range}) == 2
+    assert first.span_from_range(first_range) == first.entry.span
+    with pytest.raises(ValueError, match="different document"):
+        first.span_from_range(second_range)
+
+
 def test_source_value_repr_and_hash_policy_is_explicit() -> None:
     position = Position(2, 3, PositionEncoding.UTF8)
     source_range = SourceRange(0, position, Position(2, 4, PositionEncoding.UTF8))

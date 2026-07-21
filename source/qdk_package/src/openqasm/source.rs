@@ -153,7 +153,10 @@ pub(crate) struct SourceRange {
 
 impl PartialEq for SourceRange {
     fn eq(&self, other: &Self) -> bool {
-        self.source_id == other.source_id && self.start == other.start && self.end == other.end
+        self.source_id == other.source_id
+            && self.start == other.start
+            && self.end == other.end
+            && self.document_id == other.document_id
     }
 }
 
@@ -164,6 +167,7 @@ impl Hash for SourceRange {
         self.source_id.hash(state);
         self.start.hash(state);
         self.end.hash(state);
+        self.document_id.hash(state);
     }
 }
 
