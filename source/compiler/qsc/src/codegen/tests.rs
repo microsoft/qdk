@@ -5632,7 +5632,7 @@ fn bare_operand_break_preserves_prior_argument_effects_and_skips_later_arguments
 }
 
 #[test]
-fn operand_breaks_in_qubit_allocation_and_controlled_call_generate_qir() {
+fn operand_break_in_qubit_allocation_skips_following_controlled_call_in_qir() {
     let source = r#"
         namespace Test {
             @EntryPoint(Adaptive)
@@ -5641,7 +5641,7 @@ fn operand_breaks_in_qubit_allocation_and_controlled_call_generate_qir() {
                 repeat {
                     H(qq[0]);
                     use rr = Qubit[break];
-                    Controlled X(break);
+                    Controlled X([qq[0]], qq[1]);
                 } until (M(qq[1]) == One)
                 fixup {
                     ResetAll(qq);
@@ -5657,11 +5657,49 @@ fn operand_breaks_in_qubit_allocation_and_controlled_call_generate_qir() {
     assert_eq!(
         qir.matches("call void @__quantum__qis__h__body").count(),
         1,
-        "expected H before the first operand-position break:\n{qir}"
+        "expected H before the allocation-size break:\n{qir}"
     );
     assert!(
-        !qir.contains("call void @__quantum__qis__x__body"),
+        !qir.contains("call void @__quantum__qis__cx__body"),
         "expected the controlled X after the first break to be skipped:\n{qir}"
+    );
+}
+
+#[test]
+fn operand_break_in_controlled_call_skips_consumer_and_following_statement_in_qir() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Result {
+                use qq = Qubit[2];
+                repeat {
+                    H(qq[0]);
+                    Controlled X(break);
+                    Y(qq[0]);
+                } until (M(qq[1]) == One)
+                fixup {
+                    ResetAll(qq);
+                }
+                let r = M(qq[0]);
+                ResetAll(qq);
+                r
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H before the controlled-call operand break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__cx__body"),
+        "expected the controlled X consumer to be skipped:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected the statement after the controlled-call operand break to be skipped:\n{qir}"
     );
 }
 
@@ -5691,8 +5729,45 @@ fn operand_break_in_index_skips_following_controlled_continue() {
         !qir.contains("call void @__quantum__qis__h__body"),
         "the index break should prevent H from running:\n{qir}"
     );
+    // The `continue` controls operand defaults to `[]`. If its consumer guard
+    // failed, `Controlled X([], qq[1])` would emit a plain X rather than a CX.
     assert!(
         !qir.contains("call void @__quantum__qis__x__body"),
         "the controlled X after the break should be unreachable:\n{qir}"
+    );
+}
+
+#[test]
+fn operand_continue_in_controlled_call_skips_consumer_and_following_statement_in_qir() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use qq = Qubit[2];
+                mutable i = 0;
+                repeat {
+                    set i = i + 1;
+                    H(qq[0]);
+                    Controlled X(continue, qq[1]);
+                    Y(qq[0]);
+                } until i >= 1;
+                ResetAll(qq);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H before the controlled-call operand continue:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__x__body"),
+        "expected the empty-controls X consumer after continue to be skipped:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected the statement after the controlled-call operand continue to be skipped:\n{qir}"
     );
 }
