@@ -115,6 +115,95 @@ fn correlated_error_without_probability_yields_error() {
 }
 
 #[test]
+fn correlated_error_with_probability_exceeding_one_yields_error() {
+    let source = "CORRELATED_ERROR(1.5) X0";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+
+          x noise probabilities must sum to at most 1.0, but they sum to 1.5
+           ,----
+         1 | CORRELATED_ERROR(1.5) X0
+           : ^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn correlated_error_with_probability_of_exactly_one_is_valid() {
+    let source = "CORRELATED_ERROR(1.0) X0";
+    check(
+        source,
+        &expect![[r#"
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                X: 1
+
+
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @noise_intrinsic_0(ptr) #2
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        attributes #2 = { "qdk_noise" }
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
+}
+
+#[test]
+fn correlated_error_chain_probability_error_spans_whole_group() {
+    let source = indoc! {"
+        TICK
+        CORRELATED_ERROR(0.5) X0
+        ELSE_CORRELATED_ERROR(1.5) Z0
+        ELSE_CORRELATED_ERROR(1.5) Z0
+        TICK
+    "};
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.NegativeNoiseProbability
+
+          x noise probabilities must be non-negative, but found -0.375
+           ,-[2:1]
+         1 |     TICK
+         2 | ,-> CORRELATED_ERROR(0.5) X0
+         3 | |   ELSE_CORRELATED_ERROR(1.5) Z0
+         4 | `-> ELSE_CORRELATED_ERROR(1.5) Z0
+         5 |     TICK
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn else_correlated_error_with_preceding_correlated_error_yields_expected_qir() {
     let source = indoc! {"
         CORRELATED_ERROR(0.01) X0
@@ -451,6 +540,23 @@ fn depolarize1_without_probability_yields_error() {
 }
 
 #[test]
+fn depolarize1_with_probabilities_exceeding_one_yields_error() {
+    let source = "DEPOLARIZE1(1.5) 0";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+
+          x noise probabilities must sum to at most 1.0, but they sum to 1.5
+           ,----
+         1 | DEPOLARIZE1(1.5) 0
+           : ^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn depolarize2_yields_expected_qir() {
     let source = "DEPOLARIZE2(0.01) 0 1";
     check(
@@ -735,6 +841,88 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
 }
 
 #[test]
+fn pauli_channel_1_with_probabilities_exceeding_one_yields_error() {
+    let source = "PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+
+          x noise probabilities must sum to at most 1.0, but they sum to 1.5
+           ,----
+         1 | PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0
+           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn pauli_channel_1_with_probabilities_summing_to_exactly_one_is_valid() {
+    let source = "PAULI_CHANNEL_1(0.2, 0.3, 0.5) 0";
+    check(
+        source,
+        &expect![[r#"
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                X: 0.2
+                Y: 0.3
+                Z: 0.5
+
+
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @noise_intrinsic_0(ptr) #2
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        attributes #2 = { "qdk_noise" }
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
+}
+
+#[test]
+fn pauli_channel_1_with_negative_probability_yields_error() {
+    let source = "PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.NegativeNoiseProbability
+
+          x noise probabilities must be non-negative, but found -0.1
+           ,----
+         1 | PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0
+           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn pauli_channel_2_yields_expected_qir() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1";
     check(
@@ -888,6 +1076,23 @@ fn x_error_without_probability_yields_error() {
                : ^^^^^^^^^
                `----
         "#]],
+    );
+}
+
+#[test]
+fn x_error_with_probability_exceeding_one_yields_error() {
+    let source = "X_ERROR(1.5) 0";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+
+          x noise probabilities must sum to at most 1.0, but they sum to 1.5
+           ,----
+         1 | X_ERROR(1.5) 0
+           : ^^^^^^^^^^^^^^
+           `----
+    "#]],
     );
 }
 

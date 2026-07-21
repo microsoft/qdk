@@ -4,7 +4,9 @@
 #[cfg(test)]
 mod tests;
 
-use qdk_simulators::noise_config::{LossPolicy, NoiseConfig, NoiseTable, encode_pauli};
+use qdk_simulators::noise_config::{
+    LossPolicy, NoiseConfig, NoiseTable, PauliAndLossString, encode_pauli,
+};
 
 use crate::parser::*;
 use miette::Diagnostic;
@@ -411,6 +413,20 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("noise probabilities must sum to at most 1.0, but they sum to {total}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne"))]
+    NoiseProbabilitiesExceedOne {
+        total: f64,
+        #[label]
+        span: Span,
+    },
+    #[error("noise probabilities must be non-negative, but found {probability}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.NegativeNoiseProbability"))]
+    NegativeNoiseProbability {
+        probability: f64,
+        #[label]
+        span: Span,
+    },
 }
 
 // This enum keeps track of which side of a controlled operation the measurement record is allowed to appear on.
@@ -540,6 +556,12 @@ fn select_label(scope: u32) -> String {
 struct CorrelatedRow {
     terms: Vec<(FaultChar, u32)>,
     probability: f64,
+    span: Span,
+}
+
+struct CorrelatedGroup {
+    rows: Vec<CorrelatedRow>,
+    span: Span,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -564,7 +586,7 @@ impl NoiseKey {
 struct NoiseAccumulator<'noise> {
     config: &'noise mut NoiseConfig<f64, f64>,
     intrinsic_ids: FxHashMap<NoiseKey, u32>,
-    current_correlated_group: Option<Vec<CorrelatedRow>>,
+    current_correlated_group: Option<CorrelatedGroup>,
 }
 
 impl<'noise> NoiseAccumulator<'noise> {
@@ -588,13 +610,51 @@ impl<'noise> NoiseAccumulator<'noise> {
     }
 
     fn push_correlated_row(&mut self, row: CorrelatedRow) {
-        self.current_correlated_group
-            .get_or_insert_with(Vec::new)
-            .push(row)
+        let current_group = self
+            .current_correlated_group
+            .get_or_insert(CorrelatedGroup {
+                rows: Vec::new(),
+                span: row.span,
+            });
+
+        current_group.span = Span {
+            lo: current_group.span.lo,
+            hi: row.span.hi,
+        };
+        current_group.rows.push(row);
     }
 
-    fn flush_correlated_group(&mut self) -> Option<(NoiseTable<f64>, Vec<u32>)> {
-        let rows = self.current_correlated_group.take()?;
+    fn try_build_noise_table(
+        &self,
+        num_qubits: u32,
+        pauli_strings: Vec<PauliAndLossString>,
+        probabilities: Vec<f64>,
+        span: Span,
+    ) -> Result<NoiseTable<f64>, Error> {
+        if let Some(&probability) = probabilities.iter().find(|&&p| p < 0.0) {
+            return Err(Error::NegativeNoiseProbability { probability, span });
+        }
+        let total_probability: f64 = probabilities.iter().sum();
+        if total_probability > 1.0 {
+            return Err(Error::NoiseProbabilitiesExceedOne {
+                total: total_probability,
+                span,
+            });
+        }
+        Ok(NoiseTable {
+            qubits: num_qubits,
+            pauli_strings,
+            probabilities,
+            on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+        })
+    }
+
+    fn flush_correlated_group(&mut self) -> Result<(NoiseTable<f64>, Vec<u32>), Error> {
+        let CorrelatedGroup { rows, span } = self
+            .current_correlated_group
+            .take()
+            .expect("a correlated group must be present to flush"); // this is a compiler invariant
+
         let qubits = self.collect_qubits(&rows);
         let pauli_string_width = qubits.len();
         let column_of_qubit = self.build_column_map(&qubits);
@@ -611,15 +671,13 @@ impl<'noise> NoiseAccumulator<'noise> {
             probabilities.push(remaining_probability * row.probability); // each row fires only if all previous ones didn't
             remaining_probability *= 1.0 - row.probability;
         }
-        Some((
-            NoiseTable {
-                qubits: pauli_string_width as u32,
-                pauli_strings,
-                probabilities,
-                on_loss: LossPolicy::Skip, // required field; Skip is the default policy
-            },
-            qubits,
-        ))
+        let noise_table = self.try_build_noise_table(
+            pauli_string_width as u32,
+            pauli_strings,
+            probabilities,
+            span,
+        )?;
+        Ok((noise_table, qubits))
     }
 
     fn collect_qubits(&self, rows: &[CorrelatedRow]) -> Vec<u32> {
@@ -986,26 +1044,31 @@ impl<'noise> Compiler<'noise> {
             "ELSE_CORRELATED_ERROR" => self.continue_correlated_noise(instruction),
 
             "DEPOLARIZE1" => self.broadcast_noise(instruction, |s, q, p| {
-                let table = NoiseTable {
-                    qubits: 1,
-                    pauli_strings: ["X", "Y", "Z"].map(encode_pauli).to_vec(),
-                    probabilities: vec![p / 3.0; 3],
-                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+                let Some(table) = s.build_noise_table(
+                    1,
+                    ["X", "Y", "Z"].map(encode_pauli).to_vec(),
+                    vec![p / 3.0; 3],
+                    instruction.span,
+                ) else {
+                    return;
                 };
                 s.op_noise(table, &[q]);
             }),
             "DEPOLARIZE2" => self.broadcast_pair_noise(instruction, |s, q0, q1, p| {
-                let table = NoiseTable {
-                    qubits: 2,
-                    pauli_strings: [
+                let Some(table) = s.build_noise_table(
+                    2,
+                    [
                         "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
                         "ZX", "ZY", "ZZ",
                     ]
                     .map(encode_pauli)
                     .to_vec(),
-                    probabilities: vec![p / 15.0; 15],
-                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+                    vec![p / 15.0; 15],
+                    instruction.span,
+                ) else {
+                    return;
                 };
+
                 s.op_noise(table, &[q0, q1]);
             }),
             "HERALDED_ERASE" | "HERALDED_PAULI_CHANNEL_1" => self.unsupported(instruction),
@@ -1017,11 +1080,13 @@ impl<'noise> Compiler<'noise> {
                 let Some(probabilities) = self.expect_args(instruction, 3) else {
                     return;
                 };
-                let table = NoiseTable {
-                    qubits: 1,
-                    pauli_strings: ["X", "Y", "Z"].map(encode_pauli).to_vec(),
+                let Some(table) = self.build_noise_table(
+                    1,
+                    ["X", "Y", "Z"].map(encode_pauli).to_vec(),
                     probabilities,
-                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+                    instruction.span,
+                ) else {
+                    return;
                 };
                 self.for_each_qubit(instruction, |s, q| {
                     s.op_noise(table.clone(), &[q]);
@@ -1031,16 +1096,19 @@ impl<'noise> Compiler<'noise> {
                 let Some(probabilities) = self.expect_args(instruction, 15) else {
                     return;
                 };
-                let table = NoiseTable {
-                    qubits: 2,
-                    pauli_strings: [
+
+                let Some(table) = self.build_noise_table(
+                    2,
+                    [
                         "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
                         "ZX", "ZY", "ZZ",
                     ]
                     .map(encode_pauli)
                     .to_vec(),
                     probabilities,
-                    on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+                    instruction.span,
+                ) else {
+                    return;
                 };
                 self.for_each_pair(instruction, |s, q0, q1| {
                     s.op_noise(table.clone(), &[q0, q1]);
@@ -1049,11 +1117,13 @@ impl<'noise> Compiler<'noise> {
             "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
                 let fault = FaultChar::from_instruction_name(&instruction.name);
                 self.broadcast_noise(instruction, |s, q, p| {
-                    let table = NoiseTable {
-                        qubits: 1,
-                        pauli_strings: vec![encode_pauli(fault.as_str())],
-                        probabilities: vec![p],
-                        on_loss: LossPolicy::Skip, // required field; Skip is the default policy
+                    let Some(table) = s.build_noise_table(
+                        1,
+                        vec![encode_pauli(fault.as_str())],
+                        vec![p],
+                        instruction.span,
+                    ) else {
+                        return;
                     };
                     s.op_noise(table, &[q]);
                 });
@@ -1213,7 +1283,11 @@ impl<'noise> Compiler<'noise> {
             terms.push((fault, qubit));
         }
 
-        let row = CorrelatedRow { probability, terms };
+        let row = CorrelatedRow {
+            probability,
+            terms,
+            span: instruction.span,
+        };
 
         self.noise_accumulator.push_correlated_row(row);
     }
@@ -1229,11 +1303,13 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn finish_correlated_noise(&mut self) {
-        let Some((noise_table, qubits)) = self.noise_accumulator.flush_correlated_group() else {
+        if self.noise_accumulator.current_correlated_group.is_none() {
             return;
-        };
-
-        self.op_noise(noise_table, &qubits);
+        }
+        match self.noise_accumulator.flush_correlated_group() {
+            Ok((noise_table, qubits)) => self.op_noise(noise_table, &qubits),
+            Err(error) => self.push_error(error),
+        }
     }
 
     fn for_each_pair(&mut self, instruction: &Instruction, mut f: impl FnMut(&mut Self, u32, u32)) {
@@ -1420,6 +1496,27 @@ impl<'noise> Compiler<'noise> {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
+    }
+
+    fn build_noise_table(
+        &mut self,
+        num_qubits: u32,
+        pauli_strings: Vec<PauliAndLossString>,
+        probabilities: Vec<f64>,
+        span: Span,
+    ) -> Option<NoiseTable<f64>> {
+        match self.noise_accumulator.try_build_noise_table(
+            num_qubits,
+            pauli_strings,
+            probabilities,
+            span,
+        ) {
+            Ok(table) => Some(table),
+            Err(error) => {
+                self.push_error(error);
+                None
+            }
+        }
     }
 
     fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[u32]) {

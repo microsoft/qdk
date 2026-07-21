@@ -438,7 +438,9 @@ fn ii_gate_with_odd_number_of_targets_yields_error() {
 #[test]
 fn ii_gate_with_args_yields_error() {
     let source = "II(0.01) 0 1";
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.UnsupportedArgument
 
           x unsupported argument in instruction: II
@@ -446,7 +448,8 @@ fn ii_gate_with_args_yields_error() {
          1 | II(0.01) 0 1
            : ^^^^^^^^^^^^
            `----
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
