@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# pyright: reportOverlappingOverload=false
+
 from __future__ import annotations
 from typing import Any, Callable, Iterator, Optional, overload
 
@@ -612,7 +614,7 @@ class _FloatFunction:
     def __call__(self, arity: int, params: Optional[list[float]] = None) -> float: ...
 
 @overload
-def constant_function(value: int) -> _IntFunction: ...  # pyright: ignore[reportOverlappingOverload]
+def constant_function(value: int) -> _IntFunction: ...
 @overload
 def constant_function(value: float) -> _FloatFunction: ...
 def constant_function(
@@ -630,7 +632,7 @@ def constant_function(
     ...
 
 @overload
-def linear_function(slope: int) -> _IntFunction: ...  # pyright: ignore[reportOverlappingOverload]
+def linear_function(slope: int) -> _IntFunction: ...
 @overload
 def linear_function(slope: float) -> _FloatFunction: ...
 def linear_function(
@@ -648,7 +650,7 @@ def linear_function(
     ...
 
 @overload
-def block_linear_function(  # pyright: ignore[reportOverlappingOverload]
+def block_linear_function(
     block_size: int, slope: int, offset: Optional[int] = None
 ) -> _IntFunction: ...
 @overload
@@ -676,13 +678,13 @@ def block_linear_function(
     ...
 
 @overload
-def generic_function(  # pyright: ignore[reportOverlappingOverload]
+def generic_function(
     func: Callable[[int], int],
 ) -> _IntFunction: ...
 @overload
 def generic_function(func: Callable[[int], float]) -> _FloatFunction: ...
 @overload
-def generic_function(  # pyright: ignore[reportOverlappingOverload]
+def generic_function(
     func: Callable[[int, list[float]], int],
 ) -> _IntFunction: ...
 @overload
