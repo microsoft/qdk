@@ -8,6 +8,8 @@ hypergraphs. These lattices are commonly used in quantum spin chain
 simulations and other one-dimensional quantum systems.
 """
 
+from typing import Optional
+
 from ..utilities import (
     Hyperedge,
     Hypergraph,
@@ -55,7 +57,9 @@ class Chain1D(Hypergraph):
         super().__init__(_edges)
         self.length = length
 
-    def edge_coloring(self) -> HypergraphEdgeColoring:
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
         """Compute a valid edge coloring for this chain."""
         coloring = HypergraphEdgeColoring(self)
         for edge in self.edges():
@@ -107,7 +111,9 @@ class Ring1D(Hypergraph):
 
         self.length = length
 
-    def edge_coloring(self) -> HypergraphEdgeColoring:
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
         """Compute a valid edge coloring for this ring."""
         coloring = HypergraphEdgeColoring(self)
         for edge in self.edges():
