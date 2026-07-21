@@ -5,8 +5,6 @@
 
 use std::sync::Arc;
 
-use crate::span::Span;
-
 #[derive(Clone, Debug, Default)]
 pub struct SourceMap {
     sources: Vec<Source>,
@@ -91,20 +89,6 @@ impl SourceMap {
             .find(|source| source.contains_offset(offset))
     }
 
-    /// Finds the one source that fully contains a global half-open span and
-    /// returns its source-local span.
-    #[must_use]
-    pub fn find_by_span(&self, span: Span) -> Option<(&Source, Span)> {
-        if span.hi < span.lo {
-            return None;
-        }
-
-        self.sources
-            .iter()
-            .chain(&self.entry)
-            .find_map(|source| source.local_span(span).map(|local| (source, local)))
-    }
-
     #[must_use]
     pub fn find_by_name(&self, name: &str) -> Option<&Source> {
         self.sources.iter().find(|s| s.name.as_ref() == name)
@@ -157,54 +141,68 @@ impl Source {
             .expect("source end should fit into u32");
         (self.offset..=end).contains(&offset)
     }
-
-    #[must_use]
-    fn local_span(&self, span: Span) -> Option<Span> {
-        let end = self
-            .offset
-            .checked_add(u32::try_from(self.contents.len()).ok()?)?;
-        if self.offset <= span.lo && span.hi <= end {
-            Some(Span {
-                lo: span.lo - self.offset,
-                hi: span.hi - self.offset,
-            })
-        } else {
-            None
-        }
-    }
 }
 
 pub type SourceName = Arc<str>;
 
 pub type SourceContents = Arc<str>;
 
+/// Returns the shared path prefix of the supplied source names.
+///
+/// When source names diverge, the common text is truncated through its last
+/// path separator (`/`, `\`, or `:`), so the result does not contain a partial
+/// path component. Identical source names retain the complete name. A single
+/// source returns its containing path, and an empty slice returns an empty
+/// string.
+///
+/// Comparison is bytewise and linear in the compared input. This is UTF-8 safe
+/// because returned slices end only after an ASCII path separator or at the end
+/// of the first source name.
 #[must_use]
 pub fn longest_common_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
     if strs.len() == 1 {
         return truncate_to_path_separator(strs[0]);
     }
 
-    let Some(common_prefix_so_far) = strs.first() else {
+    let Some(first) = strs.first() else {
         return "";
     };
 
-    for (i, character) in common_prefix_so_far.char_indices() {
-        for string in strs {
-            if string.chars().nth(i) != Some(character) {
-                let prefix = &common_prefix_so_far[0..i];
-                // Find the last occurrence of the path separator in the prefix
-                return truncate_to_path_separator(prefix);
-            }
-        }
+    // Carry forward the shortest prefix shared with `first`. A mismatch
+    // shortens the prefix to its byte offset; if `zip` reaches the end of
+    // either input without a mismatch, the shorter input bounds the prefix.
+    let common_prefix_len = strs.iter().skip(1).fold(first.len(), |prefix_len, string| {
+        first.as_bytes()[..prefix_len]
+            .iter()
+            .zip(string.as_bytes())
+            .position(|(left, right)| left != right)
+            .unwrap_or_else(|| prefix_len.min(string.len()))
+    });
+
+    if common_prefix_len == first.len() {
+        first
+    } else {
+        truncate_to_path_separator_at(first, common_prefix_len)
     }
-    common_prefix_so_far
 }
 
+/// Truncates a source name through its final path separator.
 fn truncate_to_path_separator(prefix: &str) -> &str {
-    let last_separator_index = prefix
-        .rfind('/')
-        .or_else(|| prefix.rfind('\\'))
-        .or_else(|| prefix.rfind(':'));
+    truncate_to_path_separator_at(prefix, prefix.len())
+}
+
+/// Truncates the first `end` bytes through the final path separator.
+///
+/// `end` may fall within a multibyte character. The returned boundary remains
+/// valid UTF-8 because each recognized separator is a single-byte ASCII
+/// character.
+fn truncate_to_path_separator_at(prefix: &str, end: usize) -> &str {
+    let bytes = &prefix.as_bytes()[..end];
+    let last_separator_index = bytes
+        .iter()
+        .rposition(|byte| *byte == b'/')
+        .or_else(|| bytes.iter().rposition(|byte| *byte == b'\\'))
+        .or_else(|| bytes.iter().rposition(|byte| *byte == b':'));
     if let Some(last_separator_index) = last_separator_index {
         // Return the prefix up to and including the last path separator
         return &prefix[0..=last_separator_index];
@@ -223,8 +221,54 @@ fn next_offset(last_source: Option<&Source>) -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::SourceMap;
+    use super::{SourceMap, longest_common_prefix};
     use crate::span::Span;
+
+    #[test]
+    fn longest_common_prefix_preserves_separator_behavior() {
+        let cases = [
+            (&[][..], ""),
+            (&["main.qasm"][..], ""),
+            (&["src/main.qasm"][..], "src/"),
+            (
+                &["/project/src/a.qasm", "/project/src/b.qasm"][..],
+                "/project/src/",
+            ),
+            (
+                &[r"C:\project\src\a.qasm", r"C:\project\src\b.qasm"][..],
+                r"C:\project\src\",
+            ),
+            (
+                &["file:///project/a.qasm", "file:///project/b.qasm"][..],
+                "file:///project/",
+            ),
+            (&["C:project/a.qasm", "C:project/b.qasm"][..], "C:project/"),
+            (&["alpha.qasm", "beta.qasm"][..], ""),
+            (&["same/path.qasm", "same/path.qasm"][..], "same/path.qasm"),
+            (&["short/path", "short/path/longer"][..], "short/path"),
+        ];
+
+        for (sources, expected) in cases {
+            assert_eq!(longest_common_prefix(sources), expected);
+        }
+    }
+
+    #[test]
+    fn longest_common_prefix_handles_multibyte_boundaries() {
+        let cases = [
+            (&["/项目/源/a.qasm", "/项目/源/b.qasm"][..], "/项目/源/"),
+            (&["/项目/甲.qasm", "/项目/乙.qasm"][..], "/项目/"),
+            (&["项目甲.qasm", "项目乙.qasm"][..], ""),
+            (
+                &["file:///项目/a.qasm", "file:///项目/b.qasm"][..],
+                "file:///项目/",
+            ),
+        ];
+
+        for (sources, expected) in cases {
+            assert_eq!(longest_common_prefix(sources), expected);
+        }
+    }
 
     #[test]
     fn find_by_offset_rejects_offsets_past_source_end() {
@@ -237,25 +281,5 @@ mod tests {
             Some("main.qasm")
         );
         assert!(source_map.find_by_offset(1).is_none());
-    }
-
-    #[test]
-    fn find_by_span_accepts_source_eof_and_rejects_gap_and_cross_source_spans() {
-        let source_map = SourceMap::new(
-            [
-                ("first.qasm".into(), "abc".into()),
-                ("second.qasm".into(), "de".into()),
-            ],
-            None,
-        );
-
-        let (source, local) = source_map
-            .find_by_span(Span { lo: 3, hi: 3 })
-            .expect("zero-length span at EOF should belong to the first source");
-        assert_eq!(source.name.as_ref(), "first.qasm");
-        assert_eq!(local, Span { lo: 3, hi: 3 });
-        assert!(source_map.find_by_span(Span { lo: 3, hi: 4 }).is_none());
-        assert!(source_map.find_by_span(Span { lo: 2, hi: 5 }).is_none());
-        assert!(source_map.find_by_span(Span { lo: 5, hi: 4 }).is_none());
     }
 }

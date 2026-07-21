@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Default)]
@@ -84,7 +87,7 @@ impl SourceMap {
             .iter()
             .rev()
             .chain(&self.entry)
-            .find(|source| offset >= source.offset)
+            .find(|source| source.contains_offset(offset))
     }
 
     #[must_use]
@@ -128,37 +131,79 @@ pub struct Source {
     pub offset: u32,
 }
 
+impl Source {
+    #[must_use]
+    pub fn contains_offset(&self, offset: u32) -> bool {
+        let end = self
+            .offset
+            .checked_add(
+                u32::try_from(self.contents.len()).expect("contents length should fit into u32"),
+            )
+            .expect("source end should fit into u32");
+        (self.offset..=end).contains(&offset)
+    }
+}
+
 pub type SourceName = Arc<str>;
 
 pub type SourceContents = Arc<str>;
 
+/// Returns the shared path prefix of the supplied source names.
+///
+/// When source names diverge, the common text is truncated through its last
+/// path separator (`/`, `\`, or `:`), so the result does not contain a partial
+/// path component. Identical source names retain the complete name. A single
+/// source returns its containing path, and an empty slice returns an empty
+/// string.
+///
+/// Comparison is bytewise and linear in the compared input. This is UTF-8 safe
+/// because returned slices end only after an ASCII path separator or at the end
+/// of the first source name.
 #[must_use]
 pub fn longest_common_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
     if strs.len() == 1 {
         return truncate_to_path_separator(strs[0]);
     }
 
-    let Some(common_prefix_so_far) = strs.first() else {
+    let Some(first) = strs.first() else {
         return "";
     };
 
-    for (i, character) in common_prefix_so_far.char_indices() {
-        for string in strs {
-            if string.chars().nth(i) != Some(character) {
-                let prefix = &common_prefix_so_far[0..i];
-                // Find the last occurrence of the path separator in the prefix
-                return truncate_to_path_separator(prefix);
-            }
-        }
+    // Carry forward the shortest prefix shared with `first`. A mismatch
+    // shortens the prefix to its byte offset; if `zip` reaches the end of
+    // either input without a mismatch, the shorter input bounds the prefix.
+    let common_prefix_len = strs.iter().skip(1).fold(first.len(), |prefix_len, string| {
+        first.as_bytes()[..prefix_len]
+            .iter()
+            .zip(string.as_bytes())
+            .position(|(left, right)| left != right)
+            .unwrap_or_else(|| prefix_len.min(string.len()))
+    });
+
+    if common_prefix_len == first.len() {
+        first
+    } else {
+        truncate_to_path_separator_at(first, common_prefix_len)
     }
-    common_prefix_so_far
 }
 
+/// Truncates a source name through its final path separator.
 fn truncate_to_path_separator(prefix: &str) -> &str {
-    let last_separator_index = prefix
-        .rfind('/')
-        .or_else(|| prefix.rfind('\\'))
-        .or_else(|| prefix.rfind(':'));
+    truncate_to_path_separator_at(prefix, prefix.len())
+}
+
+/// Truncates the first `end` bytes through the final path separator.
+///
+/// `end` may fall within a multibyte character. The returned boundary remains
+/// valid UTF-8 because each recognized separator is a single-byte ASCII
+/// character.
+fn truncate_to_path_separator_at(prefix: &str, end: usize) -> &str {
+    let bytes = &prefix.as_bytes()[..end];
+    let last_separator_index = bytes
+        .iter()
+        .rposition(|byte| *byte == b'/')
+        .or_else(|| bytes.iter().rposition(|byte| *byte == b'\\'))
+        .or_else(|| bytes.iter().rposition(|byte| *byte == b':'));
     if let Some(last_separator_index) = last_separator_index {
         // Return the prefix up to and including the last path separator
         return &prefix[0..=last_separator_index];
