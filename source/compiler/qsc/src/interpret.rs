@@ -219,6 +219,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+        qsharp_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::NoDebug,
@@ -229,9 +230,11 @@ impl Interpreter {
             store,
             dependencies,
             None,
+            qsharp_config,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_circuit_trace(
         sources: SourceMap,
         package_type: PackageType,
@@ -240,6 +243,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         circuit_tracer_config: TracerConfig,
+        qsharp_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::NoDebug,
@@ -250,12 +254,14 @@ impl Interpreter {
             store,
             dependencies,
             Some(circuit_tracer_config),
+            qsharp_config,
         )
     }
 
     /// Creates a new incremental compiler with debugging stmts enabled, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_debug(
         sources: SourceMap,
         package_type: PackageType,
@@ -264,6 +270,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         trace_circuit_config: TracerConfig,
+        qsharp_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::Debug,
@@ -274,6 +281,7 @@ impl Interpreter {
             store,
             dependencies,
             Some(trace_circuit_config),
+            qsharp_config,
         )
     }
 
@@ -287,6 +295,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         circuit_tracer_config: Option<TracerConfig>,
+        qsharp_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -295,6 +304,7 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
+            qsharp_config,
         )
         .map_err(into_errors)?;
 
@@ -1852,6 +1862,7 @@ impl Debugger {
             store,
             dependencies,
             Debugger::circuit_config(),
+            FxHashMap::default(),
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);

@@ -176,6 +176,7 @@ impl Compilation {
             language_features,
             store,
             &dependencies,
+            Default::default(),
         ) {
             Ok(compiler) => compiler,
             Err(user_errors) => {
@@ -193,6 +194,7 @@ impl Compilation {
                     language_features,
                     store,
                     &[(std_id, None)],
+                    Default::default(),
                 )
                 .expect("standard library should compile without errors")
             }

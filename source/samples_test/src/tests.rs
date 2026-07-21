@@ -68,6 +68,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
                 max_operations: 0,
                 prune_classical_qubits: false,
             },
+            Default::default(),
         )
     } else {
         Interpreter::new(
@@ -77,6 +78,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Default::default(),
         )
     } {
         Ok(interpreter) => interpreter,
@@ -207,6 +209,7 @@ fn compile(sources: SourceMap) {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         for error in &errors {
             eprintln!("error: {error}");
@@ -258,6 +261,7 @@ fn compile_project(project_folder: &str) {
         LanguageFeatures::default(),
         store,
         &user_code_dependencies,
+        Default::default(),
     ) {
         for error in &errors {
             eprintln!("error: {error}");
@@ -279,6 +283,7 @@ fn circuit(sources: SourceMap) -> String {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {
@@ -408,6 +413,7 @@ fn qirgen(sources: SourceMap, profile: Profile) -> String {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {

@@ -139,6 +139,7 @@ impl Default for CompilationContext {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Default::default(),
         )
         .expect("should be able to create a new compiler");
         let fir_store = lower_hir_package_store(compiler.package_store());

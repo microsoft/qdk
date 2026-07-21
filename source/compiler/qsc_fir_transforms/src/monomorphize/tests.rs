@@ -1446,20 +1446,20 @@ fn mono_functor_specialized_clone_preserves_explicit_specs() {
                 }
             "#},
         &expect![[r#"
-                        callable ApplyOp<Qubit, AdjCtl>: input_ty=((Qubit => Unit is Adj + Ctl), Qubit), output_ty=Unit
-                          body: block_ty=Unit
-                            [0] Semi ty=Unit Call(Local(op), arg_ty=Qubit)
-                          adj: block_ty=Unit
-                            [0] Semi ty=Unit Call(Functor Adj(Local(op)), arg_ty=Qubit)
-                          ctl: block_ty=Unit
-                            [0] Semi ty=Unit Call(Functor Ctl(Local(op)), arg_ty=((Qubit)[], Qubit))
-                          ctl_adj: block_ty=Unit
-                            [0] Semi ty=Unit Call(Functor Ctl(Functor Adj(Local(op))), arg_ty=((Qubit)[], Qubit))
-                        callable Main: input_ty=Unit, output_ty=Unit
-                          body: block_ty=Unit
-                            [0] Local pat_ty=Qubit init_ty=Qubit Call(Item(Item 8 (Package 0)), arg_ty=Unit)
-                            [1] Semi ty=Unit Call(ApplyOp<Qubit, AdjCtl>, arg_ty=((Qubit => Unit is Adj + Ctl), Qubit))
-                            [2] Semi ty=Unit Call(Item(Item 10 (Package 0)), arg_ty=Qubit)"#]],
+            callable ApplyOp<Qubit, AdjCtl>: input_ty=((Qubit => Unit is Adj + Ctl), Qubit), output_ty=Unit
+              body: block_ty=Unit
+                [0] Semi ty=Unit Call(Local(op), arg_ty=Qubit)
+              adj: block_ty=Unit
+                [0] Semi ty=Unit Call(Functor Adj(Local(op)), arg_ty=Qubit)
+              ctl: block_ty=Unit
+                [0] Semi ty=Unit Call(Functor Ctl(Local(op)), arg_ty=((Qubit)[], Qubit))
+              ctl_adj: block_ty=Unit
+                [0] Semi ty=Unit Call(Functor Ctl(Functor Adj(Local(op))), arg_ty=((Qubit)[], Qubit))
+            callable Main: input_ty=Unit, output_ty=Unit
+              body: block_ty=Unit
+                [0] Local pat_ty=Qubit init_ty=Qubit Call(Item(Item 10 (Package 0)), arg_ty=Unit)
+                [1] Semi ty=Unit Call(ApplyOp<Qubit, AdjCtl>, arg_ty=((Qubit => Unit is Adj + Ctl), Qubit))
+                [2] Semi ty=Unit Call(Item(Item 12 (Package 0)), arg_ty=Qubit)"#]],
     );
 }
 

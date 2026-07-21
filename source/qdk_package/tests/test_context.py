@@ -241,3 +241,42 @@ def test_context_released_after_drop() -> None:
     del ctx
     gc.collect()
     assert ref() is None
+
+
+def test_qsharp_config(context: qdk.Context) -> None:
+    context = qdk.Context(
+        qsharp_config={
+            "int_config": 123,
+            "bool_config": True,
+            "string_config": "value",
+            "double_config": 124.1,
+        }
+    )
+
+    assert context.eval("""Std.Core.ConfigValue("int_config", 0)""") == 123
+    assert context.eval("""Std.Core.ConfigValue("bool_config", true)""") is True
+    assert context.eval("""Std.Core.ConfigValue("string_config", "")""") == "value"
+    assert context.eval("""Std.Core.ConfigValue("double_config", 0.0)""") == 124.1
+
+    # Default values.
+    assert context.eval("""Std.Core.ConfigValue("unknown1", "foo")""") == "foo"
+    assert context.eval("""Std.Core.ConfigValue("unknown2", false)""") is False
+    assert context.eval("""Std.Core.ConfigValue("unknown3", 12)""") == 12
+    assert context.eval("""Std.Core.ConfigValue("unknown4", 12.0)""") == 12.0
+
+    # Wrong type.
+    with pytest.raises(
+        QSharpError,
+        match="configuration value type does not match ConfigValue default value type",
+    ):
+        context.eval("""Std.Core.ConfigValue("int_config", false)""")
+
+
+def test_config_invalid_type(context: qdk.Context) -> None:
+    with pytest.raises(
+        TypeError, match="config value must be bool, int, float, or str"
+    ):
+        qdk.Context(qsharp_config={"invalid": {"a": 1}})  # type: ignore
+
+    with pytest.raises(TypeError, match="'int' object is not an instance of 'str'"):
+        qdk.Context(qsharp_config={1: 1})  # type: ignore

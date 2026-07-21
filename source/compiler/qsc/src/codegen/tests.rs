@@ -2292,6 +2292,7 @@ fn interpreter_with_capabilities(
         LanguageFeatures::default(),
         store,
         dependencies,
+        Default::default(),
     )
     .expect("interpreter should be created")
 }

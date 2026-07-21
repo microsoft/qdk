@@ -66,6 +66,7 @@ impl CompilationContext {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Default::default(),
         )
         .expect("should be able to create a new compiler");
         let package_id = map_hir_package_to_fir(compiler.package_id());
@@ -93,6 +94,7 @@ impl CompilationContext {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Default::default(),
         )
         .expect("should be able to create a new compiler");
         let package_id = map_hir_package_to_fir(compiler.source_package_id());

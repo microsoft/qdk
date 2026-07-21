@@ -103,6 +103,32 @@ For convenience, the following helpers and types are also importable directly fr
 | `PhaseFlipNoise`     | class    | `qdk.qsharp.PhaseFlipNoise`     | Phase-flip noise model spec.                                           |
 | `Context`            | class    | `qdk.Context`                   | Isolated Q# and OpenQASM interpreter context for independent sessions. |
 
+### Configuration Map
+
+You can provide configuration at initialization time as a Python dictionary.
+
+In Python, pass `qsharp_config: dict[str, int | float | str | bool]` to `Context(...)`.
+If `qsharp_config` is omitted, the configuration map is empty. The map is immutable
+after initialization. To use different configuration values, create a new `Context`.
+
+In Q#, read values with `Std.Core.ConfigValue(name, defaultValue)`. In Q# code, config
+values are immutable: in the same program, repeated calls with the same
+`(name, defaultValue)` produce the same result.
+
+Supported types: `int`, `float`, `str`, and `bool` (corresponding to `Int`, `Double`,
+`String` and `Bool` in Q#). The type of each value in `qsharp_config` must match the
+type of its corresponding default value.
+
+Example:
+
+```python
+import qdk
+context = qdk.Context(qsharp_config={"experiment_name": "baseline", "shots": 1000})
+assert context.eval('Std.Core.ConfigValue("experiment_name", "")') == "baseline"
+assert context.eval('Std.Core.ConfigValue("shots", 100)') == 1000
+assert context.eval('Std.Core.ConfigValue("noise_level", 0.01)') == 0.01
+```
+
 ## Telemetry
 
 This library sends telemetry. Minimal anonymous data is collected to help measure feature usage and performance.
