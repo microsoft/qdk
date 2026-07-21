@@ -418,7 +418,7 @@ def estimate(
     if builtins.callable(entry_expr) and hasattr(entry_expr, "__global_callable"):
         args = context._python_args_to_interpreter_args(args)
         res_str = context._interpreter.estimate(
-            param_str, callable=entry_expr.__global_callable, args=args
+            param_str, callable=getattr(entry_expr, "__global_callable"), args=args
         )
     elif isinstance(entry_expr, (GlobalCallable, Closure)):
         args = context._python_args_to_interpreter_args(args)
