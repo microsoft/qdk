@@ -1512,7 +1512,7 @@ fn default_passes_gate_residual_error_when_loop_control_reports() {
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
 
-    let errors = PassContext::new().run_default_passes(
+    let errors = PassContext::default().run_default_passes(
         &mut unit.package,
         &mut unit.assigner,
         store.core(),
@@ -1561,7 +1561,7 @@ fn default_pass_errors(source: &str) -> Vec<crate::Error> {
     );
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
 
-    PassContext::new().run_default_passes(
+    PassContext::default().run_default_passes(
         &mut unit.package,
         &mut unit.assigner,
         store.core(),
