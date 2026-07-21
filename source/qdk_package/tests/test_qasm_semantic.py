@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from enum import Enum
+
 import pytest
 
 from qdk.openqasm import parser, semantic
@@ -24,6 +26,14 @@ from qdk.openqasm.semantic import (
 from qdk.openqasm.source import SourceDocument
 
 _STDGATES = 'OPENQASM 3.0; include "stdgates.inc"; qubit q; x q;'
+
+
+def test_severity_uses_native_value_class_protocol() -> None:
+    assert not issubclass(Severity, Enum)
+    assert int(Severity.Error) == 0
+    assert Severity.Warning == 1
+    assert Severity.Advice == 2
+    assert hash(Severity.Error) == hash(Severity.Error)
 
 
 def test_analyze_returns_semantic_program() -> None:

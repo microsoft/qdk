@@ -40,6 +40,7 @@ not rewrite them.
 
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 
@@ -52,15 +53,22 @@ class QASMVisitor:
     ``node.children()``.
     """
 
-    def visit(self, node: Any) -> Any:
-        """Dispatch to ``visit_<type(node).__name__>`` or :meth:`generic_visit`."""
+    def visit(self, node: Any, context: Any = None) -> Any:
+        """Dispatch to a node callback, optionally carrying traversal context."""
         method = getattr(self, f"visit_{type(node).__name__}", self.generic_visit)
-        return method(node)
+        try:
+            inspect.signature(method).bind(node, context)
+        except TypeError:
+            return method(node)
+        except ValueError:
+            if context is None:
+                return method(node)
+        return method(node, context)
 
-    def generic_visit(self, node: Any) -> None:
-        """Recurse over ``node.children()`` without modifying the tree."""
+    def generic_visit(self, node: Any, context: Any = None) -> None:
+        """Recurse over annotations and children with the same context."""
         for annotation in getattr(node, "annotations", ()):
-            self.visit(annotation)
+            self.visit(annotation, context)
         for child in node.children():
-            self.visit(child)
+            self.visit(child, context)
         return None

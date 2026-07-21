@@ -842,13 +842,16 @@ fn string_empty() {
         r#""""#,
         &expect![[r#"
             [
-                Err(
-                    InvalidStringLiteral(
-                        Span {
+                Ok(
+                    Token {
+                        kind: Literal(
+                            String,
+                        ),
+                        span: Span {
                             lo: 0,
                             hi: 2,
                         },
-                    ),
+                    },
                 ),
             ]
         "#]],

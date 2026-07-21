@@ -542,7 +542,10 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        if let Some(bitstring) = self.bitstring() {
+        let is_empty = self.first() == Some(string_start);
+        if string_start == '"'
+            && let Some(bitstring) = self.bitstring()
+        {
             // Try consuming the closing '"'.
             self.chars.next();
             return Some(bitstring);
@@ -563,7 +566,7 @@ impl<'a> Lexer<'a> {
         }
 
         let terminated = self.next_if_eq(string_start);
-        if has_content && !has_control_character {
+        if (is_empty || has_content) && !has_control_character {
             Some(TokenKind::String { terminated })
         } else {
             Some(TokenKind::InvalidString { terminated })

@@ -247,6 +247,7 @@ qasm_node!(@sexpr FunctionCall {
 });
 qasm_node!(@sexpr Cast {
     type_name: val String,
+    type_expressions: list,
     operand: node,
 });
 qasm_node!(@sexpr IndexExpression {
@@ -326,11 +327,13 @@ qasm_node!(@sstmt CalibrationGrammarDeclaration {
 });
 qasm_node!(@sstmt ClassicalDeclaration {
     type_name: val String,
+    type_expressions: list,
     identifier: node,
     init_expr: opt,
 });
 qasm_node!(@sstmt ConstantDeclaration {
     type_name: val String,
+    type_expressions: list,
     identifier: node,
     init_expr: node,
 });
@@ -339,6 +342,7 @@ qasm_node!(@sstmt SubroutineDefinition {
     name: node,
     params: list,
     return_type_name: val Option<String>,
+    return_type_expressions: list,
     body: list,
 });
 qasm_node!(@sstmt CalibrationDefinition {
@@ -355,10 +359,13 @@ qasm_node!(@sstmt ExpressionStatement {
 qasm_node!(@sstmt ExternDeclaration {
     name: node,
     param_type_names: val Vec<String>,
+    param_type_expressions: list,
     return_type_name: val Option<String>,
+    return_type_expressions: list,
 });
 qasm_node!(@sstmt ForInLoop {
     type_name: val String,
+    type_expressions: list,
     identifier: node,
     iterable: node,
     body: node,
@@ -387,6 +394,7 @@ qasm_node!(@sstmt Include {
 qasm_node!(@sstmt IODeclaration {
     io_keyword: val String,
     type_name: val String,
+    type_expressions: list,
     identifier: node,
 });
 qasm_node!(@sstmt QuantumMeasurementStatement {
@@ -409,6 +417,7 @@ qasm_node!(@sstmt QuantumReset {
 qasm_node!(@sstmt ReturnStatement {
     value: opt,
 });
+/// A read-only OpenQASM `SwitchStatement` node.
 #[pyclass(extends = Statement, frozen, module = "qdk._native")]
 pub(crate) struct SwitchStatement {
     #[pyo3(get)]
@@ -614,6 +623,7 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
         )?
         .into_any(),
         ast::StmtKind::ClassicalDecl(s) => {
+            let ty = type_definition_parts(py, &s.ty)?;
             let identifier = build_identifier(py, &s.identifier)?;
             let init_expr = match s.init_expr.as_deref() {
                 Some(init) => Some(build_value_expr(py, init)?),
@@ -624,7 +634,8 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                 ClassicalDeclaration::init(
                     span,
                     annotations,
-                    s.ty.to_string(),
+                    ty.name,
+                    ty.expressions,
                     identifier,
                     init_expr,
                 ),
@@ -632,6 +643,7 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             .into_any()
         }
         ast::StmtKind::ConstDecl(s) => {
+            let ty = type_definition_parts(py, &s.ty)?;
             let identifier = build_identifier(py, &s.identifier)?;
             let init_expr = build_value_expr(py, &s.init_expr)?;
             Py::new(
@@ -639,7 +651,8 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                 ConstantDeclaration::init(
                     span,
                     annotations,
-                    s.ty.to_string(),
+                    ty.name,
+                    ty.expressions,
                     identifier,
                     init_expr,
                 ),
@@ -669,11 +682,26 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                     .into_any(),
                 );
             }
-            let return_type_name = s.return_type.as_ref().map(ToString::to_string);
+            let return_ty = s
+                .return_type
+                .as_ref()
+                .map(|ty| scalar_type_parts(py, ty))
+                .transpose()?;
+            let (return_type_name, return_type_expressions) = return_ty
+                .map(|ty| (Some(ty.name), ty.expressions))
+                .unwrap_or_default();
             let body = stmt_list(py, &s.body.stmts)?;
             Py::new(
                 py,
-                SubroutineDefinition::init(span, annotations, name, params, return_type_name, body),
+                SubroutineDefinition::init(
+                    span,
+                    annotations,
+                    name,
+                    params,
+                    return_type_name,
+                    return_type_expressions,
+                    body,
+                ),
             )?
             .into_any()
         }
@@ -698,15 +726,21 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
         }
         ast::StmtKind::ExternDecl(s) => {
             let name = build_identifier(py, &s.ident)?;
-            let param_type_names = s
-                .params
-                .iter()
-                .map(|param| match param {
-                    ast::ExternParameter::Scalar(ty, _) => ty.to_string(),
-                    ast::ExternParameter::ArrayReference(ty, _) => ty.to_string(),
-                })
-                .collect();
-            let return_type_name = s.return_type.as_ref().map(ToString::to_string);
+            let mut param_type_names = Vec::with_capacity(s.params.len());
+            let mut param_type_expressions = Vec::new();
+            for param in &s.params {
+                let ty = extern_parameter_type_parts(py, param)?;
+                param_type_names.push(ty.name);
+                param_type_expressions.extend(ty.expressions);
+            }
+            let return_ty = s
+                .return_type
+                .as_ref()
+                .map(|ty| scalar_type_parts(py, ty))
+                .transpose()?;
+            let (return_type_name, return_type_expressions) = return_ty
+                .map(|ty| (Some(ty.name), ty.expressions))
+                .unwrap_or_default();
             Py::new(
                 py,
                 ExternDeclaration::init(
@@ -714,12 +748,15 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                     annotations,
                     name,
                     param_type_names,
+                    param_type_expressions,
                     return_type_name,
+                    return_type_expressions,
                 ),
             )?
             .into_any()
         }
         ast::StmtKind::For(s) => {
+            let ty = scalar_type_parts(py, &s.ty)?;
             let identifier = build_identifier(py, &s.ident)?;
             let iterable = build_enumerable_set(py, &s.set_declaration)?;
             let body = build_stmt(py, &s.body)?;
@@ -728,7 +765,8 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                 ForInLoop::init(
                     span,
                     annotations,
-                    s.ty.to_string(),
+                    ty.name,
+                    ty.expressions,
                     identifier,
                     iterable,
                     body,
@@ -776,6 +814,7 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             Py::new(py, Include::init(span, annotations, s.filename.to_string()))?.into_any()
         }
         ast::StmtKind::IODeclaration(s) => {
+            let ty = type_definition_parts(py, &s.ty)?;
             let identifier = build_identifier(py, &s.ident)?;
             Py::new(
                 py,
@@ -783,7 +822,8 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
                     span,
                     annotations,
                     s.io_identifier.to_string(),
-                    s.ty.to_string(),
+                    ty.name,
+                    ty.expressions,
                     identifier,
                 ),
             )?
@@ -918,8 +958,9 @@ fn build_expr(py: Python<'_>, expr: &ast::Expr) -> PyResult<Py<PyAny>> {
             Py::new(py, FunctionCall::init(span, name, args))?.into_any()
         }
         ast::ExprKind::Cast(e) => {
+            let ty = type_definition_parts(py, &e.ty)?;
             let operand = build_expr(py, &e.arg)?;
-            Py::new(py, Cast::init(span, e.ty.to_string(), operand))?.into_any()
+            Py::new(py, Cast::init(span, ty.name, ty.expressions, operand))?.into_any()
         }
         ast::ExprKind::IndexExpr(e) => {
             let collection = build_expr(py, &e.collection)?;
@@ -1011,68 +1052,200 @@ fn opt_expr(py: Python<'_>, expr: Option<&ast::Expr>) -> PyResult<Option<Py<PyAn
     }
 }
 
+struct TypeProjection {
+    name: String,
+    expressions: Vec<Py<PyAny>>,
+}
+
+fn type_definition_parts(py: Python<'_>, ty: &ast::TypeDef) -> PyResult<TypeProjection> {
+    match ty {
+        ast::TypeDef::Scalar(ty) => scalar_type_parts(py, ty),
+        ast::TypeDef::Array(ty) => {
+            let base = array_base_type_parts(py, &ty.base_type)?;
+            let dimensions = expression_list_parts(py, &ty.dimensions)?;
+            Ok(TypeProjection {
+                name: format!("array[{}, {}]", base.name, dimensions.names.join(", ")),
+                expressions: base
+                    .expressions
+                    .into_iter()
+                    .chain(dimensions.expressions)
+                    .collect(),
+            })
+        }
+        ast::TypeDef::ArrayReference(ty) => array_reference_type_parts(py, ty),
+    }
+}
+
+fn extern_parameter_type_parts(
+    py: Python<'_>,
+    ty: &ast::ExternParameter,
+) -> PyResult<TypeProjection> {
+    match ty {
+        ast::ExternParameter::Scalar(ty, _) => scalar_type_parts(py, ty),
+        ast::ExternParameter::ArrayReference(ty, _) => array_reference_type_parts(py, ty),
+    }
+}
+
 fn def_parameter_type_parts(
     py: Python<'_>,
     ty: &ast::DefParameterType,
 ) -> PyResult<(String, Vec<Py<PyAny>>)> {
-    match ty {
-        ast::DefParameterType::Qubit(ty) => Ok((
-            "qubit".to_string(),
-            opt_expr(py, ty.size.as_ref())?.into_iter().collect(),
-        )),
-        ast::DefParameterType::Scalar(ty) => scalar_type_parts(py, &ty.kind),
-        ast::DefParameterType::ArrayReference(ty) => match ty {
-            ast::ArrayReferenceType::Static(ty) => {
-                let name = format!(
-                    "{} static array[{}]",
-                    ty.mutability.to_string().to_lowercase(),
-                    array_base_type_name(&ty.base_type)
-                );
-                Ok((name, expr_list(py, &ty.dimensions)?))
-            }
-            ast::ArrayReferenceType::Dyn(ty) => {
-                let name = format!(
-                    "{} dynamic array[{}]",
-                    ty.mutability.to_string().to_lowercase(),
-                    array_base_type_name(&ty.base_type)
-                );
-                Ok((name, vec![build_expr(py, &ty.dimensions)?]))
-            }
-        },
-    }
+    let projection = match ty {
+        ast::DefParameterType::Qubit(ty) => size_designator_parts(py, "qubit", ty.size.as_ref())?,
+        ast::DefParameterType::Scalar(ty) => scalar_type_parts(py, ty)?,
+        ast::DefParameterType::ArrayReference(ty) => array_reference_type_parts(py, ty)?,
+    };
+    Ok((projection.name, projection.expressions))
 }
 
-fn scalar_type_parts(
-    py: Python<'_>,
-    kind: &ast::ScalarTypeKind,
-) -> PyResult<(String, Vec<Py<PyAny>>)> {
+fn scalar_type_parts(py: Python<'_>, ty: &ast::ScalarType) -> PyResult<TypeProjection> {
+    let kind = &ty.kind;
     let (name, size) = match kind {
         ast::ScalarTypeKind::Bit(ty) => ("bit", ty.size.as_ref()),
         ast::ScalarTypeKind::Int(ty) => ("int", ty.size.as_ref()),
         ast::ScalarTypeKind::Uint(ty) => ("uint", ty.size.as_ref()),
         ast::ScalarTypeKind::Float(ty) => ("float", ty.size.as_ref()),
         ast::ScalarTypeKind::Angle(ty) => ("angle", ty.size.as_ref()),
-        ast::ScalarTypeKind::Complex(ty) => (
-            "complex",
-            ty.base_size.as_ref().and_then(|base| base.size.as_ref()),
-        ),
+        ast::ScalarTypeKind::Complex(ty) => {
+            let Some(base) = &ty.base_size else {
+                return Ok(TypeProjection {
+                    name: "complex".to_string(),
+                    expressions: Vec::new(),
+                });
+            };
+            let base = size_designator_parts(py, "float", base.size.as_ref())?;
+            return Ok(TypeProjection {
+                name: format!("complex[{}]", base.name),
+                expressions: base.expressions,
+            });
+        }
         ast::ScalarTypeKind::BoolType => ("bool", None),
         ast::ScalarTypeKind::Duration => ("duration", None),
         ast::ScalarTypeKind::Stretch => ("stretch", None),
         ast::ScalarTypeKind::Err => ("error", None),
     };
-    Ok((name.to_string(), opt_expr(py, size)?.into_iter().collect()))
+    size_designator_parts(py, name, size)
 }
 
-fn array_base_type_name(kind: &ast::ArrayBaseTypeKind) -> &'static str {
-    match kind {
-        ast::ArrayBaseTypeKind::Int(_) => "int",
-        ast::ArrayBaseTypeKind::Uint(_) => "uint",
-        ast::ArrayBaseTypeKind::Float(_) => "float",
-        ast::ArrayBaseTypeKind::Complex(_) => "complex",
-        ast::ArrayBaseTypeKind::Angle(_) => "angle",
+fn array_base_type_parts(
+    py: Python<'_>,
+    kind: &ast::ArrayBaseTypeKind,
+) -> PyResult<TypeProjection> {
+    let name = match kind {
+        ast::ArrayBaseTypeKind::Int(ty) => {
+            return size_designator_parts(py, "int", ty.size.as_ref());
+        }
+        ast::ArrayBaseTypeKind::Uint(ty) => {
+            return size_designator_parts(py, "uint", ty.size.as_ref());
+        }
+        ast::ArrayBaseTypeKind::Float(ty) => {
+            return size_designator_parts(py, "float", ty.size.as_ref());
+        }
+        ast::ArrayBaseTypeKind::Complex(ty) => {
+            let Some(base) = &ty.base_size else {
+                return Ok(TypeProjection {
+                    name: "complex".to_string(),
+                    expressions: Vec::new(),
+                });
+            };
+            let base = size_designator_parts(py, "float", base.size.as_ref())?;
+            return Ok(TypeProjection {
+                name: format!("complex[{}]", base.name),
+                expressions: base.expressions,
+            });
+        }
+        ast::ArrayBaseTypeKind::Angle(ty) => {
+            return size_designator_parts(py, "angle", ty.size.as_ref());
+        }
         ast::ArrayBaseTypeKind::BoolType => "bool",
         ast::ArrayBaseTypeKind::Duration => "duration",
+    };
+    Ok(TypeProjection {
+        name: name.to_string(),
+        expressions: Vec::new(),
+    })
+}
+
+fn array_reference_type_parts(
+    py: Python<'_>,
+    ty: &ast::ArrayReferenceType,
+) -> PyResult<TypeProjection> {
+    let (mutability, base_type, dimension_exprs, dynamic) = match ty {
+        ast::ArrayReferenceType::Static(ty) => (
+            access_control_name(&ty.mutability),
+            &ty.base_type,
+            ty.dimensions.as_ref(),
+            false,
+        ),
+        ast::ArrayReferenceType::Dyn(ty) => (
+            access_control_name(&ty.mutability),
+            &ty.base_type,
+            std::slice::from_ref(&ty.dimensions),
+            true,
+        ),
+    };
+    let base = array_base_type_parts(py, base_type)?;
+    let dimensions = expression_list_parts(py, dimension_exprs)?;
+    let dimension_names = if dynamic {
+        format!("#dim = {}", dimensions.names[0])
+    } else {
+        dimensions.names.join(", ")
+    };
+    Ok(TypeProjection {
+        name: format!("{mutability} array[{}, {dimension_names}]", base.name),
+        expressions: base
+            .expressions
+            .into_iter()
+            .chain(dimensions.expressions)
+            .collect(),
+    })
+}
+
+fn size_designator_parts(
+    py: Python<'_>,
+    name: &str,
+    size: Option<&ast::Expr>,
+) -> PyResult<TypeProjection> {
+    let Some(size) = size else {
+        return Ok(TypeProjection {
+            name: name.to_string(),
+            expressions: Vec::new(),
+        });
+    };
+    Ok(TypeProjection {
+        name: format!("{name}[{}]", canonical_expression(size)),
+        expressions: vec![build_expr(py, size)?],
+    })
+}
+
+struct ExpressionListProjection {
+    names: Vec<String>,
+    expressions: Vec<Py<PyAny>>,
+}
+
+fn expression_list_parts(
+    py: Python<'_>,
+    expressions: &[ast::Expr],
+) -> PyResult<ExpressionListProjection> {
+    let mut projection = ExpressionListProjection {
+        names: Vec::with_capacity(expressions.len()),
+        expressions: Vec::with_capacity(expressions.len()),
+    };
+    for expression in expressions {
+        projection.names.push(canonical_expression(expression));
+        projection.expressions.push(build_expr(py, expression)?);
+    }
+    Ok(projection)
+}
+
+fn canonical_expression(expression: &ast::Expr) -> String {
+    qdk_openqasm::unparse::expression(expression).unwrap_or_else(|_| "error".to_string())
+}
+
+fn access_control_name(access: &ast::AccessControl) -> &'static str {
+    match access {
+        ast::AccessControl::ReadOnly => "readonly",
+        ast::AccessControl::Mutable => "mutable",
     }
 }
 

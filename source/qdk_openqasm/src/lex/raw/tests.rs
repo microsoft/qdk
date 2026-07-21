@@ -307,12 +307,26 @@ fn string_invalid_escape() {
 }
 
 #[test]
-fn empty_and_control_containing_strings_are_invalid() {
-    for input in [r#""""#, "''", "\"line\nbreak\"", "'\t'"] {
+fn control_containing_strings_are_invalid() {
+    for input in ["\"line\nbreak\"", "'\t'"] {
         assert_eq!(
             Lexer::new(input).collect::<Vec<_>>(),
             vec![Token {
                 kind: TokenKind::InvalidString { terminated: true },
+                offset: 0,
+            }],
+            "input: {input:?}"
+        );
+    }
+}
+
+#[test]
+fn empty_strings_are_valid() {
+    for input in [r#""""#, "''"] {
+        assert_eq!(
+            Lexer::new(input).collect::<Vec<_>>(),
+            vec![Token {
+                kind: TokenKind::String { terminated: true },
                 offset: 0,
             }],
             "input: {input:?}"

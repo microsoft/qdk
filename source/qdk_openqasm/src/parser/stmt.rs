@@ -442,6 +442,7 @@ fn parse_include(s: &mut ParserContext) -> Result<StmtKind> {
 
     if let Some(lit) = lit
         && let LiteralKind::String(filename) = lit.kind
+        && !filename.is_empty()
     {
         return Ok(StmtKind::Include(IncludeStmt {
             span: s.span(lo),
@@ -1821,6 +1822,7 @@ fn parse_calibration_grammar_stmt(s: &mut ParserContext) -> Result<CalibrationGr
     recovering_semi(s);
     if let Some(lit) = lit
         && let LiteralKind::String(name) = lit.kind
+        && !name.is_empty()
     {
         return Ok(CalibrationGrammarStmt {
             span: s.span(lo),

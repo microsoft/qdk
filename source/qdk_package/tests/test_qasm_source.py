@@ -3,6 +3,7 @@
 
 import gc
 import weakref
+from enum import Enum
 
 import pytest
 
@@ -14,6 +15,16 @@ from qdk.openqasm import (
 )
 from qdk.openqasm.parser import Span
 from qdk.openqasm.source import SourceDocument, SourceFile, SourceMap
+
+
+def test_position_encoding_uses_native_value_class_protocol() -> None:
+    assert not issubclass(PositionEncoding, Enum)
+    assert PositionEncoding.UTF8.value == "utf8"
+    assert PositionEncoding.CODE_POINT.value == "code-point"
+    assert PositionEncoding.UTF16.value == "utf16"
+    assert int(PositionEncoding.UTF8) == 0
+    assert PositionEncoding.CODE_POINT == 1
+    assert hash(PositionEncoding.UTF16) == hash(PositionEncoding.UTF16)
 
 
 def test_parse_result_and_program_share_document_identity() -> None:

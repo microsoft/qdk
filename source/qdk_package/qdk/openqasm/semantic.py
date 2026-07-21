@@ -28,10 +28,10 @@ Every node derives from :class:`QASMNode`. Expressions derive from
 node's ``children()`` method.
 
 The node classes present clean, un-prefixed Python names (for example
-``QuantumGate`` and ``BinaryExpression``). They keep ``Sem``-prefixed
-identifiers in the native layer and live in the ``qdk._native._semantic``
-submodule to avoid colliding with the syntactic layer's ``openqasm3``-parity
-names.
+``QuantumGate`` and ``BinaryExpression``) and identify this importable module
+as their runtime home. They keep ``Sem``-prefixed identifiers in the native
+layer, where a private namespace avoids collisions with the syntactic layer's
+``openqasm3``-parity names.
 
 Nodes are eagerly materialized and hold no reference back into the analyzer, so
 they may be freely retained, inspected across threads, and traversed after the

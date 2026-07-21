@@ -7,7 +7,7 @@
 //! the *semantic* tree produced by [`qdk_openqasm::analyze_source`]. The
 //! semantic tree carries resolved type and const-value information. Each class
 //! keeps a `Sem`-prefixed Rust identifier but is presented to Python under a
-//! clean, un-prefixed name inside the `qdk._native._semantic` submodule (for
+//! clean, un-prefixed name inside the `qdk.openqasm.semantic` module (for
 //! example Rust `SemGateCall` -> Python `QuantumGate`). Isolating the family in
 //! a submodule lets it use the un-prefixed names without colliding with the
 //! syntax layer's `openqasm3`-parity names in the flat `qdk._native` module.
@@ -39,7 +39,7 @@
 //!
 //! The mapping below is the single source of truth for the semantic AST
 //! variants, their `Sem`-prefixed Rust identifiers, and the clean Python names
-//! they present in the `qdk._native._semantic` submodule. It is kept in sync
+//! they present in the `qdk.openqasm.semantic` module. It is kept in sync
 //! with `qdk_openqasm::semantic::ast`.
 //!
 //! Statements (`StmtKind` -> Rust ident -> Python name):
@@ -123,7 +123,7 @@ use qdk_openqasm::semantic::types::Type as CoreType;
 /// The `name` is the type's textual rendering (for example `"int[32]"` or
 /// `"qubit"`), `is_const` reflects whether the type is compile-time constant,
 /// and `width` is the type's bit width when it has one.
-#[pyclass(name = "Type", module = "qdk._native._semantic", frozen)]
+#[pyclass(name = "Type", module = "qdk.openqasm.semantic", frozen)]
 pub(crate) struct SemType {
     #[pyo3(get)]
     name: String,
@@ -158,7 +158,7 @@ impl SemType {
 }
 
 /// A read-only view of a resolved symbol.
-#[pyclass(name = "Symbol", module = "qdk._native._semantic", frozen)]
+#[pyclass(name = "Symbol", module = "qdk.openqasm.semantic", frozen)]
 pub(crate) struct SemSymbol {
     /// The symbol's unique id within the [`SemSymbolTable`].
     #[pyo3(get)]
@@ -188,7 +188,7 @@ impl SemSymbol {
 }
 
 /// An iterable, read-only projection of the resolved symbol table.
-#[pyclass(name = "SymbolTable", module = "qdk._native._semantic", frozen)]
+#[pyclass(name = "SymbolTable", module = "qdk.openqasm.semantic", frozen)]
 pub(crate) struct SemSymbolTable {
     symbols: Vec<Py<SemSymbol>>,
 }
@@ -288,7 +288,7 @@ fn symbol_name(symbols: &SymbolTable, id: SymbolId) -> Option<String> {
     subclass,
     frozen,
     name = "SemanticExpression",
-    module = "qdk._native._semantic"
+    module = "qdk.openqasm.semantic"
 )]
 pub(crate) struct SemExpr {
     /// The resolved type of the expression.
@@ -311,7 +311,7 @@ pub(crate) struct SemExpr {
     subclass,
     frozen,
     name = "SemanticStatement",
-    module = "qdk._native._semantic"
+    module = "qdk.openqasm.semantic"
 )]
 pub(crate) struct SemStmt {}
 
@@ -343,7 +343,7 @@ fn sem_stmt_base(span: Span, annotations: Vec<Py<Annotation>>) -> PyClassInitial
 // ----------------------------------------------------------------------------
 
 /// The root of a semantic `OpenQASM` program.
-#[pyclass(extends = QASMNode, frozen, name = "Program", module = "qdk._native._semantic")]
+#[pyclass(extends = QASMNode, frozen, name = "Program", module = "qdk.openqasm.semantic")]
 pub(crate) struct SemProgram {
     /// The declared `OpenQASM` version, if any (for example `"3.0"`).
     #[pyo3(get)]
@@ -384,14 +384,14 @@ impl SemProgram {
 /// carries no resolved type or const value; it is a physical qubit reference.
 ///
 /// The Rust identifier stays `SemHardwareQubit`, but the class is presented to
-/// Python as `HardwareQubit` in the `qdk._native._semantic` submodule so the
+/// Python as `HardwareQubit` in the `qdk.openqasm.semantic` module so the
 /// semantic family can use clean, un-prefixed names without colliding with the
 /// syntax layer in `qdk._native`.
 #[pyclass(
     extends = Expression,
     frozen,
     name = "HardwareQubit",
-    module = "qdk._native._semantic"
+    module = "qdk.openqasm.semantic"
 )]
 pub(crate) struct SemHardwareQubit {
     /// The hardware qubit's identifier text (for example `"$0"`).
@@ -615,11 +615,12 @@ qasm_node!(@stmt SemReset = "QuantumReset" {
 qasm_node!(@stmt SemReturn = "ReturnStatement" {
     value: opt,
 });
+/// A read-only OpenQASM `SwitchStatement` node.
 #[pyclass(
     extends = SemStmt,
     frozen,
     name = "SwitchStatement",
-    module = "qdk._native._semantic"
+    module = "qdk.openqasm.semantic"
 )]
 pub(crate) struct SemSwitch {
     #[pyo3(get)]
@@ -683,7 +684,7 @@ macro_rules! register_semantic_nodes {
 
 /// Registers all semantic node classes with the given module.
 ///
-/// The classes are registered into the `qdk._native._semantic` submodule (not
+/// The classes are stored in the private native semantic namespace (not
 /// the flat `qdk._native` module), so their clean, un-prefixed Python names do
 /// not collide with the syntax layer.
 pub(crate) fn register_semantic_nodes(m: &Bound<'_, PyModule>) -> PyResult<()> {

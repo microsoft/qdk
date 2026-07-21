@@ -194,3 +194,45 @@ def test_error_statement_callback_dispatches() -> None:
         assert type(node).__name__ == "ErrorStatement"
         assert isinstance(node, Statement)
 
+
+def test_semantic_visitor_propagates_context_and_supports_legacy_callbacks() -> None:
+    context = {"layer": "semantic"}
+    seen: List[Tuple[str, Any]] = []
+
+    class ContextVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any, callback_context: Any = None) -> None:
+            seen.append(("annotation", callback_context))
+
+        def visit_ClassicalDeclaration(
+            self, node: Any, callback_context: Any = None
+        ) -> None:
+            seen.append(("declaration", callback_context))
+            self.generic_visit(node, callback_context)
+
+        def visit_LiteralExpression(
+            self, node: Any, callback_context: Any = None
+        ) -> None:
+            seen.append((f"literal:{node.value}", callback_context))
+            self.generic_visit(node, callback_context)
+
+    program = semantic.analyze("OPENQASM 3.0;\n@tag\nint[8] value = 1; value;").program
+    ContextVisitor().visit(program, context)
+
+    assert [name for name, _ in seen] == [
+        "declaration",
+        "annotation",
+        "literal:1",
+        "literal:8",
+    ]
+    assert all(callback_context is context for _, callback_context in seen)
+
+    legacy_names: List[str] = []
+
+    class LegacyVisitor(QASMVisitor):
+        def visit_Identifier(self, node: Any) -> None:
+            if node.name is not None:
+                legacy_names.append(node.name)
+
+    LegacyVisitor().visit(program, context)
+    assert legacy_names == ["value"]
+

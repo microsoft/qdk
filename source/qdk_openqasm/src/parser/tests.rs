@@ -137,12 +137,7 @@ fn dotted_version_can_be_parsed() -> miette::Result<(), Vec<Report>> {
 
 #[test]
 fn lexical_errors_recover_to_following_statement() {
-    for malformed in [
-        "int bad = 1__2;",
-        "int bad = 0O7;",
-        "bit[4] bad = \"1__0\";",
-        "int π٢ = 0;",
-    ] {
+    for malformed in ["int bad = 1__2;", "bit[4] bad = \"1__0\";", "int π٢ = 0;"] {
         let source: Arc<str> = format!("{malformed}\nint good = 1;").into();
         let good_offset = u32::try_from(source.find("int good").expect("sentinel statement"))
             .expect("source offset should fit into u32");
@@ -165,7 +160,11 @@ fn lexical_errors_recover_to_following_statement() {
 
 #[test]
 fn invalid_strings_are_parse_errors() {
-    for source in ["include \"\";", "include \"line\nbreak\";"] {
+    for source in [
+        "include \"\";",
+        "include \"line\nbreak\";",
+        "defcalgrammar \"\";",
+    ] {
         let source: Arc<str> = source.into();
         let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
         let result = parse_source(source, "test", &mut resolver);

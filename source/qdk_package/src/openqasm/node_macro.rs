@@ -60,13 +60,13 @@ macro_rules! qasm_node {
     // ---- category entry points ----
     (@expr $name:ident = $pyname:literal { $($fields:tt)* }) => {
         qasm_node!(@munch expr, $name,
-            meta { name = $pyname, module = "qdk._native._semantic" }, disp { $pyname },
+            meta { name = $pyname, module = "qdk.openqasm.semantic" }, disp { $pyname },
             sf {}, param {}, ctor {}, nodes {}, opts {}, lists {};
             $($fields)*);
     };
     (@stmt $name:ident = $pyname:literal { $($fields:tt)* }) => {
         qasm_node!(@munch stmt, $name,
-            meta { name = $pyname, module = "qdk._native._semantic" }, disp { $pyname },
+            meta { name = $pyname, module = "qdk.openqasm.semantic" }, disp { $pyname },
             sf {}, param {}, ctor {}, nodes {}, opts {}, lists {};
             $($fields)*);
     };
@@ -84,7 +84,7 @@ macro_rules! qasm_node {
     };
     (@aux $name:ident = $pyname:literal { $($fields:tt)* }) => {
         qasm_node!(@munch aux, $name,
-            meta { name = $pyname, module = "qdk._native._semantic" }, disp { $pyname },
+            meta { name = $pyname, module = "qdk.openqasm.semantic" }, disp { $pyname },
             sf {}, param {}, ctor {}, nodes {}, opts {}, lists {};
             $($fields)*);
     };
@@ -177,6 +177,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
     ) => {
+        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
         #[pyclass(extends = SemExpr, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -225,6 +226,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
     ) => {
+        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
         #[pyclass(extends = SemStmt, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -271,6 +273,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
     ) => {
+        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
         #[pyclass(extends = Expression, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -316,6 +319,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
     ) => {
+        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
         #[pyclass(extends = Statement, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -362,6 +366,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
     ) => {
+        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
         #[pyclass(extends = QASMNode, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -404,6 +409,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }
     ) => {
+        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
         #[pyclass(extends = QASMNode, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*

@@ -264,3 +264,58 @@ def test_semantic_auxiliary_node_callbacks_dispatch() -> None:
         "QuantumGateModifier",
     ]
 
+
+def test_syntax_type_expressions_are_visited_as_children() -> None:
+    values: List[int] = []
+
+    class TypeExpressionVisitor(QASMVisitor):
+        def visit_LiteralExpression(self, node: Any) -> None:
+            values.append(node.value)
+            self.generic_visit(node)
+
+    program = parser.parse("OPENQASM 3.0; array[int[8], 2, 3] values;").program
+    TypeExpressionVisitor().visit(program)
+
+    assert values == [8, 2, 3]
+
+
+def test_syntax_visitor_propagates_context_and_supports_legacy_callbacks() -> None:
+    context = {"layer": "syntax"}
+    seen: List[Tuple[str, Any]] = []
+
+    class ContextVisitor(QASMVisitor):
+        def visit_Annotation(self, node: Any, callback_context: Any = None) -> None:
+            seen.append(("annotation", callback_context))
+
+        def visit_ClassicalDeclaration(
+            self, node: Any, callback_context: Any = None
+        ) -> None:
+            seen.append(("declaration", callback_context))
+            self.generic_visit(node, callback_context)
+
+        def visit_LiteralExpression(
+            self, node: Any, callback_context: Any = None
+        ) -> None:
+            seen.append((f"literal:{node.value}", callback_context))
+            self.generic_visit(node, callback_context)
+
+    program = parser.parse("OPENQASM 3.0;\n@tag\nint[8] value = 1;").program
+    ContextVisitor().visit(program, context)
+
+    assert [name for name, _ in seen] == [
+        "declaration",
+        "annotation",
+        "literal:1",
+        "literal:8",
+    ]
+    assert all(callback_context is context for _, callback_context in seen)
+
+    legacy_names: List[str] = []
+
+    class LegacyVisitor(QASMVisitor):
+        def visit_Identifier(self, node: Any) -> None:
+            legacy_names.append(node.name)
+
+    LegacyVisitor().visit(program, context)
+    assert legacy_names == ["value"]
+

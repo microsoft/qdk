@@ -96,12 +96,17 @@ fn invalid_lexical_forms_are_visible_through_facade() {
         assert_eq!(tokens[0].text, source);
     }
 
-    for source in [r#""""#, "'\n'", r#""1__0""#] {
+    for source in ["'\n'", r#""1__0""#] {
         let tokens = tokenize(source);
         assert_eq!(tokens.len(), 1, "source: {source:?}");
         assert_eq!(tokens[0].kind, RawTokenKind::String);
         assert!(!tokens[0].is_complete);
     }
+
+    let tokens = tokenize(r#""""#);
+    assert_eq!(tokens.len(), 1);
+    assert_eq!(tokens[0].kind, RawTokenKind::String);
+    assert!(tokens[0].is_complete);
 
     let tokens = tokenize("π٢");
     assert_eq!(tokens.len(), 2);

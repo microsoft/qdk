@@ -396,15 +396,14 @@ pub(crate) fn register_openqasm_submodule<'a>(
     Ok(())
 }
 
-/// Registers the `qdk._native._semantic` submodule holding the semantic node
-/// classes that present clean, un-prefixed Python names.
+/// Registers the private native namespace that stores semantic node classes.
 ///
 /// The semantic family keeps its `Sem`-prefixed Rust identifiers but is exposed
 /// to Python without the prefix (for example Rust `SemGateCall` ->
 /// Python `GateCall`). Isolating it in a submodule avoids colliding with
 /// the syntax layer's `openqasm3`-parity names in the flat `qdk._native`
-/// module. The submodule is attribute-only (not registered in `sys.modules`),
-/// so callers reach it via `from qdk._native import _semantic`.
+/// module. Each class advertises the importable `qdk.openqasm.semantic` module,
+/// which publicly re-exports these native class objects.
 fn register_semantic_submodule(m: &Bound<'_, PyModule>) -> PyResult<()> {
     let semantic_mod = PyModule::new(m.py(), "_semantic")?;
     semantic::register_semantic_nodes(&semantic_mod)?;

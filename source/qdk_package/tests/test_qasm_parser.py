@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+import importlib
 from typing import Any
 
 import pytest
@@ -13,13 +14,16 @@ from qdk.openqasm.parser import (
     Diagnostic,
     Expression,
     Identifier,
+    IndexList,
     Program,
     QASMNode,
     QASMVisitor,
     QuantumGate,
+    RangeDefinition,
     Severity,
     Span,
     Statement,
+    SubroutineParameter,
 )
 
 
@@ -441,6 +445,22 @@ def test_syntax_indices_preserve_dimensions_and_discrete_sets() -> None:
     assert [value.value for value in alias.exprs[0].indices[0].values] == [0, 2]
 
 
+def test_corrected_syntax_field_shapes_match_runtime_values() -> None:
+    source = """OPENQASM 3.0;
+    array[int, 2] values;
+    int selected = values[0];
+    def f(int value) { }
+    for int i in [0:1] { }
+    """
+    result = parser.parse(source)
+    assert not result.has_errors
+
+    statements = result.program.statements
+    assert isinstance(statements[1].init_expr.indices[0], IndexList)
+    assert isinstance(statements[2].params[0], SubroutineParameter)
+    assert isinstance(statements[3].iterable, RangeDefinition)
+
+
 def test_switch_preserves_cases_and_optional_default() -> None:
     two_cases = """OPENQASM 3.0; int a;
     switch (a) { case 1 { a = 2; } case 3 { a = 4; a = 5; } }
@@ -466,7 +486,11 @@ def test_subroutine_parameters_preserve_name_and_type_grouping() -> None:
     """
     syntax_def = parser.parse(source).program.statements[0]
     assert [parameter.identifier.name for parameter in syntax_def.params] == ["a", "b", "q"]
-    assert [parameter.type_name for parameter in syntax_def.params] == ["int", "float", "qubit"]
+    assert [parameter.type_name for parameter in syntax_def.params] == [
+        "int[8]",
+        "float[32]",
+        "qubit",
+    ]
     assert [
         [expression.value for expression in parameter.type_expressions]
         for parameter in syntax_def.params
@@ -494,13 +518,13 @@ def test_array_reference_parameters_preserve_type_grouping() -> None:
     syntax_params = syntax_result.program.statements[0].params
     assert [parameter.identifier.name for parameter in syntax_params] == ["a", "b"]
     assert [parameter.type_name for parameter in syntax_params] == [
-        "readonly static array[int]",
-        "mutable dynamic array[float]",
+        "readonly array[int[8], 2]",
+        "mutable array[float[32], #dim = 2]",
     ]
-    assert [[expr.value for expr in parameter.type_expressions] for parameter in syntax_params] == [
-        [2],
-        [2],
-    ]
+    assert [
+        [expr.value for expr in parameter.type_expressions]
+        for parameter in syntax_params
+    ] == [[8, 2], [32, 2]]
 
     semantic_result = semantic.analyze(source)
     assert not semantic_result.has_errors
@@ -508,6 +532,71 @@ def test_array_reference_parameters_preserve_type_grouping() -> None:
     assert [parameter.name for parameter in semantic_params] == ["a", "b"]
     assert [len(parameter.type_expressions) for parameter in semantic_params] == [2, 2]
     assert all(parameter.symbol.id == parameter.symbol_id for parameter in semantic_params)
+
+
+def test_syntax_type_fields_use_canonical_schema_and_preserve_expressions() -> None:
+    source = """OPENQASM 3.0;
+    array[int[8], 2, 3] values;
+    const uint[16] count = 1;
+    def f(readonly array[float[32], 4] items) -> complex[float[64]] { }
+    extern ext(mutable array[angle[20], #dim = 2], bit[7]) -> int[9];
+    for uint[5] i in [0:1] { }
+    input bit[6] bits;
+    int[10] casted = int[11](1);
+    """
+    result = parser.parse(source)
+    assert not result.has_errors
+
+    statements = result.program.statements
+    array_decl = statements[0]
+    const_decl = statements[1]
+    subroutine = statements[2]
+    external = statements[3]
+    for_loop = statements[4]
+    input_decl = statements[5]
+    cast_decl = statements[6]
+    cast = cast_decl.init_expr
+
+    assert array_decl.type_name == "array[int[8], 2, 3]"
+    assert [expr.value for expr in array_decl.type_expressions] == [8, 2, 3]
+    assert const_decl.type_name == "uint[16]"
+    assert [expr.value for expr in const_decl.type_expressions] == [16]
+    assert subroutine.return_type_name == "complex[float[64]]"
+    assert [expr.value for expr in subroutine.return_type_expressions] == [64]
+    assert external.param_type_names == [
+        "mutable array[angle[20], #dim = 2]",
+        "bit[7]",
+    ]
+    assert [expr.value for expr in external.param_type_expressions] == [20, 2, 7]
+    assert external.return_type_name == "int[9]"
+    assert [expr.value for expr in external.return_type_expressions] == [9]
+    assert for_loop.type_name == "uint[5]"
+    assert [expr.value for expr in for_loop.type_expressions] == [5]
+    assert input_decl.type_name == "bit[6]"
+    assert [expr.value for expr in input_decl.type_expressions] == [6]
+    assert cast_decl.type_name == "int[10]"
+    assert [expr.value for expr in cast_decl.type_expressions] == [10]
+    assert cast.type_name == "int[11]"
+    assert [expr.value for expr in cast.type_expressions] == [11]
+
+
+def test_all_exported_classes_resolve_through_declared_module() -> None:
+    for public_module in (parser, semantic):
+        for name in public_module.__all__:
+            exported = getattr(public_module, name)
+            if not isinstance(exported, type):
+                continue
+            declared_module = importlib.import_module(exported.__module__)
+            assert getattr(declared_module, exported.__name__) is exported
+
+
+def test_all_exported_node_classes_have_runtime_documentation() -> None:
+    for public_module in (parser, semantic):
+        for name in public_module.__all__:
+            exported = getattr(public_module, name)
+            if isinstance(exported, type) and issubclass(exported, QASMNode):
+                assert exported.__doc__ is not None
+                assert exported.__doc__.strip()
 
 
 def test_statement_annotations_preserve_values_and_spans() -> None:

@@ -97,6 +97,11 @@ pub fn unparse(program: &Program) -> Result<String, UnparseError> {
     })
 }
 
+/// Returns the canonical OpenQASM spelling of an expression.
+pub fn expression(expression: &Expr) -> Result<String, UnparseError> {
+    Emitter { qasm2: false }.expression(expression, 0)
+}
+
 struct Output<W> {
     writer: W,
     error: Option<std::io::Error>,
