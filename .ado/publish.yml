@@ -87,6 +87,9 @@ parameters:
 extends:
   template: v1/1ES.Official.PipelineTemplate.yml@1ESPipelineTemplates
   parameters:
+    featureFlags:
+      sbomtoolkitPipelineRunnerGenerationEnabled: false
+      sbomtoolkitPipelineRunnerValidationEnabled: false
     sdl:
       sourceAnalysisPool:
         name: "Azure-Pipelines-DevTools-EO"
