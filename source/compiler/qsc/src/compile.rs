@@ -95,7 +95,8 @@ pub fn compile_ast(
         capabilities,
         vec![],
     );
-    process_compile_unit(store, package_type, unit)
+    let mut pass_context = PassContext::default();
+    process_compile_unit(store, package_type, unit, &mut pass_context)
 }
 
 /// Compiles a package from its source representation.
@@ -108,6 +109,7 @@ pub fn compile(
     capabilities: TargetCapabilityFlags,
     language_features: LanguageFeatures,
 ) -> (CompileUnit, Vec<Error>) {
+    let mut pass_context = PassContext::default();
     let unit = qsc_frontend::compile::compile(
         store,
         dependencies,
@@ -115,7 +117,7 @@ pub fn compile(
         capabilities,
         language_features,
     );
-    process_compile_unit(store, package_type, unit)
+    process_compile_unit(store, package_type, unit, &mut pass_context)
 }
 
 #[must_use]
@@ -135,22 +137,12 @@ pub fn compile_with_pass_context(
         capabilities,
         language_features,
     );
-    process_compile_unit_with_pass_context(store, package_type, unit, pass_context)
+    process_compile_unit(store, package_type, unit, pass_context)
 }
 
 #[must_use]
 #[allow(clippy::module_name_repetitions)]
 fn process_compile_unit(
-    store: &PackageStore,
-    package_type: PackageType,
-    unit: CompileUnit,
-) -> (CompileUnit, Vec<Error>) {
-    let mut pass_context = PassContext::default();
-    process_compile_unit_with_pass_context(store, package_type, unit, &mut pass_context)
-}
-
-#[allow(clippy::module_name_repetitions)]
-fn process_compile_unit_with_pass_context(
     store: &PackageStore,
     package_type: PackageType,
     mut unit: CompileUnit,
