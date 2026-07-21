@@ -380,21 +380,19 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
                 break
 
     def _on_rt_array_record_output(
-        self, call: Call, value: IntConstant, target: Value
+        self, call: Call, value: Value, target: Value
     ) -> None:
+        assert isinstance(value, IntConstant)
         self._output_str += "["
         self._closers.append("]")
-        # if len(self._counters) > 0:
-        #     self._counters[-1] -= 1
         self._counters.append(value.value)
 
     def _on_rt_tuple_record_output(
-        self, call: Call, value: IntConstant, target: Value
+        self, call: Call, value: Value, target: Value
     ) -> None:
+        assert isinstance(value, IntConstant)
         self._output_str += "("
         self._closers.append(")")
-        # if len(self._counters) > 0:
-        #     self._counters[-1] -= 1
         self._counters.append(value.value)
 
 
