@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::interpreter::Result as QsResult;
 use crate::qir_simulation::{
     NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
     unbind_noise_config,
@@ -8,7 +9,7 @@ use crate::qir_simulation::{
 use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
 use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
-    MeasurementResult, Simulator,
+    MeasurementResult, OutputRecord, Simulator,
     bytecode::{self, runtime::run_shot as adaptive_run_shot},
     cpu_full_state_simulator::{NoiselessSimulator, NoisySimulator},
     noise_config::{self, CumulativeNoiseConfig},
@@ -16,7 +17,48 @@ use qdk_simulators::{
 };
 use rand::{RngExt, SeedableRng, rngs::StdRng};
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use std::{fmt::Write, sync::Arc};
+use std::sync::Arc;
+
+/// Map a raw [`MeasurementResult`] to its Python `Result` enum counterpart.
+fn measurement_result_to_py(value: MeasurementResult) -> QsResult {
+    match value {
+        MeasurementResult::Zero => QsResult::Zero,
+        MeasurementResult::One => QsResult::One,
+        MeasurementResult::Loss => QsResult::Loss,
+    }
+}
+
+/// Convert a single [`OutputRecord`] to a native Python object. Measurement
+/// results become `Result` enum values; classical records become the matching
+/// native type (`bool` → `bool`, `int` → `int`, `double` → `float`).
+fn output_record_to_py(py: Python<'_>, record: OutputRecord) -> PyResult<Py<PyAny>> {
+    match record {
+        OutputRecord::Result(value) => measurement_result_to_py(value).into_py_any(py),
+        OutputRecord::Bool(b) => b.into_py_any(py),
+        OutputRecord::Int(i) => i.into_py_any(py),
+        OutputRecord::Double(d) => d.into_py_any(py),
+    }
+}
+
+/// Build the Python return value for a run: a list with one entry per shot,
+/// where each entry is the ordered list of that shot's recorded output values.
+fn output_records_to_pylist(py: Python<'_>, output: Vec<Vec<OutputRecord>>) -> PyResult<Py<PyAny>> {
+    let mut array = Vec::with_capacity(output.len());
+    for shot_records in output {
+        let mut values = Vec::with_capacity(shot_records.len());
+        for record in shot_records {
+            values.push(output_record_to_py(py, record)?);
+        }
+        array.push(
+            PyList::new(py, values)
+                .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+                .into_py_any(py)?,
+        );
+    }
+    PyList::new(py, array)
+        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
+        .into_py_any(py)
+}
 
 #[pyfunction]
 pub fn run_clifford<'py>(
@@ -130,18 +172,7 @@ where
     );
 
     // Convert results back to Python.
-    let mut array = Vec::with_capacity(shots as usize);
-    for val in output {
-        array.push(
-            val.into_py_any(py).map_err(|e| {
-                PyValueError::new_err(format!("failed to create Python string: {e}"))
-            })?,
-        );
-    }
-
-    PyList::new(py, array)
-        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
-        .into_py_any(py)
+    output_records_to_pylist(py, output)
 }
 
 fn run<SimulatorBuilder, Noise, S>(
@@ -152,7 +183,7 @@ fn run<SimulatorBuilder, Noise, S>(
     seed: Option<u32>,
     noise: noise_config::NoiseConfig<f64, f64>,
     make_simulator: SimulatorBuilder,
-) -> Vec<String>
+) -> Vec<Vec<OutputRecord>>
 where
     SimulatorBuilder: Fn(u32, u32, u32, Arc<Noise>) -> S,
     SimulatorBuilder: Send + Sync,
@@ -162,6 +193,13 @@ where
     let noise: Noise = noise.into();
     let noise = Arc::new(noise);
 
+    // Programs without any output-recording calls fall back to reporting every
+    // measurement result in order, matching the historical raw-measurement
+    // behavior.
+    let has_output_recording = instructions
+        .iter()
+        .any(|inst| matches!(inst, QirInstruction::OutputRecording(..)));
+
     // Create a random number generator to generate the seed for each individual shot.
     let mut rng = if let Some(seed) = seed {
         StdRng::seed_from_u64(seed.into())
@@ -170,34 +208,28 @@ where
     };
 
     // run the shots
-    let output = (0..shots)
+    (0..shots)
         .map(|_| rng.random())
         .collect::<Vec<u32>>()
         .par_iter()
         .map(|shot_seed| {
             let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
-            run_shot(instructions, &mut simulator);
-            simulator.take_measurements()
-        })
-        .collect::<Vec<_>>();
-
-    // Convert results to a list of strings.
-    let mut values = Vec::with_capacity(shots as usize);
-    for shot_result in output {
-        let mut buffer = String::with_capacity(shot_result.len());
-        for measurement in shot_result {
-            match measurement {
-                MeasurementResult::Zero => write!(&mut buffer, "0").expect("write should succeed"),
-                MeasurementResult::One => write!(&mut buffer, "1").expect("write should succeed"),
-                MeasurementResult::Loss => write!(&mut buffer, "L").expect("write should succeed"),
+            let records = run_shot(instructions, &mut simulator);
+            if has_output_recording {
+                records
+            } else {
+                simulator
+                    .take_measurements()
+                    .into_iter()
+                    .map(OutputRecord::Result)
+                    .collect()
             }
-        }
-        values.push(buffer);
-    }
-    values
+        })
+        .collect::<Vec<_>>()
 }
 
-fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
+fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) -> Vec<OutputRecord> {
+    let mut records: Vec<OutputRecord> = Vec::new();
     for qir_inst in instructions {
         match qir_inst {
             QirInstruction::OneQubitGate(id, qubit) => match id {
@@ -245,14 +277,27 @@ fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) {
                     &qubits.iter().map(|q| *q as usize).collect::<Vec<_>>(),
                 );
             }
-            QirInstruction::OutputRecording(_id, _s, _tag) => {
-                // Ignore for now.
+            QirInstruction::OutputRecording(id, value, _tag) => {
+                // Capture result records into the unified output stream in the
+                // order they are recorded. Array and tuple records are purely
+                // structural and reconstructed by the host from the static QIR,
+                // so nothing is captured for them here.
+                if *id == QirInstructionId::ResultRecordOutput {
+                    let result_id: usize = value.parse().unwrap_or(0);
+                    let measurement = sim
+                        .measurements()
+                        .get(result_id)
+                        .copied()
+                        .unwrap_or(MeasurementResult::Zero);
+                    records.push(OutputRecord::Result(measurement));
+                }
             }
             QirInstruction::ThreeQubitGate(..) => {
                 panic!("unsupported instruction: {qir_inst:?}")
             }
         }
     }
+    records
 }
 
 // ---------------------------------------------------------------------------
@@ -288,18 +333,7 @@ pub fn run_cpu_adaptive<'py>(
         run_adaptive(&program, shots, seed, noise, make_simulator)
     };
 
-    let mut array = Vec::with_capacity(shots as usize);
-    for val in output {
-        array.push(
-            val.into_py_any(py).map_err(|e| {
-                PyValueError::new_err(format!("failed to create Python string: {e}"))
-            })?,
-        );
-    }
-
-    PyList::new(py, array)
-        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
-        .into_py_any(py)
+    output_records_to_pylist(py, output)
 }
 
 #[pyfunction]
@@ -324,18 +358,7 @@ pub fn run_clifford_adaptive<'py>(
     };
     let output = run_adaptive(&program, shots, seed, noise, make_simulator);
 
-    let mut array = Vec::with_capacity(shots as usize);
-    for val in output {
-        array.push(
-            val.into_py_any(py).map_err(|e| {
-                PyValueError::new_err(format!("failed to create Python string: {e}"))
-            })?,
-        );
-    }
-
-    PyList::new(py, array)
-        .map_err(|e| PyValueError::new_err(format!("failed to create Python list: {e}")))?
-        .into_py_any(py)
+    output_records_to_pylist(py, output)
 }
 
 fn run_adaptive<SimulatorBuilder, Noise, S>(
@@ -344,17 +367,27 @@ fn run_adaptive<SimulatorBuilder, Noise, S>(
     seed: Option<u32>,
     noise: noise_config::NoiseConfig<f64, f64>,
     make_simulator: SimulatorBuilder,
-) -> Vec<String>
+) -> Vec<Vec<OutputRecord>>
 where
     SimulatorBuilder: Fn(usize, usize, u32, Arc<Noise>) -> S + Send + Sync,
     Noise: From<noise_config::NoiseConfig<f64, f64>> + Send + Sync,
     S: Simulator,
 {
+    const OP_RECORD_OUTPUT: u8 = 0x14;
+
     let noise: Noise = noise.into();
     let noise = Arc::new(noise);
 
     let num_qubits = program.num_qubits as usize;
     let num_results = program.num_results as usize;
+
+    // Programs without any output-recording calls fall back to reporting every
+    // measurement result in order, matching the historical raw-measurement
+    // behavior.
+    let has_output_recording = program
+        .instructions
+        .iter()
+        .any(|inst| inst.primary_opcode() == OP_RECORD_OUTPUT);
 
     let mut rng = if let Some(seed) = seed {
         StdRng::seed_from_u64(seed.into())
@@ -362,28 +395,22 @@ where
         StdRng::from_rng(&mut rand::rng())
     };
 
-    let output = (0..shots)
+    (0..shots)
         .map(|_| rng.random())
         .collect::<Vec<u32>>()
         .par_iter()
         .map(|shot_seed| {
             let mut simulator = make_simulator(num_qubits, num_results, *shot_seed, noise.clone());
-            adaptive_run_shot(program, &mut simulator);
-            simulator.take_measurements()
-        })
-        .collect::<Vec<_>>();
-
-    let mut values = Vec::with_capacity(shots as usize);
-    for shot_result in output {
-        let mut buffer = String::with_capacity(shot_result.len());
-        for measurement in shot_result {
-            match measurement {
-                MeasurementResult::Zero => write!(&mut buffer, "0").expect("write should succeed"),
-                MeasurementResult::One => write!(&mut buffer, "1").expect("write should succeed"),
-                MeasurementResult::Loss => write!(&mut buffer, "L").expect("write should succeed"),
+            let records = adaptive_run_shot(program, &mut simulator);
+            if has_output_recording {
+                records
+            } else {
+                simulator
+                    .take_measurements()
+                    .into_iter()
+                    .map(OutputRecord::Result)
+                    .collect()
             }
-        }
-        values.push(buffer);
-    }
-    values
+        })
+        .collect::<Vec<_>>()
 }
