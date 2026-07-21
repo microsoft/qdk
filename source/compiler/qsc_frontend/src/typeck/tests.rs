@@ -1359,6 +1359,71 @@ fn short_circuit_rhs_break_does_not_make_expression_divergent() {
 }
 
 #[test]
+fn decisive_short_circuit_literal_skips_loop_control_in_rhs() {
+    for expression in ["(false) and break", "(true) or break"] {
+        let source = format!(
+            r#"namespace Test {{
+                function Main() : Int {{
+                    repeat {{
+                        let value = {expression};
+                        fail "body";
+                    }} until true
+                }}
+            }}"#
+        );
+        let (_, _, errors) = compile(&source, "", false);
+
+        assert!(
+            errors.is_empty(),
+            "unexpected errors for `{expression}`: {errors:?}"
+        );
+    }
+}
+
+#[test]
+fn partial_application_eager_argument_break_prevents_loop_divergence() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Add(x : Int, y : Int) : Int { x + y }
+            function Main(cond : Bool) : Int {
+                repeat {
+                    let add : Int -> Int =
+                        ({ fail "deferred"; Add })(if cond { break } else { 0 }, _);
+                } until true
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
+fn partial_application_deferred_callee_break_does_not_target_enclosing_loop() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Add(x : Int, y : Int) : Int { x + y }
+            function Main(cond : Bool) : Int {
+                repeat {
+                    let add : Int -> Int =
+                        (if cond { break } else { Add })(0, _);
+                    fail "body";
+                } until true
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
 fn break_in_struct_field_makes_struct_expression_divergent() {
     let (_, _, errors) = compile(
         r#"namespace Test {
@@ -2081,6 +2146,26 @@ fn for_with_diverging_body_is_divergent() {
 }
 
 #[test]
+fn for_with_empty_container_and_diverging_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Main() : Int {
+                let empty : Int[] = [];
+                for _ in empty { fail "body" }
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
 fn while_with_break_body_is_not_divergent() {
     let (_, _, errors) = compile(
         "namespace Test { function First<'T>() : 'T { while true { break } } }",
@@ -2119,6 +2204,25 @@ fn while_with_diverging_body_is_divergent() {
     );
 
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn while_with_false_condition_and_diverging_body_is_not_divergent() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Main() : Int {
+                while false { fail "body" }
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
 }
 
 #[test]
