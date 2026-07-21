@@ -1,13 +1,13 @@
-/// # Sample
-/// Hidden Shift
-///
-/// # Description
-/// There is a family of problems known as hidden shift problems, in which it
-/// is given that two Boolean functions 𝑓 and 𝑔 satisfy the relation
-///     𝑔(𝑥) = 𝑓(𝑥 ⊕ 𝑠) for all 𝑥
-/// where 𝑠 is a hidden bit string that we would like to find.
-///
-/// This Q# program implements an algorithm to solve the hidden shift problem.
+// # Sample
+// Hidden Shift
+//
+// # Description
+// There is a family of problems known as hidden shift problems, in which it
+// is given that two Boolean functions 𝑓 and 𝑔 satisfy the relation
+//     𝑔(𝑥) = 𝑓(𝑥 ⊕ 𝑠) for all 𝑥
+// where 𝑠 is a hidden bit string that we would like to find.
+//
+// This Q# program implements an algorithm to solve the hidden shift problem.
 import Std.Arrays.*;
 import Std.Convert.*;
 import Std.Diagnostics.*;

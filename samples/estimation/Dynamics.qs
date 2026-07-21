@@ -1,15 +1,15 @@
-/// # Sample
-/// Quantum Dynamics
-///
-/// # Description
-/// This example demonstrates quantum dynamics in a style tailored for
-/// resource estimation. The sample is specifically the simulation
-/// of an Ising model Hamiltonian on an N1xN2 2D lattice using a
-/// fourth-order Trotter Suzuki product formula, assuming
-/// a 2D qubit architecture with nearest-neighbor connectivity.
-/// The is an example of a program that is not amenable to simulating
-/// classically, but can be run through resource estimation to determine
-/// what size of quantum system would be needed to solve the problem.
+// # Sample
+// Quantum Dynamics
+//
+// # Description
+// This example demonstrates quantum dynamics in a style tailored for
+// resource estimation. The sample is specifically the simulation
+// of an Ising model Hamiltonian on an N1xN2 2D lattice using a
+// fourth-order Trotter Suzuki product formula, assuming
+// a 2D qubit architecture with nearest-neighbor connectivity.
+// The is an example of a program that is not amenable to simulating
+// classically, but can be run through resource estimation to determine
+// what size of quantum system would be needed to solve the problem.
 
 import Std.Math.*;
 import Std.Arrays.*;

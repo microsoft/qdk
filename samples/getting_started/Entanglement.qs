@@ -1,12 +1,12 @@
-/// # Summary
-/// Entanglement sample
-///
-/// # Description
-/// This Q# program entangles two qubits and measures them.
-///
-/// # Remarks
-/// Qubits are said to be entangled when the state of each one of them
-/// cannot be described independently from the state of the others.
+// # Summary
+// Entanglement sample
+//
+// # Description
+// This Q# program entangles two qubits and measures them.
+//
+// # Remarks
+// Qubits are said to be entangled when the state of each one of them
+// cannot be described independently from the state of the others.
 operation Main() : Result[] {
     // Allocate the two qubits that will be entangled.
     use q1 = Qubit();

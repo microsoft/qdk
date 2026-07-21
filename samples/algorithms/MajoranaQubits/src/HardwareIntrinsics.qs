@@ -1,5 +1,5 @@
-/// A set of custom measurements exposed from a hardware
-/// provider using Majorana Qubits.
+// A set of custom measurements exposed from a hardware
+// provider using Majorana Qubits.
 
 @Measurement()
 @SimulatableIntrinsic()
