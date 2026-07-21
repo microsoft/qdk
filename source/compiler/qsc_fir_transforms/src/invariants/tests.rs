@@ -19,7 +19,7 @@ use crate::invariants::test_utils::{
 };
 use crate::test_utils::{
     PipelineStage, assert_panics_with, compile_and_run_pipeline_to,
-    compile_and_run_pipeline_to_with_library,
+    compile_and_run_pipeline_to_with_library, find_callable_body_block,
 };
 
 use qsc_fir::fir::LocalVarId;
@@ -257,6 +257,22 @@ fn divergent_nested_if_fail_tail_passes_block_tail() {
 }
 
 #[test]
+fn divergent_while_true_fail_body_passes_block_tail() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Int {
+                while true {
+                    fail "hello"
+                }
+            }
+        }
+    "#;
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
+    check(&store, pkg_id, InvariantLevel::PostAll);
+}
+
+#[test]
 fn divergent_repeat_fail_body_passes_block_tail() {
     // Repeat lowering appends a synthetic condition update after the original
     // body and wraps it in a while loop. The divergence check must still see
@@ -273,6 +289,37 @@ fn divergent_repeat_fail_body_passes_block_tail() {
     "#;
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
     check(&store, pkg_id, InvariantLevel::PostAll);
+}
+
+#[test]
+fn non_entered_while_body_does_not_exempt_mismatched_block_tail() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                while false {
+                    fail "unreachable"
+                }
+                0
+            }
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+    // Leave the Unit-typed while as the tail of an Int block. Its unreachable
+    // fail body must not exempt the resulting type mismatch.
+    let removed = store
+        .get_mut(pkg_id)
+        .blocks
+        .get_mut(body_id)
+        .expect("body block should exist")
+        .stmts
+        .pop();
+    assert!(removed.is_some(), "body should have a value tail to remove");
+
+    assert_panics_with("Non-Unit block-tail invariant violation", || {
+        check(&store, pkg_id, InvariantLevel::PostDefunc);
+    });
 }
 
 #[test]
