@@ -64,12 +64,12 @@ from ._types import (
 from .estimator._estimator import LogicalCounts
 
 # Check if we are running in a Jupyter notebook to use the IPython display function
-_in_jupyter = False
+_jupyter_display = None
 try:
     from IPython.display import display  # type: ignore[import-not-found]
 
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
-        _in_jupyter = True  # Jupyter notebook or qtconsole
+        _jupyter_display = display  # Jupyter notebook or qtconsole
 except:
     pass
 
@@ -404,9 +404,9 @@ class Context:
 
     def _display(self, output: Output) -> None:
         """Displays output in Jupyter (if available), otherwise prints."""
-        if _in_jupyter:
+        if _jupyter_display is not None:
             try:
-                display(output)
+                _jupyter_display(output)
                 return
             except Exception:
                 # If IPython is not available, fall back to printing the output.
