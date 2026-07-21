@@ -1320,3 +1320,24 @@ fn blockless_select_yields_error() {
         "#]],
     );
 }
+
+#[test]
+fn require_with_args_yields_error() {
+    let source = indoc! {"
+        SELECT {
+          M 0
+          REQUIRE(0.5) rec[-1]
+        }
+    "};
+    check(source, &expect![[r#"
+        Qdk.Stim.Compiler.UnsupportedArgument
+
+          x unsupported argument in instruction: REQUIRE
+           ,-[3:3]
+         2 |   M 0
+         3 |   REQUIRE(0.5) rec[-1]
+           :   ^^^^^^^^^^^^^^^^^^^^
+         4 | }
+           `----
+    "#]]);
+}

@@ -1563,6 +1563,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
+        self.unsupported_args(instruction);
         if matches!(self.id_map.current_scope(), Scope::TopLevel) {
             self.push_error(Error::RequireOutsideSelectBlock {
                 span: instruction.span,
