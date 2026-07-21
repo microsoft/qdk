@@ -1282,6 +1282,23 @@ fn unreachable_loop_control_in_later_call_argument_does_not_suppress_divergence(
 }
 
 #[test]
+fn unreachable_loop_control_in_scoped_qubit_block_does_not_suppress_divergence() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            operation Main() : Int {
+                repeat {
+                    use q = Qubit[fail "init"] { break; }
+                } until true
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
 fn unreachable_loop_control_after_diverging_condition_does_not_suppress_divergence() {
     let (_, _, errors) = compile(
         r#"namespace Test {
@@ -1296,6 +1313,28 @@ fn unreachable_loop_control_after_diverging_condition_does_not_suppress_divergen
     );
 
     assert!(errors.is_empty(), "unexpected errors: {errors:?}");
+}
+
+#[test]
+fn break_in_assignment_index_prevents_loop_divergence() {
+    let (_, _, errors) = compile(
+        r#"namespace Test {
+            function Main() : Int {
+                mutable values = [0];
+                while true {
+                    set values[break] = 1;
+                }
+            }
+        }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
 }
 
 #[test]
