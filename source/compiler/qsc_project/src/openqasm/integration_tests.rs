@@ -216,7 +216,7 @@ fn unsaved_files_cannot_ref_relative_includes() {
 
     assert!(result.has_errors(), "Should indicate presence of errors");
 
-    let syntax_errors = result.syntax_errors();
+    let parse_errors = result.parse_errors();
 
     expect![[r#"
         [  x Not Found: Could not resolve include file: nonexistent.qasm
@@ -229,7 +229,7 @@ fn unsaved_files_cannot_ref_relative_includes() {
         ]"#]]
     .assert_eq(&format!(
         "{:?}",
-        syntax_errors
+        parse_errors
             .iter()
             .map(|e| Report::new(e.clone()))
             .collect::<Vec<_>>()

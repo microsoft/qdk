@@ -17,7 +17,7 @@ fn lexical_errors_recover_to_following_semantic_statement() {
         let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
         let result = parse_source(source, "test", &mut resolver);
 
-        assert!(result.has_syntax_errors(), "source: {malformed:?}");
+        assert!(result.has_parse_errors(), "source: {malformed:?}");
         assert!(
             result.program.statements.iter().any(|statement| {
                 statement.span.lo >= good_offset
@@ -29,23 +29,23 @@ fn lexical_errors_recover_to_following_semantic_statement() {
 }
 
 #[test]
-fn invalid_strings_are_semantic_syntax_errors() {
+fn invalid_strings_are_semantic_parse_errors() {
     for source in ["include \"\";", "include \"line\nbreak\";"] {
         let source: Arc<str> = source.into();
         let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
         let result = parse_source(source, "test", &mut resolver);
 
-        assert!(result.has_syntax_errors());
+        assert!(result.has_parse_errors());
     }
 }
 
 #[test]
-fn unterminated_block_comment_is_a_semantic_syntax_error() {
+fn unterminated_block_comment_is_a_semantic_parse_error() {
     let source: Arc<str> = "/* unterminated".into();
     let mut resolver = InMemorySourceResolver::from_iter([("test".into(), source.clone())]);
     let result = parse_source(source, "test", &mut resolver);
 
-    assert!(result.has_syntax_errors());
+    assert!(result.has_parse_errors());
 }
 
 #[test]

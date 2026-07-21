@@ -98,7 +98,7 @@ pub fn parse_source<R: io::SourceResolver>(
 /// Parses and semantically analyzes `OpenQASM` source text.
 ///
 /// In addition to lexing and parsing, this builds a symbol table and the
-/// semantic AST, reporting both syntax and semantic diagnostics. Use
+/// semantic AST, reporting both parse and semantic diagnostics. Use
 /// [`parse_source`] when only a syntax tree is needed.
 ///
 /// # Arguments
@@ -120,7 +120,7 @@ pub fn parse_source<R: io::SourceResolver>(
 /// diagnostics. Errors are collected on the result rather than returned as an
 /// `Err`; inspect them via
 /// [`AnalysisResult::has_errors`](semantic::AnalysisResult::has_errors),
-/// [`has_syntax_errors`](semantic::AnalysisResult::has_syntax_errors),
+/// [`has_parse_errors`](semantic::AnalysisResult::has_parse_errors),
 /// and [`has_semantic_errors`](semantic::AnalysisResult::has_semantic_errors).
 ///
 /// # Examples

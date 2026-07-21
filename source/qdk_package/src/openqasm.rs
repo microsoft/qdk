@@ -62,7 +62,7 @@ create_exception!(
 pub(crate) struct ParseResult {
     program: Py<Program>,
     document: Py<SourceDocument>,
-    /// All diagnostics (syntax errors) produced while parsing.
+    /// All diagnostics (parse errors) produced while parsing.
     #[pyo3(get)]
     diagnostics: Vec<Diagnostic>,
     /// Whether any errors were produced.

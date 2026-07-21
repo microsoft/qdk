@@ -103,12 +103,12 @@ fn compile_with_config<S: Into<Arc<str>>>(
     config: CompilerConfig,
 ) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let res = parse(source)?;
-    if res.has_syntax_errors() {
-        for e in res.syntax_errors() {
+    if res.has_parse_errors() {
+        for e in res.parse_errors() {
             println!("{:?}", Report::new(e.clone()));
         }
     }
-    assert!(!res.has_syntax_errors());
+    assert!(!res.has_parse_errors());
     let source_map = to_qsharp_source_map(&res.source_map);
     let errors = get_errors_from_analysis_result(&res, &source_map);
     let program = res.program;
@@ -176,7 +176,7 @@ pub fn compile_all_with_config<P: Into<Arc<str>>>(
     config: CompilerConfig,
 ) -> miette::Result<QasmCompileUnit, Vec<Report>> {
     let res = parse_all(path, sources)?;
-    assert!(!res.has_syntax_errors());
+    assert!(!res.has_parse_errors());
     let source_map = to_qsharp_source_map(&res.source_map);
     let errors = get_errors_from_analysis_result(&res, &source_map);
     let program = res.program;
@@ -267,8 +267,8 @@ pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<AnalysisResu
     let sources = [(name.clone(), source.clone())];
     let mut resolver = InMemorySourceResolver::from_iter(sources);
     let res = parse_source(source, name, &mut resolver);
-    if res.has_syntax_errors() {
-        let errors = res.syntax_errors().into_iter().map(Report::new).collect();
+    if res.has_parse_errors() {
+        let errors = res.parse_errors().into_iter().map(Report::new).collect();
         return Err(errors);
     }
     Ok(res)
@@ -285,8 +285,8 @@ pub(crate) fn parse_all<P: Into<Arc<str>>>(
         .map_err(|e| vec![Report::new(e)])?
         .1;
     let res = parse_source(source, path, &mut resolver);
-    if res.has_syntax_errors() {
-        let errors = res.syntax_errors().into_iter().map(Report::new).collect();
+    if res.has_parse_errors() {
+        let errors = res.parse_errors().into_iter().map(Report::new).collect();
         Err(errors)
     } else {
         Ok(res)

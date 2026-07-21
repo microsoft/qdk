@@ -112,9 +112,9 @@ fn check_map<S: Into<Arc<str>>>(
     let errors = res.all_errors();
 
     assert!(
-        !res.has_syntax_errors(),
-        "syntax errors: {:?}",
-        res.syntax_errors()
+        !res.has_parse_errors(),
+        "parse errors: {:?}",
+        res.parse_errors()
     );
 
     if errors.is_empty() {
@@ -139,9 +139,9 @@ pub(super) fn check_err<S: Into<Arc<str>>>(input: S, expect: &Expect) {
     let errors = res.all_errors();
 
     assert!(
-        !res.has_syntax_errors(),
-        "syntax errors: {:?}",
-        res.syntax_errors()
+        !res.has_parse_errors(),
+        "parse errors: {:?}",
+        res.parse_errors()
     );
 
     assert!(res.has_errors(), "no errors");
@@ -181,9 +181,9 @@ fn check_map_all<P: Into<Arc<str>>>(
     let errors = res.all_errors();
 
     assert!(
-        !res.has_syntax_errors(),
-        "syntax errors: {:?}",
-        res.syntax_errors()
+        !res.has_parse_errors(),
+        "parse errors: {:?}",
+        res.parse_errors()
     );
 
     if errors.is_empty() {
@@ -276,19 +276,19 @@ fn analysis_preserves_source_aliases() {
 #[test]
 fn diagnostics_are_stored_once_and_aggregated_in_category_order() {
     let result = super::parse("OPENQASM 3.0; qubit; int value = missing;", "main.qasm");
-    let syntax_errors = result.syntax_errors();
+    let parse_errors = result.parse_errors();
     let semantic_errors = result.semantic_errors();
     let all_errors = result.all_errors();
 
-    assert_eq!(syntax_errors.len(), 1);
+    assert_eq!(parse_errors.len(), 1);
     assert_eq!(semantic_errors.len(), 1);
     assert_eq!(all_errors.len(), 2);
-    assert!(all_errors[0].error().is_syntax_error());
+    assert!(all_errors[0].error().is_parse_error());
     assert!(all_errors[1].error().is_semantic_error());
 }
 
 #[test]
-fn included_syntax_and_semantic_diagnostics_appear_once() {
+fn included_parse_and_semantic_diagnostics_appear_once() {
     let source = concat!(
         "OPENQASM 3.0; include \"syntax.inc\"; ",
         "include \"semantic.inc\";"
@@ -300,20 +300,9 @@ fn included_syntax_and_semantic_diagnostics_appear_once() {
     let mut resolver = InMemorySourceResolver::from_iter(sources);
     let result = parse_source(source, "main.qasm", &mut resolver);
 
-    assert_eq!(result.syntax_errors().len(), 1);
+    assert_eq!(result.parse_errors().len(), 1);
     assert_eq!(result.semantic_errors().len(), 1);
     assert_eq!(result.all_errors().len(), 2);
-}
-
-#[test]
-#[allow(deprecated)]
-fn misspelled_syntax_errors_forwards_to_correct_accessor() {
-    let result = super::parse("OPENQASM 3.0; qubit;", "main.qasm");
-    let syntax_errors = result.syntax_errors();
-    let compatibility_errors = result.sytax_errors();
-
-    assert_eq!(compatibility_errors.len(), syntax_errors.len());
-    assert_eq!(compatibility_errors[0].error(), syntax_errors[0].error());
 }
 
 #[test]

@@ -323,7 +323,7 @@ def parse(
 
     Returns:
         A :class:`ParseResult` whose ``program`` is the root :class:`Program`
-        and whose ``diagnostics`` list any syntax errors. Diagnostics are
+        and whose ``diagnostics`` list any parse errors. Diagnostics are
         collected rather than raised.
     """
     return _parse(source, path, includes)

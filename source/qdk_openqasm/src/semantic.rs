@@ -41,11 +41,11 @@ pub struct AnalysisResult {
 impl AnalysisResult {
     #[must_use]
     pub fn has_errors(&self) -> bool {
-        self.has_syntax_errors() || self.has_semantic_errors()
+        self.has_parse_errors() || self.has_semantic_errors()
     }
 
     #[must_use]
-    pub fn has_syntax_errors(&self) -> bool {
+    pub fn has_parse_errors(&self) -> bool {
         self.source.has_errors()
     }
 
@@ -54,7 +54,7 @@ impl AnalysisResult {
         !self.errors.is_empty()
     }
 
-    pub fn syntax_errors(&self) -> Vec<WithSource<crate::error::Error>> {
+    pub fn parse_errors(&self) -> Vec<WithSource<crate::error::Error>> {
         let mut self_errors = self
             .source
             .errors()
@@ -74,19 +74,13 @@ impl AnalysisResult {
     }
 
     #[must_use]
-    #[deprecated(note = "use syntax_errors instead")]
-    pub fn sytax_errors(&self) -> Vec<WithSource<crate::error::Error>> {
-        self.syntax_errors()
-    }
-
-    #[must_use]
     pub fn semantic_errors(&self) -> Vec<WithSource<crate::error::Error>> {
         self.errors.clone()
     }
 
     #[must_use]
     pub fn all_errors(&self) -> Vec<WithSource<crate::error::Error>> {
-        let mut parse_errors = self.syntax_errors();
+        let mut parse_errors = self.parse_errors();
         let sem_errors = self.semantic_errors();
         parse_errors.extend(sem_errors);
         parse_errors

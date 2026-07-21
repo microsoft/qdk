@@ -14,7 +14,7 @@ pub struct Error(pub ErrorKind);
 
 impl Error {
     #[must_use]
-    pub fn is_syntax_error(&self) -> bool {
+    pub fn is_parse_error(&self) -> bool {
         matches!(self.0, ErrorKind::Parser(..))
     }
 
