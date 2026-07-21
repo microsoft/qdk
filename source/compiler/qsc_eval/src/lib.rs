@@ -1245,7 +1245,10 @@ impl State {
             }
         };
 
-        let callee_span = self.to_global_span(callee.span);
+        let callee_span = PackageSpan {
+            package: map_fir_package_to_hir(callee_id.package),
+            span: callee.span,
+        };
 
         let spec = spec_from_functor_app(functor);
         match &callee.implementation {
