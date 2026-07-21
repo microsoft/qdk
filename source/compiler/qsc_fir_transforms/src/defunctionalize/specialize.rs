@@ -254,11 +254,12 @@ fn try_decline_multiple_callable_arrays(
     let package = store.get(group[0].call_pkg_id);
     if has_multiple_forwarded_callable_arrays(package, group) {
         let span = package.get_expr(group[0].call_expr_id).span;
+        let package_span = (group[0].call_pkg_id, span).into();
         if !errors
             .iter()
-            .any(|e| matches!(e, Error::UnsupportedMultipleCallableArrays(s) if *s == span))
+            .any(|e| matches!(e, Error::UnsupportedMultipleCallableArrays(s) if *s == package_span))
         {
-            errors.push(Error::UnsupportedMultipleCallableArrays(span));
+            errors.push(Error::UnsupportedMultipleCallableArrays(package_span));
         }
         return true;
     }
@@ -416,7 +417,7 @@ fn specialize_per_row_group(
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
             let package = store.get(call_site.call_pkg_id);
             let span = package.get_expr(call_site.call_expr_id).span;
-            errors.push(Error::DynamicCallable(span));
+            errors.push(Error::DynamicCallable((call_site.call_pkg_id, span).into()));
             continue;
         }
 
@@ -484,12 +485,16 @@ fn report_excessive_specializations(
         if *count > EXCESSIVE_SPECIALIZATION_THRESHOLD {
             let package = store.get(hof_id.package);
             let item = package.get_item(hof_id.item);
-            let (name, span) = if let ItemKind::Callable(decl) = &item.kind {
-                (decl.name.name.to_string(), decl.name.span)
-            } else {
-                (format!("Item({hof_id})"), Span::default())
+            let ItemKind::Callable(decl) = &item.kind else {
+                panic!(
+                    "defunctionalization specialization key references non-callable HOF {hof_id}"
+                );
             };
-            errors.push(Error::ExcessiveSpecializations(name, *count, span));
+            errors.push(Error::ExcessiveSpecializations(
+                decl.name.name.to_string(),
+                *count,
+                (hof_id.package, decl.name.span).into(),
+            ));
         }
     }
 }

@@ -71,5 +71,31 @@ namespace Std.Core {
     /// ```
     struct Complex { Real : Double, Imag : Double }
 
-    export Length, Repeated, Complex;
+    /// # Summary
+    /// Returns a value from the host-provided configuration map.
+    ///
+    /// # Description
+    /// Looks up `name` in a read-only configuration map provided by the host runtime.
+    /// If the key does not exist, returns `defaultValue`.
+    /// The lookup is performed at compilation time.
+    ///
+    /// # Input
+    /// ## name
+    /// The configuration key. Must be String literal.
+    /// ## defaultValue
+    /// The value to return when `name` is not present. Must be literal of one of these
+    /// types: Bool, Int, String, Double.
+    ///
+    /// # Output
+    /// The configured value for `name`, or `defaultValue` if the key is absent.
+    ///
+    /// # Example
+    /// ```qsharp
+    /// let experimentName = Std.Core.ConfigValue("experiment_name", "");
+    /// ```
+    function ConfigValue<'T>(name : String, defaultValue : 'T) : 'T {
+        body intrinsic;
+    }
+
+    export Length, Repeated, Complex, ConfigValue;
 }

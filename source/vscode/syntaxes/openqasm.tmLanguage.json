@@ -47,11 +47,11 @@
       "patterns": [
         {
           "name": "keyword.control.openqasm",
-          "match": "(?<!\\s*\\.\\s*)\\b(in|for|return|if|else|switch|while)\\b(?!\\s*\\.)"
+          "match": "(?<!\\.)\\b(in|for|return|if|else|switch|while)\\b(?!\\s*\\.)"
         },
         {
           "name": "keyword.other.openqasm",
-          "match": "(?<!\\s*\\.\\s*)\\b(OPENQASM|include|qubit|reset|mutable|readonly|#dim|stretch|delay|barrier|box|input|output|int|float|bit|bool|uint|angle|complex|const|defcal|def|gate|array|duration|let|measure|pragma|defcalgrammar|cal|qreg|creg|extern|port|frame|waveform)\\b(?!\\s*\\.)"
+          "match": "(?<!\\.)\\b(OPENQASM|include|qubit|reset|mutable|readonly|#dim|stretch|delay|barrier|box|input|output|int|float|bit|bool|uint|angle|complex|const|defcal|def|gate|array|duration|let|measure|pragma|defcalgrammar|cal|qreg|creg|extern|port|frame|waveform)\\b(?!\\s*\\.)"
         }
       ]
     },

@@ -1811,6 +1811,7 @@ pub fn instruction_name(id: u64) -> Option<String> {
     qre::instruction_name(id).map(String::from)
 }
 
+#[allow(clippy::too_many_lines)]
 fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
     #[allow(clippy::wildcard_imports)]
     use qre::instruction_ids::*;
@@ -1888,6 +1889,26 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
         RZZ,
         ONE_QUBIT_UNITARY,
         TWO_QUBIT_UNITARY,
+        BLOCK_H,
+        BLOCK_H_XZ,
+        BLOCK_H_XY,
+        BLOCK_H_YZ,
+        BLOCK_SQRT_X,
+        BLOCK_SQRT_X_DAG,
+        BLOCK_SQRT_Y,
+        BLOCK_SQRT_Y_DAG,
+        BLOCK_S,
+        BLOCK_S_DAG,
+        BLOCK_SQRT_Z,
+        BLOCK_SQRT_Z_DAG,
+        BLOCK_CNOT,
+        BLOCK_CX,
+        BLOCK_CY,
+        BLOCK_CZ,
+        BLOCK_SWAP,
+        BLOCK_RX,
+        BLOCK_RY,
+        BLOCK_RZ,
         MULTI_PAULI_MEAS,
         LATTICE_SURGERY,
         READ_FROM_MEMORY,
@@ -1896,6 +1917,7 @@ fn add_instruction_ids(m: &Bound<'_, PyModule>) -> PyResult<()> {
         CYCLIC_SHIFT,
         PHYSICAL_MOVE,
         HAND_OFF,
+        CYCLIC_SHIFT_ADJ,
         GENERIC
     );
 

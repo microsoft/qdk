@@ -2846,3 +2846,16 @@ fn applyidlenoise_qubit_already_released_fails() {
         &expect!["qubit used after release"],
     );
 }
+
+#[test]
+fn is_resource_estimating_is_false_for_simulator() {
+    check_intrinsic_result(
+        indoc! {"
+            namespace Test {
+                import Std.ResourceEstimation.*;
+            }
+        "},
+        "Std.ResourceEstimation.IsResourceEstimating()",
+        &expect!["false"],
+    );
+}

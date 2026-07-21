@@ -16,6 +16,23 @@ pub struct Span {
     pub hi: u32,
 }
 
+/// A span qualified by the package that owns it.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct PackageSpan<P> {
+    /// The package that owns the span.
+    pub package: P,
+    /// The span within the package.
+    pub span: Span,
+}
+
+impl<P> PackageSpan<P> {
+    /// Creates a package-qualified span.
+    #[must_use]
+    pub const fn new(package: P, span: Span) -> Self {
+        Self { package, span }
+    }
+}
+
 impl Span {
     /// Returns true if the position is within the span. Meaning it is in the
     /// right open interval `[self.lo, self.hi)`.
@@ -101,6 +118,18 @@ impl Index<Span> for String {
 impl From<Span> for SourceSpan {
     fn from(value: Span) -> Self {
         Self::from((value.lo as usize)..(value.hi as usize))
+    }
+}
+
+impl<P> From<(P, Span)> for PackageSpan<P> {
+    fn from((package, span): (P, Span)) -> Self {
+        Self::new(package, span)
+    }
+}
+
+impl<P> From<PackageSpan<P>> for SourceSpan {
+    fn from(value: PackageSpan<P>) -> Self {
+        value.span.into()
     }
 }
 

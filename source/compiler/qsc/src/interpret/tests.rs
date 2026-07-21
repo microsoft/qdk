@@ -9,7 +9,8 @@ mod given_interpreter {
     use qsc_data_structures::{language_features::LanguageFeatures, target::TargetCapabilityFlags};
     use qsc_eval::{output::CursorReceiver, val::Value};
     use qsc_passes::PackageType;
-    use std::{fmt::Write, io::Cursor, iter, str::from_utf8};
+    use rustc_hash::FxHashMap;
+    use std::{fmt::Write, io::Cursor, iter, rc::Rc, str::from_utf8};
 
     fn line(interpreter: &mut Interpreter, line: &str) -> (InterpretResult, String) {
         let mut cursor = Cursor::new(Vec::<u8>::new());
@@ -93,6 +94,7 @@ mod given_interpreter {
                     LanguageFeatures::default(),
                     store,
                     &[],
+                    Default::default(),
                 )
                 .expect("interpreter should be created");
 
@@ -120,6 +122,222 @@ mod given_interpreter {
             let mut interpreter = get_interpreter();
             let (result, output) = line(&mut interpreter, "Length([1, 2, 3])");
             is_only_value(&result, &output, &Value::Int(3));
+        }
+
+        #[test]
+        fn config_value_works() {
+            let mut interpreter = get_interpreter_with_config(
+                [
+                    (Rc::from("int_config"), Value::Int(123)),
+                    (Rc::from("bool_config"), Value::Bool(true)),
+                    (Rc::from("string_config"), Value::String("value".into())),
+                    (Rc::from("double_config"), Value::Double(124.1)),
+                ]
+                .into_iter()
+                .collect(),
+            );
+
+            // Integer config.
+            let (result, output) =
+                line(&mut interpreter, "Std.Core.ConfigValue(\"int_config\", 0)");
+            is_only_value(&result, &output, &Value::Int(123));
+
+            // Boolean config.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"bool_config\", false)",
+            );
+            is_only_value(&result, &output, &Value::Bool(true));
+
+            // String config.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"string_config\", \"\")",
+            );
+            is_only_value(&result, &output, &Value::String("value".into()));
+
+            // Double config.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"double_config\", 0.0)",
+            );
+            is_only_value(&result, &output, &Value::Double(124.1));
+
+            // Default value.
+            let (result, output) = line(&mut interpreter, "Std.Core.ConfigValue(\"unknown\", 15)");
+            is_only_value(&result, &output, &Value::Int(15));
+
+            // ConfigValue can be used as an argument to another function.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Math.MaxI(1, Std.Core.ConfigValue(\"int_config\", 0))",
+            );
+            is_only_value(&result, &output, &Value::Int(123));
+        }
+
+        #[test]
+        fn config_value_works_with_sources() {
+            let source = indoc! { r#"
+            namespace OptimizationConfig {
+                function IsMinimizingQubits() : Bool {
+                    Std.Core.ConfigValue("minimize_qubits", true)
+                }
+            }
+
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Bool {
+                    OptimizationConfig.IsMinimizingQubits()
+                }
+            }
+            "#};
+
+            let sources =
+                SourceMap::new([("test".into(), source.into())], Some("Test.Main()".into()));
+            let (std_id, store) =
+                crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+            let mut interpreter = Interpreter::new(
+                sources,
+                PackageType::Exe,
+                TargetCapabilityFlags::all(),
+                LanguageFeatures::default(),
+                store,
+                &[(std_id, None)],
+                [(Rc::from("minimize_qubits"), Value::Bool(false))]
+                    .into_iter()
+                    .collect(),
+            )
+            .expect("interpreter should be created");
+
+            let (result, output) = entry(&mut interpreter);
+            is_only_value(&result, &output, &Value::Bool(false));
+        }
+
+        #[test]
+        #[allow(clippy::too_many_lines)]
+        fn config_value_errors() {
+            let mut interpreter = get_interpreter_with_config(
+                [
+                    (Rc::from("int_config"), Value::Int(123)),
+                    (
+                        Rc::from("result_config"),
+                        Value::Result(qsc_eval::val::Result::Loss),
+                    ),
+                ]
+                .into_iter()
+                .collect(),
+            );
+            // Error when default type doesn't match stored config value.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"int_config\", 20.0)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    configuration value type does not match ConfigValue default value type
+                       [line_0] [20.0]
+                "#]],
+            );
+
+            // Error when key is not literal.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"int_\" + \"config\", 20)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    ConfigValue arguments must be literals
+                       [line_1] ["int_" + "config"]
+                "#]],
+            );
+
+            // Error when value is not literal.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"int_config\", 10+10)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    ConfigValue arguments must be literals
+                       [line_2] [10+10]
+                "#]],
+            );
+
+            // Error when value is a variable.
+            let (result, output) = line(
+                &mut interpreter,
+                "let default=10; Std.Core.ConfigValue(\"int_config\", default)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    ConfigValue arguments must be literals
+                       [line_3] [default]
+                "#]],
+            );
+
+            // Error when config contains value of unsupported type (same as default type).
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"result_config\", Zero)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    unsupported configuration type
+                       [line_4] [Zero]
+                "#]],
+            );
+
+            // Error when config contains value of unsupported type (defferent than default type)
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"result_config\", 0.5)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    unsupported configuration type
+                       [line_5] [0.5]
+                "#]],
+            );
+
+            // Error when config is missing and default type is unsupported.
+            let (result, output) = line(
+                &mut interpreter,
+                "Std.Core.ConfigValue(\"bigint_config\", 10L)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    unsupported configuration type
+                       [line_6] [10L]
+                "#]],
+            );
+
+            // Error when using ConfigValue not in a call.
+            let (result, output) = line(
+                &mut interpreter,
+                "let f = Std.Core.ConfigValue; f(\"key\", 5)",
+            );
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    ConfigValue must be called directly
+                       [line_7] [Std.Core.ConfigValue]
+                "#]],
+            );
         }
 
         #[test]
@@ -1146,6 +1364,56 @@ mod given_interpreter {
         }
 
         #[test]
+        fn ordinary_restricted_entry_failure_reverts_increment() {
+            let mut interpreter = get_interpreter_with_capabilities(
+                qsc_data_structures::target::Profile::AdaptiveRI.into(),
+            );
+            let (result, output) = line(&mut interpreter, "function Prior() : Int { 7 }");
+            is_only_value(&result, &output, &Value::unit());
+
+            let errors = interpreter
+                .compile_entry_expr(indoc! {r#"
+                    {
+                        operation Rejected() : Int {
+                            use q = Qubit();
+                            H(q);
+                            if MResetZ(q) == One {
+                                return 1;
+                            }
+                            return 2;
+                        }
+                        Rejected()
+                    }
+                "#})
+                .expect_err("ordinary restricted entry should fail raw-FIR capability validation");
+            assert!(
+                errors
+                    .iter()
+                    .all(|error| matches!(error, crate::interpret::Error::Pass(_))),
+                "expected capability-check pass errors, got {errors:?}"
+            );
+            assert!(
+                errors
+                    .iter()
+                    .any(|error| format!("{error:?}").contains("ReturnWithinDynamicScope")),
+                "expected a return-within-dynamic-scope diagnostic, got {errors:?}"
+            );
+
+            let (result, output) = line(&mut interpreter, "Prior()");
+            is_only_value(&result, &output, &Value::Int(7));
+
+            let (result, output) = line(&mut interpreter, "Rejected()");
+            is_only_error(
+                &result,
+                &output,
+                &expect![[r#"
+                    name error: `Rejected` not found
+                       [line_2] [Rejected]
+                "#]],
+            );
+        }
+
+        #[test]
         fn qirgen_twice_on_shared_interpreter_store_is_byte_identical() {
             // The FIR transform pipeline mutates every reachable package in
             // place, including std, so codegen must run on a throwaway clone of
@@ -1511,6 +1779,75 @@ mod given_interpreter {
                 &output,
                 &Value::Result(qsc_eval::val::Result::Val(false)),
             );
+        }
+
+        #[test]
+        fn qirgen_folds_get_config_values() {
+            let source = indoc! {"
+                operation Main() : Unit {
+                    use q = Qubit[3];
+                    Rx(Std.Core.ConfigValue(\"angle1\", 0.1), q[0]);
+                    Ry(Std.Core.ConfigValue(\"angle2\", 0.2), q[1]);
+                    let loop_iterations = Std.Core.ConfigValue(\"loop_iterations\", 0);
+                    for i in 1..loop_iterations {
+                        X(q[2]);
+                    }
+                }
+            "};
+
+            let mut interpreter = get_interpreter_with_capabilities_and_config(
+                TargetCapabilityFlags::empty(),
+                [
+                    (Rc::from("angle1"), Value::Double(0.6)),
+                    (Rc::from("loop_iterations"), Value::Int(3)),
+                ]
+                .into_iter()
+                .collect(),
+            );
+            _ = line(&mut interpreter, source);
+
+            let qir = interpreter.qirgen("Main()").expect("expected success");
+            expect![[r#"
+                %Result = type opaque
+                %Qubit = type opaque
+
+                @0 = internal constant [4 x i8] c"0_t\00"
+
+                define i64 @ENTRYPOINT__main() #0 {
+                block_0:
+                  call void @__quantum__rt__initialize(i8* null)
+                  call void @__quantum__qis__rx__body(double 0.6, %Qubit* inttoptr (i64 0 to %Qubit*))
+                  call void @__quantum__qis__ry__body(double 0.2, %Qubit* inttoptr (i64 1 to %Qubit*))
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+                  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 2 to %Qubit*))
+                  call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+                  ret i64 0
+                }
+
+                declare void @__quantum__rt__initialize(i8*)
+
+                declare void @__quantum__qis__rx__body(double, %Qubit*)
+
+                declare void @__quantum__qis__ry__body(double, %Qubit*)
+
+                declare void @__quantum__qis__x__body(%Qubit*)
+
+                declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+                attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="3" "required_num_results"="0" }
+                attributes #1 = { "irreversible" }
+
+                ; module flags
+
+                !llvm.module.flags = !{!0, !1, !2, !3}
+
+                !0 = !{i32 1, !"qir_major_version", i32 1}
+                !1 = !{i32 7, !"qir_minor_version", i32 0}
+                !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+                !3 = !{i32 1, !"dynamic_result_management", i1 false}
+            "#]]
+            .assert_eq(&qir);
         }
 
         #[test]
@@ -2251,21 +2588,24 @@ mod given_interpreter {
     }
 
     fn get_interpreter() -> Interpreter {
-        let (std_id, store) =
-            crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
-        let dependencies = &[(std_id, None)];
-        Interpreter::new(
-            SourceMap::default(),
-            PackageType::Lib,
+        get_interpreter_with_capabilities_and_config(
             TargetCapabilityFlags::all(),
-            LanguageFeatures::default(),
-            store,
-            dependencies,
+            FxHashMap::default(),
         )
-        .expect("interpreter should be created")
+    }
+
+    fn get_interpreter_with_config(qsharp_config: FxHashMap<Rc<str>, Value>) -> Interpreter {
+        get_interpreter_with_capabilities_and_config(TargetCapabilityFlags::all(), qsharp_config)
     }
 
     fn get_interpreter_with_capabilities(capabilities: TargetCapabilityFlags) -> Interpreter {
+        get_interpreter_with_capabilities_and_config(capabilities, FxHashMap::default())
+    }
+
+    fn get_interpreter_with_capabilities_and_config(
+        capabilities: TargetCapabilityFlags,
+        qsharp_config: FxHashMap<Rc<str>, Value>,
+    ) -> Interpreter {
         let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
         let dependencies = &[(std_id, None)];
         Interpreter::new(
@@ -2275,6 +2615,7 @@ mod given_interpreter {
             LanguageFeatures::default(),
             store,
             dependencies,
+            qsharp_config,
         )
         .expect("interpreter should be created")
     }
@@ -2391,6 +2732,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -2413,6 +2755,7 @@ mod given_interpreter {
                     LanguageFeatures::default(),
                     store,
                     &[(std_id, None)],
+                    Default::default(),
                 )
                 .is_err(),
                 "interpreter should fail with error"
@@ -2434,6 +2777,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2489,6 +2833,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created without a false-positive capability rejection");
 
@@ -2523,6 +2868,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2577,6 +2923,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2625,6 +2972,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             assert!(
@@ -2670,6 +3018,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             );
 
             match result {
@@ -2713,6 +3062,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 dependencies,
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -2742,6 +3092,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -2926,6 +3277,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                Default::default(),
             )
             .expect("interpreter should be created");
             let (result, output) = line(&mut interpreter, "Test.Hello()");
@@ -2959,6 +3311,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -2996,6 +3349,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3107,6 +3461,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3143,6 +3498,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3222,6 +3578,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3256,6 +3613,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("interpreter should be created");
 
@@ -3289,6 +3647,7 @@ mod given_interpreter {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             ) {
                 Ok(_) => panic!("interpreter should fail with error"),
                 Err(errors) => {

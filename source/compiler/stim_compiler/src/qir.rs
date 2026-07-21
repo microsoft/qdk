@@ -114,14 +114,7 @@ block_c{pauli}_exit:
     }
 
     fn write_noise_intrinsic(&mut self, name: &str, ids: &[u32]) {
-        write!(self, "  call void @{name}(");
-        for (i, &id) in ids.iter().enumerate() {
-            if i > 0 {
-                write!(self, ", ");
-            }
-            write!(self, "ptr inttoptr (i64 {id} to ptr)");
-        }
-        writeln!(self, ")");
+        self.write_call(name, ids);
         self.declare(name, || {
             let params = vec!["ptr"; ids.len()].join(", ");
             format!("declare void @{name}({params}) #2")
@@ -152,14 +145,17 @@ block_c{pauli}_exit:
         writeln!(self, "  br label %{label}");
     }
 
-    // Writes: `  %{dest} = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 N to ptr))`
-    fn write_read_result(&mut self, dest: &str, id: u32) {
-        write!(self, "  %{dest} = call i1 @__quantum__rt__read_result(");
+    // Writes: `  %{dest} = call i1 @{intrinsic}(ptr inttoptr (i64 N to ptr))`
+    fn write_read(&mut self, dest: &str, intrinsic: &str, id: u32) {
+        write!(self, "  %{dest} = call i1 @{intrinsic}(");
         self.write_ptr(id);
         writeln!(self, ")");
-        self.declare("__quantum__rt__read_result", || {
-            "declare i1 @__quantum__rt__read_result(ptr)".to_string()
-        });
+        self.declare(intrinsic, || format!("declare i1 @{intrinsic}(ptr)"));
+    }
+
+    // Writes: `  %{dest} = or i1 %{lhs}, %{rhs}`
+    fn write_or(&mut self, dest: &str, lhs: &str, rhs: &str) {
+        writeln!(self, "  %{dest} = or i1 %{lhs}, %{rhs}");
     }
 
     // Writes: `  %{dest} = xor i1 %{lhs}, %{rhs}`
@@ -332,9 +328,9 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("measurement record control cannot be negated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NegatedMeasurementRecord"))]
-    NegatedMeasurementRecord {
+    #[error("target cannot be negated in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.NegatedTarget"))]
+    NegatedTarget {
         instruction: String,
         #[label]
         span: Span,
@@ -881,33 +877,37 @@ impl<'noise> Compiler<'noise> {
             }
 
             // Collapsing Gates
-            "M" | "MZ" => self.broadcast(instruction, |s, q| s.op_measure("m", q)),
-            "MR" | "MRZ" => self.broadcast(instruction, |s, q| s.op_measure("mresetz", q)),
-            "MRX" => self.broadcast(instruction, |s, q| {
+            "M" | "MZ" => self.broadcast_measure(instruction, |s, q, invert| {
+                s.op_measure("m", q, invert);
+            }),
+            "MR" | "MRZ" => self.broadcast_measure(instruction, |s, q, invert| {
+                s.op_measure_reset("mresetz", q, invert);
+            }),
+            "MRX" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; R 0; H 0
                 s.op("h", q); // X -> Z
-                s.op_measure("mresetz", q); // MRZ
+                s.op_measure_reset("mresetz", q, invert); // MRZ
                 s.op("h", q); // Z -> X
             }),
-            "MRY" => self.broadcast(instruction, |s, q| {
+            "MRY" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; R 0; H 0; S 0
                 s.op_adj("s", q); // Y -> X
                 s.op("h", q); // X -> Z
-                s.op_measure("mresetz", q); // MRZ
+                s.op_measure_reset("mresetz", q, invert); // MRZ
                 s.op("h", q); // Z -> X
                 s.op("s", q); // X -> Y
             }),
-            "MX" => self.broadcast(instruction, |s, q| {
+            "MX" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; H 0
                 s.op("h", q); // X -> Z
-                s.op_measure("m", q); // MZ
+                s.op_measure("m", q, invert); // MZ
                 s.op("h", q); // Z -> X
             }),
-            "MY" => self.broadcast(instruction, |s, q| {
+            "MY" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; H 0; S 0
                 s.op_adj("s", q); // Y -> X
                 s.op("h", q); // X -> Z
-                s.op_measure("m", q); // MZ
+                s.op_measure("m", q, invert); // MZ
                 s.op("h", q); // Z -> X
                 s.op("s", q); // X -> Y
             }),
@@ -925,31 +925,31 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Pair Measurement Gates
-            "MXX" => self.broadcast_pair(instruction, |s, q0, q1| {
+            "MXX" => self.broadcast_measure_pair(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; H 0; M 0; H 0; CX 0 1
                 s.op_2("cx", q0, q1);
                 s.op("h", q0);
-                s.op_measure("m", q0);
+                s.op_measure("m", q0, invert);
                 s.op("h", q0);
                 s.op_2("cx", q0, q1);
             }),
-            "MYY" => self.broadcast_pair(instruction, |s, q0, q1| {
+            "MYY" => self.broadcast_measure_pair(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
                 s.op("s", q0);
                 s.op("s", q1);
                 s.op_2("cx", q0, q1);
                 s.op("h", q0);
-                s.op_measure("m", q0);
+                s.op_measure("m", q0, invert);
                 s.op("z", q1);
                 s.op("h", q0);
                 s.op_2("cx", q0, q1);
                 s.op("s", q0);
                 s.op("s", q1);
             }),
-            "MZZ" => self.broadcast_pair(instruction, |s, q0, q1| {
+            "MZZ" => self.broadcast_measure_pair(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; M 1; CX 0 1
                 s.op_2("cx", q0, q1);
-                s.op_measure("m", q1);
+                s.op_measure("m", q1, invert);
                 s.op_2("cx", q0, q1);
             }),
 
@@ -970,12 +970,46 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn broadcast(&mut self, instruction: &Instruction, mut f: impl FnMut(&mut Self, u32)) {
-        self.unsupported_args(instruction); // Temporary error
+        self.unsupported_args(instruction);
         for target in &instruction.targets {
-            let Some(q) = self.expect_qubit(instruction, target) else {
+            let Some((q, _)) = self.expect_qubit(instruction, target, false) else {
                 continue;
             };
             f(self, q);
+        }
+    }
+
+    fn broadcast_measure(
+        &mut self,
+        instruction: &Instruction,
+        mut f: impl FnMut(&mut Self, u32, bool),
+    ) {
+        self.unsupported_args(instruction);
+        for target in &instruction.targets {
+            let Some((q, negated)) = self.expect_qubit(instruction, target, true) else {
+                continue;
+            };
+            f(self, q, negated);
+        }
+    }
+
+    fn broadcast_measure_pair(
+        &mut self,
+        instruction: &Instruction,
+        mut f: impl FnMut(&mut Self, u32, u32, bool),
+    ) {
+        self.unsupported_args(instruction);
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
+            let Some((q0, neg0)) = self.expect_qubit(instruction, &pair[0], true) else {
+                continue;
+            };
+            let Some((q1, neg1)) = self.expect_qubit(instruction, &pair[1], true) else {
+                continue;
+            };
+            f(self, q0, q1, neg0 ^ neg1);
         }
     }
 
@@ -989,10 +1023,10 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
+            let Some((q0, _)) = self.expect_qubit(instruction, &pair[0], false) else {
                 continue;
             };
-            let Some(q1) = self.expect_qubit(instruction, &pair[1]) else {
+            let Some((q1, _)) = self.expect_qubit(instruction, &pair[1], false) else {
                 continue;
             };
             f(self, q0, q1);
@@ -1013,10 +1047,10 @@ impl<'noise> Compiler<'noise> {
         for pair in pairs {
             match (&pair[0].kind, &pair[1].kind) {
                 (TargetKind::Qubit { .. }, TargetKind::Qubit { .. }) => {
-                    let Some(control) = self.expect_qubit(instruction, &pair[0]) else {
+                    let Some((control, _)) = self.expect_qubit(instruction, &pair[0], false) else {
                         continue;
                     };
-                    let Some(target) = self.expect_qubit(instruction, &pair[1]) else {
+                    let Some((target, _)) = self.expect_qubit(instruction, &pair[1], false) else {
                         continue;
                     };
                     quantum(self, control, target);
@@ -1073,7 +1107,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         if negated {
-            self.push_error(Error::NegatedMeasurementRecord {
+            self.push_error(Error::NegatedTarget {
                 instruction: instruction.name.clone(),
                 span: rec_target.span,
             });
@@ -1082,7 +1116,7 @@ impl<'noise> Compiler<'noise> {
         let Some(result_id) = self.resolve_record_offset(rec_target, offset) else {
             return;
         };
-        let Some(target) = self.expect_qubit(instruction, qubit_target) else {
+        let Some((target, _)) = self.expect_qubit(instruction, qubit_target, false) else {
             return;
         };
         let qubit = self.id_map.allocate_qubit(target);
@@ -1099,8 +1133,23 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_adj_call(intrinsic, &[q]);
     }
 
-    fn op_measure(&mut self, intrinsic: &str, qubit: u32) {
+    fn op_measure(&mut self, intrinsic: &str, qubit: u32, invert: bool) {
         let q = self.id_map.allocate_qubit(qubit);
+        if invert {
+            self.writer.write_qis_call("x", &[q]);
+        }
+        let r = self.id_map.allocate_record();
+        self.writer.write_qis_call(intrinsic, &[q, r]);
+        if invert {
+            self.writer.write_qis_call("x", &[q]);
+        }
+    }
+
+    fn op_measure_reset(&mut self, intrinsic: &str, qubit: u32, invert: bool) {
+        let q = self.id_map.allocate_qubit(qubit);
+        if invert {
+            self.writer.write_qis_call("x", &[q]);
+        }
         let r = self.id_map.allocate_record();
         self.writer.write_qis_call(intrinsic, &[q, r]);
     }
@@ -1160,7 +1209,8 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let mut read_registers = Vec::new();
+        let mut loss_registers = Vec::new();
+        let mut result_registers = Vec::new();
         for target in &instruction.targets {
             let Some((offset, negated)) = self.expect_measurement_record(instruction, target)
             else {
@@ -1169,29 +1219,16 @@ impl<'noise> Compiler<'noise> {
             let Some(result_id) = self.resolve_record_offset(target, offset) else {
                 return;
             };
-            let read_register = self.id_map.fresh_name("r");
-            self.writer.write_read_result(&read_register, result_id);
 
-            let term = if negated {
-                let not_register = self.id_map.fresh_name("r");
-                self.writer.write_not(&not_register, &read_register);
-                not_register
-            } else {
-                read_register
-            };
-            read_registers.push(term);
+            loss_registers.push(self.read_loss_register(result_id));
+            result_registers.push(self.read_result_register(result_id, negated));
         }
 
-        let Some((first, rest)) = read_registers.split_first() else {
-            unreachable!("REQUIRE always has at least one target");
-        };
+        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
+        let parity = self.reduce_registers(&result_registers, "parity", QirWriter::write_xor);
 
-        let mut parity = first.clone();
-        for reg in rest {
-            let temp = self.id_map.fresh_name("x");
-            self.writer.write_xor(&temp, &parity, reg);
-            parity = temp;
-        }
+        let restart = self.id_map.fresh_name("restart");
+        self.writer.write_or(&restart, &loss, &parity);
 
         let Scope::Select(scope) = self.id_map.current_scope() else {
             unreachable!("REQUIRE runs inside a select block");
@@ -1199,8 +1236,47 @@ impl<'noise> Compiler<'noise> {
         let restart_label = select_label(scope);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
-            .write_branch(&parity, &restart_label, &continue_label);
+            .write_branch(&restart, &restart_label, &continue_label);
         self.writer.write_label(&continue_label);
+    }
+
+    fn read_loss_register(&mut self, result_id: u32) -> String {
+        let loss_register = self.id_map.fresh_name("l");
+        self.writer
+            .write_read(&loss_register, "__quantum__rt__read_loss", result_id);
+        loss_register
+    }
+
+    fn read_result_register(&mut self, result_id: u32, negated: bool) -> String {
+        let result_register = self.id_map.fresh_name("r");
+        self.writer
+            .write_read(&result_register, "__quantum__rt__read_result", result_id);
+
+        if negated {
+            let not_register = self.id_map.fresh_name("n");
+            self.writer.write_not(&not_register, &result_register);
+            not_register
+        } else {
+            result_register
+        }
+    }
+
+    fn reduce_registers(
+        &mut self,
+        registers: &[String],
+        prefix: &'static str,
+        combine: fn(&mut QirWriter, &str, &str, &str),
+    ) -> String {
+        let (first, rest) = registers
+            .split_first()
+            .expect("REQUIRE always has at least one target");
+        let mut acc = first.clone();
+        for reg in rest {
+            let temp = self.id_map.fresh_name(prefix);
+            combine(&mut self.writer, &temp, &acc, reg);
+            acc = temp;
+        }
+        acc
     }
 
     fn resolve_record_offset(&mut self, target: &Target, offset: u32) -> Option<u32> {
@@ -1229,7 +1305,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for target in &instruction.targets {
-            let Some(value) = self.expect_qubit(instruction, target) else {
+            let Some((value, _)) = self.expect_qubit(instruction, target, false) else {
                 continue;
             };
             self.current_correlated_group
@@ -1249,7 +1325,7 @@ impl<'noise> Compiler<'noise> {
         };
         let each = probability / 3.0;
         for target in &instruction.targets {
-            let Some(value) = self.expect_qubit(instruction, target) else {
+            let Some((value, _)) = self.expect_qubit(instruction, target, false) else {
                 continue;
             };
             {
@@ -1277,10 +1353,10 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some(q0) = self.expect_qubit(instruction, &pair[0]) else {
+            let Some((q0, _)) = self.expect_qubit(instruction, &pair[0], false) else {
                 continue;
             };
-            let Some(q1) = self.expect_qubit(instruction, &pair[1]) else {
+            let Some((q1, _)) = self.expect_qubit(instruction, &pair[1], false) else {
                 continue;
             };
             {
@@ -1412,20 +1488,28 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_noise_intrinsic(&name, &column_ids);
     }
 
-    fn expect_qubit(&mut self, instruction: &Instruction, target: &Target) -> Option<u32> {
-        // TODO: lacks support for negated qubits and pauli targets
-        let TargetKind::Qubit {
-            value,
-            negated: false,
-        } = target.kind
-        else {
+    fn expect_qubit(
+        &mut self,
+        instruction: &Instruction,
+        target: &Target,
+        allow_negated: bool,
+    ) -> Option<(u32, bool)> {
+        let TargetKind::Qubit { value, negated } = target.kind else {
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
                 span: target.span,
             });
             return None;
         };
-        Some(value)
+
+        if negated && !allow_negated {
+            self.push_error(Error::NegatedTarget {
+                instruction: instruction.name.clone(),
+                span: target.span,
+            });
+            return None;
+        }
+        Some((value, negated))
     }
 
     fn expect_measurement_record(

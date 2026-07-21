@@ -9,10 +9,28 @@ use qsc_data_structures::{
 pub use qsc_frontend::compile::Dependencies;
 use qsc_frontend::compile::{CompileUnit, PackageStore};
 pub use qsc_frontend::typeck::{TyInfo, TyInfoKind};
-use qsc_passes::{PackageType, run_core_passes, run_default_passes};
+use qsc_passes::{PackageType, PassContext, run_core_passes, run_default_passes};
 use thiserror::Error;
 
 pub type Error = WithSource<ErrorKind>;
+
+/// Attaches a FIR transform diagnostic to the source map owned by the package
+/// that produced its labels.
+#[must_use]
+pub fn attach_fir_transform_source(
+    store: &PackageStore,
+    diagnostic: qsc_fir_transforms::PipelineError,
+) -> WithSource<qsc_fir_transforms::PipelineError> {
+    let owner = diagnostic.owner();
+    let package_id = qsc_lowerer::map_fir_package_to_hir(owner);
+    let unit = store.get(package_id).unwrap_or_else(|| {
+        panic!(
+            "FIR transform diagnostic owner {owner:?} maps to HIR package {package_id:?}, \
+             which must exist in the package store before source attachment"
+        )
+    });
+    WithSource::from_map(&unit.sources, diagnostic)
+}
 
 #[derive(Clone, Debug, Diagnostic, Error)]
 #[error(transparent)]
@@ -77,7 +95,8 @@ pub fn compile_ast(
         capabilities,
         vec![],
     );
-    process_compile_unit(store, package_type, unit)
+    let mut pass_context = PassContext::default();
+    process_compile_unit(store, package_type, unit, &mut pass_context)
 }
 
 /// Compiles a package from its source representation.
@@ -90,6 +109,7 @@ pub fn compile(
     capabilities: TargetCapabilityFlags,
     language_features: LanguageFeatures,
 ) -> (CompileUnit, Vec<Error>) {
+    let mut pass_context = PassContext::default();
     let unit = qsc_frontend::compile::compile(
         store,
         dependencies,
@@ -97,7 +117,27 @@ pub fn compile(
         capabilities,
         language_features,
     );
-    process_compile_unit(store, package_type, unit)
+    process_compile_unit(store, package_type, unit, &mut pass_context)
+}
+
+#[must_use]
+pub fn compile_with_pass_context(
+    store: &PackageStore,
+    dependencies: &Dependencies,
+    sources: SourceMap,
+    package_type: PackageType,
+    capabilities: TargetCapabilityFlags,
+    language_features: LanguageFeatures,
+    pass_context: &mut PassContext,
+) -> (CompileUnit, Vec<Error>) {
+    let unit = qsc_frontend::compile::compile(
+        store,
+        dependencies,
+        sources,
+        capabilities,
+        language_features,
+    );
+    process_compile_unit(store, package_type, unit, pass_context)
 }
 
 #[must_use]
@@ -106,6 +146,7 @@ fn process_compile_unit(
     store: &PackageStore,
     package_type: PackageType,
     mut unit: CompileUnit,
+    pass_context: &mut PassContext,
 ) -> (CompileUnit, Vec<Error>) {
     let mut errors = Vec::new();
     for error in unit.errors.drain(..) {
@@ -113,7 +154,12 @@ fn process_compile_unit(
     }
 
     if errors.is_empty() {
-        for error in run_default_passes(store.core(), &mut unit, package_type) {
+        for error in pass_context.run_default_passes(
+            &mut unit.package,
+            &mut unit.assigner,
+            store.core(),
+            package_type,
+        ) {
             errors.push(WithSource::from_map(&unit.sources, error.into()));
         }
     }

@@ -119,6 +119,7 @@ pub fn get_estimates(program: ProgramConfig, expr: &str, params: &str) -> Result
             language_features,
             store,
             &deps[..],
+            Default::default(),
         )
         .map_err(|e| e[0].to_string())?;
 
@@ -229,6 +230,7 @@ pub fn get_circuit(
             LanguageFeatures::from_iter(language_features),
             store,
             &deps[..],
+            Default::default(),
         )
         .map_err(interpret_errors_into_qsharp_errors_json)?;
 
@@ -534,6 +536,7 @@ where
         language_features,
         store,
         dependencies,
+        Default::default(),
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {

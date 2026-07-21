@@ -233,6 +233,7 @@ impl CompilationContext {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Default::default(),
         )
         .expect("should be able to create a new compiler");
         let (fir_store, package_id, _) =

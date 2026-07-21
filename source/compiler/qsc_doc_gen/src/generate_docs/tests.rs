@@ -182,6 +182,7 @@ fn index_file_generation() {
         | Name | Description |
         |------|-------------|
         | [Complex](xref:Qdk.Std.Core.Complex) | Represents a complex number by its real and imaginary components. The real component can be accessed via the `Real` field, and the imaginary component via the `Imag` field. Complex literals can be written using the form `a + bi`, where `a` is the Double literal for the real part and `b` is the Double literal for the imaginary part. |
+        | [ConfigValue](xref:Qdk.Std.Core.ConfigValue) | Returns a value from the host-provided configuration map. |
         | [Length](xref:Qdk.Std.Core.Length) | Returns the number of elements in the input array `a`. |
         | [Repeated](xref:Qdk.Std.Core.Repeated) | Creates an array of given `length` with all elements equal to given `value`. `length` must be a non-negative integer. |
     "#]]
@@ -276,6 +277,16 @@ fn generates_std_core_summary() {
         ```
 
         Represents a complex number by its real and imaginary components. The real component can be accessed via the `Real` field, and the imaginary component via the `Imag` field. Complex literals can be written using the form `a + bi`, where `a` is the Double literal for the real part and `b` is the Double literal for the imaginary part.
+
+
+
+        ## ConfigValue
+
+        ```qsharp
+        function ConfigValue<'T>(name : String, defaultValue : 'T) : 'T
+        ```
+
+        Returns a value from the host-provided configuration map.
 
 
 

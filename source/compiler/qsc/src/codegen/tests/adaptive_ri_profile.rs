@@ -614,10 +614,10 @@ fn terminal_result_return_with_qubit_cleanup_generates_rir() {
 #[test]
 fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
     let source = "
-    operation Main() : Result {
-        use q = Qubit();
-        Std.StatePreparation.PreparePureStateD([0.0, 1.0], [q]);
-        MResetZ(q)
+    operation Main() : Result[] {
+        use qs = Qubit[2];
+        Std.StatePreparation.PreparePureStateD([0.5, 0.5, 0.5, 0.5], qs);
+        MResetEachZ(qs)
     }
     ";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
@@ -625,18 +625,32 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
         %Result = type opaque
         %Qubit = type opaque
 
-        @0 = internal constant [4 x i8] c"0_r\00"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0r\00"
+        @2 = internal constant [6 x i8] c"2_a1r\00"
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
           call void @__quantum__rt__initialize(i8* null)
           call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-          call void @__quantum__qis__rz__body(double 3.141592653589793, %Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 1.5707963267948966, %Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
           call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__qis__s__adj(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__rz__body(double 1.5707963267948966, %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+          call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
           call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+          call void @__quantum__rt__array_record_output(i64 2, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @1, i64 0, i64 0))
+          call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* getelementptr inbounds ([6 x i8], [6 x i8]* @2, i64 0, i64 0))
           ret i64 0
         }
 
@@ -650,11 +664,15 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__qis__s__body(%Qubit*)
 
+        declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+
         declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*) #1
+
+        declare void @__quantum__rt__array_record_output(i64, i8*)
 
         declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
-        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
 
         ; module flags

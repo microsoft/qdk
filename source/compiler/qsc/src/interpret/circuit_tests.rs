@@ -26,6 +26,7 @@ fn interpreter(code: &str, package_type: PackageType, profile: Profile) -> Inter
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     )
     .expect("interpreter creation should succeed")
 }
@@ -41,6 +42,7 @@ fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
         store,
         &[(std_id, None)],
         default_test_tracer_config(),
+        Default::default(),
     )
     .expect("interpreter creation should succeed")
 }

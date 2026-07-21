@@ -161,6 +161,7 @@ class Interpreter:
         make_callable: Optional[Callable[[GlobalCallable, List[str], str, bool], None]],
         make_class: Optional[Callable[[TypeIR, List[str], str], None]],
         trace_circuit: Optional[bool],
+        qsharp_config: Optional[Dict[str, int | float | str | bool]] = None,
     ) -> None:
         """
         Initializes the Q# interpreter.
@@ -174,6 +175,8 @@ class Interpreter:
         :param trace_circuit: Enables tracing of circuit during execution.
             Passing `True` is required for the `dump_circuit` function to return a circuit.
             The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+        :param qsharp_config: A dictionary of configuration parameters that will be accessible
+            in Q# code using ``Std.Core.ConfigValue``.
         """
         ...
 
