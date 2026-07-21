@@ -3715,7 +3715,7 @@ mod given_interpreter {
                         for i in 0..2 {
                             borrow (first, second) = (
                                 Qubit[if i == 1 { continue } else { 1 }],
-                                Qubit[{ effects += 1; 1 }]
+                                Qubit[{ effects += 2 ^ i; 1 }]
                             );
                         }
                         effects
@@ -3724,7 +3724,7 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
             let (result, output) = run(&mut interpreter, "ContinueInBorrowInitializer()");
-            is_only_value(&result, &output, &Value::Int(2));
+            is_only_value(&result, &output, &Value::Int(0b101));
         }
 
         #[test]
