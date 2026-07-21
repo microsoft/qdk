@@ -395,9 +395,10 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("measurement record refers to a measurement outside the enclosing SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfScope"))]
-    MeasurementRecordOutOfScope {
+    #[error("all measurement records referenced by {instruction} are out of scope")]
+    #[diagnostic(code("Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope"))]
+    AllMeasurementRecordsOutOfScope {
+        instruction: String,
         #[label]
         span: Span,
     },
@@ -1577,17 +1578,13 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
+        let Some(record_metadata) = self.validate_records(instruction) else {
+            return;
+        };
+
         let mut loss_registers = Vec::new();
         let mut result_registers = Vec::new();
-        for target in &instruction.targets {
-            let Some((offset, negated)) = self.expect_measurement_record(instruction, target)
-            else {
-                return;
-            };
-            let Some(result_id) = self.resolve_record_offset(target, offset) else {
-                return;
-            };
-
+        for &(result_id, negated) in &record_metadata {
             loss_registers.push(self.read_loss_register(result_id));
             result_registers.push(self.read_result_register(result_id, negated));
         }
@@ -1654,11 +1651,29 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
 
-        if !self.id_map.record_in_scope(result_id) {
-            self.push_error(Error::MeasurementRecordOutOfScope { span: target.span });
+        Some(result_id)
+    }
+
+    fn validate_records(&mut self, instruction: &Instruction) -> Option<Vec<(u32, bool)>> {
+        let mut record_metadata = Vec::new();
+        let mut all_out_of_scope = true;
+        for target in &instruction.targets {
+            let (offset, negated) = self.expect_measurement_record(instruction, target)?;
+            let result_id = self.resolve_record_offset(target, offset)?;
+            record_metadata.push((result_id, negated));
+            if self.id_map.record_in_scope(result_id) {
+                all_out_of_scope = false;
+            }
+        }
+
+        if all_out_of_scope {
+            self.push_error(Error::AllMeasurementRecordsOutOfScope {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
             return None;
         }
-        Some(result_id)
+        Some(record_metadata)
     }
 
     fn expect_qubit(

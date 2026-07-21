@@ -602,47 +602,25 @@ fn require_no_select_block_yields_error() {
 }
 
 #[test]
-fn require_with_no_measurements_yields_error() {
-    let source = indoc! {"
-        SELECT {
-          REQUIRE rec[-1]
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
-
-              x measurement record is out of bounds
-               ,-[2:11]
-             1 | SELECT {
-             2 |   REQUIRE rec[-1]
-               :           ^^^^^^^
-             3 | }
-               `----
-        "#]],
-    );
-}
-
-#[test]
 fn require_before_measurement_yields_error() {
     let source = indoc! {"
+        M 0
         SELECT {
           REQUIRE rec[-1]
-          M 0
+          M 1
         }
     "};
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfBounds
+            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
 
-              x measurement record is out of bounds
-               ,-[2:11]
-             1 | SELECT {
-             2 |   REQUIRE rec[-1]
-               :           ^^^^^^^
-             3 |   M 0
+              x all measurement records referenced by REQUIRE are out of scope
+               ,-[3:3]
+             2 | SELECT {
+             3 |   REQUIRE rec[-1]
+               :   ^^^^^^^^^^^^^^^
+             4 |   M 1
                `----
         "#]],
     );
@@ -673,7 +651,7 @@ fn rec_index_out_of_bounds() {
 }
 
 #[test]
-fn rec_index_out_of_scope() {
+fn all_measurement_records_out_of_scope() {
     let source = indoc! {"
         M 0
         SELECT {
@@ -684,17 +662,75 @@ fn rec_index_out_of_scope() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfScope
+            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing SELECT
-              | block
-               ,-[4:11]
+              x all measurement records referenced by REQUIRE are out of scope
+               ,-[4:3]
              3 |   M 1
              4 |   REQUIRE rec[-2]
-               :           ^^^^^^^
+               :   ^^^^^^^^^^^^^^^
              5 | }
                `----
         "#]],
+    );
+}
+
+#[test]
+fn require_with_at_least_one_record_in_scope() {
+    let source = indoc! {"
+        M 0
+        SELECT {
+          M 1
+          REQUIRE rec[-1] rec[-2]
+        }
+    "};
+    check(
+        source,
+        &expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          br label %select_0
+        select_0:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
+          %l_0 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 1 to ptr))
+          %r_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          %l_1 = call i1 @__quantum__rt__read_loss(ptr inttoptr (i64 0 to ptr))
+          %r_1 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          %loss_0 = or i1 %l_0, %l_1
+          %parity_0 = xor i1 %r_0, %r_1
+          %restart_0 = or i1 %loss_0, %parity_0
+          br i1 %restart_0, label %select_0, label %continue_0
+        continue_0:
+          call void @__quantum__rt__array_record_output(i64 2, ptr null)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 0 to ptr), ptr null)
+          call void @__quantum__rt__result_record_output(ptr inttoptr (i64 1 to ptr), ptr null)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare i1 @__quantum__rt__read_loss(ptr)
+        declare i1 @__quantum__rt__read_result(ptr)
+        declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__qis__m__body(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
     );
 }
 
@@ -1117,7 +1153,7 @@ fn outer_select_reaches_into_deeply_nested_inner_select() {
 }
 
 #[test]
-fn inner_select_reaches_into_outer_select_yields_error() {
+fn all_inner_selects_recs_out_of_scope() {
     let source = indoc! {"
         SELECT {
           M 0
@@ -1129,14 +1165,13 @@ fn inner_select_reaches_into_outer_select_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfScope
+            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing SELECT
-              | block
-               ,-[4:13]
+              x all measurement records referenced by REQUIRE are out of scope
+               ,-[4:5]
              3 |   SELECT {
              4 |     REQUIRE rec[-1]
-               :             ^^^^^^^
+               :     ^^^^^^^^^^^^^^^
              5 |   }
                `----
         "#]],
@@ -1209,7 +1244,7 @@ fn sibling_select_blocks() {
 }
 
 #[test]
-fn sibling_select_block_cannot_require_previous_block_measurement_yields_error() {
+fn all_sibling_select_block_recs_out_of_scope() {
     let source = indoc! {"
         SELECT {
           M 0
@@ -1222,17 +1257,44 @@ fn sibling_select_block_cannot_require_previous_block_measurement_yields_error()
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.MeasurementRecordOutOfScope
+            Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
 
-              x measurement record refers to a measurement outside the enclosing SELECT
-              | block
-               ,-[6:11]
+              x all measurement records referenced by REQUIRE are out of scope
+               ,-[6:3]
              5 |   M 1
              6 |   REQUIRE rec[-2]
-               :           ^^^^^^^
+               :   ^^^^^^^^^^^^^^^
              7 | }
                `----
         "#]],
+    );
+}
+
+#[test]
+fn require_with_multiple_records_out_of_scope() {
+    let source = indoc! {"
+        SELECT {
+          M 0
+          M 1
+        }
+        SELECT {
+          M 2
+          REQUIRE rec[-2] rec[-3]
+        }
+    "};
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope
+
+          x all measurement records referenced by REQUIRE are out of scope
+           ,-[7:3]
+         6 |   M 2
+         7 |   REQUIRE rec[-2] rec[-3]
+           :   ^^^^^^^^^^^^^^^^^^^^^^^
+         8 | }
+           `----
+    "#]],
     );
 }
 
