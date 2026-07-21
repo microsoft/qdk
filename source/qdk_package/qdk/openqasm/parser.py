@@ -27,11 +27,16 @@ The ``includes`` argument accepts a mapping or callback over platform-neutral
 logical identifiers. Use ``/`` separators. Relative ``.`` and ``..`` components
 are normalized against the including source's logical parent, and URI-like
 schemes are preserved without URL decoding or fetching. Caller-provided key
-matching is exact and case-sensitive. ``stdgates.inc`` and ``qelib1.inc`` are
-built in; no other include falls back to the filesystem or network. Missing
-keys and callback exceptions become result diagnostics with unresolved source
-entries. A new resolver bridge is used for each call, and the result does not
-retain the mapping or callback.
+matching is exact and case-sensitive. ``stdgates.inc``, ``qelib1.inc``, and the
+QDK extension ``qdk.inc`` are built in. Parsing recognizes ``qdk.inc`` without
+consulting the resolver; semantic analysis injects the
+``mresetz_checked(qubit) -> int`` and ``postselectz(bit, qubit) -> void``
+intrinsic declarations. ``mresetz_checked`` returns ``0`` for Zero, ``1`` for
+One, or ``2`` for qubit loss. Those names are unavailable without the include.
+No other include falls back to the filesystem or network. Missing keys and
+callback exceptions become result diagnostics with unresolved source entries.
+A new resolver bridge is used for each call, and the result does not retain the
+mapping or callback.
 
 Class names follow the ``openqasm3`` reference AST wherever an equivalent class
 exists (for example :class:`BinaryExpression`, :class:`QuantumGate`,

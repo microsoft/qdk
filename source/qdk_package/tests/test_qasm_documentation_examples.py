@@ -76,6 +76,16 @@ def test_logical_resolver_and_case_sensitive_keys_example() -> None:
     assert resolved.document.source_map.find("memory://workspace/case.inc") is not None
 
 
+def test_qdk_include_intrinsics_example() -> None:
+    # Mirrors README, parser.py, semantic.py, and skill: qdk.inc intrinsics.
+    analysis = semantic.analyze(
+        'OPENQASM 3.0; include "qdk.inc"; qubit q; '
+        "int result = mresetz_checked(q); postselectz(0, q);"
+    )
+
+    assert not analysis.has_errors
+
+
 def test_resolver_failures_are_result_diagnostics() -> None:
     # Mirrors README, parser.py, semantic.py, and skill: resolver failures.
     def failing_resolver(path: str) -> str | None:

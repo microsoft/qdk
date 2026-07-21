@@ -133,8 +133,12 @@ assert resolved.document.source_map.find("memory://workspace/Case.inc") is not N
 assert resolved.document.source_map.find("memory://workspace/case.inc") is not None
 ```
 
-`stdgates.inc` and `qelib1.inc` are built in and do not invoke the callback.
-There is no filesystem or network fallback for other keys. A missing key, a
+`stdgates.inc`, `qelib1.inc`, and the QDK extension `qdk.inc` are built in and
+do not invoke the callback. During semantic analysis, `qdk.inc` injects
+`mresetz_checked(qubit) -> int`, which returns `0` for Zero, `1` for One, or `2`
+for qubit loss, and `postselectz(bit, qubit) -> void`. These intrinsics are
+unavailable without the include. There is no filesystem or network fallback
+for other keys. A missing key, a
 callback exception, or a callback result with the wrong type becomes a result
 diagnostic and an unresolved source snapshot; it does not escape as the
 callback's exception. A fresh resolver bridge is created for each `parse` or

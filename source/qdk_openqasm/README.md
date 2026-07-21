@@ -32,7 +32,7 @@ parse. Create a fresh resolver for each call to `parse_source` or
 borrow from the resolver. They retain an immutable source snapshot containing
 the entry source, resolved includes, unresolved placeholders, and aliases.
 
-`stdgates.inc` and `qelib1.inc` are recognized internally without consulting
+`stdgates.inc`, `qelib1.inc`, and the QDK extension `qdk.inc` are recognized internally without consulting
 the caller's resolver. Other includes are resolved only through the supplied
 resolver. The crate does not fall back to the filesystem.
 
@@ -136,6 +136,13 @@ let source = concat!(
 let result = analyze_source(source, "main.qasm", Some(&mut resolver));
 assert!(!result.has_errors());
 ```
+
+The QDK-specific `qdk.inc` include is recognized without consulting the
+resolver. During semantic analysis, it injects two intrinsic declarations:
+`mresetz_checked(qubit) -> int` measures and resets a qubit, returning `0` for
+Zero, `1` for One, or `2` for qubit loss; `postselectz(bit, qubit) -> void`
+post-selects a computational-basis result. These names are unavailable unless
+`qdk.inc` is included.
 
 ### Walking the semantic program
 

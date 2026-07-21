@@ -45,10 +45,14 @@ half-open UTF-8 byte ranges and can be mapped to their owning source through
 The ``includes`` argument follows the parser's logical resolver contract:
 relative ``.`` and ``..`` components are normalized using ``/``-separated
 logical paths, URI-like schemes remain opaque, and caller keys match exactly
-and case-sensitively. ``stdgates.inc`` and ``qelib1.inc`` are built in. There is
-no filesystem or network fallback. Missing sources and callback failures become
-diagnostics and unresolved source entries instead of escaping as callback
-exceptions. Each analysis call creates a fresh resolver bridge.
+and case-sensitively. ``stdgates.inc``, ``qelib1.inc``, and the QDK extension
+``qdk.inc`` are built in. Without consulting the resolver, ``qdk.inc`` makes
+the ``mresetz_checked(qubit) -> int`` and
+``postselectz(bit, qubit) -> void`` intrinsics available.
+``mresetz_checked`` returns ``0`` for Zero, ``1`` for One, or ``2`` for qubit
+loss. There is no filesystem or network fallback. Missing sources and callback
+failures become diagnostics and unresolved source entries instead of escaping
+as callback exceptions. Each analysis call creates a fresh resolver bridge.
 
 Semantic type and constant values are analysis data. Do not persist their
 human-readable string forms as a stable interchange format.

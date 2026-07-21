@@ -283,10 +283,16 @@ result = parser.parse(
 assert not result.has_errors
 ```
 
-`stdgates.inc` and `qelib1.inc` are built in. Other keys have no filesystem or
-network fallback. Missing keys, wrong callback return types, and callback
-exceptions become diagnostics and unresolved source entries. Results do not
-retain resolver callbacks.
+`stdgates.inc`, `qelib1.inc`, and the QDK extension `qdk.inc` are built in and
+do not invoke the resolver. During semantic analysis, `qdk.inc` makes two QDK
+intrinsics available: `mresetz_checked(qubit) -> int`, which measures and resets
+a qubit and returns `0` for Zero, `1` for One, or `2` for qubit loss; and
+`postselectz(bit, qubit) -> void`, which post-selects a computational-basis
+result. These names are unavailable without `qdk.inc`.
+
+Other keys have no filesystem or network fallback. Missing keys, wrong callback
+return types, and callback exceptions become diagnostics and unresolved source
+entries. Results do not retain resolver callbacks.
 
 ### Visit and serialize syntax
 

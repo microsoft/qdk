@@ -45,7 +45,7 @@ use crate::{parser::ParseResult, semantic::AnalysisResult};
 /// * `resolver` - An optional [`SourceResolver`](io::SourceResolver) used to
 ///   resolve `include` statements. When `None`, an empty
 ///   [`InMemorySourceResolver`](io::InMemorySourceResolver) is used. Built-in
-///   `stdgates.inc` and `qelib1.inc` includes are recognized internally;
+///   `stdgates.inc`, `qelib1.inc`, and the QDK extension `qdk.inc` are recognized internally;
 ///   other includes produce diagnostics because there is no filesystem
 ///   fallback.
 ///
@@ -109,7 +109,7 @@ pub fn parse_source<R: io::SourceResolver>(
 /// * `resolver` - An optional [`SourceResolver`](io::SourceResolver) used to
 ///   resolve `include` statements. When `None`, an empty
 ///   [`InMemorySourceResolver`](io::InMemorySourceResolver) is used. Built-in
-///   `stdgates.inc` and `qelib1.inc` includes are recognized internally;
+///   `stdgates.inc`, `qelib1.inc`, and the QDK extension `qdk.inc` are recognized internally;
 ///   other includes produce diagnostics because there is no filesystem
 ///   fallback.
 ///
