@@ -21,7 +21,7 @@ use crate::{
 
 // ---------------------------------------------------------------------------
 // Opcode constants — must stay in sync with the Python `_adaptive_bytecode.py`
-// and the WGSL `simulator_adaptive.wgsl` shader.
+// and the WGSL `unified.wgsl` shader.
 // ---------------------------------------------------------------------------
 
 // Flags (pre-shifted to bit 16+)

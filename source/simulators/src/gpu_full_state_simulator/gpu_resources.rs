@@ -391,18 +391,15 @@ impl GpuResources {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub fn create_shaders(
+    /// Creates the compute pipelines from the unified shader source.
+    ///
+    /// The same `unified.wgsl` source powers both the base (linear op-list) and
+    /// adaptive (QIR bytecode interpreter) simulators; `is_adaptive` selects
+    /// which code paths are compiled in via the `IS_ADAPTIVE` constant.
+    pub(crate) fn create_shaders(
         &mut self,
-        qubit_count: i32,
-        result_count: i32,
-        workgroups_per_shot: i32,
-        entries_per_thread: i32,
-        threads_per_workgroup: i32,
-        max_qubit_count: i32,
-        max_qubits_per_workgroup: i32,
-        noise_table_count: usize,
-        noise_entry_count: usize,
+        params: &RunParams,
+        is_adaptive: bool,
     ) -> Result<(), String> {
         let adapter = self.adapter.as_ref().ok_or("GPU adapter not initialized")?;
         let device = self.device.as_ref().ok_or("GPU device not initialized")?;
@@ -411,127 +408,51 @@ impl GpuResources {
             .as_ref()
             .ok_or("Bind group layout not initialized")?; // This is created with the device, so should exist here
 
-        // Create the shader module and bind group layout
-        let raw_shader_src = concat!(
-            include_str!("common.wgsl"),
-            include_str!("simulator_base.wgsl"),
-        );
-        let mut shader_src = raw_shader_src
-            .replace("{{QUBIT_COUNT}}", &qubit_count.to_string())
-            .replace("{{RESULT_COUNT}}", &(result_count + 1).to_string()) // +1 for result code per shot
-            .replace("{{WORKGROUPS_PER_SHOT}}", &workgroups_per_shot.to_string())
-            .replace("{{ENTRIES_PER_THREAD}}", &entries_per_thread.to_string())
-            .replace(
-                "{{THREADS_PER_WORKGROUP}}",
-                &threads_per_workgroup.to_string(),
-            )
-            .replace("{{MAX_QUBIT_COUNT}}", &max_qubit_count.to_string())
-            .replace(
-                "{{MAX_QUBITS_PER_WORKGROUP}}",
-                &max_qubits_per_workgroup.to_string(),
-            )
-            .replace("{{NOISE_TABLE_COUNT}}", &noise_table_count.to_string())
-            .replace("{{NOISE_ENTRY_COUNT}}", &noise_entry_count.to_string());
+        // WGSL forbids zero-length fixed-size arrays, so the adaptive program
+        // table sizes are clamped to a minimum of 1. In base mode these tables
+        // are unused (the adaptive code paths are compiled out), so the minimal
+        // size just keeps the module valid.
+        let replacements = [
+            ("QUBIT_COUNT", params.qubit_count.to_string()),
+            ("RESULT_COUNT", (params.result_count + 1).to_string()), // +1 for result code per shot
+            (
+                "WORKGROUPS_PER_SHOT",
+                params.workgroups_per_shot.to_string(),
+            ),
+            ("ENTRIES_PER_THREAD", params.entries_per_thread.to_string()),
+            ("THREADS_PER_WORKGROUP", THREADS_PER_WORKGROUP.to_string()),
+            ("MAX_QUBIT_COUNT", MAX_QUBIT_COUNT.to_string()),
+            (
+                "MAX_QUBITS_PER_WORKGROUP",
+                MAX_QUBITS_PER_WORKGROUP.to_string(),
+            ),
+            ("NOISE_TABLE_COUNT", params.noise_table_count.to_string()),
+            ("NOISE_ENTRY_COUNT", params.noise_entry_count.to_string()),
+            ("MAX_REGISTERS", params.num_registers.max(1).to_string()),
+            ("MAX_MEMORY", params.max_memory.max(1).to_string()),
+            (
+                "INSTRUCTIONS_SIZE",
+                params.num_instructions.max(1).to_string(),
+            ),
+            ("BLOCK_TABLE_SIZE", params.num_blocks.max(1).to_string()),
+            (
+                "FUNCTION_TABLE_SIZE",
+                params.num_functions.max(1).to_string(),
+            ),
+            ("PHI_TABLE_SIZE", params.num_phi_entries.max(1).to_string()),
+            (
+                "SWITCH_CASES_SIZE",
+                params.num_switch_cases.max(1).to_string(),
+            ),
+            ("CALL_ARGS_SIZE", params.num_call_args.max(1).to_string()),
+            (
+                "CONSTANT_DATA_SIZE",
+                params.num_constant_data.max(1).to_string(),
+            ),
+            ("IS_ADAPTIVE", is_adaptive.to_string()),
+        ];
 
-        // Strip out DX12-incompatible code sections if needed
-        if adapter.get_info().backend == wgpu::Backend::Dx12 {
-            shader_src = strip_dx12_sections(&shader_src);
-        }
-
-        let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("GPU Simulator Shader Module"),
-            source: wgpu::ShaderSource::Wgsl(shader_src.into()),
-        });
-
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("GPU simulator pipeline layout"),
-            bind_group_layouts: &[Some(bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let get_kernel = |name: &str| -> ComputePipeline {
-            device.create_compute_pipeline(&ComputePipelineDescriptor {
-                label: Some(&format!("GPU kernel - {name}")),
-                layout: Some(&pipeline_layout),
-                module: &shader_module,
-                entry_point: Some(name),
-                compilation_options: Default::default(),
-                cache: None,
-            })
-        };
-
-        let dummy_kernel = get_kernel("initialize");
-
-        self.device_resources.kernels = Some(GpuKernels {
-            init_op: get_kernel("initialize"),
-            prepare_op: get_kernel("prepare_op"),
-            execute_op: get_kernel("execute"),
-            interpret_classical: dummy_kernel,
-        });
-
-        Ok(())
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn create_shaders_adaptive(&mut self, params: &RunParams) -> Result<(), String> {
-        let adapter = self.adapter.as_ref().ok_or("GPU adapter not initialized")?;
-        let device = self.device.as_ref().ok_or("GPU device not initialized")?;
-        let bind_group_layout = self
-            .bind_group_layout
-            .as_ref()
-            .ok_or("Bind group layout not initialized")?; // This is created with the device, so should exist here
-
-        // Create the shader module and bind group layout
-        let raw_shader_src = concat!(
-            include_str!("common.wgsl"),
-            include_str!("simulator_adaptive.wgsl"),
-        );
-        let mut shader_src = raw_shader_src
-            .replace("{{QUBIT_COUNT}}", &params.qubit_count.to_string())
-            .replace("{{RESULT_COUNT}}", &(params.result_count + 1).to_string()) // +1 for result code per shot
-            .replace(
-                "{{WORKGROUPS_PER_SHOT}}",
-                &params.workgroups_per_shot.to_string(),
-            )
-            .replace(
-                "{{ENTRIES_PER_THREAD}}",
-                &params.entries_per_thread.to_string(),
-            )
-            .replace(
-                "{{THREADS_PER_WORKGROUP}}",
-                &THREADS_PER_WORKGROUP.to_string(),
-            )
-            .replace("{{MAX_QUBIT_COUNT}}", &MAX_QUBIT_COUNT.to_string())
-            .replace(
-                "{{MAX_QUBITS_PER_WORKGROUP}}",
-                &MAX_QUBITS_PER_WORKGROUP.to_string(),
-            )
-            .replace("{{MAX_REGISTERS}}", &params.num_registers.to_string())
-            .replace("{{MAX_MEMORY}}", &params.max_memory.to_string())
-            .replace(
-                "{{INSTRUCTIONS_SIZE}}",
-                &params.num_instructions.to_string(),
-            )
-            .replace("{{BLOCK_TABLE_SIZE}}", &params.num_blocks.to_string())
-            .replace("{{FUNCTION_TABLE_SIZE}}", &params.num_functions.to_string())
-            .replace("{{PHI_TABLE_SIZE}}", &params.num_phi_entries.to_string())
-            .replace(
-                "{{SWITCH_CASES_SIZE}}",
-                &params.num_switch_cases.to_string(),
-            )
-            .replace("{{CALL_ARGS_SIZE}}", &params.num_call_args.to_string())
-            .replace(
-                "{{CONSTANT_DATA_SIZE}}",
-                &params.num_constant_data.to_string(),
-            )
-            .replace(
-                "{{NOISE_TABLE_COUNT}}",
-                &params.noise_table_count.to_string(),
-            )
-            .replace(
-                "{{NOISE_ENTRY_COUNT}}",
-                &params.noise_entry_count.to_string(),
-            );
+        let mut shader_src = stamp_shader_consts(include_str!("unified.wgsl"), &replacements);
 
         // Strip out DX12-incompatible code sections if needed
         if adapter.get_info().backend == wgpu::Backend::Dx12 {
@@ -925,6 +846,50 @@ impl GpuResources {
         download.unmap();
         Ok(value)
     }
+}
+
+/// Stamps compile-time constant values into the shader source.
+///
+/// `unified.wgsl` declares its host-substituted constants with a literal
+/// default followed by a `// REPLACE` marker, e.g.
+/// `const QUBIT_COUNT: i32 = 8; // REPLACE`. Keeping a valid literal default
+/// (rather than a `{{PLACEHOLDER}}` token) lets editor tooling parse the file.
+/// This walks the source line by line and, for every `// REPLACE` line, swaps
+/// the literal default for the value provided in `replacements`, keyed by the
+/// constant's name. Every `// REPLACE` constant must have a matching entry.
+fn stamp_shader_consts(source: &str, replacements: &[(&str, String)]) -> String {
+    let mut result = String::with_capacity(source.len());
+
+    for line in source.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("const ") && line.trim_end().ends_with("// REPLACE") {
+            // Extract the constant name: between "const " and ':'.
+            let after_const = &trimmed["const ".len()..];
+            let name = after_const
+                .split(':')
+                .next()
+                .map(str::trim)
+                .expect("REPLACE const line must declare a name");
+            let value = &replacements
+                .iter()
+                .find(|(n, _)| *n == name)
+                .unwrap_or_else(|| panic!("no replacement value provided for const `{name}`"))
+                .1;
+
+            // Rebuild the line as: "<up to '='>= <value>; // REPLACE",
+            // preserving the original indentation and trailing marker.
+            let eq = line.find('=').expect("REPLACE const line must contain '='");
+            result.push_str(&line[..eq]);
+            result.push_str("= ");
+            result.push_str(value);
+            result.push_str("; // REPLACE");
+        } else {
+            result.push_str(line);
+        }
+        result.push('\n');
+    }
+
+    result
 }
 
 /// Strips out sections of code delimited by DX12-start-strip and DX12-end-strip comments
