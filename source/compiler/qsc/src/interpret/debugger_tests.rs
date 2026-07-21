@@ -481,6 +481,7 @@ mod given_debugger {
             expect_bp(&mut debugger, &[break_id], break_id);
         }
 
+        /// Compiler-generated variables from loop unification/normalization/desugaring should not be visible in the locals list.
         #[test]
         fn for_break_locals_hide_compiler_generated_variables() {
             let mut debugger = make_debugger(FOR_BREAK_SOURCE);
@@ -497,33 +498,42 @@ mod given_debugger {
         }
 
         #[test]
-        fn stepping_through_for_break_loop_never_reports_inverted_span() {
+        fn next_skips_synthetic_block_exits() {
             let mut debugger = make_debugger(FOR_BREAK_SOURCE);
-            // Run to the first user statement, then step `Next` through the whole
-            // loop. Every reported location must be a well-formed forward span:
-            // `start <= end`. Before the fix, stepping over a synthetic guard
-            // block's exit computed `block.span.hi - 1` on a `Span::default()`
-            // block, underflowing the `u32` offset to `u32::MAX` and reporting an
-            // end-of-file location with `start > end`.
+            // Synthetic guard blocks carry `Span::default()` and must not surface
+            // as step locations. Every `Next` result should point to a nonempty
+            // range within the user's source.
             let ids = get_breakpoint_ids(&debugger, "test");
             expect_bp(&mut debugger, &ids, ids[0]);
+            let mut next_steps = 0;
             loop {
                 let (result, _) = step_next(&mut debugger, &[]);
-                if let Some(frame) = debugger.get_stack_frames().last() {
-                    let r = &frame.location.range;
-                    assert!(
-                        (r.start.line, r.start.column) <= (r.end.line, r.end.column),
-                        "inverted step location {:?}..{:?}",
-                        r.start,
-                        r.end
-                    );
-                }
                 match result {
-                    Ok(StepResult::Return(_)) => break,
-                    Ok(_) => {}
-                    Err(e) => panic!("unexpected error while stepping: {e:?}"),
+                    Ok(StepResult::Next) => {
+                        next_steps += 1;
+                        let frames = debugger.get_stack_frames();
+                        let frame = frames
+                            .last()
+                            .expect("a next step should have a stack frame");
+                        let range = &frame.location.range;
+                        let start = offset_of(FOR_BREAK_SOURCE, range.start);
+                        let end = offset_of(FOR_BREAK_SOURCE, range.end);
+                        assert!(
+                            start < end && end <= FOR_BREAK_SOURCE.len(),
+                            "next step should point within user source, got {:?}..{:?}",
+                            range.start,
+                            range.end
+                        );
+                    }
+                    Ok(StepResult::Return(value)) => {
+                        assert_eq!(value.to_string(), "3");
+                        break;
+                    }
+                    Ok(other) => panic!("unexpected step result: {other:?}"),
+                    Err(error) => panic!("unexpected error while stepping: {error:?}"),
                 }
             }
+            assert!(next_steps > 0, "expected at least one next step");
         }
 
         #[test]
