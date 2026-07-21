@@ -3833,7 +3833,7 @@ mod given_interpreter {
                             if x == 3 {
                                 break;
                             }
-                            total += x;
+                            total = total * 10 + x;
                         }
                         total
                     }
@@ -3841,7 +3841,7 @@ mod given_interpreter {
             );
             is_only_value(&result, &output, &Value::unit());
             let (result, output) = run(&mut interpreter, "ForArrayBreak()");
-            is_only_value(&result, &output, &Value::Int(3));
+            is_only_value(&result, &output, &Value::Int(12));
         }
 
         #[test]
