@@ -31,11 +31,13 @@ impl Location {
         package_store: &PackageStore,
         position_encoding: Encoding,
     ) -> Self {
-        let source = package_store
+        let sources = &package_store
             .get(package_id)
             .expect("package id must exist in store")
-            .sources
+            .sources;
+        let source = sources
             .find_by_offset(span.lo)
+            .or_else(|| sources.iter().last())
             .expect("source should exist for offset");
 
         Location {
