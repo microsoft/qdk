@@ -459,28 +459,28 @@ impl AllowedRecPosition {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum Scope {
     TopLevel,
-    Select(u32), // The u32 is a unique id for the select scope
+    Select { id: u32, first_record: u32 },
 }
 
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
-    record_scopes: Vec<Scope>,                   // indexed by result id
-    scope_parents: Vec<Scope>,                   // indexed by select scope id, value = parent scope
-    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
+    record_count: u32,                           // number of allocated measurement records
+    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
+    next_scope_id: u32,      // used to generate unique ids for scopes
 }
 
 impl IdMap {
     fn new() -> Self {
         Self {
             qubit_map: FxHashMap::default(),
-            record_scopes: Vec::new(),
-            scope_parents: Vec::new(),
-            scope_stack: Vec::new(),
             name_counters: FxHashMap::default(),
+            record_count: 0,
+            scope_stack: Vec::new(),
+            next_scope_id: 0,
         }
     }
 
@@ -492,10 +492,12 @@ impl IdMap {
     }
 
     fn enter_select_scope(&mut self) {
-        let parent = self.current_scope();
-        let id = self.scope_parents.len() as u32;
-        self.scope_parents.push(parent);
-        self.scope_stack.push(Scope::Select(id));
+        let id = self.next_scope_id;
+        self.scope_stack.push(Scope::Select {
+            id,
+            first_record: self.record_count,
+        });
+        self.next_scope_id += 1;
     }
 
     fn exit_select_scope(&mut self) {
@@ -506,51 +508,22 @@ impl IdMap {
         self.scope_stack.last().copied().unwrap_or(Scope::TopLevel)
     }
 
-    fn scope_of_record(&self, id: u32) -> Scope {
-        match self.record_scopes.get(id as usize) {
-            Some(&scope) => scope,
-            None => unreachable!("record id not found"), // this is a compiler invariant
-        }
-    }
-
-    fn parent_of(&self, scope: Scope) -> Scope {
-        let Scope::Select(id) = scope else {
-            return Scope::TopLevel;
-        };
-        self.scope_parents
-            .get(id as usize)
-            .copied()
-            .expect("cannot get the parent of a scope that has not been entered")
-    }
-
-    fn is_descendant_or_equal(&self, scope: Scope, ancestor: Scope) -> bool {
-        if scope == ancestor {
-            return true;
-        }
-        match scope {
-            Scope::Select(_) => self.is_descendant_or_equal(self.parent_of(scope), ancestor),
-            Scope::TopLevel => false,
-        }
-    }
-
     fn record_in_scope(&self, record_id: u32) -> bool {
-        self.is_descendant_or_equal(self.scope_of_record(record_id), self.current_scope())
+        let Scope::Select { first_record, .. } = self.current_scope() else {
+            return true; // top level scope can see all previous records
+        };
+        record_id >= first_record
     }
 
     fn allocate_record(&mut self) -> u32 {
-        let id = self.record_scopes.len() as u32;
-        let scope = self.current_scope();
-        self.record_scopes.push(scope);
+        let id = self.record_count;
+        self.record_count += 1;
         id
     }
 
     fn allocate_qubit(&mut self, stim_index: u32) -> u32 {
         let next_id = self.qubit_map.len() as u32;
         *self.qubit_map.entry(stim_index).or_insert(next_id)
-    }
-
-    fn num_results(&self) -> u32 {
-        self.record_scopes.len() as u32
     }
 
     fn num_qubits(&self) -> u32 {
@@ -1559,14 +1532,14 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        let Scope::Select(scope) = self.id_map.current_scope() else {
+        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
             self.push_error(Error::SelectWithoutBlock {
                 span: instruction.span,
             });
             return;
         };
 
-        let label = select_label(scope);
+        let label = select_label(scope_id);
         self.writer.write_jump(&label); // terminate the previous block
         self.writer.write_label(&label); // start the new block
     }
@@ -1589,10 +1562,10 @@ impl<'noise> Compiler<'noise> {
         let restart = self.id_map.fresh_name("restart");
         self.writer.write_or(&restart, &loss, &parity);
 
-        let Scope::Select(scope) = self.id_map.current_scope() else {
+        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
             unreachable!("REQUIRE runs inside a select block");
         };
-        let restart_label = select_label(scope);
+        let restart_label = select_label(scope_id);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
             .write_branch(&restart, &restart_label, &continue_label);
@@ -1618,11 +1591,11 @@ impl<'noise> Compiler<'noise> {
 
         let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
 
-        let Scope::Select(scope) = self.id_map.current_scope() else {
+        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
             unreachable!("NOTLEAKED runs inside a select block");
         };
 
-        let restart_label = select_label(scope);
+        let restart_label = select_label(scope_id);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
             .write_branch(&loss, &restart_label, &continue_label);
@@ -1669,7 +1642,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn resolve_record_offset(&mut self, target: &Target, offset: u32) -> Option<u32> {
-        let num_results = self.id_map.num_results();
+        let num_results = self.id_map.record_count;
         let Some(result_id) = num_results.checked_sub(offset) else {
             self.push_error(Error::MeasurementRecordOutOfBounds { span: target.span });
             return None;
@@ -1861,7 +1834,7 @@ impl<'noise> Compiler<'noise> {
         self.compile_circuit(circuit);
         self.finish_correlated_noise();
         self.writer
-            .write_footer(self.id_map.num_qubits(), self.id_map.num_results());
+            .write_footer(self.id_map.num_qubits(), self.id_map.record_count);
         if self.errors.is_empty() {
             Ok(self.writer.output)
         } else {
