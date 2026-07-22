@@ -3358,6 +3358,16 @@ fn nested_interpolated_string_with_exprs() {
 }
 
 #[test]
+fn interpolated_string_block() {
+    check_expr("", r#"$"{ { 2 + 3 } }""#, &expect!["5"]);
+}
+
+#[test]
+fn interpolated_string_for_loop() {
+    check_expr("", r#"$"{for _ in 1..3 {}}""#, &expect!["()"]);
+}
+
+#[test]
 fn udt_unwrap() {
     check_expr(
         "",
