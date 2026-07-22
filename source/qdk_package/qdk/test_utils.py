@@ -229,11 +229,11 @@ def run_tests(
         print()
         print(f"Finished tests: {num_passed} passed, {len(failed_tests)} failed.")
         for test_name in failed_tests:
-            print(f" FAILED: {test.__name__}")
+            print(f" FAILED: {test_name}")
 
     # Construct descriptive error if there are any failures.
     if len(failed_tests) > 0:
         err = f"{len(failed_tests)} test(s) failed\n"
         for test_name, failure in zip(failed_tests, failures):
-            err += f"FAILED: {test.__name__}\n{failure}\n"
+            err += f"FAILED: {test_name}\n{failure}\n"
         raise RuntimeError(err)

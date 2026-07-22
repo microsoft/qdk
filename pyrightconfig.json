@@ -2,6 +2,6 @@
   "pythonVersion": "3.10",
   "include": ["source/qdk_package/qdk"],
   "reportMissingModuleSource": "none", // Allow .pyi without .py
-  "typeCheckingMode": "basic",
+  "typeCheckingMode": "standard",
   "reportMissingParameterType": "error"
 }

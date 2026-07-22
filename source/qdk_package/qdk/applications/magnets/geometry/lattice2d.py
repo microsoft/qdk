@@ -8,6 +8,8 @@ hypergraphs. These lattices are commonly used in quantum spin system
 simulations and other two-dimensional quantum systems.
 """
 
+from typing import Optional
+
 from ..utilities import (
     Hyperedge,
     Hypergraph,
@@ -75,7 +77,9 @@ class Patch2D(Hypergraph):
         """Return a string representation of the Patch2D geometry."""
         return f"Patch2D(width={self.width}, height={self.height})"
 
-    def edge_coloring(self) -> HypergraphEdgeColoring:
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
         """Compute edge coloring for this 2D patch."""
         coloring = HypergraphEdgeColoring(self)
         for edge in self.edges():
@@ -161,7 +165,9 @@ class Torus2D(Hypergraph):
         """Return a string representation of the Torus2D geometry."""
         return f"Torus2D(width={self.width}, height={self.height})"
 
-    def edge_coloring(self) -> HypergraphEdgeColoring:
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
         """Compute edge coloring for this 2D torus."""
         coloring = HypergraphEdgeColoring(self)
         for edge in self.edges():

@@ -1,6 +1,8 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+# pyright: reportOverlappingOverload=false
+
 from __future__ import annotations
 from typing import Any, Callable, Iterator, Optional, overload
 
@@ -676,7 +678,9 @@ def block_linear_function(
     ...
 
 @overload
-def generic_function(func: Callable[[int], int]) -> _IntFunction: ...
+def generic_function(
+    func: Callable[[int], int],
+) -> _IntFunction: ...
 @overload
 def generic_function(func: Callable[[int], float]) -> _FloatFunction: ...
 @overload

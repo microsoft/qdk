@@ -116,7 +116,7 @@ def run(
     source_str: Optional[str] = None
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
-        callable = source.__global_callable
+        callable = getattr(source, "__global_callable")
     elif isinstance(source, str):
         source_str = source
 
