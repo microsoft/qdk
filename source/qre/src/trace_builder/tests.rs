@@ -25,6 +25,7 @@ fn build_interpreter(source: &str) -> Result<Interpreter, String> {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         Ok(interpreter) => Ok(interpreter),
         Err(err) => {
