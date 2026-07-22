@@ -416,9 +416,10 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("select instruction must start a block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.SelectWithoutBlock"))]
-    SelectWithoutBlock {
+    #[error("{instruction} instruction must start a block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InstructionWithoutBlock"))]
+    InstructionWithoutBlock {
+        instruction: String,
         #[label]
         span: Span,
     },
@@ -712,14 +713,51 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_block(&mut self, block: &Block) {
+        match block.block_instruction.name.as_str() {
+            "SELECT" => self.compile_select_block(block),
+            "REPEAT" => (),
+            _ => {
+                self.unknown(&block.block_instruction);
+            }
+        }
+    }
+
+    fn compile_select_block(&mut self, block: &Block) {
         let Block {
-            block_instruction,
+            block_instruction: instruction,
             items,
             ..
         } = block;
 
+        if !instruction.targets.is_empty() {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction
+                    .targets
+                    .first()
+                    .map(|t| t.span)
+                    .unwrap_or(instruction.span),
+            });
+            return;
+        }
+
+        if !instruction.args.is_empty() {
+            self.push_error(Error::UnsupportedArgument {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        }
+
         self.id_map.enter_select_scope();
-        self.compile_instruction(block_instruction);
+        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
+            unreachable!("select scope was just entered");
+        };
+
+        let label = select_label(scope_id);
+        self.writer.write_jump(&label); // terminate the previous block
+        self.writer.write_label(&label); // start the new block
+
         for item in items {
             self.compile_item(item);
         }
@@ -1192,8 +1230,10 @@ impl<'noise> Compiler<'noise> {
             "MPP" | "SPP" | "SPP_DAG" => self.unsupported(instruction),
 
             // Control Flow
-            "REPEAT" => self.unsupported(instruction),
-            "SELECT" => self.compile_select(instruction),
+            "REPEAT" | "SELECT" => self.push_error(Error::InstructionWithoutBlock {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            }),
             "REQUIRE" => self.compile_require(instruction),
             "NOTLEAKED" => self.compile_notleaked(instruction),
 
@@ -1509,39 +1549,6 @@ impl<'noise> Compiler<'noise> {
             .collect();
         let name = self.noise_accumulator.get_or_insert_intrinsic(table);
         self.writer.write_noise_call(&name, &ids);
-    }
-
-    fn compile_select(&mut self, instruction: &Instruction) {
-        if !instruction.targets.is_empty() {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction
-                    .targets
-                    .first()
-                    .map(|t| t.span)
-                    .unwrap_or(instruction.span),
-            });
-            return;
-        }
-
-        if !instruction.args.is_empty() {
-            self.push_error(Error::UnsupportedArgument {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        }
-
-        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
-            self.push_error(Error::SelectWithoutBlock {
-                span: instruction.span,
-            });
-            return;
-        };
-
-        let label = select_label(scope_id);
-        self.writer.write_jump(&label); // terminate the previous block
-        self.writer.write_label(&label); // start the new block
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {

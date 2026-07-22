@@ -1308,9 +1308,9 @@ fn blockless_select_yields_error() {
     check(
         source,
         &expect![[r#"
-            Qdk.Stim.Compiler.SelectWithoutBlock
+            Qdk.Stim.Compiler.InstructionWithoutBlock
 
-              x select instruction must start a block
+              x SELECT instruction must start a block
                ,-[2:1]
              1 | X 0
              2 | SELECT
