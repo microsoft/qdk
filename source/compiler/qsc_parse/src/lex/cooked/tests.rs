@@ -1228,6 +1228,7 @@ fn interpolated_string_block() {
 }
 
 #[test]
+#[allow(clippy::too_many_lines)]
 fn interpolated_string_for_loop() {
     check(
         r#"$"{for i in 1..3 {}}""#,
