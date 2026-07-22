@@ -61,17 +61,22 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
             return ""
         return value_bytes.decode("utf-8")
 
-    def run(self, mod: Module) -> Tuple[List[QirInstruction | Tuple], int, int]:
-        errors = mod.verify()
+    def run(self, qir: Module) -> None:
+        errors = qir.verify()
         if errors is not None:
             raise ValueError(f"Module verification failed: {errors}")
 
         # verify that the module is base profile
-        func = next(filter(pyqir.is_entry_point, mod.functions))
+        func = next(filter(pyqir.is_entry_point, qir.functions))
         self.required_num_qubits = pyqir.required_num_qubits(func)
         self.required_num_results = pyqir.required_num_results(func)
 
-        super().run(mod)
+        super().run(qir)
+
+    def run_and_collect(
+        self, qir: Module
+    ) -> Tuple[List[QirInstruction | Tuple], int, int]:
+        self.run(qir)
         assert self.required_num_qubits is not None
         assert self.required_num_results is not None
         return (self.gates, self.required_num_qubits, self.required_num_results)
@@ -411,6 +416,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     def _on_rt_array_record_output(
         self, call: Call, value: Value, target: Value
     ) -> None:
+        assert isinstance(value, IntConstant)
         self._output_str += "["
         self._closers.append("]")
         # if len(self._counters) > 0:
@@ -420,6 +426,7 @@ class OutputRecordingPass(pyqir.QirModuleVisitor):
     def _on_rt_tuple_record_output(
         self, call: Call, value: Value, target: Value
     ) -> None:
+        assert isinstance(value, IntConstant)
         self._output_str += "("
         self._closers.append(")")
         # if len(self._counters) > 0:
@@ -585,9 +592,9 @@ def run_base(
     Runs a base profile program given a rust simulator. Adds output recording logic.
     """
     if noise is None:
-        gates, num_qubits, num_results = AggregateGatesPass().run(mod)
+        gates, num_qubits, num_results = AggregateGatesPass().run_and_collect(mod)
     else:
-        gates, num_qubits, num_results = CorrelatedNoisePass(noise).run(mod)
+        gates, num_qubits, num_results = CorrelatedNoisePass(noise).run_and_collect(mod)
     recorder = OutputRecordingPass()
     recorder.run(mod)
     return list(
@@ -674,7 +681,7 @@ def prepare_qir_with_correlated_noise(
     DecomposeCcxPass().run(mod)
 
     # Extract the gates including correlated noise instructions
-    return GpuCorrelatedNoisePass(noise_tables).run(mod)
+    return GpuCorrelatedNoisePass(noise_tables).run_and_collect(mod)
 
 
 class GpuSimulator:

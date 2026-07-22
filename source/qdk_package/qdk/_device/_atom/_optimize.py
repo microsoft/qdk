@@ -258,14 +258,14 @@ class OptimizeSingleQubitGates(QirModuleVisitor):
     ) -> None:
         self._drop_ops([ctrl1, ctrl2, target])
 
-    def _on_qis_cx(self, call: Call, target1: Value, target2: Value) -> None:
-        self._drop_ops([target1, target2])
+    def _on_qis_cx(self, call: Call, ctrl: Value, target: Value) -> None:
+        self._drop_ops([ctrl, target])
 
-    def _on_qis_cy(self, call: Call, target1: Value, target2: Value) -> None:
-        self._drop_ops([target1, target2])
+    def _on_qis_cy(self, call: Call, ctrl: Value, target: Value) -> None:
+        self._drop_ops([ctrl, target])
 
-    def _on_qis_cz(self, call: Call, target1: Value, target2: Value) -> None:
-        self._drop_ops([target1, target2])
+    def _on_qis_cz(self, call: Call, ctrl: Value, target: Value) -> None:
+        self._drop_ops([ctrl, target])
 
     def _on_qis_swap(self, call: Call, target1: Value, target2: Value) -> None:
         self._drop_ops([target1, target2])
