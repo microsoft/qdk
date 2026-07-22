@@ -5,14 +5,14 @@
 ### Classical arithmetic functions
 
 When working on arithmetic algorithms, it can be useful to define an operation
-applying a function on a quantum register without implementing it.
+that applies a function to a quantum register without implementing it.
 
 Now you can do this in Q# using `Std.ArithmeticTestUtils.ApplyClassicalFunction`.
-It takes `n`-qubit quantum register and a Q# function `f : (BigInt) -> BigInt` 
-that represents bijection on `0..2^n-1`. Effect of this operation is equivalent to 
+It takes an `n`-qubit quantum register and a Q# function `f : (BigInt) -> BigInt`
+that represents a bijection on `0..2^n-1`. The effect of this operation is equivalent to
 applying a unitary operation that maps `|x>` to `|f(x)>`.
 
-We also support multi-register version(`Std.ArithmeticTestUtils.ApplyClassicalFunctionN`).
+We also support a multi-register version (`Std.ArithmeticTestUtils.ApplyClassicalFunctionN`).
 
 For example, you can represent in-place addition (equivalent to `Std.Arithmetic.IncByLE`)
 as follows:
@@ -26,18 +26,18 @@ operation IncByLE(xs : Qubit[], ys : Qubit[]) : Unit is Ctl {
 ```
 
 This feature is intended to be used for development and testing of quantum algorithms
-and currently is supported only in sparse simulator.
+and is currently supported only in the sparse simulator.
 
 
-### Arithemtic test helpers
+### Arithmetic test helpers
 
-When writing tests for arithmetic operations, we typically allocate registers, write 
-inputs there, apply operation and read outputs. We added a helper 
-`Std.ArithmeticTestUtils.TestArithmeticOp` to do all that, which can be used in Q# unit 
+When writing tests for arithmetic operations, we typically allocate registers, write
+inputs to them, apply an operation, and read the outputs. We added a helper
+`Std.ArithmeticTestUtils.TestArithmeticOp` to do all that, which can be used in Q# unit
 tests.
 
-We also added a convenient Python wrapper around `TestArithmeticOp`, called 
-`ArithmeticOpTester` that allows you to write unit tests for arithmetic operations in 
+We also added a convenient Python wrapper around `TestArithmeticOp`, called
+`ArithmeticOpTester`, that allows you to write unit tests for arithmetic operations in
 Python. For example, this is how to write a test for `Std.Arithmetic.IncByLE` that 
 checks this operation on 5 random inputs:
 
@@ -54,9 +54,9 @@ for _ in range(5):
 
 ### Compile-time configuration
 
-You can now specify a compile-time configuration (as a Python dictionary passed to 
+You can now specify a compile-time configuration (as a Python dictionary passed to
 `qdk.Context` constructor) and access it in Q# code using `Std.Core.ConfigValue`.
-The calls to `Std.Core.ConfigValue` will be replaced with provided values at 
+Calls to `Std.Core.ConfigValue` will be replaced with the provided values at
 compilation time.
 
 Example:
@@ -72,18 +72,18 @@ See more details [here](https://github.com/microsoft/qdk/tree/main/source/qdk_pa
 
 ### Std.ResourceEstimation.IsResourceEstimating
 
-You can now know within Q# code whether your code is being executed for resource 
-estimation. This can be useful if you want to have different behavior for resource 
-estimation vs. running code on simulator or quantum hardware. 
+You can now determine (within Q#) whether your code is being executed for resource
+estimation. This can be useful if you want different behavior for resource
+estimation versus running code on a simulator or quantum hardware.
 
 For example, if you have a loop, you can use `Std.ResourceEstimation.RepeatEstimates`
 in resource estimation mode, and a `for` loop otherwise.
 
 
-### Running Q# tests using Python API.
+### Running Q# tests using the Python API
 
 Q# supports writing unit tests (as operations annotated with `@Test`). Now you can use
-Python API to run all unit tests in your Q# package.
+the Python API to run all unit tests in your Q# package.
 
 Example:
 
