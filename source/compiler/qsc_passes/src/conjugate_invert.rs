@@ -91,12 +91,16 @@ impl MutVisitor for ConjugateElim<'_> {
                 assign_check.visit_block(&apply);
                 self.errors.extend(assign_check.errors);
 
-                let mut return_check = ReturnCheck {
+                let mut return_check = ReturnCheck { errors: Vec::new() };
+                return_check.visit_block(&apply);
+                self.errors.extend(return_check.errors);
+
+                let mut break_continue_check = BreakContinueCheck {
                     errors: Vec::new(),
                     loop_depth: 0,
                 };
-                return_check.visit_block(&apply);
-                self.errors.extend(return_check.errors);
+                break_continue_check.visit_block(&apply);
+                self.errors.extend(break_continue_check.errors);
 
                 let mut adj_within = within.clone();
                 if let Err(invert_errors) =
@@ -243,7 +247,6 @@ impl AssignmentCheck {
 
 struct ReturnCheck {
     errors: Vec<Error>,
-    loop_depth: u32,
 }
 
 impl<'a> Visitor<'a> for ReturnCheck {
@@ -252,6 +255,19 @@ impl<'a> Visitor<'a> for ReturnCheck {
             ExprKind::Return(..) => {
                 self.errors.push(Error::ReturnForbidden(expr.span));
             }
+            _ => visit::walk_expr(self, expr),
+        }
+    }
+}
+
+struct BreakContinueCheck {
+    errors: Vec<Error>,
+    loop_depth: u32,
+}
+
+impl<'a> Visitor<'a> for BreakContinueCheck {
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        match &expr.kind {
             // A break or continue that is not enclosed by a loop body within the
             // apply-block binds to a loop outside the conjugate expression, so it
             // would escape the generated adjoint of the within-block. One that is
@@ -282,7 +298,7 @@ impl<'a> Visitor<'a> for ReturnCheck {
     }
 }
 
-impl ReturnCheck {
+impl BreakContinueCheck {
     fn visit_loop_body(&mut self, body: &Block) {
         self.loop_depth += 1;
         self.visit_block(body);
