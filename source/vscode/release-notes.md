@@ -54,17 +54,17 @@ for _ in range(5):
 
 ### Compile-time configuration
 
-You can now specify a compile-time configuration (as a Python dictionary passed to
-`qdk.Context` constructor) and access it in Q# code using `Std.Core.ConfigValue`.
-Calls to `Std.Core.ConfigValue` will be replaced with the provided values at
-compilation time.
+You can now specify a compile-time configuration (as a Python dictionary passed to 
+`qsharp.init` or `qdk.Context` constructor) and access it in Q# code using 
+`Std.Core.ConfigValue`. Calls to `Std.Core.ConfigValue` will be replaced with the 
+provided values at compilation time.
 
 Example:
 
 ```python
-import qdk
-context = qdk.Context(qsharp_config={"shots": 1000})
-assert context.eval('Std.Core.ConfigValue("shots", 100)') == 1000
+from qdk import qsharp
+qsharp.init(qsharp_config={"shots": 1000})
+assert qsharp.eval('Std.Core.ConfigValue("shots", 100)') == 1000
 ```
 
 See the [configuration map documentation](https://github.com/microsoft/qdk/tree/main/source/qdk_package#configuration-map) for more details.
