@@ -104,16 +104,12 @@ impl<'a> Visitor<'a> for SepCheck {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
-        // `visit_expr` is reached for expressions in operand positions: call
-        // arguments, `if`/`for`/`while` conditions, array and tuple elements,
-        // binary-operator sides, and so on. Statement-position control flow is
-        // rejected in `handle_expr`, but forbidden control flow can also be
-        // buried inside an operand and would otherwise slip past this
-        // separability check. Adjoint generation reverses a separable block, and
-        // `break`/`continue`/`return` cannot be reversed, so accepting one in an
-        // operand could turn an `is Adj` body into a wrong adjoint. Reject it
-        // here as well. This closes a pre-existing gap that affected `return`
-        // just as much as `break`/`continue`.
+        // `visit_expr` handles operand positions: conditions, call arguments,
+        // operator sides, array/tuple elements, and so on. `handle_expr` already
+        // rejects control flow in statement position, but a `break`/`continue`/
+        // `return` buried in an operand would otherwise slip past. Adjoint
+        // generation reverses a separable block and none of these can be
+        // reversed, so accepting one here could yield a wrong adjoint.
         match &expr.kind {
             ExprKind::Call(callee, _) if matches!(&callee.ty, Ty::Arrow(arrow) if arrow.kind == CallableKind::Operation) =>
             {
