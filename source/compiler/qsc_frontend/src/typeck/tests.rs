@@ -1669,8 +1669,7 @@ fn break_in_loop_condition_is_typeck_divergent_but_rejected_by_loop_control() {
     // Raw typeck marks `while break {}` divergent via `cond.diverges`, so no
     // return-type mismatch is reported here. This is unobservable end to end: the
     // `LoopControl` HIR pass (run after typeck) rejects break/continue in a loop
-    // header (`InLoopHeader`). Revisit this expectation when the shared
-    // loop-control model lands (planning WI-01).
+    // header (`InLoopHeader`).
     let (_, _, errors) = compile(
         r#"namespace Test { function First<'T>() : 'T { while break {} } }"#,
         "",

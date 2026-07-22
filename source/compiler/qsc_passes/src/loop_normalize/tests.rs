@@ -720,8 +720,8 @@ fn hoist_break_in_qubit_operand_block_array_backed() {
 #[test]
 fn hoist_break_in_arrow_operand_block_array_backed() {
     // An arrow-typed operand value-block has no classical default, so it is
-    // array-backed as `(Qubit => Unit)[]`. Previously such operands were hoisted
-    // directly and then rejected by the desugar; array-backing covers them.
+    // array-backed as `(Qubit => Unit)[]`, which lets the desugar accept it
+    // uniformly with the other array-backed operand types.
     check(
         indoc! {"
             namespace Test {
@@ -758,8 +758,7 @@ fn hoist_break_in_arrow_operand_block_array_backed() {
 fn hoist_break_in_udt_operand_block_array_backed() {
     // A user-defined-type operand value-block is array-backed as `Pair[]`,
     // uniformly with `Qubit` and arrow types and without constructing a `Pair`
-    // default. This is the case the two passes previously disagreed on: the
-    // normalize pass hoisted it directly, then the desugar rejected it.
+    // default, so the normalize pass and the desugar handle it consistently.
     check(
         indoc! {"
             namespace Test {
@@ -944,8 +943,7 @@ fn reject_break_in_unrepresentable_operand_block() {
 fn hoist_bare_break_in_call_argument() {
     // A bare `break` sitting directly in a call-argument slot is itself the
     // escaping control flow, so it is lifted to its own spine temp; the later
-    // desugar guards the call behind the break flag. Previously this bare
-    // operand was left in place and the call ran with a placeholder argument.
+    // desugar guards the call behind the break flag.
     check(
         indoc! {"
             namespace Test {

@@ -4470,10 +4470,10 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             // The callee operand `if i == 3 { break } else { Flip }` is arrow-typed
             // (`Qubit => Unit`), which has no classical default; it is array-backed
-            // as `(Qubit => Unit)[]`. Previously such operands were rejected by the
-            // desugar. On i = 0, 1, 2 the operation runs and count reaches 3; on
-            // i == 3 the break fires and the guarded call `.operand_tmp_<id>[0](q)`
-            // on the empty-array temp is never evaluated, so the loop exits with count = 3.
+            // as `(Qubit => Unit)[]`. On i = 0, 1, 2 the operation runs and count
+            // reaches 3; on i == 3 the break fires and the guarded call
+            // `.operand_tmp_<id>[0](q)` on the empty-array temp is never evaluated,
+            // so the loop exits with count = 3.
             let (result, output) = run(&mut interpreter, "OperandBreakArrow()");
             is_only_value(&result, &output, &Value::Int(3));
         }
@@ -4498,10 +4498,9 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             // The operand `if i == 2 { break } else { new Boxed { Value = i + 1 } }`
             // is a user-defined type with no classical default; it is array-backed as
-            // `Boxed[]`. Previously the two passes disagreed and it was rejected. On
-            // i = 0, 1 it unwraps to 1 and 2, so total = 3; on i == 2 the break fires
-            // and the guarded read `.operand_tmp_<id>[0]` on the empty-array temp is never
-            // evaluated, so the loop exits with total = 3.
+            // `Boxed[]`. On i = 0, 1 it unwraps to 1 and 2, so total = 3; on i == 2 the
+            // break fires and the guarded read `.operand_tmp_<id>[0]` on the empty-array
+            // temp is never evaluated, so the loop exits with total = 3.
             let (result, output) = run(&mut interpreter, "OperandBreakUdt()");
             is_only_value(&result, &output, &Value::Int(3));
         }
