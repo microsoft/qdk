@@ -335,6 +335,13 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("missing target in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MissingTarget"))]
+    MissingTarget {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
     #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
@@ -402,9 +409,10 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("require must appear inside a SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.RequireOutsideSelectBlock"))]
-    RequireOutsideSelectBlock {
+    #[error("{instruction} must appear inside a SELECT block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
+    InstructionOutsideSelectBlock {
+        instruction: String,
         #[label]
         span: Span,
     },
@@ -1214,6 +1222,7 @@ impl<'noise> Compiler<'noise> {
             "REPEAT" => self.unsupported(instruction),
             "SELECT" => self.compile_select(instruction),
             "REQUIRE" => self.compile_require(instruction),
+            "NOTLEAKED" => self.compile_notleaked(instruction),
 
             // Annotations
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
@@ -1563,23 +1572,7 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
-        self.unsupported_args(instruction);
-        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
-            self.push_error(Error::RequireOutsideSelectBlock {
-                span: instruction.span,
-            });
-            return;
-        }
-
-        if instruction.targets.is_empty() {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        }
-
-        let Some(record_metadata) = self.validate_records(instruction) else {
+        let Some(record_metadata) = self.validate_select_condition(instruction) else {
             return;
         };
 
@@ -1603,6 +1596,36 @@ impl<'noise> Compiler<'noise> {
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
             .write_branch(&restart, &restart_label, &continue_label);
+        self.writer.write_label(&continue_label);
+    }
+
+    fn compile_notleaked(&mut self, instruction: &Instruction) {
+        let Some(record_metadata) = self.validate_select_condition(instruction) else {
+            return;
+        };
+
+        let mut loss_registers = Vec::new();
+        for &(result_id, negated) in &record_metadata {
+            if negated {
+                self.push_error(Error::NegatedTarget {
+                    instruction: instruction.name.clone(),
+                    span: instruction.span,
+                });
+                return;
+            }
+            loss_registers.push(self.read_loss_register(result_id));
+        }
+
+        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
+
+        let Scope::Select(scope) = self.id_map.current_scope() else {
+            unreachable!("NOTLEAKED runs inside a select block");
+        };
+
+        let restart_label = select_label(scope);
+        let continue_label = self.id_map.fresh_name("continue");
+        self.writer
+            .write_branch(&loss, &restart_label, &continue_label);
         self.writer.write_label(&continue_label);
     }
 
@@ -1675,6 +1698,27 @@ impl<'noise> Compiler<'noise> {
             return None;
         }
         Some(record_metadata)
+    }
+
+    fn validate_select_condition(&mut self, instruction: &Instruction) -> Option<Vec<(u32, bool)>> {
+        self.unsupported_args(instruction);
+        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
+            self.push_error(Error::InstructionOutsideSelectBlock {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+
+        if instruction.targets.is_empty() {
+            self.push_error(Error::MissingTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+
+        self.validate_records(instruction)
     }
 
     fn expect_qubit(
