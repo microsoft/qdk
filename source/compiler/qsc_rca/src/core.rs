@@ -1542,7 +1542,25 @@ impl<'a> Analyzer<'a> {
         let mut args_compute_kinds = Vec::<ComputeKind>::with_capacity(args.len());
         for arg_expr_id in args {
             let arg_compute_kind = application_instance.get_expr_compute_kind(*arg_expr_id);
-            args_compute_kinds.push(*arg_compute_kind);
+            let arg_ty = &self.get_expr(*arg_expr_id).ty;
+            if matches!(
+                arg_compute_kind,
+                ComputeKind::Dynamic {
+                    value_kind: ValueKind::Constant,
+                    ..
+                }
+            ) && !is_any_result(arg_ty)
+                && !is_any_array(arg_ty)
+            {
+                // If the argument is expected to have a constant value, we can consider it static across function boundaries.
+                // This matches the behavior in partial evaluation, captured in source/compiler/qsc_partial_eval/src/evaluation_context.rs
+                // `Scope` construction, where non-result runtime values are set as static when computing argument `ComputeKind`.
+                // We skip this for result types, which must remain dynamic constant as they are the source of later variables during
+                // comparison of result values, and for arrays, which during evaluation do not have investigatable contents.
+                args_compute_kinds.push(ComputeKind::Static);
+            } else {
+                args_compute_kinds.push(*arg_compute_kind);
+            }
         }
         args_compute_kinds
     }
@@ -2799,6 +2817,14 @@ fn is_any_result(t: &Ty) -> bool {
         Ty::Prim(Prim::Result) => true,
         Ty::Array(t) => is_any_result(t),
         Ty::Tuple(ts) => ts.iter().any(is_any_result),
+        _ => false,
+    }
+}
+
+fn is_any_array(t: &Ty) -> bool {
+    match t {
+        Ty::Array(_) => true,
+        Ty::Tuple(ts) => ts.iter().any(is_any_array),
         _ => false,
     }
 }

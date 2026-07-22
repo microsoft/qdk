@@ -5388,3 +5388,51 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
         "expected threaded Controlled X capture in QIR:\n{qir}"
     );
 }
+
+#[test]
+fn foreign_table_lookup_callable_generates_qir() {
+    let source = indoc::indoc! {r#"
+        operation Invoke() : Unit {
+            use address = Qubit[1];
+            use output = Qubit[1];
+            Std.TableLookup.Select([[false], [true]], address, output);
+
+            // Adjoint of Select does not work until support for static sized, dynamic content arrays is added.
+            // See related issue: https://github.com/microsoft/qdk/issues/3388
+            // Adjoint Std.TableLookup.Select([[false], [true]], address, output);
+        }
+    "#};
+    for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {
+        let capabilities = profile.into();
+        let (mut store, package_id, items) =
+            compile_and_locate_items(source, &[("Invoke", true)], capabilities);
+        let root_sources =
+            source_map_from_source("namespace DriverEmpty { function Anchor() : Unit {} }");
+        let root_dependencies = vec![(package_id, Some(Arc::from("ReproLib")))];
+        let (root_unit, root_errors) = crate::compile::compile(
+            &store,
+            &root_dependencies,
+            root_sources,
+            PackageType::Lib,
+            capabilities,
+            LanguageFeatures::default(),
+        );
+        assert!(
+            root_errors.is_empty(),
+            "{profile:?} root compilation failed: {root_errors:?}"
+        );
+        store.insert(root_unit);
+
+        let qir = callable_args_to_qir(
+            &store,
+            package_id,
+            items["Invoke"],
+            &Value::unit(),
+            capabilities,
+        );
+        assert!(
+            qir.contains("define i64 @ENTRYPOINT__main()"),
+            "{profile:?} callable should emit an entry point, got:\n{qir}"
+        );
+    }
+}
