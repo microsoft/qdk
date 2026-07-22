@@ -1,11 +1,11 @@
-/// # Sample
-/// Quantum Phase Estimation
-///
-/// # Description
-/// This sample demonstrates how to use Quantum Phase Estimation (QPE) algorithm
-/// to estimate the eigenvalue of a specific unitary operation.
-/// QPE algorithm is performed by calling `ApplyQPE` library operation.
-/// Run this sample and check the histogram of results.
+// # Sample
+// Quantum Phase Estimation
+//
+// # Description
+// This sample demonstrates how to use Quantum Phase Estimation (QPE) algorithm
+// to estimate the eigenvalue of a specific unitary operation.
+// QPE algorithm is performed by calling `ApplyQPE` library operation.
+// Run this sample and check the histogram of results.
 
 import Std.Math.*;
 

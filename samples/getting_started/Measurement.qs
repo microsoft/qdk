@@ -1,13 +1,13 @@
-/// # Summary
-/// Measurement sample
-///
-/// # Description
-/// This Q# program demonstrates how to perform measurements in Z basis.
-///
-/// # Remarks
-/// Quantum measurement is an irreversible operation in which a quantum system
-/// is manipulated to yield a numerical result. Measuring a quantum system
-/// generally changes the quantum state that describes that system.
+// # Summary
+// Measurement sample
+//
+// # Description
+// This Q# program demonstrates how to perform measurements in Z basis.
+//
+// # Remarks
+// Quantum measurement is an irreversible operation in which a quantum system
+// is manipulated to yield a numerical result. Measuring a quantum system
+// generally changes the quantum state that describes that system.
 operation Main() : (Result, Result[]) {
     // Allocate a qubit. Qubit is in |0〉 state after allocation.
     use q = Qubit();

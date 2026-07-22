@@ -1,14 +1,14 @@
-/// # Sample
-/// Simulation of a simple Ising model evolution
-/// on a 1D grid with first-order Trotterization.
-///
-/// # Description
-/// This sample demonstrates simulation of an Ising model Hamiltonian
-/// on 1D grid of size N using a first-order Trotter-Suzuki approximation.
-/// This sample can be easily simulated classically with the grid of size 9
-/// and 1000 shots. This sample is suitable for Base Profile.
-/// For the purpose of simplicity this sample intentionally doesn't
-/// post-process results or perform eigenvalue estimation.
+// # Sample
+// Simulation of a simple Ising model evolution
+// on a 1D grid with first-order Trotterization.
+//
+// # Description
+// This sample demonstrates simulation of an Ising model Hamiltonian
+// on 1D grid of size N using a first-order Trotter-Suzuki approximation.
+// This sample can be easily simulated classically with the grid of size 9
+// and 1000 shots. This sample is suitable for Base Profile.
+// For the purpose of simplicity this sample intentionally doesn't
+// post-process results or perform eigenvalue estimation.
 operation Main() : Result[] {
     // The size of a 1D grid is N
     let N : Int = 9;

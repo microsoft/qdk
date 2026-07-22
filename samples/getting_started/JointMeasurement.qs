@@ -1,12 +1,12 @@
 import Std.Diagnostics.*;
 
-/// # Summary
-/// Joint Measurement sample
-///
-/// # Description
-/// This Q# program demonstrates how to use Joint measurements.
-/// Joint measurement, also known as Pauli measurements, are a generalization
-/// of 2-outcome measurements to multiple qubits and other bases.
+// # Summary
+// Joint Measurement sample
+//
+// # Description
+// This Q# program demonstrates how to use Joint measurements.
+// Joint measurement, also known as Pauli measurements, are a generalization
+// of 2-outcome measurements to multiple qubits and other bases.
 operation Main() : (Result, Result[]) {
     // Prepare an entangled state.
     use qs = Qubit[2];  // |00〉

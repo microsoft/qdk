@@ -2366,8 +2366,8 @@ fn callable_returning_partial_application_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
@@ -2398,8 +2398,8 @@ fn callable_returning_partial_application_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
@@ -2475,8 +2475,8 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
@@ -2507,8 +2507,8 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
@@ -2581,8 +2581,8 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
                 let oracle : ((Qubit[], Qubit) => Unit) = Encode(bits);
                 UseOracle_Empty_(oracle, Length(bits));
             }
-            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation UseOracle_Empty_(oracle : ((Qubit[], Qubit) => Unit), n : Int) : Unit {
                 let register : Qubit[] = AllocateQubitArray(n);
@@ -2623,8 +2623,8 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
                 let bits : Bool[] = [true];
                 UseOracle_Empty__closure_(Length(bits), bits);
             }
-            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Bool[], (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation UseOracle_Empty_(oracle : ((Qubit[], Qubit) => Unit), n : Int) : Unit {
                 let register : Qubit[] = AllocateQubitArray(n);
@@ -2756,8 +2756,8 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
@@ -2789,8 +2789,8 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 __quantum__rt__qubit_release(target);
                 ReleaseQubitArray(register);
             }
-            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
@@ -2965,19 +2965,19 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
                     let arg : Int = 1;
                     / * closure item = 5 captures = [arg] * / _lambda_5
                 }, {
-                    let arg : Int = 2;
-                    / * closure item = 6 captures = [arg] * / _lambda_6
+                    let arg_1 : Int = 2;
+                    / * closure item = 6 captures = [arg_1] * / _lambda_6
                 }];
                 Run(new Config {
                     Ops = ops,
                     Count = 2
                 });
             }
-            operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             // entry
             Main()
@@ -3013,11 +3013,11 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
             operation Main() : Unit {
                 Run_closure__closure_(2, 1, 2);
             }
-            operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_closure__closure_(config : Int, __capture_0 : Int, __capture_1 : Int) : Unit {
                 let qs : Qubit[] = AllocateQubitArray(config + 1);
@@ -3192,16 +3192,16 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
                     let arg : Int = 1;
                     / * closure item = 6 captures = [arg] * / _lambda_6
                 }, {
-                    let arg : Int = 2;
-                    / * closure item = 7 captures = [arg] * / _lambda_7
+                    let arg_1 : Int = 2;
+                    / * closure item = 7 captures = [arg_1] * / _lambda_7
                 }];
                 Run_Empty__Empty__Empty_(PrepareSystems, controlledUnitary, 2, [0, 1], PreparePhase, 0);
             }
-            operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_7(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
                 let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
@@ -3277,11 +3277,11 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
             operation Main() : Unit {
                 Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, 1, 2);
             }
-            operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_7(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
                 let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
@@ -3444,16 +3444,16 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                     let arg : Int = first;
                     / * closure item = 6 captures = [arg] * / _lambda_6
                 }, {
-                    let arg : Int = second;
-                    / * closure item = 7 captures = [arg] * / _lambda_7
+                    let arg_1 : Int = second;
+                    / * closure item = 7 captures = [arg_1] * / _lambda_7
                 }];
                 Run_Empty__Empty__Empty_(PrepareSystems, controlledUnitary, 2, [0, 1], PreparePhase, 0);
             }
-            operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_7(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
                 let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
@@ -3531,11 +3531,11 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                 let second : Int = 2;
                 Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, first, second);
             }
-            operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_7(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
                 let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
@@ -3704,8 +3704,8 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                     let arg : Int = 1;
                     / * closure item = 7 captures = [arg] * / _lambda_7
                 }, {
-                    let arg : Int = 2;
-                    / * closure item = 8 captures = [arg] * / _lambda_8
+                    let arg_1 : Int = 2;
+                    / * closure item = 8 captures = [arg_1] * / _lambda_8
                 }];
                 Run(new Config {
                     StatePrep = PrepareSystems,
@@ -3716,11 +3716,11 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                     NumAncillaQubits = 0
                 });
             }
-            operation _lambda_7(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_8(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_8(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             // entry
             Main()
@@ -3775,11 +3775,11 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
             operation Main() : Unit {
                 Run_PrepareSystems__closure__closure__PreparePhase_(2, [0, 1], 0, 1, 2);
             }
-            operation _lambda_7(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_7(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
-            operation _lambda_8(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_8(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_PrepareSystems__closure__closure__PreparePhase_(config : (Int, Int[], Int), __capture_0 : Int, __capture_1 : Int) : Unit {
                 let qs : Qubit[] = AllocateQubitArray(config::StatePrep + Length(config::ControlledUnitary) + config::PhaseQubitPrep);
@@ -3888,8 +3888,8 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                 ReleaseQubitArray(register);
                 _generated_ident_156
             }
-            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);
@@ -3931,8 +3931,8 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                 ReleaseQubitArray(register);
                 _generated_ident_156
             }
-            operation _lambda_5(arg : Int, (hole : Qubit[], hole : Qubit)) : Unit {
-                ApplyParityOperation(arg, hole, hole)
+            operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
             }
             operation ApplyOp_Empty_(op : ((Qubit[], Qubit) => Unit), register : Qubit[], target : Qubit) : Unit {
                 op(register, target);

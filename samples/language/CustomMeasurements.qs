@@ -11,8 +11,8 @@
 // # Who is this for?
 // The target audience are library authors targeting specific hardware.
 
-/// Try running the command `Q#: Get QIR for the current Q# program`
-/// in VS-Code's Command Palette.
+// Try running the command `Q#: Get QIR for the current Q# program`
+// in VS-Code's Command Palette.
 operation Main() : Result {
     use q = Qubit();
     H(q);

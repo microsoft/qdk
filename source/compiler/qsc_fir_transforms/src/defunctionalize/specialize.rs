@@ -23,12 +23,13 @@
 //! arrow types appear on reachable callable parameters or expressions.
 
 use super::types::{
-    AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, Error, SpecKey,
-    compose_functors, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, ConcreteCallableKey,
+    Error, SpecKey, compose_functors, peel_body_functors,
 };
 use super::{
     build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
-    has_multiple_forwarded_callable_arrays, is_combined_eligible, partition_mixed_branch_split,
+    concrete_callable_key, has_multiple_forwarded_callable_arrays, is_combined_eligible,
+    partition_mixed_branch_split, resolve_self_call_arg_key,
 };
 use crate::cloner::FirCloner;
 use crate::fir_builder::{
@@ -56,6 +57,19 @@ use std::rc::Rc;
 /// warning diagnostic is emitted. Mirrors the LLVM `FuncSpec` `MaxClones`
 /// budget, adapted as a diagnostic-only threshold.
 const EXCESSIVE_SPECIALIZATION_THRESHOLD: usize = 10;
+
+/// Hard upper bound on the number of *distinct* specializations a single HOF may
+/// accumulate across all fixpoint iterations before defunctionalization fails
+/// closed with a fatal [`crate::defunctionalize::Error::RecursiveSpecialization`].
+///
+/// This is the fatal backstop for [`EXCESSIVE_SPECIALIZATION_THRESHOLD`]: the
+/// warning threshold flags a single wide pass, whereas this cap detects a HOF
+/// whose distinct specialization set keeps growing across iterations, the
+/// signature of a degenerate recursive shape that could otherwise expand
+/// without bound. It is set an order of magnitude above the warning threshold
+/// so that legitimately wide dispatch (dozens of distinct callables forwarded
+/// to one HOF) never trips it, while runaway recursive growth is still stopped.
+pub(super) const CUMULATIVE_SPECIALIZATION_CAP: usize = 100;
 
 /// Base name for synthesized closure-capture locals; a per-call counter is
 /// appended (`_.capture_0`, `_.capture_1`, …). The in-memory `Ident.name`
@@ -690,6 +704,7 @@ fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
 ///
 /// Single-row groups delegate to [`specialize_one`] so single-arrow-param
 /// specializations stay byte-identical.
+#[allow(clippy::too_many_lines)]
 fn specialize_many(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -730,6 +745,11 @@ fn specialize_many(
     let owned_assigner = std::mem::take(assigner);
     let mut cloner = FirCloner::from_assigner(owned_assigner);
     cloner.reset_maps();
+    let new_specialized_item_id = ItemId {
+        package: package_id,
+        item: new_item_id,
+    };
+    cloner.set_self_item_remap(hof_item_id, new_specialized_item_id);
 
     // Clone the input before the impl so `local_map` holds the input parameter
     // mappings when the callable body is walked.
@@ -785,6 +805,35 @@ fn specialize_many(
         &remapped_params,
         callable_array_position.as_ref(),
         total_captures,
+    );
+
+    // Recursive references are retargeted by the cloner before the callable
+    // parameter slots are removed from the specialization input. Bring those
+    // recursive calls back into the same reduced argument shape as external
+    // call sites rewritten by the defunctionalization rewrite phase.
+    //
+    // The per-parameter keys are assembled in group order so they align with
+    // `remapped_params`; a self-call is retargeted to this specialization only
+    // when every forwarded slot matches, otherwise it is routed back to the
+    // original HOF for a sibling specialization.
+    let spec_arg_keys: Vec<ConcreteCallableKey> = group
+        .iter()
+        .map(|(call_site, _)| {
+            concrete_callable_key(
+                call_site.call_pkg_id,
+                &call_site.callable_arg,
+                call_site.hof_item_id,
+            )
+        })
+        .collect();
+    rewrite_recursive_self_call_args(
+        target,
+        package_id,
+        new_item_id,
+        hof_item_id,
+        &spec_arg_keys,
+        &new_decl,
+        &remapped_params,
     );
 
     let new_item = Item {
@@ -1177,6 +1226,7 @@ fn nested_param_removal_covers_entire_slot(
 /// into the target (`package_id`) package. The HOF body is read from
 /// `call_site.hof_item_id.package`, which may differ from the target package.
 /// Returns the `StoreItemId` of the new item.
+#[allow(clippy::too_many_lines)]
 fn specialize_one(
     store: &mut PackageStore,
     package_id: PackageId,
@@ -1208,6 +1258,11 @@ fn specialize_one(
     let owned_assigner = std::mem::take(assigner);
     let mut cloner = FirCloner::from_assigner(owned_assigner);
     cloner.reset_maps();
+    let new_specialized_item_id = ItemId {
+        package: package_id,
+        item: new_item_id,
+    };
+    cloner.set_self_item_remap(call_site.hof_item_id, new_specialized_item_id);
 
     // Clone the input before the impl so `local_map` holds the input parameter
     // mappings when the callable body is walked.
@@ -1271,6 +1326,26 @@ fn specialize_one(
         call_site,
         closure_info,
         assigner,
+    );
+
+    // The cloner has already retargeted recursive references to `new_item_id`.
+    // Those calls bypass the normal external call-site rewrite, so reduce their
+    // arguments here after the specialized input pattern has its callable slot
+    // removed. The single specialization key guards the retarget: a self-call
+    // forwarding a different callable is routed back to the original HOF instead.
+    let spec_arg_keys = [concrete_callable_key(
+        call_site.call_pkg_id,
+        &call_site.callable_arg,
+        call_site.hof_item_id,
+    )];
+    rewrite_recursive_self_call_args(
+        target,
+        package_id,
+        new_item_id,
+        call_site.hof_item_id,
+        &spec_arg_keys,
+        &new_decl,
+        std::slice::from_ref(&remapped_param),
     );
 
     // Insert the new item.
@@ -1416,6 +1491,261 @@ fn apply_single_param_specialization(
     // unit.
     remove_callable_param(target, new_decl, remapped_param, had_closure_captures);
     refresh_rewritten_value_types(target, &new_decl.implementation);
+}
+
+/// Rewrites recursive calls retargeted by `FirCloner::set_self_item_remap`.
+///
+/// The self-remap happens while cloning, before specialization removes callable
+/// parameters from the synthesized callable's input. Without this follow-up,
+/// a recursive body can call the reduced specialization while still passing the
+/// original callable argument, for example `Repeat_H(H, n - 1, q)` instead of
+/// `Repeat_H(n - 1, q)`. External call sites go through `rewrite.rs`; cloned
+/// recursive self-calls need the same argument-shape reduction locally.
+///
+/// The cloner retargets *every* recursive self-call to this specialization
+/// unconditionally, which is only correct when the self-call forwards the same
+/// concrete callable this specialization was generated for. `spec_arg_keys`
+/// holds this specialization's per-parameter [`ConcreteCallableKey`] in the same
+/// order as `params`. Each self-call's forwarded argument is resolved to its own
+/// key and compared: on a full match the callable slots are stripped and the
+/// call kept pointed at the specialization; otherwise the cloner's retarget is
+/// undone locally by pointing the callee back at `hof_item_id` (the original
+/// higher-order function) with its arguments intact, so the fixpoint loop's
+/// call-site rewrite routes it to the correct sibling specialization. An
+/// argument whose key cannot be statically resolved (`None`) is treated as a
+/// mismatch so the decision fails safe.
+fn rewrite_recursive_self_call_args(
+    package: &mut Package,
+    package_id: PackageId,
+    self_item_id: LocalItemId,
+    hof_item_id: ItemId,
+    spec_arg_keys: &[ConcreteCallableKey],
+    decl: &CallableDecl,
+    params: &[CallableParam],
+) {
+    let mut self_calls = Vec::new();
+    for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {
+        let ExprKind::Call(callee_id, args_id) = expr.kind else {
+            return;
+        };
+        let (base_id, outer_functor) = peel_body_functors(package, callee_id);
+        if expr_is_item_callee(package, base_id, package_id, self_item_id) {
+            self_calls.push((callee_id, base_id, args_id, outer_functor));
+        }
+    });
+
+    for (callee_id, base_id, args_id, outer_functor) in self_calls {
+        // Resolve the concrete callable each self-call forwards into the
+        // specialized callable slots. The conditional self-remap guard consumes
+        // these keys to decide whether a self-call actually targets this
+        // specialization or a sibling; an unresolved slot (`None`) is treated as
+        // "not a match" so the decision fails safe. The keys are computed here so
+        // they align with the callable slots stripped just below.
+        let self_call_arg_keys: Vec<Option<ConcreteCallableKey>> = params
+            .iter()
+            .map(|param| {
+                let path =
+                    super::build_param_input_path(param.hof_input_is_tuple, param, outer_functor);
+                resolve_self_call_arg_key(
+                    package,
+                    package_id,
+                    args_id,
+                    &path,
+                    ItemId {
+                        package: package_id,
+                        item: self_item_id,
+                    },
+                )
+            })
+            .collect();
+
+        // The self-call belongs to this specialization only when every forwarded
+        // callable slot resolves to exactly the key this specialization was
+        // generated for. Any differing or unresolved slot means the call targets
+        // a sibling specialization instead.
+        let targets_this_specialization = self_call_arg_keys.len() == spec_arg_keys.len()
+            && self_call_arg_keys
+                .iter()
+                .zip(spec_arg_keys.iter())
+                .all(|(resolved, expected)| resolved.as_ref() == Some(expected));
+
+        if targets_this_specialization {
+            rewrite_recursive_self_call_arg_expr(package, args_id, params, outer_functor);
+            refresh_self_call_callee_ty(
+                package,
+                callee_id,
+                decl.input,
+                usize::from(outer_functor.controlled),
+            );
+        } else {
+            // This self-call forwards a callable that differs from this
+            // specialization's key (or cannot be statically resolved), so
+            // keeping the cloner's `hof -> spec` retarget would misroute it into
+            // the wrong specialization. Undo that retarget locally by pointing
+            // the callee back at the original higher-order function with its
+            // arguments intact; the fixpoint loop's call-site rewrite then routes
+            // it to the correct sibling specialization on a later iteration. This
+            // keeps the shared `FirCloner::remap_res` contract untouched (see
+            // `crate::cloner`).
+            if let ExprKind::Var(res @ Res::Item(_), _) = &mut package
+                .exprs
+                .get_mut(base_id)
+                .expect("self-call callee expr not found")
+                .kind
+            {
+                *res = Res::Item(hof_item_id);
+            }
+        }
+    }
+}
+
+/// Returns whether `expr_id` is a direct reference to `item_id` in `package_id`.
+///
+/// The caller peels functor wrappers before calling this helper, so matching a
+/// bare item reference is enough to identify calls to the synthesized recursive
+/// specialization.
+fn expr_is_item_callee(
+    package: &Package,
+    expr_id: ExprId,
+    package_id: PackageId,
+    item_id: LocalItemId,
+) -> bool {
+    matches!(
+        package.get_expr(expr_id).kind,
+        ExprKind::Var(
+            Res::Item(ItemId {
+                package: callee_package,
+                item: callee_item,
+            }),
+            _
+        ) if callee_package == package_id && callee_item == item_id
+    )
+}
+
+/// Removes every specialized callable argument from one recursive self-call.
+///
+/// Each [`CallableParam`] describes the callable slot that was removed from the
+/// synthesized input. The same paths must be removed from the recursive call's
+/// argument expression so the retargeted call matches the reduced callee
+/// signature.
+fn rewrite_recursive_self_call_arg_expr(
+    package: &mut Package,
+    args_id: ExprId,
+    params: &[CallableParam],
+    functor: FunctorApp,
+) {
+    // Use the same path construction as call-site rewrite so controlled functor
+    // shells and single tuple-valued HOF inputs locate the callable slot in the
+    // same way on both sides of specialization.
+    let mut paths = params
+        .iter()
+        .map(|param| super::build_param_input_path(param.hof_input_is_tuple, param, functor))
+        .collect::<Vec<_>>();
+    // Remove deeper and later paths first so tuple element indices are still
+    // interpreted against the original call argument shape.
+    paths.sort_by(|left, right| right.cmp(left));
+    paths.dedup();
+
+    for path in paths {
+        remove_arg_at_path(package, args_id, &path);
+    }
+}
+
+/// Removes the argument element at `path` from an expression tree in place.
+///
+/// Empty paths mean the whole argument was the removed callable, so the
+/// argument becomes `Unit`. Non-empty paths expect tuple-structured arguments;
+/// when a nested tuple element changes shape, the enclosing tuple type is
+/// refreshed to keep the expression tree internally consistent.
+fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
+    let Some((&index, rest)) = path.split_first() else {
+        let expr = package.get_expr(expr_id).clone();
+        let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
+        expr_mut.kind = ExprKind::Tuple(Vec::new());
+        expr_mut.ty = Ty::UNIT;
+        expr_mut.span = expr.span;
+        return;
+    };
+
+    let expr = package.get_expr(expr_id).clone();
+    let ExprKind::Tuple(elements) = expr.kind else {
+        return;
+    };
+    if index >= elements.len() {
+        return;
+    }
+
+    if rest.is_empty() {
+        let new_elements = elements
+            .into_iter()
+            .enumerate()
+            .filter_map(|(idx, element)| (idx != index).then_some(element))
+            .collect::<Vec<_>>();
+        let (kind, ty) = build_expr_data_from_elements(package, new_elements);
+        let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
+        expr_mut.kind = kind;
+        expr_mut.ty = ty;
+        return;
+    }
+
+    let nested_id = elements[index];
+    remove_arg_at_path(package, nested_id, rest);
+    update_tuple_element_type(package, expr_id, index, nested_id);
+}
+
+/// Refreshes one tuple element type after its nested argument was rewritten.
+///
+/// This keeps the outer tuple expression aligned with the reduced nested
+/// payload without retyping unrelated sibling elements.
+fn update_tuple_element_type(
+    package: &mut Package,
+    tuple_expr_id: ExprId,
+    element_index: usize,
+    element_id: ExprId,
+) {
+    let element_ty = package.get_expr(element_id).ty.clone();
+    let expr_mut = package
+        .exprs
+        .get_mut(tuple_expr_id)
+        .expect("tuple expr not found");
+    if let Ty::Tuple(tys) = &mut expr_mut.ty
+        && element_index < tys.len()
+    {
+        tys[element_index] = element_ty;
+    }
+}
+
+/// Updates a retargeted recursive callee's arrow type after its args shrink.
+///
+/// The callee expression was cloned with the original higher-order signature.
+/// After recursive self-call arguments are reduced, the arrow input must point
+/// at the synthesized callable's final input pattern, preserving any outer
+/// controlled functor tuple layers.
+fn refresh_self_call_callee_ty(
+    package: &mut Package,
+    callee_id: ExprId,
+    input_pat_id: PatId,
+    controlled_layers: usize,
+) {
+    let original_ty = package.get_expr(callee_id).ty.clone();
+    let Ty::Arrow(arrow) = original_ty else {
+        return;
+    };
+    let target_input = package.get_pat(input_pat_id).ty.clone();
+    // The callee expression was cloned with the pre-specialization arrow type.
+    // After argument reduction, retarget the relevant input slot to the final
+    // synthesized input pattern so later type checks see callee and args agree.
+    let input = apply_target_input_at_control_path(&arrow.input, &target_input, controlled_layers);
+    package
+        .exprs
+        .get_mut(callee_id)
+        .expect("callee expr not found")
+        .ty = Ty::Arrow(Box::new(Arrow {
+        kind: arrow.kind,
+        input: Box::new(input),
+        output: arrow.output,
+        functors: arrow.functors,
+    }));
 }
 
 /// Finds the single parameter position shared by a forwarded callable array,

@@ -23,6 +23,16 @@ pub enum MeasurementResult {
     Loss,
 }
 
+/// A single value emitted by a `__quantum__rt__*_record_output` call, captured
+/// in execution order.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OutputRecord {
+    Result(MeasurementResult),
+    Bool(bool),
+    Int(i64),
+    Double(f64),
+}
+
 pub trait Simulator {
     type Noise: Default;
     type StateDumpData;

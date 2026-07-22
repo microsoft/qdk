@@ -1111,155 +1111,155 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-            if value == 1 {
-                Controlled X([control], register[0]);
-            }
-
-        }
-        operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
+            BEFORE:
+            operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+                if value == 1 {
+                    Controlled X([control], register[0]);
                 }
 
             }
+            operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        operation Main() : Unit {
-            let qs : Qubit[] = AllocateQubitArray(3);
-            let controls : Qubit[] = qs[0..1];
-            let targets : Qubit[] = qs[2...];
-            let ops : ((Qubit, Qubit[]) => Unit)[] = [{
-                let arg : Int = 1;
-                / * closure item = 5 captures = [arg] * / _lambda_5
-            }, {
-                let arg : Int = 2;
-                / * closure item = 6 captures = [arg] * / _lambda_6
-            }];
-            ApplyOuter_Empty_(ops, 2, controls, targets);
-            ResetAll(qs);
-            ReleaseQubitArray(qs);
-        }
-        operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
                 }
 
             }
-
-        }
-        operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        // entry
-        Main()
-
-        AFTER:
-        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-            if value == 1 {
-                Controlled X([control], register[0]);
+            operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
             }
+            operation Main() : Unit {
+                let qs : Qubit[] = AllocateQubitArray(3);
+                let controls : Qubit[] = qs[0..1];
+                let targets : Qubit[] = qs[2...];
+                let ops : ((Qubit, Qubit[]) => Unit)[] = [{
+                    let arg : Int = 1;
+                    / * closure item = 5 captures = [arg] * / _lambda_5
+                }, {
+                    let arg_1 : Int = 2;
+                    / * closure item = 6 captures = [arg_1] * / _lambda_6
+                }];
+                ApplyOuter_Empty_(ops, 2, controls, targets);
+                ResetAll(qs);
+                ReleaseQubitArray(qs);
+            }
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
                 }
 
             }
+            operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            // entry
+            Main()
 
-        }
-        operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        operation Main() : Unit {
-            let qs : Qubit[] = AllocateQubitArray(3);
-            let controls : Qubit[] = qs[0..1];
-            let targets : Qubit[] = qs[2...];
-            ApplyOuter_Empty__closure__closure_(2, controls, targets, 1, 2);
-            ResetAll(qs);
-            ReleaseQubitArray(qs);
-        }
-        operation _lambda_5(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation _lambda_6(arg : Int, (hole : Qubit, hole : Qubit[])) : Unit {
-            ApplyParityOperation(arg, hole, hole)
-        }
-        operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    ops[idx](controls[idx], targets);
-                    _index_id_186 += _step_id_191;
+            AFTER:
+            operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+                if value == 1 {
+                    Controlled X([control], register[0]);
                 }
 
             }
+            operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
-            ApplyInner_Empty_(ops, count, controls, targets);
-        }
-        operation ApplyOuter_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
-            ApplyInner_Empty__closure__closure_(count, controls, targets, __capture_0, __capture_1);
-        }
-        operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
-            {
-                let _range_id_183 : Range = 0..count - 1;
-                mutable _index_id_186 : Int = _range_id_183::Start;
-                let _step_id_191 : Int = _range_id_183::Step;
-                let _end_id_196 : Int = _range_id_183::End;
-                while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
-                    let idx : Int = _index_id_186;
-                    if idx == 0 {
-                        _lambda_5(__capture_0, (controls[idx], targets))
-                    } else {
-                        _lambda_6(__capture_1, (controls[idx], targets))
-                    };
-                    _index_id_186 += _step_id_191;
                 }
 
             }
+            operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            operation Main() : Unit {
+                let qs : Qubit[] = AllocateQubitArray(3);
+                let controls : Qubit[] = qs[0..1];
+                let targets : Qubit[] = qs[2...];
+                ApplyOuter_Empty__closure__closure_(2, controls, targets, 1, 2);
+                ResetAll(qs);
+                ReleaseQubitArray(qs);
+            }
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
 
-        }
-        // entry
-        Main()
-    "#]],
+                }
+
+            }
+            operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            operation ApplyOuter_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+                ApplyInner_Empty__closure__closure_(count, controls, targets, __capture_0, __capture_1);
+            }
+            operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183::Start;
+                    let _step_id_191 : Int = _range_id_183::Step;
+                    let _end_id_196 : Int = _range_id_183::End;
+                    while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
+                        let idx : Int = _index_id_186;
+                        if idx == 0 {
+                            _lambda_5(__capture_0, (controls[idx], targets))
+                        } else {
+                            _lambda_6(__capture_1, (controls[idx], targets))
+                        };
+                        _index_id_186 += _step_id_191;
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -1573,14 +1573,291 @@ fn captured_closure_forwarded_to_nested_hof_converges() {
     check(
         source,
         &expect![[r#"
-            .lambda_6{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
             ApplyFirstStep: input_ty=(Qubit)[]
             ApplySecondStep: input_ty=(Qubit)[]
             ApplySequential<Empty, Empty>{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
-            ApplySequential<Empty, Empty>{closure}{ApplyThirdStep}{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{closure}{ApplyThirdStep}: input_ty=(Qubit)[]
             ApplyThirdStep: input_ty=(Qubit)[]
             Main: input_ty=Unit"#]],
     );
+}
+
+/// Regression: a partial application of a recursive higher-order function,
+/// forwarded as that same recursive HOF's own callable argument, converges.
+///
+/// `Repeat(Repeat(H, 1, _), n - 1, q)` lowers to a closure that captures the
+/// fixed callable `H` (and the literal `1`) and forwards them, as parameters, to
+/// a lifted lambda that re-invokes `Repeat`. Before the static closure-capture
+/// inlining prepass, the captured `H` could not be resolved statically and this
+/// construct errored with `DynamicCallable`. The prepass inlines the callable
+/// capture into the lifted body, normalizing the closure into the already
+/// converging capture-free explicit-lambda shape.
+///
+/// The `check_rewrite` snapshot locks the full converged specialization chain so
+/// a zero-error miscompile with wrong downstream routing (wrong callable,
+/// orphaned/duplicated specialization, or wrong recursion target) fails the test.
+/// The routing is `{H}` -> `{closure}` -> lifted lambda -> `{H}`, so `Repeat(H, 2, q)`
+/// applies `H` exactly twice.
+#[test]
+fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_invariants(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            Main: input_ty=Unit
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl_(H, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 5 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_Empty_(arg, arg_1, hole)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl__H_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
+            }
+            operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_Empty_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(H, arg, hole)
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__closure_(H, arg, hole)
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// Regression for a recursive HOF with an auto-generated adjoint body.
+///
+/// The partial application `Repeat(H, 1, _)` is copied into both the body and
+/// adjoint implementations, so both closure expressions reference the same
+/// lifted lambda target. Static closure-capture inlining must recognize that
+/// the copies make an identical target rewrite, inline `H` once in the shared
+/// target, and remove the corresponding capture from both closure occurrences.
+/// The invariant and pipeline checks ensure the resulting body and adjoint
+/// specialization chains converge without `DynamicCallable` diagnostics or
+/// stale callable arguments.
+#[test]
+fn adjoint_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Adj, n : Int, q : Qubit) : Unit is Adj {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            Main: input_ty=Unit
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+    );
+}
+
+/// Regression for a recursive HOF with an auto-generated controlled body.
+///
+/// The recursive partial application captures `H`, while `Controlled Repeat`
+/// nests the operation input beneath the controls array and causes functor
+/// generation to copy the recursive body. Defunctionalization must apply a
+/// compatible shared-target capture rewrite to every generated occurrence,
+/// locate the callable slot through the controlled input path, and route the
+/// reduced recursive calls to type-correct specializations.
+#[test]
+fn controlled_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Ctl, n : Int, q : Qubit) : Unit is Ctl {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            use ctls = Qubit[2];
+            Controlled Repeat(ctls, (H, 2, q));
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
+}
+
+/// Regression for recursive partial applications under combined controlled and
+/// adjoint functors.
+///
+/// One recursive call applies `Adjoint` to a call receiving `Repeat(H, 1, _)`;
+/// the other forwards `Adjoint Repeat(H, 1, _)` as the callable argument. Along
+/// with the controlled entry call, these shapes exercise shared lifted-target
+/// rewrites, nested controlled input paths, and functor composition on both the
+/// HOF callee and its closure argument. Every generated body must converge
+/// without dynamic callable values, stale capture slots, or malformed reduced
+/// calls.
+#[test]
+fn controlled_adjoint_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Ctl + Adj, n : Int, q : Qubit) : Unit is Ctl + Adj {
+            if n > 0 {
+                op(q);
+                Adjoint Repeat(Repeat(H, 1, _), n - 1, q);
+                Repeat(Adjoint Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            use ctls = Qubit[2];
+            Controlled Repeat(ctls, (H, 2, q));
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
 }
 
 /// Regression: when a callable's entire input is a single closure-valued

@@ -1,21 +1,21 @@
-/// # Summary
-/// Greenberger–Horne–Zeilinger state sample
-///
-/// # Description
-/// This Q# program shows how to prepare a generalized Greenberger–Horne–Zeilinger
-/// state (aka Cat state) in a register of 5 qubits.
-///
-/// # Remarks
-/// The Greenberger–Horne–Zeilinger state, or GHZ state, aka Cat state,
-/// is a state defined as: |GHZ〉 = (|0...0〉 + |1...1〉)/√2.
-///
-/// The GHZ state is said to be a maximally entangled state, a multi-qubit
-/// state where the state of any one qubit is not separable from the state
-/// of any of the other qubits.
-///
-/// # References
-/// - [Greenberger–Horne–Zeilinger state](https://en.wikipedia.org/wiki/Greenberger%E2%80%93Horne%E2%80%93Zeilinger_state)
-/// - [Cat state](https://en.wikipedia.org/wiki/Cat_state)
+// # Summary
+// Greenberger–Horne–Zeilinger state sample
+//
+// # Description
+// This Q# program shows how to prepare a generalized Greenberger–Horne–Zeilinger
+// state (aka Cat state) in a register of 5 qubits.
+//
+// # Remarks
+// The Greenberger–Horne–Zeilinger state, or GHZ state, aka Cat state,
+// is a state defined as: |GHZ〉 = (|0...0〉 + |1...1〉)/√2.
+//
+// The GHZ state is said to be a maximally entangled state, a multi-qubit
+// state where the state of any one qubit is not separable from the state
+// of any of the other qubits.
+//
+// # References
+// - [Greenberger–Horne–Zeilinger state](https://en.wikipedia.org/wiki/Greenberger%E2%80%93Horne%E2%80%93Zeilinger_state)
+// - [Cat state](https://en.wikipedia.org/wiki/Cat_state)
 operation Main() : Result[] {
     // Allocate 5 qubits for Cat₅ state.
     use cat5 = Qubit[5];

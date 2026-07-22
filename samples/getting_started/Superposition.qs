@@ -1,9 +1,9 @@
-/// # Summary
-/// Superposition sample
-///
-/// # Description
-/// This Q# program sets a qubit in a superposition of the computational basis
-/// states |0〉 and |1〉 by applying a Hadamard transformation.
+// # Summary
+// Superposition sample
+//
+// # Description
+// This Q# program sets a qubit in a superposition of the computational basis
+// states |0〉 and |1〉 by applying a Hadamard transformation.
 operation Main() : Result {
     // Allocate a qubit. Qubit is in |0〉 state after allocation.
     use qubit = Qubit();

@@ -1,23 +1,23 @@
-/// # Sample
-/// Bit-Flip Code
-///
-/// # Description
-/// This sample demonstrates the three-qubit bit-flip code. This code is a
-/// simple quantum error correction strategy for protecting against a single
-/// bit-flip error by encoding a logical qubit into three physical qubits. A
-/// single bit-flip error is when one of the three physical qubits has its
-/// state changed erroneously in a way that is equivalent to applying the X
-/// gate to it.
-///
-/// The bit-flip correction code works by checking the parity of the physical
-/// qubits. By measuring only their parity, the quantum superposition of the
-/// qubits is preserved. Because all the physical qubits are supposed to have
-/// the same state, when the parity checks detect a difference in state, the
-/// erroneous qubit can be identified and corrected.
-///
-/// This Q# program prepares a logical qubit encoded as three physical qubits
-/// with one of the qubits being bit-flipped. It then identifies and corrects
-/// the flipped qubit.
+// # Sample
+// Bit-Flip Code
+//
+// # Description
+// This sample demonstrates the three-qubit bit-flip code. This code is a
+// simple quantum error correction strategy for protecting against a single
+// bit-flip error by encoding a logical qubit into three physical qubits. A
+// single bit-flip error is when one of the three physical qubits has its
+// state changed erroneously in a way that is equivalent to applying the X
+// gate to it.
+//
+// The bit-flip correction code works by checking the parity of the physical
+// qubits. By measuring only their parity, the quantum superposition of the
+// qubits is preserved. Because all the physical qubits are supposed to have
+// the same state, when the parity checks detect a difference in state, the
+// erroneous qubit can be identified and corrected.
+//
+// This Q# program prepares a logical qubit encoded as three physical qubits
+// with one of the qubits being bit-flipped. It then identifies and corrects
+// the flipped qubit.
 import Std.Math.*;
 import Std.Diagnostics.*;
 
