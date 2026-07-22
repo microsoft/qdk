@@ -1552,6 +1552,28 @@ fn repeat_ignores_loop_control_bound_to_four_level_nested_loop() {
 }
 
 #[test]
+fn nested_loop_header_control_binds_to_enclosing_loop() {
+    // A `break` in a nested loop's iterable is evaluated in the enclosing loop's
+    // scope, so it binds to that loop: the enclosing `while true` can exit and is
+    // not divergent, leaving `First` without a value of type `'T`.
+    let (_, _, errors) = compile(
+        r#"namespace Test { function First<'T>() : 'T {
+            while true {
+                for _ in 0..break {}
+            }
+        } }"#,
+        "",
+        false,
+    );
+
+    assert_eq!(
+        errors.len(),
+        1,
+        "expected a return type mismatch: {errors:?}"
+    );
+}
+
+#[test]
 fn diverging_struct_copy_makes_field_break_unreachable() {
     // Struct copy source is evaluated before fields, so a diverging copy makes a
     // later field `break` unreachable -> the loop is divergent.

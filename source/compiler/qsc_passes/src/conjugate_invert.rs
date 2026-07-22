@@ -23,7 +23,7 @@ use rustc_hash::FxHashSet;
 use thiserror::Error;
 
 use crate::{
-    common::generated_name,
+    common::{EnclosingBreakContinueScan, generated_name},
     id_update::NodeIdRefresher,
     invert_block::adj_invert_block,
     spec_gen::adj_gen::{self, AdjDistrib},
@@ -95,12 +95,12 @@ impl MutVisitor for ConjugateElim<'_> {
                 return_check.visit_block(&apply);
                 self.errors.extend(return_check.errors);
 
-                let mut break_continue_check = BreakContinueCheck {
-                    errors: Vec::new(),
-                    loop_depth: 0,
-                };
-                break_continue_check.visit_block(&apply);
-                self.errors.extend(break_continue_check.errors);
+                let mut break_continue_errors = Vec::new();
+                let mut scan = EnclosingBreakContinueScan::new(|expr: &Expr| {
+                    break_continue_errors.push(Error::BreakContinueForbidden(expr.span));
+                });
+                scan.visit_block(&apply);
+                self.errors.extend(break_continue_errors);
 
                 let mut adj_within = within.clone();
                 if let Err(invert_errors) =
@@ -257,51 +257,5 @@ impl<'a> Visitor<'a> for ReturnCheck {
             }
             _ => visit::walk_expr(self, expr),
         }
-    }
-}
-
-struct BreakContinueCheck {
-    errors: Vec<Error>,
-    loop_depth: u32,
-}
-
-impl<'a> Visitor<'a> for BreakContinueCheck {
-    fn visit_expr(&mut self, expr: &'a Expr) {
-        match &expr.kind {
-            // A break or continue that is not enclosed by a loop body within the
-            // apply-block binds to a loop outside the conjugate expression, so it
-            // would escape the generated adjoint of the within-block. One that is
-            // contained in a loop inside the apply-block is fine and desugars later.
-            ExprKind::Break | ExprKind::Continue if self.loop_depth == 0 => {
-                self.errors.push(Error::BreakContinueForbidden(expr.span));
-            }
-            // A loop iterable or condition is evaluated in the enclosing context, so
-            // only a loop body increases the depth that keeps a break/continue
-            // contained within this apply-block.
-            ExprKind::For(_, iter, body) => {
-                self.visit_expr(iter);
-                self.visit_loop_body(body);
-            }
-            ExprKind::While(cond, body) => {
-                self.visit_expr(cond);
-                self.visit_loop_body(body);
-            }
-            ExprKind::Repeat(body, until, fixup) => {
-                self.visit_loop_body(body);
-                self.visit_expr(until);
-                if let Some(fixup) = fixup {
-                    self.visit_block(fixup);
-                }
-            }
-            _ => visit::walk_expr(self, expr),
-        }
-    }
-}
-
-impl BreakContinueCheck {
-    fn visit_loop_body(&mut self, body: &Block) {
-        self.loop_depth += 1;
-        self.visit_block(body);
-        self.loop_depth -= 1;
     }
 }

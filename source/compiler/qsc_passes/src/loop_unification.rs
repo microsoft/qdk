@@ -20,7 +20,7 @@ use qsc_hir::{
 use thiserror::Error;
 
 use crate::CORE_NAMESPACE;
-use crate::common::{IdentTemplate, LoopDepthScan, create_gen_core_ref, gen_ident};
+use crate::common::{EnclosingBreakContinueScan, IdentTemplate, create_gen_core_ref, gen_ident};
 
 #[cfg(test)]
 mod tests;
@@ -1405,16 +1405,17 @@ impl BreakContinuePresence {
 /// Returns the per-keyword presence of a `break`/`continue` that binds to the
 /// enclosing loop, not one nested in an inner loop, within `block`.
 fn body_break_continue(block: &Block) -> BreakContinuePresence {
-    let mut scan = BreakContinueScan {
-        loop_depth: 0,
+    let mut presence = BreakContinuePresence {
         has_break: false,
         has_continue: false,
     };
+    let mut scan = EnclosingBreakContinueScan::new(|expr: &Expr| match &expr.kind {
+        ExprKind::Break => presence.has_break = true,
+        ExprKind::Continue => presence.has_continue = true,
+        _ => {}
+    });
     scan.visit_block(block);
-    BreakContinuePresence {
-        has_break: scan.has_break,
-        has_continue: scan.has_continue,
-    }
+    presence
 }
 
 /// Returns `true` when `block` directly contains a `break`/`continue` that
@@ -1426,13 +1427,9 @@ fn body_has_break_continue(block: &Block) -> bool {
 /// Returns `true` when `stmt` contains a `break`/`continue` that binds to the
 /// enclosing loop, not one nested in an inner loop.
 fn stmt_escapes(stmt: &Stmt) -> bool {
-    let mut scan = BreakContinueScan {
-        loop_depth: 0,
-        has_break: false,
-        has_continue: false,
-    };
-    scan.visit_stmt(stmt);
-    scan.has_break || scan.has_continue
+    let mut found = false;
+    EnclosingBreakContinueScan::new(|_: &Expr| found = true).visit_stmt(stmt);
+    found
 }
 
 /// Returns `true` when evaluating `stmt` necessarily executes a `break` or
@@ -1468,57 +1465,14 @@ fn expr_always_escapes(expr: &Expr) -> bool {
     }
 }
 
-/// Scans for a `break`/`continue` that binds to the loop being desugared,
-/// tracking loop nesting so a `break`/`continue` bound to an inner loop is not
-/// counted.
-struct BreakContinueScan {
-    loop_depth: u32,
-    has_break: bool,
-    has_continue: bool,
-}
-
-impl<'a> Visitor<'a> for BreakContinueScan {
-    fn visit_expr(&mut self, expr: &'a Expr) {
-        self.walk_loop_depth(expr);
-    }
-}
-
-impl LoopDepthScan<'_> for BreakContinueScan {
-    fn loop_depth(&self) -> u32 {
-        self.loop_depth
-    }
-
-    fn enter_loop(&mut self) {
-        self.loop_depth += 1;
-    }
-
-    fn exit_loop(&mut self) {
-        self.loop_depth -= 1;
-    }
-
-    fn is_done(&self) -> bool {
-        self.has_break && self.has_continue
-    }
-
-    fn record_break_continue(&mut self, expr: &Expr, at_enclosing_loop: bool) {
-        if at_enclosing_loop {
-            match &expr.kind {
-                ExprKind::Break => self.has_break = true,
-                ExprKind::Continue => self.has_continue = true,
-                _ => {}
-            }
-        }
-    }
-}
-
 /// Scans `package` for any raw `break`/`continue` node that survived loop
 /// desugaring and returns one [`Error::ResidualBreakContinue`] per occurrence.
 ///
 /// After [`LoopUni`] runs, every `break`/`continue` should have been rewritten to
 /// loop-flag writes, so any surviving raw node signals a violated compiler
-/// invariant. Unlike [`BreakContinueScan`], this walk is intentionally not
-/// loop-depth aware: once desugaring is complete, no raw `break`/`continue`
-/// should remain anywhere, so every occurrence is a violation.
+/// invariant. Unlike the per-loop [`EnclosingBreakContinueScan`], this walk is
+/// intentionally not loop-depth aware: once desugaring is complete, no raw
+/// `break`/`continue` should remain anywhere, so every occurrence is a violation.
 pub(crate) fn check_no_break_continue(package: &Package) -> Vec<Error> {
     let mut scan = ResidualBreakContinueScan { errors: Vec::new() };
     scan.visit_package(package);

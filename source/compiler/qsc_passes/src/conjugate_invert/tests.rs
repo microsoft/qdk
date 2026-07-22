@@ -704,6 +704,40 @@ fn conjugate_break_contained_in_apply_loop_succeeds() {
 }
 
 #[test]
+fn conjugate_break_after_apply_loop_still_fails() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    for i in 0..1 {
+                        within {
+                            B(1);
+                        }
+                        apply {
+                            for j in 0..1 {
+                                break;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            [
+                BreakContinueForbidden(
+                    Span {
+                        lo: 280,
+                        hi: 285,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn conjugate_mutable_correct_use_succeeds() {
     check(
         indoc! {"

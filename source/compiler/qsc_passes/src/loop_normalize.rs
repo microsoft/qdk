@@ -70,7 +70,7 @@ use qsc_hir::{
 };
 use thiserror::Error;
 
-use crate::common::{IdentTemplate, LoopDepthScan, gen_ident};
+use crate::common::{EnclosingBreakContinueScan, IdentTemplate, gen_ident};
 
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
@@ -829,49 +829,7 @@ fn is_representable(ty: &Ty) -> bool {
 /// by `return_unify` on the FIR codegen path, so hoisting it here would change
 /// return handling for no benefit to the loop desugar.
 fn contains_control_flow(expr: &Expr) -> bool {
-    let mut scan = ControlFlowScan {
-        loop_depth: 0,
-        found: false,
-    };
-    scan.visit_expr(expr);
-    scan.found
-}
-
-/// Detects escaping `break`/`continue`, tracking loop nesting so one bound to a
-/// loop inside the scanned expression is not counted.
-struct ControlFlowScan {
-    loop_depth: u32,
-    found: bool,
-}
-
-impl<'a> Visitor<'a> for ControlFlowScan {
-    fn visit_expr(&mut self, expr: &'a Expr) {
-        self.walk_loop_depth(expr);
-    }
-}
-
-impl LoopDepthScan<'_> for ControlFlowScan {
-    fn loop_depth(&self) -> u32 {
-        self.loop_depth
-    }
-
-    fn enter_loop(&mut self) {
-        self.loop_depth += 1;
-    }
-
-    fn exit_loop(&mut self) {
-        self.loop_depth -= 1;
-    }
-
-    fn is_done(&self) -> bool {
-        self.found
-    }
-
-    fn record_break_continue(&mut self, _expr: &Expr, at_enclosing_loop: bool) {
-        // A break/continue escapes only when it binds to an enclosing loop
-        // outside the scanned expression.
-        if at_enclosing_loop {
-            self.found = true;
-        }
-    }
+    let mut found = false;
+    EnclosingBreakContinueScan::new(|_: &Expr| found = true).visit_expr(expr);
+    found
 }

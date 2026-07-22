@@ -114,79 +114,42 @@ pub(crate) fn create_gen_core_ref(
     }
 }
 
-/// A loop-nesting walk shared by scanners that classify a `break`/`continue` by
-/// whether it binds to the loop that owns the scanned region.
+/// A [`Visitor`] that invokes a callback for each `break`/`continue` binding to
+/// the loop (or non-loop region) that owns the visited node, i.e. one not nested
+/// inside a loop within that region.
 ///
-/// The walk tracks a loop depth for post-placement scans. Loop bodies are
-/// visited at one greater depth, so a `break`/`continue` reached at depth 0
-/// binds to the enclosing loop while a deeper one binds to a loop nested inside
-/// the scanned region. A `for` iterable and a `while` condition are evaluated in
-/// the enclosing scope and so are visited at the current depth. For `repeat`,
-/// the `until` condition and `fixup` block are traversed at the repeat loop's
-/// depth because [`LoopControl`](crate::loop_control::LoopControl) has already
-/// rejected user `break`/`continue` expressions in those positions.
+/// Loop bodies are not visited, since a `break`/`continue` there binds to the
+/// inner loop. A `for` iterable and `while` condition run in the enclosing scope,
+/// so they are still walked; a `repeat` loop's `until` and `fixup` bind to that
+/// loop and are skipped with its body.
 ///
-/// Implementors keep their own loop-depth counter and result state; the trait
-/// only re-homes the identical nesting traversal. Each implementor supplies the
-/// depth bookkeeping, an early-out predicate, and the action taken for a
-/// `break`/`continue`.
-pub(crate) trait LoopDepthScan<'a>: Visitor<'a> {
-    /// Current loop nesting depth relative to the scanned region.
-    fn loop_depth(&self) -> u32;
+/// Callers enter through the [`Visitor`] method for the region they own
+/// ([`visit_expr`](Visitor::visit_expr), [`visit_block`](Visitor::visit_block),
+/// or [`visit_stmt`](Visitor::visit_stmt)) and read results from the callback.
+pub(crate) struct EnclosingBreakContinueScan<F> {
+    on_break_continue: F,
+}
 
-    /// Increments the loop nesting depth when entering a loop body.
-    fn enter_loop(&mut self);
+impl<F: FnMut(&Expr)> EnclosingBreakContinueScan<F> {
+    /// Creates a scan that calls `on_break_continue` with each `break`/`continue`
+    /// expression that binds to the region owning the visited node.
+    pub(crate) fn new(on_break_continue: F) -> Self {
+        Self { on_break_continue }
+    }
+}
 
-    /// Decrements the loop nesting depth when leaving a loop body.
-    fn exit_loop(&mut self);
-
-    /// Returns `true` once enough has been found that further walking is moot.
-    fn is_done(&self) -> bool;
-
-    /// Records a `break`/`continue`; `at_enclosing_loop` is `true` when it binds
-    /// to the loop that owns the scanned region, at loop depth 0.
-    fn record_break_continue(&mut self, expr: &Expr, at_enclosing_loop: bool);
-
-    /// Walks `expr`, dispatching loop constructs with depth tracking and invoking
-    /// [`record_break_continue`](Self::record_break_continue) for each
-    /// `break`/`continue`. Non-loop expressions fall through to the default walk.
-    fn walk_loop_depth(&mut self, expr: &'a Expr) {
-        if self.is_done() {
-            return;
-        }
+impl<'a, F: FnMut(&Expr)> Visitor<'a> for EnclosingBreakContinueScan<F> {
+    fn visit_expr(&mut self, expr: &'a Expr) {
         match &expr.kind {
-            ExprKind::Break | ExprKind::Continue => {
-                let at_enclosing_loop = self.loop_depth() == 0;
-                self.record_break_continue(expr, at_enclosing_loop);
-            }
-            // A `for` iterable is evaluated in the enclosing loop scope; the body
-            // introduces a new innermost loop.
-            ExprKind::For(_, iter, body) => {
-                self.visit_expr(iter);
-                self.enter_loop();
-                self.visit_block(body);
-                self.exit_loop();
-            }
-            // A `while` condition is re-evaluated in the enclosing scope; the
-            // body introduces a new innermost loop.
-            ExprKind::While(cond, body) => {
-                self.visit_expr(cond);
-                self.enter_loop();
-                self.visit_block(body);
-                self.exit_loop();
-            }
-            // The `repeat` body introduces the loop. The `until` condition and
-            // `fixup` block are traversed at that depth after placement
-            // validation, which rejects user `break`/`continue` there.
-            ExprKind::Repeat(body, until, fixup) => {
-                self.enter_loop();
-                self.visit_block(body);
-                self.visit_expr(until);
-                if let Some(f) = fixup {
-                    self.visit_block(f);
-                }
-                self.exit_loop();
-            }
+            ExprKind::Break | ExprKind::Continue => (self.on_break_continue)(expr),
+            // A `for` iterable and a `while` condition run in the enclosing scope,
+            // so a `break`/`continue` there binds to the region that owns this
+            // loop. The body is a new innermost loop and is left unvisited.
+            ExprKind::For(_, iter, _body) => self.visit_expr(iter),
+            ExprKind::While(cond, _body) => self.visit_expr(cond),
+            // A `repeat` loop's body, `until` condition, and `fixup` block all bind
+            // `break`/`continue` to that loop, so none are visited.
+            ExprKind::Repeat(..) => {}
             _ => visit::walk_expr(self, expr),
         }
     }
