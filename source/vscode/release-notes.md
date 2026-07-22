@@ -17,7 +17,7 @@ We also support a multi-register version (`Std.ArithmeticTestUtils.ApplyClassica
 For example, you can represent in-place addition (equivalent to `Std.Arithmetic.IncByLE`)
 as follows:
 
-```
+```qsharp
 import Std.ArithmeticTestUtils.ApplyClassicalFunctionN;
 operation IncByLE(xs : Qubit[], ys : Qubit[]) : Unit is Ctl {
     let mod = 1L << Length(ys);
@@ -38,10 +38,10 @@ tests.
 
 We also added a convenient Python wrapper around `TestArithmeticOp`, called
 `ArithmeticOpTester`, that allows you to write unit tests for arithmetic operations in
-Python. For example, this is how to write a test for `Std.Arithmetic.IncByLE` that 
+Python. For example, this is how to write a test for `Std.Arithmetic.IncByLE` that
 checks this operation on 5 random inputs:
 
-```
+```python
 import random
 from qdk.test_utils import ArithmeticOpTester
 n = 10
@@ -61,18 +61,18 @@ compilation time.
 
 Example:
 
-```
+```python
 import qdk
 context = qdk.Context(qsharp_config={"shots": 1000})
 assert context.eval('Std.Core.ConfigValue("shots", 100)') == 1000
 ```
 
-See more details [here](https://github.com/microsoft/qdk/tree/main/source/qdk_package#configuration-map).
+See the [configuration map documentation](https://github.com/microsoft/qdk/tree/main/source/qdk_package#configuration-map) for more details.
 
 
-### Std.ResourceEstimation.IsResourceEstimating
+### Resource estimation mode detection
 
-You can now determine (within Q#) whether your code is being executed for resource
+You can now determine within Q# whether your code is being executed for resource
 estimation. This can be useful if you want different behavior for resource
 estimation versus running code on a simulator or quantum hardware.
 
@@ -87,7 +87,7 @@ the Python API to run all unit tests in your Q# package.
 
 Example:
 
-```
+```python
 from qdk import qsharp
 from qdk.test_utils import run_tests
 
