@@ -871,8 +871,12 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const dialRef = useRef<SVGSVGElement>(null);
   // Pending requestAnimationFrame id while dragging, to coalesce moves.
   const dialFrameRef = useRef<number | null>(null);
-  const RZ_STEP = 1 / 200;
+  const RZ_STEPS_PER_RAD = 200;
+  const RZ_STEP = 1 / RZ_STEPS_PER_RAD;
   const RZ_STEPS = rzOps.length;
+  // Decimal places shown in the angle field; the committed gate angle is
+  // rounded to match so the sequence text agrees with the displayed value.
+  const RZ_DISPLAY_DECIMALS = 3;
 
   // Dismiss the rotation popover (dial + decomposition) and the axis menu on
   // any pointer press outside the control. A press *inside* keeps them open,
@@ -892,9 +896,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // Snap an angle (radians) onto the lookup-table grid and wrap into
   // [0, 2*PI), so dial, readout, and decomposition can't disagree.
   function snapAngle(a: number): number {
-    let idx = Math.round(a * 200) % RZ_STEPS;
+    let idx = Math.round(a * RZ_STEPS_PER_RAD) % RZ_STEPS;
     if (idx < 0) idx += RZ_STEPS;
-    return idx * RZ_STEP;
+    return idx / RZ_STEPS_PER_RAD;
   }
 
   // Pointer position to angle from the dial center. 0 rad is 3 o'clock,
@@ -974,7 +978,10 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const rzDecompString = rzOps[rzAngleIdx] ?? "";
   const rotationGate: Gate = {
     kind: AXIS_TO_ROTATION[rotationAxis],
-    angle: rzAngle,
+    // Round to the displayed precision so the committed angle matches what
+    // the field shows (e.g. field reads 1.400 -> stored 1.4, not the raw
+    // grid value that might carry extra digits).
+    angle: Number(rzAngle.toFixed(RZ_DISPLAY_DECIMALS)),
   };
   const decompositionGates = useMemo<Gate[]>(() => {
     if (rzDecompString.length === 0) return [];
@@ -1160,10 +1167,14 @@ export function BlochSphere(props: BlochSphereProps = {}) {
               type="text"
               inputMode="decimal"
               aria-label="Rotation angle in radians"
-              value={rzInputDraft !== null ? rzInputDraft : rzAngle.toFixed(3)}
+              value={
+                rzInputDraft !== null
+                  ? rzInputDraft
+                  : rzAngle.toFixed(RZ_DISPLAY_DECIMALS)
+              }
               disabled={isPlaying}
               onFocus={(e) => {
-                setRzInputDraft(rzAngle.toFixed(3));
+                setRzInputDraft(rzAngle.toFixed(RZ_DISPLAY_DECIMALS));
                 setRotDialOpen(true);
                 (e.currentTarget as HTMLInputElement).select();
               }}
