@@ -84,6 +84,19 @@ const MIN_ITERATIONS: usize = 5;
 /// for pathological programs.
 const MAX_ITERATIONS: usize = 20;
 
+/// Result of the [`defunctionalize`] entry point.
+///
+/// Includes diagnostics and reachable items with callable-valued residue. The
+/// pipeline defers convergence failures to downstream analysis, using those
+/// items to relax post-defunctionalization invariants.
+pub(crate) struct DefuncOutcome {
+    /// Fixpoint diagnostics, classified by the pipeline driver.
+    pub diagnostics: Vec<Error>,
+    /// Reachable items with residue; entry-expression residue uses a
+    /// compilation-scoped tolerance instead.
+    pub residue_items: FxHashSet<StoreItemId>,
+}
+
 /// Defunctionalizes all callable-valued expressions in the entry-reachable
 /// portion of a package.
 ///
@@ -92,14 +105,14 @@ const MAX_ITERATIONS: usize = 20;
 /// - No arrow-typed parameters remain in reachable callable declarations.
 /// - All indirect callable dispatch is replaced with direct dispatch calls.
 ///
-/// Returns diagnostics encountered during defunctionalization.
+/// Returns diagnostics and item-keyed callable-valued residue.
 ///
 /// # Requires
 /// - Package with `package_id` has an entry expression
 ///
-/// [`Error::ExcessiveSpecializations`] is a non-fatal warning. Other
-/// diagnostics are fatal to the production pipeline because the intermediate
-/// FIR may not satisfy downstream invariants.
+/// [`Error::ExcessiveSpecializations`] is a warning. The driver defers
+/// [`Error::FixpointNotReached`] and [`Error::DynamicCallable`] to downstream
+/// analysis; other diagnostics remain fatal.
 ///
 /// # Panics
 ///
@@ -110,7 +123,7 @@ pub(crate) fn defunctionalize(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
-) -> Vec<Error> {
+) -> DefuncOutcome {
     let mut errors: Vec<Error> = Vec::new();
     let mut warnings: Vec<Error> = Vec::new();
     // Start at the floor; `check_convergence` raises this to the dynamically
@@ -250,7 +263,14 @@ pub(crate) fn defunctionalize(
     );
     errors.extend(warnings);
 
-    errors
+    // The driver uses these items to defer invariant enforcement to downstream
+    // analysis when convergence fails.
+    let residue_items = collect_residue_items(store, package_id);
+
+    DefuncOutcome {
+        diagnostics: errors,
+        residue_items,
+    }
 }
 
 /// Computes the reachable local callable IDs and expression IDs for scoping
@@ -861,7 +881,47 @@ fn remaining_callable_value_info(
     (count > 0, count, first_package, first_span)
 }
 
-/// Checks whether a type contains an arrow type anywhere within its structure.
+/// Finds reachable callable items with residue that requires deferred invariant
+/// enforcement. Entry-expression residue uses a compilation-scoped tolerance.
+fn collect_residue_items(store: &PackageStore, package_id: PackageId) -> FxHashSet<StoreItemId> {
+    let reachable = collect_reachable_from_entry(store, package_id);
+    let mut residue_items: FxHashSet<StoreItemId> = FxHashSet::default();
+
+    for store_id in &reachable {
+        let package = store.get(store_id.package);
+        let item = package.get_item(store_id.item);
+        if let ItemKind::Callable(decl) = &item.kind {
+            let input_pat = package.get_pat(decl.input);
+            if ty_contains_arrow_through_udts(store, &input_pat.ty) {
+                residue_items.insert(*store_id);
+            }
+
+            crate::walk_utils::for_each_expr_in_callable_impl(
+                package,
+                &decl.implementation,
+                &mut |_expr_id, expr| {
+                    if matches!(expr.kind, ExprKind::Closure(_, _)) {
+                        residue_items.insert(*store_id);
+                    }
+                    // An arrow-typed local callee still requires deferred
+                    // invariant enforcement.
+                    if let ExprKind::Call(callee_id, _) = &expr.kind {
+                        let (base_id, _) = peel_body_functors(package, *callee_id);
+                        let base_expr = package.get_expr(base_id);
+                        if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
+                            && ty_contains_arrow(&base_expr.ty)
+                        {
+                            residue_items.insert(*store_id);
+                        }
+                    }
+                },
+            );
+        }
+    }
+
+    residue_items
+}
+
 ///
 /// This intentionally does not recurse into `Ty::Udt` or `Ty::Array`:
 ///

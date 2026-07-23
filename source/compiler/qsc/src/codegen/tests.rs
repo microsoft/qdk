@@ -11,7 +11,7 @@ mod base_profile;
 use std::{io::Cursor, rc::Rc, sync::Arc};
 
 use expect_test::expect;
-use miette::{Diagnostic, Report};
+use miette::Report;
 use qsc_data_structures::{
     functors::FunctorApp,
     language_features::LanguageFeatures,
@@ -144,7 +144,13 @@ fn compile_source_to_qir_with_library_result(
 }
 
 #[test]
-fn package_aware_foreign_fir_transform_diagnostic() {
+fn package_aware_foreign_projected_dynamic_call_resolves_to_qir() {
+    // A foreign library operation stores a loop-reassigned local (`op`, provably
+    // `X` after the loop) in a struct field and calls it through a field
+    // projection (`config.Apply(q)`). Defunctionalization over-approximates the
+    // projected callee to dynamic and defers the convergence failure; partial
+    // evaluation then resolves it to the concrete `X` global, so the whole
+    // program lowers to clean Base-profile QIR instead of failing to compile.
     let lib_source = r#"
         namespace ForeignLib {
             struct Config {
@@ -182,31 +188,41 @@ fn package_aware_foreign_fir_transform_diagnostic() {
         }
     "#;
 
-    let errors = compile_source_to_qir_with_library_result(
-        lib_source,
-        user_source,
-        TargetCapabilityFlags::empty(),
-    )
-    .expect_err("the foreign projected dynamic call should fail defunctionalization");
-    let [crate::interpret::Error::FirTransform(error)] = errors.as_slice() else {
-        panic!("expected one FIR transform diagnostic, got {errors:?}");
-    };
-    let code = error.code().expect("diagnostic should have a code");
-    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
+    let qir =
+        compile_source_to_qir_with_library(lib_source, user_source, TargetCapabilityFlags::empty());
+    expect![[r#"
+        %Result = type opaque
+        %Qubit = type opaque
 
-    let label = error
-        .labels()
-        .into_iter()
-        .flatten()
-        .next()
-        .expect("diagnostic should have a source label");
-    let (source, relative_span) = error.resolve_span(label.inner());
-    let span_start = relative_span.offset();
-    let span_end = span_start + relative_span.len();
+        @0 = internal constant [4 x i8] c"0_t\00"
 
-    assert_eq!(source.name.as_ref(), "lib.qs");
-    assert_eq!(&source.contents[span_start..span_end], "config.Apply(q)");
-    assert_ne!(source.name.as_ref(), "OutOfBounds");
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(i8* null)
+          call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+          call void @__quantum__rt__tuple_record_output(i64 0, i8* getelementptr inbounds ([4 x i8], [4 x i8]* @0, i64 0, i64 0))
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(i8*)
+
+        declare void @__quantum__qis__x__body(%Qubit*)
+
+        declare void @__quantum__rt__tuple_record_output(i64, i8*)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3}
+
+        !0 = !{i32 1, !"qir_major_version", i32 1}
+        !1 = !{i32 7, !"qir_minor_version", i32 0}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+    "#]]
+    .assert_eq(&qir);
 }
 
 fn compile_source_to_qir_from_ast(source: &str, capabilities: TargetCapabilityFlags) -> String {

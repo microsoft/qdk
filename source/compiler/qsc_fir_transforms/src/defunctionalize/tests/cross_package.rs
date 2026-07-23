@@ -103,7 +103,7 @@ fn cross_package_hof_body_with_nested_lambda_clones_into_target() {
 
     // Specialization succeeds because the closure target is extracted and
     // relocated rather than left dangling.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_hof_body_with_nested_lambda_clones_into_target",
         &errors,
@@ -182,7 +182,7 @@ fn cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized()
         "precondition: the entry package starts with no lifted lambda items"
     );
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized",
         &errors,
@@ -305,7 +305,7 @@ fn cross_package_foreign_hof_without_nested_lambda_specializes_into_entry() {
 
     let entry_items_before = callable_item_ids(fir_store.get(fir_pkg_id));
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_foreign_hof_without_nested_lambda_specializes_into_entry",
         &errors,
@@ -380,7 +380,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
-    let cross_package_errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let cross_package_errors =
+        defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     // The identical mutual recursion declared entirely in the entry package.
     let same_package_source = r#"
@@ -405,7 +406,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
     let (mut same_store, same_pkg_id) =
         crate::test_utils::compile_to_monomorphized_fir(same_package_source);
     let mut same_assigners = PackageAssigners::new(&same_store, same_pkg_id);
-    let same_package_errors = defunctionalize(&mut same_store, same_pkg_id, &mut same_assigners);
+    let same_package_errors =
+        defunctionalize(&mut same_store, same_pkg_id, &mut same_assigners).diagnostics;
 
     // Both reject the forwarded callable parameter.
     assert!(
@@ -473,7 +475,7 @@ fn cross_package_function_typed_return_flows_across_packages() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_function_typed_return_flows_across_packages",
         &errors,
@@ -535,7 +537,7 @@ fn foreign_factory_capturing_callable_field_is_defunctionalized() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "foreign_factory_capturing_callable_field_is_defunctionalized",
         &errors,
@@ -594,7 +596,7 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_eq!(
         errors.len(),
         1,

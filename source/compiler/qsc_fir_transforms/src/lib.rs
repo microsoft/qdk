@@ -298,7 +298,7 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    let (ru_errors, skipped) = return_unify::unify_returns(store, package_id, &mut assigners);
+    let (ru_errors, mut skipped) = return_unify::unify_returns(store, package_id, &mut assigners);
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
         .into_iter()
         .partition(return_unify::Error::is_warning);
@@ -320,6 +320,7 @@ fn run_pipeline_to_impl(
         package_id,
         invariants::InvariantLevel::PostReturnUnify,
         &skipped,
+        false,
     );
     if matches!(stage, PipelineStage::ReturnUnify) {
         return result;
@@ -336,15 +337,16 @@ fn run_pipeline_to_impl(
         package_id,
         invariants::InvariantLevel::PostReturnUnify,
         &skipped,
+        false,
     );
 
-    let defunc_lowering_done = run_defunc_and_lowering_stages(
+    let (defunc_lowering_done, residue_tolerant) = run_defunc_and_lowering_stages(
         store,
         package_id,
         stage,
         &mut result,
         &mut assigners,
-        &skipped,
+        &mut skipped,
     );
     if defunc_lowering_done {
         return result;
@@ -357,6 +359,7 @@ fn run_pipeline_to_impl(
         &mut result,
         &mut assigners,
         &skipped,
+        residue_tolerant,
     ) {
         return result;
     }
@@ -368,6 +371,7 @@ fn run_pipeline_to_impl(
         &mut result,
         pinned_items,
         &skipped,
+        residue_tolerant,
     );
     result
 }
@@ -376,21 +380,35 @@ fn run_pipeline_to_impl(
 /// erasure, tuple-comparison lowering, and tuple decomposition, checking the
 /// matching invariant after each.
 ///
-/// Returns `true` when the requested `stage` is reached (or a fatal
-/// defunctionalization error occurs), signalling the caller to stop and return
-/// the accumulated `result`.
+/// Returns whether processing is complete and whether deferred residue requires
+/// relaxed downstream invariant checks.
 fn run_defunc_and_lowering_stages(
     store: &mut PackageStore,
     package_id: PackageId,
     stage: PipelineStage,
     result: &mut PipelineResult,
     assigners: &mut PackageAssigners,
-    skipped: &FxHashSet<StoreItemId>,
-) -> bool {
-    let defunc_diagnostics = defunctionalize::defunctionalize(store, package_id, assigners);
-    let (warnings, fatal_errors): (Vec<_>, Vec<_>) = defunc_diagnostics
-        .into_iter()
-        .partition(defunctionalize::Error::is_warning);
+    skipped: &mut FxHashSet<StoreItemId>,
+) -> (bool, bool) {
+    let defunctionalize::DefuncOutcome {
+        diagnostics,
+        residue_items,
+    } = defunctionalize::defunctionalize(store, package_id, assigners);
+
+    // Defer convergence failures to downstream analysis; warnings and fatal
+    // backstops retain their existing pipeline channels.
+    let mut warnings: Vec<defunctionalize::Error> = Vec::new();
+    let mut fatal_errors: Vec<defunctionalize::Error> = Vec::new();
+    let mut residue_tolerant = false;
+    for diagnostic in diagnostics {
+        if diagnostic.is_warning() {
+            warnings.push(diagnostic);
+        } else if diagnostic.is_deferrable() {
+            residue_tolerant = true;
+        } else {
+            fatal_errors.push(diagnostic);
+        }
+    }
     // Append rather than overwrite so warnings surfaced by return unification
     // (the warn-and-delegate diagnostics for unconvertible early returns) are
     // preserved alongside defunctionalization warnings.
@@ -399,17 +417,22 @@ fn run_defunc_and_lowering_stages(
         .extend(warnings.into_iter().map(PipelineError::from));
     if !fatal_errors.is_empty() {
         result.errors = fatal_errors.into_iter().map(PipelineError::from).collect();
-        return true;
+        return (true, residue_tolerant);
     }
+
+    // Later stages preserve residue, so every downstream check needs these
+    // item-scoped exemptions.
+    skipped.extend(residue_items);
 
     invariants::check_with_skip(
         store,
         package_id,
         invariants::InvariantLevel::PostDefunc,
         skipped,
+        residue_tolerant,
     );
     if matches!(stage, PipelineStage::Defunc) {
-        return true;
+        return (true, residue_tolerant);
     }
 
     udt_erase::erase_udts(store, package_id, assigners);
@@ -418,9 +441,10 @@ fn run_defunc_and_lowering_stages(
         package_id,
         invariants::InvariantLevel::PostUdtErase,
         skipped,
+        residue_tolerant,
     );
     if matches!(stage, PipelineStage::UdtErase) {
-        return true;
+        return (true, residue_tolerant);
     }
 
     tuple_compare_lower::lower_tuple_comparisons(store, package_id, assigners);
@@ -429,9 +453,10 @@ fn run_defunc_and_lowering_stages(
         package_id,
         invariants::InvariantLevel::PostTupleCompLower,
         skipped,
+        residue_tolerant,
     );
     if matches!(stage, PipelineStage::TupleCompLower) {
-        return true;
+        return (true, residue_tolerant);
     }
 
     tuple_decompose::tuple_decompose(store, package_id, assigners);
@@ -440,13 +465,19 @@ fn run_defunc_and_lowering_stages(
         package_id,
         invariants::InvariantLevel::PostTupleDecompose,
         skipped,
+        residue_tolerant,
     );
-    matches!(stage, PipelineStage::TupleDecompose)
+    (
+        matches!(stage, PipelineStage::TupleDecompose),
+        residue_tolerant,
+    )
 }
 
 /// Runs the argument-promotion stages: the initial `arg_promote`, the
 /// tuple-decompose/arg-promote fixed point, and the one-shot post-loop
 /// call-argument-type normalization, checking `PostArgPromote` after each.
+///
+/// Deferred residue remains tolerated throughout argument promotion.
 ///
 /// Returns `true` when the requested `stage` is reached, signalling the caller
 /// to stop and return the accumulated `result`.
@@ -457,6 +488,7 @@ fn run_arg_promote_stages(
     result: &mut PipelineResult,
     assigners: &mut PackageAssigners,
     skipped: &FxHashSet<StoreItemId>,
+    residue_tolerant: bool,
 ) -> bool {
     arg_promote::arg_promote(store, package_id, assigners);
     invariants::check_with_skip(
@@ -464,12 +496,20 @@ fn run_arg_promote_stages(
         package_id,
         invariants::InvariantLevel::PostArgPromote,
         skipped,
+        residue_tolerant,
     );
     if matches!(stage, PipelineStage::ArgPromote) {
         return true;
     }
 
-    tuple_decompose_arg_promote_fixed_point(store, package_id, result, assigners, skipped);
+    tuple_decompose_arg_promote_fixed_point(
+        store,
+        package_id,
+        result,
+        assigners,
+        skipped,
+        residue_tolerant,
+    );
 
     // Call-argument-type normalization is idempotent and candidate-neutral, so
     // it is hoisted to run exactly once after the loop converges rather than
@@ -481,6 +521,7 @@ fn run_arg_promote_stages(
         package_id,
         invariants::InvariantLevel::PostArgPromote,
         skipped,
+        residue_tolerant,
     );
     matches!(stage, PipelineStage::TupleDecompose2)
 }
@@ -488,6 +529,8 @@ fn run_arg_promote_stages(
 /// Runs the backend stages after all structural transforms: pinned-item
 /// validation, item dead-code elimination, execution-graph rebuild, and the
 /// final `PostAll` invariant walk.
+///
+/// Deferred residue remains tolerated through the final checks.
 ///
 /// Mutates `result` in place; a fatal pinned-item validation error stops the
 /// backend early with the errors recorded on `result`.
@@ -498,6 +541,7 @@ fn finalize_pipeline(
     result: &mut PipelineResult,
     pinned_items: &[StoreItemId],
     skipped: &FxHashSet<StoreItemId>,
+    residue_tolerant: bool,
 ) {
     // Item DCE: remove unreachable callable items and dead type items.
     // Callers may pin items via `pinned_items` to keep them (and their
@@ -513,6 +557,7 @@ fn finalize_pipeline(
         package_id,
         invariants::InvariantLevel::PostItemDce,
         skipped,
+        residue_tolerant,
     );
     if matches!(stage, PipelineStage::ItemDce) {
         return;
@@ -535,6 +580,7 @@ fn finalize_pipeline(
         package_id,
         invariants::InvariantLevel::PostAll,
         skipped,
+        residue_tolerant,
     );
 }
 
@@ -561,6 +607,7 @@ fn tuple_decompose_arg_promote_fixed_point(
     result: &mut PipelineResult,
     assigners: &mut PackageAssigners,
     skip: &FxHashSet<StoreItemId>,
+    residue_tolerant: bool,
 ) {
     let mut rounds = 0;
     let mut arg_promote_tmp_counter = 0;
@@ -583,6 +630,7 @@ fn tuple_decompose_arg_promote_fixed_point(
             package_id,
             invariants::InvariantLevel::PostArgPromote,
             skip,
+            residue_tolerant,
         );
         if !tuple_decompose_changed && !promote_changed {
             break;
@@ -872,6 +920,7 @@ pub fn run_signature_preserving_subpipeline(
         package_id,
         invariants::InvariantLevel::PostSignaturePreserving,
         &skipped,
+        false,
         seeds,
     );
 

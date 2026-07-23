@@ -1612,7 +1612,7 @@ fn capture_local_ids_are_reasonable() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -1673,7 +1673,7 @@ fn multiple_captures_sequential_ids() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -2189,7 +2189,7 @@ fn branch_split_nested_callable_in_tuple_args_consistency() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -2638,7 +2638,7 @@ fn branch_split_nested_callable_adj_ctl_args_consistency() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -3408,7 +3408,7 @@ fn recursive_unused_param_identity_lambda_converges_clean() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert!(
         errors.is_empty(),
         "expected clean convergence with no diagnostics, got:\n{}",
@@ -3892,7 +3892,7 @@ fn excessive_specializations_warning_does_not_block_compilation() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     // Should have exactly one warning, no fatal errors.
     let warnings: Vec<_> = errors
@@ -3939,7 +3939,7 @@ fn cumulative_specialization_cap_fails_closed_with_fatal_error() {
     // The loop must terminate (fail closed); if the guard were absent this
     // could otherwise run to the iteration cap. Reaching this assertion at all
     // proves there was no panic or hang.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     let recursive: Vec<_> = errors
         .iter()
@@ -3994,7 +3994,7 @@ fn primary_fix_regressions_stay_under_cumulative_cap() {
     for source in [used_param, unused_param] {
         let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
         let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-        let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+        let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
         assert!(
             !errors
                 .iter()
@@ -5368,7 +5368,7 @@ fn indexed_callable_array_param_hoists_side_effecting_index_once() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);

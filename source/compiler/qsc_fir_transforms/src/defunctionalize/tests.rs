@@ -91,7 +91,7 @@ fn check(source: &str, expect: &Expect) {
 fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::PackageId) {
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     (fir_store, fir_pkg_id)
 }
@@ -115,7 +115,7 @@ fn check_rewrite_with_capabilities(
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
@@ -429,7 +429,7 @@ fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabili
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     fir_invariants::check(&fir_store, fir_pkg_id, InvariantLevel::PostDefunc);
 }
@@ -439,7 +439,7 @@ fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabili
 fn check_errors(source: &str, expect: &Expect) {
     let (mut store, package_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     expect.assert_eq(&format_defunctionalization_errors(&errors));
 }
 
@@ -496,7 +496,7 @@ namespace Test {
     // The callable stored in the field originates from a dynamic array index,
     // so defunctionalize cannot fully resolve it (non-convergence is expected
     // and orthogonal to this regression). We only assert binding survival.
-    let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     let package = fir_store.get(fir_pkg_id);
     assert!(
         body_binds_local(package, "Pick", "f"),
@@ -542,9 +542,12 @@ fn empty_entrypoint_remains_unchanged() {
     );
 }
 
+/// The raw pass reports convergence failures; the full pipeline defers them
+/// and still reports fatal backstops.
 #[test]
 fn test_helpers_surface_defunctionalization_errors() {
-    let source = r#"
+    // The raw pass retains this convergence diagnostic for its callers.
+    let deferrable_source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
         operation Main() : Unit {
             use q = Qubit();
@@ -559,7 +562,10 @@ fn test_helpers_surface_defunctionalization_errors() {
         "#;
 
     let check_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        check(source, &expect![[r#"should not reach snapshot assertion"#]]);
+        check(
+            deferrable_source,
+            &expect![[r#"should not reach snapshot assertion"#]],
+        );
     }))
     .expect_err("check should panic when defunctionalization returns errors");
     let check_message = panic_message(check_panic);
@@ -572,17 +578,48 @@ fn test_helpers_surface_defunctionalization_errors() {
         "unexpected check panic: {check_message}"
     );
 
+    // The pipeline defers the same convergence failure, so `check_pipeline` must
+    // not panic on the deferrable residue
+    check_pipeline(deferrable_source);
+
+    // A still-fatal backstop (two forwarded callable arrays through one call) is
+    // surfaced by `check_pipeline` as a pipeline error, so it still panics.
+    let fatal_source = r#"
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps { op(q); }
+            for op in secondOps { op(q); }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            ForwardTwoArrays([X, Y], [Z, H], q);
+        }
+        "#;
+
     let pipeline_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        check_pipeline(source);
+        check_pipeline(fatal_source);
     }))
-    .expect_err("check_pipeline should panic when run_pipeline returns defunctionalization errors");
+    .expect_err("check_pipeline should panic when run_pipeline returns a fatal backstop error");
     let pipeline_message = panic_message(pipeline_panic);
     assert!(
         pipeline_message.contains("produced FIR transform pipeline errors"),
         "unexpected check_pipeline panic: {pipeline_message}"
     );
     assert!(
-        pipeline_message.contains("callable argument could not be resolved statically"),
+        pipeline_message.contains(
+            "higher-order function forwards more than one callable array, which is not supported"
+        ),
         "unexpected check_pipeline panic: {pipeline_message}"
     );
 }
@@ -671,7 +708,7 @@ fn unreachable_closure_structure_preserved() {
         }
     "});
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("unreachable_closure_structure_preserved", &errors);
 
     // Structure preserved: defunctionalize only rewrites *reachable* call
@@ -795,6 +832,6 @@ fn cross_package_return_stmt_is_analyzed() {
 
     // Defunctionalize analysis traverses the `Semi(Return)` arm to resolve the
     // returned callable; success (no errors) proves the arm is live.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("cross_package_return_stmt_is_analyzed", &errors);
 }

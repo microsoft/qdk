@@ -609,12 +609,19 @@ fn rebuild_expr(
             panic!("Struct expressions should have been eliminated by udt_erase");
         }
 
+        // Residual closures are leaves because captures are local IDs, matching
+        // the lowerer. Later stages resolve or reject them.
+        #[allow(clippy::match_same_arms)]
+        ExprKind::Closure(..) => {
+            builder.push(ExecGraphNode::Expr(expr_id));
+        }
+
         // Eliminated variant
         //
-        // Closures and holes are forbidden by the `PostDefunc` invariant,
-        // so they are unreachable at this pipeline stage.
-        ExprKind::Closure(..) | ExprKind::Hole => {
-            panic!("Closure and hole expressions should have been eliminated by post_defunc");
+        // A hole is not valid post-defunctionalization residue, so it is
+        // unreachable at this pipeline stage.
+        ExprKind::Hole => {
+            panic!("Hole expressions should have been eliminated by post_defunc");
         }
     }
 

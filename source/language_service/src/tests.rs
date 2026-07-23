@@ -6,7 +6,6 @@ use crate::{
     protocol::{DiagnosticUpdate, ErrorKind, TestCallables},
 };
 use expect_test::{Expect, expect};
-use miette::Diagnostic;
 use qsc::{compile, line_column::Position, project};
 use std::{cell::RefCell, rc::Rc};
 use test_fs::{FsNode, TestProjectHost, dir, file};
@@ -233,7 +232,13 @@ async fn completions_requested_after_document_load() {
 }
 
 #[tokio::test]
-async fn package_aware_foreign_fir_transform_diagnostic() {
+async fn package_aware_foreign_projected_dynamic_call_reports_no_diagnostics() {
+    // A foreign library operation stores a loop-reassigned local (`op`, provably
+    // `X` after the loop) in a struct field and calls it through a field
+    // projection. Defunctionalization over-approximates the projected callee to
+    // dynamic and defers the convergence failure instead of reporting a fatal
+    // diagnostic, so the language service surfaces no compile errors for the
+    // multi-project workspace.
     let foreign_source = r#"
         namespace ForeignLib {
             struct Config {
@@ -312,26 +317,10 @@ async fn package_aware_foreign_fir_transform_diagnostic() {
     worker.apply_pending().await;
 
     let diagnostics = diagnostics.borrow();
-    let [(uri, error)] = diagnostics.as_slice() else {
-        panic!("expected one compile diagnostic, got {diagnostics:?}");
-    };
-    let code = error.code().expect("diagnostic should have a code");
-    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
-
-    let label = error
-        .labels()
-        .into_iter()
-        .flatten()
-        .next()
-        .expect("diagnostic should have a source label");
-    let (source, relative_span) = error.resolve_span(label.inner());
-    let span_start = relative_span.offset();
-    let span_end = span_start + relative_span.len();
-
-    assert_eq!(uri, "foreign/src/lib.qs");
-    assert_eq!(source.name.as_ref(), "foreign/src/lib.qs");
-    assert_eq!(&source.contents[span_start..span_end], "config.Apply(q)");
-    assert_ne!(source.name.as_ref(), "OutOfBounds");
+    assert!(
+        diagnostics.is_empty(),
+        "expected no compile diagnostics for the deferred, resolvable dynamic call, got {diagnostics:?}"
+    );
 }
 
 fn check_errors_and_compilation(

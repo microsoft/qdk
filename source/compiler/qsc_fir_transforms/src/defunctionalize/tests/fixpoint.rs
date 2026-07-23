@@ -2975,7 +2975,8 @@ fn defunc_20_level_hof_completes_without_error() {
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors =
+        super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     assert!(
         errors.is_empty(),
@@ -2993,7 +2994,8 @@ fn defunc_21_level_hof_returns_static_resolution_error() {
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors =
+        super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     assert!(
         !errors.is_empty(),
@@ -3048,7 +3050,7 @@ fn multiple_forwarded_callable_arrays_return_unsupported_error() {
 
     let (mut store, package_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
 
     assert!(
         matches!(

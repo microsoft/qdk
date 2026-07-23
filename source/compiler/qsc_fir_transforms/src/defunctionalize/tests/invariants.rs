@@ -258,7 +258,7 @@ fn error_returned_not_panicked() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert!(
         !errors.is_empty(),
         "expected errors to be returned, not a panic"
@@ -283,7 +283,7 @@ fn error_multiple_dynamic_sites_collected() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert_eq!(
         errors.len(),
         2,

@@ -1145,9 +1145,11 @@ fn pinned_item_rebuilt_in_exec_graph() {
 
 #[test]
 fn residual_hole_in_rebuilt_body_panics() {
-    // exec_graph_rebuild defensively panics on `ExprKind::Closure`/`Hole`, which
-    // the `PostDefunc` invariant guarantees are gone by this stage. Inject a
-    // residual `Hole` into the reachable `Main` body to pin that defensive arm.
+    // exec_graph_rebuild defensively panics on a residual `ExprKind::Hole`,
+    // which is not valid post-defunctionalization residue. (Residual closures,
+    // by contrast, are tolerated and rebuilt into a single `Expr` node.) Inject
+    // a residual `Hole` into the reachable `Main` body to pin that defensive
+    // arm.
     use crate::test_utils::compile_to_fir;
 
     let (mut store, pkg_id) = compile_to_fir("function Main() : Int { 42 }");
@@ -1177,7 +1179,7 @@ fn residual_hole_in_rebuilt_body_panics() {
 
     // Rebuilding the reachable `Main` body must hit the defensive panic.
     assert_panics_with(
-        "Closure and hole expressions should have been eliminated by post_defunc",
+        "Hole expressions should have been eliminated by post_defunc",
         || {
             super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
         },

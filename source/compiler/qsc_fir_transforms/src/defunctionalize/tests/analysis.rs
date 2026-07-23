@@ -5479,7 +5479,7 @@ fn loop_operand_block_set_forces_dynamic() {
     fn assert_forces_dynamic(context: &str, source: &str) {
         let (mut store, package_id) = compile_to_monomorphized_fir(source);
         let mut assigners = PackageAssigners::new(&store, package_id);
-        let errors = defunctionalize(&mut store, package_id, &mut assigners);
+        let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
         assert_eq!(
             errors.len(),
             1,
@@ -6204,7 +6204,7 @@ fn pure_array_index_dispatch_reuses_index_expression() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
@@ -6293,7 +6293,7 @@ fn impure_array_index_dispatch_hoists_index_expression() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);

@@ -646,8 +646,10 @@ fn excessive_specializations_warning_reaches_full_pipeline() {
     invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
 }
 
+/// The pipeline defers convergence failures so downstream analysis can resolve
+/// the callable or issue the authoritative error.
 #[test]
-fn run_pipeline_with_diagnostics_returns_dynamic_callable_as_fatal_error() {
+fn run_pipeline_with_diagnostics_defers_dynamic_callable_residue() {
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
@@ -669,19 +671,14 @@ fn run_pipeline_with_diagnostics_returns_dynamic_callable_as_fatal_error() {
     let result = run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
 
     assert!(
-        result.warnings.is_empty(),
-        "expected no warnings, got:\n{}",
-        format_pipeline_errors(&result.warnings)
+        result.errors.is_empty(),
+        "expected the deferred dynamic callable to produce no fatal pipeline error, got:\n{}",
+        format_pipeline_errors(&result.errors)
     );
     assert!(
-        matches!(
-            result.errors.as_slice(),
-            [PipelineError::Defunctionalize(
-                qsc_fir_transforms::defunctionalize::Error::DynamicCallable(_)
-            )]
-        ),
-        "expected DynamicCallable fatal error, got:\n{}",
-        format_pipeline_errors(&result.errors)
+        result.warnings.is_empty(),
+        "expected no standing warnings for the deferred dynamic callable, got:\n{}",
+        format_pipeline_errors(&result.warnings)
     );
 }
 

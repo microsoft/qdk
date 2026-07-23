@@ -190,7 +190,7 @@ impl InvariantLevel {
 ///
 /// Panics with a descriptive message if any invariant is violated.
 pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: InvariantLevel) {
-    check_with_skip_and_seeds(store, package_id, level, &FxHashSet::default(), &[]);
+    check_with_skip_and_seeds(store, package_id, level, &FxHashSet::default(), false, &[]);
 }
 
 /// Like [`check`], but bypasses exactly the post-return-unification checks a
@@ -203,13 +203,17 @@ pub fn check(store: &PackageStore, package_id: qsc_fir::fir::PackageId, level: I
 /// every other invariant still runs on them. The production pipeline passes
 /// the set returned by return unification; all other callers use [`check`]
 /// (an empty skip set), which checks every callable.
+///
+/// `residue_tolerant` permits deferred defunctionalization residue to reach
+/// downstream analysis by relaxing residue-sensitive checks.
 pub(crate) fn check_with_skip(
     store: &PackageStore,
     package_id: qsc_fir::fir::PackageId,
     level: InvariantLevel,
     skip: &FxHashSet<StoreItemId>,
+    residue_tolerant: bool,
 ) {
-    check_with_skip_and_seeds(store, package_id, level, skip, &[]);
+    check_with_skip_and_seeds(store, package_id, level, skip, residue_tolerant, &[]);
 }
 
 /// Seed-rooted variant of [`check`] for the body-only signature-preserving
@@ -228,7 +232,14 @@ pub(crate) fn check_with_seeds(
     level: InvariantLevel,
     seeds: &[StoreItemId],
 ) {
-    check_with_skip_and_seeds(store, package_id, level, &FxHashSet::default(), seeds);
+    check_with_skip_and_seeds(
+        store,
+        package_id,
+        level,
+        &FxHashSet::default(),
+        false,
+        seeds,
+    );
 }
 
 /// Shared implementation backing [`check`] and [`check_with_skip`], and the
@@ -238,6 +249,9 @@ pub(crate) fn check_with_seeds(
 /// `seeds` extends reachability roots beyond the entry expression so non
 /// entry-reachable pinned bodies (pinned `ReinvokeOriginal` target bodies and
 /// their transitive callees) are still validated.
+///
+/// `residue_tolerant` relaxes compilation-scoped residue checks, while `skip`
+/// exempts the identified items from the arrow-parameter check.
 ///
 /// # Generic-target assumption
 ///
@@ -251,6 +265,7 @@ pub(crate) fn check_with_skip_and_seeds(
     package_id: qsc_fir::fir::PackageId,
     level: InvariantLevel,
     skip: &FxHashSet<StoreItemId>,
+    residue_tolerant: bool,
     seeds: &[StoreItemId],
 ) {
     let package = store.get(package_id);
@@ -266,7 +281,7 @@ pub(crate) fn check_with_skip_and_seeds(
         check_id_references_in_reachable_items(store, &reachable, package_id);
     }
 
-    check_reachable_invariants(store, &reachable, level, skip);
+    check_reachable_invariants(store, &reachable, level, skip, residue_tolerant);
 
     // After all passes, `exec_graph_rebuild` rebuilds the exec graph of every
     // reachable spec in every reachable package. Validate that whole reachable
@@ -287,7 +302,11 @@ pub(crate) fn check_with_skip_and_seeds(
         }
 
         // Check type invariants on the entry expression tree.
-        check_expr_types(store, package, entry_id, level);
+        //
+        // The entry-expression walk is not keyed by callable item, so it uses
+        // the compilation-scoped `residue_tolerant` flag (not `skip`) to allow
+        // a residual entry closure to flow downstream under deferred residue.
+        check_expr_types(store, package, entry_id, level, residue_tolerant);
 
         // After all passes, validate the entry exec graph.
         if level == InvariantLevel::PostAll {
@@ -889,7 +908,10 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
 /// - `check_no_arrow_params` once defunctionalization should have removed
 ///   callable-valued parameters. Pinned items are excluded from this check
 ///   because they are specialization targets that intentionally retain
-///   arrow-typed parameters for callable-args codegen.
+///   arrow-typed parameters for callable-args codegen. Items listed in `skip`
+///   (deferred defunctionalization residue) are likewise exempt, so an
+///   un-specialized higher-order-function arrow parameter can flow downstream
+///   instead of tripping the assertion.
 /// - `check_callable_input_pattern_shapes` once tuple-decompose and argument promotion may
 ///   have synthesized tuple-shaped inputs.
 /// - `check_no_returns` once return unification should have removed
@@ -903,6 +925,7 @@ fn check_reachable_invariants(
     reachable: &FxHashSet<StoreItemId>,
     level: InvariantLevel,
     skip: &FxHashSet<StoreItemId>,
+    residue_tolerant: bool,
 ) {
     for item_id in reachable {
         // Every structural pass runs across the whole reachable closure, so
@@ -923,7 +946,7 @@ fn check_reachable_invariants(
             // would otherwise go unchecked.
             check_pat_types(item_pkg, decl.input, level);
 
-            if enforces_stage(level, StageCheck::Defunc) {
+            if enforces_stage(level, StageCheck::Defunc) && !skip.contains(item_id) {
                 check_no_arrow_params(item_pkg, decl);
             }
 
@@ -937,13 +960,19 @@ fn check_reachable_invariants(
 
             match &decl.implementation {
                 CallableImpl::Spec(spec_impl) => {
-                    check_spec_decl_types(store, item_pkg, &spec_impl.body, level);
+                    check_spec_decl_types(
+                        store,
+                        item_pkg,
+                        &spec_impl.body,
+                        level,
+                        residue_tolerant,
+                    );
                     for spec in functored_specs(spec_impl) {
-                        check_spec_decl_types(store, item_pkg, spec, level);
+                        check_spec_decl_types(store, item_pkg, spec, level, residue_tolerant);
                     }
                 }
                 CallableImpl::SimulatableIntrinsic(spec) => {
-                    check_spec_decl_types(store, item_pkg, spec, level);
+                    check_spec_decl_types(store, item_pkg, spec, level, residue_tolerant);
                 }
                 CallableImpl::Intrinsic => {}
             }
@@ -1507,11 +1536,14 @@ fn tuple_field_type_contains_arrow(ty: &Ty) -> bool {
 
 /// Drives the statement walk for a single specialization body by forwarding
 /// each statement to `check_stmt_types`.
+///
+/// `residue_tolerant` preserves deferred residue through statement validation.
 fn check_spec_decl_types(
     store: &PackageStore,
     package: &Package,
     spec: &qsc_fir::fir::SpecDecl,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     // A specialization may carry its own input pattern (for example the
     // controlled specialization's added control register). Validate its types
@@ -1521,7 +1553,7 @@ fn check_spec_decl_types(
     }
     let block = package.get_block(spec.block);
     for &stmt_id in &block.stmts {
-        check_stmt_types(store, package, stmt_id, level);
+        check_stmt_types(store, package, stmt_id, level, residue_tolerant);
     }
 }
 
@@ -1530,8 +1562,8 @@ fn check_spec_decl_types(
 /// For each local binding, this layers:
 /// - `check_pat_types` on the bound pattern type.
 /// - `check_tuple_pat_shape_matches_type` after tuple-decomposing stages.
-/// - `check_local_pat_for_nested_tuple_arrow` after tuple-decompose (arrow types may
-///   appear inside tuples between UDT erasure and tuple-decompose).
+/// - `check_local_pat_for_nested_tuple_arrow` after tuple-decompose, unless
+///   deferred residue is allowed to continue downstream.
 /// - `check_expr_types` on the initializer expression.
 /// - a final initializer-type equality assertion at `PostAll`.
 ///
@@ -1542,17 +1574,22 @@ fn check_stmt_types(
     package: &Package,
     stmt_id: qsc_fir::fir::StmtId,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     let stmt = package.get_stmt(stmt_id);
     match &stmt.kind {
-        StmtKind::Expr(e) | StmtKind::Semi(e) => check_expr_types(store, package, *e, level),
+        StmtKind::Expr(e) | StmtKind::Semi(e) => {
+            check_expr_types(store, package, *e, level, residue_tolerant);
+        }
         StmtKind::Local(_, pat, expr) => {
             check_pat_types(package, *pat, level);
             if enforces_stage(level, StageCheck::TupleDecompose) {
                 check_tuple_pat_shape_matches_type(package, *pat, "local binding");
-                check_local_pat_for_nested_tuple_arrow(package, *pat);
+                if !residue_tolerant {
+                    check_local_pat_for_nested_tuple_arrow(package, *pat);
+                }
             }
-            check_expr_types(store, package, *expr, level);
+            check_expr_types(store, package, *expr, level, residue_tolerant);
 
             if level == InvariantLevel::PostReturnUnify || level == InvariantLevel::PostAll {
                 let pat_ty = &package.get_pat(*pat).ty;
@@ -1578,14 +1615,17 @@ fn check_stmt_types(
 
 /// Walks the full subtree rooted at `expr_id` and forwards every visited node
 /// to `check_expr_type`.
+///
+/// `residue_tolerant` preserves deferred closures through expression validation.
 fn check_expr_types(
     store: &PackageStore,
     package: &Package,
     expr_id: ExprId,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     crate::walk_utils::for_each_expr(package, expr_id, &mut |expr_id, _expr| {
-        check_expr_type(store, package, expr_id, level);
+        check_expr_type(store, package, expr_id, level, residue_tolerant);
     });
 }
 
@@ -1603,11 +1643,15 @@ fn check_expr_types(
 /// walker visits every reachable callable expression in every reachable
 /// package. Both paths must agree so a regression caught in either scope
 /// produces the same diagnostic.
+///
+/// `residue_tolerant` permits residual closures to reach downstream analysis.
+/// It is compilation-scoped because entry expressions have no callable item.
 fn check_expr_type(
     store: &PackageStore,
     package: &Package,
     expr_id: ExprId,
     level: InvariantLevel,
+    residue_tolerant: bool,
 ) {
     let expr = package.get_expr(expr_id);
     check_type_invariants(&expr.ty, level, &format!("Expr {expr_id}"));
@@ -1621,7 +1665,13 @@ fn check_expr_type(
     }
 
     // After defunctionalization, no closures should remain in reachable code.
-    if enforces_stage(level, StageCheck::Defunc) {
+    //
+    // A compilation carrying deferred defunctionalization residue
+    // (`residue_tolerant`) is exempt: a non-converging defunctionalization pass
+    // may leave a well-typed residual closure for RCA and partial evaluation to
+    // resolve or reject, so the closure-kind assertion is downgraded to a no-op
+    // for those compilations only.
+    if enforces_stage(level, StageCheck::Defunc) && !residue_tolerant {
         assert!(
             !matches!(&expr.kind, ExprKind::Closure(_, _)),
             "Expr {expr_id} is a Closure after defunctionalization"
