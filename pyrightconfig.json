@@ -1,6 +1,6 @@
 {
   "pythonVersion": "3.10",
-  "include": ["library/arithmetic/test", "source/qdk_package/qdk"],
+  "include": ["source/qdk_package/qdk"],
   "reportMissingModuleSource": "none", // Allow .pyi without .py
   "typeCheckingMode": "standard",
   "reportMissingParameterType": "error"
