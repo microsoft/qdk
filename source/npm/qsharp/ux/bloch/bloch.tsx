@@ -160,9 +160,13 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   // text; null means the field mirrors the live (snapped) angle instead.
   const [rzInputDraft, setRzInputDraft] = useState<string | null>(null);
 
-  // Whether the gate controls are collapsed to a compact read-only view,
-  // for users who just want to scrub the trace without the editing chrome.
-  const [controlsCollapsed, setControlsCollapsed] = useState(false);
+  // The rotation control is a compact "Rz( ... rad)" field in the toolbar.
+  // Focusing the angle field opens a popover holding the draggable dial and
+  // the live Clifford+T decomposition; the axis dropdown opens its own menu.
+  // Both close on an outside click (see the effect below).
+  const [rotDialOpen, setRotDialOpen] = useState(false);
+  const [axisMenuOpen, setAxisMenuOpen] = useState(false);
+  const rotRef = useRef<HTMLDivElement>(null);
 
   // Whether the trace pane is collapsed, handing the reclaimed width to the
   // sphere visualization. The measured trace width (--qs-trace-width) is
@@ -872,6 +876,21 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   const RZ_STEP = 1 / 200;
   const RZ_STEPS = rzOps.length;
 
+  // Dismiss the rotation popover (dial + decomposition) and the axis menu on
+  // any pointer press outside the control. A press *inside* keeps them open,
+  // so dragging the dial (which lives inside `rotRef`) never self-closes.
+  useEffect(() => {
+    if (!rotDialOpen && !axisMenuOpen) return;
+    const onDown = (e: PointerEvent) => {
+      if (!rotRef.current?.contains(e.target as Node)) {
+        setRotDialOpen(false);
+        setAxisMenuOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [rotDialOpen, axisMenuOpen]);
+
   // Snap an angle (radians) onto the lookup-table grid and wrap into
   // [0, 2*PI), so dial, readout, and decomposition can't disagree.
   function snapAngle(a: number): number {
@@ -1055,608 +1074,623 @@ export function BlochSphere(props: BlochSphereProps = {}) {
           : undefined
       }
     >
-      <div class="qs-bloch-main">
-        <div class="qs-bloch-stage" ref={stageRef}>
-          <canvas ref={canvasRef}></canvas>
-          <div class="qs-bloch-coords" aria-hidden="true">
-            <span>
-              <span class="qs-bloch-coords-greek">θ</span>
-              {" = "}
-              {blochAngles.theta.toFixed(2)} rad
-            </span>
-            <span>
-              <span class="qs-bloch-coords-greek">φ</span>
-              {" = "}
-              {blochAngles.polar ? "n/a" : `${blochAngles.phi.toFixed(2)} rad`}
-            </span>
-          </div>
-          <div class="qs-bloch-state" aria-hidden="true">
-            <Markdown markdown={currentStateLatex}></Markdown>
-          </div>
-          {controlsCollapsed && (
-            <div class="qs-bloch-gate-overlay">
+      {/*
+        Docked top toolbar: gate palette, rotation control, free-text
+        program editor, and edit history. Wraps to multiple rows on narrow
+        hosts so nothing clips.
+      */}
+      <div class="qs-bloch-toolbar">
+        {/* Gate palette: single-qubit gates as one segmented control. */}
+        <div class="qs-gate-buttons">
+          <div
+            class="qs-bloch-gate-group qs-bloch-gate-group-palette"
+            role="group"
+            aria-label="Apply gate"
+          >
+            {FIXED_GATE_KINDS.map((kind) => (
               <button
+                key={kind}
                 type="button"
-                class="qs-bloch-controls-toggle"
-                onClick={() => setControlsCollapsed(false)}
-                title="Show gate controls"
-                aria-label="Show gate controls"
-                aria-expanded={false}
+                onClick={() => applyGate({ kind })}
+                disabled={isPlaying || atGateCap}
+                title={
+                  atGateCap
+                    ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                    : undefined
+                }
               >
-                {"\u2699"}
+                {resolveGate({ kind }).label}
               </button>
-              <span class="qs-bloch-gate-overlay-text" aria-hidden="true">
-                <span class="qs-bloch-gate-overlay-label">Gate sequence:</span>{" "}
-                {gates.length > 0 ? formatGateSequence(gates) : "\u2014"}
+            ))}
+          </div>
+        </div>
+
+        <div class="qs-bloch-toolbar-divider" aria-hidden="true" />
+
+        {/*
+          Rotation control: a compact "Rz( θ rad)" field with an Add button.
+          Focusing the angle field opens a popover holding the draggable dial
+          and the live Clifford+T decomposition; the axis dropdown selects the
+          rotation axis. Both dismiss on an outside click.
+        */}
+        <div class="qs-bloch-rot" ref={rotRef}>
+          <div class="qs-bloch-rot-field">
+            <button
+              type="button"
+              class="qs-bloch-rot-axis"
+              onClick={() => setAxisMenuOpen((v) => !v)}
+              disabled={isPlaying}
+              aria-haspopup="listbox"
+              aria-expanded={axisMenuOpen}
+              title="Rotation axis"
+            >
+              {AXIS_TO_ROTATION[rotationAxis]}
+              <span class="qs-bloch-rot-axis-caret" aria-hidden="true">
+                {"\u25BE"}
               </span>
+            </button>
+            {axisMenuOpen && (
+              <div class="qs-bloch-rot-menu" role="listbox">
+                {(["X", "Y", "Z"] as const).map((ax) => (
+                  <button
+                    key={ax}
+                    type="button"
+                    role="option"
+                    aria-selected={rotationAxis === ax}
+                    class={
+                      "qs-bloch-rot-menu-item" +
+                      (rotationAxis === ax
+                        ? " qs-bloch-rot-menu-item-active"
+                        : "")
+                    }
+                    onClick={() => {
+                      setRotationAxis(ax);
+                      setAxisMenuOpen(false);
+                    }}
+                    title={`Target the Bloch ${ax} axis (R${ax.toLowerCase()})`}
+                  >
+                    {AXIS_TO_ROTATION[ax]}
+                  </button>
+                ))}
+              </div>
+            )}
+            <span class="qs-bloch-rot-paren" aria-hidden="true">
+              (
+            </span>
+            <input
+              class="qs-bloch-rot-arg qs-bloch-rz-input"
+              type="text"
+              inputMode="decimal"
+              aria-label="Rotation angle in radians"
+              value={rzInputDraft !== null ? rzInputDraft : rzAngle.toFixed(3)}
+              disabled={isPlaying}
+              onFocus={(e) => {
+                setRzInputDraft(rzAngle.toFixed(3));
+                setRotDialOpen(true);
+                (e.currentTarget as HTMLInputElement).select();
+              }}
+              onInput={(e) =>
+                setRzInputDraft((e.currentTarget as HTMLInputElement).value)
+              }
+              onKeyDown={rzInputKeyDown}
+              onBlur={commitRzInput}
+            />
+            <span class="qs-bloch-rot-paren" aria-hidden="true">
+              rad)
+            </span>
+          </div>
+          <button
+            type="button"
+            class="qs-bloch-rz-apply qs-bloch-rot-add"
+            onClick={applyRotation}
+            disabled={isPlaying || rzAngle === 0 || atGateCap}
+            title={
+              atGateCap
+                ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                : rzAngle === 0
+                  ? "Set a non-zero angle to add a rotation"
+                  : `Append a native ${AXIS_TO_ROTATION[rotationAxis]} gate to the sequence`
+            }
+          >
+            Add
+          </button>
+          {rotDialOpen && (
+            <div class="qs-bloch-rot-dial">
+              {(() => {
+                // Knob sits on the track at the current angle. 0 rad is at
+                // 3 o'clock, increasing counterclockwise; SVG y points down
+                // so the vertical term is negated.
+                const trackR = 46;
+                const knobX = 60 + trackR * Math.cos(rzAngle);
+                const knobY = 60 - trackR * Math.sin(rzAngle);
+                return (
+                  <svg
+                    ref={dialRef}
+                    class={
+                      "qs-bloch-rz-dial" +
+                      (isPlaying ? " qs-bloch-rz-dial-disabled" : "")
+                    }
+                    viewBox="0 0 120 120"
+                    role="slider"
+                    aria-label="Rz angle in radians"
+                    aria-valuemin={0}
+                    aria-valuemax={(RZ_STEPS - 1) * RZ_STEP}
+                    aria-valuenow={rzAngle}
+                    aria-valuetext={`${rzAngle.toFixed(3)} radians`}
+                    onPointerDown={dialPointerDown}
+                    onPointerMove={dialPointerMove}
+                    onPointerUp={dialPointerUp}
+                  >
+                    <circle
+                      class="qs-bloch-rz-dial-track"
+                      cx="60"
+                      cy="60"
+                      r={trackR}
+                    />
+                    {/* Tick marks at 0, π/2, π, 3π/2 for orientation. */}
+                    {[0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((a) => (
+                      <line
+                        key={a}
+                        class="qs-bloch-rz-dial-tick"
+                        x1={60 + (trackR - 5) * Math.cos(a)}
+                        y1={60 - (trackR - 5) * Math.sin(a)}
+                        x2={60 + (trackR + 5) * Math.cos(a)}
+                        y2={60 - (trackR + 5) * Math.sin(a)}
+                      />
+                    ))}
+                    <line
+                      class="qs-bloch-rz-dial-needle"
+                      x1="60"
+                      y1="60"
+                      x2={knobX}
+                      y2={knobY}
+                    />
+                    <circle
+                      class="qs-bloch-rz-dial-center"
+                      cx="60"
+                      cy="60"
+                      r="3"
+                    />
+                    <circle
+                      class="qs-bloch-rz-dial-knob"
+                      cx={knobX}
+                      cy={knobY}
+                      r="8"
+                    />
+                  </svg>
+                );
+              })()}
+              <span class="qs-bloch-rot-dial-hint" aria-hidden="true">
+                drag to set angle
+              </span>
+              <div class="qs-bloch-rot-decomp" aria-live="polite">
+                <span class="qs-bloch-rot-decomp-label">
+                  Clifford+T decomposition
+                </span>
+                <span class="qs-bloch-rot-decomp-str">
+                  {decompositionGates.length > 0
+                    ? formatGateSequence(decompositionGates)
+                    : "identity (no gates)"}
+                </span>
+                <button
+                  type="button"
+                  class="qs-bloch-rz-apply"
+                  onClick={applyDecomposition}
+                  disabled={
+                    isPlaying ||
+                    decompositionGates.length === 0 ||
+                    branchLength + decompositionGates.length >
+                      MAX_GATE_SEQUENCE_LENGTH
+                  }
+                  title={
+                    branchLength + decompositionGates.length >
+                    MAX_GATE_SEQUENCE_LENGTH
+                      ? `Decomposition would exceed the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
+                      : decompositionGates.length === 0
+                        ? "Set a non-zero angle to add a decomposition"
+                        : "Append the Clifford+T decomposition to the sequence"
+                  }
+                >
+                  Add decomposition
+                </button>
+              </div>
             </div>
           )}
+        </div>
+
+        <div class="qs-bloch-toolbar-divider" aria-hidden="true" />
+
+        {/* Free-text program editor with a live gate-count breakdown. */}
+        <div class="qs-bloch-gate-editor">
+          <div class="qs-bloch-gate-editor-row">
+            <input
+              class="qs-bloch-gate-editor-input"
+              value={displayValue}
+              onInput={gateTextInput}
+              onBlur={gateTextBlur}
+              spellcheck={false}
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              aria-label="Gate program"
+              placeholder="Type a gate sequence, e.g. H Rx(1.57) SX X S'"
+            />
+            {props.actionSlot}
+          </div>
           {/*
+            Gate-count breakdown plus a T-count callout. T-count (T and T†
+            gates) is the key cost metric for fault-tolerant implementations,
+            so surfacing it live is useful after the rotation dial expands a
+            rotation into many gates.
+          */}
+          <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
+            <span class="qs-bloch-gate-editor-breakdown">
+              {(() => {
+                // Group typed gates by kind (rotations aggregate across
+                // angles into a single Rx/Ry/Rz chip).
+                const counts = {} as Record<GateKind, number>;
+                for (const g of typedGates) {
+                  counts[g.kind] = (counts[g.kind] ?? 0) + 1;
+                }
+                const order: GateKind[] = [
+                  ...FIXED_GATE_KINDS,
+                  "Rx",
+                  "Ry",
+                  "Rz",
+                ];
+                const chips = [];
+                for (const kind of order) {
+                  const n = counts[kind] ?? 0;
+                  if (n === 0) continue;
+                  const label =
+                    kind === "Rx" || kind === "Ry" || kind === "Rz"
+                      ? kind
+                      : resolveGate({ kind }).label;
+                  chips.push(
+                    <span
+                      key={kind}
+                      class="qs-bloch-gate-editor-chip"
+                      title={`${n}× ${label}`}
+                    >
+                      <span class="qs-bloch-gate-editor-chip-name">
+                        {label}
+                      </span>
+                      <span class="qs-bloch-gate-editor-chip-count">{n}</span>
+                    </span>,
+                  );
+                }
+                const tCount = (counts["T"] ?? 0) + (counts["T'"] ?? 0);
+                if (chips.length === 0) {
+                  return (
+                    <span class="qs-bloch-gate-editor-empty">no gates</span>
+                  );
+                }
+                return (
+                  <>
+                    {chips}
+                    {tCount > 0 && (
+                      <span
+                        class="qs-bloch-gate-editor-tcount"
+                        title="T-count: number of T and T† gates. T gates are the expensive primitive in fault-tolerant quantum computing."
+                      >
+                        T-count: {tCount}
+                      </span>
+                    )}
+                  </>
+                );
+              })()}
+            </span>
+            <span class="qs-bloch-gate-editor-status">
+              <span
+                class={
+                  typedGates.length >= MAX_GATE_SEQUENCE_LENGTH
+                    ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
+                    : "qs-bloch-gate-editor-count"
+                }
+                title={
+                  typedGates.length >= MAX_GATE_SEQUENCE_LENGTH
+                    ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap; remove gates to add more`
+                    : ""
+                }
+              >
+                {typedGates.length} / {MAX_GATE_SEQUENCE_LENGTH}
+              </span>
+            </span>
+          </div>
+        </div>
+
+        <div class="qs-bloch-toolbar-spacer" />
+
+        {/* Edit history: undo/redo and clear, as segmented controls. */}
+        <div class="qs-gate-buttons">
+          <div
+            class="qs-bloch-gate-group"
+            role="group"
+            aria-label="Edit history"
+          >
+            <button
+              type="button"
+              onClick={undo}
+              disabled={!canUndo}
+              title="Undo last gate"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={redo}
+              disabled={!canRedo}
+              title="Redo last undone gate"
+            >
+              Redo
+            </button>
+          </div>
+          <div class="qs-bloch-gate-group" role="group">
+            <button
+              type="button"
+              onClick={clear}
+              title="Clear the entire trace"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="qs-bloch-body">
+        <div class="qs-bloch-main">
+          <div class="qs-bloch-stage" ref={stageRef}>
+            <canvas ref={canvasRef}></canvas>
+            {/*
+              Top-left readout: current state ket above the θ/φ angles.
+            */}
+            <div class="qs-bloch-readout" aria-hidden="true">
+              <div class="qs-bloch-state">
+                <Markdown markdown={currentStateLatex}></Markdown>
+              </div>
+              <div class="qs-bloch-coords">
+                <span>
+                  <span class="qs-bloch-coords-greek">θ</span>
+                  {" = "}
+                  {blochAngles.theta.toFixed(2)} rad
+                </span>
+                <span>
+                  <span class="qs-bloch-coords-greek">φ</span>
+                  {" = "}
+                  {blochAngles.polar
+                    ? "n/a"
+                    : `${blochAngles.phi.toFixed(2)} rad`}
+                </span>
+              </div>
+            </div>
+            {/*
             When the trace pane is collapsed, surface a small toggle to
             reopen it, plus (when there are gates) a compact playback
             transport so the animation can still be driven without the pane.
             Mirrors the main transport minus the speed slider.
           */}
-          {traceCollapsed && (
-            <div class="qs-bloch-trace-toggle-overlay">
-              {gates.length > 0 && (
-                <div
-                  class="qs-bloch-mini-transport"
-                  role="group"
-                  aria-label="Playback"
-                >
-                  <button
-                    type="button"
-                    onClick={jumpToStart}
-                    disabled={!canStepBack}
-                    title="Jump to start"
-                    aria-label="Jump to start"
-                  >
-                    <TransportIcon name="jump-to-start" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={stepBack}
-                    disabled={!canStepBack}
-                    title="Step back"
-                    aria-label="Step back"
-                  >
-                    <TransportIcon name="step-back" />
-                  </button>
-                  {isPlaying ? (
-                    <button
-                      type="button"
-                      onClick={pause}
-                      title="Pause"
-                      aria-label="Pause"
-                    >
-                      <TransportIcon name="pause" />
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={play}
-                      disabled={!canPlay}
-                      title={atEnd ? "Replay from start" : "Play from here"}
-                      aria-label={atEnd ? "Replay from start" : "Play"}
-                    >
-                      <TransportIcon name={atEnd ? "replay" : "play"} />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    onClick={stepForward}
-                    disabled={!canStepForward}
-                    title="Step forward"
-                    aria-label="Step forward"
-                  >
-                    <TransportIcon name="step-forward" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={jumpToEnd}
-                    disabled={!canStepForward}
-                    title="Jump to end"
-                    aria-label="Jump to end"
-                  >
-                    <TransportIcon name="jump-to-end" />
-                  </button>
-                </div>
-              )}
-              <button
-                type="button"
-                class="qs-bloch-trace-toggle qs-bloch-trace-toggle-expand"
-                onClick={() => setTraceCollapsed(false)}
-                title="Show trace panel"
-                aria-label="Show trace panel"
-                aria-expanded={false}
-              >
-                <span class="qs-bloch-trace-toggle-icon" aria-hidden="true">
-                  {"\u00AB"}
-                </span>
-                <span class="qs-bloch-trace-toggle-label">Trace</span>
-              </button>
-            </div>
-          )}
-        </div>
-        {!controlsCollapsed && (
-          <div class="qs-bloch-controls">
-            <div class="qs-bloch-controls-header">
-              <button
-                type="button"
-                class="qs-bloch-controls-close"
-                onClick={() => setControlsCollapsed(true)}
-                title="Hide gate controls"
-                aria-label="Hide gate controls"
-              >
-                {"\u2715"}
-              </button>
-            </div>
-            <div class="qs-bloch-rz">
-              <div class="qs-bloch-rz-row">
-                {(() => {
-                  // Knob sits on the track at the current angle. 0 rad is at
-                  // 3 o'clock, increasing counterclockwise; SVG y points down
-                  // so the vertical term is negated.
-                  const trackR = 46;
-                  const knobX = 60 + trackR * Math.cos(rzAngle);
-                  const knobY = 60 - trackR * Math.sin(rzAngle);
-                  return (
-                    <svg
-                      ref={dialRef}
-                      class={
-                        "qs-bloch-rz-dial" +
-                        (isPlaying ? " qs-bloch-rz-dial-disabled" : "")
-                      }
-                      viewBox="0 0 120 120"
-                      role="slider"
-                      aria-label="Rz angle in radians"
-                      aria-valuemin={0}
-                      aria-valuemax={(RZ_STEPS - 1) * RZ_STEP}
-                      aria-valuenow={rzAngle}
-                      aria-valuetext={`${rzAngle.toFixed(3)} radians`}
-                      onPointerDown={dialPointerDown}
-                      onPointerMove={dialPointerMove}
-                      onPointerUp={dialPointerUp}
-                    >
-                      <circle
-                        class="qs-bloch-rz-dial-track"
-                        cx="60"
-                        cy="60"
-                        r={trackR}
-                      />
-                      {/* Tick marks at 0, π/2, π, 3π/2 for orientation. */}
-                      {[0, Math.PI / 2, Math.PI, (3 * Math.PI) / 2].map((a) => (
-                        <line
-                          key={a}
-                          class="qs-bloch-rz-dial-tick"
-                          x1={60 + (trackR - 5) * Math.cos(a)}
-                          y1={60 - (trackR - 5) * Math.sin(a)}
-                          x2={60 + (trackR + 5) * Math.cos(a)}
-                          y2={60 - (trackR + 5) * Math.sin(a)}
-                        />
-                      ))}
-                      <line
-                        class="qs-bloch-rz-dial-needle"
-                        x1="60"
-                        y1="60"
-                        x2={knobX}
-                        y2={knobY}
-                      />
-                      <circle
-                        class="qs-bloch-rz-dial-center"
-                        cx="60"
-                        cy="60"
-                        r="3"
-                      />
-                      <circle
-                        class="qs-bloch-rz-dial-knob"
-                        cx={knobX}
-                        cy={knobY}
-                        r="8"
-                      />
-                    </svg>
-                  );
-                })()}
-                <div class="qs-bloch-rz-info">
+            {traceCollapsed && (
+              <div class="qs-bloch-trace-toggle-overlay">
+                {gates.length > 0 && (
                   <div
-                    class="qs-bloch-rz-axis"
+                    class="qs-bloch-mini-transport"
                     role="group"
-                    aria-label="Rotation axis"
+                    aria-label="Playback"
                   >
-                    {(["X", "Y", "Z"] as const).map((ax) => (
+                    <button
+                      type="button"
+                      onClick={jumpToStart}
+                      disabled={!canStepBack}
+                      title="Jump to start"
+                      aria-label="Jump to start"
+                    >
+                      <TransportIcon name="jump-to-start" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stepBack}
+                      disabled={!canStepBack}
+                      title="Step back"
+                      aria-label="Step back"
+                    >
+                      <TransportIcon name="step-back" />
+                    </button>
+                    {isPlaying ? (
                       <button
-                        key={ax}
                         type="button"
-                        class={
-                          "qs-bloch-rz-axis-btn" +
-                          (rotationAxis === ax
-                            ? " qs-bloch-rz-axis-btn-active"
-                            : "")
-                        }
-                        onClick={() => setRotationAxis(ax)}
-                        aria-pressed={rotationAxis === ax}
-                        disabled={isPlaying}
-                        title={`Target the Bloch ${ax} axis (R${ax.toLowerCase()})`}
+                        onClick={pause}
+                        title="Pause"
+                        aria-label="Pause"
                       >
-                        R{ax.toLowerCase()}
+                        <TransportIcon name="pause" />
                       </button>
-                    ))}
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={play}
+                        disabled={!canPlay}
+                        title={atEnd ? "Replay from start" : "Play from here"}
+                        aria-label={atEnd ? "Replay from start" : "Play"}
+                      >
+                        <TransportIcon name={atEnd ? "replay" : "play"} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={stepForward}
+                      disabled={!canStepForward}
+                      title="Step forward"
+                      aria-label="Step forward"
+                    >
+                      <TransportIcon name="step-forward" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={jumpToEnd}
+                      disabled={!canStepForward}
+                      title="Jump to end"
+                      aria-label="Jump to end"
+                    >
+                      <TransportIcon name="jump-to-end" />
+                    </button>
                   </div>
-                  <span class="qs-bloch-rz-readout">
-                    {AXIS_TO_ROTATION[rotationAxis] + "("}
-                    <input
-                      class="qs-bloch-rz-input"
-                      type="text"
-                      inputMode="decimal"
-                      aria-label="Rz angle in radians"
-                      value={
-                        rzInputDraft !== null
-                          ? rzInputDraft
-                          : rzAngle.toFixed(3)
-                      }
-                      disabled={isPlaying}
-                      onFocus={(e) => {
-                        setRzInputDraft(rzAngle.toFixed(3));
-                        (e.currentTarget as HTMLInputElement).select();
-                      }}
-                      onInput={(e) =>
-                        setRzInputDraft(
-                          (e.currentTarget as HTMLInputElement).value,
-                        )
-                      }
-                      onKeyDown={rzInputKeyDown}
-                      onBlur={commitRzInput}
-                    />
-                    {" rad)"}
+                )}
+                <button
+                  type="button"
+                  class="qs-bloch-trace-toggle qs-bloch-trace-toggle-expand"
+                  onClick={() => setTraceCollapsed(false)}
+                  title="Show trace panel"
+                  aria-label="Show trace panel"
+                  aria-expanded={false}
+                >
+                  <span class="qs-bloch-trace-toggle-icon" aria-hidden="true">
+                    {"\u00AB"}
                   </span>
-                  <div class="qs-bloch-rz-actions">
-                    <button
-                      type="button"
-                      class="qs-bloch-rz-apply"
-                      onClick={applyRotation}
-                      disabled={isPlaying || rzAngle === 0 || atGateCap}
-                      title={
-                        atGateCap
-                          ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
-                          : rzAngle === 0
-                            ? "Set a non-zero angle to add a rotation"
-                            : `Append a native ${AXIS_TO_ROTATION[rotationAxis]} gate to the sequence`
-                      }
-                    >
-                      Add rotation
-                    </button>
-                    <button
-                      type="button"
-                      class="qs-bloch-rz-apply"
-                      onClick={applyDecomposition}
-                      disabled={
-                        isPlaying ||
-                        decompositionGates.length === 0 ||
-                        branchLength + decompositionGates.length >
-                          MAX_GATE_SEQUENCE_LENGTH
-                      }
-                      title={
-                        branchLength + decompositionGates.length >
-                        MAX_GATE_SEQUENCE_LENGTH
-                          ? `Decomposition would exceed the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
-                          : decompositionGates.length === 0
-                            ? "Set a non-zero angle to add a decomposition"
-                            : "Append the Clifford+T decomposition to the sequence"
-                      }
-                    >
-                      Add decomposition
-                    </button>
-                  </div>
-                  <div class="qs-bloch-rz-decomposition" aria-live="polite">
-                    <span class="qs-bloch-rz-decomposition-label">
-                      Decomposition:
-                    </span>
-                    <span class="qs-bloch-rz-decomposition-gates">
-                      {decompositionGates.length > 0
-                        ? formatGateSequence(decompositionGates)
-                        : "identity (no gates)"}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="qs-gate-buttons">
-              {/* Gate palette: single-qubit gates, as one segmented control. */}
-              <div
-                class="qs-bloch-gate-group qs-bloch-gate-group-palette"
-                role="group"
-                aria-label="Apply gate"
-              >
-                {FIXED_GATE_KINDS.map((kind) => (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => applyGate({ kind })}
-                    disabled={isPlaying || atGateCap}
-                    title={
-                      atGateCap
-                        ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap`
-                        : undefined
-                    }
-                  >
-                    {resolveGate({ kind }).label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Edit history: undo/redo, as a second segmented control. */}
-              <div
-                class="qs-bloch-gate-group"
-                role="group"
-                aria-label="Edit history"
-              >
-                <button
-                  type="button"
-                  onClick={undo}
-                  disabled={!canUndo}
-                  title="Undo last gate"
-                >
-                  Undo
-                </button>
-                <button
-                  type="button"
-                  onClick={redo}
-                  disabled={!canRedo}
-                  title="Redo last undone gate"
-                >
-                  Redo
+                  <span class="qs-bloch-trace-toggle-label">Trace</span>
                 </button>
               </div>
-
-              <div class="qs-bloch-gate-group" role="group">
-                <button
-                  type="button"
-                  onClick={clear}
-                  title="Clear the entire trace"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div class="qs-bloch-gate-editor">
-              <div class="qs-bloch-gate-editor-row">
-                <input
-                  class="qs-bloch-gate-editor-input"
-                  value={displayValue}
-                  onInput={gateTextInput}
-                  onBlur={gateTextBlur}
-                  spellcheck={false}
-                  autocomplete="off"
-                  autocorrect="off"
-                  autocapitalize="off"
-                  aria-label="Gate program"
-                  placeholder="Type a gate sequence, e.g. H Rx(1.57) SX X S'"
-                />
-                {props.actionSlot}
-              </div>
-              {/*
-          Gate-count breakdown plus a T-count callout. T-count (T and T†
-          gates) is the key cost metric for fault-tolerant implementations,
-          so surfacing it live is useful after the Rz slider expands a
-          rotation into many gates.
-        */}
-              <div class="qs-bloch-gate-editor-feedback" aria-hidden="true">
-                <span class="qs-bloch-gate-editor-breakdown">
-                  {(() => {
-                    // Group typed gates by kind (rotations aggregate across
-                    // angles into a single Rx/Ry/Rz chip).
-                    const counts = {} as Record<GateKind, number>;
-                    for (const g of typedGates) {
-                      counts[g.kind] = (counts[g.kind] ?? 0) + 1;
-                    }
-                    const order: GateKind[] = [
-                      ...FIXED_GATE_KINDS,
-                      "Rx",
-                      "Ry",
-                      "Rz",
-                    ];
-                    const chips = [];
-                    for (const kind of order) {
-                      const n = counts[kind] ?? 0;
-                      if (n === 0) continue;
-                      const label =
-                        kind === "Rx" || kind === "Ry" || kind === "Rz"
-                          ? kind
-                          : resolveGate({ kind }).label;
-                      chips.push(
-                        <span
-                          key={kind}
-                          class="qs-bloch-gate-editor-chip"
-                          title={`${n}× ${label}`}
-                        >
-                          <span class="qs-bloch-gate-editor-chip-name">
-                            {label}
-                          </span>
-                          <span class="qs-bloch-gate-editor-chip-count">
-                            {n}
-                          </span>
-                        </span>,
-                      );
-                    }
-                    const tCount = (counts["T"] ?? 0) + (counts["T'"] ?? 0);
-                    if (chips.length === 0) {
-                      return (
-                        <span class="qs-bloch-gate-editor-empty">no gates</span>
-                      );
-                    }
-                    return (
-                      <>
-                        {chips}
-                        {tCount > 0 && (
-                          <span
-                            class="qs-bloch-gate-editor-tcount"
-                            title="T-count: number of T and T† gates. T gates are the expensive primitive in fault-tolerant quantum computing."
-                          >
-                            T-count: {tCount}
-                          </span>
-                        )}
-                      </>
-                    );
-                  })()}
-                </span>
-                <span class="qs-bloch-gate-editor-status">
+            )}
+          </div>
+        </div>
+        <div class="qs-bloch-trace" style="font-size: 0.9em;">
+          <div class="qs-bloch-trace-inner" aria-hidden={traceCollapsed}>
+            <div class="qs-bloch-trace-title">
+              <span>Trace</span>
+              <span class="qs-bloch-trace-title-right">
+                {gates.length > 0 && (
                   <span
-                    class={
-                      typedGates.length >= MAX_GATE_SEQUENCE_LENGTH
-                        ? "qs-bloch-gate-editor-count qs-bloch-gate-editor-count-warn"
-                        : "qs-bloch-gate-editor-count"
-                    }
+                    class="qs-bloch-trace-step-counter"
+                    aria-live="polite"
                     title={
-                      typedGates.length >= MAX_GATE_SEQUENCE_LENGTH
-                        ? `Sequence is at the ${MAX_GATE_SEQUENCE_LENGTH}-gate cap; remove gates to add more`
-                        : ""
+                      inInspectMode
+                        ? "Viewing an earlier step. Apply a gate to discard later steps."
+                        : "Current step / total steps"
                     }
                   >
-                    {typedGates.length} / {MAX_GATE_SEQUENCE_LENGTH}
+                    Step {cursor} / {gates.length}
                   </span>
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-      <div class="qs-bloch-trace" style="font-size: 0.9em;">
-        <div class="qs-bloch-trace-inner" aria-hidden={traceCollapsed}>
-          <div class="qs-bloch-trace-title">
-            <span>Trace</span>
-            <span class="qs-bloch-trace-title-right">
-              {gates.length > 0 && (
-                <span
-                  class="qs-bloch-trace-step-counter"
-                  aria-live="polite"
-                  title={
-                    inInspectMode
-                      ? "Viewing an earlier step. Apply a gate to discard later steps."
-                      : "Current step / total steps"
-                  }
+                )}
+                <button
+                  type="button"
+                  class="qs-bloch-trace-toggle"
+                  onClick={() => setTraceCollapsed(true)}
+                  title="Hide trace panel"
+                  aria-label="Hide trace panel"
+                  aria-expanded={true}
                 >
-                  Step {cursor} / {gates.length}
-                </span>
-              )}
-              <button
-                type="button"
-                class="qs-bloch-trace-toggle"
-                onClick={() => setTraceCollapsed(true)}
-                title="Hide trace panel"
-                aria-label="Hide trace panel"
-                aria-expanded={true}
-              >
-                <span class="qs-bloch-trace-toggle-label">Hide</span>
-                <span class="qs-bloch-trace-toggle-icon" aria-hidden="true">
-                  {"\u00BB"}
-                </span>
-              </button>
-            </span>
-          </div>
-          {/*
+                  <span class="qs-bloch-trace-toggle-label">Hide</span>
+                  <span class="qs-bloch-trace-toggle-icon" aria-hidden="true">
+                    {"\u00BB"}
+                  </span>
+                </button>
+              </span>
+            </div>
+            {/*
           Media transport controls: jump-to-start, step-back,
           play/pause/replay, step-forward, jump-to-end. Step/jump are
           seek-only; the centre button is the only animated path.
         */}
-          <div
-            class="qs-bloch-media-controls"
-            role="group"
-            aria-label="Playback"
-          >
-            <button
-              type="button"
-              onClick={jumpToStart}
-              disabled={!canStepBack}
-              title="Jump to start"
-              aria-label="Jump to start"
+            <div
+              class="qs-bloch-media-controls"
+              role="group"
+              aria-label="Playback"
             >
-              <TransportIcon name="jump-to-start" />
-            </button>
-            <button
-              type="button"
-              onClick={stepBack}
-              disabled={!canStepBack}
-              title="Step back"
-              aria-label="Step back"
-            >
-              <TransportIcon name="step-back" />
-            </button>
-            {isPlaying ? (
               <button
                 type="button"
-                onClick={pause}
-                title="Pause"
-                aria-label="Pause"
+                onClick={jumpToStart}
+                disabled={!canStepBack}
+                title="Jump to start"
+                aria-label="Jump to start"
               >
-                <TransportIcon name="pause" />
+                <TransportIcon name="jump-to-start" />
               </button>
-            ) : (
               <button
                 type="button"
-                onClick={play}
-                disabled={!canPlay}
-                title={atEnd ? "Replay from start" : "Play from here"}
-                aria-label={atEnd ? "Replay from start" : "Play"}
+                onClick={stepBack}
+                disabled={!canStepBack}
+                title="Step back"
+                aria-label="Step back"
               >
-                {/* Replay icon when the cursor is at the end (clicking
+                <TransportIcon name="step-back" />
+              </button>
+              {isPlaying ? (
+                <button
+                  type="button"
+                  onClick={pause}
+                  title="Pause"
+                  aria-label="Pause"
+                >
+                  <TransportIcon name="pause" />
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={play}
+                  disabled={!canPlay}
+                  title={atEnd ? "Replay from start" : "Play from here"}
+                  aria-label={atEnd ? "Replay from start" : "Play"}
+                >
+                  {/* Replay icon when the cursor is at the end (clicking
                   rewinds first); play triangle otherwise. */}
-                <TransportIcon name={atEnd ? "replay" : "play"} />
+                  <TransportIcon name={atEnd ? "replay" : "play"} />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={stepForward}
+                disabled={!canStepForward}
+                title="Step forward"
+                aria-label="Step forward"
+              >
+                <TransportIcon name="step-forward" />
               </button>
-            )}
-            <button
-              type="button"
-              onClick={stepForward}
-              disabled={!canStepForward}
-              title="Step forward"
-              aria-label="Step forward"
-            >
-              <TransportIcon name="step-forward" />
-            </button>
-            <button
-              type="button"
-              onClick={jumpToEnd}
-              disabled={!canStepForward}
-              title="Jump to end"
-              aria-label="Jump to end"
-            >
-              <TransportIcon name="jump-to-end" />
-            </button>
-          </div>
-          {/*
+              <button
+                type="button"
+                onClick={jumpToEnd}
+                disabled={!canStepForward}
+                title="Jump to end"
+                aria-label="Jump to end"
+              >
+                <TransportIcon name="jump-to-end" />
+              </button>
+            </div>
+            {/*
           Speed slider. The value is the speed multiplier (higher =
           faster); the renderer translates it back to milliseconds.
         */}
-          <div class="qs-bloch-speed-control">
-            <label for="qs-bloch-speed-slider">Speed</label>
-            <input
-              id="qs-bloch-speed-slider"
-              type="range"
-              min="0.25"
-              max="4"
-              step="0.05"
-              value={speed}
-              onInput={speedChange}
-              aria-label="Animation speed"
-            />
-            <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
-          </div>
-          <div
-            ref={traceScrollRef}
-            style="overflow-y: auto; overflow-x: hidden; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
-          >
-            <div
-              class={
-                "qs-bloch-trace-item" +
-                (cursor === 0 ? " qs-bloch-trace-item-current" : "") +
-                (traceEntries.length === 0 ? " qs-bloch-trace-item-latest" : "")
-              }
-              title="Initial state |0⟩"
-              onClick={() => navigateTo(0)}
-            >
-              <Markdown markdown={INITIAL_KET_MARKDOWN}></Markdown>
+            <div class="qs-bloch-speed-control">
+              <label for="qs-bloch-speed-slider">Speed</label>
+              <input
+                id="qs-bloch-speed-slider"
+                type="range"
+                min="0.25"
+                max="4"
+                step="0.05"
+                value={speed}
+                onInput={speedChange}
+                aria-label="Animation speed"
+              />
+              <span class="qs-bloch-speed-readout">{speed.toFixed(2)}×</span>
             </div>
-            {traceRows}
+            <div
+              ref={traceScrollRef}
+              style="overflow-y: auto; overflow-x: hidden; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
+            >
+              <div
+                class={
+                  "qs-bloch-trace-item" +
+                  (cursor === 0 ? " qs-bloch-trace-item-current" : "") +
+                  (traceEntries.length === 0
+                    ? " qs-bloch-trace-item-latest"
+                    : "")
+                }
+                title="Initial state |0⟩"
+                onClick={() => navigateTo(0)}
+              >
+                <Markdown markdown={INITIAL_KET_MARKDOWN}></Markdown>
+              </div>
+              {traceRows}
+            </div>
           </div>
         </div>
       </div>
