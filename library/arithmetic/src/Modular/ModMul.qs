@@ -8,7 +8,6 @@ import Modular.ModAdd.ModAdd;
 import ResourceEstimation.LoopA;
 import Utils.RotateLeft;
 
-
 /// # Summary
 /// Computes `x := (2 * x) % modulus` in place.
 /// Requires an odd modulus satisfying `0 < modulus < 2^Length(x)`.

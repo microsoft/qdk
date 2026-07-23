@@ -18,9 +18,9 @@ import Std.Arithmetic.RippleCarryTTKIncByLE;
 /// ## output
 /// Output qubit to flip.
 ///
-/// # References
+/// # Reference
 /// - Michael A. Nielsen and Isaac L. Chuang,
-///   "Quantum Computation and Quantum Information" (Section 4.3, Fig. 4.10), 2010.
+///   "Quantum Computation and Quantum Information" (Section 4.3, Fig. 4.10).
 operation MultiControl(controlQubits : Qubit[], output : Qubit) : Unit is Adj + Ctl {
     body (...) {
         let nQubits = Length(controlQubits);

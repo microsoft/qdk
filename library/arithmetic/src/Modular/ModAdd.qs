@@ -45,7 +45,7 @@ operation _ModAddMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit {
 }
 
 // Computes (x, y) := x, ((x+y)%p).
-// See Roetteler et al. (2017), Fig. 3.
+// See https://arxiv.org/pdf/1706.06752, Fig. 3.
 operation _ModAddNoMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit is Ctl + Adj {
     body (...) {
         Controlled _ModAddNoMBU([], (x, y, modulus));
