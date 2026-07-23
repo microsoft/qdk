@@ -20,6 +20,7 @@ rust_fmt_ver = (1, 9, 0)  # Current version when Rust 1.95 shipped
 clippy_ver = (0, 1, 95)
 wasm_bindgen_ver = (0, 2, 114)
 binaryen_ver = 123
+psutil_ver = "7.2.2"
 
 platform_sys = platform.system().lower()  # 'windows', 'darwin', or 'linux'
 platform_arch = "arm64" if platform.machine().lower() in ["aarch64", "arm64"] else "x64"
@@ -181,6 +182,53 @@ def check_prereqs(install=False, skip_wasm=False):
 
     if not skip_wasm:
         wasm_checks(install, installed_rust_targets)
+
+
+def psutil_checks(install):
+    # NOTE: This check is intentionally not part of check_prereqs().
+    # psutil is currently required only for the qdk native-wheel perf-logging
+    # build path, not as a universal prereq for all build targets.
+    # The qdk path in build.py calls this helper explicitly (including
+    # --no-check-prereqs runs). If we ever want psutil as a global prereq,
+    # call this from check_prereqs() after team review.
+    ### Check psutil for build-time performance logging ###
+    required_psutil_ver = tuple(int(part) for part in psutil_ver.split("."))
+
+    try:
+        import psutil
+    except ImportError:
+        if install:
+            print("psutil not found. Attempting to install...")
+            subprocess.run(
+                [sys.executable, "-m", "pip", "install", f"psutil=={psutil_ver}"],
+                check=True,
+            )
+            import psutil
+        else:
+            print(
+                "psutil not found. Install via 'python ./prereqs.py --install'"
+                + f" or 'python -m pip install psutil=={psutil_ver}'."
+            )
+            exit(1)
+
+    version_match = re.search(r"(\d+)\.(\d+)\.(\d+)", psutil.__version__)
+    if version_match:
+        found_ver = tuple(int(g) for g in version_match.groups())
+        if found_ver < required_psutil_ver:
+            if install:
+                print("psutil is out of date. Attempting to update...")
+                subprocess.run(
+                    [sys.executable, "-m", "pip", "install", f"psutil=={psutil_ver}"],
+                    check=True,
+                )
+            else:
+                print(
+                    f"psutil v{psutil_ver} or later is required. "
+                    + "Please update or run 'python ./prereqs.py --install'."
+                )
+                exit(1)
+    else:
+        raise Exception("Unable to determine the psutil version")
 
 
 def wasm_checks(install, installed_rust_targets):
