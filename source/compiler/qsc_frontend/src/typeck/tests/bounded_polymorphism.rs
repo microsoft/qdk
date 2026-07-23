@@ -151,6 +151,7 @@ fn iter() {
                 for item in a {
                     return item;
                 }
+                false
             }
 
             function Main() : Unit {
@@ -162,21 +163,22 @@ fn iter() {
         &expect![[r##"
             #11 67-74 "(a: 'T)" : Param<"'T": 0>
             #12 68-73 "a: 'T" : Param<"'T": 0>
-            #19 82-180 "{\n                for item in a {\n                    return item;\n                }\n            }" : Bool
+            #19 82-202 "{\n                for item in a {\n                    return item;\n                }\n                false\n            }" : Bool
             #21 100-166 "for item in a {\n                    return item;\n                }" : Unit
             #22 104-108 "item" : Bool
             #24 112-113 "a" : Param<"'T": 0>
             #27 114-166 "{\n                    return item;\n                }" : Unit
             #29 136-147 "return item" : Unit
             #30 143-147 "item" : Bool
-            #36 207-209 "()" : Unit
-            #40 217-269 "{\n                let x = Foo([true]);\n            }" : Unit
-            #42 239-240 "x" : Bool
-            #44 243-254 "Foo([true])" : Bool
-            #45 243-246 "Foo" : (Bool[] -> Bool)
-            #48 246-254 "([true])" : Bool[]
-            #49 247-253 "[true]" : Bool[]
-            #50 248-252 "true" : Bool
+            #34 183-188 "false" : Bool
+            #38 229-231 "()" : Unit
+            #42 239-291 "{\n                let x = Foo([true]);\n            }" : Unit
+            #44 261-262 "x" : Bool
+            #46 265-276 "Foo([true])" : Bool
+            #47 265-268 "Foo" : (Bool[] -> Bool)
+            #50 268-276 "([true])" : Bool[]
+            #51 269-275 "[true]" : Bool[]
+            #52 270-274 "true" : Bool
             Error(Type(Error(UnrecognizedClass { span: Span { lo: 112, hi: 113 }, name: "Iterable" })))
         "##]],
     );
