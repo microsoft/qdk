@@ -28,7 +28,7 @@ def test_window_modular_exp(target_size: int, exp_size: int, context: Context):
         x = random.randint(0, mod - 1)
         y = random.randint(0, 2**exp_size - 1)
         a = _random_coprime(mod, attempts=100)
-        op_name = "Modular.WindowModExp.WindowModularExp"
+        op_name = "ModExp.WindowModularExp"
         op = f"{op_name}(_,_,{a}L,{mod}L,{mul_w},{exp_w})"
         result = ArithmeticOpTester.run_op(op, [target_size, exp_size], [x, y], context)
         assert result == [(x * (a**y)) % mod, y]

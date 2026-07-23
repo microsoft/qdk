@@ -10,7 +10,7 @@ import Std.ResourceEstimation.RepeatEstimates;
 import Std.TableLookup.Select;
 
 import ClassicalMath.SafeMod;
-import Modular.ModAdd.ModAdd;
+import ModAdd.ModAdd;
 
 /// References:
 /// - Thomas Haener, Vadym Kliuchnikov, Martin Roetteler, Mathias Soeken,

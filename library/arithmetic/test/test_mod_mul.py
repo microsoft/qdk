@@ -11,7 +11,7 @@ def test_mod_double(context: Context):
         # The modulus is an odd number in the range [3, 2^n-1].
         modulus = random.randint(0, 2 ** (n - 1) - 2) * 2 + 3
         x = random.randint(0, modulus - 1)
-        op = f"Modular.ModMul.ModDouble(_,{modulus}L)"
+        op = f"ModMul.ModDouble(_,{modulus}L)"
         assert ArithmeticOpTester.run_unary_op(op, n, x, context) == (2 * x) % modulus
 
 
@@ -24,7 +24,7 @@ def test_mod_mul(context: Context):
         x = random.randint(0, modulus - 1)
         y = random.randint(0, modulus - 1)
         z = random.randint(0, modulus - 1)
-        op = f"Modular.ModMul.ModMul(_,_,_,{modulus}L)"
+        op = f"ModMul.ModMul(_,_,_,{modulus}L)"
         result = ArithmeticOpTester.run_op(op, [n, n, n], [x, y, z], context)
         assert result == [x, y, ((z << (n - 1)) + x * y) % modulus]
 
@@ -37,6 +37,6 @@ def test_mod_square(context: Context):
         modulus = random.randint(0, 2 ** (n - 1) - 2) * 2 + 3
         x = random.randint(0, modulus - 1)
         y = random.randint(0, modulus - 1)
-        op = f"Modular.ModMul.ModSquare(_,_,{modulus}L)"
+        op = f"ModMul.ModSquare(_,_,{modulus}L)"
         result = ArithmeticOpTester.run_op(op, [n, n], [x, y], context)
         assert result == [x, ((y << (n - 1)) + (x * x)) % modulus]

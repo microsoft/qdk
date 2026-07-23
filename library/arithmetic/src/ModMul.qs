@@ -4,7 +4,7 @@
 import Std.Diagnostics.Fact;
 
 import AddConst.AddConstant;
-import Modular.ModAdd.ModAdd;
+import ModAdd.ModAdd;
 import ResourceEstimation.LoopA;
 import Utils.RotateLeft;
 

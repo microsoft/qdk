@@ -16,7 +16,7 @@ def test_compress_garbage(context: Context) -> None:
                 return False
         return True
 
-    tester = ArithmeticOpTester("Modular.ModDiv.CompressGarbage", [6], context)
+    tester = ArithmeticOpTester("ModDiv.CompressGarbage", [6], context)
     for x in range(2**6):
         if _is_valid_input(x):
             result = tester.run([x])[0]
@@ -25,7 +25,7 @@ def test_compress_garbage(context: Context) -> None:
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
 def test_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
-    op = f"Modular.ModDiv.ModMul(_,_,{modulus}L)"
+    op = f"ModDiv.ModMul(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
     for _ in range(5):
         x = random.randint(1, modulus - 1)
@@ -36,7 +36,7 @@ def test_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
 def test_safe_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
-    op = f"Modular.ModDiv.SafeModMul(_,_,{modulus}L)"
+    op = f"ModDiv.SafeModMul(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
 
     # Special branch: x == 0 should leave y unchanged.
@@ -55,7 +55,7 @@ def test_safe_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
 def test_mod_div(num_bits: int, modulus: int, context: Context) -> None:
-    op = f"Modular.ModDiv.ModDiv(_,_,{modulus}L)"
+    op = f"ModDiv.ModDiv(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
     for _ in range(5):
         x = random.randint(1, modulus - 1)
@@ -66,7 +66,7 @@ def test_mod_div(num_bits: int, modulus: int, context: Context) -> None:
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
 def test_safe_mod_div(num_bits: int, modulus: int, context: Context) -> None:
-    op = f"Modular.ModDiv.SafeModDiv(_,_,{modulus}L)"
+    op = f"ModDiv.SafeModDiv(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
 
     # Special branch: x == 0 should leave y unchanged.
@@ -85,7 +85,7 @@ def test_safe_mod_div(num_bits: int, modulus: int, context: Context) -> None:
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
 def test_mod_inv(num_bits: int, modulus: int, context: Context) -> None:
-    op = f"Modular.ModDiv.ModInv(_,_,{modulus}L)"
+    op = f"ModDiv.ModInv(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
     for _ in range(5):
         x = random.randint(1, modulus - 1)
