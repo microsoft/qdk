@@ -2,6 +2,8 @@
 // Licensed under the MIT License.
 
 import { log } from "qsharp-lang";
+import type { PythonEnvironmentApi } from "@vscode/python-environments";
+import { PythonEnvironments } from "@vscode/python-environments";
 import * as vscode from "vscode";
 import { LEARNING_VENV_DIR } from "../constants.js";
 
@@ -24,6 +26,8 @@ export class EnvironmentManager {
   private readonly controllers = new Map<string, vscode.NotebookController>();
   /** Cached result of probing for `uv` on the PATH. */
   private _uvAvailable: boolean | undefined;
+  /** Cached Python Environments extension API (only set on success). */
+  private _pythonEnvApi: PythonEnvironmentApi | undefined;
 
   dispose(): void {
     for (const controller of this.controllers.values()) {
@@ -391,54 +395,34 @@ export class EnvironmentManager {
   // ─── Private: swappable OS interaction ───
 
   /**
-   * The Python extension's stable `environments` API, or `undefined` when
-   * the extension is unavailable. Only the documented, non-proposed members
-   * are typed here.
+   * The Python Environments extension API, or `undefined` when the
+   * extension is unavailable. A successful lookup is cached; failures
+   * are retried so the extension can be installed mid-session.
    */
   private async pythonEnvironmentsApi(): Promise<
-    // TODO (acasey): consider naming this type
-    | {
-        getActiveEnvironmentPath?: (resource?: vscode.Uri) => {
-          path?: string;
-        };
-        updateActiveEnvironmentPath?: (
-          environment: string,
-          resource?: vscode.Uri,
-        ) => Thenable<void>;
-      }
-    | undefined
+    PythonEnvironmentApi | undefined
   > {
-    const ext = vscode.extensions.getExtension("ms-python.python");
-    if (!ext) {
-      return undefined;
+    if (this._pythonEnvApi) {
+      return this._pythonEnvApi;
     }
     try {
-      const api = (await ext.activate()) as {
-        environments?: {
-          getActiveEnvironmentPath?: (resource?: vscode.Uri) => {
-            path?: string;
-          };
-          updateActiveEnvironmentPath?: (
-            environment: string,
-            resource?: vscode.Uri,
-          ) => Thenable<void>;
-        };
-      };
-      return api.environments;
+      this._pythonEnvApi = await PythonEnvironments.api();
     } catch (e) {
-      log.warn(`Could not query the Python extension: ${String(e)}`);
-      return undefined;
+      log.warn(`Python Environments extension is not available: ${String(e)}`);
     }
+    return this._pythonEnvApi;
   }
 
   /** The Python extension's active interpreter path, if available. */
   private async activeInterpreterPath(): Promise<string | undefined> {
-    const environments = await this.pythonEnvironmentsApi();
-    return environments?.getActiveEnvironmentPath?.()?.path;
+    const api = await this.pythonEnvironmentsApi();
+    if (!api) return undefined;
+    const env = await api.getEnvironment(undefined);
+    return env?.execInfo.run.executable; // TODO (acasey): consume args?
   }
 
   /**
-   * Set the active interpreter for a resource via the stable Python
+   * Set the active interpreter for a resource via the Python Environments
    * extension API. The Jupyter extension uses this association to pick the
    * kernel for the notebook.
    */
@@ -446,12 +430,13 @@ export class EnvironmentManager {
     resource: vscode.Uri,
     pythonPath: string,
   ): Promise<void> {
-    const environments = await this.pythonEnvironmentsApi();
-    if (!environments?.updateActiveEnvironmentPath) {
-      return;
-    }
+    const api = await this.pythonEnvironmentsApi();
+    if (!api) return;
     try {
-      await environments.updateActiveEnvironmentPath(pythonPath, resource);
+      const env = await api.resolveEnvironment(vscode.Uri.file(pythonPath));
+      if (env) {
+        await api.setEnvironment(resource, env);
+      }
     } catch (e) {
       log.warn(`Could not set the active interpreter: ${String(e)}`);
     }
