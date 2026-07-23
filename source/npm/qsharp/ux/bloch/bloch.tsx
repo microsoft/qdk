@@ -1535,7 +1535,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
                 )}
                 <button
                   type="button"
-                  class="qs-bloch-trace-toggle qs-bloch-trace-toggle-expand"
+                  class="qs-bloch-trace-toggle"
                   onClick={() => setTraceCollapsed(false)}
                   title="Show trace panel"
                   aria-label="Show trace panel"

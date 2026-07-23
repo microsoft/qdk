@@ -530,6 +530,7 @@
   height: 26px;
   padding: 0 8px;
   font-size: 0.85em;
+  font-weight: bold;
   line-height: 1;
   /* Use the pane-body accent color, NOT --qdk-menu-fill: the title bar the
      collapse button sits in is itself --qdk-menu-fill, so a menu-fill button
@@ -553,11 +554,6 @@
 .qs-bloch-trace-toggle-icon {
   font-size: 1.15em;
   opacity: 0.8;
-}
-/* The expand toggle floated over the sphere is the primary way back to the
-   trace, so give it a touch more emphasis than the in-pane collapse button. */
-.qs-bloch-trace-toggle-expand {
-  font-weight: bold;
 }
 
 /* On narrow hosts (split editor, small Jupyter outputs) the side-by-side
