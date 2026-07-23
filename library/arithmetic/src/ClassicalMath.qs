@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Classical mathematical functions, used in arithmetic algorithms.
+/// Classical mathematical functions used in arithmetic algorithms.
 
 import Std.Math.Log;
 import Std.Math.LogOf2;

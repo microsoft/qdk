@@ -71,7 +71,7 @@ operation CompareRippleCarry(x : Qubit[], y : Qubit[], result : Qubit) : Unit is
     adjoint self;
 }
 
-// Flips `result` iff x > y.
+/// Flips `result` iff x > y.
 operation CompareGT(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ctl {
     if (Std.Core.ConfigValue("minimize_qubits", true)) {
         CompareCuccaro(x, y, result);
@@ -80,24 +80,24 @@ operation CompareGT(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ct
     }
 }
 
-// Flips `result` iff x < y.
+/// Flips `result` iff x < y.
 operation CompareLT(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ctl {
     CompareGT(y, x, result);
 }
 
-// Flips `result` iff x <= y.
+/// Flips `result` iff x <= y.
 operation CompareLE(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ctl {
     CompareGT(x, y, result);
     X(result);
 }
 
-// Flips `result` iff x >= y.
+/// Flips `result` iff x >= y.
 operation CompareGE(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ctl {
     CompareGT(y, x, result);
     X(result);
 }
 
-// Flips `result` iff x == y.
+/// Flips `result` iff x == y.
 operation CompareEQ(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ctl {
     within {
         ParallelCNOT(x, y);

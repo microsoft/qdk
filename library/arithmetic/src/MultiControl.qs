@@ -5,7 +5,6 @@ import Std.Diagnostics.Fact;
 import Std.Arithmetic.RippleCarryCGAddLE;
 import Std.Arithmetic.RippleCarryTTKIncByLE;
 
-
 /// # Summary
 /// Flips the output qubit if and only if all the input qubits are 1.
 ///

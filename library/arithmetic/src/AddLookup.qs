@@ -12,14 +12,14 @@ import Std.TableLookup.Select;
 import ClassicalMath.SafeMod;
 import Modular.ModAdd.ModAdd;
 
-// References:
-// - Thomas Haener, Vadym Kliuchnikov, Martin Roetteler, Mathias Soeken,
-//   "Space-time optimized table lookup", 2022.
-//   https://arxiv.org/abs/2211.01133
-// - Dominic W. Berry, Craig Gidney, Mario Motta, Jarrod R. McClean, Ryan Babbush,
-//   "Qubitization of Arbitrary Basis Quantum Chemistry Leveraging Sparsity and
-//   Low Rank Factorization" (Appendix C), 2019.
-//   https://arxiv.org/abs/1902.02134
+/// References:
+/// - Thomas Haener, Vadym Kliuchnikov, Martin Roetteler, Mathias Soeken,
+///   "Space-time optimized table lookup", 2022.
+///   https://arxiv.org/abs/2211.01133
+/// - Dominic W. Berry, Craig Gidney, Mario Motta, Jarrod R. McClean, Ryan Babbush,
+///   "Qubitization of Arbitrary Basis Quantum Chemistry Leveraging Sparsity and
+///   Low Rank Factorization" (Appendix C), 2019.
+///   https://arxiv.org/abs/1902.02134
 
 function _CombineTables(tables : BigInt[][], num_bits : Int, modulus : BigInt) : BigInt[] {
     mutable combined = Mapped(x -> SafeMod(x, modulus), tables[0]);
