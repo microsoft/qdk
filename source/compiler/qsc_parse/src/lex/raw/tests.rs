@@ -1103,6 +1103,97 @@ fn nested_interpolated_string_followed_by_braces() {
 }
 
 #[test]
+fn nested_interpolated_string_with_block() {
+    check(
+        r#"$"{ $"{ {x} }" }""#,
+        &expect![[r#"
+            [
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 0,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 3,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 4,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 7,
+                },
+                Token {
+                    kind: Single(
+                        Open(
+                            Brace,
+                        ),
+                    ),
+                    offset: 8,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 9,
+                },
+                Token {
+                    kind: Single(
+                        Close(
+                            Brace,
+                        ),
+                    ),
+                    offset: 10,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 11,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            RBrace,
+                            Some(
+                                Quote,
+                            ),
+                        ),
+                    ),
+                    offset: 12,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 14,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            RBrace,
+                            Some(
+                                Quote,
+                            ),
+                        ),
+                    ),
+                    offset: 15,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn binary() {
     check(
         "0b10110",
