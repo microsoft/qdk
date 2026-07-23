@@ -11,9 +11,10 @@ use std::{
 use qdk_openqasm::{analyze_source, parse_source, semantic::lower_parse_result};
 
 #[path = "../../benches/corpus.rs"]
+#[allow(dead_code)]
 mod corpus;
 
-use corpus::{Corpus, broadcast_gate, flat_gate, include_heavy};
+use corpus::{Corpus, ExactSize, broadcast_gate, exact_size, flat_gate, include_heavy};
 
 struct AllocationCounter<A: GlobalAlloc> {
     allocator: A,
@@ -125,8 +126,10 @@ struct MemoryStats {
 #[derive(Clone, Copy)]
 enum Stage {
     Parse,
+    ParseExact,
     SemanticLower,
     Analyze,
+    AnalyzeExact,
     SemanticLowerBroadcast,
     AnalyzeBroadcast,
     AnalyzeBroadcastRetained,
@@ -169,18 +172,30 @@ fn try_main() -> Result<(), String> {
         return Err("iteration count must be greater than zero".into());
     }
 
-    let corpus = stage.corpus();
+    let exact_size = if matches!(stage, Stage::ParseExact | Stage::AnalyzeExact) {
+        let label = args
+            .next()
+            .ok_or_else(|| "exact stages require a size label".to_string())?;
+        Some(parse_exact_size(&label)?)
+    } else {
+        None
+    };
+    let corpus = stage.corpus(exact_size)?;
 
     ALLOCATOR.reset();
-    let mut retained_results = Vec::new();
+    let mut retained_parse_results = Vec::new();
+    let mut retained_analysis_results = Vec::new();
     for _ in 0..iterations {
-        if matches!(stage, Stage::AnalyzeBroadcastRetained) {
-            retained_results.push(analyze(&corpus)?);
-        } else {
-            run_stage(stage, &corpus)?;
+        match stage {
+            Stage::ParseExact => retained_parse_results.push(parse(&corpus)?),
+            Stage::AnalyzeExact | Stage::AnalyzeBroadcastRetained => {
+                retained_analysis_results.push(analyze(&corpus)?);
+            }
+            _ => run_stage(stage, &corpus)?,
         }
     }
-    std::hint::black_box(&retained_results);
+    std::hint::black_box(&retained_parse_results);
+    std::hint::black_box(&retained_analysis_results);
     let stats = ALLOCATOR.snapshot();
     print_stats(stage.name(), &corpus, iterations, stats);
     Ok(())
@@ -189,8 +204,10 @@ fn try_main() -> Result<(), String> {
 fn parse_stage(stage: &str) -> Result<Stage, String> {
     match stage {
         "parse" => Ok(Stage::Parse),
+        "parse-exact" => Ok(Stage::ParseExact),
         "semantic-lower" => Ok(Stage::SemanticLower),
         "analyze" => Ok(Stage::Analyze),
+        "analyze-exact" => Ok(Stage::AnalyzeExact),
         "semantic-lower-broadcast" => Ok(Stage::SemanticLowerBroadcast),
         "analyze-broadcast" => Ok(Stage::AnalyzeBroadcast),
         "analyze-broadcast-retained" => Ok(Stage::AnalyzeBroadcastRetained),
@@ -198,17 +215,28 @@ fn parse_stage(stage: &str) -> Result<Stage, String> {
         "semantic-lower-include" => Ok(Stage::SemanticLowerInclude),
         "analyze-include" => Ok(Stage::AnalyzeInclude),
         _ => Err(format!(
-            "unknown stage '{stage}'. expected parse, semantic-lower, analyze, semantic-lower-broadcast, analyze-broadcast, analyze-broadcast-retained, parse-include, semantic-lower-include, or analyze-include"
+            "unknown stage '{stage}'. expected parse, parse-exact, semantic-lower, analyze, analyze-exact, semantic-lower-broadcast, analyze-broadcast, analyze-broadcast-retained, parse-include, semantic-lower-include, or analyze-include"
         )),
     }
+}
+
+fn parse_exact_size(label: &str) -> Result<ExactSize, String> {
+    ExactSize::ALL
+        .into_iter()
+        .find(|size| size.label() == label)
+        .ok_or_else(|| {
+            format!("unknown exact size '{label}'. expected 10KiB, 100KiB, 1MiB, 5MiB, or 10MiB")
+        })
 }
 
 impl Stage {
     const fn name(self) -> &'static str {
         match self {
             Self::Parse => "parse",
+            Self::ParseExact => "parse-exact",
             Self::SemanticLower => "semantic-lower",
             Self::Analyze => "analyze",
+            Self::AnalyzeExact => "analyze-exact",
             Self::SemanticLowerBroadcast => "semantic-lower-broadcast",
             Self::AnalyzeBroadcast => "analyze-broadcast",
             Self::AnalyzeBroadcastRetained => "analyze-broadcast-retained",
@@ -218,8 +246,11 @@ impl Stage {
         }
     }
 
-    fn corpus(self) -> Corpus {
-        match self {
+    fn corpus(self, exact_size_label: Option<ExactSize>) -> Result<Corpus, String> {
+        let corpus = match self {
+            Self::ParseExact | Self::AnalyzeExact => exact_size(
+                exact_size_label.ok_or_else(|| "exact stages require a size label".to_string())?,
+            ),
             Self::SemanticLowerBroadcast
             | Self::AnalyzeBroadcast
             | Self::AnalyzeBroadcastRetained => broadcast_gate(256, 32),
@@ -227,7 +258,8 @@ impl Stage {
                 include_heavy(64, 8)
             }
             Self::Parse | Self::SemanticLower | Self::Analyze => flat_gate(1_024),
-        }
+        };
+        Ok(corpus)
     }
 }
 
@@ -240,12 +272,13 @@ fn run_stage(stage: Stage, corpus: &Corpus) -> Result<(), String> {
             std::hint::black_box(result);
         }
         Stage::Analyze
+        | Stage::AnalyzeExact
         | Stage::AnalyzeBroadcast
         | Stage::AnalyzeBroadcastRetained
         | Stage::AnalyzeInclude => {
             analyze(corpus)?;
         }
-        Stage::Parse | Stage::ParseInclude => {
+        Stage::Parse | Stage::ParseExact | Stage::ParseInclude => {
             parse(corpus)?;
         }
     }
@@ -305,6 +338,7 @@ fn ensure_semantic_success(
 fn print_stats(stage: &str, corpus: &Corpus, iterations: usize, stats: MemoryStats) {
     println!("stage: {stage}");
     println!("corpus: {}", corpus.name);
+    println!("source_bytes: {}", corpus.source_bytes());
     println!("statements: {}", corpus.statement_count);
     println!("iterations: {iterations}");
     println!("peak_bytes: {}", stats.peak_bytes);

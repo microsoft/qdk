@@ -3,14 +3,17 @@
 
 use std::hint::black_box;
 
-use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
+use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use qdk_openqasm::{
     analyze_source, parse_source, semantic::lower_parse_result, tokens::tokenize, unparse::unparse,
 };
 
+#[allow(dead_code, unused_imports)]
 mod corpus;
 
-use corpus::{Corpus, broadcast_gate, directive_heavy, flat_gate, include_heavy};
+use corpus::{
+    Corpus, ExactSize, broadcast_gate, directive_heavy, exact_size, flat_gate, include_heavy,
+};
 
 fn assert_parse_success(corpus: &Corpus, result: &qdk_openqasm::parser::ParseResult) {
     assert!(
@@ -110,5 +113,29 @@ pub fn qasm_pipeline(c: &mut Criterion) {
     }
 }
 
-criterion_group!(benches, qasm_pipeline);
+pub fn exact_size_pipeline(c: &mut Criterion) {
+    let mut group = c.benchmark_group("exact_size");
+
+    for size in ExactSize::ALL {
+        let corpus = exact_size(size);
+        group.throughput(Throughput::Bytes(
+            corpus.source_bytes().try_into().unwrap_or(u64::MAX),
+        ));
+
+        group.bench_with_input(
+            BenchmarkId::new("parse_source", size.label()),
+            &corpus,
+            |b, corpus| b.iter(|| black_box(parse(black_box(corpus)))),
+        );
+        group.bench_with_input(
+            BenchmarkId::new("analyze_source", size.label()),
+            &corpus,
+            |b, corpus| b.iter(|| black_box(analyze(black_box(corpus)))),
+        );
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, qasm_pipeline, exact_size_pipeline);
 criterion_main!(benches);

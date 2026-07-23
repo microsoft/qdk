@@ -5,6 +5,60 @@ use std::{fmt::Write as _, sync::Arc};
 
 use qdk_openqasm::io::InMemorySourceResolver;
 
+const EXACT_SIZE_HEADER: &str = "OPENQASM 3.0;\nqubit[32] q;\nbit[32] c;\n";
+
+#[derive(Clone, Copy, Debug)]
+pub enum ExactSize {
+    KiB10,
+    KiB100,
+    MiB1,
+    MiB5,
+    MiB10,
+}
+
+impl ExactSize {
+    pub const ALL: [Self; 5] = [
+        Self::KiB10,
+        Self::KiB100,
+        Self::MiB1,
+        Self::MiB5,
+        Self::MiB10,
+    ];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::KiB10 => "10KiB",
+            Self::KiB100 => "100KiB",
+            Self::MiB1 => "1MiB",
+            Self::MiB5 => "5MiB",
+            Self::MiB10 => "10MiB",
+        }
+    }
+
+    #[must_use]
+    pub const fn bytes(self) -> usize {
+        match self {
+            Self::KiB10 => 10 * 1024,
+            Self::KiB100 => 100 * 1024,
+            Self::MiB1 => 1024 * 1024,
+            Self::MiB5 => 5 * 1024 * 1024,
+            Self::MiB10 => 10 * 1024 * 1024,
+        }
+    }
+
+    #[must_use]
+    pub const fn statement_count(self) -> usize {
+        match self {
+            Self::KiB10 => 437,
+            Self::KiB100 => 4_358,
+            Self::MiB1 => 44_620,
+            Self::MiB5 => 223_103,
+            Self::MiB10 => 446_203,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Corpus {
     pub name: &'static str,
@@ -18,6 +72,48 @@ impl Corpus {
     #[must_use]
     pub fn resolver(&self) -> InMemorySourceResolver {
         self.includes.iter().cloned().collect()
+    }
+
+    #[must_use]
+    pub fn source_bytes(&self) -> usize {
+        self.source.len()
+    }
+}
+
+#[must_use]
+pub fn exact_size(size: ExactSize) -> Corpus {
+    let target_bytes = size.bytes();
+    let mut source = String::with_capacity(target_bytes);
+    source.push_str(EXACT_SIZE_HEADER);
+    let mut statement_count = 2;
+    let mut cycle_index = 0;
+
+    loop {
+        let qubit = cycle_index % 32;
+        let other = (qubit + 1) % 32;
+        let statements = [
+            format!("U(pi / 4, 0, pi) q[{qubit}];\n"),
+            format!("ctrl @ U(pi / 2, 0, pi) q[{qubit}], q[{other}];\n"),
+            format!("barrier q[{qubit}], q[{other}];\n"),
+            format!("c[{qubit}] = measure q[{qubit}];\n"),
+            format!("reset q[{qubit}];\n"),
+        ];
+
+        for statement in statements {
+            if source.len() + statement.len() > target_bytes {
+                source.extend(std::iter::repeat_n(' ', target_bytes - source.len()));
+                return Corpus {
+                    name: size.label(),
+                    source: Arc::from(source),
+                    path: Arc::from("exact_size.qasm"),
+                    statement_count,
+                    includes: Vec::new(),
+                };
+            }
+            source.push_str(&statement);
+            statement_count += 1;
+        }
+        cycle_index += 1;
     }
 }
 
@@ -128,5 +224,67 @@ pub fn directive_heavy(repetitions: usize) -> Corpus {
         path: Arc::from("directive_heavy.qasm"),
         statement_count: 1 + (2 * repetitions),
         includes: Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use qdk_openqasm::{analyze_source, parse_source};
+
+    #[test]
+    fn exact_size_corpora_have_expected_lengths_and_parse_successfully() {
+        for size in ExactSize::ALL {
+            let corpus = exact_size(size);
+            assert_eq!(
+                corpus.source_bytes(),
+                size.bytes(),
+                "{} length",
+                size.label()
+            );
+            assert_eq!(
+                corpus.statement_count,
+                size.statement_count(),
+                "{} statement count",
+                size.label()
+            );
+
+            let mut resolver = corpus.resolver();
+            let parse_result = parse_source(
+                corpus.source.clone(),
+                corpus.path.clone(),
+                Some(&mut resolver),
+            );
+            assert!(
+                !parse_result.has_errors(),
+                "{} syntax parse produced {} errors",
+                size.label(),
+                parse_result.all_errors().len()
+            );
+            assert_eq!(
+                parse_result
+                    .source
+                    .program()
+                    .expect("successful exact-size parse should retain its program")
+                    .statements
+                    .len(),
+                size.statement_count(),
+                "{} parsed statement count",
+                size.label()
+            );
+
+            let mut resolver = corpus.resolver();
+            let analysis_result = analyze_source(
+                corpus.source.clone(),
+                corpus.path.clone(),
+                Some(&mut resolver),
+            );
+            assert!(
+                !analysis_result.has_errors(),
+                "{} semantic analysis produced {} errors",
+                size.label(),
+                analysis_result.all_errors().len()
+            );
+        }
     }
 }
