@@ -35,10 +35,11 @@ namespace Kata.Verification {
                 return false;
             }
 
-            Message($"Correct.");
             ResetAll([qAlice1, qAlice2, qBob1, qBob2]);
-            return true;
         }
+
+        Message("Correct.");
+        return true;
     }
 
     @EntryPoint()
