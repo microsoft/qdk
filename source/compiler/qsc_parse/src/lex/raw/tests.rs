@@ -304,6 +304,316 @@ fn interpolated_string_braced() {
 }
 
 #[test]
+fn interpolated_string_block() {
+    check(
+        r#"$"{ {x} }""#,
+        &expect![[r#"
+            [
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 0,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 3,
+                },
+                Token {
+                    kind: Single(
+                        Open(
+                            Brace,
+                        ),
+                    ),
+                    offset: 4,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 5,
+                },
+                Token {
+                    kind: Single(
+                        Close(
+                            Brace,
+                        ),
+                    ),
+                    offset: 6,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 7,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            RBrace,
+                            Some(
+                                Quote,
+                            ),
+                        ),
+                    ),
+                    offset: 8,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn interpolated_string_nested_block() {
+    check(
+        r#"$"{ { {x} } }""#,
+        &expect![[r#"
+            [
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 0,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 3,
+                },
+                Token {
+                    kind: Single(
+                        Open(
+                            Brace,
+                        ),
+                    ),
+                    offset: 4,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 5,
+                },
+                Token {
+                    kind: Single(
+                        Open(
+                            Brace,
+                        ),
+                    ),
+                    offset: 6,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 7,
+                },
+                Token {
+                    kind: Single(
+                        Close(
+                            Brace,
+                        ),
+                    ),
+                    offset: 8,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 9,
+                },
+                Token {
+                    kind: Single(
+                        Close(
+                            Brace,
+                        ),
+                    ),
+                    offset: 10,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 11,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            RBrace,
+                            Some(
+                                Quote,
+                            ),
+                        ),
+                    ),
+                    offset: 12,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn interpolated_string_for_loop() {
+    check(
+        r#"$"{for i in 1..3 {}}""#,
+        &expect![[r#"
+            [
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 0,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 3,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 6,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 7,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 8,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 9,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 11,
+                },
+                Token {
+                    kind: Number(
+                        Int(
+                            Decimal,
+                        ),
+                    ),
+                    offset: 12,
+                },
+                Token {
+                    kind: Single(
+                        Dot,
+                    ),
+                    offset: 13,
+                },
+                Token {
+                    kind: Single(
+                        Dot,
+                    ),
+                    offset: 14,
+                },
+                Token {
+                    kind: Number(
+                        Int(
+                            Decimal,
+                        ),
+                    ),
+                    offset: 15,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 16,
+                },
+                Token {
+                    kind: Single(
+                        Open(
+                            Brace,
+                        ),
+                    ),
+                    offset: 17,
+                },
+                Token {
+                    kind: Single(
+                        Close(
+                            Brace,
+                        ),
+                    ),
+                    offset: 18,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            RBrace,
+                            Some(
+                                Quote,
+                            ),
+                        ),
+                    ),
+                    offset: 19,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn interpolated_string_unclosed_block() {
+    check(
+        r#"$"{ {x }""#,
+        &expect![[r#"
+            [
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 0,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 3,
+                },
+                Token {
+                    kind: Single(
+                        Open(
+                            Brace,
+                        ),
+                    ),
+                    offset: 4,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 5,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 6,
+                },
+                Token {
+                    kind: Single(
+                        Close(
+                            Brace,
+                        ),
+                    ),
+                    offset: 7,
+                },
+                Token {
+                    kind: String(
+                        Normal {
+                            terminated: false,
+                        },
+                    ),
+                    offset: 8,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn interpolated_string_escape_brace() {
     check(
         r#"$"\{""#,
@@ -786,6 +1096,97 @@ fn nested_interpolated_string_followed_by_braces() {
                         ),
                     ),
                     offset: 14,
+                },
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn nested_interpolated_string_with_block() {
+    check(
+        r#"$"{ $"{ {x} }" }""#,
+        &expect![[r#"
+            [
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 0,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 3,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            DollarQuote,
+                            Some(
+                                LBrace,
+                            ),
+                        ),
+                    ),
+                    offset: 4,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 7,
+                },
+                Token {
+                    kind: Single(
+                        Open(
+                            Brace,
+                        ),
+                    ),
+                    offset: 8,
+                },
+                Token {
+                    kind: Ident,
+                    offset: 9,
+                },
+                Token {
+                    kind: Single(
+                        Close(
+                            Brace,
+                        ),
+                    ),
+                    offset: 10,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 11,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            RBrace,
+                            Some(
+                                Quote,
+                            ),
+                        ),
+                    ),
+                    offset: 12,
+                },
+                Token {
+                    kind: Whitespace,
+                    offset: 14,
+                },
+                Token {
+                    kind: String(
+                        Interpolated(
+                            RBrace,
+                            Some(
+                                Quote,
+                            ),
+                        ),
+                    ),
+                    offset: 15,
                 },
             ]
         "#]],
