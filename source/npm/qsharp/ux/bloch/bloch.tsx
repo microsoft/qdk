@@ -369,13 +369,11 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     return () => unschedule(id);
   }, [renderLimit, traceEntries]);
 
-  // Measure the widest trace row and feed it back as an explicit column
-  // width (--qs-trace-width) so the wide equations don't clip or scroll.
-  // The rows are absolutely positioned (so they can't stretch the grid)
-  // and `white-space: nowrap`, so each row's scrollWidth is its intrinsic
-  // width and independent of the pane width -- a stable fixed point. We
-  // add the scrollbar gutter, round up, and only update on real change.
+  // Publish the trace pane width as --qs-trace-width, clamped between
+  // PANE_MIN_WIDTH and PANE_MAX_WIDTH. Beyond the max, the item list
+  // scrolls horizontally rather than the pane crowding the sphere.
   const PANE_MIN_WIDTH = 480;
+  const PANE_MAX_WIDTH = 480;
   useEffect(() => {
     const list = traceScrollRef.current;
     if (!list) return;
@@ -386,9 +384,9 @@ export function BlochSphere(props: BlochSphereProps = {}) {
       }
       const scrollbar = list.offsetWidth - list.clientWidth;
       // +2 for the pane's 1px left/right border.
-      const next = Math.max(
-        PANE_MIN_WIDTH,
-        Math.ceil(widestRow + scrollbar + 2),
+      const next = Math.min(
+        PANE_MAX_WIDTH,
+        Math.max(PANE_MIN_WIDTH, Math.ceil(widestRow + scrollbar + 2)),
       );
       setTraceContentWidth((prev) =>
         prev !== null && Math.abs(prev - next) <= 1 ? prev : next,
@@ -1674,7 +1672,7 @@ export function BlochSphere(props: BlochSphereProps = {}) {
             </div>
             <div
               ref={traceScrollRef}
-              style="overflow-y: auto; overflow-x: hidden; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
+              style="overflow-y: auto; overflow-x: auto; flex: 1; display: flex; flex-direction: column; align-items: stretch; min-height: 0;"
             >
               <div
                 class={

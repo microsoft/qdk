@@ -786,6 +786,12 @@
   padding: 4px 8px;
   cursor: pointer;
   border-bottom: 1px solid var(--qdk-widget-outline);
+  /* Grow to the row's intrinsic (equation) width when that exceeds the
+     pane, so the list scrolls horizontally and the row highlight spans
+     the whole equation rather than clipping at the pane edge. When the
+     equation is narrower, `align-items: stretch` on the list keeps the
+     row full pane width. */
+  min-width: max-content;
 }
 .qs-bloch-trace-item:hover {
   background: var(--qdk-menu-fill-hover);
