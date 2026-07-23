@@ -10,7 +10,10 @@
       "args": [
         "--profile=dev",
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
-        "${workspaceFolder}/samples/"
+        "${workspaceFolder}/source/vscode/test/suites/learning/test-workspace"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js"
       ]
     },
     {
