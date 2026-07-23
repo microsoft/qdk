@@ -8,8 +8,8 @@ import Add.Subtract;
 import AddConst.AddConstant;
 import Compare.CompareGT;
 
-// Modular addition: y = (x+y) % modulus.
-// Uses measurement-based uncomputation, which makes it non-adjointable.
+/// Modular addition: y = (x+y) % modulus.
+/// Uses measurement-based uncomputation, which makes it non-adjointable.
 operation _ModAddMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit {
     body (...) {
         Controlled _ModAddMBU([], (x, y, modulus));
@@ -44,8 +44,8 @@ operation _ModAddMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit {
     }
 }
 
-// Computes (x, y) := x, ((x+y)%p).
-// See https://arxiv.org/pdf/1706.06752, Fig. 3.
+/// Computes (x, y) := x, ((x+y)%p).
+/// See https://arxiv.org/pdf/1706.06752, Fig. 3.
 operation _ModAddNoMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit is Ctl + Adj {
     body (...) {
         Controlled _ModAddNoMBU([], (x, y, modulus));

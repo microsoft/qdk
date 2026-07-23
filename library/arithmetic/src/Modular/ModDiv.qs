@@ -53,19 +53,19 @@ function ActiveRegisterSize(n : Int, iterationIdx : Int) : Int {
     return Math.MinI(n, Math.Ceiling(regSizeApprox));
 }
 
-// Number of GCD iterations from Schrottenloher (2026), Section 3.1.
-//
-// The paper shows that the required number of iterations follows a normal
-// distribution with mean 1.413 and standard deviation 0.6*sqrt(n).
-// Choosing c_iter=2.4 corresponds to 4 standard deviations, so the probability of
-// error (not doing enough iterations) is 3e-5.
+/// Number of GCD iterations from Schrottenloher (2026), Section 3.1.
+///
+/// The paper shows that the required number of iterations follows a normal
+/// distribution with mean 1.413 and standard deviation 0.6*sqrt(n).
+/// Choosing c_iter=2.4 corresponds to 4 standard deviations, so the probability of
+/// error (not doing enough iterations) is 3e-5.
 function NumGcdIterations(n : Int) : Int {
     let cIter = 2.4;
     let estimate = 1.413 * IntAsDouble(n) + cIter * Math.Sqrt(IntAsDouble(n));
     return Math.MinI(2 * n, Math.Ceiling(estimate));
 }
 
-// Size of the garbage vector with compression.
+/// Size of the garbage vector with compression.
 function GarbageVectorSize(n : Int) : Int {
     let numIterations = DivCeil(NumGcdIterations(n), 3);
     return 5 * numIterations + 1;

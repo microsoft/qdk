@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Simple helpers used in various arithmetic circuits.
+/// Simple helpers used in various arithmetic circuits.
 
 import Std.Diagnostics.Fact;
 
