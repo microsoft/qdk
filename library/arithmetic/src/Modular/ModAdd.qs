@@ -8,22 +8,6 @@ import Add.Subtract;
 import AddConst.AddConstant;
 import Compare.CompareGT;
 
-// References:
-// - Yuval R. Sanders et al., "Compilation of Fault-Tolerant Quantum Heuristics
-//   for Combinatorial Optimization" (Fig. 18), 2020.
-//   https://doi.org/10.1103/PRXQuantum.1.020312
-// - Martin Roetteler, Michael Naehrig, Krysta M. Svore, Kristin Lauter,
-//   "Quantum resource estimates for computing elliptic curve discrete logarithms"
-//   (Fig. 3), 2017.
-//   https://arxiv.org/abs/1706.06752
-// - Alessandro Luongo, Antonio Michele Miti, Varun Narasimhachar,
-//   Adithya Sireesh, "Measurement-based uncomputation of quantum circuits for
-//   modular arithmetic", 2024.
-//   https://arxiv.org/abs/2407.20167
-
-
-
-
 // Modular addition: y = (x+y) % modulus.
 // Uses measurement-based uncomputation, which makes it non-adjointable.
 operation _ModAddMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit {
@@ -60,7 +44,6 @@ operation _ModAddMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit {
     }
 }
 
-
 // Computes (x, y) := x, ((x+y)%p).
 // See Roetteler et al. (2017), Fig. 3.
 operation _ModAddNoMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit is Ctl + Adj {
@@ -93,6 +76,14 @@ operation _ModAddNoMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit is Ctl
 ///
 /// Given registers `x` and `y` encoding integers with `0 <= x, y < modulus`,
 /// this operation computes `(x, y) -> (x, (x + y) mod modulus)`.
+///
+/// # References
+/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing 
+///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M. 
+///   Svore, Kristin Lauter. (Fig. 3).
+/// - [2](https://arxiv.org/abs/2407.20167) "Measurement-based uncomputation of quantum 
+///   circuits for modular arithmetic", Alessandro Luongo, Antonio Michele Miti, 
+///   Varun Narasimhachar, Adithya Sireesh.
 ///
 /// # Input
 /// ## x
