@@ -101,5 +101,4 @@ operation ModAdd(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit is Adj + Ctl
     }
 }
 
-
 export ModAdd;

@@ -91,6 +91,20 @@
       }
     },
     {
+      "name": "Arithmetic",
+      "description": "Quantum arithmetic algorithms",
+      "dependency": {
+        "github": {
+          "owner": "microsoft",
+          "repo": "qdk",
+          "refs": [
+            { "ref": "main", "notes": "nightly, unstable" }
+          ],
+          "path": "library/arithmetic"
+        }
+      }
+    },
+    {
       "name": "QuantumArithmetic",
       "description": "Quantum arithmetic algorithms",
       "dependency": {
