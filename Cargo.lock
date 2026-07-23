@@ -2414,6 +2414,7 @@ name = "qsls"
 version = "0.0.0"
 dependencies = [
  "async-trait",
+ "criterion",
  "expect-test",
  "futures",
  "futures-util",

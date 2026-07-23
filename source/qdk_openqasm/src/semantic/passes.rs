@@ -5,9 +5,9 @@ use crate::{
     semantic::{
         ast::{
             AliasDeclStmt, Block, BoxStmt, ClassicalDeclarationStmt, DefParameter, DefStmt,
-            DelayStmt, Expr, ExprKind, ExternDecl, ForStmt, GateCall, InputDeclaration,
-            OutputDeclaration, Program, QuantumGateDefinition, QubitArrayDeclaration,
-            QubitDeclaration, ResolvedFunctionCall,
+            DelayStmt, Expr, ExprKind, ExternDecl, ForStmt, GateCall, GateCallBroadcast,
+            InputDeclaration, OutputDeclaration, Program, QuantumGateDefinition,
+            QubitArrayDeclaration, QubitDeclaration, ResolvedFunctionCall,
         },
         symbols::{self, SymbolId},
         visit::{
@@ -421,7 +421,11 @@ impl Visitor for DurationAccumulator {
         if let Some(duration) = &stmt.duration
             && let Some(duration) = duration.get_const_duration()
         {
-            self.durations.push(duration);
+            let multiplier = i64::from(match stmt.broadcast {
+                GateCallBroadcast::Scalar => 1,
+                GateCallBroadcast::Broadcast { width } => width,
+            });
+            self.durations.push(duration * multiplier);
         }
         super::visit::walk_gate_call_stmt(self, stmt);
     }

@@ -402,6 +402,7 @@ qasm_node!(@sstmt QuantumMeasurementStatement {
     target: opt,
 });
 qasm_node!(@sstmt Pragma {
+    command: val String,
     name: val Option<String>,
     value: val Option<String>,
 });
@@ -843,9 +844,10 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             .into_any()
         }
         ast::StmtKind::Pragma(s) => {
+            let command = s.command.to_string();
             let name = s.identifier.as_ref().map(PathKind::as_string);
             let value = s.value.as_ref().map(ToString::to_string);
-            Py::new(py, Pragma::init(span, annotations, name, value))?.into_any()
+            Py::new(py, Pragma::init(span, annotations, command, name, value))?.into_any()
         }
         ast::StmtKind::QuantumGateDefinition(s) => {
             let name = build_identifier(py, &s.ident)?;

@@ -57,7 +57,7 @@
 //! def foo(int[|
 //! ```
 
-use super::WordKinds;
+use super::{CompletionContext, CompletionDirective, WordKinds};
 use crate::lex::{Token, TokenKind};
 use crate::span::Span;
 
@@ -65,6 +65,10 @@ pub(crate) struct ValidWordCollector {
     cursor_offset: u32,
     state: State,
     collected: WordKinds,
+    active_context: Option<CompletionContext>,
+    context: Option<CompletionContext>,
+    active_directive: Option<CompletionDirective>,
+    directive: Option<CompletionDirective>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -87,6 +91,10 @@ impl ValidWordCollector {
             cursor_offset,
             state: State::BeforeCursor,
             collected: WordKinds::empty(),
+            active_context: None,
+            context: None,
+            active_directive: None,
+            directive: None,
         }
     }
 
@@ -98,12 +106,38 @@ impl ValidWordCollector {
         }
     }
 
+    /// The parser is interpreting the cursor as a directive-specific position.
+    pub fn expect_context(&mut self, context: CompletionContext) {
+        self.active_context = Some(context);
+        if self.state == State::AtCursor {
+            self.context = Some(context);
+        }
+    }
+
+    pub fn expect_directive(&mut self, directive: CompletionDirective) {
+        self.active_directive = Some(directive.clone());
+        if self.state == State::AtCursor {
+            self.directive = Some(directive);
+        }
+    }
+
+    pub fn clear_context(&mut self) {
+        self.active_context = None;
+        self.active_directive = None;
+    }
+
+    pub fn cursor_offset(&self) -> u32 {
+        self.cursor_offset
+    }
+
     /// The parser has advanced. Update state.
     pub fn did_advance(&mut self, next_token: &mut Token, scanner_offset: u32) {
         match self.state {
             State::BeforeCursor => {
                 if cursor_at_token(self.cursor_offset, *next_token, scanner_offset) {
                     self.state = State::AtCursor;
+                    self.context = self.active_context;
+                    self.directive.clone_from(&self.active_directive);
                     // Set the next token to be EOF. This will trick the parser into
                     // attempting to parse the token over and over again,
                     // collecting `WordKinds` in the process.
@@ -123,8 +157,12 @@ impl ValidWordCollector {
     }
 
     /// Returns the collected valid words.
-    pub fn into_words(self) -> WordKinds {
-        self.collected
+    pub fn into_completion(self) -> super::Completion {
+        super::Completion {
+            words: self.collected,
+            context: self.context,
+            directive: self.directive,
+        }
     }
 }
 
@@ -166,6 +204,7 @@ fn cursor_at_token(cursor_offset: u32, next_token: Token, scanner_offset: u32) -
         | TokenKind::Keyword(_)
         | TokenKind::GPhase
         | TokenKind::DurationOf
+        | TokenKind::DirectiveEnd
         | TokenKind::Eof => {
             // next token is a word or eof, so count if cursor touches either side of the token
             scanner_offset <= cursor_offset && cursor_offset <= next_token.span.hi

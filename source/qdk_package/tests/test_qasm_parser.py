@@ -15,6 +15,7 @@ from qdk.openqasm.parser import (
     Expression,
     Identifier,
     IndexList,
+    Pragma,
     Program,
     QASMNode,
     QASMVisitor,
@@ -315,6 +316,24 @@ def test_parse_statement_spans_and_children() -> None:
         assert isinstance(statement.span, Span)
         assert statement.span.hi >= statement.span.lo
         assert isinstance(statement.children(), list)
+
+
+def test_pragma_exposes_authoritative_command_and_derived_views() -> None:
+    source = "OPENQASM 3.0;\npragma vendor.mode exact/*opaque*/  \nqubit q;"
+    result = parser.parse(source)
+
+    assert not result.has_errors
+    program = result.program
+    pragma = program.statements[0]
+    assert isinstance(pragma, Pragma)
+    assert pragma.command == "vendor.mode exact/*opaque*/  "
+    assert pragma.name == "vendor.mode"
+    assert pragma.value == "exact/*opaque*/  "
+    assert pragma.children() == []
+    assert program.children()[0] is pragma
+    assert not hasattr(program, "pragmas")
+    with pytest.raises(AttributeError):
+        pragma.command = "changed"  # type: ignore[misc]
 
 
 def test_semantic_gate_modifiers_preserve_kind_and_argument() -> None:

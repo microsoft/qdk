@@ -31,6 +31,15 @@ from qdk.openqasm import (
 )
 import qdk.code as code
 
+_BROADCAST_SOURCE = """
+    OPENQASM 3.0;
+    include "stdgates.inc";
+    qubit[3] q;
+    x q;
+    output bit[3] results;
+    results = measure q;
+"""
+
 # Run
 
 
@@ -186,6 +195,12 @@ def test_postselectz_not_present_without_qdk_inc() -> None:
 def test_run_with_result(capsys) -> None:
     results = run("output bit c;", 3)
     assert results == [Result.Zero, Result.Zero, Result.Zero]
+
+
+def test_broadcast_run_preserves_operation_multiplicity() -> None:
+    results = run(_BROADCAST_SOURCE, shots=2)
+
+    assert results == [[Result.One, Result.One, Result.One]] * 2
 
 
 # Import
@@ -355,6 +370,14 @@ def test_compile_qir_str() -> None:
     qir = str(compile("qubit q; output bit c; c = measure q;"))
     assert "define i64 @ENTRYPOINT__main()" in qir
     assert '"required_num_qubits"="1" "required_num_results"="1"' in qir
+
+
+def test_broadcast_compile_qir_preserves_operation_multiplicity() -> None:
+    qir = str(compile(_BROADCAST_SOURCE, target_profile=TargetProfile.Base))
+
+    assert qir.count("call void @__quantum__qis__x__body") == 3
+    assert qir.count("call void @__quantum__qis__m__body") == 3
+    assert '"required_num_qubits"="3" "required_num_results"="3"' in qir
 
 
 def test_compile_qir_str_with_single_arg_raises_error() -> None:
@@ -702,6 +725,26 @@ def test_circuit_from_program_static() -> None:
         """)
 
 
+@pytest.mark.parametrize(
+    "generation_method",
+    [
+        CircuitGenerationMethod.ClassicalEval,
+        CircuitGenerationMethod.Simulate,
+        CircuitGenerationMethod.Static,
+    ],
+)
+def test_broadcast_circuit_preserves_operation_multiplicity(
+    generation_method: CircuitGenerationMethod,
+) -> None:
+    init(target_profile=TargetProfile.Base)
+    generated = circuit(
+        'OPENQASM 3.0; include "stdgates.inc"; qubit[3] q; h q;',
+        generation_method=generation_method,
+    )
+
+    assert str(generated).count("H") == 3
+
+
 def test_circuit_from_callable() -> None:
     init()
     import_openqasm(
@@ -851,6 +894,24 @@ def test_qasm_estimation() -> None:
             "rotationDepth": 0,
             "cczCount": 0,
             "measurementCount": 10,
+        }
+    )
+
+
+def test_broadcast_estimation_preserves_operation_multiplicity() -> None:
+    result = estimate(
+        'OPENQASM 3.0; include "stdgates.inc"; qubit[3] q; t q; measure q;'
+    )
+
+    assert result["status"] == "success"
+    assert result.logical_counts == LogicalCounts(
+        {
+            "numQubits": 3,
+            "tCount": 3,
+            "rotationCount": 0,
+            "rotationDepth": 0,
+            "cczCount": 0,
+            "measurementCount": 3,
         }
     )
 

@@ -3,7 +3,10 @@
 
 use expect_test::expect;
 
-use crate::parser::tests::check;
+use crate::{
+    parser::{ast::StmtKind, scan::ParserContext, tests::check},
+    span::Span,
+};
 
 use crate::parser::stmt::parse;
 
@@ -63,7 +66,18 @@ fn pragma_decl_missing_ident() {
                 kind: Pragma [0-7]:
                     identifier: <none>
                     value: <none>
-                    value_span: <none>"#]],
+                    value_span: <none>
+
+            [
+                Error(
+                    EmptyPragma(
+                        Span {
+                            lo: 7,
+                            hi: 7,
+                        },
+                    ),
+                ),
+            ]"#]],
     );
 }
 
@@ -79,6 +93,36 @@ fn pragma_decl_incomplete_ident_is_value_only() {
                     identifier: <none>
                     value: "name rest of line content"
                     value_span: [7-32]"#]],
+    );
+}
+
+#[test]
+fn pragma_decl_value_only_at_nonzero_offset() {
+    check(
+        parse,
+        "    pragma 42",
+        &expect![[r#"
+            Stmt [4-13]:
+                annotations: <empty>
+                kind: Pragma [4-13]:
+                    identifier: <none>
+                    value: "42"
+                    value_span: [11-13]"#]],
+    );
+}
+
+#[test]
+fn pragma_decl_incomplete_ident_is_value_only_at_nonzero_offset() {
+    check(
+        parse,
+        "    pragma name rest of line content",
+        &expect![[r#"
+            Stmt [4-36]:
+                annotations: <empty>
+                kind: Pragma [4-36]:
+                    identifier: <none>
+                    value: "name rest of line content"
+                    value_span: [11-36]"#]],
     );
 }
 
@@ -154,7 +198,18 @@ fn legacy_pragma_decl_missing_ident() {
                 kind: Pragma [0-8]:
                     identifier: <none>
                     value: <none>
-                    value_span: <none>"#]],
+                    value_span: <none>
+
+            [
+                Error(
+                    EmptyPragma(
+                        Span {
+                            lo: 8,
+                            hi: 8,
+                        },
+                    ),
+                ),
+            ]"#]],
     );
 }
 
@@ -201,4 +256,66 @@ fn spec_example_3() {
                     value: "qpu 0.4"
                     value_span: [20-27]"#]],
     );
+}
+
+#[test]
+fn pragma_command_is_authoritative_and_lossless() {
+    let input = "#pragma qdk.box.open target/*opaque*/  ";
+    let mut context = ParserContext::new(input);
+    let statement = parse(&mut context).expect("pragma should parse");
+    assert!(context.into_errors().is_empty());
+    let StmtKind::Pragma(pragma) = statement.kind.as_ref() else {
+        panic!("expected pragma statement");
+    };
+
+    assert_eq!(pragma.command.as_ref(), "qdk.box.open target/*opaque*/  ");
+    assert_eq!(pragma.command_span, Span { lo: 8, hi: 39 });
+    assert_eq!(pragma.command().name, Some("qdk.box.open"));
+    assert_eq!(pragma.command().value, Some("target/*opaque*/  "));
+}
+
+#[test]
+fn pragma_physical_line_and_payload_matrix() {
+    for (input, command, command_span, statement_hi) in [
+        (
+            "pragma vendor.cmd payload\nbit x;",
+            "vendor.cmd payload",
+            Span { lo: 7, hi: 25 },
+            25,
+        ),
+        (
+            "pragma vendor.cmd payload\rbit x;",
+            "vendor.cmd payload",
+            Span { lo: 7, hi: 25 },
+            25,
+        ),
+        (
+            "pragma vendor.cmd payload\r\nbit x;",
+            "vendor.cmd payload",
+            Span { lo: 7, hi: 25 },
+            25,
+        ),
+        (
+            "pragma vendor.cmd //comment  ",
+            "vendor.cmd //comment  ",
+            Span { lo: 7, hi: 29 },
+            29,
+        ),
+        (
+            "pragma vendor.cmd πλ  ",
+            "vendor.cmd πλ  ",
+            Span { lo: 7, hi: 24 },
+            24,
+        ),
+    ] {
+        let mut context = ParserContext::new(input);
+        let statement = parse(&mut context).expect("pragma should parse");
+        assert!(context.into_errors().is_empty(), "source: {input:?}");
+        let StmtKind::Pragma(pragma) = statement.kind.as_ref() else {
+            panic!("expected pragma statement");
+        };
+        assert_eq!(pragma.command.as_ref(), command, "source: {input:?}");
+        assert_eq!(pragma.command_span, command_span, "source: {input:?}");
+        assert_eq!(statement.span.hi, statement_hi, "source: {input:?}");
+    }
 }

@@ -10,7 +10,7 @@ use qdk_openqasm::{
 
 mod corpus;
 
-use corpus::{Corpus, broadcast_gate, flat_gate, include_heavy};
+use corpus::{Corpus, broadcast_gate, directive_heavy, flat_gate, include_heavy};
 
 fn assert_parse_success(corpus: &Corpus, result: &qdk_openqasm::parser::ParseResult) {
     assert!(
@@ -104,6 +104,7 @@ pub fn qasm_pipeline(c: &mut Criterion) {
         flat_gate(1_024),
         broadcast_gate(256, 32),
         include_heavy(64, 8),
+        directive_heavy(1_024),
     ] {
         bench_corpus(c, &corpus);
     }

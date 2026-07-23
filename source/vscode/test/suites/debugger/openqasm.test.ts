@@ -20,6 +20,7 @@ suite("OpenQASM Debugger Tests", function suite() {
   const selfContainedName = "self-contained.qasm";
   const multifileName = "multifile.qasm";
   const multifileIncludeName = "imports.inc";
+  const broadcastName = "broadcast.qasm";
 
   const selfContainedUri = vscode.Uri.joinPath(
     workspaceFolder.uri,
@@ -33,11 +34,13 @@ suite("OpenQASM Debugger Tests", function suite() {
     multifileIncludeName,
   );
 
+  const broadcastUri = vscode.Uri.joinPath(workspaceFolder.uri, broadcastName);
+
   // Makes testing compatible with node and web environments
   const separator = workspaceFolder.uri.path.endsWith("/") ? "" : "/";
 
   let tracker: Tracker | undefined;
-  let disposable;
+  let disposable: { dispose(): void } = { dispose() {} };
 
   this.beforeAll(async () => {
     await activateExtension();
@@ -226,6 +229,40 @@ suite("OpenQASM Debugger Tests", function suite() {
         name: "program ",
         endLine: 6,
         endColumn: 8,
+      },
+      { id: 0, line: 0, column: 0, name: "entry", source: undefined },
+    ]);
+  });
+
+  test("Broadcast breakpoint retains source statement", async () => {
+    await vscode.debug.addBreakpoints([
+      new vscode.SourceBreakpoint(
+        new vscode.Location(broadcastUri, new vscode.Position(2, 0)),
+      ),
+    ]);
+
+    await vscode.debug.startDebugging(workspaceFolder, {
+      name: `Launch ${broadcastName}`,
+      type: "qsharp",
+      request: "launch",
+      program: `\${workspaceFolder}${separator}${broadcastName}`,
+      stopOnEntry: false,
+    });
+
+    await waitUntilPausedAndAssertStackTrace([
+      {
+        id: 0,
+        source: {
+          name: broadcastName,
+          path: broadcastUri.toString(),
+          sourceReference: 0,
+          adapterData: "qsharp-adapter-data",
+        },
+        line: 3,
+        column: 1,
+        name: "program ",
+        endLine: 3,
+        endColumn: 5,
       },
       { id: 0, line: 0, column: 0, name: "entry", source: undefined },
     ]);

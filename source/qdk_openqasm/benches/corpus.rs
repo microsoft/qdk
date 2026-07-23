@@ -109,3 +109,24 @@ pub fn include_heavy(include_count: usize, statements_per_include: usize) -> Cor
         includes,
     }
 }
+
+#[must_use]
+#[allow(dead_code)]
+pub fn directive_heavy(repetitions: usize) -> Corpus {
+    let mut source = String::new();
+    source.push_str("OPENQASM 3.0;\n");
+
+    for index in 0..repetitions {
+        let _ = writeln!(source, "pragma vendor.mode{index} opaque/*payload*/ π  ");
+        let _ = writeln!(source, "@vendor.note{index} //payload  ");
+        let _ = writeln!(source, "bit flag{index};");
+    }
+
+    Corpus {
+        name: "directive_heavy",
+        source: Arc::from(source),
+        path: Arc::from("directive_heavy.qasm"),
+        statement_count: 1 + (2 * repetitions),
+        includes: Vec::new(),
+    }
+}

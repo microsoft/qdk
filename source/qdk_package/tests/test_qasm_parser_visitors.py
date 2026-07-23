@@ -81,6 +81,7 @@ _REQUIRED_TYPES = {
     "IndexExpression",
     "IndexedIdentifier",
     "ParenExpression",
+    "Pragma",
     "FunctionCall",
     "Cast",
     "BranchingStatement",

@@ -81,6 +81,7 @@ _REQUIRED_TYPES = {
     "LiteralExpression",
     "IndexExpression",
     "ParenExpression",
+    "Pragma",
     "FunctionCall",
     "Cast",
     "BranchingStatement",
@@ -160,6 +161,23 @@ def test_every_semantic_visit_callback_dispatches() -> None:
     # And every present type does have a dedicated callback method.
     for name in present:
         assert hasattr(all_callbacks_visitor, f"visit_{name}")
+
+
+def test_broadcast_semantic_visitor_observes_each_projected_gate() -> None:
+    program = semantic.analyze(
+        'OPENQASM 3.0; include "stdgates.inc"; qubit[4] q; h q;'
+    ).program
+    visited: List[Any] = []
+
+    class GateVisitor(QASMVisitor):
+        def visit_QuantumGate(self, node: Any) -> None:
+            visited.append(node)
+            self.generic_visit(node)
+
+    GateVisitor().visit(program)
+
+    assert len(visited) == 4
+    assert [gate.qubits[0].indices[0].value for gate in visited] == [0, 1, 2, 3]
 
 
 def test_error_statement_callback_dispatches() -> None:

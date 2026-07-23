@@ -7,10 +7,9 @@ use std::str::FromStr;
 use qsc::openqasm::compiler::{
     PragmaKind, SUPPORTED_QDK_ANNOTATIONS, annotation_configures_profile, valid_box_pragma_targets,
 };
-use qsc::openqasm::parser::ast::PathKind;
-use qsc::openqasm::semantic::ast::{Annotation, Pragma};
+use qsc::openqasm::completion::word_kinds::NameKind;
+use qsc::openqasm::completion::{CompletionContext, CompletionDirective};
 use qsc::openqasm::semantic::symbols::SymbolTable;
-use qsc::openqasm::span::Span;
 use qsc::target::Profile;
 
 use crate::{
@@ -21,29 +20,37 @@ use crate::{
 
 use super::{Completion, Locals, into_completion_list};
 
+/// Gives parser-classified directive positions exclusive candidate sets so
+/// ordinary OpenQASM completions cannot leak into directive names or values.
 pub(super) fn completions(
     compilation: &Compilation,
     source_contents: &str,
     cursor_offset: u32,
 ) -> CompletionList {
-    // Pragmas and annotations are lexed as single whole-line tokens, so the generic word-kind
-    // collector cannot distinguish the name position from the value position within them.
-    // When the cursor is inside such a line, re-parse the source and use the resulting AST
-    // to offer precisely scoped completions. Pragma names are only offered inside a pragma, and
-    // annotation names are only offered after the `@` that begins an annotation.
-    //
-    // We should update the lexer to produce separate tokens for the directive keyword,
-    // name, and value, so that the generic word-kind collector can handle them without
-    // needing to re-parse the source in a follow-up.
-    if let Some(line_kind) = classify_pragma_or_annotation_line(source_contents, cursor_offset) {
-        let scoped = pragma_or_annotation_completions(source_contents, cursor_offset, line_kind);
+    let parser_completion =
+        qsc::openqasm::completion::completion_at_offset_in_source(source_contents, cursor_offset);
+
+    let directive_completions =
+        match parser_completion.context {
+            Some(CompletionContext::AnnotationName) => Some(annotation_name_completions()),
+            Some(CompletionContext::PragmaName) => Some(pragma_name_completions()),
+            Some(CompletionContext::DirectiveValue) => Some(directive_value_completions(
+                source_contents,
+                parser_completion.directive.as_ref(),
+            )),
+            None => incomplete_directive_context(source_contents, cursor_offset).map(|context| {
+                match context {
+                    CompletionContext::AnnotationName => annotation_name_completions(),
+                    CompletionContext::PragmaName => pragma_name_completions(),
+                    CompletionContext::DirectiveValue => Vec::new(),
+                }
+            }),
+        };
+    if let Some(scoped) = directive_completions {
         return into_completion_list(once(scoped));
     }
 
-    let expected_words_at_cursor = qsc::openqasm::completion::possible_words_at_offset_in_source(
-        source_contents,
-        cursor_offset,
-    );
+    let expected_words_at_cursor = parser_completion.words;
 
     // Now that we have the information from the parser about what kinds of
     // words are expected, gather the actual words (identifiers, keywords, etc) for each kind.
@@ -58,134 +65,59 @@ pub(super) fn completions(
     into_completion_list(once(hardcoded_completions).chain(name_completions))
 }
 
-/// The kind of directive line the cursor is on, used to scope completions to
-/// pragma names / annotation names / profile values.
-#[derive(Clone, Copy)]
-enum DirectiveLine {
-    Pragma,
-    Annotation,
-}
-
-/// Classifies the line the cursor is on as a pragma line, an annotation line,
-/// or neither. Pragma names are only relevant inside a `#pragma`/`pragma` line,
-/// and annotation names only after the `@` that begins an annotation, so this
-/// keeps those completions out of ordinary statement positions.
-fn classify_pragma_or_annotation_line(
+/// Preserves completion for editor prefixes too incomplete for parser context.
+/// The narrow boundary keeps the parser authoritative for all other input.
+fn incomplete_directive_context(
     source_contents: &str,
     cursor_offset: u32,
-) -> Option<DirectiveLine> {
+) -> Option<qsc::openqasm::completion::CompletionContext> {
     let offset = (cursor_offset as usize).min(source_contents.len());
     let line_start = source_contents[..offset]
-        .rfind('\n')
+        .rfind(['\r', '\n'])
         .map_or(0, |index| index + 1);
-    let line = source_contents[line_start..].trim_start();
+    let prefix = source_contents[line_start..offset].trim_start();
 
-    if line.starts_with('@') {
-        return Some(DirectiveLine::Annotation);
+    if prefix == "@" {
+        return Some(qsc::openqasm::completion::CompletionContext::AnnotationName);
     }
 
-    // Require a word boundary after the keyword so identifiers such as
-    // `pragmatic` are not mistaken for a pragma directive.
-    for keyword in ["#pragma", "pragma"] {
-        if let Some(rest) = line.strip_prefix(keyword)
-            && (rest.is_empty() || rest.starts_with(char::is_whitespace))
-        {
-            return Some(DirectiveLine::Pragma);
-        }
+    if !prefix.is_empty() && prefix.starts_with('#') && "#pragma".starts_with(prefix) {
+        return Some(qsc::openqasm::completion::CompletionContext::PragmaName);
     }
 
     None
 }
 
-/// Returns the completions scoped to the cursor's position inside a `#pragma`
-/// or `@annotation` line. Re-parses the source so the pragma/annotation AST
-/// node spans can be used to tell the name position from the value position.
-/// Falls back to offering names when no node is available yet.
-fn pragma_or_annotation_completions(
+/// Scopes value candidates to the enclosing directive so opaque or unsupported
+/// payloads do not receive unrelated suggestions.
+fn directive_value_completions(
     source_contents: &str,
-    cursor_offset: u32,
-    line_kind: DirectiveLine,
+    directive: Option<&CompletionDirective>,
 ) -> Vec<Completion> {
-    let res = qsc::openqasm::semantic::parse(source_contents, "<completions>");
-    let program = &res.program;
-
-    match line_kind {
-        DirectiveLine::Pragma => {
-            for pragma in &program.pragmas {
-                if span_contains(pragma.span, cursor_offset) {
-                    return pragma_completions(pragma, cursor_offset, &res.symbols);
-                }
-            }
-            pragma_name_completions()
+    match directive {
+        Some(CompletionDirective::Annotation(name)) if annotation_configures_profile(name) => {
+            profile_completions()
         }
-        DirectiveLine::Annotation => {
-            for stmt in &program.statements {
-                for annotation in &stmt.annotations {
-                    if span_contains(annotation.span, cursor_offset) {
-                        return annotation_completions(annotation, cursor_offset);
-                    }
-                }
+        Some(CompletionDirective::Pragma(name)) => match PragmaKind::from_str(name) {
+            Ok(PragmaKind::QdkQirProfile) => profile_completions(),
+            Ok(PragmaKind::QdkBoxOpen | PragmaKind::QdkBoxClose) => {
+                box_target_completions_from_source(source_contents)
             }
-            annotation_name_completions()
-        }
-    }
-}
-
-fn span_contains(span: Span, offset: u32) -> bool {
-    span.lo <= offset && offset <= span.hi
-}
-
-/// Completions for a position inside a `#pragma` line: the supported pragma
-/// names while the cursor is on the name, or value completions once the cursor
-/// is in the value position. The value completions are target profiles for a
-/// `qdk.qir.profile` pragma, or valid target function names for a
-/// `qdk.box.open`/`qdk.box.close` pragma.
-fn pragma_completions(
-    pragma: &Pragma,
-    cursor_offset: u32,
-    symbols: &SymbolTable,
-) -> Vec<Completion> {
-    let in_name_position = match pragma.identifier.as_ref().and_then(PathKind::span) {
-        Some(span) => cursor_offset <= span.hi,
-        None => true,
-    };
-
-    if in_name_position {
-        return pragma_name_completions();
-    }
-
-    let name = pragma
-        .identifier
-        .as_ref()
-        .map(PathKind::as_string)
-        .unwrap_or_default();
-    match PragmaKind::from_str(&name) {
-        Ok(PragmaKind::QdkQirProfile) => profile_completions(),
-        Ok(PragmaKind::QdkBoxOpen | PragmaKind::QdkBoxClose) => box_target_completions(symbols),
+            _ => Vec::new(),
+        },
         _ => Vec::new(),
     }
 }
 
-/// Completions for a position inside an `@annotation` line: the supported QDK
-/// annotation names while the cursor is on the name, or target profile values
-/// once the cursor is in the value position of a profile annotation.
-fn annotation_completions(annotation: &Annotation, cursor_offset: u32) -> Vec<Completion> {
-    let in_name_position = match annotation.identifier.span() {
-        Some(span) => cursor_offset <= span.hi,
-        None => true,
-    };
-
-    if in_name_position {
-        return annotation_name_completions();
-    }
-
-    if annotation_configures_profile(&annotation.identifier.as_string()) {
-        profile_completions()
-    } else {
-        Vec::new()
-    }
+/// Reparses semantically because valid box targets depend on resolved callable
+/// signatures rather than parser word kinds.
+fn box_target_completions_from_source(source_contents: &str) -> Vec<Completion> {
+    let result = qsc::openqasm::semantic::parse(source_contents, "<completions>");
+    box_target_completions(&result.symbols)
 }
 
+/// Derives pragma names from the compiler's supported set to keep completion
+/// aligned with directive handling.
 fn pragma_name_completions() -> Vec<Completion> {
     PragmaKind::all()
         .into_iter()
@@ -193,6 +125,7 @@ fn pragma_name_completions() -> Vec<Completion> {
         .collect()
 }
 
+/// Limits annotation suggestions to names supported by the QDK compiler.
 fn annotation_name_completions() -> Vec<Completion> {
     SUPPORTED_QDK_ANNOTATIONS
         .into_iter()
@@ -200,6 +133,7 @@ fn annotation_name_completions() -> Vec<Completion> {
         .collect()
 }
 
+/// Limits profile values to target profiles understood by the compiler.
 fn profile_completions() -> Vec<Completion> {
     Profile::all()
         .into_iter()
@@ -207,9 +141,8 @@ fn profile_completions() -> Vec<Completion> {
         .collect()
 }
 
-/// Completions for the value of a `qdk.box.open`/`qdk.box.close` pragma: the
-/// names of functions that are valid box targets (parameterless and returning
-/// void), as defined by the compiler.
+/// Uses the compiler's semantic predicate so box completion and validation
+/// agree on which callable signatures are valid targets.
 fn box_target_completions(symbols: &SymbolTable) -> Vec<Completion> {
     valid_box_pragma_targets(symbols)
         .into_iter()
@@ -217,7 +150,8 @@ fn box_target_completions(symbols: &SymbolTable) -> Vec<Completion> {
         .collect()
 }
 
-#[allow(clippy::items_after_statements)]
+/// Converts parser-owned hardcoded expectations while withholding annotation
+/// names from generic statement starts, where they would be too broad.
 fn collect_hardcoded_words(
     expected: qsc::openqasm::completion::word_kinds::WordKinds,
 ) -> Vec<Completion> {
@@ -242,7 +176,8 @@ fn collect_hardcoded_words(
     completions
 }
 
-#[allow(clippy::items_after_statements)]
+/// Bridges parser expression-path expectations to scope-aware local and
+/// builtin candidates from the compilation.
 fn collect_paths(
     expected: qsc::openqasm::completion::word_kinds::PathKind,
     locals_at_cursor: &Locals,
@@ -256,14 +191,14 @@ fn collect_paths(
     locals_and_builtins
 }
 
-#[allow(clippy::items_after_statements)]
+/// Routes parser name categories into the corresponding compilation scopes so
+/// symbol lookup does not broaden the parser's expected domains.
 fn collect_names_qasm(
     expected: qsc::openqasm::completion::word_kinds::WordKinds,
     cursor_offset: u32,
     compilation: &Compilation,
 ) -> Vec<Vec<Completion>> {
     let mut groups = Vec::new();
-    use qsc::openqasm::completion::word_kinds::NameKind;
     for name_kind in expected.iter_name_kinds() {
         match name_kind {
             NameKind::Path(path_kind) => {

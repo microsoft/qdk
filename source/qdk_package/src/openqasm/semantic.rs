@@ -107,10 +107,12 @@ use crate::openqasm::nodes::{Annotation, Expression, QASMNode, Statement};
 use crate::openqasm::source::SourceDocument;
 use crate::openqasm::span::Span;
 use pyo3::IntoPyObjectExt;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::{PyComplex, PyList};
 use qdk_openqasm::parser::ast::PathKind;
 use qdk_openqasm::semantic::ast::{self as sem, ExprKind, LiteralKind, StmtKind};
+use qdk_openqasm::semantic::broadcast::{ScalarGateCall, expand_gate_call};
 use qdk_openqasm::semantic::symbols::{Symbol, SymbolId, SymbolTable};
 use qdk_openqasm::semantic::types::Type as CoreType;
 
@@ -593,6 +595,7 @@ qasm_node!(@stmt SemMeasureArrow = "QuantumMeasurementStatement" {
     target: opt,
 });
 qasm_node!(@stmt SemPragma = "Pragma" {
+    command: val String,
     name: val Option<String>,
     value: val Option<String>,
 });
@@ -764,10 +767,7 @@ pub(crate) fn build_program(
     symbols: &SymbolTable,
     document: Py<SourceDocument>,
 ) -> PyResult<Py<SemProgram>> {
-    let mut statements = Vec::with_capacity(program.statements.len());
-    for stmt in &program.statements {
-        statements.push(build_stmt(py, stmt, symbols)?);
-    }
+    let statements = stmt_list(py, &program.statements, symbols)?;
     let mut pragmas = Vec::with_capacity(program.pragmas.len());
     for pragma in &program.pragmas {
         pragmas.push(build_pragma(py, pragma)?);
@@ -786,9 +786,10 @@ pub(crate) fn build_program(
 }
 
 fn build_pragma(py: Python<'_>, pragma: &sem::Pragma) -> PyResult<Py<PyAny>> {
+    let command = pragma.command.to_string();
     let name = pragma.identifier.as_ref().map(PathKind::as_string);
     let value = pragma.value.as_ref().map(ToString::to_string);
-    let init = SemPragma::init(Span::from(pragma.span), Vec::new(), name, value);
+    let init = SemPragma::init(Span::from(pragma.span), Vec::new(), command, name, value);
     Ok(Py::new(py, init)?.into_any())
 }
 
@@ -982,9 +983,10 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, symbols: &SymbolTable) -> PyResu
             Py::new(py, SemMeasureArrow::init(span, annotations, qubits, target))?.into_any()
         }
         StmtKind::Pragma(s) => {
+            let command = s.command.to_string();
             let name = s.identifier.as_ref().map(PathKind::as_string);
             let value = s.value.as_ref().map(ToString::to_string);
-            Py::new(py, SemPragma::init(span, annotations, name, value))?.into_any()
+            Py::new(py, SemPragma::init(span, annotations, command, name, value))?.into_any()
         }
         StmtKind::QuantumGateDefinition(s) => {
             let params = s
@@ -1235,9 +1237,41 @@ fn stmt_list(
 ) -> PyResult<Vec<Py<PyAny>>> {
     let mut out = Vec::with_capacity(stmts.len());
     for stmt in stmts {
-        out.push(build_stmt(py, stmt, symbols)?);
+        if let StmtKind::GateCall(call) = stmt.kind.as_ref() {
+            let expansion =
+                expand_gate_call(call).map_err(|error| PyValueError::new_err(error.to_string()))?;
+            for scalar in expansion {
+                out.push(build_scalar_gate_call(py, stmt, &scalar, symbols)?);
+            }
+        } else {
+            out.push(build_stmt(py, stmt, symbols)?);
+        }
     }
     Ok(out)
+}
+
+fn build_scalar_gate_call(
+    py: Python<'_>,
+    stmt: &sem::Stmt,
+    scalar: &ScalarGateCall<'_>,
+    symbols: &SymbolTable,
+) -> PyResult<Py<PyAny>> {
+    let call = scalar.source();
+    let span = Span::from(stmt.span);
+    let annotations = build_annotations(py, &stmt.annotations)?;
+    let mut modifiers = Vec::with_capacity(call.modifiers.len());
+    for modifier in call.modifiers.iter().rev() {
+        modifiers.push(build_modifier(py, modifier, symbols)?);
+    }
+    let args = expr_list(py, &call.args, symbols)?;
+    let qubits = gate_operand_list(py, scalar.qubits(), symbols)?;
+    let duration = build_opt_expr(py, call.duration.as_deref(), symbols)?;
+    let name = symbol_name(symbols, call.symbol_id);
+    Ok(Py::new(
+        py,
+        SemGateCall::init(span, annotations, name, modifiers, args, qubits, duration),
+    )?
+    .into_any())
 }
 
 fn build_opt_expr(

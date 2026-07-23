@@ -1934,8 +1934,14 @@ class QuantumMeasurementStatement(Statement):
     def children(self) -> List[QASMNode]: ...
 
 class Pragma(Statement):
-    """A ``pragma`` directive."""
+    """A ``pragma`` directive.
 
+    ``command`` is authoritative; ``name`` and ``value`` are derived
+    compatibility views.
+    """
+
+    @property
+    def command(self) -> str: ...
     @property
     def name(self) -> Optional[str]: ...
     @property
@@ -2468,8 +2474,14 @@ class _semantic:
         def children(self) -> List[QASMNode]: ...
 
     class Pragma(SemanticStatement):
-        """A pragma statement."""
+        """A pragma statement.
 
+        ``command`` is authoritative; ``name`` and ``value`` are derived
+        compatibility views.
+        """
+
+        @property
+        def command(self) -> str: ...
         @property
         def name(self) -> Optional[str]: ...
         @property

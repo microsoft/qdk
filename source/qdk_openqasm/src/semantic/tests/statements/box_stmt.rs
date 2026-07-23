@@ -222,6 +222,7 @@ fn box_can_contain_gate_call() {
                             duration: <none>
                             classical_arity: 0
                             quantum_arity: 1
+                            broadcast: Scalar
         "#]],
     );
 }
@@ -258,6 +259,7 @@ fn box_can_contain_gphase() {
                             duration: <none>
                             classical_arity: 1
                             quantum_arity: 0
+                            broadcast: Scalar
         "#]],
     );
 }

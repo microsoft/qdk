@@ -329,7 +329,12 @@ impl Lowerer {
             syntax::StmtKind::IODeclaration(stmt) => self.lower_io_decl(stmt),
             syntax::StmtKind::Measure(stmt) => self.lower_measure_arrow_stmt(stmt),
             syntax::StmtKind::Pragma(..) => {
-                unreachable!("pragma should be handled in lower_source")
+                self.push_semantic_error(SemanticErrorKind::InvalidScope(
+                    "pragma statements".into(),
+                    "global".into(),
+                    stmt.span,
+                ));
+                semantic::StmtKind::Err
             }
             syntax::StmtKind::QuantumGateDefinition(stmt) => self.lower_gate_def(stmt),
             syntax::StmtKind::QuantumDecl(stmt) => self.lower_quantum_decl(stmt),
@@ -2328,9 +2333,7 @@ impl Lowerer {
         semantic::Expr::new(expr.span, kind, return_ty)
     }
 
-    /// A broadcasted gate call unfolds into multiple statements.
-    /// If the original gate call had annotations, we apply them
-    /// to all the generated statements.
+    /// A gate call remains one semantic statement, including when broadcast.
     fn lower_gate_call_stmts(
         &mut self,
         stmt: &syntax::GateCall,
@@ -2465,21 +2468,36 @@ impl Lowerer {
         modifiers.reverse();
         let modifiers = list_from_iter(modifiers);
 
-        // 6. Check if we need to do broadcasting.
-        let mut register_type = None;
-
+        // 5.2 Validate that every recovered operand can participate in a gate call.
+        let mut invalid_operand = false;
         for qubit in &qubits {
+            match &qubit.kind {
+                semantic::GateOperandKind::Expr(expr)
+                    if matches!(expr.ty, Type::Qubit | Type::QubitArray(_)) => {}
+                semantic::GateOperandKind::HardwareQubit(_) => {}
+                semantic::GateOperandKind::Expr(expr) => {
+                    invalid_operand = true;
+                    self.push_semantic_error(SemanticErrorKind::InvalidGateOperand(expr.span));
+                }
+                semantic::GateOperandKind::Err => invalid_operand = true,
+            }
+        }
+        if invalid_operand {
+            return vec![semantic::StmtKind::Err];
+        }
+
+        // 6. Check if we need to do broadcasting.
+        let register_type = qubits.iter().find_map(|qubit| {
             if let semantic::GateOperandKind::Expr(expr) = &qubit.kind
                 && matches!(expr.ty, Type::QubitArray(..))
             {
-                register_type = Some(&expr.ty);
-                break;
+                Some(&expr.ty)
+            } else {
+                None
             }
-        }
+        });
 
-        // If at least one of the quantum args was a register
-        // we try to do broadcasting.
-        if let Some(register_type) = register_type {
+        let broadcast = if let Some(register_type @ Type::QubitArray(width)) = register_type {
             // 6.1 Check that all the quantum registers are of the same type/size.
             let mut resgisters_sizes_disagree = false;
             for qubit in &qubits {
@@ -2505,35 +2523,10 @@ impl Lowerer {
                 return vec![semantic::StmtKind::Err];
             }
 
-            // 6.2 Convert the broadcast call in a list of simple stmts.
-            let Type::QubitArray(indexed_dim_size) = register_type else {
-                unreachable!("we set register_type iff we find a QubitArray");
-            };
-
-            let mut stmts = Vec::with_capacity(*indexed_dim_size as usize);
-
-            for index in 0..(*indexed_dim_size) {
-                let qubits = qubits
-                    .iter()
-                    .map(|qubit| Self::index_into_qubit_register(qubit, index));
-
-                let qubits = list_from_iter(qubits);
-
-                stmts.push(semantic::StmtKind::GateCall(semantic::GateCall {
-                    span: stmt.span,
-                    modifiers: modifiers.clone(),
-                    symbol_id,
-                    gate_name_span: stmt.name.span,
-                    args: args.clone(),
-                    qubits,
-                    duration: duration.clone(),
-                    classical_arity,
-                    quantum_arity,
-                }));
-            }
-
-            return stmts;
-        }
+            semantic::GateCallBroadcast::Broadcast { width: *width }
+        } else {
+            semantic::GateCallBroadcast::Scalar
+        };
 
         // 7. This is the base case with no broadcasting. We return:
         //   7.1. Gate symbol_id.
@@ -2550,6 +2543,7 @@ impl Lowerer {
             duration,
             classical_arity,
             quantum_arity,
+            broadcast,
         })]
 
         // The compiler will be left to do all things that need explicit Q# knowledge.
@@ -2557,42 +2551,6 @@ impl Lowerer {
         // any casting of classical args. There is still some inherit complexity to
         // building a Q# gate call with this information, but it won't be cluttered
         // by all the QASM semantic analysis.
-    }
-
-    fn index_into_qubit_register(op: &semantic::GateOperand, index: u32) -> semantic::GateOperand {
-        match &op.kind {
-            semantic::GateOperandKind::Expr(expr) => {
-                // Single qubits are allowed in a broadcast call.
-                match &expr.ty {
-                    Type::Qubit => semantic::GateOperand {
-                        span: op.span,
-                        kind: semantic::GateOperandKind::Expr(expr.clone()),
-                    },
-                    Type::QubitArray(..) => {
-                        let index = semantic::Index::Expr(semantic::Expr::new(
-                            op.span,
-                            semantic::ExprKind::Lit(semantic::LiteralKind::Int(index.into())),
-                            Type::UInt(None, true),
-                        ));
-
-                        semantic::GateOperand {
-                            span: op.span,
-                            kind: semantic::GateOperandKind::Expr(Box::new(semantic::Expr::new(
-                                op.span,
-                                semantic::ExprKind::IndexedExpr(semantic::IndexedExpr {
-                                    span: op.span,
-                                    collection: expr.clone(),
-                                    index: Box::new(index),
-                                }),
-                                Type::Qubit,
-                            ))),
-                        }
-                    }
-                    _ => unreachable!("we set register_type iff we find a QubitArray"),
-                }
-            }
-            _ => unreachable!("by this point `op` is guaranteed to be a quantum register"),
-        }
     }
 
     /// A broadcasted gphase unfolds into multiple statements.
@@ -2776,6 +2734,8 @@ impl Lowerer {
     fn lower_pragma(stmt: &syntax::Pragma) -> semantic::Pragma {
         semantic::Pragma {
             span: stmt.span,
+            command: stmt.command.clone(),
+            command_span: stmt.command_span,
             identifier: stmt.identifier.clone(),
             value: stmt.value.clone(),
             value_span: stmt.value_span,

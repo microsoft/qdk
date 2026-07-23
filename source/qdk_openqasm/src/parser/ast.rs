@@ -1233,6 +1233,8 @@ impl Display for QuantumArgument {
 #[derive(Clone, Debug)]
 pub struct Pragma {
     pub span: Span,
+    pub command: Arc<str>,
+    pub command_span: Span,
     pub identifier: Option<PathKind>,
     pub value: Option<Arc<str>>,
     pub value_span: Option<Span>,
@@ -1250,6 +1252,110 @@ impl Display for Pragma {
         writeln_opt_field(f, "value", value.as_ref())?;
         write_opt_field(f, "value_span", self.value_span.as_ref())
     }
+}
+
+impl Pragma {
+    #[must_use]
+    pub fn command(&self) -> PragmaCommandView<'_> {
+        derive_pragma_command(&self.command, self.command_span)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PragmaCommandView<'a> {
+    pub name: Option<&'a str>,
+    pub name_span: Option<Span>,
+    pub value: Option<&'a str>,
+    pub value_span: Option<Span>,
+}
+
+#[must_use]
+pub fn derive_pragma_command(command: &str, command_span: Span) -> PragmaCommandView<'_> {
+    let Some((name_end, has_namespace)) = pragma_name_end(command) else {
+        return PragmaCommandView {
+            name: None,
+            name_span: None,
+            value: (!command.is_empty()).then_some(command),
+            value_span: (!command.is_empty()).then_some(command_span),
+        };
+    };
+
+    if !has_namespace {
+        return PragmaCommandView {
+            name: None,
+            name_span: None,
+            value: Some(command),
+            value_span: Some(command_span),
+        };
+    }
+
+    let value_start = command[name_end..]
+        .char_indices()
+        .find_map(|(offset, character)| {
+            (!matches!(character, ' ' | '\t')).then_some(name_end + offset)
+        });
+    let name_end = u32::try_from(name_end).expect("pragma name length should fit into u32");
+    let value_span = value_start.map(|start| Span {
+        lo: command_span.lo
+            + u32::try_from(start).expect("pragma value offset should fit into u32"),
+        hi: command_span.hi,
+    });
+
+    PragmaCommandView {
+        name: Some(&command[..name_end as usize]),
+        name_span: Some(Span {
+            lo: command_span.lo,
+            hi: command_span.lo + name_end,
+        }),
+        value: value_start.map(|start| &command[start..]),
+        value_span,
+    }
+}
+
+fn pragma_name_end(command: &str) -> Option<(usize, bool)> {
+    let mut characters = command.char_indices().peekable();
+    let (_, first) = characters.next()?;
+    if !is_directive_identifier_start(first) {
+        return None;
+    }
+
+    while characters
+        .next_if(|(_, character)| is_directive_identifier_continue(*character))
+        .is_some()
+    {}
+
+    let mut has_namespace = false;
+    loop {
+        let Some(&(dot_offset, '.')) = characters.peek() else {
+            return Some((
+                characters
+                    .peek()
+                    .map_or(command.len(), |(offset, _)| *offset),
+                has_namespace,
+            ));
+        };
+        characters.next();
+        let Some(&(_, segment_start)) = characters.peek() else {
+            return Some((dot_offset, has_namespace));
+        };
+        if !is_directive_identifier_start(segment_start) {
+            return Some((dot_offset, has_namespace));
+        }
+        has_namespace = true;
+        characters.next();
+        while characters
+            .next_if(|(_, character)| is_directive_identifier_continue(*character))
+            .is_some()
+        {}
+    }
+}
+
+fn is_directive_identifier_start(character: char) -> bool {
+    character == '_' || character.is_alphabetic()
+}
+
+fn is_directive_identifier_continue(character: char) -> bool {
+    is_directive_identifier_start(character) || character.is_ascii_digit()
 }
 
 #[derive(Clone, Debug)]

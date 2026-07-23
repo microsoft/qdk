@@ -483,6 +483,40 @@ impl Display for ForStmt {
     }
 }
 
+/// Describes how a semantic gate call applies its typed quantum operands.
+///
+/// Semantic analysis retains one [`GateCall`] for each source gate statement.
+/// A broadcast stores its validated width alongside the original scalar and
+/// register operands so consumers can either inspect the compact source
+/// topology or request scalar applications from the semantic expansion API.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GateCallBroadcast {
+    /// The source gate call applies once.
+    Scalar,
+    /// The source gate call broadcasts over equal-width register operands.
+    Broadcast { width: u32 },
+}
+
+impl GateCallBroadcast {
+    /// Returns the number of scalar gate applications represented by the call.
+    #[must_use]
+    pub const fn application_count(self) -> u32 {
+        match self {
+            Self::Scalar => 1,
+            Self::Broadcast { width } => width,
+        }
+    }
+}
+
+impl Display for GateCallBroadcast {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Scalar => write!(f, "Scalar"),
+            Self::Broadcast { width } => write!(f, "Broadcast({width})"),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct GateCall {
     pub span: Span,
@@ -494,6 +528,7 @@ pub struct GateCall {
     pub duration: Option<Box<Expr>>,
     pub classical_arity: u32,
     pub quantum_arity: u32,
+    pub broadcast: GateCallBroadcast,
 }
 
 impl Display for GateCall {
@@ -506,7 +541,8 @@ impl Display for GateCall {
         writeln_list_field(f, "qubits", &self.qubits)?;
         writeln_opt_field(f, "duration", self.duration.as_ref())?;
         writeln_field(f, "classical_arity", &self.classical_arity)?;
-        write_field(f, "quantum_arity", &self.quantum_arity)
+        writeln_field(f, "quantum_arity", &self.quantum_arity)?;
+        write_field(f, "broadcast", &self.broadcast)
     }
 }
 
@@ -611,6 +647,8 @@ impl Display for MeasureArrowStmt {
 #[derive(Clone, Debug)]
 pub struct Pragma {
     pub span: Span,
+    pub command: Arc<str>,
+    pub command_span: Span,
     pub identifier: Option<PathKind>,
     pub value: Option<Arc<str>>,
     pub value_span: Option<Span>,
@@ -627,6 +665,13 @@ impl Display for Pragma {
         )?;
         writeln_opt_field(f, "value", value.as_ref())?;
         write_opt_field(f, "value_span", self.value_span.as_ref())
+    }
+}
+
+impl Pragma {
+    #[must_use]
+    pub fn command(&self) -> syntax::PragmaCommandView<'_> {
+        syntax::derive_pragma_command(&self.command, self.command_span)
     }
 }
 

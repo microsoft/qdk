@@ -9,12 +9,12 @@ use std::sync::Arc;
 
 use super::{
     Result,
-    completion::word_kinds::WordKinds,
+    completion::{CompletionContext, CompletionDirective, word_kinds::WordKinds},
     error::{Error, ErrorKind},
     expr::{self, designator, gate_operand, ident_or_indexed_ident},
     prim::{
         self, SeqItem, barrier, many, opt, recovering, recovering_semi, recovering_token, seq,
-        seq_item, shorten,
+        seq_item,
     },
 };
 use crate::{
@@ -25,7 +25,7 @@ use crate::{
             DefParameter, DefParameterType, DynArrayReferenceType, QubitType,
             StaticArrayReferenceType,
         },
-        prim::{recovering_path, trim_front_safely},
+        prim::recovering_path,
     },
 };
 
@@ -37,9 +37,9 @@ use super::ast::{
     ExprKind, ExprStmt, ExternDecl, ExternParameter, FloatType, ForStmt, FunctionCall, GPhase,
     GateCall, GateModifierKind, GateOperand, IODeclaration, IOKeyword, Ident, IdentOrIndexedIdent,
     IfStmt, IncludeStmt, Index, IndexExpr, IndexListItem, IntType, List, LiteralKind,
-    MeasureArrowStmt, Pragma, QuantumGateDefinition, QuantumGateModifier, QubitDeclaration, Range,
-    ResetStmt, ReturnStmt, ScalarType, ScalarTypeKind, Stmt, StmtKind, SwitchCase, SwitchStmt,
-    TypeDef, UintType, WhileLoop, list_from_iter,
+    MeasureArrowStmt, Path, PathKind, Pragma, QuantumGateDefinition, QuantumGateModifier,
+    QubitDeclaration, Range, ResetStmt, ReturnStmt, ScalarType, ScalarTypeKind, Stmt, StmtKind,
+    SwitchCase, SwitchStmt, TypeDef, UintType, WhileLoop, list_from_iter,
 };
 use super::{ParserContext, prim::token};
 
@@ -351,84 +351,33 @@ pub fn parse_annotation(s: &mut ParserContext) -> Result<Annotation> {
         )));
     }
 
-    // read the annotation lexeme, which is the whole line
-    // including the `@` and the rest of the line content.
-    let annotation_line_content = s.read();
-    let annotation_kw_offset = 1; // length of "@"
-    let ident_lo = token.span.lo + annotation_kw_offset;
-    let stmt_hi = token.span.hi;
-
-    // annotation_line_content:
-    // @ a.b.c "some value" more value \nmore content
-    // |.      |                      |
-    // |.      |                      |
-    // |.      ^-------- value -------|
-    // | ^-- ident_lo                 ^-- stmt_hi
-    // |       |                      |
-    // |       ^- annotation_content -^
-    // |^-- annotation_kw_offset
-    // ^-- stmt_lo
-
-    let from_start = annotation_kw_offset.try_into().expect("valid size");
-    let annotation_content = shorten(from_start, 0, annotation_line_content);
-
-    // annotation_content
-    // a.b.c "some value" more value
-    //       ^-- value_lo
-
-    // advance the parser to the next token for the next token in the program
+    s.expect_completion_context(CompletionContext::AnnotationName);
     s.advance();
-
-    // create a sub-parser context just for the line content
-    // This will tokenize the rest of the line which should be the identifier
-    // and the value, if any.
-
-    let mut c = match s.word_collector {
-        Some(ref mut collector) => {
-            ParserContext::with_word_collector(annotation_content, collector)
+    let identifier = match recovering_path(s, WordKinds::PathExpr) {
+        Ok(path) => path,
+        Err(error) => {
+            s.push_error(error);
+            PathKind::Err(None)
         }
-        None => ParserContext::new(annotation_content),
     };
-
-    // parse the dotted path identifier
-    let Ok(mut path) = recovering_path(&mut c, WordKinds::PathExpr) else {
-        // We only fail if no parts were parsed, which means
-        // there was no valid identifier found.
-        // annotations must have an identifier.
-
-        return Err(Error::new(ErrorKind::Rule(
-            "annotation missing identifier",
-            token.kind,
-            token.span,
-        )));
-    };
-
-    // update the path span based on the original lo
-    path.offset(ident_lo);
-
-    // Unlike pragmas, annotations don't need a path segment.
-    // A single identifier is sufficient.
-
-    // we need to get to the first non-whitespace token
-    // after the identifier, which should be the value.
-
-    // This value_lo offset is the start of the value in the annotation line content.
-    let value_lo = c.skip_trivia().hi;
-    let value = trim_front_safely(value_lo.try_into().expect("valid size"), annotation_content);
-    let value = if value.is_empty() {
-        None
+    if matches!(identifier, PathKind::Ok(_)) {
+        s.expect_completion_context(CompletionContext::DirectiveValue);
+        s.expect_completion_directive(CompletionDirective::Annotation(identifier.as_string()));
+    }
+    let (value, value_span) = if s.peek().kind == TokenKind::DirectiveValue {
+        let value_span = s.peek().span;
+        let value = Arc::from(s.read());
+        s.advance();
+        (Some(value), Some(value_span))
     } else {
-        Some(Arc::from(value))
+        (None, None)
     };
-
-    let value_span = value.as_ref().map(|_| Span {
-        lo: value_lo + ident_lo,
-        hi: stmt_hi,
-    });
+    s.clear_completion_context();
+    recovering_token(s, TokenKind::DirectiveEnd);
 
     Ok(Annotation {
         span: s.span(stmt_lo),
-        identifier: path,
+        identifier,
         value,
         value_span,
     })
@@ -471,133 +420,76 @@ fn parse_pragma(s: &mut ParserContext) -> Result<Pragma> {
         )));
     }
 
-    // read the pragma lexeme, which is the whole line
-    // including the `#pragma` or `pragma` keyword
-    // and the rest of the line content.
-    let pragma_line_content = s.read();
-    let pragma_kw_offset = if pragma_line_content.starts_with('#') {
-        7 // length of "#pragma"
-    } else {
-        6 // length of "pragma"
-    };
-    let ident_lo = token.span.lo + pragma_kw_offset;
-    let stmt_hi = token.span.hi;
-
-    // pragma_line_content:
-    // #pragma a.b.c "some value" more value \nmore content
-    // |.      |     |                      |
-    // |.      |     |                      |
-    // |.      |     ^--------- value ------|
-    // |.      ^-- ident_lo                 ^-- stmt_hi
-    // |       |                            |
-    // |       ^-- pragma_content ----------^
-    // |      ^-- pragma_kw_offset
-    // ^-- stmt_lo
-
-    let from_start = pragma_kw_offset.try_into().expect("valid size");
-    let pragma_content = shorten(from_start, 0, pragma_line_content);
-
-    // pragma_content
-    // a.b.c "some value" more value
-    //       ^-- value_lo
-
-    // advance the parser to the next token for the next token in the program
+    s.expect_completion_context(CompletionContext::PragmaName);
     s.advance();
-
-    // create a sub-parser context just for the line content
-    // This will tokenize the rest of the line which should be the identifier
-    // and the value, if any.
-
-    let mut c = match s.word_collector {
-        Some(ref mut collector) => ParserContext::with_word_collector(pragma_content, collector),
-        None => ParserContext::new(pragma_content),
-    };
-
-    let content_lo = c.skip_trivia().hi;
-    // parse the dotted path identifier
-    let Ok(mut path) = recovering_path(&mut c, WordKinds::PathExpr) else {
-        // We only fail if no parts were parsed, which means
-        // - the pragma line was empty or only contained whitespace
-        //   In that case, we return an empty pragma
-        // - line contained odd characters that couldn't be ident/kw
-        //   in that case we return value only pragma
-
-        let trimmed_content = pragma_content.trim();
-        if trimmed_content.is_empty() {
-            return Ok(Pragma {
-                span: token.span,
-                identifier: None,
-                value: None,
-                value_span: None,
-            });
+    let (command, command_span) = if s.peek().kind == TokenKind::DirectiveCommand {
+        let command_span = s.peek().span;
+        let command = Arc::from(s.read());
+        if let Some(cursor_offset) = s.completion_cursor_offset()
+            && cursor_offset <= command_span.hi
+        {
+            let view = super::ast::derive_pragma_command(&command, command_span);
+            let context = match view.name_span {
+                Some(name_span) if cursor_offset <= name_span.hi => CompletionContext::PragmaName,
+                Some(_) => CompletionContext::DirectiveValue,
+                None => CompletionContext::PragmaName,
+            };
+            s.expect_completion_context(context);
         }
-
-        let value = trim_front_safely(content_lo.try_into().expect("valid size"), pragma_content);
-        let value = if value.is_empty() {
-            None
-        } else {
-            Some(Arc::from(value))
-        };
-        let value_span = value.as_ref().map(|_| Span {
-            lo: stmt_lo + ident_lo + content_lo,
-            hi: stmt_hi,
-        });
-        return Ok(Pragma {
-            span: token.span,
-            identifier: None,
-            value,
-            value_span,
-        });
-    };
-
-    // update the path span based on the original lo
-    path.offset(ident_lo);
-
-    if path.segments().iter().len() == 0 {
-        // name with no segments
-        // any pragma with a dotted name requires at least one segment.
-        // So this is not a namespaced pragma and is just a value pragma
-        let value = trim_front_safely(content_lo.try_into().expect("valid size"), pragma_content);
-        let value = if value.is_empty() {
-            None
-        } else {
-            Some(Arc::from(value))
-        };
-        let value_span = value.as_ref().map(|_| Span {
-            lo: stmt_lo + ident_lo + content_lo,
-            hi: stmt_hi,
-        });
-        return Ok(Pragma {
-            span: s.span(stmt_lo),
-            identifier: None,
-            value,
-            value_span,
-        });
-    }
-
-    // we need to get to the first non-whitespace token
-    // after the identifier, which should be the value.
-
-    // This value_lo offset is the start of the value in the pragma line content.
-    let value_lo = c.skip_trivia().hi;
-    let value = trim_front_safely(value_lo.try_into().expect("valid size"), pragma_content);
-    let value = if value.is_empty() {
-        None
+        s.advance();
+        (command, command_span)
     } else {
-        Some(Arc::from(value))
+        let command_span = s.peek().span;
+        s.push_error(Error::new(ErrorKind::EmptyPragma(command_span)));
+        (Arc::from(""), command_span)
     };
+    s.clear_completion_context();
+    recovering_token(s, TokenKind::DirectiveEnd);
 
-    let value_span = value.as_ref().map(|_| Span {
-        lo: value_lo + ident_lo,
-        hi: stmt_hi,
-    });
+    let (identifier, value, value_span) = {
+        let view = super::ast::derive_pragma_command(&command, command_span);
+        (
+            view.name
+                .zip(view.name_span)
+                .map(|(name, span)| path_from_pragma_name(name, span)),
+            view.value.map(Arc::from),
+            view.value_span,
+        )
+    };
 
     Ok(Pragma {
         span: s.span(stmt_lo),
-        identifier: Some(path),
+        command,
+        command_span,
+        identifier,
         value,
         value_span,
     })
+}
+
+fn path_from_pragma_name(name: &str, span: Span) -> PathKind {
+    let mut offset = span.lo;
+    let mut identifiers = name.split('.').map(|segment| {
+        let lo = offset;
+        let segment_len = u32::try_from(segment.len()).expect("pragma path should fit into u32");
+        offset += segment_len + 1;
+        Ident {
+            span: Span {
+                lo,
+                hi: lo + segment_len,
+            },
+            name: Arc::from(segment),
+        }
+    });
+    let mut parts = identifiers.by_ref().collect::<Vec<_>>();
+    let name = parts
+        .pop()
+        .expect("derived pragma path should not be empty");
+    PathKind::Ok(Box::new(Path {
+        span,
+        segments: Some(parts.into_boxed_slice()),
+        name: Box::new(name),
+    }))
 }
 
 /// Grammar: `EXTERN Identifier LPAREN externArgumentList? RPAREN returnSignature? SEMICOLON`.

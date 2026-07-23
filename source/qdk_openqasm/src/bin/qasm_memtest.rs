@@ -129,6 +129,7 @@ enum Stage {
     Analyze,
     SemanticLowerBroadcast,
     AnalyzeBroadcast,
+    AnalyzeBroadcastRetained,
     ParseInclude,
     SemanticLowerInclude,
     AnalyzeInclude,
@@ -171,9 +172,15 @@ fn try_main() -> Result<(), String> {
     let corpus = stage.corpus();
 
     ALLOCATOR.reset();
+    let mut retained_results = Vec::new();
     for _ in 0..iterations {
-        run_stage(stage, &corpus)?;
+        if matches!(stage, Stage::AnalyzeBroadcastRetained) {
+            retained_results.push(analyze(&corpus)?);
+        } else {
+            run_stage(stage, &corpus)?;
+        }
     }
+    std::hint::black_box(&retained_results);
     let stats = ALLOCATOR.snapshot();
     print_stats(stage.name(), &corpus, iterations, stats);
     Ok(())
@@ -186,11 +193,12 @@ fn parse_stage(stage: &str) -> Result<Stage, String> {
         "analyze" => Ok(Stage::Analyze),
         "semantic-lower-broadcast" => Ok(Stage::SemanticLowerBroadcast),
         "analyze-broadcast" => Ok(Stage::AnalyzeBroadcast),
+        "analyze-broadcast-retained" => Ok(Stage::AnalyzeBroadcastRetained),
         "parse-include" => Ok(Stage::ParseInclude),
         "semantic-lower-include" => Ok(Stage::SemanticLowerInclude),
         "analyze-include" => Ok(Stage::AnalyzeInclude),
         _ => Err(format!(
-            "unknown stage '{stage}'. expected parse, semantic-lower, analyze, semantic-lower-broadcast, analyze-broadcast, parse-include, semantic-lower-include, or analyze-include"
+            "unknown stage '{stage}'. expected parse, semantic-lower, analyze, semantic-lower-broadcast, analyze-broadcast, analyze-broadcast-retained, parse-include, semantic-lower-include, or analyze-include"
         )),
     }
 }
@@ -203,6 +211,7 @@ impl Stage {
             Self::Analyze => "analyze",
             Self::SemanticLowerBroadcast => "semantic-lower-broadcast",
             Self::AnalyzeBroadcast => "analyze-broadcast",
+            Self::AnalyzeBroadcastRetained => "analyze-broadcast-retained",
             Self::ParseInclude => "parse-include",
             Self::SemanticLowerInclude => "semantic-lower-include",
             Self::AnalyzeInclude => "analyze-include",
@@ -211,7 +220,9 @@ impl Stage {
 
     fn corpus(self) -> Corpus {
         match self {
-            Self::SemanticLowerBroadcast | Self::AnalyzeBroadcast => broadcast_gate(256, 32),
+            Self::SemanticLowerBroadcast
+            | Self::AnalyzeBroadcast
+            | Self::AnalyzeBroadcastRetained => broadcast_gate(256, 32),
             Self::ParseInclude | Self::SemanticLowerInclude | Self::AnalyzeInclude => {
                 include_heavy(64, 8)
             }
@@ -228,7 +239,10 @@ fn run_stage(stage: Stage, corpus: &Corpus) -> Result<(), String> {
             ensure_semantic_success(corpus, &result)?;
             std::hint::black_box(result);
         }
-        Stage::Analyze | Stage::AnalyzeBroadcast | Stage::AnalyzeInclude => {
+        Stage::Analyze
+        | Stage::AnalyzeBroadcast
+        | Stage::AnalyzeBroadcastRetained
+        | Stage::AnalyzeInclude => {
             analyze(corpus)?;
         }
         Stage::Parse | Stage::ParseInclude => {
@@ -299,4 +313,12 @@ fn print_stats(stage: &str, corpus: &Corpus, iterations: usize, stats: MemorySta
     println!("deallocated_bytes: {}", stats.deallocated_bytes);
     println!("allocation_count: {}", stats.allocation_count);
     println!("deallocation_count: {}", stats.deallocation_count);
+    if matches!(
+        stage,
+        "semantic-lower-broadcast" | "analyze-broadcast" | "analyze-broadcast-retained"
+    ) {
+        println!("broadcast_width: 32");
+        println!("source_gate_calls: 768");
+        println!("scalar_gate_applications: 24576");
+    }
 }

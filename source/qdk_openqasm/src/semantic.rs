@@ -14,6 +14,7 @@ pub(crate) use lowerer::Lowerer;
 use std::sync::Arc;
 
 pub mod ast;
+pub mod broadcast;
 pub(crate) mod const_eval;
 pub mod error;
 mod lowerer;

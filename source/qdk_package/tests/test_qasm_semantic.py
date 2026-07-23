@@ -12,6 +12,7 @@ from qdk.openqasm.semantic import (
     Diagnostic,
     Expression,
     Identifier,
+    Pragma,
     Program,
     QASMNode,
     QASMVisitor,
@@ -94,6 +95,42 @@ def test_semantic_node_names_and_isinstance() -> None:
     assert isinstance(gate, Statement)
     assert isinstance(gate, QASMNode)
     assert not isinstance(gate, Expression)
+
+
+def test_broadcast_semantic_projection_remains_expanded() -> None:
+    result = semantic.analyze(
+        'OPENQASM 3.0; include "stdgates.inc"; qubit[3] q; h q;'
+    )
+
+    assert not result.has_errors
+    gates = [
+        statement
+        for statement in result.program.statements
+        if isinstance(statement, QuantumGate)
+    ]
+    assert len(gates) == 3
+    assert all(len(gate.qubits) == 1 for gate in gates)
+    assert [gate.qubits[0].indices[0].value for gate in gates] == [0, 1, 2]
+
+
+def test_pragma_exposes_authoritative_command_and_derived_views() -> None:
+    source = "OPENQASM 3.0;\npragma vendor.mode exact/*opaque*/  \nqubit q;"
+    result = semantic.analyze(source)
+
+    assert not result.has_errors
+    program = result.program
+    pragma = program.pragmas[0]
+    assert isinstance(pragma, Pragma)
+    assert pragma.command == "vendor.mode exact/*opaque*/  "
+    assert pragma.name == "vendor.mode"
+    assert pragma.value == "exact/*opaque*/  "
+    assert pragma.children() == []
+    children = program.children()
+    assert children[0] is pragma
+    assert children[1:] == program.statements
+    assert not any(isinstance(statement, Pragma) for statement in program.statements)
+    with pytest.raises(AttributeError):
+        pragma.command = "changed"  # type: ignore[misc]
 
 
 def test_semantic_expression_carries_type_and_const_value() -> None:

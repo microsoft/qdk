@@ -4,6 +4,7 @@
 use std::fmt::Write;
 
 pub mod assignment;
+mod broadcast;
 pub mod decls;
 
 pub mod expression;
@@ -202,10 +203,9 @@ fn check_map_all<P: Into<Arc<str>>>(
 
 #[test]
 fn analysis_preserves_entry_nested_and_unresolved_source_snapshots() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"nested.inc\"; ",
-        "include \"missing.inc\";"
-    );
+    let source = r#"OPENQASM 3.0;
+include "nested.inc";
+include "missing.inc";"#;
     let sources = [
         ("nested.inc".into(), "include \"leaf.inc\";".into()),
         ("leaf.inc".into(), "gate leaf q {}".into()),
@@ -222,6 +222,48 @@ fn analysis_preserves_entry_nested_and_unresolved_source_snapshots() {
         &result.source_snapshot.entry().text,
         &expected_text
     ));
+}
+
+#[test]
+fn semantic_pragma_preserves_authoritative_command() {
+    let result = parse_source(
+        "OPENQASM 3.0;\n#pragma vendor.cmd //opaque π  ",
+        "test",
+        &mut InMemorySourceResolver::from_iter([]),
+    );
+
+    assert!(!result.has_errors());
+    assert_eq!(result.program.pragmas.len(), 1);
+    let pragma = &result.program.pragmas[0];
+    assert_eq!(pragma.command.as_ref(), "vendor.cmd //opaque π  ");
+    assert_eq!(pragma.command().name, Some("vendor.cmd"));
+    assert_eq!(pragma.command().value, Some("//opaque π  "));
+}
+
+#[test]
+fn included_pragma_command_span_uses_source_offset() {
+    let sources = [
+        (
+            Arc::from("main.qasm"),
+            Arc::from("OPENQASM 3.0;\ninclude \"directives.inc\";"),
+        ),
+        (
+            Arc::from("directives.inc"),
+            Arc::from("pragma vendor.cmd payload"),
+        ),
+    ];
+    let result = super::parse_sources(&sources);
+
+    assert!(!result.has_errors());
+    let source_offset = result
+        .source_snapshot
+        .resolve("directives.inc")
+        .expect("included source")
+        .offset;
+    let pragma = &result.program.pragmas[0];
+    assert_eq!(pragma.command.as_ref(), "vendor.cmd payload");
+    assert_eq!(pragma.command_span.lo, source_offset + 7);
+    assert_eq!(pragma.command_span.hi, source_offset + 25);
 }
 
 struct RenamingResolver {
@@ -289,10 +331,9 @@ fn diagnostics_are_stored_once_and_aggregated_in_category_order() {
 
 #[test]
 fn included_parse_and_semantic_diagnostics_appear_once() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"syntax.inc\"; ",
-        "include \"semantic.inc\";"
-    );
+    let source = r#"OPENQASM 3.0;
+include "syntax.inc";
+include "semantic.inc";"#;
     let sources = [
         ("syntax.inc".into(), "int broken = ;".into()),
         ("semantic.inc".into(), "int value = missing;".into()),

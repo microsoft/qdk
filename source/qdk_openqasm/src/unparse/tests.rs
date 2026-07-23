@@ -91,6 +91,14 @@ pragma vendor.mode exact
 }
 
 #[test]
+fn directives_unparse_canonically_without_losing_opaque_payload() {
+    assert_eq!(
+        emit("#pragma vendor.cmd //opaque π  \r\n@vendor.note /*payload*/  \nbit flag;"),
+        "pragma vendor.cmd //opaque π  \n@vendor.note /*payload*/  \nbit flag;\n"
+    );
+}
+
+#[test]
 fn canonical_output_uses_bitwise_operator_precedence() {
     for expression in ["1 | 2 ^ 3", "1 ^ 2 | 3", "1 ^ 2 & 3", "1 & 2 ^ 3"] {
         assert_eq!(
@@ -120,13 +128,14 @@ pair(theta) q[0], q[1];
 
 #[test]
 fn strings_bitstrings_and_calibration_round_trip_stably() {
-    assert_round_trip(concat!(
-        "OPENQASM 3.0;\n",
-        "defcalgrammar \"open\\\"pulse\";\n",
-        "bit[8] bits = \"0010_1010\";\n",
-        "cal { pulse frame; }\n",
-        "defcal x $0 { play; }\n",
-    ));
+    assert_round_trip(
+        r#"OPENQASM 3.0;
+defcalgrammar "open\"pulse";
+bit[8] bits = "0010_1010";
+cal { pulse frame; }
+defcal x $0 { play; }
+"#,
+    );
 }
 
 #[test]

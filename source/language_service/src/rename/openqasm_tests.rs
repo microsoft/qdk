@@ -85,6 +85,29 @@ fn gate_ref() {
 }
 
 #[test]
+fn broadcast_register_rename_has_one_edit_per_source_token() {
+    check(
+        r#"
+        include "stdgates.inc";
+        qubit[8] ◉t↘argets◉;
+        h ◉targets◉;
+        "#,
+    );
+}
+
+#[test]
+fn equal_width_register_rename_does_not_duplicate_edits() {
+    check(
+        r#"
+        include "stdgates.inc";
+        qubit[4] ◉c↘ontrols◉;
+        qubit[4] targets;
+        cx ◉controls◉, targets;
+        "#,
+    );
+}
+
+#[test]
 fn parameter_def() {
     check(
         r#"

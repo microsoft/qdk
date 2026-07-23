@@ -23,11 +23,14 @@ use crate::span::Span;
 use enum_iterator::Sequence;
 use miette::Diagnostic;
 use std::{
+    collections::VecDeque,
     fmt::{self, Display, Formatter},
     iter::Peekable,
     str::FromStr,
 };
 use thiserror::Error;
+
+const MAX_PENDING_DIRECTIVE_TOKENS: usize = 2;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Token {
@@ -99,15 +102,16 @@ impl Error {
 /// A token kind.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
 pub enum TokenKind {
-    /// `@DOT_SEPARETED_IDENTIFIER REST_OF_LINE`
-    /// Examples:
-    ///   @qsharp.SimulatableIntrinsic
-    ///   @qsharp.Config Base
+    /// `@` when it introduces an annotation.
     Annotation,
-    /// `pragma REST_OF_LINE`
-    ///  or
-    /// `#pragma REST_OF_LINE`
+    /// `pragma` or `#pragma` when it introduces a pragma.
     Pragma,
+    /// The opaque value following an annotation path.
+    DirectiveValue,
+    /// The complete opaque command following a pragma introducer.
+    DirectiveCommand,
+    /// The zero-width end of a physical-line directive.
+    DirectiveEnd,
     Keyword(Keyword),
     Type(Type),
 
@@ -161,6 +165,9 @@ impl Display for TokenKind {
         match self {
             TokenKind::Annotation => write!(f, "annotation"),
             TokenKind::Pragma => write!(f, "pragma"),
+            TokenKind::DirectiveValue => write!(f, "annotation value"),
+            TokenKind::DirectiveCommand => write!(f, "pragma command"),
+            TokenKind::DirectiveEnd => write!(f, "end of directive"),
             TokenKind::Keyword(keyword) => write!(f, "keyword `{keyword}`"),
             TokenKind::Type(type_) => write!(f, "keyword `{type_}`"),
             TokenKind::GPhase => write!(f, "gphase"),
@@ -411,6 +418,9 @@ pub(crate) struct Lexer<'a> {
     // This uses a `Peekable` iterator over the raw lexer, which allows for one token lookahead.
     tokens: Peekable<raw::Lexer<'a>>,
 
+    directive: Option<DirectiveMode>,
+    pending: VecDeque<Token>,
+
     /// This flag is used to detect annotations at the
     /// beginning of a file. Normally annotations are
     /// detected because there is a Newline followed by an `@`,
@@ -427,7 +437,44 @@ impl<'a> Lexer<'a> {
                 .try_into()
                 .expect("input length should fit into u32"),
             tokens: raw::Lexer::new(input).peekable(),
+            directive: None,
+            pending: VecDeque::with_capacity(MAX_PENDING_DIRECTIVE_TOKENS),
             beginning_of_file: true,
+        }
+    }
+
+    fn begin_directive(
+        &mut self,
+        kind: DirectiveKind,
+        introducer_span: Span,
+        content_start: u32,
+    ) -> Token {
+        let line_end = physical_line_end(self.input, content_start);
+        self.tokens =
+            raw::Lexer::new_with_starting_offset(&self.input[line_end as usize..], line_end)
+                .peekable();
+        self.directive = Some(DirectiveMode::new(kind, content_start, line_end));
+        Token {
+            kind: match kind {
+                DirectiveKind::Annotation => TokenKind::Annotation,
+                DirectiveKind::Pragma => TokenKind::Pragma,
+            },
+            span: introducer_span,
+        }
+    }
+
+    fn fill_pending_directive_tokens(&mut self) {
+        let Some(directive) = &mut self.directive else {
+            return;
+        };
+        let (token, finished) = directive.next_token(self.input);
+        assert!(
+            self.pending.len() < MAX_PENDING_DIRECTIVE_TOKENS,
+            "directive token queue should remain bounded"
+        );
+        self.pending.push_back(token);
+        if finished {
+            self.directive = None;
         }
     }
 
@@ -480,10 +527,6 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    fn eat_to_end_of_line(&mut self) {
-        self.eat_while(|t| t != raw::TokenKind::Newline);
-    }
-
     /// Consumes a list of tokens zero or more times.
     fn kleen_star(&mut self, tokens: &[raw::TokenKind], complete: TokenKind) -> Result<(), Error> {
         let mut iter = tokens.iter();
@@ -521,17 +564,15 @@ impl<'a> Lexer<'a> {
                 match self.tokens.peek() {
                     Some(token) if token.kind == raw::TokenKind::Single(Single::At) => {
                         let token = self.tokens.next().expect("self.tokens.peek() was Some(_)");
-                        let complete = TokenKind::Annotation;
-                        self.expect(raw::TokenKind::Ident, complete);
-                        self.eat_to_end_of_line();
-                        let kind = Some(complete);
-                        return Ok(kind.map(|kind| {
-                            let span = Span {
+                        let hi = token.offset + 1;
+                        return Ok(Some(self.begin_directive(
+                            DirectiveKind::Annotation,
+                            Span {
                                 lo: token.offset,
-                                hi: self.offset(),
-                            };
-                            Token { kind, span }
-                        }));
+                                hi,
+                            },
+                            hi,
+                        )));
                     }
                     _ => Ok(None),
                 }
@@ -541,8 +582,15 @@ impl<'a> Lexer<'a> {
                 let cooked_ident = Self::ident(ident);
                 match cooked_ident {
                     TokenKind::Keyword(Keyword::Pragma) => {
-                        self.eat_to_end_of_line();
-                        Ok(Some(TokenKind::Pragma))
+                        let hi = self.offset();
+                        return Ok(Some(self.begin_directive(
+                            DirectiveKind::Pragma,
+                            Span {
+                                lo: token.offset,
+                                hi,
+                            },
+                            hi,
+                        )));
                     }
                     _ => Ok(Some(cooked_ident)),
                 }
@@ -589,8 +637,15 @@ impl<'a> Lexer<'a> {
                 match Self::ident(ident) {
                     TokenKind::Keyword(Keyword::Dim) => Ok(Some(TokenKind::Keyword(Keyword::Dim))),
                     TokenKind::Keyword(Keyword::Pragma) => {
-                        self.eat_to_end_of_line();
-                        Ok(Some(TokenKind::Pragma))
+                        let hi = self.offset();
+                        return Ok(Some(self.begin_directive(
+                            DirectiveKind::Pragma,
+                            Span {
+                                lo: token.offset,
+                                hi,
+                            },
+                            hi,
+                        )));
                     }
                     _ => {
                         let span = Span {
@@ -660,10 +715,7 @@ impl<'a> Lexer<'a> {
             }
             Single::At => {
                 if self.beginning_of_file {
-                    let complete = TokenKind::Annotation;
-                    self.expect(raw::TokenKind::Ident, complete);
-                    self.eat_to_end_of_line();
-                    Ok(complete)
+                    unreachable!("annotations at the beginning of a file are handled in cook")
                 } else {
                     Ok(TokenKind::At)
                 }
@@ -771,9 +823,29 @@ impl Iterator for Lexer<'_> {
     type Item = Result<Token, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.pending.is_empty() && self.directive.is_some() {
+            self.fill_pending_directive_tokens();
+        }
+        if let Some(token) = self.pending.pop_front() {
+            return Some(Ok(token));
+        }
+
         while let Some(token) = self.tokens.next() {
+            if token.kind == raw::TokenKind::Single(Single::At) && self.beginning_of_file {
+                let hi = token.offset + 1;
+                let token = self.begin_directive(
+                    DirectiveKind::Annotation,
+                    Span {
+                        lo: token.offset,
+                        hi,
+                    },
+                    hi,
+                );
+                self.beginning_of_file = false;
+                return Some(Ok(token));
+            }
             match self.cook(&token) {
-                Ok(None) => self.beginning_of_file = false,
+                Ok(None) => {}
                 Ok(Some(token)) => {
                     self.beginning_of_file = false;
                     return Some(Ok(token));
@@ -787,4 +859,207 @@ impl Iterator for Lexer<'_> {
 
         None
     }
+}
+
+#[derive(Clone, Copy)]
+enum DirectiveKind {
+    Annotation,
+    Pragma,
+}
+
+enum DirectiveMode {
+    Annotation {
+        cursor: u32,
+        line_end: u32,
+        state: AnnotationState,
+    },
+    Pragma {
+        cursor: u32,
+        line_end: u32,
+        command_emitted: bool,
+    },
+}
+
+impl DirectiveMode {
+    fn new(kind: DirectiveKind, cursor: u32, line_end: u32) -> Self {
+        match kind {
+            DirectiveKind::Annotation => Self::Annotation {
+                cursor,
+                line_end,
+                state: AnnotationState::Segment,
+            },
+            DirectiveKind::Pragma => Self::Pragma {
+                cursor,
+                line_end,
+                command_emitted: false,
+            },
+        }
+    }
+
+    fn next_token(&mut self, input: &str) -> (Token, bool) {
+        match self {
+            Self::Annotation {
+                cursor,
+                line_end,
+                state,
+            } => next_annotation_token(input, cursor, *line_end, state),
+            Self::Pragma {
+                cursor,
+                line_end,
+                command_emitted,
+            } => {
+                if !*command_emitted {
+                    *cursor = skip_horizontal_space(input, *cursor, *line_end);
+                    if *cursor < *line_end {
+                        *command_emitted = true;
+                        return (
+                            Token {
+                                kind: TokenKind::DirectiveCommand,
+                                span: Span {
+                                    lo: *cursor,
+                                    hi: *line_end,
+                                },
+                            },
+                            false,
+                        );
+                    }
+                }
+                (
+                    Token {
+                        kind: TokenKind::DirectiveEnd,
+                        span: Span {
+                            lo: *line_end,
+                            hi: *line_end,
+                        },
+                    },
+                    true,
+                )
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AnnotationState {
+    Segment,
+    Separator,
+    Value,
+    End,
+}
+
+fn next_annotation_token(
+    input: &str,
+    cursor: &mut u32,
+    line_end: u32,
+    state: &mut AnnotationState,
+) -> (Token, bool) {
+    match state {
+        AnnotationState::Segment => {
+            let start = *cursor;
+            let Some(first) = input[start as usize..line_end as usize].chars().next() else {
+                *state = AnnotationState::End;
+                return next_annotation_token(input, cursor, line_end, state);
+            };
+            if !is_identifier_start(first) {
+                *state = AnnotationState::Value;
+                return next_annotation_token(input, cursor, line_end, state);
+            }
+            *cursor +=
+                u32::try_from(first.len_utf8()).expect("character length should fit into u32");
+            while *cursor < line_end {
+                let next = input[*cursor as usize..line_end as usize]
+                    .chars()
+                    .next()
+                    .expect("cursor should be before line end");
+                if !is_identifier_continue(next) {
+                    break;
+                }
+                *cursor +=
+                    u32::try_from(next.len_utf8()).expect("character length should fit into u32");
+            }
+            *state = AnnotationState::Separator;
+            (
+                Token {
+                    kind: Lexer::ident(&input[start as usize..*cursor as usize]),
+                    span: Span {
+                        lo: start,
+                        hi: *cursor,
+                    },
+                },
+                false,
+            )
+        }
+        AnnotationState::Separator => {
+            if input.as_bytes().get(*cursor as usize) == Some(&b'.') && *cursor < line_end {
+                let start = *cursor;
+                *cursor += 1;
+                *state = AnnotationState::Segment;
+                return (
+                    Token {
+                        kind: TokenKind::Dot,
+                        span: Span {
+                            lo: start,
+                            hi: *cursor,
+                        },
+                    },
+                    false,
+                );
+            }
+            *state = AnnotationState::Value;
+            next_annotation_token(input, cursor, line_end, state)
+        }
+        AnnotationState::Value => {
+            *cursor = skip_horizontal_space(input, *cursor, line_end);
+            if *cursor < line_end {
+                let token = Token {
+                    kind: TokenKind::DirectiveValue,
+                    span: Span {
+                        lo: *cursor,
+                        hi: line_end,
+                    },
+                };
+                *cursor = line_end;
+                *state = AnnotationState::End;
+                (token, false)
+            } else {
+                *state = AnnotationState::End;
+                next_annotation_token(input, cursor, line_end, state)
+            }
+        }
+        AnnotationState::End => (
+            Token {
+                kind: TokenKind::DirectiveEnd,
+                span: Span {
+                    lo: line_end,
+                    hi: line_end,
+                },
+            },
+            true,
+        ),
+    }
+}
+
+fn physical_line_end(input: &str, from: u32) -> u32 {
+    input[from as usize..]
+        .char_indices()
+        .find_map(|(offset, character)| {
+            matches!(character, '\r' | '\n')
+                .then(|| from + u32::try_from(offset).expect("line offset should fit into u32"))
+        })
+        .unwrap_or_else(|| u32::try_from(input.len()).expect("input length should fit into u32"))
+}
+
+fn skip_horizontal_space(input: &str, mut cursor: u32, line_end: u32) -> u32 {
+    while cursor < line_end && matches!(input.as_bytes()[cursor as usize], b' ' | b'\t') {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn is_identifier_start(character: char) -> bool {
+    character == '_' || character.is_alphabetic()
+}
+
+fn is_identifier_continue(character: char) -> bool {
+    is_identifier_start(character) || character.is_ascii_digit()
 }

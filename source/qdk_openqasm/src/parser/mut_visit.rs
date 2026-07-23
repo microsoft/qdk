@@ -13,7 +13,7 @@ use super::ast::{
     ExprStmt, ExternDecl, ExternParameter, ForStmt, FunctionCall, GPhase, GateCall,
     GateModifierKind, GateOperand, GateOperandKind, HardwareQubit, IODeclaration, Ident,
     IdentOrIndexedIdent, IfStmt, IncludeStmt, Index, IndexExpr, IndexList, IndexListItem,
-    IndexedIdent, Lit, LiteralKind, MeasureArrowStmt, MeasureExpr, Pragma, Program,
+    IndexedIdent, Lit, LiteralKind, MeasureArrowStmt, MeasureExpr, PathKind, Pragma, Program,
     QuantumGateDefinition, QuantumGateModifier, QubitDeclaration, Range, ResetStmt, ReturnStmt,
     ScalarType, Stmt, StmtKind, SwitchCase, SwitchStmt, TypeDef, UnaryOp, UnaryOpExpr, ValueExpr,
     Version, WhileLoop,
@@ -322,6 +322,33 @@ pub fn walk_block(vis: &mut impl MutVisitor, block: &mut Block) {
 
 pub fn walk_annotation(vis: &mut impl MutVisitor, annotation: &mut Annotation) {
     vis.visit_span(&mut annotation.span);
+    walk_path_kind(vis, &mut annotation.identifier);
+    // A visit_annotation_value(&mut Arc<str>) hook would only make sense if MutVisitor
+    // were intended to rewrite directive payload text. It currently is not.
+    annotation
+        .value_span
+        .iter_mut()
+        .for_each(|span| vis.visit_span(span));
+}
+
+fn walk_path_kind(vis: &mut impl MutVisitor, path: &mut PathKind) {
+    match path {
+        PathKind::Ok(path) => {
+            vis.visit_span(&mut path.span);
+            path.segments
+                .iter_mut()
+                .flatten()
+                .for_each(|segment| vis.visit_ident(segment));
+            vis.visit_ident(&mut path.name);
+        }
+        PathKind::Err(Some(path)) => {
+            vis.visit_span(&mut path.span);
+            path.segments
+                .iter_mut()
+                .for_each(|segment| vis.visit_ident(segment));
+        }
+        PathKind::Err(None) => {}
+    }
 }
 
 pub fn walk_stmt(vis: &mut impl MutVisitor, stmt: &mut Stmt) {
@@ -548,6 +575,15 @@ fn walk_measure_stmt(vis: &mut impl MutVisitor, stmt: &mut MeasureArrowStmt) {
 
 fn walk_pragma_stmt(vis: &mut impl MutVisitor, stmt: &mut Pragma) {
     vis.visit_span(&mut stmt.span);
+    vis.visit_span(&mut stmt.command_span);
+    stmt.identifier
+        .iter_mut()
+        .for_each(|path| walk_path_kind(vis, path));
+    // A visit_pragma_value(&mut Arc<str>) hook would only make sense if MutVisitor
+    // were intended to rewrite pragma payload text. It currently is not.
+    stmt.value_span
+        .iter_mut()
+        .for_each(|span| vis.visit_span(span));
 }
 
 fn walk_quantum_gate_definition_stmt(vis: &mut impl MutVisitor, stmt: &mut QuantumGateDefinition) {

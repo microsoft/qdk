@@ -145,12 +145,11 @@ pub fn parse_source<R: io::SourceResolver>(
 ///     "gates.inc".into(),
 ///     "gate my_h q { h q; }".into(),
 /// )]);
-/// let source = concat!(
-///     "OPENQASM 3.0; ",
-///     "include \"stdgates.inc\"; ",
-///     "include \"gates.inc\"; ",
-///     "qubit q; my_h q;",
-/// );
+/// let source = r#"OPENQASM 3.0;
+/// include "stdgates.inc";
+/// include "gates.inc";
+/// qubit q;
+/// my_h q;"#;
 /// let result = analyze_source(source, "main.qasm", Some(&mut resolver));
 /// assert!(!result.has_errors());
 /// ```

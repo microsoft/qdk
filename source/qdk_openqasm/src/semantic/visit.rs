@@ -294,6 +294,7 @@ pub fn walk_version(vis: &mut impl Visitor, version: &Version) {
 
 pub fn walk_pragma(vis: &mut impl Visitor, pragma: &Pragma) {
     vis.visit_span(pragma.span);
+    vis.visit_span(pragma.command_span);
     pragma
         .identifier
         .iter()

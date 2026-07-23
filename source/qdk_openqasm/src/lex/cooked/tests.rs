@@ -37,7 +37,10 @@ fn op_string(kind: TokenKind) -> Option<String> {
         TokenKind::BinOpEq(super::ClosedBinOp::AmpAmp | super::ClosedBinOp::BarBar)
         | TokenKind::Literal(_)
         | TokenKind::Annotation
-        | TokenKind::Pragma => None,
+        | TokenKind::Pragma
+        | TokenKind::DirectiveValue
+        | TokenKind::DirectiveCommand
+        | TokenKind::DirectiveEnd => None,
         TokenKind::BinOpEq(op) => Some(format!("{op}=")),
         TokenKind::ComparisonOp(op) => Some(op.to_string()),
         TokenKind::Identifier => Some("foo".to_string()),
@@ -1187,6 +1190,51 @@ fn annotation() {
                         kind: Annotation,
                         span: Span {
                             lo: 0,
+                            hi: 1,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Identifier,
+                        span: Span {
+                            lo: 1,
+                            hi: 4,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Dot,
+                        span: Span {
+                            lo: 4,
+                            hi: 5,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Identifier,
+                        span: Span {
+                            lo: 5,
+                            hi: 8,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: DirectiveValue,
+                        span: Span {
+                            lo: 9,
+                            hi: 15,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: DirectiveEnd,
+                        span: Span {
+                            lo: 15,
                             hi: 15,
                         },
                     },
@@ -1211,6 +1259,15 @@ fn pragma() {
                         },
                     },
                 ),
+                Ok(
+                    Token {
+                        kind: DirectiveEnd,
+                        span: Span {
+                            lo: 6,
+                            hi: 6,
+                        },
+                    },
+                ),
             ]
         "#]],
     );
@@ -1227,6 +1284,24 @@ fn pragma_ident() {
                         kind: Pragma,
                         span: Span {
                             lo: 0,
+                            hi: 6,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: DirectiveCommand,
+                        span: Span {
+                            lo: 7,
+                            hi: 10,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: DirectiveEnd,
+                        span: Span {
+                            lo: 10,
                             hi: 10,
                         },
                     },
@@ -1251,6 +1326,15 @@ fn sharp_pragma() {
                         },
                     },
                 ),
+                Ok(
+                    Token {
+                        kind: DirectiveEnd,
+                        span: Span {
+                            lo: 7,
+                            hi: 7,
+                        },
+                    },
+                ),
             ]
         "#]],
     );
@@ -1267,6 +1351,24 @@ fn sharp_pragma_ident() {
                         kind: Pragma,
                         span: Span {
                             lo: 0,
+                            hi: 7,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: DirectiveCommand,
+                        span: Span {
+                            lo: 8,
+                            hi: 11,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: DirectiveEnd,
+                        span: Span {
+                            lo: 11,
                             hi: 11,
                         },
                     },
@@ -1274,6 +1376,80 @@ fn sharp_pragma_ident() {
             ]
         "#]],
     );
+}
+
+#[test]
+fn directive_block_comment_stops_at_first_physical_line() {
+    let actual: Vec<_> = Lexer::new("pragma vendor/* first\nsecond */ bit x;").collect();
+    assert_eq!(
+        actual[..3],
+        [
+            Ok(Token {
+                kind: TokenKind::Pragma,
+                span: Span { lo: 0, hi: 6 },
+            }),
+            Ok(Token {
+                kind: TokenKind::DirectiveCommand,
+                span: Span { lo: 7, hi: 21 },
+            }),
+            Ok(Token {
+                kind: TokenKind::DirectiveEnd,
+                span: Span { lo: 21, hi: 21 },
+            }),
+        ]
+    );
+    assert!(actual.iter().any(|token| {
+        matches!(
+            token,
+            Ok(Token {
+                kind: TokenKind::Identifier,
+                span: Span { lo: 22, hi: 28 },
+            })
+        )
+    }));
+}
+
+#[test]
+fn annotation_block_comment_stops_at_first_physical_line() {
+    let actual: Vec<_> = Lexer::new("@vendor.note /* first\nsecond */ bit x;").collect();
+    assert_eq!(
+        actual[..6],
+        [
+            Ok(Token {
+                kind: TokenKind::Annotation,
+                span: Span { lo: 0, hi: 1 },
+            }),
+            Ok(Token {
+                kind: TokenKind::Identifier,
+                span: Span { lo: 1, hi: 7 },
+            }),
+            Ok(Token {
+                kind: TokenKind::Dot,
+                span: Span { lo: 7, hi: 8 },
+            }),
+            Ok(Token {
+                kind: TokenKind::Identifier,
+                span: Span { lo: 8, hi: 12 },
+            }),
+            Ok(Token {
+                kind: TokenKind::DirectiveValue,
+                span: Span { lo: 13, hi: 21 },
+            }),
+            Ok(Token {
+                kind: TokenKind::DirectiveEnd,
+                span: Span { lo: 21, hi: 21 },
+            }),
+        ]
+    );
+    assert!(actual.iter().any(|token| {
+        matches!(
+            token,
+            Ok(Token {
+                kind: TokenKind::Identifier,
+                span: Span { lo: 22, hi: 28 },
+            })
+        )
+    }));
 }
 
 #[test]

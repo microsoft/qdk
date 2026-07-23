@@ -101,6 +101,9 @@ pub enum ErrorKind {
     #[error("Annotation missing target statement.")]
     #[diagnostic(code("Qdk.Qasm.Parser.FloatingAnnotation"))]
     FloatingAnnotation(#[label] Span),
+    #[error("pragma command cannot be empty")]
+    #[diagnostic(code("Qdk.Qasm.Parser.EmptyPragma"))]
+    EmptyPragma(#[label] Span),
     #[error("expected {0}, found {1}")]
     #[diagnostic(code("Qdk.Qasm.Parser.Rule"))]
     Rule(&'static str, TokenKind, #[label] Span),
@@ -150,6 +153,7 @@ impl ErrorKind {
             Self::Escape(ch, span) => Self::Escape(ch, span + offset),
             Self::Token(expected, actual, span) => Self::Token(expected, actual, span + offset),
             Self::EmptyStatement(span) => Self::EmptyStatement(span + offset),
+            Self::EmptyPragma(span) => Self::EmptyPragma(span + offset),
             Self::Rule(name, token, span) => Self::Rule(name, token, span + offset),
             Self::Convert(expected, actual, span) => Self::Convert(expected, actual, span + offset),
             Self::MissingSemi(span) => Self::MissingSemi(span + offset),

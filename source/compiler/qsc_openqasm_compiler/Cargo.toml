@@ -36,6 +36,10 @@ workspace = true
 [lib]
 bench = false
 
+[[bin]]
+name = "qasm_translate_memtest"
+path = "src/bin/qasm_translate_memtest.rs"
+
 [[bench]]
 name = "rgqft_multiplier"
 harness = false

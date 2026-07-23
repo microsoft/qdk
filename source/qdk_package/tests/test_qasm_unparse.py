@@ -60,7 +60,7 @@ def test_canonicalization_covers_annotations_pragmas_calibration_and_crlf() -> N
         "OPENQASM 3.1;\r\n"
         "@vendor.tag payload\r\n"
         "qubit q;\r\n"
-        "pragma vendor.mode exact\r\n"
+        "pragma vendor.mode exact/*opaque*/  \r\n"
         'defcalgrammar "openpulse";\r\n'
         "cal { pulse frame; }\r\n"
         "defcal x $0 { play; }\r\n"
@@ -71,7 +71,7 @@ def test_canonicalization_covers_annotations_pragmas_calibration_and_crlf() -> N
     emitted = parser.dumps(result.program)
     assert "\r" not in emitted
     assert emitted.startswith("OPENQASM 3.1;\n@vendor.tag payload\n")
-    assert "pragma vendor.mode exact\n" in emitted
+    assert "pragma vendor.mode exact/*opaque*/  \n" in emitted
     assert 'defcalgrammar "openpulse";\n' in emitted
     assert "cal { pulse frame; }\n" in emitted
     assert "defcal x $0 { play; }\n" in emitted

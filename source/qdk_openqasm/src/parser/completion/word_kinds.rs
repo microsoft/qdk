@@ -5,6 +5,13 @@ use crate::keyword::Keyword;
 use bitflags::bitflags;
 use enum_iterator::all;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CompletionContext {
+    AnnotationName,
+    PragmaName,
+    DirectiveValue,
+}
+
 bitflags! {
     ///
     /// Words can be of these kinds:

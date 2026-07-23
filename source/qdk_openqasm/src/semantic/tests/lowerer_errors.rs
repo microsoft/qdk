@@ -1,10 +1,53 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::tests::check_qasm;
+use crate::{
+    error::ErrorKind,
+    semantic::SemanticErrorKind,
+    tests::{check_qasm, parse},
+};
 use expect_test::expect;
 
 const SOURCE: &str = include_str!("../resources/openqasm_lowerer_errors_test.qasm");
+
+#[test]
+fn nested_pragma_is_diagnosed_as_global_only() {
+    let result = parse("OPENQASM 3.0;\n{\n    pragma vendor.command argument\n}")
+        .expect("source should parse");
+
+    assert_eq!(result.errors.len(), 1);
+    let ErrorKind::Semantic(error) = &result.errors[0].error().0 else {
+        panic!("expected semantic error");
+    };
+    let SemanticErrorKind::InvalidScope(item, scope, _) = &error.0 else {
+        panic!("expected invalid-scope error");
+    };
+    assert_eq!(
+        (item.as_str(), scope.as_str()),
+        ("pragma statements", "global")
+    );
+}
+
+#[test]
+fn annotation_on_include_is_accepted_without_propagation() {
+    let source = "OPENQASM 3.0;\n@vendor.note payload\ninclude \"stdgates.inc\";\nbit flag;";
+    let (syntax_program, parse_errors) = crate::parser::parse(source);
+    assert!(parse_errors.is_empty());
+
+    let include = &syntax_program.statements[0];
+    assert!(matches!(
+        include.kind.as_ref(),
+        crate::parser::ast::StmtKind::Include(_)
+    ));
+    assert_eq!(include.annotations.len(), 1);
+    assert_eq!(include.annotations[0].identifier.as_string(), "vendor.note");
+    assert_eq!(include.annotations[0].value.as_deref(), Some("payload"));
+
+    let result = parse(source).expect("source should analyze");
+    assert!(!result.has_errors());
+    let declaration = result.program.statements.last().expect("bit declaration");
+    assert!(declaration.annotations.is_empty());
+}
 
 #[allow(clippy::too_many_lines)]
 #[test]

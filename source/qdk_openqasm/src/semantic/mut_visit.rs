@@ -302,6 +302,7 @@ pub fn walk_version(vis: &mut impl MutVisitor, version: &mut Version) {
 
 pub fn walk_pragma(vis: &mut impl MutVisitor, pragma: &mut Pragma) {
     vis.visit_span(&mut pragma.span);
+    vis.visit_span(&mut pragma.command_span);
     pragma
         .identifier
         .iter_mut()

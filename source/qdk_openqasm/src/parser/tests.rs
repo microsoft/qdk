@@ -7,6 +7,7 @@ use crate::io::InMemorySourceResolver;
 use crate::io::SourceResolver;
 use crate::io::{self, SourceResolverContext};
 
+use super::ast::StmtKind;
 use super::parse_source;
 use super::{ParseResult, SourceStatus};
 use miette::Report;
@@ -220,11 +221,74 @@ fn programs_with_includes_with_includes_can_be_parsed() -> miette::Result<(), Ve
 }
 
 #[test]
-fn source_snapshot_uses_preorder_ids_and_explicit_status() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"empty.inc\"; ",
-        "include \"missing.inc\"; include \"nested.inc\";"
+fn included_directive_nested_spans_use_source_offset() -> miette::Result<(), Vec<Report>> {
+    let source0 = "include \"source1.qasm\";";
+    let source1 = "@vendor.note payload\nbit flag;\npragma vendor.command argument";
+    let all_sources = [
+        ("source0.qasm".into(), source0.into()),
+        ("source1.qasm".into(), source1.into()),
+    ];
+
+    let res = parse_all("source0.qasm", all_sources)?;
+    let source_offset = res
+        .source_snapshot
+        .resolve("source1.qasm")
+        .expect("included source")
+        .offset;
+    let statements = &res.source.includes()[0]
+        .program()
+        .expect("included program")
+        .statements;
+    let annotation = &statements[0].annotations[0];
+    let StmtKind::Pragma(pragma) = statements[1].kind.as_ref() else {
+        panic!("expected pragma statement");
+    };
+    let crate::parser::ast::PathKind::Ok(annotation_path) = &annotation.identifier else {
+        panic!("expected annotation path");
+    };
+    let crate::parser::ast::PathKind::Ok(pragma_path) =
+        pragma.identifier.as_ref().expect("pragma path")
+    else {
+        panic!("expected complete pragma path");
+    };
+
+    assert_eq!(annotation_path.span.lo, source_offset + 1);
+    assert_eq!(
+        annotation_path
+            .segments
+            .as_ref()
+            .expect("annotation segment")[0]
+            .span
+            .lo,
+        source_offset + 1
     );
+    assert_eq!(annotation_path.name.span.lo, source_offset + 8);
+    assert_eq!(
+        annotation.value_span.expect("annotation value").lo,
+        source_offset + 13
+    );
+    assert_eq!(pragma_path.span.lo, source_offset + 38);
+    assert_eq!(
+        pragma_path.segments.as_ref().expect("pragma segment")[0]
+            .span
+            .lo,
+        source_offset + 38
+    );
+    assert_eq!(pragma_path.name.span.lo, source_offset + 45);
+    assert_eq!(pragma.command_span.lo, source_offset + 38);
+    assert_eq!(
+        pragma.value_span.expect("pragma value").lo,
+        source_offset + 53
+    );
+    Ok(())
+}
+
+#[test]
+fn source_snapshot_uses_preorder_ids_and_explicit_status() {
+    let source = r#"OPENQASM 3.0;
+include "empty.inc";
+include "missing.inc";
+include "nested.inc";"#;
     let sources = [
         ("empty.inc".into(), "".into()),
         ("nested.inc".into(), "include \"leaf.inc\";".into()),
@@ -291,10 +355,9 @@ fn renaming_resolver(
 
 #[test]
 fn source_snapshot_records_relative_and_uri_aliases() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"../shared.inc\"; ",
-        "include \"uri.inc\";"
-    );
+    let source = r#"OPENQASM 3.0;
+include "../shared.inc";
+include "uri.inc";"#;
     let mut resolver = renaming_resolver([
         ("pkg/shared.inc", "memory://shared.inc", ""),
         ("pkg/app/uri.inc", "https://example.test/uri.inc", ""),
@@ -342,10 +405,9 @@ fn source_snapshot_records_relative_and_uri_aliases() {
 
 #[test]
 fn same_basename_in_different_directories_has_distinct_aliases() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"a/shared.inc\"; ",
-        "include \"b/shared.inc\";"
-    );
+    let source = r#"OPENQASM 3.0;
+include "a/shared.inc";
+include "b/shared.inc";"#;
     let mut resolver = renaming_resolver([
         ("root/a/shared.inc", "memory://a/shared.inc", ""),
         ("root/b/shared.inc", "memory://b/shared.inc", ""),
@@ -380,10 +442,9 @@ fn same_basename_in_different_directories_has_distinct_aliases() {
 #[test]
 #[should_panic(expected = "source alias collision")]
 fn source_snapshot_rejects_alias_collisions() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"one.inc\"; ",
-        "include \"two.inc\";"
-    );
+    let source = r#"OPENQASM 3.0;
+include "one.inc";
+include "two.inc";"#;
     let mut resolver = renaming_resolver([
         ("one.inc", "memory://same.inc", ""),
         ("two.inc", "memory://same.inc", ""),
@@ -394,10 +455,9 @@ fn source_snapshot_rejects_alias_collisions() {
 
 #[test]
 fn resolver_failure_does_not_change_later_include_base_path() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"missing/first.inc\"; ",
-        "include \"second.inc\";"
-    );
+    let source = r#"OPENQASM 3.0;
+include "missing/first.inc";
+include "second.inc";"#;
     let mut resolver =
         InMemorySourceResolver::from_iter([("root/second.inc".into(), "gate second q {}".into())]);
     let result = parse_source(source, "root/main.qasm", &mut resolver);
@@ -410,10 +470,9 @@ fn resolver_failure_does_not_change_later_include_base_path() {
 
 #[test]
 fn duplicate_include_publishes_unresolved_placeholder() {
-    let source = concat!(
-        "OPENQASM 3.0; include \"shared.inc\"; ",
-        "include \"shared.inc\";"
-    );
+    let source = r#"OPENQASM 3.0;
+include "shared.inc";
+include "shared.inc";"#;
     let mut resolver = InMemorySourceResolver::from_iter([("shared.inc".into(), "".into())]);
     let result = parse_source(source, "main.qasm", &mut resolver);
     let files = result.source_snapshot.files();

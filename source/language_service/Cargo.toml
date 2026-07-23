@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dev-dependencies]
+criterion = { workspace = true, features = ["cargo_bench_support"] }
 expect-test = { workspace = true }
 indoc = { workspace = true }
 tokio = { workspace = true }
@@ -32,3 +33,7 @@ workspace = true
 
 [lib]
 doctest = false
+
+[[bench]]
+name = "openqasm_completion"
+harness = false

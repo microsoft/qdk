@@ -4,7 +4,10 @@
 use crate::span::Span;
 use crate::{
     lex::{Lexer, Token, TokenKind},
-    parser::completion::{collector::ValidWordCollector, word_kinds::WordKinds},
+    parser::completion::{
+        CompletionContext, CompletionDirective, collector::ValidWordCollector,
+        word_kinds::WordKinds,
+    },
 };
 use rustc_hash::FxHashMap;
 use std::sync::Arc;
@@ -80,8 +83,24 @@ impl<'a> ParserContext<'a> {
     pub(super) fn advance(&mut self) {
         self.scanner.advance();
 
-        if let Some(e) = &mut self.word_collector {
-            e.did_advance(&mut self.scanner.peek, self.scanner.offset);
+        if let Some(collector) = &mut self.word_collector {
+            if self.scanner.peek.kind == TokenKind::DirectiveCommand {
+                let command_span = self.scanner.peek.span;
+                let view =
+                    crate::parser::ast::derive_pragma_command(self.scanner.read(), command_span);
+                let context = match view.name_span {
+                    Some(name_span) if collector.cursor_offset() <= name_span.hi => {
+                        CompletionContext::PragmaName
+                    }
+                    Some(_) => CompletionContext::DirectiveValue,
+                    None => CompletionContext::PragmaName,
+                };
+                collector.expect_context(context);
+                if let Some(name) = view.name {
+                    collector.expect_directive(CompletionDirective::Pragma(name.to_string()));
+                }
+            }
+            collector.did_advance(&mut self.scanner.peek, self.scanner.offset);
         }
     }
 
@@ -125,6 +144,30 @@ impl<'a> ParserContext<'a> {
         if let Some(e) = &mut self.word_collector {
             e.expect(expected);
         }
+    }
+
+    pub(super) fn expect_completion_context(&mut self, context: CompletionContext) {
+        if let Some(collector) = &mut self.word_collector {
+            collector.expect_context(context);
+        }
+    }
+
+    pub(super) fn expect_completion_directive(&mut self, directive: CompletionDirective) {
+        if let Some(collector) = &mut self.word_collector {
+            collector.expect_directive(directive);
+        }
+    }
+
+    pub(super) fn clear_completion_context(&mut self) {
+        if let Some(collector) = &mut self.word_collector {
+            collector.clear_context();
+        }
+    }
+
+    pub(super) fn completion_cursor_offset(&self) -> Option<u32> {
+        self.word_collector
+            .as_ref()
+            .map(|collector| collector.cursor_offset())
     }
 }
 

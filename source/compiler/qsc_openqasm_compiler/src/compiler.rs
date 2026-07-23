@@ -43,13 +43,14 @@ use crate::{
 use qdk_openqasm::semantic::ast as semast;
 use qdk_openqasm::{
     io::SourceResolver,
-    parser::ast::{List, PathKind, list_from_iter},
+    parser::ast::{List, list_from_iter},
     semantic::{
         AnalysisResult,
         ast::{
             Array, BinaryOpExpr, Cast, Expr, GateOperand, GateOperandKind, Index, IndexedExpr,
             LiteralKind, MeasureExpr, Set, TimeUnit, UnaryOpExpr,
         },
+        broadcast::{ScalarGateCall, expand_gate_call},
         symbols::{IOKind, Symbol, SymbolId, SymbolTable},
         types::{Type, promote_types},
         visit::{Visitor, walk_stmt},
@@ -668,15 +669,18 @@ impl QasmCompiler {
     }
 
     fn compile_stmts(&mut self, stmts: &[qdk_openqasm::semantic::ast::Stmt]) {
+        let mut compiled_stmts = Vec::new();
         for stmt in stmts {
-            let compiled_stmt = self.compile_stmt(stmt);
-            if let Some(stmt) = compiled_stmt {
-                self.stmts.push(stmt);
-            }
+            self.compile_stmt(stmt, &mut compiled_stmts);
         }
+        self.stmts.extend(compiled_stmts);
     }
 
-    fn compile_stmt(&mut self, stmt: &qdk_openqasm::semantic::ast::Stmt) -> Option<qsast::Stmt> {
+    fn compile_stmt(
+        &mut self,
+        stmt: &qdk_openqasm::semantic::ast::Stmt,
+        output: &mut Vec<qsast::Stmt>,
+    ) {
         if !stmt.annotations.is_empty()
             && !matches!(
                 stmt.kind.as_ref(),
@@ -690,7 +694,7 @@ impl QasmCompiler {
             }
         }
 
-        match stmt.kind.as_ref() {
+        let compiled = match stmt.kind.as_ref() {
             semast::StmtKind::Alias(stmt) => self.compile_alias_decl_stmt(stmt),
             semast::StmtKind::Assign(stmt) => self.compile_assign_stmt(stmt),
             semast::StmtKind::Barrier(stmt) => Self::compile_barrier_stmt(stmt),
@@ -711,7 +715,10 @@ impl QasmCompiler {
             semast::StmtKind::ExternDecl(stmt) => self.compile_extern_stmt(stmt),
             semast::StmtKind::For(stmt) => self.compile_for_stmt(stmt),
             semast::StmtKind::If(stmt) => self.compile_if_stmt(stmt),
-            semast::StmtKind::GateCall(stmt) => self.compile_gate_call_stmt(stmt),
+            semast::StmtKind::GateCall(stmt) => {
+                self.compile_gate_call_stmt(stmt, output);
+                return;
+            }
             semast::StmtKind::Include(stmt) => self.compile_include_stmt(stmt),
             semast::StmtKind::IndexedAssign(stmt) => self.compile_indexed_assign_stmt(stmt),
             semast::StmtKind::InputDeclaration(stmt) => self.compile_input_decl_stmt(stmt),
@@ -734,7 +741,9 @@ impl QasmCompiler {
                 // Are we going to allow trying to compile a program with semantic errors?
                 None
             }
-        }
+        };
+
+        output.extend(compiled);
     }
 
     /// Alias statements are compiled into the Q# ast as array concatenation for qubits
@@ -938,17 +947,13 @@ impl QasmCompiler {
             .get(PragmaKind::QdkBoxClose)
             .map(|name| build_call_stmt_no_params(name, &[], Span::default(), Span::default()));
 
-        let body = stmt
-            .body
-            .iter()
-            .filter_map(|stmt| self.compile_stmt(stmt))
-            .collect::<Vec<_>>();
-
         let mut stmts = vec![];
         if let Some(open) = open {
             stmts.push(open);
         }
-        stmts.extend(body);
+        for stmt in &stmt.body {
+            self.compile_stmt(stmt, &mut stmts);
+        }
         if let Some(close) = close {
             stmts.push(close);
         }
@@ -963,11 +968,10 @@ impl QasmCompiler {
     }
 
     fn compile_block(&mut self, block: &semast::Block) -> qsast::Block {
-        let stmts = block
-            .stmts
-            .iter()
-            .filter_map(|stmt| self.compile_stmt(stmt))
-            .collect::<Vec<_>>();
+        let mut stmts = Vec::new();
+        for stmt in &block.stmts {
+            self.compile_stmt(stmt, &mut stmts);
+        }
         qsast::Block {
             id: qsast::NodeId::default(),
             stmts: boxed_list_from_iter(stmts),
@@ -1244,14 +1248,35 @@ impl QasmCompiler {
         err_expr(expr.span.to_qsharp())
     }
 
-    fn compile_gate_call_stmt(&mut self, stmt: &semast::GateCall) -> Option<qsast::Stmt> {
+    fn compile_gate_call_stmt(&mut self, stmt: &semast::GateCall, output: &mut Vec<qsast::Stmt>) {
+        let expansion = match expand_gate_call(stmt) {
+            Ok(expansion) => expansion,
+            Err(error) => {
+                self.push_compiler_error(CompilerErrorKind::InvalidBroadcastExpansion(
+                    error.to_string(),
+                    stmt.span.to_qsharp(),
+                ));
+                return;
+            }
+        };
+
+        for call in expansion {
+            output.extend(self.compile_scalar_gate_call_stmt(&call));
+        }
+    }
+
+    fn compile_scalar_gate_call_stmt(
+        &mut self,
+        scalar: &ScalarGateCall<'_>,
+    ) -> Option<qsast::Stmt> {
+        let stmt = scalar.source();
         if let Some(duration) = &stmt.duration {
             self.push_unsupported_error_message("gate call duration", duration.span);
         }
 
         let symbol = self.symbols[stmt.symbol_id].clone();
-        let mut qubits: Vec<_> = stmt
-            .qubits
+        let mut qubits: Vec<_> = scalar
+            .qubits()
             .iter()
             .map(|q| self.compile_gate_operand(q))
             .collect();
@@ -1388,22 +1413,20 @@ impl QasmCompiler {
             args.is_empty() && matches!(&**return_ty, qdk_openqasm::semantic::types::Type::Void)
         }
 
-        let name_str = stmt
-            .identifier
-            .as_ref()
-            .map_or_else(String::new, PathKind::as_string);
+        let command = stmt.command();
+        let name_str = command.name.unwrap_or_default();
 
         // Check if the pragma is supported by the compiler.
         // If not, we push an error message and return.
-        if !self.pragma_config.is_supported(&name_str) {
+        if !self.pragma_config.is_supported(name_str) {
             self.push_unsupported_error_message(format!("pragma statement: {name_str}"), stmt.span);
             return;
         }
 
         // The pragma is supported, so we get the pragma kind.
-        let pragma = PragmaKind::from_str(&name_str).expect("valid pragma");
+        let pragma = PragmaKind::from_str(name_str).expect("valid pragma");
 
-        match (pragma, stmt.value.as_ref()) {
+        match (pragma, command.value) {
             (PragmaKind::QdkBoxOpen, Some(value)) => {
                 if let Ok(symbol) = self.symbols.get_symbol_by_name(value)
                     && let qdk_openqasm::semantic::types::Type::Function(args, return_ty) =
@@ -1411,12 +1434,12 @@ impl QasmCompiler {
                     && is_parameterless_and_returns_void(args, return_ty)
                 {
                     self.pragma_config
-                        .insert(PragmaKind::QdkBoxOpen, value.clone());
+                        .insert(PragmaKind::QdkBoxOpen, Arc::from(value));
                     return;
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidBoxPragmaTarget(
                     value.to_string(),
-                    stmt.value_span.unwrap_or(stmt.span).to_qsharp(),
+                    command.value_span.unwrap_or(stmt.span).to_qsharp(),
                 ));
             }
             (PragmaKind::QdkBoxClose, Some(value)) => {
@@ -1426,12 +1449,12 @@ impl QasmCompiler {
                     && is_parameterless_and_returns_void(args, return_ty)
                 {
                     self.pragma_config
-                        .insert(PragmaKind::QdkBoxClose, value.clone());
+                        .insert(PragmaKind::QdkBoxClose, Arc::from(value));
                     return;
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidBoxPragmaTarget(
                     value.to_string(),
-                    stmt.value_span.unwrap_or(stmt.span).to_qsharp(),
+                    command.value_span.unwrap_or(stmt.span).to_qsharp(),
                 ));
             }
             (PragmaKind::QdkBoxOpen | PragmaKind::QdkBoxClose, None) => {
@@ -1448,13 +1471,13 @@ impl QasmCompiler {
                         .contains_key(&PragmaKind::QdkQirProfile)
                     {
                         self.pragma_config
-                            .insert(PragmaKind::QdkQirProfile, profile.clone());
+                            .insert(PragmaKind::QdkQirProfile, Arc::from(profile));
                     }
                     return;
                 }
                 self.push_compiler_error(CompilerErrorKind::InvalidProfilePragmaTarget(
                     profile.to_string(),
-                    stmt.value_span.unwrap_or(stmt.span).to_qsharp(),
+                    command.value_span.unwrap_or(stmt.span).to_qsharp(),
                 ));
             }
             (PragmaKind::QdkQirProfile, None) => {
@@ -1752,26 +1775,16 @@ impl QasmCompiler {
 
     fn compile_while_stmt(&mut self, stmt: &semast::WhileLoop) -> Option<qsast::Stmt> {
         let condition = self.compile_expr(&stmt.condition);
-        match &*stmt.body.kind {
-            semast::StmtKind::Block(block) => {
-                let block = self.compile_block(block);
-                Some(build_while_stmt(condition, block, stmt.span.to_qsharp()))
-            }
-            semast::StmtKind::Err => Some(qsast::Stmt {
+        if matches!(&*stmt.body.kind, semast::StmtKind::Err) {
+            return Some(qsast::Stmt {
                 id: NodeId::default(),
                 span: stmt.body.span.to_qsharp(),
                 kind: Box::new(qsast::StmtKind::Err),
-            }),
-            _ => {
-                let block_stmt = self.compile_stmt(&stmt.body)?;
-                let block = qsast::Block {
-                    id: qsast::NodeId::default(),
-                    stmts: boxed_list_from_iter([block_stmt]),
-                    span: stmt.span.to_qsharp(),
-                };
-                Some(build_while_stmt(condition, block, stmt.span.to_qsharp()))
-            }
+            });
         }
+
+        let block = self.compile_block(&Self::stmt_as_block(&stmt.body));
+        Some(build_while_stmt(condition, block, stmt.span.to_qsharp()))
     }
 
     fn compile_expr(&mut self, expr: &semast::Expr) -> qsast::Expr {

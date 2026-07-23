@@ -81,6 +81,7 @@ fn spec_sample() {
                                         kind: Lit: Duration(100.0 ns)
                                     classical_arity: 0
                                     quantum_arity: 1
+                                    broadcast: Scalar
             [41] Symbol [101-102]:
                 name: b
                 type: const duration
@@ -244,6 +245,7 @@ fn spec_sample_2() {
                                                         kind: Lit: Duration(10.0 ns)
                                                     classical_arity: 0
                                                     quantum_arity: 1
+                                                    broadcast: Scalar
             [42] Symbol [104-117]:
                 name: start_stretch
                 type: duration
@@ -296,6 +298,7 @@ fn spec_sample_2() {
                                                                 kind: Lit: Duration(10.0 ns)
                                                             classical_arity: 0
                                                             quantum_arity: 1
+                                                            broadcast: Scalar
                         rhs: Expr [233-265]:
                             ty: const duration
                             const_value: Duration(50.0 ns)
@@ -326,6 +329,7 @@ fn spec_sample_2() {
                                                         kind: Lit: Duration(100.0 ns)
                                                     classical_arity: 0
                                                     quantum_arity: 1
+                                                    broadcast: Scalar
             [43] Symbol [178-192]:
                 name: middle_stretch
                 type: duration
@@ -373,6 +377,7 @@ fn spec_sample_2() {
                                                         kind: Lit: Duration(1000.0 ns)
                                                     classical_arity: 0
                                                     quantum_arity: 1
+                                                    broadcast: Scalar
             [44] Symbol [288-299]:
                 name: end_stretch
                 type: duration

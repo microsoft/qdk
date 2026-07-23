@@ -566,13 +566,9 @@ impl Emitter {
         indent: usize,
     ) -> Result<(), UnparseError> {
         let mut rendered = String::from("pragma");
-        if let Some(identifier) = &pragma.identifier {
+        if !pragma.command.is_empty() {
             rendered.push(' ');
-            rendered.push_str(&complete_path(identifier, pragma.span)?);
-        }
-        if let Some(value) = &pragma.value {
-            rendered.push(' ');
-            rendered.push_str(value);
+            rendered.push_str(&pragma.command);
         }
         self.line(output, indent, &rendered);
         Ok(())

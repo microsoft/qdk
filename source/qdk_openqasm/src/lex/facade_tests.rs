@@ -118,3 +118,25 @@ fn invalid_lexical_forms_are_visible_through_facade() {
 fn empty_source_has_no_raw_tokens() {
     assert!(tokenize("").is_empty());
 }
+
+#[test]
+fn directive_tokenization_does_not_change_public_raw_tokens() {
+    let source = "#pragma vendor.cmd /* first\nsecond */  \r\n@vendor.note //payload\n";
+    let tokens = tokenize(source);
+
+    assert_eq!(
+        tokens
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<String>(),
+        source
+    );
+    assert!(
+        tokens
+            .windows(2)
+            .all(|pair| pair[0].span.hi == pair[1].span.lo)
+    );
+    assert!(tokens.iter().any(|token| {
+        token.kind == RawTokenKind::Comment && token.text == "/* first\nsecond */"
+    }));
+}
