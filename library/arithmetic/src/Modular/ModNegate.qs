@@ -5,7 +5,6 @@ import AddConst.AddConstant;
 import Utils.CheckIfAllOnes;
 import Utils.CheckIfAllZero;
 
-
 /// # Summary
 /// Reversible, in-place modular negation of an integer modulo a constant
 /// integer modulus. Given an $n$-bit integer $x$ encoded in a little-endian

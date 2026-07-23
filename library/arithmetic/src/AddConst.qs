@@ -12,9 +12,8 @@ import ClassicalMath.SafeMod;
 /// Computes `input := (input + constant) % 2^Length(input)`.
 ///
 /// # Reference
-/// Sanders et al., "Compilation of Fault-Tolerant Quantum Heuristics
-/// for Combinatorial Optimization" (Fig. 18), 2020.
-/// https://arxiv.org/pdf/2007.07391
+/// - [1](https://arxiv.org/pdf/2007.07391) "Compilation of Fault-Tolerant Quantum
+///   Heuristics for Combinatorial Optimization", Sanders et al. (Fig. 18).
 ///
 /// # Resources
 /// Uses n-1 auxiliary qubits and 2n-2 Toffoli gates.
@@ -72,9 +71,12 @@ operation AddConstantSanders(constant : BigInt, inp : Qubit[]) : Unit is Adj + C
     }
 }
 
-// Constant adder using the Gidney ripple-carry adder.
-// Reference: Craig Gidney, "Halving the cost of quantum addition", 2018.
-// https://doi.org/10.22331/q-2018-06-18-74
+/// # Summary
+/// Constant adder using the Gidney ripple-carry adder.
+///
+/// # Reference
+/// - [1](https://arxiv.org/abs/1709.06648) "Halving the cost of quantum addition", 
+///   Craig Gidney.
 operation AddConstantUsingCGAdd(constant : BigInt, input : Qubit[]) : Unit is Adj + Ctl {
     body (...) {
         Controlled AddConstantUsingCGAdd([], (constant, input));

@@ -14,14 +14,6 @@ import ClassicalMath.*;
 import ResourceEstimation.LoopA;
 import Utils.ParallelSWAP;
 
-// References:
-// - Craig Gidney, "Windowed quantum arithmetic", 2019.
-//   https://arxiv.org/abs/1905.07682
-// - Craig Gidney, "How to factor 2048 bit RSA integers with less than a million
-//   noisy qubits", 2025.
-//   https://arxiv.org/abs/2505.15917
-
-
 /// Computes powers of base: base_pows[i] = base^i % modulus.
 function ComputeBasePowers(base : BigInt, modulus : BigInt, num_powers : Int) : BigInt[] {
     mutable base_pows = Repeated(0L, num_powers);
@@ -33,9 +25,9 @@ function ComputeBasePowers(base : BigInt, modulus : BigInt, num_powers : Int) : 
     return base_pows;
 }
 
-// Generates a modular-exponentiation lookup table.
-// For each a in [0,num_a), b in [0, num_b):
-// data[(b * num_a) + a] = (factor * b * base^a * sign) % modulus.
+/// Generates a modular-exponentiation lookup table.
+/// For each a in [0,num_a), b in [0, num_b):
+/// data[(b * num_a) + a] = (factor * b * base^a * sign) % modulus.
 function ModExpLookupTable(
     factor : BigInt,
     exp_length : Int,
@@ -95,7 +87,9 @@ operation WindowModularMultiply(
 /// Computes `q_target := (q_target * base^exponent)%modulus`
 /// using alternating forward and inverse windowed modular-multiply updates.
 ///
-/// Follows Gidney (2019), Section 3.5.
+/// Reference:
+/// - [1](https://arxiv.org/abs/1905.07682) "Windowed quantum arithmetic", Craig Gidney.
+///   Section 3.5.
 ///
 /// # Input
 /// ## q_target

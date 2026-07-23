@@ -14,8 +14,9 @@ import Utils.CheckIfAllZero;
 /// In controlled form, this operation supports at most one control qubit.
 ///
 /// # Reference
-/// Igor L. Markov, Mehdi Saeedi, "Constant-Optimized Quantum Circuits for
-/// Modular Multiplication and Exponentiation" (fig. 6), 2015.
+/// - [1](https://arxiv.org/abs/1202.6614) "Constant-Optimized Quantum Circuits for
+///   Modular Multiplication and Exponentiation", Igor L. Markov, Mehdi Saeedi. 
+///   (Fig. 6).
 ///
 /// # Input
 /// ## q_input
