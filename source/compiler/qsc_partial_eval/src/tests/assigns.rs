@@ -84,7 +84,9 @@ fn assigning_result_register_updates_value() {
         &expect![[r#"
             Block:
                 Call id(1), args( Pointer, )
+                Variable(0, Result) = Store ResultLit(false)
                 Call id(2), args( Qubit(0), Result(0), )
+                Variable(0, Result) = Store Result(0)
                 Call id(3), args( Result(0), Tag(0, 3), )
                 Return Integer(0)"#]],
     );
@@ -474,8 +476,8 @@ fn assigning_classical_int_within_dynamic_if_else_expression_adds_store_instruct
 }
 
 #[test]
-fn assigning_result_literal_within_dynamic_if_expression_produces_error() {
-    let error = get_partial_evaluation_error(indoc! {r#"
+fn assigning_result_literal_within_dynamic_if_expression_produces_rir_literal() {
+    let program = get_rir_program(indoc! {r#"
         namespace Test {
             @EntryPoint()
             operation Main() : Result {
@@ -488,11 +490,24 @@ fn assigning_result_literal_within_dynamic_if_expression_produces_error() {
             }
         }
     "#});
-    assert_error(
-        &error,
-        &expect![[
-            r#"Unexpected("re-assignment within a dynamic branch is unsupported for type Result", PackageSpan { package: PackageId(2), span: Span { lo: 166, hi: 167 } })"#
-        ]],
+    assert_blocks(
+        &program,
+        &expect![[r#"
+        Blocks:
+        Block 0:Block:
+            Call id(1), args( Pointer, )
+            Variable(0, Result) = Store ResultLit(false)
+            Call id(2), args( Qubit(0), Result(0), )
+            Variable(1, Boolean) = Call id(3), args( Result(0), )
+            Variable(2, Boolean) = Store Variable(1, Boolean)
+            Branch Variable(2, Boolean), 2, 1
+        Block 1:Block:
+            Variable(3, Result) = Store Variable(0, Result)
+            Call id(4), args( Variable(3, Result), Tag(0, 3), )
+            Return Integer(0)
+        Block 2:Block:
+            Variable(0, Result) = Store ResultLit(true)
+            Jump(1)"#]],
     );
 }
 

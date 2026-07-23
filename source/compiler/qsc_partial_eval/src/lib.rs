@@ -641,6 +641,12 @@ impl<'a> PartialEvaluator<'a> {
                 rhs_expr_id,
                 bin_op_expr_span,
             ),
+            Value::Var(v) if v.ty == VarTy::Result => self.eval_bin_op_with_lhs_result_operand(
+                bin_op,
+                &lhs_value,
+                rhs_expr_id,
+                bin_op_expr_span,
+            ),
             Value::Bool(lhs_bool) => {
                 self.eval_bin_op_with_lhs_classical_bool_operand(bin_op, lhs_bool, rhs_expr_id)
             }
@@ -1212,7 +1218,7 @@ impl<'a> PartialEvaluator<'a> {
                     bin_op_expr_span,
                 )
             }
-            VarTy::Qubit => Err(Error::Unexpected(
+            VarTy::Qubit | VarTy::Result => Err(Error::Unexpected(
                 format!(
                     "unsupported LHS variable type {} in binary operation",
                     lhs_eval_var.ty
@@ -2043,8 +2049,11 @@ impl<'a> PartialEvaluator<'a> {
         let ret_val = match output_var {
             None => Value::unit(),
             Some(output_var) => {
-                if output_var.ty == rir::Ty::Prim(rir::Prim::Qubit) {
-                    // We don't actually accept custom intrinsics that return qubits, so emit an error here.
+                if matches!(
+                    output_var.ty,
+                    rir::Ty::Prim(rir::Prim::Qubit | rir::Prim::Result)
+                ) {
+                    // We don't actually accept custom intrinsics that return qubits or results (unless marked as a measurement), so emit an error here.
                     return Err(Error::UnsupportedCustomIntrinsicType(
                         callable_decl.output.to_string(),
                         callee_expr_span,
@@ -2887,7 +2896,7 @@ impl<'a> PartialEvaluator<'a> {
                                 .config
                                 .capabilities
                                 .contains(TargetCapabilityFlags::BackwardsBranching))
-                        && let Some(value) = map_rir_literal_to_eval_value(*literal)
+                        && let Some(value) = map_rir_literal_to_eval_value(*literal, var.ty)
                     {
                         value
                     } else {
@@ -3069,6 +3078,9 @@ impl<'a> PartialEvaluator<'a> {
                     .try_into()
                     .expect("could not convert result ID to u32"),
             )),
+            Value::Var(v) if v.ty == VarTy::Result => {
+                Operand::Variable(map_eval_var_to_rir_var(*v))
+            }
             Value::Result(val::Result::Val(bool)) => return Operand::Literal(Literal::Bool(*bool)),
             Value::Result(val::Result::Loss) => {
                 panic!("loss result should not occur in partial evaluation")
@@ -4090,7 +4102,7 @@ impl<'a> PartialEvaluator<'a> {
             Value::Var(var) => {
                 let current_scope = self.eval_context.get_current_scope();
                 if let Some(literal) = current_scope.get_static_value(var.id.into()) {
-                    map_rir_literal_to_eval_value(*literal).unwrap_or(Value::Var(var))
+                    map_rir_literal_to_eval_value(*literal, var.ty).unwrap_or(Value::Var(var))
                 } else {
                     value
                 }
@@ -4193,6 +4205,7 @@ impl<'a> PartialEvaluator<'a> {
             Ty::Prim(Prim::Bool) => (self.get_bool_record_callable(), "b"),
             Ty::Prim(Prim::Int) => (self.get_int_record_callable(), "i"),
             Ty::Prim(Prim::Double) => (self.get_double_record_callable(), "d"),
+            Ty::Prim(Prim::Result) => (self.get_result_record_callable(), "r"),
             _ => panic!("unsupported variable type in output recording"),
         };
         let tag = format!("{idx}_{tag_root}{tag_ty}");
@@ -4413,7 +4426,7 @@ impl<'a> PartialEvaluator<'a> {
                         .try_into()
                         .expect("could not convert result ID to u32"),
                 )),
-                val::Result::Val(bool) => Operand::Literal(Literal::Bool(*bool)),
+                val::Result::Val(bool) => Operand::Literal(Literal::ResultLit(*bool)),
                 val::Result::Loss => panic!("loss result should not occur in partial evaluation"),
             },
             Value::Var(var) => Operand::Variable(map_eval_var_to_rir_var(*var)),
@@ -5039,6 +5052,7 @@ fn map_eval_var_type_to_rir_type(var_ty: VarTy) -> rir::Ty {
         VarTy::Integer => rir::Ty::Prim(rir::Prim::Integer),
         VarTy::Double => rir::Ty::Prim(rir::Prim::Double),
         VarTy::Qubit => rir::Ty::Prim(rir::Prim::Qubit),
+        VarTy::Result => rir::Ty::Prim(rir::Prim::Result),
     }
 }
 
@@ -5053,13 +5067,19 @@ fn map_fir_type_to_rir_type(ty: &Ty) -> Result<rir::Ty, String> {
     }
 }
 
-fn map_rir_literal_to_eval_value(literal: rir::Literal) -> Option<Value> {
-    match literal {
-        rir::Literal::Bool(b) => Some(Value::Bool(b)),
-        rir::Literal::Double(d) => Some(Value::Double(d)),
-        rir::Literal::Integer(i) => Some(Value::Int(i)),
-        _ => None,
-    }
+fn map_rir_literal_to_eval_value(literal: rir::Literal, var_ty: VarTy) -> Option<Value> {
+    Some(match literal {
+        rir::Literal::Bool(b) => match var_ty {
+            VarTy::Boolean => Value::Bool(b),
+            VarTy::Result => Value::Result(val::Result::Val(b)),
+            _ => panic!("Incompatible literal and variable types: {literal}, {var_ty}"),
+        },
+        rir::Literal::Double(d) => Value::Double(d),
+        rir::Literal::Integer(i) => Value::Int(i),
+        rir::Literal::Result(r) => Value::Result(val::Result::Id(r as usize)),
+        rir::Literal::ResultLit(r) => Value::Result(val::Result::Val(r)),
+        _ => return None,
+    })
 }
 
 fn map_rir_var_to_eval_var(var: rir::Variable) -> Result<Var, ()> {
@@ -5075,6 +5095,7 @@ fn map_rir_type_to_eval_var_type(ty: rir::Ty) -> Result<VarTy, ()> {
         rir::Ty::Prim(rir::Prim::Integer) => Ok(VarTy::Integer),
         rir::Ty::Prim(rir::Prim::Double) => Ok(VarTy::Double),
         rir::Ty::Prim(rir::Prim::Qubit) => Ok(VarTy::Qubit),
+        rir::Ty::Prim(rir::Prim::Result) => Ok(VarTy::Result),
         _ => Err(()),
     }
 }
@@ -5085,6 +5106,7 @@ fn try_get_eval_var_type(value: &Value) -> Option<VarTy> {
         Value::Int(_) => Some(VarTy::Integer),
         Value::Double(_) => Some(VarTy::Double),
         Value::Qubit(_) => Some(VarTy::Qubit),
+        Value::Result(_) => Some(VarTy::Result),
         Value::Var(var) => Some(var.ty),
         _ => None,
     }
@@ -5117,6 +5139,7 @@ fn convert_to_array_literal(
             Value::Result(val::Result::Id(r)) => {
                 rir::Literal::Result((*r).try_into().expect("could not convert result ID to u32"))
             }
+            Value::Result(val::Result::Val(b)) => rir::Literal::ResultLit(*b),
             _ => {
                 return Err(Error::Unimplemented(
                     format!("array element type `{}`", elem.type_name()),

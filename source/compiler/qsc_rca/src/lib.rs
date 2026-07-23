@@ -824,7 +824,7 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicResult) {
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+            capabilities |= TargetCapabilityFlags::StaticSizedArrays;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicTuple) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;

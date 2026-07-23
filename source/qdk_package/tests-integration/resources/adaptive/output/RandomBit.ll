@@ -12,9 +12,9 @@ block_0:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @H(ptr %var_1) {
+define void @H(ptr %var_2) {
 block_1:
-  call void @__quantum__qis__h__body(ptr %var_1)
+  call void @__quantum__qis__h__body(ptr %var_2)
   ret void
 }
 
@@ -22,9 +22,9 @@ declare void @__quantum__qis__h__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-define void @Reset(ptr %var_2) {
+define void @Reset(ptr %var_3) {
 block_2:
-  call void @__quantum__qis__reset__body(ptr %var_2)
+  call void @__quantum__qis__reset__body(ptr %var_3)
   ret void
 }
 
