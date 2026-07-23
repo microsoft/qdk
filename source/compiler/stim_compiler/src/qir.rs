@@ -437,6 +437,12 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("a REPEAT count of zero is not supported")]
+    #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
+    ZeroRepeatCount {
+        #[label]
+        span: Span,
+    },
 }
 
 // This enum keeps track of which side of a controlled operation the measurement record is allowed to appear on.
@@ -715,7 +721,7 @@ impl<'noise> Compiler<'noise> {
     fn compile_block(&mut self, block: &Block) {
         match block.block_instruction.name.as_str() {
             "SELECT" => self.compile_select_block(block),
-            "REPEAT" => (),
+            "REPEAT" => self.compile_repeat_block(block),
             _ => {
                 self.unknown(&block.block_instruction);
             }
@@ -741,13 +747,7 @@ impl<'noise> Compiler<'noise> {
             return;
         }
 
-        if !instruction.args.is_empty() {
-            self.push_error(Error::UnsupportedArgument {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        }
+        self.unsupported_args(instruction);
 
         self.id_map.enter_select_scope();
         let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
@@ -762,6 +762,66 @@ impl<'noise> Compiler<'noise> {
             self.compile_item(item);
         }
         self.id_map.exit_select_scope();
+    }
+
+    fn compile_repeat_block(&mut self, block: &Block) {
+        let Block {
+            block_instruction: instruction,
+            items,
+            ..
+        } = block;
+
+        self.unsupported_args(instruction);
+
+        if instruction.targets.is_empty() {
+            self.push_error(Error::MissingTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        } else if instruction.targets.len() > 1 {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction
+                    .targets
+                    .get(1)
+                    .map(|t| t.span)
+                    .unwrap_or(instruction.span),
+            });
+            return;
+        }
+
+        let repeat_target = &instruction.targets[0];
+        let TargetKind::Qubit {
+            // arbitrary choice by the parser, it's just a number of repeats, not a qubit
+            value: num_repeats,
+            negated: false,
+        } = repeat_target.kind
+        else {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: repeat_target.span,
+            });
+            return;
+        };
+
+        if num_repeats == 0 {
+            self.push_error(Error::ZeroRepeatCount {
+                span: repeat_target.span,
+            });
+            return;
+        }
+
+        for _ in 0..num_repeats {
+            for item in items {
+                self.compile_item(item);
+            }
+
+            if !self.errors.is_empty() {
+                // makes sure we don't issue repeated errors
+                return;
+            }
+        }
     }
 
     fn compile_line(&mut self, line: &Line) {
