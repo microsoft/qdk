@@ -18,7 +18,7 @@ import Utils.CheckIfAllZero;
 /// Qubit register encoding the integer `x`; replaced with `-x mod modulus`.
 ///
 /// # Reference
-/// - [1](https://arxiv.org/pdf/2306.08585) "How to compute a 256-bit elliptic curve 
+/// - [1](https://arxiv.org/pdf/2306.08585) "How to compute a 256-bit elliptic curve
 ///   private key with only 50 million Toffoli gates",  Daniel Litinski. (Fig. 4).
 operation ModNegate(xs : Qubit[], modulus : BigInt) : Unit is Adj + Ctl {
     body (...) {
