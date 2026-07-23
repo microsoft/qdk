@@ -13,8 +13,8 @@ import Utils.RotateLeft;
 /// Requires an odd modulus satisfying `0 < modulus < 2^Length(x)`.
 ///
 /// # Reference
-/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing 
-///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M. 
+/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing
+///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M.
 ///   Svore, Kristin Lauter. (Fig. 4).
 ///
 /// # Input
@@ -50,8 +50,8 @@ operation ModDouble(x : Qubit[], modulus : BigInt) : Unit is Adj {
 /// Requires an odd modulus satisfying `0 < modulus < 2^Length(x)`.
 ///
 /// # Reference
-/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing 
-///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M. 
+/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing
+///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M.
 ///   Svore, Kristin Lauter. (Fig. 5).
 ///
 /// # Input
@@ -83,8 +83,8 @@ operation ModMul(x : Qubit[], y : Qubit[], ans : Qubit[], modulus : BigInt) : Un
 /// Requires an odd modulus satisfying `0 < modulus < 2^Length(x)`.
 ///
 /// # Reference
-/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing 
-///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M. 
+/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing
+///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M.
 ///   Svore, Kristin Lauter. (Fig. 6).
 ///
 /// # Input

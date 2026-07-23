@@ -15,7 +15,7 @@ import Utils.CheckIfAllZero;
 ///
 /// # Reference
 /// - [1](https://arxiv.org/abs/1202.6614) "Constant-Optimized Quantum Circuits for
-///   Modular Multiplication and Exponentiation", Igor L. Markov, Mehdi Saeedi. 
+///   Modular Multiplication and Exponentiation", Igor L. Markov, Mehdi Saeedi.
 ///   (Fig. 6).
 ///
 /// # Input

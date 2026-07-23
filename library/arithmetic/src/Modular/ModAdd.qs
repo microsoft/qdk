@@ -78,11 +78,11 @@ operation _ModAddNoMBU(x : Qubit[], y : Qubit[], modulus : BigInt) : Unit is Ctl
 /// this operation computes `(x, y) -> (x, (x + y) mod modulus)`.
 ///
 /// # References
-/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing 
-///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M. 
+/// - [1](https://arxiv.org/abs/1706.06752) "Quantum resource estimates for computing
+///   elliptic curve discrete logarithms", Martin Roetteler, Michael Naehrig, Krysta M.
 ///   Svore, Kristin Lauter. (Fig. 3).
-/// - [2](https://arxiv.org/abs/2407.20167) "Measurement-based uncomputation of quantum 
-///   circuits for modular arithmetic", Alessandro Luongo, Antonio Michele Miti, 
+/// - [2](https://arxiv.org/abs/2407.20167) "Measurement-based uncomputation of quantum
+///   circuits for modular arithmetic", Alessandro Luongo, Antonio Michele Miti,
 ///   Varun Narasimhachar, Adithya Sireesh.
 ///
 /// # Input

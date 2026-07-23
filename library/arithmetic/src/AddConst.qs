@@ -75,7 +75,7 @@ operation AddConstantSanders(constant : BigInt, inp : Qubit[]) : Unit is Adj + C
 /// Constant adder using the Gidney ripple-carry adder.
 ///
 /// # Reference
-/// - [1](https://arxiv.org/abs/1709.06648) "Halving the cost of quantum addition", 
+/// - [1](https://arxiv.org/abs/1709.06648) "Halving the cost of quantum addition",
 ///   Craig Gidney.
 operation AddConstantUsingCGAdd(constant : BigInt, input : Qubit[]) : Unit is Adj + Ctl {
     body (...) {
