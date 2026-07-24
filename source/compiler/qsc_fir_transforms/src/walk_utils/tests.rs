@@ -223,6 +223,7 @@ fn walker_visits_nested_expression_kinds_in_program() {
             ExprKind::UpdateField(_, _, _) => "UpdateField",
             ExprKind::Var(_, _) => "Var",
             ExprKind::While(_, _) => "While",
+            ExprKind::Parallel(_, _) => "Parallel",
         };
         kinds.push(kind_str.to_string());
     });
@@ -1187,5 +1188,131 @@ fn structural_walker_from_expr_root_covers_nested_blocks() {
     assert!(
         tuple_pats >= 1,
         "expected the nested tuple Local pat to be visited, got {tuple_pats}"
+    );
+}
+
+#[test]
+fn given_parallel_of_lit_is_side_effect_free() {
+    // A parallel expression whose body is a pure literal is side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let body = int_lit(&mut package, &mut assigner, 42);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(None, body),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_parallel_with_limit_of_lits_is_side_effect_free() {
+    // A parallel-within-limit expression where both limit and body are pure is side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let limit = int_lit(&mut package, &mut assigner, 4);
+    let body = int_lit(&mut package, &mut assigner, 42);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(Some(limit), body),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_parallel_with_fail_in_body_is_not_side_effect_free() {
+    // A parallel expression with a failing body is not side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let fail_expr = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from("boom"))]),
+        Span::default(),
+    );
+    let body = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::UNIT,
+        ExprKind::Fail(fail_expr),
+        Span::default(),
+    );
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(None, body),
+        Span::default(),
+    );
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_parallel_with_fail_in_limit_is_not_side_effect_free() {
+    // A parallel-within-limit expression where the limit is a fail expr is not side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let fail_expr = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from("boom"))]),
+        Span::default(),
+    );
+    let limit = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Fail(fail_expr),
+        Span::default(),
+    );
+    let body = int_lit(&mut package, &mut assigner, 42);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(Some(limit), body),
+        Span::default(),
+    );
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn walker_visits_parallel_expression() {
+    let (store, pkg_id) = compile_to_fir(
+        "operation Main() : Int {
+                 parallel {
+                     1 + 2
+                 }
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+
+    let mut kinds: Vec<String> = Vec::new();
+    for_each_expr_in_block(package, block_id, &mut |_id, expr| {
+        let kind_str = match &expr.kind {
+            ExprKind::Parallel(_, _) => "Parallel",
+            ExprKind::BinOp(_, _, _) => "BinOp",
+            ExprKind::Lit(_) => "Lit",
+            ExprKind::Block(_) => "Block",
+            _ => "Other",
+        };
+        kinds.push(kind_str.to_string());
+    });
+    // The walker should visit the Parallel expression and its nested children.
+    assert!(
+        kinds.contains(&"Parallel".to_string()),
+        "walker should visit Parallel expression; found: {kinds:?}"
+    );
+    assert!(
+        kinds.contains(&"BinOp".to_string()),
+        "walker should visit BinOp inside Parallel body; found: {kinds:?}"
     );
 }

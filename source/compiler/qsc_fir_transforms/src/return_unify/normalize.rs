@@ -187,6 +187,11 @@ fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
                 StringComponent::Lit(_) => 0,
             })
             .sum(),
+        ExprKind::Parallel(limit, body) => {
+            let limit_count = limit.map_or(0, |l| count_compound_returns_in_expr(package, l));
+            let body_count = count_compound_returns_in_expr(package, *body);
+            limit_count + body_count
+        }
     }
 }
 
@@ -343,6 +348,12 @@ pub(super) fn visit_expr_for_collect(
         ExprKind::While(cond, block) => {
             visit_expr_for_collect(package, cond, out, seen);
             visit_block_for_collect(package, block, out, seen);
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                visit_expr_for_collect(package, l, out, seen);
+            }
+            visit_expr_for_collect(package, body, out, seen);
         }
     }
 }
@@ -593,6 +604,16 @@ fn hoist_in_expr(
                     StringComponent::Lit(_) => None,
                 })
                 .collect();
+            hoist_n_ary(package, assigner, package_id, &operands)
+        }
+
+        // Parallel expression with optional limit.
+        ExprKind::Parallel(limit, body) => {
+            let mut operands: Vec<ExprId> = Vec::with_capacity(2);
+            if let Some(l) = limit {
+                operands.push(l);
+            }
+            operands.push(body);
             hoist_n_ary(package, assigner, package_id, &operands)
         }
     }

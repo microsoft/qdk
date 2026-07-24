@@ -75,7 +75,7 @@
       "patterns": [
         {
           "name": "keyword.control.qsharp",
-          "match": "\\b(elif|else|repeat|until|fixup|for|in|while|return|fail|within|apply)\\b"
+          "match": "\\b(elif|else|repeat|until|fixup|for|in|while|return|fail|within|apply|parallel)\\b"
         },
         {
           "comment": "legacy allocation keywords (QDK <1.0)",

@@ -799,6 +799,11 @@ impl With<'_> {
                 self.lower_lambda(lambda, expr.span)
             }
             ast::ExprKind::Lit(lit) => self.lower_lit(lit),
+            ast::ExprKind::Parallel(limit, body) => {
+                let limit = limit.as_ref().map(|limit| Box::new(self.lower_expr(limit)));
+                let body = self.lower_expr(body);
+                self.lower_parallel(limit, body)
+            }
             ast::ExprKind::Paren(_) => unreachable!("parentheses should be removed earlier"),
             ast::ExprKind::Path(PathKind::Ok(path)) => {
                 let args = self
@@ -1179,6 +1184,34 @@ impl With<'_> {
                 hir::ExprKind::String(vec![hir::StringComponent::Lit(Rc::clone(value))])
             }
         }
+    }
+
+    fn lower_parallel(&mut self, limit: Option<Box<hir::Expr>>, expr: hir::Expr) -> hir::ExprKind {
+        // We lower the target expression of `parallel` into a block if it isn't already one.
+        // This gives it a convenient scope for later transformations.
+        let expr = if matches!(expr.kind, hir::ExprKind::Block(_)) {
+            expr
+        } else {
+            let ty = expr.ty.clone();
+            let stmt = hir::Stmt {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                kind: hir::StmtKind::Expr(expr),
+            };
+            let block = hir::Block {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                ty: ty.clone(),
+                stmts: vec![stmt],
+            };
+            hir::Expr {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                ty,
+                kind: hir::ExprKind::Block(block),
+            }
+        };
+        hir::ExprKind::Parallel(limit, Box::new(expr))
     }
 }
 

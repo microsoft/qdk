@@ -530,3 +530,60 @@ pub const DYNAMIC_ARRAY_BINARY_OP: &str = r#"
         MResetEachZ(qs) == [Zero, Zero];
     }
 "#;
+
+pub const PARALLEL_STATIC_BODY: &str = r#"
+    namespace Test {
+        operation Foo() : Unit {
+            parallel {
+                use q = Qubit();
+                H(q);
+            }
+        }
+    }"#;
+
+pub const PARALLEL_WITH_DYNAMIC_BRANCH: &str = r#"
+    namespace Test {
+        operation Foo() : Unit {
+            use ctrl = Qubit();
+            let b = M(ctrl) == Zero;
+            parallel {
+                use q = Qubit();
+                if b { H(q); }
+            }
+        }
+    }"#;
+
+pub const PARALLEL_WITHIN_STATIC_LIMIT: &str = r#"
+    namespace Test {
+        operation Foo() : Unit {
+            parallel within 4 {
+                use q = Qubit();
+                H(q);
+            }
+        }
+    }"#;
+
+pub const PARALLEL_WITHIN_DYNAMIC_LIMIT: &str = r#"
+    namespace Test {
+        operation Foo() : Unit {
+            use ctrl = Qubit();
+            let n = M(ctrl) == Zero ? 2 | 4;
+            parallel within n {
+                use q = Qubit();
+                H(q);
+            }
+        }
+    }"#;
+
+pub const PARALLEL_WITH_INDIRECT_BRANCH_VIA_CALL: &str = r#"
+    namespace Test {
+        operation Bar(q : Qubit) : Unit {
+            if M(q) == Zero { X(q); }
+        }
+        operation Foo() : Unit {
+            parallel {
+                use q = Qubit();
+                Bar(q);
+            }
+        }
+    }"#;

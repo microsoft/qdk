@@ -599,6 +599,15 @@ fn rebuild_expr(
             builder.push(ExecGraphNode::Expr(expr_id));
         }
 
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                rebuild_expr(package, builder, limit, ranges);
+            }
+            builder.push(ExecGraphNode::ParStart(limit.is_some().into()));
+            rebuild_expr(package, builder, body, ranges);
+            builder.push(ExecGraphNode::ParEnd);
+        }
+
         // Eliminated variant
         //
         // `ExprKind::Struct` must be unreachable here: the UDT erasure pass

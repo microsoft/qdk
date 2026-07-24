@@ -879,6 +879,12 @@ fn transform_while_in_expr(
                 transform_while_in_child(package, assigner, e, flag_context, arrow_default_cache);
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                transform_while_in_child(package, assigner, *l, flag_context, arrow_default_cache);
+            }
+            transform_while_in_child(package, assigner, *body, flag_context, arrow_default_cache);
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -1121,6 +1127,12 @@ fn replace_returns_in_expr(
             for e in ids {
                 replace_returns_in_expr(package, assigner, e, flag_context, arrow_default_cache);
             }
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                replace_returns_in_expr(package, assigner, *l, flag_context, arrow_default_cache);
+            }
+            replace_returns_in_expr(package, assigner, *body, flag_context, arrow_default_cache);
         }
         ExprKind::While(cond, body) => {
             let (cond_id, body_id) = (*cond, *body);

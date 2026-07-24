@@ -1320,3 +1320,277 @@ fn simple_if_expr_init_with_return_recovers_structured_branch() {
         "#]],
     );
 }
+
+#[test]
+fn parallel_body_without_returns_passes_through() {
+    // A parallel block without any return statements should pass through unchanged.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                parallel {
+                    let x = 1;
+                    x + 2
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            operation Main() : Int {
+                parallel {
+                    let x : Int = 1;
+                    x + 2
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_limit_without_returns_passes_through() {
+    // A parallel-within-limit block without any return statements should pass through unchanged.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                parallel within 4 {
+                    let x = 1;
+                    x + 2
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            operation Main() : Int {
+                parallel within 4 {
+                    let x : Int = 1;
+                    x + 2
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_body_is_unified() {
+    // A return statement inside a parallel body should be unified using
+    // the flag/slot pattern, with the parallel expression preserved.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel {
+                    if true {
+                        return 42;
+                    }
+                    0
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = parallel {
+                    if true {
+                        {
+                            __ret_val = 42;
+                            __has_returned = true;
+                        };
+                    }
+
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_body_without_explicit_block_is_unified() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel (1 + return 42);
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                parallel {
+                    let _ : Int = 1;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                };
+                __ret_val
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_body_with_remaining_code() {
+    // A return statement inside a parallel body with code after the parallel
+    // expression exercises the flag-guarding of remaining statements.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                let y = parallel {
+                    if true {
+                        return 42;
+                    }
+                    0
+                };
+                y + 1
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let y : Int = parallel {
+                    if true {
+                        {
+                            __ret_val = 42;
+                            __has_returned = true;
+                        };
+                    }
+
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        y + 1
+                    } else {
+                        __ret_val
+                    }
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_within_limit_body() {
+    // A return inside the body of a parallel-within-limit expression should be unified.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel within 4 {
+                    if true {
+                        return 99;
+                    }
+                    0
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = parallel within 4 {
+                    if true {
+                        {
+                            __ret_val = 99;
+                            __has_returned = true;
+                        };
+                    }
+
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_within_limit_expr() {
+    // A return inside the limit expression of a parallel-within exercises
+    // return unification in the limit operand position.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel within (if true { return 10; } else { 4 }) {
+                    let x = 1;
+                    x + 2
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __operand_tmp_0 : Int = if true {
+                    {
+                        __ret_val = 10;
+                        __has_returned = true;
+                    };
+                } else {
+                    4
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if not __has_returned {
+                        parallel within __operand_tmp_0 {
+                            let x : Int = 1;
+                            x + 2
+                        }
+
+                    } else {
+                        __ret_val
+                    }
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}

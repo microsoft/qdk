@@ -1193,6 +1193,12 @@ fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
             extract_expr(source, *cond, target);
             extract_block(source, *block, target);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                extract_expr(source, *l, target);
+            }
+            extract_expr(source, *body, target);
+        }
         ExprKind::Closure(_, local_item_id) => {
             extract_item(source, *local_item_id, target);
         }

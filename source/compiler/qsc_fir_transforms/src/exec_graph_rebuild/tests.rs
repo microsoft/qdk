@@ -223,6 +223,8 @@ fn format_exec_graph_nodes(
             ExecGraphNode::Ret => format!("{index}: Ret"),
             ExecGraphNode::Store => format!("{index}: Store"),
             ExecGraphNode::Unit => format!("{index}: Unit"),
+            ExecGraphNode::ParStart(kind) => format!("{index}: ParStart({kind})"),
+            ExecGraphNode::ParEnd => format!("{index}: ParEnd"),
             ExecGraphNode::Debug(_) => {
                 unreachable!("NoDebug exec graph should not contain debug nodes")
             }
@@ -1181,5 +1183,66 @@ fn residual_hole_in_rebuilt_body_panics() {
         || {
             super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
         },
+    );
+}
+
+#[test]
+fn parallel_without_limit_emits_par_start_and_end() {
+    check_exec_graph(
+        indoc! {"
+            struct Pair { Fst: Int, Snd: Int }
+            @EntryPoint()
+            operation Main() : Int {
+                let p = new Pair { Fst = 1, Snd = 2 };
+                parallel {
+                    p.Fst + p.Snd
+                }
+            }
+        "},
+        &expect![[r#"
+            0: Expr(ExprId(4)) [Lit(Int(1))]
+            1: Store
+            2: Expr(ExprId(5)) [Lit(Int(2))]
+            3: Store
+            4: Expr(ExprId(3)) [Tuple(len=2)]
+            5: Bind(PatId(1))
+            6: ParStart(Unlimited)
+            7: Expr(ExprId(13)) [Var]
+            8: Store
+            9: Expr(ExprId(14)) [Var]
+            10: Expr(ExprId(8)) [BinOp(Add)]
+            11: ParEnd
+            12: Ret"#]],
+    );
+}
+
+#[test]
+fn parallel_within_limit_emits_par_start_with_limit() {
+    check_exec_graph(
+        indoc! {"
+            struct Pair { Fst: Int, Snd: Int }
+            @EntryPoint()
+            operation Main() : Int {
+                let p = new Pair { Fst = 3, Snd = 4 };
+                parallel within p.Fst {
+                    p.Fst + p.Snd
+                }
+            }
+        "},
+        &expect![[r#"
+            0: Expr(ExprId(4)) [Lit(Int(3))]
+            1: Store
+            2: Expr(ExprId(5)) [Lit(Int(4))]
+            3: Store
+            4: Expr(ExprId(3)) [Tuple(len=2)]
+            5: Bind(PatId(1))
+            6: Expr(ExprId(15)) [Var]
+            7: ParStart(Limited)
+            8: Expr(ExprId(16)) [Var]
+            9: Store
+            10: Expr(ExprId(17)) [Var]
+            11: Expr(ExprId(10)) [BinOp(Add)]
+            12: ParEnd
+            13: Ret"#]],
     );
 }
