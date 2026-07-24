@@ -28,7 +28,6 @@ import type {
   CatalogActivity,
   CatalogUnit,
   CourseDescriptor,
-  CourseKind,
   CurrentActivity,
   EnvironmentCheckFix,
   EnvironmentCheckItem,
@@ -146,7 +145,16 @@ export class LearningService {
   private _pythonRunner: PythonCourseRunner | undefined;
   private _environment: EnvironmentManager | undefined;
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(private readonly extensionUri: vscode.Uri) {
+    // Navigating away from an activity leaves its file behind. Close those
+    // tabs here rather than in the lesson panel, which isn't shown for every
+    // course kind.
+    this._disposables.push(
+      this.onDidChangeState(() => {
+        void this.closeStaleEditorTabs(this.getCurrentCodeFileUri());
+      }),
+    );
+  }
 
   get initialized(): boolean {
     return this.workspace !== undefined;
@@ -279,41 +287,18 @@ export class LearningService {
   }
 
   /**
-   * State snapshot tailored for the lesson webview panel.
+   * State snapshot for the lesson webview panel.
    *
-   * For python-notebook courses the panel always shows the unit-level
-   * summary (intro lesson) rather than drilling into a specific exercise.
-   * Other course kinds fall through to {@link getState}.
+   * python-notebook courses don't use the panel at all — the notebook is the
+   * primary surface there — so calling this for one is a programming error.
    */
   getStateForPanel(): LearningState {
-    // TODO (acasey): might be moot if exercise-level navigation works?
-    if (this.activeCourse.kind !== "python-notebook") {
-      return this.getState();
+    if (this.activeCourse.kind === "python-notebook") {
+      throw new Error(
+        "The lesson panel is not used for python-notebook courses.",
+      );
     }
-
-    const pos = this.position;
-    const unit = this.findUnit(pos.unitId);
-    const intro = unit.activities.find((a) => a.id === "intro")!;
-
-    const introLocation: ActivityLocation = {
-      courseId: pos.courseId,
-      unitId: pos.unitId,
-      activityId: intro.id,
-    };
-
-    const position: CurrentActivity = {
-      location: introLocation,
-      unitTitle: unit.title,
-      activityTitle: unit.title,
-      content: this.resolveActivityContent(introLocation, unit, intro),
-    };
-
-    return {
-      course: this.getActiveCourseInfo(),
-      position,
-      actions: this.getAvailableActionsForPanel(unit),
-      progress: this.getProgress(),
-    };
+    return this.getState();
   }
 
   async next(source: TelemetrySource): Promise<NavigationResult> {
@@ -351,74 +336,6 @@ export class LearningService {
     }
 
     ws.progressData.position = prevPos;
-    await this.saveProgress();
-    this._onDidChangeState.fire(this.getState());
-    this.sendActivityActionTelemetry("navigate", source);
-    return { moved: true };
-  }
-
-  /**
-   * Navigate to the intro of the next unit. Used by the panel for
-   * python-notebook courses where navigation is unit-scoped.
-   */
-  async nextUnit(source: TelemetrySource): Promise<NavigationResult> {
-    const ws = this.requireWorkspace();
-    const course = this.activeCourse;
-    const currentUnitId = ws.progressData.position.unitId;
-    const idx = course.units.findIndex((u) => u.id === currentUnitId);
-    if (idx < 0 || idx >= course.units.length - 1) {
-      return { moved: false };
-    }
-    const nextU = course.units[idx + 1];
-    const firstActivity = nextU.activities[0];
-    if (!firstActivity) {
-      return { moved: false };
-    }
-
-    // Auto-mark the intro lesson of the current unit complete.
-    const introLocation: ActivityLocation = {
-      courseId: course.id,
-      unitId: currentUnitId,
-      activityId: "intro",
-    };
-    if (!this.isComplete(introLocation)) {
-      this.markComplete(introLocation);
-    }
-
-    ws.progressData.position = {
-      courseId: course.id,
-      unitId: nextU.id,
-      activityId: firstActivity.id,
-    };
-    await this.saveProgress();
-    this._onDidChangeState.fire(this.getState());
-    this.sendActivityActionTelemetry("navigate", source);
-    return { moved: true };
-  }
-
-  /**
-   * Navigate to the intro of the previous unit. Used by the panel for
-   * python-notebook courses where navigation is unit-scoped.
-   */
-  async previousUnit(source: TelemetrySource): Promise<NavigationResult> {
-    const ws = this.requireWorkspace();
-    const course = this.activeCourse;
-    const currentUnitId = ws.progressData.position.unitId;
-    const idx = course.units.findIndex((u) => u.id === currentUnitId);
-    if (idx <= 0) {
-      return { moved: false };
-    }
-    const prevU = course.units[idx - 1];
-    const firstActivity = prevU.activities[0];
-    if (!firstActivity) {
-      return { moved: false };
-    }
-
-    ws.progressData.position = {
-      courseId: course.id,
-      unitId: prevU.id,
-      activityId: firstActivity.id,
-    };
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     this.sendActivityActionTelemetry("navigate", source);
@@ -1525,53 +1442,7 @@ export class LearningService {
 
   /** Builds the button groups shown in the webview toolbar for the current activity. */
   private getAvailableActions(): ActionGroup[] {
-    const { activity, unit } = this.findCurrentActivity();
-
-    // Python-notebook courses: primary action is "Open Notebook" (or
-    // "Next" if the unit is already complete).
-    if (this.activeCourse.kind === "python-notebook" && unit.notebookRel) {
-      const isComplete = this.isComplete(this.position);
-      const primaryGroup: ActionGroup = isComplete
-        ? [{ key: "space", label: "Next", action: "next", primary: true }]
-        : [
-            {
-              key: "space",
-              label: "Open Notebook",
-              action: "open-notebook",
-              primary: true,
-              codicon: "notebook",
-            },
-          ];
-      const extraGroups: ActionGroup[] = isComplete
-        ? [
-            [
-              {
-                key: "o",
-                label: "Open Notebook",
-                action: "open-notebook",
-                codicon: "notebook",
-              },
-              { key: "r", label: "Reset", action: "reset" },
-            ],
-          ]
-        : [
-            [
-              {
-                key: "h",
-                label: "Hint",
-                action: "hint-chat",
-                codicon: "sparkle",
-              },
-              { key: "r", label: "Reset", action: "reset" },
-            ],
-          ];
-      const navGroup: ActionGroup = [
-        { key: "b", label: "Back", action: "back" },
-      ];
-      return [primaryGroup, ...extraGroups, navGroup].filter(
-        (g) => g.length > 0,
-      );
-    }
+    const { activity } = this.findCurrentActivity();
 
     const primary = this.getPrimaryAction();
 
@@ -1638,51 +1509,38 @@ export class LearningService {
   }
 
   /**
-   * Actions for the panel in python-notebook courses. Checks whether
-   * the entire unit is complete (all exercises done) rather than a
-   * single activity.
+   * Close any open editor or notebook tabs under the QDK Learning root that
+   * don't match {@link keepUri}. When {@link keepUri} is undefined, all such
+   * tabs are closed.
    */
-  private getAvailableActionsForPanel(unit: CatalogUnit): ActionGroup[] {
-    const course = this.activeCourse;
-    const unitComplete = unit.activities
-      .filter((a) => a.type === "exercise")
-      .every((a) =>
-        this.isComplete({
-          courseId: course.id,
-          unitId: unit.id,
-          activityId: a.id,
-        }),
-      );
+  async closeStaleEditorTabs(keepUri: vscode.Uri | undefined): Promise<void> {
+    if (!this.workspace) {
+      return;
+    }
+    const learningRoot = this.learningContentRoot.toString();
+    const keepStr = keepUri?.toString();
 
-    const primaryGroup: ActionGroup = unitComplete
-      ? [{ key: "space", label: "Next", action: "next", primary: true }]
-      : [
-          {
-            key: "space",
-            label: "Open Notebook",
-            action: "open-notebook",
-            primary: true,
-            codicon: "notebook",
-          },
-        ];
-
-    const extraGroups: ActionGroup[] = unitComplete
-      ? [
-          [
-            {
-              key: "o",
-              label: "Open Notebook",
-              action: "open-notebook",
-              codicon: "notebook",
-            },
-            { key: "r", label: "Reset", action: "reset" },
-          ],
-        ]
-      : [[{ key: "r", label: "Reset", action: "reset" }]];
-
-    const navGroup: ActionGroup = [{ key: "b", label: "Back", action: "back" }];
-
-    return [primaryGroup, ...extraGroups, navGroup].filter((g) => g.length > 0);
+    const staleTabs: vscode.Tab[] = [];
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        const tabUri =
+          input instanceof vscode.TabInputText ||
+          input instanceof vscode.TabInputNotebook
+            ? input.uri
+            : undefined;
+        if (!tabUri) {
+          continue;
+        }
+        const tabUriStr = tabUri.toString();
+        if (tabUriStr.startsWith(learningRoot) && tabUriStr !== keepStr) {
+          staleTabs.push(tab);
+        }
+      }
+    }
+    if (staleTabs.length > 0) {
+      await vscode.window.tabGroups.close(staleTabs);
+    }
   }
 
   /** Turns a catalog activity into the typed content payload (exercise, lesson-example, or lesson-text). */

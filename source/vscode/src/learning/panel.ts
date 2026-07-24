@@ -7,7 +7,6 @@
  * the learning feature.
  */
 
-import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "../common.js";
 import { LEARNING_FILE, LEARNING_TREE_VIEW_ID } from "./constants.js";
@@ -48,7 +47,11 @@ export class LessonPanelManager {
     private readonly service: LearningService,
   ) {}
 
-  /** True when the active course is a python-notebook course. */
+  /**
+   * True when the active course is a python-notebook course. Those courses
+   * use the notebook itself as the primary surface, so the lesson panel is
+   * never shown for them.
+   */
   private get isPythonNotebook(): boolean {
     return (
       this.service.initialized &&
@@ -58,18 +61,25 @@ export class LessonPanelManager {
 
   /**
    * Show or create the Lesson panel.
+   *
+   * No-op for python-notebook courses — the notebook is the primary surface
+   * there, so there is nothing for the panel to add.
    */
   async show(): Promise<void> {
-    if (this.panel) {
-      this.panel.reveal(vscode.ViewColumn.One);
-      return;
-    }
-
     const ok = await this.service.tryInitialize();
     if (!ok) {
       vscode.window.showWarningMessage(
         `No QDK Learning workspace detected. Open a folder containing ${LEARNING_FILE} first.`,
       );
+      return;
+    }
+
+    if (this.isPythonNotebook) {
+      return;
+    }
+
+    if (this.panel) {
+      this.panel.reveal(vscode.ViewColumn.One);
       return;
     }
 
@@ -111,10 +121,16 @@ export class LessonPanelManager {
       return;
     }
 
+    if (this.isPythonNotebook) {
+      // The active course no longer uses the panel — drop the serialized one.
+      panel.dispose();
+      return;
+    }
+
     this.panel = panel;
 
     // Restored panels predate any webview-option changes, so re-apply the
-    // current options (e.g. allowlisted command URIs) before re-rendering.
+    // current options before re-rendering.
     this.panel.webview.options = this.getWebviewOptions();
 
     // Re-set HTML — webview resource URIs change across sessions.
@@ -152,10 +168,16 @@ export class LessonPanelManager {
     // Listen for state changes from the service.
     this.disposables.push(
       this.service.onDidChangeState(() => {
-        if (this.panel) {
-          this.sendState();
-          this.openCurrentCodeEditor().catch(() => {});
+        if (!this.panel) {
+          return;
         }
+        if (this.isPythonNotebook) {
+          // Switched into a course that doesn't use the panel.
+          this.panel.dispose();
+          return;
+        }
+        this.sendState();
+        this.openCurrentCodeEditor().catch(() => {});
       }),
     );
   }
@@ -164,7 +186,7 @@ export class LessonPanelManager {
     this.panel?.dispose();
     // Close any lingering code editor tabs.
     if (this.service.initialized) {
-      this.closeStaleEditorTabs(undefined).catch(() => {});
+      this.service.closeStaleEditorTabs(undefined).catch(() => {});
     }
     for (const d of this.disposables) {
       d.dispose();
@@ -206,16 +228,12 @@ export class LessonPanelManager {
   /**
    * If the current position is an exercise or example, open the
    * corresponding .qs file in the secondary editor column.
-   * Closes any previously-opened code editor tabs that are no longer current.
    */
   private async openCurrentCodeEditor(): Promise<void> {
     if (!this.service.initialized) {
       return;
     }
     const fileUri = this.service.getCurrentCodeFileUri();
-
-    // Close stale editor tabs that don't match the current file.
-    await this.closeStaleEditorTabs(fileUri);
 
     if (fileUri) {
       // Set a left/right two-column layout so the lesson panel stays in the
@@ -228,33 +246,6 @@ export class LessonPanelManager {
         viewColumn: vscode.ViewColumn.Two,
         preview: false,
       } satisfies vscode.TextDocumentShowOptions);
-    }
-  }
-
-  /**
-   * Close any open editor tabs whose URI falls under the QDK Learning root
-   * that don't match {@link keepUri}.
-   * When {@link keepUri} is undefined, all code editor tabs are closed.
-   */
-  private async closeStaleEditorTabs(
-    keepUri: vscode.Uri | undefined,
-  ): Promise<void> {
-    const learningRoot = this.service.learningContentRoot.toString();
-    const keepStr = keepUri?.toString();
-
-    const staleTabs: vscode.Tab[] = [];
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        if (tab.input instanceof vscode.TabInputText) {
-          const tabUriStr = tab.input.uri.toString();
-          if (tabUriStr.startsWith(learningRoot) && tabUriStr !== keepStr) {
-            staleTabs.push(tab);
-          }
-        }
-      }
-    }
-    if (staleTabs.length > 0) {
-      await vscode.window.tabGroups.close(staleTabs);
     }
   }
 
@@ -348,18 +339,12 @@ export class LessonPanelManager {
     try {
       switch (action) {
         case "next": {
-          // Activity-level navigation doesn't make sense in python notebooks
-          const result = this.isPythonNotebook
-            ? await this.service.nextUnit("panel")
-            : await this.service.next("panel");
+          const result = await this.service.next("panel");
           this.sendResult("next", result);
           break;
         }
         case "back": {
-          // Activity-level navigation doesn't make sense in python notebooks
-          const result = this.isPythonNotebook
-            ? await this.service.previousUnit("panel")
-            : await this.service.previous("panel");
+          const result = await this.service.previous("panel");
           this.sendResult("back", result);
           break;
         }
@@ -374,9 +359,8 @@ export class LessonPanelManager {
           break;
         }
         case "reset": {
-          // TODO (acasey): is this text appropriate for all course flavors?
           const confirmed = await vscode.window.showWarningMessage(
-            "Reset this unit to the original notebook? Your current work will be lost.",
+            "Reset this exercise to the original placeholder code? Your current code will be lost.",
             { modal: true },
             "Reset",
           );
@@ -384,10 +368,6 @@ export class LessonPanelManager {
             await this.service.resetExercise("panel");
           }
           this.sendState();
-          break;
-        }
-        case "open-notebook": {
-          await this.openCourseNotebook();
           break;
         }
         default:
@@ -419,67 +399,11 @@ export class LessonPanelManager {
   }
 
   /**
-   * Open the current unit's notebook in the Jupyter editor (column 2),
-   * pre-selecting the course's Python environment as the active kernel.
-   */
-  private async openCourseNotebook(): Promise<void> {
-    if (!this.service.initialized) {
-      return;
-    }
-    const notebookUri = this.service.getCurrentCodeFileUri();
-    if (!notebookUri) {
-      return;
-    }
-    // TODO (acasey): we can get rid of columns if we drop the web view panel
-    // Set a two-column layout: lesson panel left, notebook right.
-    await vscode.commands.executeCommand("vscode.setEditorLayout", {
-      orientation: 0,
-      groups: [{ size: 0.35 }, { size: 0.65 }],
-    });
-
-    // Try to open via the Jupyter extension's unstable API so the course's
-    // Python environment is automatically set as the active kernel.
-
-    try {
-      const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
-      const api = await jupyter?.activate();
-      if (api && typeof api.openNotebook === "function") {
-        const envPath = await this.service.getJupyterEnvironmentPath();
-        if (envPath) {
-          await api.openNotebook(notebookUri, envPath);
-          return;
-        } else {
-          log.info(
-            "Didn't find a course virtual environment to use in notebook",
-          );
-        }
-      }
-      log.warn(
-        "Jupyter openNotebook API is not available; falling back to generic open.",
-      );
-    } catch (e) {
-      log.warn(
-        `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
-      );
-    }
-
-    // Fallback: open without pre-selecting a kernel.
-    await vscode.commands.executeCommand(
-      "vscode.openWith",
-      notebookUri,
-      "jupyter-notebook",
-      { viewColumn: vscode.ViewColumn.Two, preview: false },
-    );
-  }
-
-  /**
    * Webview options for the lesson panel.
    *
-   * `enableCommandUris` is restricted to an allowlist so author-supplied
-   * markdown (drop-in courses) can link to specific learning commands — e.g.
-   * a "Check my environment" button in a unit overview that runs the
-   * environment check — without granting the ability to invoke arbitrary VS
-   * Code commands.
+   * Command URIs are deliberately not enabled: the panel only renders
+   * built-in course content, so nothing needs to invoke VS Code commands
+   * from inside the webview.
    */
   private getWebviewOptions(): vscode.WebviewPanelOptions &
     vscode.WebviewOptions {
@@ -487,7 +411,6 @@ export class LessonPanelManager {
       enableScripts: true,
       enableFindWidget: true,
       retainContextWhenHidden: true,
-      enableCommandUris: ["qsharp-vscode.learningCheckEnvironment"], // TODO (acasey): validate this
       localResourceRoots: [
         vscode.Uri.joinPath(this.extensionUri, "out"),
         vscode.Uri.joinPath(this.extensionUri, "resources"),
@@ -535,8 +458,6 @@ export class LessonPanelManager {
   private async checkSolutionAndSendResult(
     source?: TelemetrySource,
   ): Promise<boolean> {
-    // TODO (acasey): why isn't this state okay?
-    // TODO (acasey): update checkSolution or other callers
     const { result } = await this.service.checkSolution(source);
     this.sendMessage({
       command: "result",

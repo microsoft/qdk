@@ -23,6 +23,16 @@ export const COURSE_README_FILE = "README.md";
 export const LEARNING_WORKSPACE_DETECTED_CONTEXT =
   "qsharp-vscode.learningWorkspaceDetected";
 
+/** Suffix of the learner-editable working copy of a course notebook. */
+export const WORKBOOK_SUFFIX = ".workbook.ipynb";
+
+/**
+ * Context key set while the active notebook editor is a course workbook.
+ * Scopes notebook toolbar actions to learning content.
+ */
+export const LEARNING_NOTEBOOK_ACTIVE_CONTEXT =
+  "qsharp-vscode.learningNotebookActive";
+
 /** Course ID for the built-in Quantum Katas. */
 export const KATAS_COURSE_ID = "katas";
 

@@ -10,13 +10,13 @@ import {
   COURSE_README_FILE,
   LEARNING_COURSES_SUBDIR,
   LEARNING_WORKSPACE_FOLDER,
+  WORKBOOK_SUFFIX,
 } from "./constants.js";
 import type { CourseProvider } from "./courseProvider.js";
 import type {
   CatalogActivity,
   CatalogCourse,
   CatalogExercise,
-  CatalogLesson,
   CatalogUnit,
   CourseDescriptor,
   CourseEnvironment,
@@ -218,10 +218,9 @@ export class DropInCourseProvider implements CourseProvider {
   }
 
   /**
-   * Parse a `python-notebook` unit. Each unit produces a single text-lesson
-   * activity from `intro.md` in the unit dir. The notebook itself is
-   * opened by the user through the panel's "Open Notebook" action; the
-   * extension does not parse or execute cells.
+   * Parse a `python-notebook` unit. The notebook itself carries the unit's
+   * narrative content and is opened directly by the user; the extension does
+   * not parse or execute cells.
    *
    * Exercise metadata (hints, solutions) is loaded from `exercises.json`
    * if present and attached to the returned unit for use by chat LM tools.
@@ -243,7 +242,7 @@ export class DropInCourseProvider implements CourseProvider {
         (e) =>
           e.type === vscode.FileType.File &&
           e.name.toLowerCase().endsWith(".ipynb") &&
-          !e.name.toLowerCase().endsWith(".workbook.ipynb"), // TODO (acasey): constant for .workbook
+          !e.name.toLowerCase().endsWith(WORKBOOK_SUFFIX),
       )
       .sort((a, b) => a.name.localeCompare(b.name))[0]; // TODO (acasey): log finding multiple
     if (!notebookEntry) {
@@ -255,27 +254,7 @@ export class DropInCourseProvider implements CourseProvider {
 
     const notebookRel = `${unit.dir}/${notebookEntry.name}`;
 
-    // Read intro.md for the lesson panel content.
-    const introContent =
-      (await tryReadText(vscode.Uri.joinPath(unitDir, "intro.md"))) ?? "";
-
     const activities: CatalogActivity[] = [];
-    if (introContent.length > 0) {
-      activities.push({
-        type: "lesson",
-        id: "intro",
-        title: firstHeading(introContent) ?? humanize(unit.id),
-        content: introContent,
-      } satisfies CatalogLesson);
-    } else {
-      // Even without intro.md, emit a minimal lesson so navigation works.
-      activities.push({
-        type: "lesson",
-        id: "intro",
-        title: unit.title,
-        content: `Open the notebook to begin this unit.`,
-      } satisfies CatalogLesson);
-    }
 
     // Load exercise metadata from exercises.json (optional).
     const exercisesJson = await tryReadText(
@@ -406,24 +385,4 @@ async function uriExists(uri: vscode.Uri): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-// ─── Text helpers ───
-
-// TODO (acasey): do we need this level of support?  Can we just insist on metadata?
-
-/** First markdown ATX heading (`# Title`) in the text, if any. */
-function firstHeading(markdown: string): string | undefined {
-  const match = markdown.match(/^#{1,6}\s+(.+?)\s*$/m);
-  return match ? match[1].trim() : undefined;
-}
-
-/** Turn a file/dir slug into a human-readable title. */
-function humanize(slug: string): string {
-  return slug
-    .replace(/^\d+[-_.\s]*/, "")
-    .split(/[-_\s]+/)
-    .filter((w) => w.length > 0)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
 }

@@ -131,7 +131,10 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
           ? `${unit.completed}/${unit.total}`
           : undefined;
       item.iconPath = unitIcon(unit);
-      item.contextValue = node.kind;
+      // Python units get a distinct context value so notebook-only actions
+      // (resetting the working copy) can be scoped to them.
+      item.contextValue =
+        node.courseKind === "python-notebook" ? "unitPython" : "unit";
       item.tooltip = `${unit.title} — ${unit.completed}/${unit.total} activities complete`;
       // Vary the id by `isCurrent` so VS Code sees a new node when the active
       // unit changes and applies the collapsibleState we set above.
@@ -245,14 +248,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       const isActiveCourse =
         this.service.initialized &&
         node.courseId === this.service.getActiveCourseId();
-      // Hide the synthetic "intro" lesson for python-notebook courses —
-      // the panel already shows unit-level content.
-      // TODO (acasey): can we just not synthesize it?
-      const activities =
-        node.courseKind === "python-notebook"
-          ? node.unit.activities.filter((a) => a.id !== "intro")
-          : node.unit.activities;
-      return activities.map<LearningProgressNode>((activity) => ({
+      return node.unit.activities.map<LearningProgressNode>((activity) => ({
         kind: "activity",
         courseId: node.courseId,
         unitId: node.unit.id,

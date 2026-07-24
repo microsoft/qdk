@@ -7,6 +7,10 @@ import {
   exerciseDocumentSelector,
 } from "./codeLens.js";
 import { registerLearningCommands } from "./commands.js";
+import {
+  LEARNING_NOTEBOOK_ACTIVE_CONTEXT,
+  WORKBOOK_SUFFIX,
+} from "./constants.js";
 import { LessonPanelManager, registerLessonPanelSerializer } from "./panel.js";
 import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
@@ -65,7 +69,7 @@ export function initLearning(
           if (typeof cellId !== "string") {
             continue;
           }
-          void learningService.goToExerciseByCellId(cellId, "panel");
+          void learningService.goToExerciseByCellId(cellId, "notebook");
           if (change.executionSummary.success) {
             void learningService.markExerciseCompleteByCellId(cellId);
           }
@@ -77,7 +81,38 @@ export function initLearning(
   registerLearningWelcomeView(context, learningService);
   registerLearningCommands(context, learningService, panelManager);
   registerLessonPanelSerializer(context, panelManager);
+  registerNotebookContextKey(context, learningService);
   return learningService;
+}
+
+/**
+ * Keep {@link LEARNING_NOTEBOOK_ACTIVE_CONTEXT} in sync with the active
+ * notebook editor so notebook toolbar actions only appear on course
+ * workbooks, not on every Jupyter notebook the user has open.
+ */
+function registerNotebookContextKey(
+  context: vscode.ExtensionContext,
+  service: LearningService,
+): void {
+  const sync = (editor: vscode.NotebookEditor | undefined) => {
+    let isCourseNotebook = false;
+    if (editor && service.initialized) {
+      const uri = editor.notebook.uri.toString();
+      isCourseNotebook =
+        uri.startsWith(service.learningContentRoot.toString()) &&
+        uri.endsWith(WORKBOOK_SUFFIX);
+    }
+    void vscode.commands.executeCommand(
+      "setContext",
+      LEARNING_NOTEBOOK_ACTIVE_CONTEXT,
+      isCourseNotebook,
+    );
+  };
+
+  context.subscriptions.push(
+    vscode.window.onDidChangeActiveNotebookEditor(sync),
+  );
+  sync(vscode.window.activeNotebookEditor);
 }
 
 export type {

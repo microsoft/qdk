@@ -327,6 +327,10 @@
           "when": "false"
         },
         {
+          "command": "qsharp-vscode.learningResetUnit",
+          "when": "false"
+        },
+        {
           "command": "qsharp-vscode.learningShowActivity",
           "when": "false"
         },
@@ -410,6 +414,10 @@
           "when": "view == qsharp-vscode.learningTree && viewItem == coursePython"
         },
         {
+          "command": "qsharp-vscode.learningResetUnit",
+          "when": "view == qsharp-vscode.learningTree && viewItem == unitPython"
+        },
+        {
           "command": "qsharp-vscode.workspaceOpenPortal",
           "group": "inline",
           "when": "view == quantum-workspaces && viewItem == workspace"
@@ -455,14 +463,19 @@
         {
           "command": "qsharp-vscode.learningAskInChat",
           "group": "inline",
-          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise || viewItem == example)"
+          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == unitPython || viewItem == lesson || viewItem == exercise || viewItem == example)"
         }
       ],
       "notebook/toolbar": [
         {
           "command": "qsharp-vscode.learningCheckEnvironment",
-          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected",
+          "when": "qsharp-vscode.learningNotebookActive",
           "group": "navigation@100"
+        },
+        {
+          "command": "qsharp-vscode.learningResetUnit",
+          "when": "qsharp-vscode.learningNotebookActive",
+          "group": "navigation@110"
         }
       ],
       "notebook/cell/title": [
@@ -743,6 +756,12 @@
       {
         "command": "qsharp-vscode.learningResetExercise",
         "title": "Reset Exercise",
+        "category": "QDK Learning",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "qsharp-vscode.learningResetUnit",
+        "title": "Reset Unit",
         "category": "QDK Learning",
         "icon": "$(discard)"
       },

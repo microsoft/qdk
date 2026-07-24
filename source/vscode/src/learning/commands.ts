@@ -48,6 +48,36 @@ export function registerLearningCommands(
       },
     ),
 
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningResetUnit",
+      async (node?: LearningProgressNode) => {
+        if (!service.initialized) {
+          return;
+        }
+
+        // Invoked from the tree, the target unit may not be the current one.
+        const location = node ? nodeToLocation(node) : undefined;
+        if (location) {
+          if (location.courseId !== service.getActiveCourseId()) {
+            await service.switchCourse(location.courseId, "tree");
+          }
+          await service.goTo(location, "tree");
+        }
+
+        const confirmed = await vscode.window.showWarningMessage(
+          "Reset this unit to the original notebook? Your current work will be lost.",
+          { modal: true },
+          "Reset",
+        );
+        if (confirmed !== "Reset") {
+          return;
+        }
+
+        await service.resetExercise();
+        vscode.window.showInformationMessage("Unit has been reset.");
+      },
+    ),
+
     // Progress tree commands
 
     vscode.commands.registerCommand(
@@ -92,62 +122,11 @@ export function registerLearningCommands(
 
         await service.goTo(location, "tree");
 
-        // For python-notebook exercise activities, open the notebook
-        // directly instead of showing the lesson panel.
-        if (
-          service.getActiveCourseInfo().kind === "python-notebook" &&
-          node.kind === "activity" &&
-          node.activity.type === "exercise"
-        ) {
-          const notebookUri = service.getCurrentCodeFileUri();
-          if (notebookUri) {
-            const cellId = service.getCurrentExerciseCellId();
-            let opened = false;
-
-            // Try to open via the Jupyter extension's unstable API so the
-            // course's Python environment is automatically set as the active
-            // kernel.
-            try {
-              const jupyter =
-                vscode.extensions.getExtension("ms-toolsai.jupyter");
-              const api = await jupyter?.activate();
-              if (api && typeof api.openNotebook === "function") {
-                const envPath = await service.getJupyterEnvironmentPath();
-                if (envPath) {
-                  await api.openNotebook(notebookUri, envPath);
-                  opened = true;
-                } else {
-                  log.info(
-                    "Didn't find a course virtual environment to use in notebook",
-                  );
-                }
-              }
-              if (!opened) {
-                log.warn(
-                  "Jupyter openNotebook API is not available; falling back to generic open.",
-                );
-              }
-            } catch (e) {
-              log.warn(
-                `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
-              );
-            }
-
-            if (!opened) {
-              // Fallback: open without pre-selecting a kernel.
-              await vscode.commands.executeCommand(
-                "vscode.openWith",
-                notebookUri,
-                "jupyter-notebook",
-                { viewColumn: vscode.ViewColumn.Active, preview: false },
-              );
-            }
-
-            if (cellId) {
-              revealNotebookCell(notebookUri, cellId);
-            }
-            return;
-          }
+        // python-notebook courses don't use the lesson panel — the notebook
+        // is the primary surface, so open it directly.
+        if (service.getActiveCourseInfo().kind === "python-notebook") {
+          await openCourseNotebook(service);
+          return;
         }
 
         await panelManager.show();
@@ -237,7 +216,7 @@ export function registerLearningCommands(
 
         // Navigate to the exercise so the service state matches.
         if (cellId) {
-          await service.goToExerciseByCellId(cellId, "panel");
+          await service.goToExerciseByCellId(cellId, "notebook");
         }
 
         await vscode.commands.executeCommand("workbench.action.chat.open", {
@@ -246,6 +225,60 @@ export function registerLearningCommands(
       },
     ),
   );
+}
+
+/**
+ * Open the current unit's notebook working copy, pre-selecting the course's
+ * Python environment as the active kernel, and reveal the current exercise
+ * cell when there is one.
+ */
+async function openCourseNotebook(service: LearningService): Promise<void> {
+  const notebookUri = service.getCurrentCodeFileUri();
+  if (!notebookUri) {
+    log.warn("No notebook associated with the current position.");
+    return;
+  }
+  const cellId = service.getCurrentExerciseCellId();
+  let opened = false;
+
+  // Try to open via the Jupyter extension's unstable API so the course's
+  // Python environment is automatically set as the active kernel.
+  try {
+    const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
+    const api = await jupyter?.activate();
+    if (api && typeof api.openNotebook === "function") {
+      const envPath = await service.getJupyterEnvironmentPath();
+      if (envPath) {
+        await api.openNotebook(notebookUri, envPath);
+        opened = true;
+      } else {
+        log.info("Didn't find a course virtual environment to use in notebook");
+      }
+    }
+    if (!opened) {
+      log.warn(
+        "Jupyter openNotebook API is not available; falling back to generic open.",
+      );
+    }
+  } catch (e) {
+    log.warn(
+      `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
+    );
+  }
+
+  if (!opened) {
+    // Fallback: open without pre-selecting a kernel.
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      notebookUri,
+      "jupyter-notebook",
+      { viewColumn: vscode.ViewColumn.Active, preview: false },
+    );
+  }
+
+  if (cellId) {
+    revealNotebookCell(notebookUri, cellId);
+  }
 }
 
 /**

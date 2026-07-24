@@ -344,7 +344,7 @@ type EventTypes = {
     properties: {
       action: "navigate" | "run" | "check" | "hint" | "solution" | "reset";
       activityType: "lesson" | "exercise";
-      source: "panel" | "chat" | "tree";
+      source: "panel" | "chat" | "tree" | "notebook";
     };
     measurements: Empty;
   };

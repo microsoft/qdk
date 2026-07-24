@@ -13,7 +13,7 @@
 
 // ─── Telemetry ───
 
-export type TelemetrySource = "panel" | "chat" | "tree";
+export type TelemetrySource = "panel" | "chat" | "tree" | "notebook";
 
 // ─── Location ───
 
@@ -75,8 +75,7 @@ export type Action =
   | "check"
   | "reset"
   | "hint-chat"
-  | "explain-chat"
-  | "open-notebook";
+  | "explain-chat";
 
 export interface ActionBinding {
   /** Keyboard shortcut key (single character like "b", or "space"). */

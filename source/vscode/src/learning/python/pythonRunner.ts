@@ -3,6 +3,7 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
+import { WORKBOOK_SUFFIX } from "../constants.js";
 import type { CatalogCourse } from "../types.js";
 
 // TODO (acasey): rename this
@@ -163,7 +164,7 @@ export class PythonCourseRunner {
  * (e.g. `01-intro/intro.ipynb` → `01-intro/intro.workbook.ipynb`).
  */
 function toWorkbookRel(notebookRel: string): string {
-  return notebookRel.replace(/\.ipynb$/i, ".workbook.ipynb");
+  return notebookRel.replace(/\.ipynb$/i, WORKBOOK_SUFFIX);
 }
 
 async function uriExists(uri: vscode.Uri): Promise<boolean> {
