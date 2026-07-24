@@ -44,9 +44,9 @@ fn convert_for_range_with_break() {
                 mutable total = 0;
                 {
                     let _range_id_45 = 0..4;
-                    mutable _index_id_48 = _range_id_45::Start;
-                    let _step_id_53 = _range_id_45::Step;
-                    let _end_id_58 = _range_id_45::End;
+                    mutable _index_id_48 = _range_id_45.Start;
+                    let _step_id_53 = _range_id_45.Step;
+                    let _end_id_58 = _range_id_45.End;
                     mutable _broke_31 = false;
                     while not _broke_31 and _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
                         let i = _index_id_48;
@@ -87,9 +87,9 @@ fn convert_for_range_with_continue() {
                 mutable total = 0;
                 {
                     let _range_id_45 = 0..4;
-                    mutable _index_id_48 = _range_id_45::Start;
-                    let _step_id_53 = _range_id_45::Step;
-                    let _end_id_58 = _range_id_45::End;
+                    mutable _index_id_48 = _range_id_45.Start;
+                    let _step_id_53 = _range_id_45.Step;
+                    let _end_id_58 = _range_id_45.End;
                     while _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
                         mutable _cont_31 = false;
                         let i = _index_id_48;
@@ -131,9 +131,9 @@ fn convert_for_range_with_break_and_continue() {
                 mutable total = 0;
                 {
                     let _range_id_74 = 0..4;
-                    mutable _index_id_77 = _range_id_74::Start;
-                    let _step_id_82 = _range_id_74::Step;
-                    let _end_id_87 = _range_id_74::End;
+                    mutable _index_id_77 = _range_id_74.Start;
+                    let _step_id_82 = _range_id_74.Step;
+                    let _end_id_87 = _range_id_74.End;
                     mutable _broke_40 = false;
                     while not _broke_40 and _step_id_82 > 0 and _index_id_77 <= _end_id_87 or _step_id_82 < 0 and _index_id_77 >= _end_id_87 {
                         mutable _cont_44 = false;
@@ -766,9 +766,9 @@ fn convert_nested_for_in_while_with_break_in_each() {
                     while not _broke_116 and total < 100 {
                         {
                             let _range_id_64 = 0..4;
-                            mutable _index_id_67 = _range_id_64::Start;
-                            let _step_id_72 = _range_id_64::Step;
-                            let _end_id_77 = _range_id_64::End;
+                            mutable _index_id_67 = _range_id_64.Start;
+                            let _step_id_72 = _range_id_64.Step;
+                            let _end_id_77 = _range_id_64.End;
                             mutable _broke_50 = false;
                             while not _broke_50 and _step_id_72 > 0 and _index_id_67 <= _end_id_77 or _step_id_72 < 0 and _index_id_67 >= _end_id_77 {
                                 let i = _index_id_67;
@@ -821,9 +821,9 @@ fn convert_loop_with_return_and_break() {
                 mutable total = 0;
                 {
                     let _range_id_57 = 0..4;
-                    mutable _index_id_60 = _range_id_57::Start;
-                    let _step_id_65 = _range_id_57::Step;
-                    let _end_id_70 = _range_id_57::End;
+                    mutable _index_id_60 = _range_id_57.Start;
+                    let _step_id_65 = _range_id_57.Step;
+                    let _end_id_70 = _range_id_57.End;
                     mutable _broke_43 = false;
                     while not _broke_43 and _step_id_65 > 0 and _index_id_60 <= _end_id_70 or _step_id_65 < 0 and _index_id_60 >= _end_id_70 {
                         let i = _index_id_60;
@@ -866,9 +866,9 @@ fn convert_for_range_with_break_in_value_block_defaultable() {
                 mutable total = 0;
                 {
                     let _range_id_53 = 0..4;
-                    mutable _index_id_56 = _range_id_53::Start;
-                    let _step_id_61 = _range_id_53::Step;
-                    let _end_id_66 = _range_id_53::End;
+                    mutable _index_id_56 = _range_id_53.Start;
+                    let _step_id_61 = _range_id_53.Step;
+                    let _end_id_66 = _range_id_53.End;
                     mutable _broke_37 = false;
                     while not _broke_37 and _step_id_61 > 0 and _index_id_56 <= _end_id_66 or _step_id_61 < 0 and _index_id_56 >= _end_id_66 {
                         let i = _index_id_56;
@@ -918,9 +918,9 @@ fn break_in_value_block_of_non_defaultable_type_normalized_and_relocated() {
                 use q = Qubit();
                 {
                     let _range_id_66 = 0..4;
-                    mutable _index_id_69 = _range_id_66::Start;
-                    let _step_id_74 = _range_id_66::Step;
-                    let _end_id_79 = _range_id_66::End;
+                    mutable _index_id_69 = _range_id_66.Start;
+                    let _step_id_74 = _range_id_66.Step;
+                    let _end_id_79 = _range_id_66.End;
                     mutable _broke_50 = false;
                     while not _broke_50 and _step_id_74 > 0 and _index_id_69 <= _end_id_79 or _step_id_74 < 0 and _index_id_69 >= _end_id_79 {
                         let i = _index_id_69;
@@ -964,9 +964,9 @@ fn convert_operand_position_break_normalized_then_desugared() {
             operation Main() : Unit {
                 {
                     let _range_id_59 = 0..4;
-                    mutable _index_id_62 = _range_id_59::Start;
-                    let _step_id_67 = _range_id_59::Step;
-                    let _end_id_72 = _range_id_59::End;
+                    mutable _index_id_62 = _range_id_59.Start;
+                    let _step_id_67 = _range_id_59.Step;
+                    let _end_id_72 = _range_id_59.End;
                     mutable _broke_43 = false;
                     while not _broke_43 and _step_id_67 > 0 and _index_id_62 <= _end_id_72 or _step_id_67 < 0 and _index_id_62 >= _end_id_72 {
                         let i = _index_id_62;
@@ -1017,9 +1017,9 @@ fn convert_array_backed_operand_break_normalized_then_desugared() {
                 use q = Qubit();
                 {
                     let _range_id_66 = 0..4;
-                    mutable _index_id_69 = _range_id_66::Start;
-                    let _step_id_74 = _range_id_66::Step;
-                    let _end_id_79 = _range_id_66::End;
+                    mutable _index_id_69 = _range_id_66.Start;
+                    let _step_id_74 = _range_id_66.Step;
+                    let _end_id_79 = _range_id_66.End;
                     mutable _broke_50 = false;
                     while not _broke_50 and _step_id_74 > 0 and _index_id_69 <= _end_id_79 or _step_id_74 < 0 and _index_id_69 >= _end_id_79 {
                         let i = _index_id_69;
@@ -1067,9 +1067,9 @@ fn break_in_value_block_of_range_type_uses_shaped_default() {
                 mutable acc = 0;
                 {
                     let _range_id_60 = 0..4;
-                    mutable _index_id_63 = _range_id_60::Start;
-                    let _step_id_68 = _range_id_60::Step;
-                    let _end_id_73 = _range_id_60::End;
+                    mutable _index_id_63 = _range_id_60.Start;
+                    let _step_id_68 = _range_id_60.Step;
+                    let _end_id_73 = _range_id_60.End;
                     mutable _broke_42 = false;
                     while not _broke_42 and _step_id_68 > 0 and _index_id_63 <= _end_id_73 or _step_id_68 < 0 and _index_id_63 >= _end_id_73 {
                         let i = _index_id_63;
@@ -1080,7 +1080,7 @@ fn break_in_value_block_of_range_type_uses_shaped_default() {
                             0..i
                         };
                         if not _broke_42 {
-                            acc += r::End;
+                            acc += r.End;
                         }
                         if not _broke_42 {
                             _index_id_63 += _step_id_68;
@@ -1121,9 +1121,9 @@ fn convert_descending_for_range_with_break_and_continue() {
                 mutable total = 0;
                 {
                     let _range_id_76 = 5..-1..0;
-                    mutable _index_id_79 = _range_id_76::Start;
-                    let _step_id_84 = _range_id_76::Step;
-                    let _end_id_89 = _range_id_76::End;
+                    mutable _index_id_79 = _range_id_76.Start;
+                    let _step_id_84 = _range_id_76.Step;
+                    let _end_id_89 = _range_id_76.End;
                     mutable _broke_42 = false;
                     while not _broke_42 and _step_id_84 > 0 and _index_id_79 <= _end_id_89 or _step_id_84 < 0 and _index_id_79 >= _end_id_89 {
                         mutable _cont_46 = false;
@@ -1171,9 +1171,9 @@ fn convert_operand_position_continue_normalized_then_desugared() {
             operation Main() : Unit {
                 {
                     let _range_id_59 = 0..4;
-                    mutable _index_id_62 = _range_id_59::Start;
-                    let _step_id_67 = _range_id_59::Step;
-                    let _end_id_72 = _range_id_59::End;
+                    mutable _index_id_62 = _range_id_59.Start;
+                    let _step_id_67 = _range_id_59.Step;
+                    let _end_id_72 = _range_id_59.End;
                     while _step_id_67 > 0 and _index_id_62 <= _end_id_72 or _step_id_67 < 0 and _index_id_62 >= _end_id_72 {
                         mutable _cont_43 = false;
                         let i = _index_id_62;
@@ -1220,9 +1220,9 @@ fn convert_sequential_loops_with_separate_break_flags() {
             operation Main() : Unit {
                 {
                     let _range_id_48 = 0..4;
-                    mutable _index_id_51 = _range_id_48::Start;
-                    let _step_id_56 = _range_id_48::Step;
-                    let _end_id_61 = _range_id_48::End;
+                    mutable _index_id_51 = _range_id_48.Start;
+                    let _step_id_56 = _range_id_48.Step;
+                    let _end_id_61 = _range_id_48.End;
                     mutable _broke_40 = false;
                     while not _broke_40 and _step_id_56 > 0 and _index_id_51 <= _end_id_61 or _step_id_56 < 0 and _index_id_51 >= _end_id_61 {
                         let i = _index_id_51;
@@ -1236,9 +1236,9 @@ fn convert_sequential_loops_with_separate_break_flags() {
                 }
                 {
                     let _range_id_108 = 0..4;
-                    mutable _index_id_111 = _range_id_108::Start;
-                    let _step_id_116 = _range_id_108::Step;
-                    let _end_id_121 = _range_id_108::End;
+                    mutable _index_id_111 = _range_id_108.Start;
+                    let _step_id_116 = _range_id_108.Step;
+                    let _end_id_121 = _range_id_108.End;
                     mutable _broke_100 = false;
                     while not _broke_100 and _step_id_116 > 0 and _index_id_111 <= _end_id_121 or _step_id_116 < 0 and _index_id_111 >= _end_id_121 {
                         let j = _index_id_111;
@@ -1335,9 +1335,9 @@ fn break_flag_set_is_steppable_and_guards_are_non_steppable() {
             mutable x = 0;
             {
                 let _range_id_38 = 0..4;
-                mutable _index_id_41 = _range_id_38::Start;
-                let _step_id_46 = _range_id_38::Step;
-                let _end_id_51 = _range_id_38::End;
+                mutable _index_id_41 = _range_id_38.Start;
+                let _step_id_46 = _range_id_38.Step;
+                let _end_id_51 = _range_id_38.End;
                 mutable _broke_24 = false;
                 while not _broke_24 and _step_id_46 > 0 and _index_id_41 <= _end_id_51 or _step_id_46 < 0 and _index_id_41 >= _end_id_51 {
                     let i = _index_id_41;
@@ -1391,9 +1391,9 @@ fn break_guards_following_qubit_allocation_suffix() {
         operation Main() : Unit {
             {
                 let _range_id_44 = 0..1;
-                mutable _index_id_47 = _range_id_44::Start;
-                let _step_id_52 = _range_id_44::Step;
-                let _end_id_57 = _range_id_44::End;
+                mutable _index_id_47 = _range_id_44.Start;
+                let _step_id_52 = _range_id_44.Step;
+                let _end_id_57 = _range_id_44.End;
                 mutable _broke_30 = false;
                 while not _broke_30 and _step_id_52 > 0 and _index_id_47 <= _end_id_57 or _step_id_52 < 0 and _index_id_47 >= _end_id_57 {
                     let i = _index_id_47;
@@ -1518,9 +1518,9 @@ fn check_no_break_continue_clean_after_desugar() {
             mutable total = 0;
             {
                 let _range_id_74 = 0..10;
-                mutable _index_id_77 = _range_id_74::Start;
-                let _step_id_82 = _range_id_74::Step;
-                let _end_id_87 = _range_id_74::End;
+                mutable _index_id_77 = _range_id_74.Start;
+                let _step_id_82 = _range_id_74.Step;
+                let _end_id_87 = _range_id_74.End;
                 mutable _broke_40 = false;
                 while not _broke_40 and _step_id_82 > 0 and _index_id_77 <= _end_id_87 or _step_id_82 < 0 and _index_id_77 >= _end_id_87 {
                     mutable _cont_44 = false;

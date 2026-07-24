@@ -30,9 +30,9 @@ fn grover_sample_full_pipeline_reachable_items() {
             mutable qs : Qubit[] = [];
             {
                 let _range_id_219 : Range = 0..size - 1;
-                mutable _index_id_222 : Int = _range_id_219::Start;
-                let _step_id_227 : Int = _range_id_219::Step;
-                let _end_id_232 : Int = _range_id_219::End;
+                mutable _index_id_222 : Int = _range_id_219.Start;
+                let _step_id_227 : Int = _range_id_219.Step;
+                let _end_id_232 : Int = _range_id_219.End;
                 while _step_id_227 > 0 and _index_id_222 <= _end_id_232 or _step_id_227 < 0 and _index_id_222 >= _end_id_232 {
                     let _ : Int = _index_id_222;
                     qs += [__quantum__rt__qubit_allocate()];
@@ -334,9 +334,9 @@ fn grover_sample_full_pipeline_reachable_items() {
             body ... {
                 {
                     let _range_id_49088 : Range = 0..2..Length(ctls) - 2;
-                    mutable _index_id_49091 : Int = _range_id_49088::Start;
-                    let _step_id_49096 : Int = _range_id_49088::Step;
-                    let _end_id_49101 : Int = _range_id_49088::End;
+                    mutable _index_id_49091 : Int = _range_id_49088.Start;
+                    let _step_id_49096 : Int = _range_id_49088.Step;
+                    let _end_id_49101 : Int = _range_id_49088.End;
                     while _step_id_49096 > 0 and _index_id_49091 <= _end_id_49101 or _step_id_49096 < 0 and _index_id_49091 >= _end_id_49101 {
                         let i : Int = _index_id_49091;
                         CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
@@ -347,9 +347,9 @@ fn grover_sample_full_pipeline_reachable_items() {
 
                 {
                     let _range_id_49131 : Range = 0..Length(ctls) / 2 - 2 - adjustment;
-                    mutable _index_id_49134 : Int = _range_id_49131::Start;
-                    let _step_id_49139 : Int = _range_id_49131::Step;
-                    let _end_id_49144 : Int = _range_id_49131::End;
+                    mutable _index_id_49134 : Int = _range_id_49131.Start;
+                    let _step_id_49139 : Int = _range_id_49131.Step;
+                    let _end_id_49144 : Int = _range_id_49131.End;
                     while _step_id_49139 > 0 and _index_id_49134 <= _end_id_49144 or _step_id_49139 < 0 and _index_id_49134 >= _end_id_49144 {
                         let i_1 : Int = _index_id_49134;
                         CCNOT(aux[i_1 * 2], aux[i_1 * 2 + 1], aux[i_1 + Length(ctls) / 2]);
@@ -363,10 +363,10 @@ fn grover_sample_full_pipeline_reachable_items() {
                 {
                     let _range : Range = 0..Length(ctls) / 2 - 2 - adjustment;
                     {
-                        let _range_id_49174 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                        mutable _index_id_49177 : Int = _range_id_49174::Start;
-                        let _step_id_49182 : Int = _range_id_49174::Step;
-                        let _end_id_49187 : Int = _range_id_49174::End;
+                        let _range_id_49174 : Range = _range.Start + _range.End - _range.Start / _range.Step * _range.Step..-_range.Step.._range.Start;
+                        mutable _index_id_49177 : Int = _range_id_49174.Start;
+                        let _step_id_49182 : Int = _range_id_49174.Step;
+                        let _end_id_49187 : Int = _range_id_49174.End;
                         while _step_id_49182 > 0 and _index_id_49177 <= _end_id_49187 or _step_id_49182 < 0 and _index_id_49177 >= _end_id_49187 {
                             let i : Int = _index_id_49177;
                             Adjoint CCNOT(aux[i * 2], aux[i * 2 + 1], aux[i + Length(ctls) / 2]);
@@ -380,10 +380,10 @@ fn grover_sample_full_pipeline_reachable_items() {
                 {
                     let _range_1 : Range = 0..2..Length(ctls) - 2;
                     {
-                        let _range_id_49217 : Range = _range_1::Start + _range_1::End - _range_1::Start / _range_1::Step * _range_1::Step..-_range_1::Step.._range_1::Start;
-                        mutable _index_id_49220 : Int = _range_id_49217::Start;
-                        let _step_id_49225 : Int = _range_id_49217::Step;
-                        let _end_id_49230 : Int = _range_id_49217::End;
+                        let _range_id_49217 : Range = _range_1.Start + _range_1.End - _range_1.Start / _range_1.Step * _range_1.Step..-_range_1.Step.._range_1.Start;
+                        mutable _index_id_49220 : Int = _range_id_49217.Start;
+                        let _step_id_49225 : Int = _range_id_49217.Step;
+                        let _end_id_49230 : Int = _range_id_49217.End;
                         while _step_id_49225 > 0 and _index_id_49220 <= _end_id_49230 or _step_id_49225 < 0 and _index_id_49220 >= _end_id_49230 {
                             let i_1 : Int = _index_id_49220;
                             Adjoint CCNOT(ctls[i_1], ctls[i_1 + 1], aux[i_1 / 2]);
@@ -1144,9 +1144,9 @@ fn grover_sample_full_pipeline_reachable_items() {
                         let _array : Qubit[] = inputQubits[...2...];
                         {
                             let _range_id_511 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_514 : Int = _range_id_511::Start;
-                            let _step_id_519 : Int = _range_id_511::Step;
-                            let _end_id_524 : Int = _range_id_511::End;
+                            mutable _index_id_514 : Int = _range_id_511.Start;
+                            let _step_id_519 : Int = _range_id_511.Step;
+                            let _end_id_524 : Int = _range_id_511.End;
                             while _step_id_519 > 0 and _index_id_514 <= _end_id_524 or _step_id_519 < 0 and _index_id_514 >= _end_id_524 {
                                 let _index : Int = _index_id_514;
                                 let q_1 : Qubit = _array[_index];
@@ -1187,9 +1187,9 @@ fn grover_sample_full_pipeline_reachable_items() {
                     let _array : Qubit[] = inputQubits;
                     {
                         let _range_id_582 : Range = Length(_array) - 1..-1..0;
-                        mutable _index_id_585 : Int = _range_id_582::Start;
-                        let _step_id_590 : Int = _range_id_582::Step;
-                        let _end_id_595 : Int = _range_id_582::End;
+                        mutable _index_id_585 : Int = _range_id_582.Start;
+                        let _step_id_590 : Int = _range_id_582.Step;
+                        let _end_id_595 : Int = _range_id_582.End;
                         while _step_id_590 > 0 and _index_id_585 <= _end_id_595 or _step_id_590 < 0 and _index_id_585 >= _end_id_595 {
                             let _index : Int = _index_id_585;
                             let q : Qubit = _array[_index];
@@ -1221,9 +1221,9 @@ fn grover_sample_full_pipeline_reachable_items() {
                     let _array : Qubit[] = inputQubits;
                     {
                         let _range_id_653 : Range = Length(_array) - 1..-1..0;
-                        mutable _index_id_656 : Int = _range_id_653::Start;
-                        let _step_id_661 : Int = _range_id_653::Step;
-                        let _end_id_666 : Int = _range_id_653::End;
+                        mutable _index_id_656 : Int = _range_id_653.Start;
+                        let _step_id_661 : Int = _range_id_653.Step;
+                        let _end_id_666 : Int = _range_id_653.End;
                         while _step_id_661 > 0 and _index_id_656 <= _end_id_666 or _step_id_661 < 0 and _index_id_656 >= _end_id_666 {
                             let _index : Int = _index_id_656;
                             let q : Qubit = _array[_index];
@@ -1266,9 +1266,9 @@ fn grover_sample_full_pipeline_reachable_items() {
                         let _array : Qubit[] = inputQubits;
                         {
                             let _range_id_724 : Range = Length(_array) - 1..-1..0;
-                            mutable _index_id_727 : Int = _range_id_724::Start;
-                            let _step_id_732 : Int = _range_id_724::Step;
-                            let _end_id_737 : Int = _range_id_724::End;
+                            mutable _index_id_727 : Int = _range_id_724.Start;
+                            let _step_id_732 : Int = _range_id_724.Step;
+                            let _end_id_737 : Int = _range_id_724.End;
                             while _step_id_732 > 0 and _index_id_727 <= _end_id_737 or _step_id_732 < 0 and _index_id_727 >= _end_id_737 {
                                 let _index : Int = _index_id_727;
                                 let q_1 : Qubit = _array[_index];
@@ -1294,9 +1294,9 @@ fn grover_sample_full_pipeline_reachable_items() {
             PrepareUniform(qubits);
             {
                 let _range_id_440 : Range = 1..iterations;
-                mutable _index_id_443 : Int = _range_id_440::Start;
-                let _step_id_448 : Int = _range_id_440::Step;
-                let _end_id_453 : Int = _range_id_440::End;
+                mutable _index_id_443 : Int = _range_id_440.Start;
+                let _step_id_448 : Int = _range_id_440.Step;
+                let _end_id_453 : Int = _range_id_440.End;
                 while _step_id_448 > 0 and _index_id_443 <= _end_id_453 or _step_id_448 < 0 and _index_id_443 >= _end_id_453 {
                     let _ : Int = _index_id_443;
                     ReflectAboutMarked(qubits);

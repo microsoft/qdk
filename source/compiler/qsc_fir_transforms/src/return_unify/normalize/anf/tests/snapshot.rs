@@ -501,7 +501,7 @@ fn operand_lift_return_in_range_step_block() {
                     __ret_val
                 } else {
                     if not __has_returned {
-                        r::Start
+                        r.Start
                     } else {
                         __ret_val
                     }

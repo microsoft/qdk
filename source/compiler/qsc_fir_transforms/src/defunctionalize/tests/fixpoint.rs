@@ -1121,9 +1121,9 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
                     let _range_id_183 : Range = 0..count - 1;
-                    mutable _index_id_186 : Int = _range_id_183::Start;
-                    let _step_id_191 : Int = _range_id_183::Step;
-                    let _end_id_196 : Int = _range_id_183::End;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
                     while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
@@ -1160,9 +1160,9 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
                     let _range_id_183 : Range = 0..count - 1;
-                    mutable _index_id_186 : Int = _range_id_183::Start;
-                    let _step_id_191 : Int = _range_id_183::Step;
-                    let _end_id_196 : Int = _range_id_183::End;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
                     while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
@@ -1188,9 +1188,9 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
                     let _range_id_183 : Range = 0..count - 1;
-                    mutable _index_id_186 : Int = _range_id_183::Start;
-                    let _step_id_191 : Int = _range_id_183::Step;
-                    let _end_id_196 : Int = _range_id_183::End;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
                     while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
@@ -1220,9 +1220,9 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
                     let _range_id_183 : Range = 0..count - 1;
-                    mutable _index_id_186 : Int = _range_id_183::Start;
-                    let _step_id_191 : Int = _range_id_183::Step;
-                    let _end_id_196 : Int = _range_id_183::End;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
                     while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
@@ -1241,9 +1241,9 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
                 {
                     let _range_id_183 : Range = 0..count - 1;
-                    mutable _index_id_186 : Int = _range_id_183::Start;
-                    let _step_id_191 : Int = _range_id_183::Step;
-                    let _end_id_196 : Int = _range_id_183::End;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
                     while _step_id_191 > 0 and _index_id_186 <= _end_id_196 or _step_id_191 < 0 and _index_id_186 >= _end_id_196 {
                         let idx : Int = _index_id_186;
                         if idx == 0 {
@@ -2086,9 +2086,9 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
                         while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
                             let _ : Int = _index_id_119;
                             u(target);
@@ -2107,10 +2107,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
+                            let _range_id_159 : Range = _range.Start + _range.End - _range.Start / _range.Step * _range.Step..-_range.Step.._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
                             while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
@@ -2137,9 +2137,9 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
                         while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
                             let _ : Int = _index_id_119;
                             u(target);
@@ -2158,10 +2158,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
+                            let _range_id_159 : Range = _range.Start + _range.End - _range.Start / _range.Step * _range.Step..-_range.Step.._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
                             while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
@@ -2187,9 +2187,9 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
                         while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
                             let _ : Int = _index_id_119;
                             u(target);
@@ -2208,10 +2208,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
+                            let _range_id_159 : Range = _range.Start + _range.End - _range.Start / _range.Step * _range.Step..-_range.Step.._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
                             while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
@@ -2238,9 +2238,9 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
                         while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
                             let _ : Int = _index_id_119;
                             u(target);
@@ -2259,10 +2259,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
+                            let _range_id_159 : Range = _range.Start + _range.End - _range.Start / _range.Step * _range.Step..-_range.Step.._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
                             while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
@@ -2279,9 +2279,9 @@ fn pipeline_resolves_conditional_callable_binding() {
                 body ... {
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
                         while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
                             let _ : Int = _index_id_119;
                             if power >= 0 {
@@ -2299,10 +2299,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
+                            let _range_id_159 : Range = _range.Start + _range.End - _range.Start / _range.Step * _range.Step..-_range.Step.._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
                             while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
                                 let _ : Int = _index_id_162;
                                 if power >= 0 {

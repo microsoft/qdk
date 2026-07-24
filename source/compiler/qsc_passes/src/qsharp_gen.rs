@@ -648,10 +648,10 @@ impl<'a> HirQSharpGen<'a> {
     /// `FirQSharpGen`, in `qsc_fir_transforms::pretty`.
     fn field_display(&self, record_ty: &Ty, field: &Field) -> String {
         match field {
-            Field::Err => "::/* err */".to_string(),
-            Field::Prim(PrimField::Start) => "::Start".to_string(),
-            Field::Prim(PrimField::Step) => "::Step".to_string(),
-            Field::Prim(PrimField::End) => "::End".to_string(),
+            Field::Err => "./* err */".to_string(),
+            Field::Prim(PrimField::Start) => ".Start".to_string(),
+            Field::Prim(PrimField::Step) => ".Step".to_string(),
+            Field::Prim(PrimField::End) => ".End".to_string(),
             Field::Path(path) => self.resolve_field_path(record_ty, path),
         }
     }

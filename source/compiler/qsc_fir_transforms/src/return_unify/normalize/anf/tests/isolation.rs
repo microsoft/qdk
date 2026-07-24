@@ -516,7 +516,7 @@ fn isolated_anf_lifts_range_end_block() {
                     return 1;
                     5
                 };
-                r::End
+                r.End
             }
             // entry
             Main()
@@ -529,7 +529,7 @@ fn isolated_anf_lifts_range_end_block() {
                     5
                 };
                 let r : Range = __operand_tmp_0..__operand_tmp_1;
-                r::End
+                r.End
             }
             // entry
             Main()

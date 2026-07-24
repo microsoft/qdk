@@ -329,9 +329,9 @@ fn hoist_return_in_call_arg_deep() {
                 mutable total : Int = 0;
                 {
                     let _range_id_70 : Range = 0..1;
-                    mutable _index_id_73 : Int = _range_id_70::Start;
-                    let _step_id_78 : Int = _range_id_70::Step;
-                    let _end_id_83 : Int = _range_id_70::End;
+                    mutable _index_id_73 : Int = _range_id_70.Start;
+                    let _step_id_78 : Int = _range_id_70.Step;
+                    let _end_id_83 : Int = _range_id_70.End;
                     while not __has_returned and _step_id_78 > 0 and _index_id_73 <= _end_id_83 or _step_id_78 < 0 and _index_id_73 >= _end_id_83 {
                         let i : Int = _index_id_73;
                         mutable j : Int = 0;

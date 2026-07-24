@@ -111,9 +111,9 @@ fn convert_for_range() {
             operation Main() : Unit {
                 {
                     let _range_id_18 = 0..4;
-                    mutable _index_id_21 = _range_id_18::Start;
-                    let _step_id_26 = _range_id_18::Step;
-                    let _end_id_31 = _range_id_18::End;
+                    mutable _index_id_21 = _range_id_18.Start;
+                    let _step_id_26 = _range_id_18.Step;
+                    let _end_id_31 = _range_id_18.End;
                     while _step_id_26 > 0 and _index_id_21 <= _end_id_31 or _step_id_26 < 0 and _index_id_21 >= _end_id_31 {
                         let i = _index_id_21;
                         let x = "Hello World";
@@ -141,9 +141,9 @@ fn convert_for_reverse_range() {
             operation Main() : Unit {
                 {
                     let _range_id_20 = 4..-1..0;
-                    mutable _index_id_23 = _range_id_20::Start;
-                    let _step_id_28 = _range_id_20::Step;
-                    let _end_id_33 = _range_id_20::End;
+                    mutable _index_id_23 = _range_id_20.Start;
+                    let _step_id_28 = _range_id_20.Step;
+                    let _end_id_33 = _range_id_20.End;
                     while _step_id_28 > 0 and _index_id_23 <= _end_id_33 or _step_id_28 < 0 and _index_id_23 >= _end_id_33 {
                         let i = _index_id_23;
                         let x = "Hello World";

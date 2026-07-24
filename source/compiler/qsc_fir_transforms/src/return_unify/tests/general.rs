@@ -988,9 +988,9 @@ fn for_loop_with_early_return() {
                 mutable __ret_val : Int = 0;
                 {
                     let _range_id_30 : Range = 0..10;
-                    mutable _index_id_33 : Int = _range_id_30::Start;
-                    let _step_id_38 : Int = _range_id_30::Step;
-                    let _end_id_43 : Int = _range_id_30::End;
+                    mutable _index_id_33 : Int = _range_id_30.Start;
+                    let _step_id_38 : Int = _range_id_30.Step;
+                    let _end_id_43 : Int = _range_id_30.End;
                     while not __has_returned and _step_id_38 > 0 and _index_id_33 <= _end_id_43 or _step_id_38 < 0 and _index_id_33 >= _end_id_43 {
                         let i : Int = _index_id_33;
                         if i == 5 {

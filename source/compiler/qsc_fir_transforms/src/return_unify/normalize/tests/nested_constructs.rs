@@ -440,9 +440,9 @@ fn while_for_if_return_deep() {
                 while not __has_returned and i < 3 {
                     {
                         let _range_id_54 : Range = 0..2;
-                        mutable _index_id_57 : Int = _range_id_54::Start;
-                        let _step_id_62 : Int = _range_id_54::Step;
-                        let _end_id_67 : Int = _range_id_54::End;
+                        mutable _index_id_57 : Int = _range_id_54.Start;
+                        let _step_id_62 : Int = _range_id_54.Step;
+                        let _end_id_67 : Int = _range_id_54.End;
                         while not __has_returned and _step_id_62 > 0 and _index_id_57 <= _end_id_67 or _step_id_62 < 0 and _index_id_57 >= _end_id_67 {
                             let j : Int = _index_id_57;
                             if M(q) == One {
@@ -596,9 +596,9 @@ fn for_inside_if_without_else_return() {
                 if M(q) == One {
                     {
                         let _range_id_45 : Range = 0..2;
-                        mutable _index_id_48 : Int = _range_id_45::Start;
-                        let _step_id_53 : Int = _range_id_45::Step;
-                        let _end_id_58 : Int = _range_id_45::End;
+                        mutable _index_id_48 : Int = _range_id_45.Start;
+                        let _step_id_53 : Int = _range_id_45.Step;
+                        let _end_id_58 : Int = _range_id_45.End;
                         while not __has_returned and _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
                             let j : Int = _index_id_48;
                             if M(q) == Zero {

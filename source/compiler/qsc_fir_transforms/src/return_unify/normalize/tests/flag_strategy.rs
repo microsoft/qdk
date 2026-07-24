@@ -436,7 +436,7 @@ fn flag_fallback_supports_post_return_range_local_initializer() {
     // (the synthesized names carry the `.` sentinel in the verbatim Debug dump).
     assert!(
         rendered.contains(
-            "if _.has_returned _.ret_val else {\n            if not _.has_returned {\n                r::Start\n            } else _.ret_val\n        }"
+            "if _.has_returned _.ret_val else {\n            if not _.has_returned {\n                r.Start\n            } else _.ret_val\n        }"
         ),
         "final trailing expression should preserve the bind-then-check pattern (now inlined into the trailing merge)\n{rendered}",
     );

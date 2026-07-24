@@ -165,16 +165,16 @@ fn nested_for_inner_body_hits_return() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
                     let _range_id_84 : Range = 0..100;
-                    mutable _index_id_87 : Int = _range_id_84::Start;
-                    let _step_id_92 : Int = _range_id_84::Step;
-                    let _end_id_97 : Int = _range_id_84::End;
+                    mutable _index_id_87 : Int = _range_id_84.Start;
+                    let _step_id_92 : Int = _range_id_84.Step;
+                    let _end_id_97 : Int = _range_id_84.End;
                     while not __has_returned and _step_id_92 > 0 and _index_id_87 <= _end_id_97 or _step_id_92 < 0 and _index_id_87 >= _end_id_97 {
                         let _ : Int = _index_id_87;
                         {
                             let _range_id_41 : Range = 0..100;
-                            mutable _index_id_44 : Int = _range_id_41::Start;
-                            let _step_id_49 : Int = _range_id_41::Step;
-                            let _end_id_54 : Int = _range_id_41::End;
+                            mutable _index_id_44 : Int = _range_id_41.Start;
+                            let _step_id_49 : Int = _range_id_41.Step;
+                            let _end_id_54 : Int = _range_id_41.End;
                             while not __has_returned and _step_id_49 > 0 and _index_id_44 <= _end_id_54 or _step_id_49 < 0 and _index_id_44 >= _end_id_54 {
                                 let _ : Int = _index_id_44;
                                 if M(q) == One {
@@ -501,9 +501,9 @@ fn four_level_if_while_for_if_return_deepest() {
                     while not __has_returned and i < 3 {
                         {
                             let _range_id_63 : Range = 0..2;
-                            mutable _index_id_66 : Int = _range_id_63::Start;
-                            let _step_id_71 : Int = _range_id_63::Step;
-                            let _end_id_76 : Int = _range_id_63::End;
+                            mutable _index_id_66 : Int = _range_id_63.Start;
+                            let _step_id_71 : Int = _range_id_63.Step;
+                            let _end_id_76 : Int = _range_id_63.End;
                             while not __has_returned and _step_id_71 > 0 and _index_id_66 <= _end_id_76 or _step_id_71 < 0 and _index_id_66 >= _end_id_76 {
                                 let j : Int = _index_id_66;
                                 if M(q) == Zero {

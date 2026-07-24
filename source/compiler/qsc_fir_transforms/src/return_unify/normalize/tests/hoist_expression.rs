@@ -518,17 +518,17 @@ fn hoist_return_in_range_endpoint() {
                         __has_returned = true;
                     };
                     mutable _index_id_31 : Int = if not __has_returned {
-                        _range_id_28::Start
+                        _range_id_28.Start
                     } else {
                         0
                     };
                     let _step_id_36 : Int = if not __has_returned {
-                        _range_id_28::Step
+                        _range_id_28.Step
                     } else {
                         0
                     };
                     let _end_id_41 : Int = if not __has_returned {
-                        _range_id_28::End
+                        _range_id_28.End
                     } else {
                         0
                     };
@@ -630,17 +630,17 @@ fn hoist_return_in_local_init_preserves_binding() {
                         __has_returned = true;
                     };
                     mutable _index_id_95 : Int = if not __has_returned {
-                        _range_id_92::Start
+                        _range_id_92.Start
                     } else {
                         0
                     };
                     let _step_id_100 : Int = if not __has_returned {
-                        _range_id_92::Step
+                        _range_id_92.Step
                     } else {
                         0
                     };
                     let _end_id_105 : Int = if not __has_returned {
-                        _range_id_92::End
+                        _range_id_92.End
                     } else {
                         0
                     };

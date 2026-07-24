@@ -1025,11 +1025,11 @@ impl<'a> FirQSharpGen<'a> {
 
     fn field_display(&self, record_ty: &Ty, field: &Field) -> String {
         match field {
-            Field::Err => "::/* err */".to_string(),
+            Field::Err => "./* err */".to_string(),
             Field::Prim(prim) => match prim {
-                PrimField::Start => "::Start".to_string(),
-                PrimField::Step => "::Step".to_string(),
-                PrimField::End => "::End".to_string(),
+                PrimField::Start => ".Start".to_string(),
+                PrimField::Step => ".Step".to_string(),
+                PrimField::End => ".End".to_string(),
             },
             Field::Path(path) => self.resolve_field_path(record_ty, path),
         }

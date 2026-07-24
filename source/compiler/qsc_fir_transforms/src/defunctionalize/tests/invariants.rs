@@ -395,9 +395,9 @@ fn hof_inside_for_loop_passes_invariants() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let _generated_ident_87 : Unit = {
                     let _range_id_39 : Range = 0..3;
-                    mutable _index_id_42 : Int = _range_id_39::Start;
-                    let _step_id_47 : Int = _range_id_39::Step;
-                    let _end_id_52 : Int = _range_id_39::End;
+                    mutable _index_id_42 : Int = _range_id_39.Start;
+                    let _step_id_47 : Int = _range_id_39.Step;
+                    let _end_id_52 : Int = _range_id_39.End;
                     while _step_id_47 > 0 and _index_id_42 <= _end_id_52 or _step_id_47 < 0 and _index_id_42 >= _end_id_52 {
                         let _ : Int = _index_id_42;
                         ApplyOp_AdjCtl_(H, q);
@@ -422,9 +422,9 @@ fn hof_inside_for_loop_passes_invariants() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let _generated_ident_87 : Unit = {
                     let _range_id_39 : Range = 0..3;
-                    mutable _index_id_42 : Int = _range_id_39::Start;
-                    let _step_id_47 : Int = _range_id_39::Step;
-                    let _end_id_52 : Int = _range_id_39::End;
+                    mutable _index_id_42 : Int = _range_id_39.Start;
+                    let _step_id_47 : Int = _range_id_39.Step;
+                    let _end_id_52 : Int = _range_id_39.End;
                     while _step_id_47 > 0 and _index_id_42 <= _end_id_52 or _step_id_47 < 0 and _index_id_42 >= _end_id_52 {
                         let _ : Int = _index_id_42;
                         ApplyOp_AdjCtl__H_(q);
@@ -1367,9 +1367,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
                         let _range_id_346 : Range = 0..power - 1;
-                        mutable _index_id_349 : Int = _range_id_346::Start;
-                        let _step_id_354 : Int = _range_id_346::Step;
-                        let _end_id_359 : Int = _range_id_346::End;
+                        mutable _index_id_349 : Int = _range_id_346.Start;
+                        let _step_id_354 : Int = _range_id_346.Step;
+                        let _end_id_359 : Int = _range_id_346.End;
                         while _step_id_354 > 0 and _index_id_349 <= _end_id_359 or _step_id_354 < 0 and _index_id_349 >= _end_id_359 {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
@@ -1405,9 +1405,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
                         let _range_id_346 : Range = 0..power - 1;
-                        mutable _index_id_349 : Int = _range_id_346::Start;
-                        let _step_id_354 : Int = _range_id_346::Step;
-                        let _end_id_359 : Int = _range_id_346::End;
+                        mutable _index_id_349 : Int = _range_id_346.Start;
+                        let _step_id_354 : Int = _range_id_346.Step;
+                        let _end_id_359 : Int = _range_id_346.End;
                         while _step_id_354 > 0 and _index_id_349 <= _end_id_359 or _step_id_354 < 0 and _index_id_349 >= _end_id_359 {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
@@ -1490,9 +1490,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
                         let _range_id_346 : Range = 0..power - 1;
-                        mutable _index_id_349 : Int = _range_id_346::Start;
-                        let _step_id_354 : Int = _range_id_346::Step;
-                        let _end_id_359 : Int = _range_id_346::End;
+                        mutable _index_id_349 : Int = _range_id_346.Start;
+                        let _step_id_354 : Int = _range_id_346.Step;
+                        let _end_id_359 : Int = _range_id_346.End;
                         while _step_id_354 > 0 and _index_id_349 <= _end_id_359 or _step_id_354 < 0 and _index_id_349 >= _end_id_359 {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
@@ -1528,9 +1528,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
                         let _range_id_346 : Range = 0..power - 1;
-                        mutable _index_id_349 : Int = _range_id_346::Start;
-                        let _step_id_354 : Int = _range_id_346::Step;
-                        let _end_id_359 : Int = _range_id_346::End;
+                        mutable _index_id_349 : Int = _range_id_346.Start;
+                        let _step_id_354 : Int = _range_id_346.Step;
+                        let _end_id_359 : Int = _range_id_346.End;
                         while _step_id_354 > 0 and _index_id_349 <= _end_id_359 or _step_id_354 < 0 and _index_id_349 >= _end_id_359 {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
@@ -1566,9 +1566,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
                         let _range_id_346 : Range = 0..power - 1;
-                        mutable _index_id_349 : Int = _range_id_346::Start;
-                        let _step_id_354 : Int = _range_id_346::Step;
-                        let _end_id_359 : Int = _range_id_346::End;
+                        mutable _index_id_349 : Int = _range_id_346.Start;
+                        let _step_id_354 : Int = _range_id_346.Step;
+                        let _end_id_359 : Int = _range_id_346.End;
                         while _step_id_354 > 0 and _index_id_349 <= _end_id_359 or _step_id_354 < 0 and _index_id_349 >= _end_id_359 {
                             let _ : Int = _index_id_349;
                             Controlled ApplyPrepare([control], systems);
@@ -1587,9 +1587,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
                         let _range_id_346 : Range = 0..power - 1;
-                        mutable _index_id_349 : Int = _range_id_346::Start;
-                        let _step_id_354 : Int = _range_id_346::Step;
-                        let _end_id_359 : Int = _range_id_346::End;
+                        mutable _index_id_349 : Int = _range_id_346.Start;
+                        let _step_id_354 : Int = _range_id_346.Step;
+                        let _end_id_359 : Int = _range_id_346.End;
                         while _step_id_354 > 0 and _index_id_349 <= _end_id_359 or _step_id_354 < 0 and _index_id_349 >= _end_id_359 {
                             let _ : Int = _index_id_349;
                             Controlled ApplyPrepare([control], systems);
