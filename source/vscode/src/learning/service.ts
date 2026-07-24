@@ -543,6 +543,19 @@ export class LearningService {
     return ids;
   }
 
+  /**
+   * The notebook cell ID backing the current activity — the inverse of
+   * {@link goToExerciseByCellId}. `undefined` when the course isn't a
+   * python-notebook course or the activity has no associated cell.
+   */
+  getCurrentExerciseCellId(): string | undefined {
+    if (this.activeCourse.kind !== "python-notebook") {
+      return undefined;
+    }
+    const { unit, activity } = this.findCurrentActivity();
+    return unit.notebookExercises?.find((e) => e.id === activity.id)?.cellId;
+  }
+
   /** Enumerate all available courses (loaded or not). */
   async getCourses(): Promise<CourseDescriptor[]> {
     return this.requireWorkspace().registry.listCourses();

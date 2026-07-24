@@ -99,9 +99,11 @@ export function registerLearningCommands(
           node.kind === "activity" &&
           node.activity.type === "exercise"
         ) {
-          // TODO (acasey): is there a way to focus on a particular cell? (maybe goToExerciseByCellId?)
           const notebookUri = service.getCurrentCodeFileUri();
           if (notebookUri) {
+            const cellId = service.getCurrentExerciseCellId();
+            let opened = false;
+
             // Try to open via the Jupyter extension's unstable API so the
             // course's Python environment is automatically set as the active
             // kernel.
@@ -113,29 +115,37 @@ export function registerLearningCommands(
                 const envPath = await service.getJupyterEnvironmentPath();
                 if (envPath) {
                   await api.openNotebook(notebookUri, envPath);
-                  return;
+                  opened = true;
                 } else {
                   log.info(
                     "Didn't find a course virtual environment to use in notebook",
                   );
                 }
               }
-              log.warn(
-                "Jupyter openNotebook API is not available; falling back to generic open.",
-              );
+              if (!opened) {
+                log.warn(
+                  "Jupyter openNotebook API is not available; falling back to generic open.",
+                );
+              }
             } catch (e) {
               log.warn(
                 `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
               );
             }
 
-            // Fallback: open without pre-selecting a kernel.
-            await vscode.commands.executeCommand(
-              "vscode.openWith",
-              notebookUri,
-              "jupyter-notebook",
-              { viewColumn: vscode.ViewColumn.Active, preview: false },
-            );
+            if (!opened) {
+              // Fallback: open without pre-selecting a kernel.
+              await vscode.commands.executeCommand(
+                "vscode.openWith",
+                notebookUri,
+                "jupyter-notebook",
+                { viewColumn: vscode.ViewColumn.Active, preview: false },
+              );
+            }
+
+            if (cellId) {
+              revealNotebookCell(notebookUri, cellId);
+            }
             return;
           }
         }
@@ -236,6 +246,31 @@ export function registerLearningCommands(
       },
     ),
   );
+}
+
+/**
+ * Select and scroll to the cell with the given stable ID in an already-open
+ * notebook. No-op if the notebook isn't visible or the cell can't be found.
+ */
+function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
+  const uriStr = notebookUri.toString();
+  const editor = vscode.window.visibleNotebookEditors.find(
+    (e) => e.notebook.uri.toString() === uriStr,
+  );
+  if (!editor) {
+    log.warn(`Notebook editor not found for ${uriStr}; can't reveal cell.`);
+    return;
+  }
+  const cell = editor.notebook
+    .getCells()
+    .find((c) => c.metadata?.id === cellId);
+  if (!cell) {
+    log.warn(`Cell ${cellId} not found in ${uriStr}; can't reveal it.`);
+    return;
+  }
+  const range = new vscode.NotebookRange(cell.index, cell.index + 1);
+  editor.selection = range;
+  editor.revealRange(range, vscode.NotebookEditorRevealType.AtTop);
 }
 
 function nodeToTitle(node: LearningProgressNode): string {
