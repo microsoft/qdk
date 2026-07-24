@@ -2,7 +2,7 @@
   "exercises": [
     {
       "id": "forty_two",
-      "cellId": "d9a84106",
+      "cellId": "db329ce6",
       "title": "Your first Q# expression",
       "description": "Implement the forty_two() function so it returns 42.",
       "hints": [
