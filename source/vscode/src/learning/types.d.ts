@@ -266,7 +266,7 @@ export interface CatalogLesson {
 export type CatalogActivity = CatalogExercise | CatalogLesson;
 
 /**
- * Exercise metadata loaded from a per-unit `_exercises.json` sidecar
+ * Exercise metadata loaded from a per-unit `exercises.json` sidecar
  * (python-notebook courses). Provides hints, solutions, and descriptions
  * for the chat LM tools without requiring cell parsing or execution.
  */
@@ -287,7 +287,7 @@ export interface CatalogUnit {
   activities: CatalogActivity[];
   /**
    * Exercise metadata for python-notebook courses, loaded from
-   * `_exercises.json`. Used by chat LM tools for hints/solutions.
+   * `exercises.json`. Used by chat LM tools for hints/solutions.
    */
   notebookExercises?: NotebookExerciseInfo[];
   /**

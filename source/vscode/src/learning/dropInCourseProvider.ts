@@ -53,7 +53,7 @@ interface CourseLocation {
  * Loads "drop-in" courses authored as folders on disk. A course is a
  * folder containing a `course.json` manifest plus per-unit subfolders.
  * Each unit is a Python notebook (`*.ipynb`) with an `intro.md` for the
- * lesson panel and optional exercise metadata in `_exercises.json`.
+ * lesson panel and optional exercise metadata in `exercises.json`.
  *
  * Course folders are discovered under `qdk-learning/courses/*` in the
  * workspace. Malformed courses are skipped with a warning rather than
@@ -223,7 +223,7 @@ export class DropInCourseProvider implements CourseProvider {
    * opened by the user through the panel's "Open Notebook" action; the
    * extension does not parse or execute cells.
    *
-   * Exercise metadata (hints, solutions) is loaded from `_exercises.json`
+   * Exercise metadata (hints, solutions) is loaded from `exercises.json`
    * if present and attached to the returned unit for use by chat LM tools.
    */
   private async parseNotebookUnit(
@@ -277,9 +277,9 @@ export class DropInCourseProvider implements CourseProvider {
       } satisfies CatalogLesson);
     }
 
-    // Load exercise metadata from _exercises.json (optional).
+    // Load exercise metadata from exercises.json (optional).
     const exercisesJson = await tryReadText(
-      vscode.Uri.joinPath(unitDir, "_exercises.json"),
+      vscode.Uri.joinPath(unitDir, "exercises.json"),
     );
     let notebookExercises: NotebookExerciseInfo[] | undefined;
     if (exercisesJson) {
@@ -299,7 +299,7 @@ export class DropInCourseProvider implements CourseProvider {
         }
       } catch (e) {
         log.warn(
-          `Failed to parse _exercises.json in unit "${unit.id}": ${String(e)}`, // TODO (acasey): Include course name?
+          `Failed to parse exercises.json in unit "${unit.id}": ${String(e)}`, // TODO (acasey): Include course name?
         );
       }
     }
