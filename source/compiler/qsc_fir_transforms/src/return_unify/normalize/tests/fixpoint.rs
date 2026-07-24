@@ -52,17 +52,17 @@ fn hoist_outer_return_wraps_if_with_return_in_then_branch() {
                     } else {
                         2
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         __quantum__rt__qubit_release(q);
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         {
                             __ret_val = _generated_ident_35;
                             __has_returned = true;
                         };
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val
@@ -117,17 +117,17 @@ fn hoist_outer_return_wraps_if_with_returns_in_both_branches() {
                             };
                         };
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         __quantum__rt__qubit_release(q);
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         {
                             __ret_val = _generated_ident_36;
                             __has_returned = true;
                         };
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val
@@ -179,17 +179,17 @@ fn hoist_outer_return_wraps_block_with_stmt_level_return() {
 
                         2
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         __quantum__rt__qubit_release(q);
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         {
                             __ret_val = _generated_ident_36;
                             __has_returned = true;
                         };
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val
@@ -230,7 +230,7 @@ fn hoist_outer_return_wraps_if_whose_condition_has_return() {
                     };
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     {
                         __ret_val = __ret_hoist;
                         __has_returned = true;
@@ -269,7 +269,7 @@ fn hoist_outer_return_wraps_while_with_return_body() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Unit = ();
                 mutable i : Int = 0;
-                let __ret_hoist : Unit = while not __has_returned and i < 3 {
+                let __ret_hoist : Unit = while ((not __has_returned)) and (i < 3) {
                     if i == 1 {
                         {
                             __ret_val = ();
@@ -277,11 +277,11 @@ fn hoist_outer_return_wraps_while_with_return_body() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     {
                         __ret_val = __ret_hoist;
                         __has_returned = true;
@@ -344,17 +344,17 @@ fn hoist_outer_return_wraps_nested_ifs_with_deep_stmt_return() {
                     } else {
                         3
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         __quantum__rt__qubit_release(q);
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         {
                             __ret_val = _generated_ident_46;
                             __has_returned = true;
                         };
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val

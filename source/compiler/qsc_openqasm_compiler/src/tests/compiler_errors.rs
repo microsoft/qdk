@@ -89,62 +89,42 @@ fn check_compiler_error_spans_are_correct() {
 
             Qdk.Qasm.Compiler.NotSupported
 
-              x break stmt are not supported
-                ,-[Test.qasm:40:5]
-             39 | for int i in [0:2] {
-             40 |     break; // NotSupported break
-                :     ^^^^^^
-             41 | }
-                `----
-
-            Qdk.Qasm.Compiler.NotSupported
-
-              x continue stmt are not supported
-                ,-[Test.qasm:44:5]
-             43 | for int i in [0:2] {
-             44 |     continue; // NotSupported continue
-                :     ^^^^^^^^^
-             45 | }
-                `----
-
-            Qdk.Qasm.Compiler.NotSupported
-
               x mutable array references `mutable array[int[8], #dim = 1]` are not
               | supported
-                ,-[Test.qasm:49:24]
-             48 | // NotSupported mutable array reference
-             49 | def mut_subroutine_dyn(mutable array[int[8], #dim = 1] arr_arg) {
+                ,-[Test.qasm:41:24]
+             40 | // NotSupported mutable array reference
+             41 | def mut_subroutine_dyn(mutable array[int[8], #dim = 1] arr_arg) {
                 :                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-             50 | 
+             42 |    // body
                 `----
 
             Qdk.Qasm.Compiler.NotSupported
 
               x mutable array references `mutable array[int[8], 2, 3]` are not supported
-                ,-[Test.qasm:54:27]
-             53 | // NotSupported mutable static sized array reference
-             54 | def mut_subroutine_static(mutable array[int[8], 2, 3] arr_arg) {
+                ,-[Test.qasm:46:27]
+             45 | // NotSupported mutable static sized array reference
+             46 | def mut_subroutine_static(mutable array[int[8], 2, 3] arr_arg) {
                 :                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-             55 | 
+             47 |    // body
                 `----
 
             Qdk.Qasm.Compiler.Unimplemented
 
               x this statement is not yet handled during OpenQASM 3 import: extern
               | statements
-                ,-[Test.qasm:78:1]
-             77 | // Unimplemented
-             78 | extern extern_func(int);
+                ,-[Test.qasm:70:1]
+             69 | // Unimplemented
+             70 | extern extern_func(int);
                 : ^^^^^^^^^^^^^^^^^^^^^^^^
-             79 | 
+             71 | // End unimplemented statements.
                 `----
 
             Qdk.Qasm.Compiler.NotSupported
 
               x hardware qubit operands are not supported
-                ,-[Test.qasm:81:3]
-             80 | // NotSupported hardware qubit
-             81 | x $0;
+                ,-[Test.qasm:73:3]
+             72 | // NotSupported hardware qubit
+             73 | x $0;
                 :   ^^
                 `----
         "#]],

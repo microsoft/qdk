@@ -1185,6 +1185,226 @@ fn repeat_loop_fixup_should_be_unit_error() {
 }
 
 #[test]
+fn repeat_with_break_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { repeat { break } until true } }",
+        &expect![[r##"
+            #1 0-61 "{ function First<'T>() : 'T { repeat { break } until true } }" : Unit
+            #2 0-61 "{ function First<'T>() : 'T { repeat { break } until true } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-59 "{ repeat { break } until true }" : Unit
+            #13 30-57 "repeat { break } until true" : Unit
+            #14 37-46 "{ break }" : Unit
+            #16 39-44 "break" : Unit
+            #17 53-57 "true" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn repeat_with_continue_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { repeat { continue } until true } }",
+        &expect![[r##"
+            #1 0-64 "{ function First<'T>() : 'T { repeat { continue } until true } }" : Unit
+            #2 0-64 "{ function First<'T>() : 'T { repeat { continue } until true } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-62 "{ repeat { continue } until true }" : Unit
+            #13 30-60 "repeat { continue } until true" : Unit
+            #14 37-49 "{ continue }" : Unit
+            #16 39-47 "continue" : Unit
+            #17 56-60 "true" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn repeat_with_diverging_fixup_is_not_divergent() {
+    check(
+        "",
+        r#"{ function First<'T>() : 'T { repeat {} until true fixup { fail "fixup" } } }"#,
+        &expect![[r##"
+            #1 0-77 "{ function First<'T>() : 'T { repeat {} until true fixup { fail \"fixup\" } } }" : Unit
+            #2 0-77 "{ function First<'T>() : 'T { repeat {} until true fixup { fail \"fixup\" } } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-75 "{ repeat {} until true fixup { fail \"fixup\" } }" : Unit
+            #13 30-73 "repeat {} until true fixup { fail \"fixup\" }" : Unit
+            #14 37-39 "{}" : Unit
+            #15 46-50 "true" : Bool
+            #16 57-73 "{ fail \"fixup\" }" : Unit
+            #18 59-71 "fail \"fixup\"" : Unit
+            #19 64-71 "\"fixup\"" : String
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn repeat_with_diverging_body_is_not_divergent() {
+    check(
+        "",
+        r#"{ function First<'T>() : 'T { repeat { fail "body" } until true } }"#,
+        &expect![[r##"
+            #1 0-67 "{ function First<'T>() : 'T { repeat { fail \"body\" } until true } }" : Unit
+            #2 0-67 "{ function First<'T>() : 'T { repeat { fail \"body\" } until true } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-65 "{ repeat { fail \"body\" } until true }" : Unit
+            #13 30-63 "repeat { fail \"body\" } until true" : Unit
+            #14 37-52 "{ fail \"body\" }" : Unit
+            #16 39-50 "fail \"body\"" : Unit
+            #17 44-50 "\"body\"" : String
+            #18 59-63 "true" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn break_in_assignment_index_prevents_is_not_divergence() {
+    check(
+        "",
+        r#"{ function Main() : Int {
+            mutable values = [0];
+            while true {
+                set values[break] = 1;
+            }
+        } }"#,
+        &expect![[r##"
+            #1 0-149 "{ function Main() : Int {\n            mutable values = [0];\n            while true {\n                set values[break] = 1;\n            }\n        } }" : Unit
+            #2 0-149 "{ function Main() : Int {\n            mutable values = [0];\n            while true {\n                set values[break] = 1;\n            }\n        } }" : Unit
+            #7 15-17 "()" : Unit
+            #11 24-147 "{\n            mutable values = [0];\n            while true {\n                set values[break] = 1;\n            }\n        }" : Unit
+            #13 46-52 "values" : Int[]
+            #15 55-58 "[0]" : Int[]
+            #16 56-57 "0" : Int
+            #18 72-137 "while true {\n                set values[break] = 1;\n            }" : Unit
+            #19 78-82 "true" : Bool
+            #20 83-137 "{\n                set values[break] = 1;\n            }" : Unit
+            #22 101-122 "set values[break] = 1" : Unit
+            #23 105-118 "values[break]" : Int
+            #24 105-111 "values" : Int[]
+            #27 112-117 "break" : Unit
+            #28 121-122 "1" : Int
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 20, hi: 23 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn partial_application_eager_argument_break_is_not_divergent() {
+    check(
+        "",
+        r#"{ function Add(x : Int, y : Int) : Int { x + y }
+            function Main(cond : Bool) : Int {
+                repeat {
+                    let add : Int -> Int =
+                        ({ fail "deferred"; Add })(if cond { break } else { 0 }, _);
+                } until true
+            }
+        }"#,
+        &expect![[r##"
+            #1 0-301 "{ function Add(x : Int, y : Int) : Int { x + y }\n            function Main(cond : Bool) : Int {\n                repeat {\n                    let add : Int -> Int =\n                        ({ fail \"deferred\"; Add })(if cond { break } else { 0 }, _);\n                } until true\n            }\n        }" : Unit
+            #2 0-301 "{ function Add(x : Int, y : Int) : Int { x + y }\n            function Main(cond : Bool) : Int {\n                repeat {\n                    let add : Int -> Int =\n                        ({ fail \"deferred\"; Add })(if cond { break } else { 0 }, _);\n                } until true\n            }\n        }" : Unit
+            #7 14-32 "(x : Int, y : Int)" : (Int, Int)
+            #8 15-22 "x : Int" : Int
+            #13 24-31 "y : Int" : Int
+            #21 39-48 "{ x + y }" : Int
+            #23 41-46 "x + y" : Int
+            #24 41-42 "x" : Int
+            #27 45-46 "y" : Int
+            #34 74-87 "(cond : Bool)" : Bool
+            #35 75-86 "cond : Bool" : Bool
+            #43 94-291 "{\n                repeat {\n                    let add : Int -> Int =\n                        ({ fail \"deferred\"; Add })(if cond { break } else { 0 }, _);\n                } until true\n            }" : Unit
+            #45 112-277 "repeat {\n                    let add : Int -> Int =\n                        ({ fail \"deferred\"; Add })(if cond { break } else { 0 }, _);\n                } until true" : Unit
+            #46 119-266 "{\n                    let add : Int -> Int =\n                        ({ fail \"deferred\"; Add })(if cond { break } else { 0 }, _);\n                }" : Unit
+            #48 145-161 "add : Int -> Int" : (Int -> Int)
+            #57 188-247 "({ fail \"deferred\"; Add })(if cond { break } else { 0 }, _)" : (Int -> Int)
+            #58 188-214 "({ fail \"deferred\"; Add })" : ((Int, Int) -> Int)
+            #59 189-213 "{ fail \"deferred\"; Add }" : ((Int, Int) -> Int)
+            #60 189-213 "{ fail \"deferred\"; Add }" : ((Int, Int) -> Int)
+            #62 191-206 "fail \"deferred\"" : Unit
+            #63 196-206 "\"deferred\"" : String
+            #65 208-211 "Add" : ((Int, Int) -> Int)
+            #68 214-247 "(if cond { break } else { 0 }, _)" : (Int, Int)
+            #69 215-243 "if cond { break } else { 0 }" : Int
+            #70 218-222 "cond" : Bool
+            #73 223-232 "{ break }" : Int
+            #75 225-230 "break" : Unit
+            #76 233-243 "else { 0 }" : Int
+            #77 238-243 "{ 0 }" : Int
+            #79 240-241 "0" : Int
+            #80 245-246 "_" : Int
+            #81 273-277 "true" : Bool
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 90, hi: 93 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn break_in_struct_field_does_not_make_struct_expression_divergent() {
+    check(
+        "",
+        r#"{ struct Pair { First : Int, Second : Int }
+            function Main(cond : Bool) : Unit {
+                while true {
+                    let value = if cond {
+                        new Pair { First = break, Second = 0 }
+                    } else {
+                        1
+                    };
+                }
+            }
+        }"#,
+        &expect![[r##"
+            #1 0-345 "{ struct Pair { First : Int, Second : Int }\n            function Main(cond : Bool) : Unit {\n                while true {\n                    let value = if cond {\n                        new Pair { First = break, Second = 0 }\n                    } else {\n                        1\n                    };\n                }\n            }\n        }" : Unit
+            #2 0-345 "{ struct Pair { First : Int, Second : Int }\n            function Main(cond : Bool) : Unit {\n                while true {\n                    let value = if cond {\n                        new Pair { First = break, Second = 0 }\n                    } else {\n                        1\n                    };\n                }\n            }\n        }" : Unit
+            #21 69-82 "(cond : Bool)" : Bool
+            #22 70-81 "cond : Bool" : Bool
+            #30 90-335 "{\n                while true {\n                    let value = if cond {\n                        new Pair { First = break, Second = 0 }\n                    } else {\n                        1\n                    };\n                }\n            }" : Unit
+            #32 108-321 "while true {\n                    let value = if cond {\n                        new Pair { First = break, Second = 0 }\n                    } else {\n                        1\n                    };\n                }" : Unit
+            #33 114-118 "true" : Bool
+            #34 119-321 "{\n                    let value = if cond {\n                        new Pair { First = break, Second = 0 }\n                    } else {\n                        1\n                    };\n                }" : Unit
+            #36 145-150 "value" : UDT<"Pair": Item 0 (Package 2)>
+            #38 153-302 "if cond {\n                        new Pair { First = break, Second = 0 }\n                    } else {\n                        1\n                    }" : UDT<"Pair": Item 0 (Package 2)>
+            #39 156-160 "cond" : Bool
+            #42 161-247 "{\n                        new Pair { First = break, Second = 0 }\n                    }" : UDT<"Pair": Item 0 (Package 2)>
+            #44 187-225 "new Pair { First = break, Second = 0 }" : UDT<"Pair": Item 0 (Package 2)>
+            #49 206-211 "break" : Int
+            #52 222-223 "0" : Int
+            #53 248-302 "else {\n                        1\n                    }" : Int
+            #54 253-302 "{\n                        1\n                    }" : Int
+            #56 279-280 "1" : Int
+            Error(Type(Error(TyMismatch(TyInfo { kind: Udt, display: "Pair" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 161, hi: 247 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn repeat_with_diverging_until_is_not_divergent() {
+    check(
+        "",
+        r#"{ function First<'T>() : 'T {
+            repeat {} until fail "until"
+        } }"#,
+        &expect![[r##"
+            #1 0-82 "{ function First<'T>() : 'T {\n            repeat {} until fail \"until\"\n        } }" : Unit
+            #2 0-82 "{ function First<'T>() : 'T {\n            repeat {} until fail \"until\"\n        } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-80 "{\n            repeat {} until fail \"until\"\n        }" : Unit
+            #13 42-70 "repeat {} until fail \"until\"" : Unit
+            #14 49-51 "{}" : Unit
+            #15 58-70 "fail \"until\"" : Bool
+            #16 63-70 "\"until\"" : String
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
 fn if_cond_error() {
     check(
         "",
@@ -1716,6 +1936,145 @@ fn while_body_should_be_unit_error() {
             #3 11-16 "{ 1 }" : Int
             #5 13-14 "1" : Int
             Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Prim(Int), display: "Int" }, Span { lo: 11, hi: 16 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn while_with_diverging_body_is_not_itself_divergent() {
+    check(
+        "namespace Test { function First<'T>() : 'T { while true { break } } }",
+        "",
+        &expect![[r#"
+            #7 35-37 "()" : Unit
+            #10 43-67 "{ while true { break } }" : Unit
+            #12 45-65 "while true { break }" : Unit
+            #13 51-55 "true" : Bool
+            #14 56-65 "{ break }" : Unit
+            #16 58-63 "break" : Unit
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 40, hi: 42 }))))
+        "#]],
+    );
+}
+
+#[test]
+fn for_with_break_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { for _ in [1] { break } } }",
+        &expect![[r##"
+            #1 0-56 "{ function First<'T>() : 'T { for _ in [1] { break } } }" : Unit
+            #2 0-56 "{ function First<'T>() : 'T { for _ in [1] { break } } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-54 "{ for _ in [1] { break } }" : Unit
+            #13 30-52 "for _ in [1] { break }" : Unit
+            #14 34-35 "_" : Int
+            #15 39-42 "[1]" : Int[]
+            #16 40-41 "1" : Int
+            #17 43-52 "{ break }" : Unit
+            #19 45-50 "break" : Unit
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn for_with_continue_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { for _ in [1] { continue } } }",
+        &expect![[r##"
+            #1 0-59 "{ function First<'T>() : 'T { for _ in [1] { continue } } }" : Unit
+            #2 0-59 "{ function First<'T>() : 'T { for _ in [1] { continue } } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-57 "{ for _ in [1] { continue } }" : Unit
+            #13 30-55 "for _ in [1] { continue }" : Unit
+            #14 34-35 "_" : Int
+            #15 39-42 "[1]" : Int[]
+            #16 40-41 "1" : Int
+            #17 43-55 "{ continue }" : Unit
+            #19 45-53 "continue" : Unit
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn for_with_diverging_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { for _ in [1] { fail \"body\" } } }",
+        &expect![[r##"
+            #1 0-62 "{ function First<'T>() : 'T { for _ in [1] { fail \"body\" } } }" : Unit
+            #2 0-62 "{ function First<'T>() : 'T { for _ in [1] { fail \"body\" } } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-60 "{ for _ in [1] { fail \"body\" } }" : Unit
+            #13 30-58 "for _ in [1] { fail \"body\" }" : Unit
+            #14 34-35 "_" : Int
+            #15 39-42 "[1]" : Int[]
+            #16 40-41 "1" : Int
+            #17 43-58 "{ fail \"body\" }" : Unit
+            #19 45-56 "fail \"body\"" : Unit
+            #20 50-56 "\"body\"" : String
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn while_with_break_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { while true { break } } }",
+        &expect![[r##"
+            #1 0-54 "{ function First<'T>() : 'T { while true { break } } }" : Unit
+            #2 0-54 "{ function First<'T>() : 'T { while true { break } } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-52 "{ while true { break } }" : Unit
+            #13 30-50 "while true { break }" : Unit
+            #14 36-40 "true" : Bool
+            #15 41-50 "{ break }" : Unit
+            #17 43-48 "break" : Unit
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn while_with_continue_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { while true { continue } } }",
+        &expect![[r##"
+            #1 0-57 "{ function First<'T>() : 'T { while true { continue } } }" : Unit
+            #2 0-57 "{ function First<'T>() : 'T { while true { continue } } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-55 "{ while true { continue } }" : Unit
+            #13 30-53 "while true { continue }" : Unit
+            #14 36-40 "true" : Bool
+            #15 41-53 "{ continue }" : Unit
+            #17 43-51 "continue" : Unit
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
+        "##]],
+    );
+}
+
+#[test]
+fn while_with_diverging_body_is_not_divergent() {
+    check(
+        "",
+        "{ function First<'T>() : 'T { while true { fail \"body\" } } }",
+        &expect![[r##"
+            #1 0-60 "{ function First<'T>() : 'T { while true { fail \"body\" } } }" : Unit
+            #2 0-60 "{ function First<'T>() : 'T { while true { fail \"body\" } } }" : Unit
+            #8 20-22 "()" : Unit
+            #11 28-58 "{ while true { fail \"body\" } }" : Unit
+            #13 30-56 "while true { fail \"body\" }" : Unit
+            #14 36-40 "true" : Bool
+            #15 41-56 "{ fail \"body\" }" : Unit
+            #17 43-54 "fail \"body\"" : Unit
+            #18 48-54 "\"body\"" : String
+            Error(Type(Error(TyMismatch(TyInfo { kind: Tuple([]), display: "Unit" }, TyInfo { kind: Param, display: "'T" }, Span { lo: 25, hi: 27 }))))
         "##]],
     );
 }
@@ -2388,6 +2747,144 @@ fn return_in_lambda_args_alone_diverges() {
             #34 61-76 "(return \"true\")" : (Int, Int, Int)
             #35 62-75 "return \"true\"" : (Int, Int, Int)
             #36 69-75 "\"true\"" : String
+        "##]],
+    );
+}
+
+#[test]
+fn break_diverges() {
+    check(
+        "",
+        indoc! {"
+            if true {
+                break
+            } else {
+                4
+            }
+        "},
+        &expect![[r##"
+            #1 0-36 "if true {\n    break\n} else {\n    4\n}" : Int
+            #2 3-7 "true" : Bool
+            #3 8-21 "{\n    break\n}" : Int
+            #5 14-19 "break" : Unit
+            #6 22-36 "else {\n    4\n}" : Int
+            #7 27-36 "{\n    4\n}" : Int
+            #9 33-34 "4" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn continue_diverges() {
+    check(
+        "",
+        indoc! {"
+            if true {
+                continue
+            } else {
+                false
+            }
+        "},
+        &expect![[r##"
+            #1 0-43 "if true {\n    continue\n} else {\n    false\n}" : Bool
+            #2 3-7 "true" : Bool
+            #3 8-24 "{\n    continue\n}" : Bool
+            #5 14-22 "continue" : Unit
+            #6 25-43 "else {\n    false\n}" : Bool
+            #7 30-43 "{\n    false\n}" : Bool
+            #9 36-41 "false" : Bool
+        "##]],
+    );
+}
+
+#[test]
+fn break_in_let_binding_infers_from_other_branch() {
+    check(
+        "",
+        indoc! {"
+            {
+                let x = if true {
+                    break
+                } else {
+                    3
+                };
+                x
+            }
+        "},
+        &expect![[r##"
+            #1 0-75 "{\n    let x = if true {\n        break\n    } else {\n        3\n    };\n    x\n}" : Int
+            #2 0-75 "{\n    let x = if true {\n        break\n    } else {\n        3\n    };\n    x\n}" : Int
+            #4 10-11 "x" : Int
+            #6 14-66 "if true {\n        break\n    } else {\n        3\n    }" : Int
+            #7 17-21 "true" : Bool
+            #8 22-43 "{\n        break\n    }" : Int
+            #10 32-37 "break" : Unit
+            #11 44-66 "else {\n        3\n    }" : Int
+            #12 49-66 "{\n        3\n    }" : Int
+            #14 59-60 "3" : Int
+            #16 72-73 "x" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn continue_in_let_binding_infers_from_other_branch() {
+    check(
+        "",
+        indoc! {"
+            {
+                let y = if true {
+                    continue
+                } else {
+                    true
+                };
+                y
+            }
+        "},
+        &expect![[r##"
+            #1 0-81 "{\n    let y = if true {\n        continue\n    } else {\n        true\n    };\n    y\n}" : Bool
+            #2 0-81 "{\n    let y = if true {\n        continue\n    } else {\n        true\n    };\n    y\n}" : Bool
+            #4 10-11 "y" : Bool
+            #6 14-72 "if true {\n        continue\n    } else {\n        true\n    }" : Bool
+            #7 17-21 "true" : Bool
+            #8 22-46 "{\n        continue\n    }" : Bool
+            #10 32-40 "continue" : Unit
+            #11 47-72 "else {\n        true\n    }" : Bool
+            #12 52-72 "{\n        true\n    }" : Bool
+            #14 62-66 "true" : Bool
+            #16 78-79 "y" : Bool
+        "##]],
+    );
+}
+
+#[test]
+fn break_in_array_operand_type_checks() {
+    check(
+        "",
+        indoc! {"
+            [1, break, 3]
+        "},
+        &expect![[r##"
+            #1 0-13 "[1, break, 3]" : Int[]
+            #2 1-2 "1" : Int
+            #3 4-9 "break" : Int
+            #4 11-12 "3" : Int
+        "##]],
+    );
+}
+
+#[test]
+fn continue_in_array_operand_type_checks() {
+    check(
+        "",
+        indoc! {"
+            [continue, 2, 3]
+        "},
+        &expect![[r##"
+            #1 0-16 "[continue, 2, 3]" : Int[]
+            #2 1-9 "continue" : Int
+            #3 11-12 "2" : Int
+            #4 14-15 "3" : Int
         "##]],
     );
 }

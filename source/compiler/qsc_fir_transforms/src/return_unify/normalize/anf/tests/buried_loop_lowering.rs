@@ -106,21 +106,21 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 if cond {
-                    while not __has_returned and cond {
+                    while ((not __has_returned)) and cond {
                         {
                             __ret_val = 1;
                             __has_returned = true;
                         };
                     }
 
-                    let __operand_tmp_0 : (Int => Int) = if not __has_returned {
+                    let __operand_tmp_0 : (Int => Int) = if (not __has_returned) {
                         Bar
                     } else {
                         __return_unify_fail_4
                     };
-                    let __operand_tmp_1 : Int = if not __has_returned {
+                    let __operand_tmp_1 : Int = if (not __has_returned) {
                         {
-                            while not __has_returned and cond {
+                            while ((not __has_returned)) and cond {
                                 {
                                     __ret_val = 2;
                                     __has_returned = true;
@@ -133,14 +133,14 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                     } else {
                         0
                     };
-                    let z : Int = if not __has_returned {
+                    let z : Int = if (not __has_returned) {
                         __operand_tmp_0(__operand_tmp_1)
                     } else {
                         0
                     };
                 }
 
-                if not __has_returned {
+                if (not __has_returned) {
                     {
                         __ret_val = 3;
                         __has_returned = true;

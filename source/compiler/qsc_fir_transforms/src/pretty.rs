@@ -602,11 +602,29 @@ impl<'a> FirQSharpGen<'a> {
                 self.emit_expr(*value);
             }
             ExprKind::BinOp(op, lhs, rhs) => {
-                self.emit_expr(*lhs);
+                if matches!(
+                    self.package().get_expr(*lhs).kind,
+                    ExprKind::BinOp(..) | ExprKind::UnOp(..)
+                ) {
+                    self.write("(");
+                    self.emit_expr(*lhs);
+                    self.write(")");
+                } else {
+                    self.emit_expr(*lhs);
+                }
                 self.write(" ");
                 self.write(binop_as_str(*op));
                 self.write(" ");
-                self.emit_expr(*rhs);
+                if matches!(
+                    self.package().get_expr(*rhs).kind,
+                    ExprKind::BinOp(..) | ExprKind::UnOp(..)
+                ) {
+                    self.write("(");
+                    self.emit_expr(*rhs);
+                    self.write(")");
+                } else {
+                    self.emit_expr(*rhs);
+                }
             }
             ExprKind::Block(block) => self.emit_block(*block),
             ExprKind::Call(callee, arg) => {
@@ -732,12 +750,19 @@ impl<'a> FirQSharpGen<'a> {
             }
             ExprKind::UnOp(op, expr) => {
                 let op_str = unop_as_str(*op);
-                if matches!(op, UnOp::Unwrap) {
-                    self.emit_expr(*expr);
+                if matches!(op, UnOp::Functor(_)) {
                     self.write(op_str);
+                    self.emit_expr(*expr);
                 } else {
-                    self.write(op_str);
-                    self.emit_expr(*expr);
+                    self.write("(");
+                    if matches!(op, UnOp::Unwrap) {
+                        self.emit_expr(*expr);
+                        self.write(op_str);
+                    } else {
+                        self.write(op_str);
+                        self.emit_expr(*expr);
+                    }
+                    self.write(")");
                 }
             }
             ExprKind::UpdateField(record, field, value) => {
@@ -1025,11 +1050,11 @@ impl<'a> FirQSharpGen<'a> {
 
     fn field_display(&self, record_ty: &Ty, field: &Field) -> String {
         match field {
-            Field::Err => "::/* err */".to_string(),
+            Field::Err => "./* err */".to_string(),
             Field::Prim(prim) => match prim {
-                PrimField::Start => "::Start".to_string(),
-                PrimField::Step => "::Step".to_string(),
-                PrimField::End => "::End".to_string(),
+                PrimField::Start => ".Start".to_string(),
+                PrimField::Step => ".Step".to_string(),
+                PrimField::End => ".End".to_string(),
             },
             Field::Path(path) => self.resolve_field_path(record_ty, path),
         }

@@ -1898,33 +1898,33 @@ fn nested_udt_mixing_scalar_and_tuple_fields_erased() {
     check_before_after_udt_erase(
         source,
         &expect![[r#"
-        BEFORE:
-        newtype Inner = (Int, Int);
-        newtype Outer = (Int, __UDT_Item_1__Package_2_);
-        function Main() : Int {
-            let o : __UDT_Item_2__Package_2_ = new Outer {
-                S = 10,
-                P = new Inner {
-                    A = 1,
-                    B = 2
-                }
+            BEFORE:
+            newtype Inner = (Int, Int);
+            newtype Outer = (Int, __UDT_Item_1__Package_2_);
+            function Main() : Int {
+                let o : __UDT_Item_2__Package_2_ = new Outer {
+                    S = 10,
+                    P = new Inner {
+                        A = 1,
+                        B = 2
+                    }
 
-            };
-            o::S + o::P::A
-        }
-        // entry
-        Main()
+                };
+                o::S + o::P::A
+            }
+            // entry
+            Main()
 
-        AFTER:
-        newtype Inner = (Int, Int);
-        newtype Outer = (Int, __UDT_Item_1__Package_2_);
-        function Main() : Int {
-            let o : (Int, (Int, Int)) = (10, (1, 2));
-            o::Item < 0 > + o::Item < 1 >::Item < 0 >
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            newtype Inner = (Int, Int);
+            newtype Outer = (Int, __UDT_Item_1__Package_2_);
+            function Main() : Int {
+                let o : (Int, (Int, Int)) = (10, (1, 2));
+                o::Item < 0 > + o::Item < 1 >::Item < 0 >
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

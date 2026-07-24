@@ -108,6 +108,12 @@ pub const BOOL_EXPECT_DEBUG: Expect = expect![[r#"
 pub const BOOL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
 pub const BOOL_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 959"];
 pub const BOOL_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 986"];
+pub const BREAKANDCONTINUE_EXPECT: Expect = expect!["(8, 147, 9)"];
+pub const BREAKANDCONTINUE_EXPECT_DEBUG: Expect = expect!["(8, 147, 9)"];
+pub const BREAKANDCONTINUE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
+pub const BREAKANDCONTINUE_EXPECT_QIR_ADAPTIVE_RIF: Expect =
+    expect!["generated QIR of length 1512"];
+pub const BREAKANDCONTINUE_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1362"];
 pub const COMMENTS_EXPECT: Expect = expect!["[]"];
 pub const COMMENTS_EXPECT_DEBUG: Expect = expect!["[]"];
 pub const COMMENTS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];

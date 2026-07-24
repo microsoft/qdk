@@ -404,7 +404,7 @@ fn triple_struct_decomposes() {
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 let t : (Int, Int, Int) = (1, 2, 3);
-                t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
+                (t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >
             }
             // entry
             Main()
@@ -413,7 +413,7 @@ fn triple_struct_decomposes() {
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 let (t_0 : Int, t_1 : Int, t_2 : Int) = (1, 2, 3);
-                t_0 + t_1 + t_2
+                (t_0 + t_1) + t_2
             }
             // entry
             Main()
@@ -691,7 +691,7 @@ fn mutable_tuple_partial_field_modification() {
             function Main() : Int {
                 mutable t : (Int, Int, Int) = (1, 2, 3);
                 t = (10, t::Item < 1 >, t::Item < 2 >);
-                t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
+                (t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >
             }
             // entry
             Main()
@@ -703,7 +703,7 @@ fn mutable_tuple_partial_field_modification() {
                 t_0 = 10;
                 t_1 = t_1;
                 t_2 = t_2;
-                t_0 + t_1 + t_2
+                (t_0 + t_1) + t_2
             }
             // entry
             Main()
@@ -860,7 +860,7 @@ fn tuple_binding_in_binop_operand_block_decomposes() {
                     let u : (Int, Int) = (3, 4);
                     u::Item < 1 >
                 };
-                top::Item < 0 > + top::Item < 1 > + z
+                (top::Item < 0 > + top::Item < 1 >) + z
             }
             // entry
             Main()
@@ -876,7 +876,7 @@ fn tuple_binding_in_binop_operand_block_decomposes() {
                     let (u_0 : Int, u_1 : Int) = (3, 4);
                     u_1
                 };
-                top_0 + top_1 + z
+                (top_0 + top_1) + z
             }
             // entry
             Main()
@@ -909,7 +909,7 @@ fn tuple_binding_in_call_arg_block_decomposes() {
                     let c : (Int, Int) = (5, 6);
                     c::Item < 0 > + c::Item < 1 >
                 });
-                top::Item < 0 > + top::Item < 1 > + z
+                (top::Item < 0 > + top::Item < 1 >) + z
             }
             // entry
             Main()
@@ -925,7 +925,7 @@ fn tuple_binding_in_call_arg_block_decomposes() {
                     let (c_0 : Int, c_1 : Int) = (5, 6);
                     c_0 + c_1
                 });
-                top_0 + top_1 + z
+                (top_0 + top_1) + z
             }
             // entry
             Main()
@@ -962,7 +962,7 @@ fn tuple_binding_in_if_condition_block_decomposes() {
                     r = 1;
                 }
 
-                top::Item < 0 > + top::Item < 1 > + r
+                (top::Item < 0 > + top::Item < 1 >) + r
             }
             // entry
             Main()
@@ -980,7 +980,7 @@ fn tuple_binding_in_if_condition_block_decomposes() {
                     r = 1;
                 }
 
-                top_0 + top_1 + r
+                (top_0 + top_1) + r
             }
             // entry
             Main()
@@ -1533,7 +1533,7 @@ fn nested_tuple_depth_three_fully_flattened() {
             newtype Deep = (__UDT_Item_2__Package_2_, Int);
             function Main() : Int {
                 let d : (((Int, Int), Int), Int) = (((1, 2), 3), 4);
-                d::Item < 0 >::Item < 0 >::Item < 0 > + d::Item < 0 >::Item < 0 >::Item < 1 > + d::Item < 0 >::Item < 1 > + d::Item < 1 >
+                ((d::Item < 0 >::Item < 0 >::Item < 0 > + d::Item < 0 >::Item < 0 >::Item < 1 >) + d::Item < 0 >::Item < 1 >) + d::Item < 1 >
             }
             // entry
             Main()
@@ -1544,7 +1544,7 @@ fn nested_tuple_depth_three_fully_flattened() {
             newtype Deep = (__UDT_Item_2__Package_2_, Int);
             function Main() : Int {
                 let (((d_0_0_0 : Int, d_0_0_1 : Int), d_0_1 : Int), d_1 : Int) = (((1, 2), 3), 4);
-                d_0_0_0 + d_0_0_1 + d_0_1 + d_1
+                ((d_0_0_0 + d_0_0_1) + d_0_1) + d_1
             }
             // entry
             Main()

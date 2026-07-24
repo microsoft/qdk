@@ -28,7 +28,7 @@ fn return_inside_while_loop() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 10 {
+                while ((not __has_returned)) and (i < 10) {
                     if i == 5 {
                         {
                             __ret_val = i;
@@ -36,7 +36,7 @@ fn return_inside_while_loop() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -44,8 +44,8 @@ fn return_inside_while_loop() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
-            -1
+                    if (not __has_returned) {
+                        (-1)
                     } else {
                         __ret_val
                     }
@@ -82,7 +82,7 @@ fn while_return_tuple_value_via_flag_transform() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int, Bool) = (0, false);
                 mutable i : Int = 0;
-                while not __has_returned and i < 3 {
+                while ((not __has_returned)) and (i < 3) {
                     if i == 1 {
                         {
                             __ret_val = (i, true);
@@ -90,7 +90,7 @@ fn while_return_tuple_value_via_flag_transform() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -98,8 +98,8 @@ fn while_return_tuple_value_via_flag_transform() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
-                        (-1, false)
+                    if (not __has_returned) {
+                        ((-1), false)
                     } else {
                         __ret_val
                     }
@@ -212,7 +212,7 @@ fn while_return_array_value_via_flag_transform() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int[] = [];
                 mutable i : Int = 0;
-                while not __has_returned and i < 3 {
+                while ((not __has_returned)) and (i < 3) {
                     if i == 1 {
                         {
                             __ret_val = [i, i + 1];
@@ -220,7 +220,7 @@ fn while_return_array_value_via_flag_transform() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -228,7 +228,7 @@ fn while_return_array_value_via_flag_transform() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         []
                     } else {
                         __ret_val
@@ -1045,14 +1045,14 @@ fn nested_loop_exit_convergence_is_guarded_by_flag() {
 
     assert!(
         rendered.contains(&format!(
-            "while not {} and outer < 2",
+            "while ((not {})) and (outer < 2)",
             symbols::HAS_RETURNED
         )),
         "outer loop exit convergence must be guarded by __has_returned",
     );
     assert!(
         rendered.contains(&format!(
-            "while not {} and inner < 2",
+            "while ((not {})) and (inner < 2)",
             symbols::HAS_RETURNED
         )),
         "inner loop exit convergence must be guarded by __has_returned",
@@ -1333,12 +1333,12 @@ fn recursive_while_body_qubit_suffix_uses_lazy_continuation() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 1 {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         Reset(q);
                         i += 1;
@@ -1349,7 +1349,7 @@ fn recursive_while_body_qubit_suffix_uses_lazy_continuation() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -1387,19 +1387,19 @@ fn recursive_nested_block_qubit_suffix_uses_lazy_continuation() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 1 {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         {
                             __ret_val = 1;
                             __has_returned = true;
                         };
-                        if not __has_returned {
+                        if (not __has_returned) {
                             let q : Qubit = __quantum__rt__qubit_allocate();
                             Reset(q);
                             __quantum__rt__qubit_release(q);
                         };
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -1407,7 +1407,7 @@ fn recursive_nested_block_qubit_suffix_uses_lazy_continuation() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -1444,12 +1444,12 @@ fn recursive_qubit_suffix_after_defaultable_local_uses_single_lazy_continuation(
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 1 {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         let fallback : Int = i + 1;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         Reset(q);
@@ -1461,7 +1461,7 @@ fn recursive_qubit_suffix_after_defaultable_local_uses_single_lazy_continuation(
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -1556,7 +1556,7 @@ fn final_trailing_side_effect_after_flag_return_shape() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 1 {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
@@ -1566,7 +1566,7 @@ fn final_trailing_side_effect_after_flag_return_shape() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         MustNotRun()
                     } else {
                         __ret_val
@@ -1615,7 +1615,7 @@ fn array_of_udt_wrapping_qubit_absent_from_outputs_uses_lazy_split() {
     // else-branch as `if __has_returned __ret_val else { if not __has_returned { <continuation> } else __ret_val }`.
     assert!(
         rendered
-            .contains("if _.has_returned _.ret_val else {\n            if not _.has_returned {"),
+            .contains("if _.has_returned _.ret_val else {\n            if (not _.has_returned) {"),
         "array-of-UDT suffix containing a qubit should be moved into a lazy continuation behind the trailing merge\n{rendered}"
     );
     assert!(
@@ -1667,7 +1667,7 @@ fn array_of_udt_wrapping_qubit_present_in_output_still_uses_lazy_split() {
     // rationale).
     assert!(
         rendered
-            .contains("if _.has_returned _.ret_val else {\n            if not _.has_returned {"),
+            .contains("if _.has_returned _.ret_val else {\n            if (not _.has_returned) {"),
         "cache-populated Wrapped[] suffix should continue to use a lazy continuation behind the trailing merge\n{rendered}"
     );
     assert!(
@@ -1711,7 +1711,7 @@ fn direct_udt_wrapping_qubit_uses_lazy_split() {
     // rationale).
     assert!(
         rendered
-            .contains("if _.has_returned _.ret_val else {\n            if not _.has_returned {"),
+            .contains("if _.has_returned _.ret_val else {\n            if (not _.has_returned) {"),
         "direct UDT suffix containing a qubit should use a lazy continuation behind the trailing merge\n{rendered}"
     );
     assert!(
@@ -1750,14 +1750,14 @@ fn classical_udt_array_after_flag_return_keeps_guarded_default() {
 
     assert!(
         rendered.contains("let values : UDT < Item")
-            && rendered.contains("= if not _.has_returned {\n            [Classical(1, true)]\n        } else {\n            []\n        };"),
+            && rendered.contains("= if (not _.has_returned) {\n            [Classical(1, true)]\n        } else {\n            []\n        };"),
         "classical UDT arrays should keep the selected guarded empty-array default policy\n{rendered}"
     );
     // After let_folding, the gated final-tail no longer goes through a
     // `__trailing_result` binding. Instead, the gating expression appears
     // directly inside the trailing merge's else-branch.
     assert!(
-        rendered.contains("if _.has_returned _.ret_val else {\n            if not _.has_returned {\n                CountClassical(values)\n            } else _.ret_val\n        }"),
+        rendered.contains("if _.has_returned _.ret_val else {\n            if (not _.has_returned) {\n                CountClassical(values)\n            } else _.ret_val\n        }"),
         "classical UDT array fallthrough should still use the gated final-tail policy (now inlined into the trailing merge)\n{rendered}"
     );
 }
@@ -1817,7 +1817,7 @@ fn tuple_return_in_while_with_nested_if() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int, Bool) = (0, false);
                 mutable i : Int = 0;
-                while not __has_returned and i < 10 {
+                while ((not __has_returned)) and (i < 10) {
                     if i > 5 {
                         if i == 7 {
                             {
@@ -1828,7 +1828,7 @@ fn tuple_return_in_while_with_nested_if() {
 
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -1836,8 +1836,8 @@ fn tuple_return_in_while_with_nested_if() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
-                        (-1, false)
+                    if (not __has_returned) {
+                        ((-1), false)
                     } else {
                         __ret_val
                     }
@@ -1910,7 +1910,7 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable i : Int = 0;
-                    while not __has_returned and i < 5 {
+                    while ((not __has_returned)) and (i < 5) {
                         if i == 3 {
                             {
                                 __ret_val = ();
@@ -1918,7 +1918,7 @@ fn all_four_specializations_with_return_in_loop() {
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             i += 1;
                         };
                     }
@@ -1926,7 +1926,7 @@ fn all_four_specializations_with_return_in_loop() {
                     if __has_returned {
                         __ret_val
                     } else {
-                        if not __has_returned {
+                        if (not __has_returned) {
                             ()
                         } else {
                             __ret_val
@@ -1938,7 +1938,7 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable j : Int = 0;
-                    while not __has_returned and j < 5 {
+                    while ((not __has_returned)) and (j < 5) {
                         if j == 2 {
                             {
                                 __ret_val = ();
@@ -1946,7 +1946,7 @@ fn all_four_specializations_with_return_in_loop() {
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             j += 1;
                         };
                     }
@@ -1954,7 +1954,7 @@ fn all_four_specializations_with_return_in_loop() {
                     if __has_returned {
                         __ret_val
                     } else {
-                        if not __has_returned {
+                        if (not __has_returned) {
                             ()
                         } else {
                             __ret_val
@@ -1966,7 +1966,7 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable k : Int = 0;
-                    while not __has_returned and k < 5 {
+                    while ((not __has_returned)) and (k < 5) {
                         if k == 4 {
                             {
                                 __ret_val = ();
@@ -1974,7 +1974,7 @@ fn all_four_specializations_with_return_in_loop() {
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             k += 1;
                         };
                     }
@@ -1982,7 +1982,7 @@ fn all_four_specializations_with_return_in_loop() {
                     if __has_returned {
                         __ret_val
                     } else {
-                        if not __has_returned {
+                        if (not __has_returned) {
                             ()
                         } else {
                             __ret_val
@@ -1994,7 +1994,7 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable m : Int = 0;
-                    while not __has_returned and m < 5 {
+                    while ((not __has_returned)) and (m < 5) {
                         if m == 1 {
                             {
                                 __ret_val = ();
@@ -2002,7 +2002,7 @@ fn all_four_specializations_with_return_in_loop() {
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             m += 1;
                         };
                     }
@@ -2010,7 +2010,7 @@ fn all_four_specializations_with_return_in_loop() {
                     if __has_returned {
                         __ret_val
                     } else {
-                        if not __has_returned {
+                        if (not __has_returned) {
                             ()
                         } else {
                             __ret_val
@@ -2056,7 +2056,7 @@ fn qubit_alloc_scope_with_flag_lowering() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 5 {
+                while ((not __has_returned)) and (i < 5) {
                     let q : Qubit = __quantum__rt__qubit_allocate();
                     if i == 3 {
                         {
@@ -2069,10 +2069,10 @@ fn qubit_alloc_scope_with_flag_lowering() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         __quantum__rt__qubit_release(q);
                     };
                 }
@@ -2080,8 +2080,8 @@ fn qubit_alloc_scope_with_flag_lowering() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
-            -1
+                    if (not __has_returned) {
+                        (-1)
                     } else {
                         __ret_val
                     }
@@ -2121,22 +2121,22 @@ fn repeat_until_with_return() {
                 mutable attempt : Int = 0;
                 {
                     mutable _continue_cond_46 : Bool = true;
-                    while not __has_returned and _continue_cond_46 {
+                    while ((not __has_returned)) and _continue_cond_46 {
                         if attempt > 3 {
                             {
-                                __ret_val = -1;
+                                __ret_val = (-1);
                                 __has_returned = true;
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             attempt += 1;
                         };
-                        if not __has_returned {
+                        if (not __has_returned) {
                             result = attempt * 2;
                         };
-                        if not __has_returned {
-                            _continue_cond_46 = not result > 5;
+                        if (not __has_returned) {
+                            _continue_cond_46 = (not result > 5);
                         };
                     }
 
@@ -2144,7 +2144,7 @@ fn repeat_until_with_return() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         result
                     } else {
                         __ret_val
@@ -2184,7 +2184,7 @@ fn while_body_side_effect_guarded_after_return() {
                 mutable __ret_val : Int = 0;
                 mutable sum : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 10 {
+                while ((not __has_returned)) and (i < 10) {
                     if i == 3 {
                         {
                             __ret_val = sum;
@@ -2192,10 +2192,10 @@ fn while_body_side_effect_guarded_after_return() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         sum += i;
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -2203,7 +2203,7 @@ fn while_body_side_effect_guarded_after_return() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         sum
                     } else {
                         __ret_val
@@ -2245,7 +2245,7 @@ fn if_expr_init_with_while_return_uses_flag_lowering() {
                 mutable __ret_val : Int = 0;
                 let x : Int = if true {
                     mutable i : Int = 0;
-                    while not __has_returned and i < 5 {
+                    while ((not __has_returned)) and (i < 5) {
                         if i == 3 {
                             {
                                 __ret_val = 42;
@@ -2253,7 +2253,7 @@ fn if_expr_init_with_while_return_uses_flag_lowering() {
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             i += 1;
                         };
                     }
@@ -2265,7 +2265,7 @@ fn if_expr_init_with_while_return_uses_flag_lowering() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -2304,7 +2304,7 @@ fn flag_lowering_guards_local_after_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 5 {
+                while ((not __has_returned)) and (i < 5) {
                     if i == 3 {
                         {
                             __ret_val = i;
@@ -2312,12 +2312,12 @@ fn flag_lowering_guards_local_after_return() {
                         };
                     }
 
-                    let y : Int = if not __has_returned {
+                    let y : Int = if (not __has_returned) {
                         i * 2
                     } else {
                         0
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -2325,8 +2325,8 @@ fn flag_lowering_guards_local_after_return() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
-            -1
+                    if (not __has_returned) {
+                        (-1)
                     } else {
                         __ret_val
                     }
@@ -2360,7 +2360,7 @@ fn split_suffix_includes_defaultable_local_before_qubit_local() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 1 {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
@@ -2370,7 +2370,7 @@ fn split_suffix_includes_defaultable_local_before_qubit_local() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         let y : Int = i + 2;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let _generated_ident_39 : Int = y;
@@ -2416,7 +2416,7 @@ fn split_suffix_return_rewrites_through_shared_flag_pair() {
                 mutable __ret_val : Int = 0;
                 mutable flag : Bool = false;
                 mutable i : Int = 0;
-                while not __has_returned and i < 1 {
+                while ((not __has_returned)) and (i < 1) {
                     if flag {
                         {
                             __ret_val = 1;
@@ -2424,12 +2424,12 @@ fn split_suffix_return_rewrites_through_shared_flag_pair() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
 
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     if flag {
                         {
                             __ret_val = 2;
@@ -2437,7 +2437,7 @@ fn split_suffix_return_rewrites_through_shared_flag_pair() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let _generated_ident_54 : Int = 3;
                         __quantum__rt__qubit_release(q);

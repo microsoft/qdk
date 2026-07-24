@@ -57,7 +57,7 @@ fn if_then_return_else_return_at_end_records_flag_lowered_shape() {
                     [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
                     [1] Local(Mutable, _.ret_val: Int): Lit(Int(0))
                     [2] Local(Immutable, q: Qubit): Call[ty=Qubit]
-                    [3] Local(Immutable, @generated_ident_59: Unit): If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
+                    [3] Local(Immutable, .generated_ident_59: Unit): If(cond=BinOp(Eq)[ty=Bool], then=Block[ty=Unit], else=Block[ty=Unit])
                     [4] Semi If(cond=UnOp(NotL)[ty=Bool], then=Block[ty=Unit])
                     [5] Expr Var[ty=Int]"#]],
     );
@@ -95,8 +95,8 @@ fn nested_while_inner_only_exit_is_return_terminates() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable outer : Bool = true;
-                while not __has_returned and outer {
-                    while not __has_returned and true {
+                while ((not __has_returned)) and outer {
+                    while ((not __has_returned)) and true {
                         if M(q) == One {
                             {
                                 let _generated_ident_44 : Int = 1;
@@ -115,13 +115,13 @@ fn nested_while_inner_only_exit_is_return_terminates() {
                 let _generated_ident_56 : Int = {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_56
                     } else {
                         __ret_val
@@ -165,17 +165,17 @@ fn nested_for_inner_body_hits_return() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
                     let _range_id_84 : Range = 0..100;
-                    mutable _index_id_87 : Int = _range_id_84::Start;
-                    let _step_id_92 : Int = _range_id_84::Step;
-                    let _end_id_97 : Int = _range_id_84::End;
-                    while not __has_returned and _step_id_92 > 0 and _index_id_87 <= _end_id_97 or _step_id_92 < 0 and _index_id_87 >= _end_id_97 {
+                    mutable _index_id_87 : Int = _range_id_84.Start;
+                    let _step_id_92 : Int = _range_id_84.Step;
+                    let _end_id_97 : Int = _range_id_84.End;
+                    while ((not __has_returned)) and (((_step_id_92 > 0) and (_index_id_87 <= _end_id_97)) or ((_step_id_92 < 0) and (_index_id_87 >= _end_id_97))) {
                         let _ : Int = _index_id_87;
                         {
                             let _range_id_41 : Range = 0..100;
-                            mutable _index_id_44 : Int = _range_id_41::Start;
-                            let _step_id_49 : Int = _range_id_41::Step;
-                            let _end_id_54 : Int = _range_id_41::End;
-                            while not __has_returned and _step_id_49 > 0 and _index_id_44 <= _end_id_54 or _step_id_49 < 0 and _index_id_44 >= _end_id_54 {
+                            mutable _index_id_44 : Int = _range_id_41.Start;
+                            let _step_id_49 : Int = _range_id_41.Step;
+                            let _end_id_54 : Int = _range_id_41.End;
+                            while ((not __has_returned)) and (((_step_id_49 > 0) and (_index_id_44 <= _end_id_54)) or ((_step_id_49 < 0) and (_index_id_44 >= _end_id_54))) {
                                 let _ : Int = _index_id_44;
                                 if M(q) == One {
                                     {
@@ -188,14 +188,14 @@ fn nested_for_inner_body_hits_return() {
                                     };
                                 }
 
-                                if not __has_returned {
+                                if (not __has_returned) {
                                     _index_id_44 += _step_id_49;
                                 };
                             }
 
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             _index_id_87 += _step_id_92;
                         };
                     }
@@ -205,13 +205,13 @@ fn nested_for_inner_body_hits_return() {
                 let _generated_ident_144 : Int = {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_144
                     } else {
                         __ret_val
@@ -266,18 +266,18 @@ fn continuation_value_is_observed_when_inner_return_not_taken() {
 
                 }
 
-                let _generated_ident_53 : Int = if not __has_returned {
+                let _generated_ident_53 : Int = if (not __has_returned) {
                     2
                 } else {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_53
                     } else {
                         __ret_val
@@ -341,18 +341,18 @@ fn four_level_if_if_if_if_return_deepest() {
 
                 }
 
-                let _generated_ident_71 : Int = if not __has_returned {
+                let _generated_ident_71 : Int = if (not __has_returned) {
                     2
                 } else {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_71
                     } else {
                         __ret_val
@@ -408,10 +408,10 @@ fn four_level_while_while_while_while_return_deepest() {
                 mutable k : Int = 0;
                 mutable l : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                while not __has_returned and i < 2 {
-                    while not __has_returned and j < 2 {
-                        while not __has_returned and k < 2 {
-                            while not __has_returned and l < 2 {
+                while ((not __has_returned)) and (i < 2) {
+                    while ((not __has_returned)) and (j < 2) {
+                        while ((not __has_returned)) and (k < 2) {
+                            while ((not __has_returned)) and (l < 2) {
                                 if M(q) == One {
                                     {
                                         let _generated_ident_88 : Int = 9;
@@ -423,22 +423,22 @@ fn four_level_while_while_while_while_return_deepest() {
                                     };
                                 }
 
-                                if not __has_returned {
+                                if (not __has_returned) {
                                     l += 1;
                                 };
                             }
 
-                            if not __has_returned {
+                            if (not __has_returned) {
                                 k += 1;
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             j += 1;
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -446,13 +446,13 @@ fn four_level_while_while_while_while_return_deepest() {
                 let _generated_ident_100 : Int = {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_100
                     } else {
                         __ret_val
@@ -498,17 +498,17 @@ fn four_level_if_while_for_if_return_deepest() {
                 mutable i : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 if M(q) == One {
-                    while not __has_returned and i < 3 {
+                    while ((not __has_returned)) and (i < 3) {
                         {
                             let _range_id_63 : Range = 0..2;
-                            mutable _index_id_66 : Int = _range_id_63::Start;
-                            let _step_id_71 : Int = _range_id_63::Step;
-                            let _end_id_76 : Int = _range_id_63::End;
-                            while not __has_returned and _step_id_71 > 0 and _index_id_66 <= _end_id_76 or _step_id_71 < 0 and _index_id_66 >= _end_id_76 {
+                            mutable _index_id_66 : Int = _range_id_63.Start;
+                            let _step_id_71 : Int = _range_id_63.Step;
+                            let _end_id_76 : Int = _range_id_63.End;
+                            while ((not __has_returned)) and (((_step_id_71 > 0) and (_index_id_66 <= _end_id_76)) or ((_step_id_71 < 0) and (_index_id_66 >= _end_id_76))) {
                                 let j : Int = _index_id_66;
                                 if M(q) == Zero {
                                     {
-                                        let _generated_ident_111 : Int = i * 100 + j;
+                                        let _generated_ident_111 : Int = (i * 100) + j;
                                         __quantum__rt__qubit_release(q);
                                         {
                                             __ret_val = _generated_ident_111;
@@ -517,32 +517,32 @@ fn four_level_if_while_for_if_return_deepest() {
                                     };
                                 }
 
-                                if not __has_returned {
+                                if (not __has_returned) {
                                     _index_id_66 += _step_id_71;
                                 };
                             }
 
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             i += 1;
                         };
                     }
 
                 }
 
-                let _generated_ident_123 : Int = if not __has_returned {
-            -1
+                let _generated_ident_123 : Int = if (not __has_returned) {
+                    (-1)
                 } else {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_123
                     } else {
                         __ret_val
@@ -596,18 +596,18 @@ fn use_scope_wraps_nested_if_return_deep() {
 
                 }
 
-                let _generated_ident_53 : Int = if not __has_returned {
+                let _generated_ident_53 : Int = if (not __has_returned) {
                     2
                 } else {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_53
                     } else {
                         __ret_val
@@ -664,13 +664,13 @@ fn if_elseif_elseif_else_return_in_last_arm() {
                         };
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_66
                     } else {
                         __ret_val
@@ -722,10 +722,10 @@ fn nested_use_scope_return_in_inner_body() {
                             };
                         };
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         __quantum__rt__qubit_release(q1);
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_66
                     };
                 }
@@ -733,13 +733,13 @@ fn nested_use_scope_return_in_inner_body() {
                 let _generated_ident_75 : Int = {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q0);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_75
                     } else {
                         __ret_val

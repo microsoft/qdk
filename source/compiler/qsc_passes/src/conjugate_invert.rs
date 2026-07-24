@@ -23,7 +23,7 @@ use rustc_hash::FxHashSet;
 use thiserror::Error;
 
 use crate::{
-    common::generated_name,
+    common::{EnclosingBreakContinueScan, generated_name},
     id_update::NodeIdRefresher,
     invert_block::adj_invert_block,
     spec_gen::adj_gen::{self, AdjDistrib},
@@ -45,6 +45,13 @@ pub enum Error {
     #[error("return expressions are not allowed in apply-blocks")]
     #[diagnostic(code("Qdk.Qsc.ConjugateInvert.ReturnForbidden"))]
     ReturnForbidden(#[label] Span),
+
+    #[error("break and continue expressions cannot escape an apply-block")]
+    #[diagnostic(help(
+        "a break or continue in an apply-block must be contained in a loop within that apply-block; one that binds to a loop outside the conjugate expression cannot be reversed"
+    ))]
+    #[diagnostic(code("Qdk.Qsc.ConjugateInvert.BreakContinueForbidden"))]
+    BreakContinueForbidden(#[label] Span),
 }
 
 /// Generates adjoint inverted blocks for within-blocks across all conjugate expressions,
@@ -87,6 +94,13 @@ impl MutVisitor for ConjugateElim<'_> {
                 let mut return_check = ReturnCheck { errors: Vec::new() };
                 return_check.visit_block(&apply);
                 self.errors.extend(return_check.errors);
+
+                let mut break_continue_errors = Vec::new();
+                let mut scan = EnclosingBreakContinueScan::new(|expr: &Expr| {
+                    break_continue_errors.push(Error::BreakContinueForbidden(expr.span));
+                });
+                scan.visit_block(&apply);
+                self.errors.extend(break_continue_errors);
 
                 let mut adj_within = within.clone();
                 if let Err(invert_errors) =
@@ -237,10 +251,11 @@ struct ReturnCheck {
 
 impl<'a> Visitor<'a> for ReturnCheck {
     fn visit_expr(&mut self, expr: &'a Expr) {
-        if matches!(&expr.kind, ExprKind::Return(..)) {
-            self.errors.push(Error::ReturnForbidden(expr.span));
-        } else {
-            visit::walk_expr(self, expr);
+        match &expr.kind {
+            ExprKind::Return(..) => {
+                self.errors.push(Error::ReturnForbidden(expr.span));
+            }
+            _ => visit::walk_expr(self, expr),
         }
     }
 }

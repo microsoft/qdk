@@ -57,8 +57,9 @@ use crate::{parser::QasmParseResult, semantic::QasmSemanticParseResult};
 ///   and as the base for resolving `include` statements.
 /// * `resolver` - An optional [`SourceResolver`](io::SourceResolver) used to
 ///   resolve `include` statements. When `None`, an empty
-///   [`InMemorySourceResolver`](io::InMemorySourceResolver) is used, so any
-///   `include` will fail to resolve.
+///   [`InMemorySourceResolver`](io::InMemorySourceResolver) is used. Standard
+///   gate includes are skipped by syntax parsing, but any other `include` will
+///   fail to resolve.
 ///
 /// # Returns
 ///
@@ -119,8 +120,9 @@ pub fn parse_source<R: io::SourceResolver>(
 ///   and as the base for resolving `include` statements.
 /// * `resolver` - An optional [`SourceResolver`](io::SourceResolver) used to
 ///   resolve `include` statements. When `None`, an empty
-///   [`InMemorySourceResolver`](io::InMemorySourceResolver) is used, so any
-///   `include` will fail to resolve.
+///   [`InMemorySourceResolver`](io::InMemorySourceResolver) is used. Standard
+///   gate includes are handled internally during semantic analysis, but any
+///   other `include` will fail to resolve.
 ///
 /// # Returns
 ///
@@ -134,8 +136,8 @@ pub fn parse_source<R: io::SourceResolver>(
 ///
 /// # Examples
 ///
-/// Analyze a self-contained program without a custom resolver. The
-/// `stdgates.inc` standard library is resolved internally, so `h` is in scope:
+/// Analyze a program that only includes the standard gate library. The
+/// `stdgates.inc` include is resolved internally, so `h` is in scope:
 ///
 /// ```
 /// use qdk_openqasm_parser::{analyze_source, io::InMemorySourceResolver};

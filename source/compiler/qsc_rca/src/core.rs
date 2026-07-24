@@ -1195,6 +1195,15 @@ impl<'a> Analyzer<'a> {
             let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
                 + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
             for _ in 0..=stabilization_limit {
+                let application_instance = self.get_current_application_instance();
+                let previous_locals_map = application_instance.locals_map.clone();
+                let previous_condition_compute_kind = application_instance
+                    .find_expr_compute_kind(condition_expr_id)
+                    .copied();
+                let previous_block_compute_kind = application_instance
+                    .find_block_compute_kind(block_id)
+                    .copied();
+
                 // If the condition expression is a variable value kind
                 // OR
                 // we are trying to emit loops and the block is dynamic,
@@ -1221,6 +1230,20 @@ impl<'a> Analyzer<'a> {
                         .pop()
                         .expect("at least one dynamic scope should exist");
                     assert!(dynamic_scope_expr_id == condition_expr_id);
+                }
+
+                let application_instance = self.get_current_application_instance();
+                if previous_locals_map.has_same_compute_kinds(&application_instance.locals_map)
+                    && previous_condition_compute_kind
+                        == application_instance
+                            .find_expr_compute_kind(condition_expr_id)
+                            .copied()
+                    && previous_block_compute_kind
+                        == application_instance
+                            .find_block_compute_kind(block_id)
+                            .copied()
+                {
+                    break;
                 }
             }
 

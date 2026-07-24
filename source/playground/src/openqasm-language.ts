@@ -58,6 +58,8 @@ const language: monaco.languages.IMonarchLanguage = {
     "for",
     "in",
     "while",
+    "break",
+    "continue",
     "switch",
     "case",
     "default",

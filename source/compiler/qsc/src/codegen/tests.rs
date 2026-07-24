@@ -3431,10 +3431,8 @@ fn synthetic_path_array_arg_preserves_element_values() {
 
 #[test]
 fn synthetic_path_empty_array_arg_does_not_panic() {
-    // Regression: an empty `Value::Array` argument previously lowered to
-    // `Ty::Array(Ty::Err)`, which panicked at `PostAll` in release builds.
-    // The element-type hint fix lets the empty array carry its real element
-    // type, so codegen succeeds and emits no `op(q)` calls.
+    // An empty `Value::Array` retains its element type through synthetic-entry
+    // lowering, so codegen succeeds and emits no `op(q)` calls.
     let source = indoc::indoc! {r#"
         namespace Test {
             operation RunWith(op : Qubit => Unit, data : Int[]) : Result {
@@ -3467,10 +3465,8 @@ fn synthetic_path_empty_array_arg_does_not_panic() {
 
 #[test]
 fn synthetic_path_nested_empty_array_arg_does_not_panic() {
-    // Regression: a nested array `[[]] : Int[][]` whose inner array is empty
-    // previously poisoned the OUTER element type with `Ty::Err`, panicking at
-    // `PostAll`. The element-type hint must recurse so the outer array keeps
-    // its `Int[]` element type even when an inner array is empty.
+    // A nested array `[[]] : Int[][]` retains its element types through
+    // synthetic-entry lowering, so codegen succeeds and emits no `op(q)` calls.
     let source = indoc::indoc! {r#"
         namespace Test {
             operation RunNested(op : Qubit => Unit, data : Int[][]) : Result {
@@ -4198,10 +4194,8 @@ fn synthetic_path_callable_with_pauli_and_result_values() {
 
 #[test]
 fn callable_returning_closure_arg_generates_qir() {
-    // `MakeOp` returns a closure (`() => H(First(qs))`). Passing it to `DoOp`
-    // previously panicked with "global not present" because codegen re-invoked
-    // the original target after the producer closure had been erased. The
-    // synthetic-entry route must generate QIR containing the H gate instead.
+    // `MakeOp` returns a closure (`() => H(First(qs))`). The synthetic-entry
+    // route must preserve that closure and generate QIR containing the H gate.
     let source = indoc::indoc! {r#"
         namespace Test {
             function First<'T>(arr : 'T[]) : 'T { arr[0] }
@@ -4780,9 +4774,8 @@ fn chemistry_like_standard_qpe_callable_array_generates_qir() {
     // `ControlledFirst` (Controlled X -> cx) and index 1 is `ControlledSecond`
     // (Controlled Z -> cz). Both act on the single system/target qubit (index 2);
     // there is no QFT in this variant, so the controlled gates are exactly the two
-    // dispatch calls. The pre-fix defect collapsed every array element to element
-    // 0, which would emit two identical cx and no cz. Anchoring on the qubit-2
-    // target isolates the dispatch subsequence from the state-prep `X`.
+    // dispatch calls. Anchoring on the qubit-2 target isolates the expected
+    // per-index dispatch sequence [cx, cz] from the state-prep `X`.
     let dispatch_gates: Vec<&str> = qir
         .lines()
         .filter(|line| line.trim_end().ends_with("inttoptr (i64 2 to %Qubit*))"))
@@ -4994,10 +4987,9 @@ fn chemistry_like_standard_qpe_callable_array_of_closures_generates_qir() {
     // The dispatch loop calls controlledUnitary[0..5] in order. Each element is a
     // closure over `RepControlled` capturing `angle`: even indices capture 1.0
     // (angle > 0.0 -> Controlled X -> cx) and odd indices capture -1.0
-    // (Controlled Z -> cz), so the correct dispatch sequence alternates
-    // cx, cz, cx, cz, cx, cz. The pre-fix defect collapsed every closure to
-    // closure 0's captured angle (1.0), emitting six identical cx and no dispatch
-    // cz. All six dispatch gates act on the single system qubit (index 6). The
+    // (Controlled Z -> cz), so the expected dispatch sequence alternates
+    // cx, cz, cx, cz, cx, cz. All six dispatch gates act on the single system
+    // qubit (index 6). The
     // `Adjoint ApplyQFT(ancillas)` that follows emits many cx among the ancilla
     // qubits (indices 0..5) but never targets qubit 6 and emits no cz, so
     // anchoring on the qubit-6 target isolates the dispatch subsequence.
@@ -5386,5 +5378,396 @@ fn chemistry_like_iqpe_with_udt_capture_closure_generates_base_profile_qir() {
     assert!(
         qir.contains("__quantum__qis__cx__body"),
         "expected threaded Controlled X capture in QIR:\n{qir}"
+    );
+}
+
+// `break`/`continue` are desugared to flags in HIR, so codegen sees only
+// ordinary `while` loops. These tests confirm the desugared programs lower all
+// the way to QIR/RIR with no residual early-exit constructs, and that
+// classically-conditioned `break`/`continue` needs no capability beyond the
+// Base profile.
+
+#[test]
+fn break_and_continue_in_for_loop_generates_qir_on_base_profile() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for i in 0..10 {
+                    if i == 5 {
+                        break;
+                    }
+                    if i % 2 == 0 {
+                        continue;
+                    }
+                    X(q);
+                }
+                Reset(q);
+            }
+        }
+    "#;
+
+    // Classical conditions keep the loop static, so the most restrictive Base
+    // profile suffices: no new capability is required for `break`/`continue`.
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+
+    // `continue` skips even i and `break` stops at i == 5, so X is applied for
+    // i = 1 and i = 3 only. Match call sites, not the trailing `declare`.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        2,
+        "expected exactly two X gates from odd i < 5:\n{qir}"
+    );
+}
+
+#[test]
+fn while_and_repeat_with_break_continue_generate_qir_on_base_profile() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                mutable i = 0;
+                while i < 100 {
+                    set i += 1;
+                    if i == 3 {
+                        break;
+                    }
+                    X(q);
+                }
+                mutable j = 0;
+                repeat {
+                    set j += 1;
+                    if j % 2 == 0 {
+                        continue;
+                    }
+                    H(q);
+                } until j >= 5;
+                Reset(q);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+
+    // while: X for i = 1, 2 then break at i == 3 -> 2 X gates.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        2,
+        "expected two X gates before the while `break`:\n{qir}"
+    );
+    // repeat: `continue` skips even j, so H fires for odd j = 1, 3, 5 -> 3 H gates.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        3,
+        "expected three H gates for odd j via repeat `continue`:\n{qir}"
+    );
+}
+
+#[test]
+fn return_and_break_in_loop_composes_with_return_unify() {
+    // Check that `return` and `break` play nicely together in the same loop.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                mutable total = 0;
+                for i in 0..20 {
+                    if i == 10 {
+                        break;
+                    }
+                    X(q);
+                    set total += i;
+                    if total > 15 {
+                        return total;
+                    }
+                }
+                Reset(q);
+                total
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(
+        source,
+        TargetCapabilityFlags::Adaptive | TargetCapabilityFlags::IntegerComputations,
+    );
+
+    // The early `return` fires at i == 6, where total = 21 > 15, after X on i = 0..6.
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        7,
+        "expected seven X gates before the early return:\n{qir}"
+    );
+    assert!(
+        qir.contains("__quantum__rt__int_record_output(i64 21"),
+        "expected the composed return value 21 to be recorded:\n{qir}"
+    );
+}
+
+#[test]
+fn break_continue_loops_lower_to_rir_without_early_exit() {
+    // Exercises the RIR lowering path, a superset of the checks QIR relies on,
+    // for every loop form carrying `break`/`continue`, confirming no residual
+    // `break`/`continue`/early-exit construct survives into RIR.
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for i in 0..6 {
+                    if i == 4 {
+                        break;
+                    }
+                    if i == 1 {
+                        continue;
+                    }
+                    X(q);
+                }
+                mutable k = 0;
+                repeat {
+                    set k += 1;
+                    if k == 2 {
+                        continue;
+                    }
+                    if k == 5 {
+                        break;
+                    }
+                    Y(q);
+                } until k >= 8;
+                Reset(q);
+            }
+        }
+    "#;
+
+    let rir = compile_source_to_rir(source, TargetCapabilityFlags::empty());
+    let rir_text = rir.join("\n");
+    // Both loop bodies' quantum ops survive into the RIR callable table, and the
+    // fully-desugared program lowers to a clean single-return body; no residual
+    // early-exit construct could survive, because the lowerer panics on any
+    // leftover `break`/`continue` and `return_unify` asserts no leftover `Return`.
+    assert!(
+        rir_text.contains("name: __quantum__qis__x__body"),
+        "expected the X gate callable to survive into RIR:\n{rir_text}"
+    );
+    assert!(
+        rir_text.contains("name: __quantum__qis__y__body"),
+        "expected the Y gate callable to survive into RIR:\n{rir_text}"
+    );
+    for rir_form in &rir {
+        assert_eq!(
+            rir_form.matches("Return Integer(0)").count(),
+            1,
+            "expected each desugared RIR form to contain exactly one return:\n{rir_form}"
+        );
+    }
+}
+
+#[test]
+fn bare_operand_break_lowers_to_qir_and_skips_eager_consumer() {
+    // A bare-operand `break` buried in a call argument such as `Sink(q, break)` is
+    // hoisted and lowered without evaluating the eager consumer. `Sink` applies
+    // an `H` gate, so no H call in the QIR proves the break fires first.
+    let source = r#"
+        namespace Test {
+            operation Sink(q : Qubit, x : Int) : Int { H(q); x }
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for i in 0..10 {
+                    if i == 3 {
+                        let _ = Sink(q, break);
+                    }
+                    X(q);
+                }
+                Reset(q);
+            }
+        }
+    "#;
+
+    // Classical loop and condition keep the program static, so the Base profile
+    // suffices. `X(q)` runs for i = 0, 1, 2 before the guard; on i == 3 the break
+    // fires first, so the trailing `X(q)` is skipped and the loop exits. That
+    // gives exactly three X gates, and no H gate because `Sink` never runs.
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        3,
+        "expected exactly three X gates before the operand-position break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__h__body"),
+        "expected no H gate: the eager consumer must not run on the break path:\n{qir}"
+    );
+}
+
+#[test]
+fn bare_operand_break_preserves_prior_argument_effects_and_skips_later_arguments() {
+    let source = r#"
+        namespace Test {
+            operation Foo(first : Unit, second : Unit, third : Unit) : Unit {}
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for _ in 0..10 {
+                    Foo(H(q), break, Y(q));
+                }
+                Reset(q);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H to run before the operand-position break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected Y after the operand-position break to be skipped:\n{qir}"
+    );
+}
+
+#[test]
+fn operand_break_in_qubit_allocation_skips_following_controlled_call_in_qir() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Result {
+                use qq = Qubit[2];
+                repeat {
+                    H(qq[0]);
+                    use rr = Qubit[break];
+                    Controlled X([qq[0]], qq[1]);
+                } until (M(qq[1]) == One)
+                fixup {
+                    ResetAll(qq);
+                }
+                let r = M(qq[0]);
+                ResetAll(qq);
+                r
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H before the allocation-size break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__cx__body"),
+        "expected the controlled X after the first break to be skipped:\n{qir}"
+    );
+}
+
+#[test]
+fn operand_break_in_controlled_call_skips_consumer_and_following_statement_in_qir() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Result {
+                use qq = Qubit[2];
+                repeat {
+                    H(qq[0]);
+                    Controlled X(break);
+                    Y(qq[0]);
+                } until (M(qq[1]) == One)
+                fixup {
+                    ResetAll(qq);
+                }
+                let r = M(qq[0]);
+                ResetAll(qq);
+                r
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H before the controlled-call operand break:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__cx__body"),
+        "expected the controlled X consumer to be skipped:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected the statement after the controlled-call operand break to be skipped:\n{qir}"
+    );
+}
+
+#[test]
+fn operand_break_in_index_skips_following_controlled_continue() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Result {
+                use qq = Qubit[2];
+                repeat {
+                    H(qq[break]);
+                    Controlled X(continue, qq[1]);
+                } until (M(qq[1]) == One)
+                fixup {
+                    ResetAll(qq);
+                }
+                let r = M(qq[0]);
+                ResetAll(qq);
+                r
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    assert!(
+        !qir.contains("call void @__quantum__qis__h__body"),
+        "the index break should prevent H from running:\n{qir}"
+    );
+    // The `continue` controls operand defaults to `[]`. If its consumer guard
+    // failed, `Controlled X([], qq[1])` would emit a plain X rather than a CX.
+    assert!(
+        !qir.contains("call void @__quantum__qis__x__body"),
+        "the controlled X after the break should be unreachable:\n{qir}"
+    );
+}
+
+#[test]
+fn operand_continue_in_controlled_call_skips_consumer_and_following_statement_in_qir() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use qq = Qubit[2];
+                mutable i = 0;
+                repeat {
+                    set i = i + 1;
+                    H(qq[0]);
+                    Controlled X(continue, qq[1]);
+                    Y(qq[0]);
+                } until i >= 1;
+                ResetAll(qq);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, TargetCapabilityFlags::empty());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        1,
+        "expected H before the controlled-call operand continue:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__x__body"),
+        "expected the empty-controls X consumer after continue to be skipped:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected the statement after the controlled-call operand continue to be skipped:\n{qir}"
     );
 }

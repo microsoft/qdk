@@ -2087,29 +2087,29 @@ fn mono_generic_with_type_class_constraint() {
     check_before_after(
         source,
         &expect![[r#"
-        BEFORE:
-        function Double(x : 'T0) : 'T0 {
-            x + x
-        }
-        operation Main() : Int {
-            Double < Int > (21)
-        }
-        // entry
-        Main()
+            BEFORE:
+            function Double(x : 'T0) : 'T0 {
+                x + x
+            }
+            operation Main() : Int {
+                Double < Int > (21)
+            }
+            // entry
+            Main()
 
-        AFTER:
-        function Double(x : 'T0) : 'T0 {
-            x + x
-        }
-        operation Main() : Int {
-            Double_Int_(21)
-        }
-        function Double_Int_(x : Int) : Int {
-            x + x
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            function Double(x : 'T0) : 'T0 {
+                x + x
+            }
+            operation Main() : Int {
+                Double_Int_(21)
+            }
+            function Double_Int_(x : Int) : Int {
+                x + x
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

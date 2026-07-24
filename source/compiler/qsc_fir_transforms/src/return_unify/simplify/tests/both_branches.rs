@@ -312,7 +312,7 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
                     };
                 }
 
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     0
                 } else {
                     __ret_val
@@ -337,7 +337,7 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
                     };
                 }
 
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     0
                 } else {
                     __ret_val

@@ -477,3 +477,128 @@ fn return_forbidden() {
         "#]],
     );
 }
+
+#[test]
+fn break_in_loop_forbidden() {
+    check(
+        "{for i in 0..1 {break;}}",
+        &expect![[r#"
+        [
+            ExprForbidden(
+                Span {
+                    lo: 16,
+                    hi: 21,
+                },
+            ),
+        ]
+    "#]],
+    );
+}
+
+#[test]
+fn continue_in_loop_forbidden() {
+    check(
+        "{for i in 0..1 {continue;}}",
+        &expect![[r#"
+        [
+            ExprForbidden(
+                Span {
+                    lo: 16,
+                    hi: 24,
+                },
+            ),
+        ]
+    "#]],
+    );
+}
+
+#[test]
+fn break_nested_in_if_forbidden() {
+    check(
+        "{for i in 0..1 {if true {break;}}}",
+        &expect![[r#"
+        [
+            ExprForbidden(
+                Span {
+                    lo: 25,
+                    hi: 30,
+                },
+            ),
+        ]
+    "#]],
+    );
+}
+
+// Control flow buried in an operand position, such as a call argument or an
+// `if` condition, must be rejected just like statement-position control flow.
+// Otherwise it would slip past separability checking and let an `is Adj` body be
+// reversed into a wrong adjoint. Statement-position occurrences already produce
+// exactly one `ExprForbidden` via `handle_expr`; the following tests confirm
+// operand-position occurrences are also rejected, and not double-reported.
+#[test]
+fn operand_break_in_call_arg_forbidden() {
+    check(
+        "{use q = Qubit(); for i in 0..1 {X(if true {break} else {q});}}",
+        &expect![[r#"
+            [
+                ExprForbidden(
+                    Span {
+                        lo: 44,
+                        hi: 49,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn operand_continue_in_call_arg_forbidden() {
+    check(
+        "{use q = Qubit(); for i in 0..1 {X(if true {continue} else {q});}}",
+        &expect![[r#"
+            [
+                ExprForbidden(
+                    Span {
+                        lo: 44,
+                        hi: 52,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn operand_break_in_if_cond_forbidden() {
+    check(
+        "{for i in 0..1 {if (if true {break} else {false}) {}}}",
+        &expect![[r#"
+            [
+                ExprForbidden(
+                    Span {
+                        lo: 29,
+                        hi: 34,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn operand_return_in_call_arg_forbidden() {
+    check(
+        "{use q = Qubit(); X(if true {return ()} else {q});}",
+        &expect![[r#"
+            [
+                ExprForbidden(
+                    Span {
+                        lo: 29,
+                        hi: 38,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}

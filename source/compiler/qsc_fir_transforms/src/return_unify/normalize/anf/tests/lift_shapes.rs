@@ -36,7 +36,7 @@ fn operand_lift_return_in_binop_operand_block() {
                     };
                     3
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_0 + __operand_tmp_1
                 } else {
                     0
@@ -44,7 +44,7 @@ fn operand_lift_return_in_binop_operand_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -87,7 +87,7 @@ fn operand_lift_return_in_call_tuple_arg_block() {
                     };
                     3
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     Add(__operand_tmp_0, 4)
                 } else {
                     0
@@ -95,7 +95,7 @@ fn operand_lift_return_in_call_tuple_arg_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -136,7 +136,7 @@ fn operand_lift_return_in_index_operand_block() {
                     };
                     0
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_0[__operand_tmp_1]
                 } else {
                     0
@@ -144,7 +144,7 @@ fn operand_lift_return_in_index_operand_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -184,7 +184,7 @@ fn operand_lift_return_in_tuple_element_block() {
                     };
                     3
                 };
-                let (a : Int, _ : Int, _ : Int) = if not __has_returned {
+                let (a : Int, _ : Int, _ : Int) = if (not __has_returned) {
                     (__operand_tmp_0, __operand_tmp_1, 4)
                 } else {
                     (0, 0, 0)
@@ -192,7 +192,7 @@ fn operand_lift_return_in_tuple_element_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         a
                     } else {
                         __ret_val
@@ -236,7 +236,7 @@ fn operand_lift_return_in_call_arg_block_unit_call() {
                     };
                     3
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_0(__operand_tmp_1)
                 } else {
                     0
@@ -244,7 +244,7 @@ fn operand_lift_return_in_call_arg_block_unit_call() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val

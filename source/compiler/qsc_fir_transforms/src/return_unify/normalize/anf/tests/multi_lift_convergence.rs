@@ -39,12 +39,12 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
                     };
                     3
                 };
-                let __operand_tmp_2 : Int = if not __has_returned {
+                let __operand_tmp_2 : Int = if (not __has_returned) {
                     __operand_tmp_0 + __operand_tmp_1
                 } else {
                     0
                 };
-                let __operand_tmp_3 : Int = if not __has_returned {
+                let __operand_tmp_3 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 4;
@@ -56,7 +56,7 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
                 } else {
                     0
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_2 + __operand_tmp_3
                 } else {
                     0
@@ -64,7 +64,7 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -108,7 +108,7 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
                     };
                     y + 4
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_0 + __operand_tmp_1
                 } else {
                     0
@@ -116,7 +116,7 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -164,7 +164,7 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                     };
                     10
                 };
-                let __operand_tmp_1 : Int = if not __has_returned {
+                let __operand_tmp_1 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 2;
@@ -176,12 +176,12 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                 } else {
                     0
                 };
-                let __operand_tmp_2 : Int[] = if not __has_returned {
+                let __operand_tmp_2 : Int[] = if (not __has_returned) {
                     Pick([__operand_tmp_0, 20], (__operand_tmp_1, 5))
                 } else {
                     []
                 };
-                let __operand_tmp_3 : Int = if not __has_returned {
+                let __operand_tmp_3 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 3;
@@ -193,7 +193,7 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                 } else {
                     0
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_2[__operand_tmp_3]
                 } else {
                     0
@@ -201,7 +201,7 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -254,12 +254,12 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
                     };
                     5
                 };
-                let __operand_tmp_1 : Int = if not __has_returned {
+                let __operand_tmp_1 : Int = if (not __has_returned) {
                     __operand_tmp_0
                 } else {
                     0
                 };
-                let __operand_tmp_2 : Int = if not __has_returned {
+                let __operand_tmp_2 : Int = if (not __has_returned) {
                     if flag {
                         {
                             let _generated_ident_64 : Int = 2;
@@ -277,23 +277,23 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
                 } else {
                     0
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_1 + __operand_tmp_2
                 } else {
                     0
                 };
-                let _generated_ident_76 : Int = if not __has_returned {
+                let _generated_ident_76 : Int = if (not __has_returned) {
                     x
                 } else {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_76
                     } else {
                         __ret_val

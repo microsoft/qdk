@@ -86,7 +86,7 @@ fn conjugate_invert() {
                                             Expr 20 [133-134] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
                                             Expr 21 [135-136] [Type Int]: Lit: Int(2)
                                     Stmt 44 [0-0]: Local (Immutable):
-                                        Pat 45 [0-0] [Type Unit]: Bind: Ident 43 [0-0] "@apply_res"
+                                        Pat 45 [0-0] [Type Unit]: Bind: Ident 43 [0-0] ".apply_res"
                                         Expr 46 [0-0] [Type Unit]: Expr Block: Block 22 [163-210] [Type Unit]:
                                             Stmt 23 [177-182]: Semi: Expr 24 [177-181] [Type Unit]: Call:
                                                 Expr 25 [177-178] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
@@ -166,7 +166,7 @@ fn conjugate_invert_with_output() {
                                                 Expr 22 [142-143] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
                                                 Expr 23 [144-145] [Type Int]: Lit: Int(2)
                                         Stmt 50 [0-0]: Local (Immutable):
-                                            Pat 51 [0-0] [Type Int]: Bind: Ident 49 [0-0] "@apply_res"
+                                            Pat 51 [0-0] [Type Int]: Bind: Ident 49 [0-0] ".apply_res"
                                             Expr 52 [0-0] [Type Int]: Expr Block: Block 24 [172-233] [Type Int]:
                                                 Stmt 25 [186-191]: Semi: Expr 26 [186-190] [Type Unit]: Call:
                                                     Expr 27 [186-187] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
@@ -256,7 +256,7 @@ fn nested_conjugate_invert() {
                                                     Expr 27 [180-181] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
                                                     Expr 28 [182-183] [Type Int]: Lit: Int(2)
                                             Stmt 100 [0-0]: Local (Immutable):
-                                                Pat 101 [0-0] [Type Unit]: Bind: Ident 99 [0-0] "@apply_res"
+                                                Pat 101 [0-0] [Type Unit]: Bind: Ident 99 [0-0] ".apply_res"
                                                 Expr 102 [0-0] [Type Unit]: Expr Block: Block 29 [218-277] [Type Unit]:
                                                     Stmt 30 [236-241]: Semi: Expr 31 [236-240] [Type Unit]: Call:
                                                         Expr 32 [236-237] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
@@ -275,7 +275,7 @@ fn nested_conjugate_invert() {
                                                     Expr 98 [160-161] [Type Int]: Lit: Int(1)
                                             Stmt 108 [0-0]: Expr: Expr 109 [0-0] [Type Unit]: Var: Local 99
                                     Stmt 77 [0-0]: Local (Immutable):
-                                        Pat 78 [0-0] [Type Unit]: Bind: Ident 76 [0-0] "@apply_res"
+                                        Pat 78 [0-0] [Type Unit]: Bind: Ident 76 [0-0] ".apply_res"
                                         Expr 79 [0-0] [Type Unit]: Expr Block: Block 38 [302-349] [Type Unit]:
                                             Stmt 39 [316-321]: Semi: Expr 40 [316-320] [Type Unit]: Call:
                                                 Expr 41 [316-317] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
@@ -293,7 +293,7 @@ fn nested_conjugate_invert() {
                                                     Expr 58 [180-181] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
                                                     Expr 59 [182-183] [Type Int]: Lit: Int(2)
                                             Stmt 123 [0-0]: Local (Immutable):
-                                                Pat 124 [0-0] [Type Unit]: Bind: Ident 122 [0-0] "@apply_res"
+                                                Pat 124 [0-0] [Type Unit]: Bind: Ident 122 [0-0] ".apply_res"
                                                 Expr 125 [0-0] [Type Unit]: Expr Block: Block 60 [218-277] [Type Unit]:
                                                     Stmt 61 [258-263]: Semi: Expr 62 [258-262] [Type Unit]: Call:
                                                         Expr 63 [258-259] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
@@ -484,7 +484,7 @@ fn conjugate_allowed_mutable_with_invalid_lhs_ignored() {
                                             Expr 20 [138-139] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
                                             Expr 21 [140-141] [Type Int]: Lit: Int(1)
                                     Stmt 41 [0-0]: Local (Immutable):
-                                        Pat 42 [0-0] [Type Unit]: Bind: Ident 40 [0-0] "@apply_res"
+                                        Pat 42 [0-0] [Type Unit]: Bind: Ident 40 [0-0] ".apply_res"
                                         Expr 43 [0-0] [Type Unit]: Expr Block: Block 22 [168-226] [Type Unit]:
                                             Stmt 23 [182-198]: Semi: Expr 24 [182-197] [Type Unit]: Assign:
                                                 Expr 25 [187-192] [Type Int]: BinOp (Add):
@@ -571,6 +571,173 @@ fn conjugate_return_nested_in_apply_fail() {
 }
 
 #[test]
+fn conjugate_break_in_apply_crossing_boundary_fail() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    for i in 0..1 {
+                        within {
+                            B(1);
+                        }
+                        apply {
+                            break;
+                        }
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            [
+                BreakContinueForbidden(
+                    Span {
+                        lo: 203,
+                        hi: 208,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn conjugate_continue_in_apply_crossing_boundary_fail() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    for i in 0..1 {
+                        within {
+                            B(1);
+                        }
+                        apply {
+                            continue;
+                        }
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            [
+                BreakContinueForbidden(
+                    Span {
+                        lo: 203,
+                        hi: 211,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn conjugate_break_contained_in_apply_loop_succeeds() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    within {
+                        B(1);
+                    }
+                    apply {
+                        for i in 0..1 {
+                            break;
+                        }
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-229] (Public):
+                    Namespace (Ident 29 [10-14] "Test"): Item 1, Item 2
+                Item 1 [21-58] (Internal):
+                    Parent: 0
+                    Callable 0 [21-58] (operation):
+                        name: Ident 1 [31-32] "B"
+                        input: Pat 2 [33-40] [Type Int]: Bind: Ident 3 [33-34] "i"
+                        output: Unit
+                        functors: Adj
+                        body: SpecDecl 4 [21-58]: Impl:
+                            Block 5 [56-58]: <empty>
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>
+                Item 2 [63-227] (Internal):
+                    Parent: 0
+                    Callable 6 [63-227] (operation):
+                        name: Ident 7 [73-74] "A"
+                        input: Pat 8 [74-76] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 9 [63-227]: Impl:
+                            Block 10 [84-227] [Type Unit]:
+                                Stmt 11 [94-221]: Expr: Expr 47 [0-0] [Type Unit]: Expr Block: Block 40 [0-0] [Type Unit]:
+                                    Stmt 41 [0-0]: Expr: Expr 42 [0-0] [Type Unit]: Expr Block: Block 13 [101-130] [Type Unit]:
+                                        Stmt 14 [115-120]: Semi: Expr 15 [115-119] [Type Unit]: Call:
+                                            Expr 16 [115-116] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                            Expr 17 [117-118] [Type Int]: Lit: Int(1)
+                                    Stmt 37 [0-0]: Local (Immutable):
+                                        Pat 38 [0-0] [Type Unit]: Bind: Ident 36 [0-0] ".apply_res"
+                                        Expr 39 [0-0] [Type Unit]: Expr Block: Block 18 [145-221] [Type Unit]:
+                                            Stmt 19 [159-211]: Expr: Expr 20 [159-211] [Type Unit]: For:
+                                                Pat 21 [163-164] [Type Int]: Bind: Ident 22 [163-164] "i"
+                                                Expr 23 [168-172] [Type Range]: Range:
+                                                    Expr 24 [168-169] [Type Int]: Lit: Int(0)
+                                                    <no step>
+                                                    Expr 25 [171-172] [Type Int]: Lit: Int(1)
+                                                Block 26 [173-211] [Type Unit]:
+                                                    Stmt 27 [191-197]: Semi: Expr 28 [191-196] [Type Unit]: Break
+                                    Stmt 43 [0-0]: Expr: Expr 44 [0-0] [Type Unit]: Expr Block: Block 30 [101-130] [Type Unit]:
+                                        Stmt 31 [115-120]: Semi: Expr 32 [115-119] [Type Unit]: Call:
+                                            Expr 33 [115-116] [Type (Int => Unit is Adj)]: UnOp (Functor Adj):
+                                                Expr 34 [115-116] [Type (Int => Unit is Adj)]: Var: Item 1 (Package 1)
+                                            Expr 35 [117-118] [Type Int]: Lit: Int(1)
+                                    Stmt 45 [0-0]: Expr: Expr 46 [0-0] [Type Unit]: Var: Local 36
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn conjugate_break_after_apply_loop_still_fails() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation B(i : Int) : Unit is Adj {}
+                operation A() : Unit {
+                    for i in 0..1 {
+                        within {
+                            B(1);
+                        }
+                        apply {
+                            for j in 0..1 {
+                                break;
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            [
+                BreakContinueForbidden(
+                    Span {
+                        lo: 280,
+                        hi: 285,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn conjugate_mutable_correct_use_succeeds() {
     check(
         indoc! {"
@@ -636,7 +803,7 @@ fn conjugate_mutable_correct_use_succeeds() {
                                             Pat 31 [201-202] [Type Int]: Bind: Ident 32 [201-202] "y"
                                             Expr 33 [205-206] [Type Int]: Var: Local 20
                                     Stmt 72 [0-0]: Local (Immutable):
-                                        Pat 73 [0-0] [Type Unit]: Bind: Ident 71 [0-0] "@apply_res"
+                                        Pat 73 [0-0] [Type Unit]: Bind: Ident 71 [0-0] ".apply_res"
                                         Expr 74 [0-0] [Type Unit]: Expr Block: Block 34 [232-329] [Type Unit]:
                                             Stmt 35 [246-260]: Local (Mutable):
                                                 Pat 36 [254-255] [Type Int]: Bind: Ident 37 [254-255] "b"

@@ -53,6 +53,43 @@ fn while_loop() {
 }
 
 #[test]
+fn while_condition_fails() {
+    check_stmt_kinds(
+        "while (durationof({ break; }) == 0ns) {}",
+        &expect![[r#"
+            Program:
+                version: <none>
+                pragmas: <empty>
+                statements:
+                    Stmt [0-40]:
+                        annotations: <empty>
+                        kind: WhileLoop [0-40]:
+                            condition: Expr [7-36]:
+                                ty: unknown
+                                kind: Err
+                            body: Stmt [38-40]:
+                                annotations: <empty>
+                                kind: Block [38-40]: <empty>
+
+            [Qdk.Qasm.Lowerer.InvalidScope
+
+              x break can only appear in loop scopes
+               ,-[test:1:21]
+             1 | while (durationof({ break; }) == 0ns) {}
+               :                     ^^^^^^
+               `----
+            , Qdk.Qasm.Lowerer.CannotApplyOperatorToTypes
+
+              x cannot apply operator Eq to types const duration and const duration
+               ,-[test:1:8]
+             1 | while (durationof({ break; }) == 0ns) {}
+               :        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+            ]"#]],
+    );
+}
+
+#[test]
 fn nested_scopes() {
     check_stmt_kinds(
         "while (true) { { break; } }",
