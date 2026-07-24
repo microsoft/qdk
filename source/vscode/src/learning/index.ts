@@ -39,16 +39,26 @@ export function initLearning(
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeNotebookDocument((e) => {
-      // TODO (acasey): auto-save?
-      // When a cell finishes executing (executionSummary changes), check
-      // if it corresponds to an exercise in the active python-notebook
-      // course and update focus. If execution succeeded, mark complete.
+      // When a cell finishes executing (executionSummary changes), auto-save
+      // the notebook, check if it corresponds to an exercise in the active
+      // python-notebook course and update focus. If execution succeeded,
+      // mark complete.
       if (
         !learningService.initialized ||
         learningService.getActiveCourseInfo().kind !== "python-notebook"
       ) {
         return;
       }
+      const hasExecutionChange = e.cellChanges.some(
+        (change) => change.executionSummary !== undefined,
+      );
+      if (hasExecutionChange) {
+        // Moving between notebooks is clumsy when they're unsaved.  Since this
+        // is a working copy we created on the user's behalf, we're free to
+        // auto-save.
+        void e.notebook.save();
+      }
+
       for (const change of e.cellChanges) {
         if (change.executionSummary !== undefined) {
           const cellId = change.cell.metadata?.id;
