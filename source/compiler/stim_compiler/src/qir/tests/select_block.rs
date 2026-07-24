@@ -1527,16 +1527,16 @@ fn notleaked_with_negated_target_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.NegatedTarget
+            Qdk.Stim.Compiler.NegatedTarget
 
-          x target cannot be negated in instruction: NOTLEAKED
-           ,-[3:3]
-         2 |   M 0
-         3 |   NOTLEAKED !rec[-1]
-           :   ^^^^^^^^^^^^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x target cannot be negated in instruction: NOTLEAKED
+               ,-[3:13]
+             2 |   M 0
+             3 |   NOTLEAKED !rec[-1]
+               :             ^^^^^^^^
+             4 | }
+               `----
+        "#]],
     );
 }
 

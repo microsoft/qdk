@@ -1644,17 +1644,24 @@ impl<'noise> Compiler<'noise> {
             return;
         };
 
-        let mut loss_registers = Vec::new();
-        for &(result_id, negated) in &record_metadata {
+        let mut has_negated_target = false;
+        for (&(_, negated), target) in record_metadata.iter().zip(&instruction.targets) {
             if negated {
                 self.push_error(Error::NegatedTarget {
                     instruction: instruction.name.clone(),
-                    span: instruction.span,
+                    span: target.span,
                 });
-                return;
+                has_negated_target = true;
             }
-            loss_registers.push(self.read_loss_register(result_id));
         }
+        if has_negated_target {
+            return;
+        }
+
+        let loss_registers: Vec<String> = record_metadata
+            .into_iter()
+            .map(|(result_id, _)| self.read_loss_register(result_id))
+            .collect();
 
         let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
 
