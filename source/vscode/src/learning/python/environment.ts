@@ -50,11 +50,11 @@ export class EnvironmentManager {
     }
     const api = await this.pythonEnvironmentsApi();
     if (!api) {
-      // TODO (acasey): this goes to the extension host output window, which isn't useful
-      throw new Error(
+      log.warn(
         "The Python Environments extension is required for Python courses. " +
           "Install it from the VS Code Marketplace.",
       );
+      return;
     }
 
     // Check for an existing environment in this directory.
@@ -70,11 +70,11 @@ export class EnvironmentManager {
       log.info(`Creating new environment for ${courseRoot.fsPath}`);
       env = await api.createEnvironment(courseRoot, { quickCreate: true });
       if (!env) {
-        // TODO (acasey): where does this go?
-        throw new Error(
+        log.warn(
           `Failed to create a Python environment in ${courseRoot.fsPath}. ` +
             `Ensure the Python Environments extension has a registered environment manager.`,
         );
+        return;
       }
 
       // Cache the resolved environment.
