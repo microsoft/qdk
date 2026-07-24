@@ -335,6 +335,13 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("missing target in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MissingTarget"))]
+    MissingTarget {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
     #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
@@ -395,21 +402,24 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("measurement record refers to a measurement outside the enclosing SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordOutOfScope"))]
-    MeasurementRecordOutOfScope {
+    #[error("all measurement records referenced by {instruction} are out of scope")]
+    #[diagnostic(code("Qdk.Stim.Compiler.AllMeasurementRecordsOutOfScope"))]
+    AllMeasurementRecordsOutOfScope {
+        instruction: String,
         #[label]
         span: Span,
     },
-    #[error("require must appear inside a SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.RequireOutsideSelectBlock"))]
-    RequireOutsideSelectBlock {
+    #[error("{instruction} must appear inside a SELECT block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
+    InstructionOutsideSelectBlock {
+        instruction: String,
         #[label]
         span: Span,
     },
-    #[error("select instruction must start a block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.SelectWithoutBlock"))]
-    SelectWithoutBlock {
+    #[error("{instruction} instruction must start a block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InstructionWithoutBlock"))]
+    InstructionWithoutBlock {
+        instruction: String,
         #[label]
         span: Span,
     },
@@ -424,6 +434,12 @@ pub enum Error {
     #[diagnostic(code("Qdk.Stim.Compiler.NegativeNoiseProbability"))]
     NegativeNoiseProbability {
         probability: f64,
+        #[label]
+        span: Span,
+    },
+    #[error("a REPEAT count of zero is not supported")]
+    #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
+    ZeroRepeatCount {
         #[label]
         span: Span,
     },
@@ -450,28 +466,28 @@ impl AllowedRecPosition {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy)]
 enum Scope {
     TopLevel,
-    Select(u32), // The u32 is a unique id for the select scope
+    Select { id: u32, first_record: u32 },
 }
 
 struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
-    record_scopes: Vec<Scope>,                   // indexed by result id
-    scope_parents: Vec<Scope>,                   // indexed by select scope id, value = parent scope
-    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
+    record_count: u32,                           // number of allocated measurement records
+    scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
+    next_scope_id: u32,      // used to generate unique ids for scopes
 }
 
 impl IdMap {
     fn new() -> Self {
         Self {
             qubit_map: FxHashMap::default(),
-            record_scopes: Vec::new(),
-            scope_parents: Vec::new(),
-            scope_stack: Vec::new(),
             name_counters: FxHashMap::default(),
+            record_count: 0,
+            scope_stack: Vec::new(),
+            next_scope_id: 0,
         }
     }
 
@@ -483,10 +499,12 @@ impl IdMap {
     }
 
     fn enter_select_scope(&mut self) {
-        let parent = self.current_scope();
-        let id = self.scope_parents.len() as u32;
-        self.scope_parents.push(parent);
-        self.scope_stack.push(Scope::Select(id));
+        let id = self.next_scope_id;
+        self.scope_stack.push(Scope::Select {
+            id,
+            first_record: self.record_count,
+        });
+        self.next_scope_id += 1;
     }
 
     fn exit_select_scope(&mut self) {
@@ -497,51 +515,22 @@ impl IdMap {
         self.scope_stack.last().copied().unwrap_or(Scope::TopLevel)
     }
 
-    fn scope_of_record(&self, id: u32) -> Scope {
-        match self.record_scopes.get(id as usize) {
-            Some(&scope) => scope,
-            None => unreachable!("record id not found"), // this is a compiler invariant
-        }
-    }
-
-    fn parent_of(&self, scope: Scope) -> Scope {
-        let Scope::Select(id) = scope else {
-            return Scope::TopLevel;
-        };
-        self.scope_parents
-            .get(id as usize)
-            .copied()
-            .expect("cannot get the parent of a scope that has not been entered")
-    }
-
-    fn is_descendant_or_equal(&self, scope: Scope, ancestor: Scope) -> bool {
-        if scope == ancestor {
-            return true;
-        }
-        match scope {
-            Scope::Select(_) => self.is_descendant_or_equal(self.parent_of(scope), ancestor),
-            Scope::TopLevel => false,
-        }
-    }
-
     fn record_in_scope(&self, record_id: u32) -> bool {
-        self.is_descendant_or_equal(self.scope_of_record(record_id), self.current_scope())
+        let Scope::Select { first_record, .. } = self.current_scope() else {
+            return true; // top level scope can see all previous records
+        };
+        record_id >= first_record
     }
 
     fn allocate_record(&mut self) -> u32 {
-        let id = self.record_scopes.len() as u32;
-        let scope = self.current_scope();
-        self.record_scopes.push(scope);
+        let id = self.record_count;
+        self.record_count += 1;
         id
     }
 
     fn allocate_qubit(&mut self, stim_index: u32) -> u32 {
         let next_id = self.qubit_map.len() as u32;
         *self.qubit_map.entry(stim_index).or_insert(next_id)
-    }
-
-    fn num_results(&self) -> u32 {
-        self.record_scopes.len() as u32
     }
 
     fn num_qubits(&self) -> u32 {
@@ -730,18 +719,109 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn compile_block(&mut self, block: &Block) {
+        match block.block_instruction.name.as_str() {
+            "SELECT" => self.compile_select_block(block),
+            "REPEAT" => self.compile_repeat_block(block),
+            _ => {
+                self.unknown(&block.block_instruction);
+            }
+        }
+    }
+
+    fn compile_select_block(&mut self, block: &Block) {
         let Block {
-            block_instruction,
+            block_instruction: instruction,
             items,
             ..
         } = block;
 
+        if !instruction.targets.is_empty() {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction
+                    .targets
+                    .first()
+                    .map(|t| t.span)
+                    .unwrap_or(instruction.span),
+            });
+            return;
+        }
+
+        self.unsupported_args(instruction);
+
         self.id_map.enter_select_scope();
-        self.compile_instruction(block_instruction);
+        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
+            unreachable!("select scope was just entered");
+        };
+
+        let label = select_label(scope_id);
+        self.writer.write_jump(&label); // terminate the previous block
+        self.writer.write_label(&label); // start the new block
+
         for item in items {
             self.compile_item(item);
         }
         self.id_map.exit_select_scope();
+    }
+
+    fn compile_repeat_block(&mut self, block: &Block) {
+        let Block {
+            block_instruction: instruction,
+            items,
+            ..
+        } = block;
+
+        self.unsupported_args(instruction);
+
+        if instruction.targets.is_empty() {
+            self.push_error(Error::MissingTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return;
+        } else if instruction.targets.len() > 1 {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: instruction
+                    .targets
+                    .get(1)
+                    .map(|t| t.span)
+                    .unwrap_or(instruction.span),
+            });
+            return;
+        }
+
+        let repeat_target = &instruction.targets[0];
+        let TargetKind::Qubit {
+            // arbitrary choice by the parser, it's just a number of repeats, not a qubit
+            value: num_repeats,
+            negated: false,
+        } = repeat_target.kind
+        else {
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: repeat_target.span,
+            });
+            return;
+        };
+
+        if num_repeats == 0 {
+            self.push_error(Error::ZeroRepeatCount {
+                span: repeat_target.span,
+            });
+            return;
+        }
+
+        for _ in 0..num_repeats {
+            for item in items {
+                self.compile_item(item);
+            }
+
+            if !self.errors.is_empty() {
+                // makes sure we don't issue repeated errors
+                return;
+            }
+        }
     }
 
     fn compile_line(&mut self, line: &Line) {
@@ -1210,9 +1290,12 @@ impl<'noise> Compiler<'noise> {
             "MPP" | "SPP" | "SPP_DAG" => self.unsupported(instruction),
 
             // Control Flow
-            "REPEAT" => self.unsupported(instruction),
-            "SELECT" => self.compile_select(instruction),
+            "REPEAT" | "SELECT" => self.push_error(Error::InstructionWithoutBlock {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            }),
             "REQUIRE" => self.compile_require(instruction),
+            "NOTLEAKED" => self.compile_notleaked(instruction),
 
             // Annotations
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
@@ -1528,66 +1611,14 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_noise_call(&name, &ids);
     }
 
-    fn compile_select(&mut self, instruction: &Instruction) {
-        if !instruction.targets.is_empty() {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction
-                    .targets
-                    .first()
-                    .map(|t| t.span)
-                    .unwrap_or(instruction.span),
-            });
-            return;
-        }
-
-        if !instruction.args.is_empty() {
-            self.push_error(Error::UnsupportedArgument {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        }
-
-        let Scope::Select(scope) = self.id_map.current_scope() else {
-            self.push_error(Error::SelectWithoutBlock {
-                span: instruction.span,
-            });
+    fn compile_require(&mut self, instruction: &Instruction) {
+        let Some(record_metadata) = self.validate_select_condition(instruction) else {
             return;
         };
 
-        let label = select_label(scope);
-        self.writer.write_jump(&label); // terminate the previous block
-        self.writer.write_label(&label); // start the new block
-    }
-
-    fn compile_require(&mut self, instruction: &Instruction) {
-        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
-            self.push_error(Error::RequireOutsideSelectBlock {
-                span: instruction.span,
-            });
-            return;
-        }
-
-        if instruction.targets.is_empty() {
-            self.push_error(Error::UnsupportedTarget {
-                instruction: instruction.name.clone(),
-                span: instruction.span,
-            });
-            return;
-        }
-
         let mut loss_registers = Vec::new();
         let mut result_registers = Vec::new();
-        for target in &instruction.targets {
-            let Some((offset, negated)) = self.expect_measurement_record(instruction, target)
-            else {
-                return;
-            };
-            let Some(result_id) = self.resolve_record_offset(target, offset) else {
-                return;
-            };
-
+        for &(result_id, negated) in &record_metadata {
             loss_registers.push(self.read_loss_register(result_id));
             result_registers.push(self.read_result_register(result_id, negated));
         }
@@ -1598,13 +1629,50 @@ impl<'noise> Compiler<'noise> {
         let restart = self.id_map.fresh_name("restart");
         self.writer.write_or(&restart, &loss, &parity);
 
-        let Scope::Select(scope) = self.id_map.current_scope() else {
+        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
             unreachable!("REQUIRE runs inside a select block");
         };
-        let restart_label = select_label(scope);
+        let restart_label = select_label(scope_id);
         let continue_label = self.id_map.fresh_name("continue");
         self.writer
             .write_branch(&restart, &restart_label, &continue_label);
+        self.writer.write_label(&continue_label);
+    }
+
+    fn compile_notleaked(&mut self, instruction: &Instruction) {
+        let Some(record_metadata) = self.validate_select_condition(instruction) else {
+            return;
+        };
+
+        let mut has_negated_target = false;
+        for (&(_, negated), target) in record_metadata.iter().zip(&instruction.targets) {
+            if negated {
+                self.push_error(Error::NegatedTarget {
+                    instruction: instruction.name.clone(),
+                    span: target.span,
+                });
+                has_negated_target = true;
+            }
+        }
+        if has_negated_target {
+            return;
+        }
+
+        let loss_registers: Vec<String> = record_metadata
+            .into_iter()
+            .map(|(result_id, _)| self.read_loss_register(result_id))
+            .collect();
+
+        let loss = self.reduce_registers(&loss_registers, "loss", QirWriter::write_or);
+
+        let Scope::Select { id: scope_id, .. } = self.id_map.current_scope() else {
+            unreachable!("NOTLEAKED runs inside a select block");
+        };
+
+        let restart_label = select_label(scope_id);
+        let continue_label = self.id_map.fresh_name("continue");
+        self.writer
+            .write_branch(&loss, &restart_label, &continue_label);
         self.writer.write_label(&continue_label);
     }
 
@@ -1648,17 +1716,56 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn resolve_record_offset(&mut self, target: &Target, offset: u32) -> Option<u32> {
-        let num_results = self.id_map.num_results();
+        let num_results = self.id_map.record_count;
         let Some(result_id) = num_results.checked_sub(offset) else {
             self.push_error(Error::MeasurementRecordOutOfBounds { span: target.span });
             return None;
         };
 
-        if !self.id_map.record_in_scope(result_id) {
-            self.push_error(Error::MeasurementRecordOutOfScope { span: target.span });
+        Some(result_id)
+    }
+
+    fn validate_records(&mut self, instruction: &Instruction) -> Option<Vec<(u32, bool)>> {
+        let mut record_metadata = Vec::new();
+        let mut all_out_of_scope = true;
+        for target in &instruction.targets {
+            let (offset, negated) = self.expect_measurement_record(instruction, target)?;
+            let result_id = self.resolve_record_offset(target, offset)?;
+            record_metadata.push((result_id, negated));
+            if self.id_map.record_in_scope(result_id) {
+                all_out_of_scope = false;
+            }
+        }
+
+        if all_out_of_scope {
+            self.push_error(Error::AllMeasurementRecordsOutOfScope {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
             return None;
         }
-        Some(result_id)
+        Some(record_metadata)
+    }
+
+    fn validate_select_condition(&mut self, instruction: &Instruction) -> Option<Vec<(u32, bool)>> {
+        self.unsupported_args(instruction);
+        if matches!(self.id_map.current_scope(), Scope::TopLevel) {
+            self.push_error(Error::InstructionOutsideSelectBlock {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+
+        if instruction.targets.is_empty() {
+            self.push_error(Error::MissingTarget {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+
+        self.validate_records(instruction)
     }
 
     fn expect_qubit(
@@ -1801,7 +1908,7 @@ impl<'noise> Compiler<'noise> {
         self.compile_circuit(circuit);
         self.finish_correlated_noise();
         self.writer
-            .write_footer(self.id_map.num_qubits(), self.id_map.num_results());
+            .write_footer(self.id_map.num_qubits(), self.id_map.record_count);
         if self.errors.is_empty() {
             Ok(self.writer.output)
         } else {

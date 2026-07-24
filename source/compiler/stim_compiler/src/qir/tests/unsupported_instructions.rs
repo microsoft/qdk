@@ -270,27 +270,3 @@ fn spp_dag_yields_unsupported_error() {
         "#]],
     );
 }
-
-#[test]
-fn repeat_yields_unsupported_error() {
-    let source = indoc! {"
-        REPEAT 10 {
-          CNOT 0 1
-          CNOT 2 1
-          M 1
-        }
-    "};
-    check(
-        source,
-        &expect![[r#"
-            Qdk.Stim.Compiler.UnsupportedInstruction
-
-              x unsupported instruction: REPEAT
-               ,-[1:1]
-             1 | REPEAT 10 {
-               : ^^^^^^^^^
-             2 |   CNOT 0 1
-               `----
-        "#]],
-    );
-}
