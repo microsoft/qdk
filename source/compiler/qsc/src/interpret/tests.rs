@@ -2594,8 +2594,8 @@ mod given_interpreter {
         )
     }
 
-    fn get_interpreter_with_config(qsharp_config: FxHashMap<Rc<str>, Value>) -> Interpreter {
-        get_interpreter_with_capabilities_and_config(TargetCapabilityFlags::all(), qsharp_config)
+    fn get_interpreter_with_config(qdk_config: FxHashMap<Rc<str>, Value>) -> Interpreter {
+        get_interpreter_with_capabilities_and_config(TargetCapabilityFlags::all(), qdk_config)
     }
 
     fn get_interpreter_with_capabilities(capabilities: TargetCapabilityFlags) -> Interpreter {
@@ -2604,7 +2604,7 @@ mod given_interpreter {
 
     fn get_interpreter_with_capabilities_and_config(
         capabilities: TargetCapabilityFlags,
-        qsharp_config: FxHashMap<Rc<str>, Value>,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> Interpreter {
         let (std_id, store) = crate::compile::package_store_with_stdlib(capabilities);
         let dependencies = &[(std_id, None)];
@@ -2615,7 +2615,7 @@ mod given_interpreter {
             LanguageFeatures::default(),
             store,
             dependencies,
-            qsharp_config,
+            qdk_config,
         )
         .expect("interpreter should be created")
     }

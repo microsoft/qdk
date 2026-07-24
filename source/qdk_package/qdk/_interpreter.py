@@ -102,7 +102,7 @@ def init(
     project_root: Optional[str] = None,
     language_features: Optional[List[str]] = None,
     trace_circuit: Optional[bool] = None,
-    qsharp_config: dict[str, int | float | str | bool] = {},
+    qdk_config: dict[str, int | float | str | bool] = {},
 ) -> Config:
     """
     Initializes the Q# interpreter.
@@ -130,7 +130,7 @@ def init(
         The `circuit` function is *NOT* affected by this parameter and will always
         generate a circuit.
 
-    :keyword qsharp_config: configuration parameters that will be accessible in Q#
+    :keyword qdk_config: configuration parameters that will be accessible in Q#
         code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of
         type `int`, `float`, `str`, or `bool`.
 
@@ -153,7 +153,7 @@ def init(
         language_features=language_features,
         _trace_circuit=trace_circuit,
         _is_global_context=True,
-        qsharp_config=qsharp_config,
+        qdk_config=qdk_config,
     )
     return _default_context._config
 

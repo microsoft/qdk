@@ -48,9 +48,9 @@ impl Compiler {
         language_features: LanguageFeatures,
         mut store: PackageStore,
         dependencies: &Dependencies,
-        qsharp_config: FxHashMap<Rc<str>, Value>,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> Result<Self, Errors> {
-        let mut passes = PassContext::new(qsharp_config);
+        let mut passes = PassContext::new(qdk_config);
         let (mut unit, errors) = compile_with_pass_context(
             &store,
             dependencies,
