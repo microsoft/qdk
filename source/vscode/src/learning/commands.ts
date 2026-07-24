@@ -249,8 +249,12 @@ export function registerLearningCommands(
 }
 
 /**
- * Select and scroll to the cell with the given stable ID in an already-open
- * notebook. No-op if the notebook isn't visible or the cell can't be found.
+ * Select the cell with the given stable ID in an already-open notebook and
+ * scroll it into view. When the cell is immediately preceded by a markdown
+ * cell — typically the exercise's instructions — that cell is scrolled to
+ * instead, so the learner sees the prompt and not just the code.
+ *
+ * No-op if the notebook isn't visible or the cell can't be found.
  */
 function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
   const uriStr = notebookUri.toString();
@@ -268,9 +272,21 @@ function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
     log.warn(`Cell ${cellId} not found in ${uriStr}; can't reveal it.`);
     return;
   }
-  const range = new vscode.NotebookRange(cell.index, cell.index + 1);
-  editor.selection = range;
-  editor.revealRange(range, vscode.NotebookEditorRevealType.AtTop);
+
+  // The selection stays on the exercise cell — only the scroll target
+  // widens to include the preceding prompt.
+  editor.selection = new vscode.NotebookRange(cell.index, cell.index + 1);
+
+  const previous =
+    cell.index > 0 ? editor.notebook.cellAt(cell.index - 1) : undefined;
+  const revealStart =
+    previous?.kind === vscode.NotebookCellKind.Markup
+      ? previous.index
+      : cell.index;
+  editor.revealRange(
+    new vscode.NotebookRange(revealStart, cell.index + 1),
+    vscode.NotebookEditorRevealType.Default,
+  );
 }
 
 function nodeToTitle(node: LearningProgressNode): string {
