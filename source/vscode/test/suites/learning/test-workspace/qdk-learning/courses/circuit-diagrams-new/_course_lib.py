@@ -52,7 +52,10 @@ def _pass(message: str) -> None:
     display(
         HTML(
             '<div style="font-family:system-ui,sans-serif;margin:8px 0;'
-            "padding:10px 14px;background:#e8f5e9;border-left:4px solid #2e7d32;"
+            "padding:10px 14px;"
+            "background:var(--vscode-notifications-background, #e8f5e9);"
+            "color:var(--vscode-notifications-foreground, #1b5e20);"
+            "border-left:4px solid var(--vscode-testing-iconPassed, #2e7d32);"
             'border-radius:4px">'
             f"&#x2705; <strong>{message}</strong>"
             "</div>"
@@ -65,7 +68,10 @@ def _fail(message: str) -> None:
     display(
         HTML(
             '<div style="font-family:system-ui,sans-serif;margin:8px 0;'
-            "padding:10px 14px;background:#fff3e0;border-left:4px solid #e65100;"
+            "padding:10px 14px;"
+            "background:var(--vscode-inputValidation-warningBackground, #fff3e0);"
+            "color:var(--vscode-inputValidation-warningForeground, #e65100);"
+            "border-left:4px solid var(--vscode-inputValidation-warningBorder, #e65100);"
             'border-radius:4px">'
             f"&#x274C; <strong>{message}</strong>"
             "</div>"
@@ -194,11 +200,13 @@ def complete_unit(required_exercises: list[str] | None = None) -> None:
     marker = Path(".qdk-unit-complete")
     marker.write_text(f"{unit_id}\n")
 
-    # TODO (acasey): dark mode
     display(
         HTML(
             '<div style="font-family:system-ui,sans-serif;margin:12px 0;'
-            "padding:14px 18px;background:#e8f5e9;border-left:4px solid #2e7d32;"
+            "padding:14px 18px;"
+            "background:var(--vscode-notifications-background, #e8f5e9);"
+            "color:var(--vscode-notifications-foreground, #1b5e20);"
+            "border-left:4px solid var(--vscode-testing-iconPassed, #2e7d32);"
             'border-radius:4px;font-size:1.1em">'
             "&#x1F389; <strong>Congratulations — you've completed this unit!</strong>"
             "</div>"
