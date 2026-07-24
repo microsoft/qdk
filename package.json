@@ -29,7 +29,7 @@
     "@vscode/codicons": "^0.0.45",
     "@vscode/debugadapter": "^1.68.0",
     "@vscode/debugprotocol": "^1.68.0",
-    "@vscode/extension-telemetry": "0.8.5",
+    "@vscode/extension-telemetry": "^1.5.2",
     "@vscode/markdown-it-katex": "^1.0.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/test-web": "^0.0.81",
@@ -58,6 +58,7 @@
     "vscode-uri": "^3.0.8"
   },
   "overrides": {
+    "brace-expansion": "^5.0.7",
     "mocha": {
       "serialize-javascript": "^7.0.4",
       "diff": "^8.0.3"
