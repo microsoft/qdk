@@ -563,7 +563,7 @@ impl<'a> LoopNormalize<'a> {
             return;
         }
         let ty = value.ty.clone();
-        self.arrayify_value_in_place(value, &ty);
+        self.arrayify_value_in_place(value);
     }
 
     /// Binds `op` (a lifted candidate of the non-defaultable type `ty`) to a
@@ -582,7 +582,7 @@ impl<'a> LoopNormalize<'a> {
         let ident = gen_ident(self.assigner, "operand_tmp", array_ty, span);
         let read = self.gen_array_backed_read(&ident, ty, &[]);
         let mut init = std::mem::replace(op, read);
-        self.arrayify_value_in_place(&mut init, ty);
+        self.arrayify_value_in_place(&mut init);
         ident.gen_id_init(Mutability::Immutable, init, self.assigner)
     }
 
@@ -661,50 +661,50 @@ impl<'a> LoopNormalize<'a> {
     /// `Unit`-typed, and `Unit` has a classical default, so a loop never takes
     /// the array-backed path and never reaches this helper. Mirrors the
     /// array-backing of the `return_unify` FIR transform.
-    fn arrayify_value_in_place(&mut self, expr: &mut Expr, elem_ty: &Ty) {
-        let array_ty = Ty::Array(Box::new(elem_ty.clone()));
+    fn arrayify_value_in_place(&mut self, expr: &mut Expr) {
+        let array_ty = Ty::Array(Box::new(expr.ty.clone()));
         match &mut expr.kind {
             ExprKind::Block(block) => {
-                self.arrayify_block_tail_value(block, elem_ty);
+                self.arrayify_block_tail_value(block);
                 expr.ty = array_ty;
             }
             ExprKind::If(_, then_branch, otherwise) => {
-                self.arrayify_value_in_place(then_branch, elem_ty);
+                self.arrayify_value_in_place(then_branch);
                 if let Some(else_branch) = otherwise {
-                    self.arrayify_value_in_place(else_branch, elem_ty);
+                    self.arrayify_value_in_place(else_branch);
                 }
                 expr.ty = array_ty;
             }
             ExprKind::Break | ExprKind::Continue | ExprKind::Return(_) => {
                 expr.ty = array_ty;
             }
-            _ => self.wrap_leaf_value_in_place(expr, elem_ty),
+            _ => self.wrap_leaf_value_in_place(expr),
         }
     }
 
     /// Retypes a block's trailing value, its last `Expr` statement if any, to
     /// `elem_ty[]` and sets the block's own type to match.
-    fn arrayify_block_tail_value(&mut self, block: &mut Block, elem_ty: &Ty) {
+    fn arrayify_block_tail_value(&mut self, block: &mut Block) {
         if let Some(Stmt {
             kind: StmtKind::Expr(tail),
             ..
         }) = block.stmts.last_mut()
         {
-            self.arrayify_value_in_place(tail, elem_ty);
+            self.arrayify_value_in_place(tail);
         }
-        block.ty = Ty::Array(Box::new(elem_ty.clone()));
+        block.ty = Ty::Array(Box::new(block.ty.clone()));
     }
 
     /// Replaces an `elem_ty`-valued leaf `expr` in place with the single-element
     /// array literal `[ <leaf> ]` of type `elem_ty[]`, moving the original leaf
     /// with all its children intact inside the new array.
-    fn wrap_leaf_value_in_place(&mut self, expr: &mut Expr, elem_ty: &Ty) {
+    fn wrap_leaf_value_in_place(&mut self, expr: &mut Expr) {
         let span = expr.span;
         let inner = std::mem::take(expr);
         *expr = Expr {
             id: self.assigner.next_node(),
             span,
-            ty: Ty::Array(Box::new(elem_ty.clone())),
+            ty: Ty::Array(Box::new(expr.ty.clone())),
             kind: ExprKind::Array(vec![inner]),
         };
     }
