@@ -1674,3 +1674,224 @@ fn nested_repeat_fixup_control_reaches_placement_validation() {
         "expected a loop_control InFixup diagnostic, got {errors:?}"
     );
 }
+
+#[test]
+fn composed_multi_break_multi_continue() {
+    check(
+        indoc! {r#"
+        namespace test {
+            operation Main(skipFirst : Int, stopFirst : Int, skipSecond : Int, stopSecond : Int) : Unit {
+                mutable i = 0;
+                mutable total = 0;
+                while i < 10 {
+                    i += 1;
+                    if i == skipFirst {
+                        continue;
+                    }
+                    total += 1;
+                    if i == stopFirst {
+                        break;
+                    }
+                    total += 10;
+                    if i == skipSecond {
+                        continue;
+                    }
+                    total += 100;
+                    if i == stopSecond {
+                        break;
+                    }
+                    total += 1000;
+                }
+            }
+        }
+        "#},
+        &expect![[r#"
+            operation Main(skipFirst : Int, stopFirst : Int, skipSecond : Int, stopSecond : Int) : Unit {
+                mutable i = 0;
+                mutable total = 0;
+                {
+                    mutable _broke_84 = false;
+                    while not _broke_84 and i < 10 {
+                        mutable _cont_88 = false;
+                        i += 1;
+                        if i == skipFirst {
+                            _cont_88 = true;
+                        }
+                        if not _broke_84 and not _cont_88 {
+                            total += 1;
+                        }
+                        if not _broke_84 and not _cont_88 {
+                            if i == stopFirst {
+                                _broke_84 = true;
+                            }
+                        }
+                        if not _broke_84 and not _cont_88 {
+                            total += 10;
+                        }
+                        if not _broke_84 and not _cont_88 {
+                            if i == skipSecond {
+                                _cont_88 = true;
+                            }
+                        }
+                        if not _broke_84 and not _cont_88 {
+                            total += 100;
+                        }
+                        if not _broke_84 and not _cont_88 {
+                            if i == stopSecond {
+                                _broke_84 = true;
+                            }
+                        }
+                        if not _broke_84 and not _cont_88 {
+                            total += 1000;
+                        }
+                    }
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn nested_composed_multi_break_multi_continue() {
+    check(
+        indoc! {r#"
+        namespace test {
+            operation Main(
+                outerSkipFirst : Int,
+                outerStopFirst : Int,
+                outerSkipSecond : Int,
+                outerStopSecond : Int,
+                innerSkipFirst : Int,
+                innerStopFirst : Int,
+                innerSkipSecond : Int,
+                innerStopSecond : Int,
+            ) : Unit {
+                mutable i = 0;
+                mutable total = 0;
+                while i < 10 {
+                    i += 1;
+                    mutable j = 0;
+                    if i == outerSkipFirst {
+                        continue;
+                    }
+                    total += 1;
+                    while j < 10 {
+                        j += 1;
+                        if j == innerSkipFirst {
+                            continue;
+                        }
+                        total += 10;
+                        if j == innerStopFirst {
+                            break;
+                        }
+                        total += 100;
+                        if j == innerSkipSecond {
+                            continue;
+                        }
+                        total += 1000;
+                        if j == innerStopSecond {
+                            break;
+                        }
+                        total += 10000;
+                    }
+                    if i == outerStopFirst {
+                        break;
+                    }
+                    total += 100000;
+                    if i == outerSkipSecond {
+                        continue;
+                    }
+                    total += 1000000;
+                    if i == outerStopSecond {
+                        break;
+                    }
+                    total += 10000000;
+                }
+            }
+        }
+        "#},
+        &expect![[r#"
+            operation Main(outerSkipFirst : Int, outerStopFirst : Int, outerSkipSecond : Int, outerStopSecond : Int, innerSkipFirst : Int, innerStopFirst : Int, innerSkipSecond : Int, innerStopSecond : Int) : Unit {
+                mutable i = 0;
+                mutable total = 0;
+                {
+                    mutable _broke_252 = false;
+                    while not _broke_252 and i < 10 {
+                        mutable _cont_256 = false;
+                        i += 1;
+                        mutable j = 0;
+                        if i == outerSkipFirst {
+                            _cont_256 = true;
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            total += 1;
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            {
+                                mutable _broke_158 = false;
+                                while not _broke_158 and j < 10 {
+                                    mutable _cont_162 = false;
+                                    j += 1;
+                                    if j == innerSkipFirst {
+                                        _cont_162 = true;
+                                    }
+                                    if not _broke_158 and not _cont_162 {
+                                        total += 10;
+                                    }
+                                    if not _broke_158 and not _cont_162 {
+                                        if j == innerStopFirst {
+                                            _broke_158 = true;
+                                        }
+                                    }
+                                    if not _broke_158 and not _cont_162 {
+                                        total += 100;
+                                    }
+                                    if not _broke_158 and not _cont_162 {
+                                        if j == innerSkipSecond {
+                                            _cont_162 = true;
+                                        }
+                                    }
+                                    if not _broke_158 and not _cont_162 {
+                                        total += 1000;
+                                    }
+                                    if not _broke_158 and not _cont_162 {
+                                        if j == innerStopSecond {
+                                            _broke_158 = true;
+                                        }
+                                    }
+                                    if not _broke_158 and not _cont_162 {
+                                        total += 10000;
+                                    }
+                                }
+                            }
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            if i == outerStopFirst {
+                                _broke_252 = true;
+                            }
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            total += 100000;
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            if i == outerSkipSecond {
+                                _cont_256 = true;
+                            }
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            total += 1000000;
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            if i == outerStopSecond {
+                                _broke_252 = true;
+                            }
+                        }
+                        if not _broke_252 and not _cont_256 {
+                            total += 10000000;
+                        }
+                    }
+                }
+            }
+        "#]],
+    );
+}
