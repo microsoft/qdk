@@ -18,6 +18,8 @@ __pycache__/
 /source/npm/qsharp/lib/
 /source/npm/qsharp/src/*.generated.*
 /source/npm/qsharp/test/**/*.snapshot.*
+/source/npm/qsharp/rz-array.json
+/source/npm/qsharp/rz-details.json
 /source/pip/
 /source/pip/src/**/*.html
 /source/qdk_package/

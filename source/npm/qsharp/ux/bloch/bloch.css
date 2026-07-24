@@ -1,0 +1,976 @@
+/* Copyright (c) Microsoft Corporation.
+   Licensed under the MIT License. */
+
+/* Styles for the Bloch sphere widget (see bloch.tsx). Bundled together
+   with qsharp-ux.css, so the shared --qdk-* theme tokens (defined in
+   qdk-theme.css) are available here without a separate @import. */
+
+.qs-gate-buttons button {
+  width: 50px;
+  height: 25px;
+}
+
+/* The gate-button toolbar is a row of segmented control groups: the gate
+   palette (X..T†), the undo/redo pair, and reset. Each group is a single
+   continuous "toolbelt" bar -- one rounded, bordered surface -- and the
+   individual gates are transparent segments inside it divided by thin
+   internal rules, so a group reads as one cohesive control rather than a
+   row of separate buttons. */
+.qs-gate-buttons {
+  display: flex;
+  /* The palette, undo/redo, and clear groups must stay together on a
+     single line -- they read as one toolbar. The control panel is sized
+     to fit this row, so it must never wrap. */
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+}
+.qs-bloch-gate-group {
+  display: inline-flex;
+  /* The bar surface: the border, rounding, and background live on the
+     group, not on its buttons. `overflow: hidden` clips the segments'
+     hover fill to the rounded outer corners. */
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 5px;
+  background: var(--qdk-menu-fill);
+  overflow: hidden;
+}
+/* Buttons become flat, borderless segments of the bar. We override the
+   shared themed-button rules (which give each button its own fill,
+   border, and rounding) so only the group surface shows through. A thin
+   left rule on every segment except the first draws the internal
+   dividers between gates. */
+.qs-gate-buttons .qs-bloch-gate-group button {
+  margin: 0;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  /* Divider between segments. We mix the foreground into the fill rather
+     than using --qdk-widget-outline: in the dark theme the outline token
+     (#444) is identical to --qdk-menu-fill, so an outline-coloured rule
+     would be invisible against the bar. A translucent foreground line
+     reads clearly on both the light and dark button fills. */
+  border-left: 1px solid
+    color-mix(in srgb, var(--qdk-host-foreground) 35%, transparent);
+}
+.qs-gate-buttons .qs-bloch-gate-group button:first-child {
+  border-left: none;
+}
+.qs-gate-buttons .qs-bloch-gate-group button:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+/* Keep the focus ring inside the bar so it isn't clipped by the group's
+   `overflow: hidden`, and lift it above neighbouring dividers. */
+.qs-gate-buttons .qs-bloch-gate-group button:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: -2px;
+  position: relative;
+  z-index: 1;
+}
+/* The gate palette segments share a fixed footprint so the set reads as
+   an even keypad. */
+.qs-gate-buttons .qs-bloch-gate-group-palette button {
+  width: 38px;
+}
+
+/* ---- Bloch widget: themed form controls ----
+   Browser-default <button>, <input type="text">, and <input type="range">
+   styling looks badly out of place on a dark theme (white inputs on a
+   dark pane, light buttons with chrome borders). The rules below give
+   every interactive control inside the Bloch widget a consistent set
+   of theme-token colors so they swap correctly with VS Code / Jupyter
+   theme changes.
+
+   We scope by `[class^="qs-bloch"]` and `.qs-gate-buttons` rather than
+   bare `button { ... }` so this stays a local override and never
+   leaks into katas, circuits, or other widgets that style their own
+   buttons. */
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle),
+.qs-bloch-gate-editor button,
+.qs-bloch-mini-transport button,
+.qs-gate-buttons button {
+  background: var(--qdk-menu-fill);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle):hover:not(:disabled),
+.qs-bloch-gate-editor button:hover:not(:disabled),
+.qs-bloch-mini-transport button:hover:not(:disabled),
+.qs-gate-buttons button:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle):focus-visible,
+.qs-bloch-gate-editor button:focus-visible,
+.qs-bloch-mini-transport button:focus-visible,
+.qs-gate-buttons button:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-trace button:not(.qs-bloch-trace-toggle):disabled,
+.qs-bloch-gate-editor button:disabled,
+.qs-bloch-mini-transport button:disabled,
+.qs-gate-buttons button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Themed text input. Matches the pane background and foreground so
+   the textbox blends in rather than dropping a white plate onto a
+   dark widget. */
+.qs-bloch-gate-editor input[type="text"] {
+  background: var(--qdk-host-background);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+}
+.qs-bloch-gate-editor input[type="text"]:focus {
+  outline: none;
+  border-color: var(--qdk-focus-border, var(--qdk-atom-fill));
+}
+
+/* Themed range sliders. `accent-color` is the simplest cross-browser
+   knob for the thumb + track tint; both Chromium and Firefox honour
+   it on <input type="range">. We use the menu-selected fill so the
+   slider thumb stands out against the menu background of its row. */
+.qs-bloch-trace input[type="range"],
+.qs-bloch-gate-editor input[type="range"],
+.qs-bloch input[type="range"] {
+  accent-color: var(--qdk-menu-fill-selected);
+}
+/* End Bloch themed form controls */
+
+/* Bloch sphere widget root. A two-column grid: the sphere visualization
+   in the flexible left column and the trace pane in the fixed-width right
+   column. The gate controls overlay the bottom-left of the visualization
+   rather than taking their own space. The widget takes the full width
+   available but keeps a bounded height so the sphere stays readable
+   instead of stretching to fill tall hosts. */
+.qs-bloch {
+  /* The widget is a vertical stack: a docked gate toolbar on top and the
+     body (sphere + trace) below. The toolbar wraps to multiple rows on
+     narrow hosts so its controls never clip. */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  box-sizing: border-box;
+  /* Breathing room above the widget so its top border isn't flush against
+     the host's tab/toolbar edge. */
+  margin-top: 12px;
+}
+
+/* Docked gate toolbar across the top of the widget: gate palette, rotation
+   control, program editor, and edit history. A flat bar (border only, no
+   shadow) that reads as part of the widget frame. Wraps so nothing clips
+   on a narrow host. The trace-width custom property is still published by
+   bloch.tsx and consumed by `.qs-bloch-trace` below. */
+.qs-bloch-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 8px 12px;
+  border: 1px solid var(--qdk-widget-outline);
+  border-bottom: none;
+  background: var(--qdk-host-background);
+}
+/* Thin vertical rule separating logical groups in the toolbar. */
+.qs-bloch-toolbar-divider {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 1px;
+  min-height: 24px;
+  background: color-mix(in srgb, var(--qdk-host-foreground) 20%, transparent);
+}
+/* Elastic gap that pushes the edit-history group to the far right. */
+.qs-bloch-toolbar-spacer {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+/* The widget body: the sphere visualization and the trace pane, side by
+   side. `align-items: stretch` makes the trace pane match the sphere's
+   height so their bottoms line up. */
+.qs-bloch-body {
+  display: flex;
+  align-items: stretch;
+  min-height: 0;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Left column: the sphere visualization. It owns a fixed height (the
+   sphere fills it edge to edge) and is the positioning context for the
+   corner overlays (state ket / angles top-left, playback top-right). The
+   trace pane in the right column stretches to match its height. */
+.qs-bloch-main {
+  flex: 1 1 auto;
+  position: relative;
+  height: min(60vh, 600px);
+  min-width: 0;
+}
+
+/* The 3D canvas stage fills the whole visualization. `position: relative`
+   anchors the corner overlays (theta/phi, state ket, gate sequence); the
+   border marks the edge of the visualization. */
+.qs-bloch-stage {
+  position: absolute;
+  inset: 0;
+  min-width: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-stage canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Circular angle dial. An SVG knob the user drags around a track to set
+   the Rz angle; also focusable and keyboard-operable (role="slider").
+   `touch-action: none` keeps a drag from scrolling the page on touch
+   devices, and the pointer cursor hints at the drag affordance. */
+.qs-bloch-rz-dial {
+  width: 84px;
+  height: 84px;
+  flex: 0 0 auto;
+  touch-action: none;
+  cursor: pointer;
+  user-select: none;
+}
+.qs-bloch-rz-dial:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 2px;
+  border-radius: 50%;
+}
+.qs-bloch-rz-dial-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qs-bloch-rz-dial-track {
+  fill: var(--qdk-host-background);
+  stroke: var(--qdk-widget-outline);
+  stroke-width: 3;
+}
+.qs-bloch-rz-dial-tick {
+  stroke: var(--qdk-widget-outline);
+  stroke-width: 2;
+}
+.qs-bloch-rz-dial-needle {
+  stroke: var(--qdk-menu-fill-selected);
+  stroke-width: 3;
+  stroke-linecap: round;
+}
+.qs-bloch-rz-dial-center {
+  fill: var(--qdk-host-foreground);
+}
+.qs-bloch-rz-dial-knob {
+  fill: var(--qdk-menu-fill-selected);
+  stroke: var(--qdk-host-background);
+  stroke-width: 2;
+}
+.qs-bloch-rz-dial:hover .qs-bloch-rz-dial-knob {
+  fill: var(--qdk-menu-fill-hover);
+}
+
+/* Editable angle field embedded in the readout. Styled as inline text with
+   just a subtle underline so it reads as part of the "Rz( ... rad)" label
+   rather than a boxy input. Users type an angle (radians) and the dial +
+   decomposition snap to the nearest grid value. */
+.qs-bloch-rz-input {
+  width: 3.5em;
+  font: inherit;
+  font-style: italic;
+  color: inherit;
+  text-align: center;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--qdk-widget-outline);
+  border-radius: 0;
+  padding: 0 2px;
+  cursor: text;
+}
+.qs-bloch-rz-input:hover:not(:disabled) {
+  border-bottom-color: var(--qdk-host-foreground);
+}
+.qs-bloch-rz-input:focus {
+  outline: none;
+  border-bottom: 1px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+}
+.qs-bloch-rz-input:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qs-bloch-rz-apply {
+  height: 25px;
+  padding: 0 12px;
+  white-space: nowrap;
+  background: var(--qdk-menu-fill);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.qs-bloch-rz-apply:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-rz-apply:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-rz-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ---- Toolbar rotation control ----
+   A compact "Rz( θ rad)" field plus an Add button. Focusing the angle
+   field opens a popover (`.qs-bloch-rot-dial`) holding the draggable dial
+   and the live Clifford+T decomposition; the axis dropdown
+   (`.qs-bloch-rot-menu`) picks the rotation axis. The control is the
+   positioning context for both pop-ups. */
+.qs-bloch-rot {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+/* The inline field: axis dropdown + "(" + angle input + "rad)", styled to
+   read as a single italic "Rz( ... rad)" expression. */
+.qs-bloch-rot-field {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  font-style: italic;
+  font-size: 1.15em;
+  white-space: nowrap;
+}
+/* Axis dropdown trigger (e.g. "Rz ▾"). Flat text-like button so it blends
+   into the expression rather than reading as a separate control. */
+.qs-bloch-rot-axis {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font: inherit;
+  font-style: italic;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1px dashed var(--qdk-widget-outline);
+  padding: 0 2px;
+  cursor: pointer;
+}
+.qs-bloch-rot-axis:hover:not(:disabled) {
+  border-bottom-color: var(--qdk-host-foreground);
+}
+.qs-bloch-rot-axis:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-rot-axis:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.qs-bloch-rot-axis-caret {
+  font-size: 0.7em;
+  font-style: normal;
+  opacity: 0.7;
+}
+/* Dropdown menu listing the three axes, floated below the trigger. */
+.qs-bloch-rot-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  min-width: 64px;
+  padding: 4px;
+  background: var(--qdk-host-background);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.qs-bloch-rot-menu-item {
+  font: inherit;
+  font-style: italic;
+  text-align: left;
+  color: var(--qdk-host-foreground);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+.qs-bloch-rot-menu-item:hover {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-rot-menu-item-active {
+  background: var(--qdk-atom-fill);
+  color: var(--qdk-atom-foreground, var(--qdk-host-foreground));
+}
+.qs-bloch-rot-paren {
+  font-style: italic;
+}
+/* The angle input reuses `.qs-bloch-rz-input` for its inline-text look;
+   `.qs-bloch-rot-arg` only tweaks spacing within the field. */
+.qs-bloch-rot-arg {
+  margin: 0 1px;
+}
+.qs-bloch-rot-add {
+  flex: 0 0 auto;
+}
+/* Popover opened when the angle field is focused: the draggable dial, a
+   short hint, and the live Clifford+T decomposition. Floated below the
+   field so it doesn't push the toolbar around. */
+.qs-bloch-rot-dial {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 240px;
+  padding: 12px;
+  background: var(--qdk-host-background);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 6px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+/* Make the reused dial a comfortable size inside the popover. */
+.qs-bloch-rot-dial .qs-bloch-rz-dial {
+  width: 120px;
+  height: 120px;
+}
+.qs-bloch-rot-dial-hint {
+  font-size: 0.85em;
+  font-style: italic;
+  opacity: 0.7;
+}
+/* Live Clifford+T decomposition inside the popover. */
+.qs-bloch-rot-decomp {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  padding-top: 8px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--qdk-host-foreground) 20%, transparent);
+}
+.qs-bloch-rot-decomp-label {
+  font-size: 0.85em;
+  font-weight: bold;
+  opacity: 0.8;
+}
+.qs-bloch-rot-decomp-str {
+  font-family: var(--qdk-font-family-monospace);
+  font-size: 0.85em;
+  letter-spacing: 0.04em;
+  word-break: break-all;
+  user-select: text;
+  max-height: 4.5em;
+  overflow-y: auto;
+  line-height: 1.3;
+  color: var(--qdk-description-foreground, var(--qdk-foreground-muted));
+}
+
+/* When the trace pane is collapsed, a small cluster floats over the
+   top-right of the sphere stage: a toggle that reopens the pane plus
+   (when there are gates) a compact playback transport. */
+.qs-bloch-trace-toggle-overlay {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Compact playback controls shown while the trace pane is collapsed, so
+   the animation can be driven (jump/step/play) without reopening the
+   pane. Mirrors the main transport in `.qs-bloch-media-controls` minus
+   the speed slider. */
+.qs-bloch-mini-transport {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 5px;
+  background: var(--qdk-background-accent);
+  border: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-mini-transport button {
+  width: 28px;
+  height: 26px;
+  padding: 0;
+  font-size: 0.95em;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Labeled toggle that collapses (in the trace title bar) or reopens (in
+   the sphere overlay) the trace pane. A text label ("Hide" / "Trace")
+   paired with a chevron makes the action obvious rather than relying on a
+   bare glyph. Themed as a small button in both spots. */
+.qs-bloch-trace-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 0.85em;
+  font-weight: bold;
+  line-height: 1;
+  /* Use the pane-body accent color, NOT --qdk-menu-fill: the title bar the
+     collapse button sits in is itself --qdk-menu-fill, so a menu-fill button
+     would be invisible (only its text would show). The accent fill gives it a
+     distinct surface -- the same contrast the gate buttons get by sitting on
+     the accent pane. */
+  background: var(--qdk-background-accent);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+  border-radius: 3px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qs-bloch-trace-toggle:hover:not(:disabled) {
+  background: var(--qdk-menu-fill-hover);
+}
+.qs-bloch-trace-toggle:focus-visible {
+  outline: 2px solid var(--qdk-focus-border, var(--qdk-atom-fill));
+  outline-offset: 1px;
+}
+.qs-bloch-trace-toggle-icon {
+  font-size: 1.15em;
+  opacity: 0.8;
+}
+
+/* On narrow hosts (split editor, small Jupyter outputs) the side-by-side
+   body gets cramped, so stack the trace pane below the visualization. The
+   toolbar already wraps on its own. */
+@media (max-width: 720px) {
+  .qs-bloch-body {
+    flex-direction: column;
+  }
+  .qs-bloch-main {
+    width: 100%;
+  }
+  .qs-bloch-trace {
+    /* Full width below the sphere, with an explicit height so the
+       absolutely-positioned inner list has a box to fill and scroll
+       within. Override the flex-basis/max-width the wide layout sets. */
+    flex: 0 0 auto;
+    max-width: none;
+    width: 100%;
+    height: 40vh;
+  }
+  /* Collapsed in the stacked layout: just drop the trace pane entirely;
+     the sphere's overlay toggle reopens it. */
+  .qs-bloch-trace-collapsed .qs-bloch-trace {
+    display: none;
+  }
+}
+
+/* Bloch sphere widget: the gate-trace pane sitting to the right of the
+   3D canvas. Uses the shared QDK theme tokens so the pane swaps colors
+   along with VS Code / playground theme changes. The 3D canvas itself
+   (sphere material, axis labels) is themed imperatively from bloch.tsx
+   since it's drawn via WebGL. */
+.qs-bloch-trace {
+  /* The pane's width is driven by JS: bloch.tsx measures the widest trace
+     row and publishes it as `--qs-trace-width` so the pane grows
+     horizontally to fit the wide `gate . |psi> = result` equations. It
+     falls back to a sensible floor before the first measurement. It does
+     not grow or shrink from the flex row -- only the sphere column flexes.
+     The pane stretches (body `align-items: stretch`) to the fixed height
+     of the visualization column (`.qs-bloch-main`), so its bottom is flush
+     with the bottom of the widget. */
+  flex: 0 0 var(--qs-trace-width, 480px);
+  max-width: var(--qs-trace-width, 480px);
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--qdk-background-accent);
+  color: var(--qdk-host-foreground);
+  border: 1px solid var(--qdk-widget-outline);
+}
+/* Collapsed: the pane shrinks to zero width and the sphere column
+   reclaims the space, so drop the border too (it would otherwise paint a
+   1px sliver at the sphere's right edge). The pane stays in the DOM so the
+   trace rows keep their layout and the width-measurement fixed point
+   survives an expand. */
+.qs-bloch-trace-collapsed .qs-bloch-trace {
+  flex-basis: 0;
+  max-width: 0;
+  border: none;
+}
+
+/* Absolutely-positioned content layer for the trace pane. Filling the
+   pane makes it match the pane height (set by the sphere column via the
+   body's `align-items: stretch`) while contributing nothing to the flex
+   sizing. The flex column lays out the title, transport controls, speed
+   slider, and the scrolling step list within it. */
+.qs-bloch-trace-inner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* When collapsed the column is zero-width; hide the content with
+   `visibility` (which also drops it from the tab order) while preserving
+   its layout geometry, so each trace row keeps a valid `scrollWidth` for
+   the width measurement. */
+.qs-bloch-trace-collapsed .qs-bloch-trace-inner {
+  visibility: hidden;
+}
+
+/* Top-left readout stack over the sphere canvas: the current state ket
+   above the spherical coordinates (theta, phi). Sits above the WebGL
+   canvas, doesn't intercept pointer events so OrbitControls still works,
+   and pulls colors from the shared QDK tokens so the text stays legible
+   against either palette. */
+.qs-bloch-readout {
+  position: absolute;
+  top: 10px;
+  left: 12px;
+  z-index: 1;
+  pointer-events: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  user-select: none;
+}
+
+/* Spherical coordinates (theta, phi). Static inside the readout stack. */
+.qs-bloch-coords {
+  color: var(--qdk-host-foreground);
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 1.05em;
+  line-height: 1.35;
+  opacity: 0.9;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The Greek letters render with the expected lowercase glyph (theta as
+   a circle with a horizontal bar) when drawn in a serif/UI font rather
+   than the editor's monospace font, which on some platforms swaps in
+   the script variant. Italics match how these symbols appear in math
+   typesetting. */
+.qs-bloch-coords-greek {
+  font-style: italic;
+  font-family: var(--vscode-font-family, serif);
+}
+
+/* Current state-vector amplitudes (the |psi> ket), shown at the top of
+   the readout stack. Left-aligned so it reads with the angles below it. */
+.qs-bloch-state {
+  color: var(--qdk-host-foreground);
+  font-size: 1.05em;
+  opacity: 0.9;
+  text-align: left;
+}
+
+/* Sticky title bar at the top of the trace pane. Stays visible while
+   the user scrolls through a long sequence so they always know which
+   pane they're in. The step counter sits on the right and only renders
+   once the user has applied at least one gate, so an empty trace
+   just reads "Trace". */
+.qs-bloch-trace-title {
+  font-weight: bold;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-menu-fill);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+/* Right-hand cluster of the title bar: the step counter (when present)
+   and the collapse toggle. */
+.qs-bloch-trace-title-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Step counter pinned to the right of the trace title bar. Lighter
+   weight than the title itself so it reads as a subordinate piece of
+   metadata, not a competing heading. */
+.qs-bloch-trace-step-counter {
+  font-weight: normal;
+  font-size: 0.9em;
+  opacity: 0.75;
+}
+
+/* Media-player-style transport bar below the trace title. The row
+   spans the full pane width and uses the host-background token so the
+   playback cluster reads as a distinct band, set apart from the
+   trace step rows (which sit on the pane-accent background). The
+   buttons inside stretch to fill the row so the transport controls
+   span its full width. */
+.qs-bloch-media-controls {
+  display: flex;
+  gap: 4px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-host-background);
+}
+.qs-bloch-media-controls button {
+  /* Stretch to fill the row so the cluster spans the full pane width. */
+  flex: 1;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  cursor: pointer;
+}
+.qs-bloch-media-controls button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+/* Inline SVG transport icons (play/pause/step/etc.). Sized in em so they
+   scale with each button's font-size and inherit the button color via
+   `fill: currentColor` on the svg. */
+.qs-bloch-transport-icon {
+  width: 1.4em;
+  height: 1.4em;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* Speed slider row immediately below the transport controls. Same
+   host-background as the transport bar so the two controls read as a
+   single playback band that's visually distinct from the trace step
+   rows. The row spans the full pane width and the slider stretches to
+   fill the remaining space so the control spans its row. */
+.qs-bloch-speed-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  background: var(--qdk-host-background);
+  font-size: 0.95em;
+}
+.qs-bloch-speed-control input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+.qs-bloch-speed-readout {
+  /* Fixed width so the layout doesn't jitter as the readout cycles
+     through "0.25x" .. "4.00x" while dragging. */
+  min-width: 3em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Each entry in the trace list. Clickable to navigate; hover hints
+   at this affordance via the menu-hover token. */
+.qs-bloch-trace-item {
+  padding: 4px 8px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--qdk-widget-outline);
+  /* Grow to the row's intrinsic (equation) width when that exceeds the
+     pane, so the list scrolls horizontally and the row highlight spans
+     the whole equation rather than clipping at the pane edge. When the
+     equation is narrower, `align-items: stretch` on the list keeps the
+     row full pane width. */
+  min-width: max-content;
+}
+.qs-bloch-trace-item:hover {
+  background: var(--qdk-menu-fill-hover);
+}
+
+/* The row matching the current cursor position. Highlighted so the
+   user can tell at a glance where the sphere is "stopped". */
+.qs-bloch-trace-item-current {
+  background: var(--qdk-menu-fill-selected);
+}
+.qs-bloch-trace-item-current:hover {
+  /* Keep the selected highlight visible on hover instead of letting
+     the hover background paint over it. */
+  background: var(--qdk-menu-fill-selected);
+}
+
+/* Rows after the cursor when inspecting an earlier step. Dimmed and
+   italicised to signal they are "future" steps that will be lost if
+   the user applies a new gate from this position. The opacity is
+   scoped to the row's children (rather than the row itself) so the
+   pinned "latest" row keeps its opaque background -- otherwise rows
+   scrolling underneath bleed through when the cursor is upstream of
+   the latest. */
+.qs-bloch-trace-item-future {
+  font-style: italic;
+}
+.qs-bloch-trace-item-future > * {
+  opacity: 0.5;
+}
+
+/* The bottom-most row in the trace list -- pinned to the bottom of
+   the scroll viewport via `position: sticky` so the most recent state
+   stays visible while older rows scroll above it. When the list is
+   short enough to fit in the panel, sticky has no effect and the row
+   sits in its natural place at the end of the flow. Needs an opaque
+   background (matching the pane) so rows scrolling underneath are
+   visually occluded, and a thicker accent top border plus a small
+   "Latest" badge so the pinned row clearly reads as the final step
+   rather than just another row that happened to scroll into place.
+   The badge is absolutely positioned in the top-left corner so it adds
+   no height -- the row stays the same size as the others. */
+.qs-bloch-trace-item-latest {
+  position: sticky;
+  bottom: 0;
+  background: var(--qdk-background-accent);
+  border-top: 2px solid var(--qdk-atom-fill);
+  z-index: 1;
+}
+.qs-bloch-trace-item-latest::before {
+  content: "Latest";
+  position: absolute;
+  top: 3px;
+  left: 8px;
+  font-size: 0.6em;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--qdk-atom-fill);
+  pointer-events: none;
+}
+/* When the pinned row also happens to be the current cursor row,
+   keep the selected highlight instead of the plain pane background.
+   Class order in the JSX doesn't guarantee specificity order, so we
+   call this out explicitly. */
+.qs-bloch-trace-item-latest.qs-bloch-trace-item-current {
+  background: var(--qdk-menu-fill-selected);
+}
+
+/* Live gate-string editor. Sits in the top toolbar and provides the
+   "see the program you're building" textbox. The input proper looks
+   like any other text field; the per-char feedback row below it shows
+   the same string broken into spans so we can mark invalid chars and
+   a small status line shows the unsaved-draft indicator and char
+   count. The visible char row is intentionally offset and slightly
+   smaller so it reads as a hint rather than a duplicate.
+
+   Flexes to fill the middle of the toolbar (up to a cap) so the input
+   is comfortably wide without crowding the edit-history group. */
+.qs-bloch-gate-editor {
+  font-family: var(--qdk-font-family-monospace);
+  flex: 1 1 260px;
+  min-width: 180px;
+  max-width: 520px;
+}
+.qs-bloch-gate-editor-row {
+  display: flex;
+  align-items: center;
+}
+.qs-bloch-gate-editor-input {
+  font-family: var(--qdk-font-family-monospace);
+  font-size: 1em;
+  padding: 4px 6px;
+  /* Grow to fill the available width up to the editor's max-width,
+     but shrink down to a sensible minimum on narrow viewports. */
+  flex: 1 1 auto;
+  min-width: 0;
+}
+/* The gate string is read-only: it's built solely via the gate buttons
+   and the Rz "Add to sequence" control. Present it as a passive display
+   (no text caret) while still allowing the user to select/copy it. */
+.qs-bloch-gate-editor-input[readonly] {
+  cursor: default;
+}
+.qs-bloch-gate-editor-feedback {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-top: 4px;
+  /* Align the char row with the input contents (the input has 6px of
+     left padding plus its border). Without this the per-char display
+     drifts a couple of pixels left of the input text and the visual
+     correspondence breaks down. */
+  padding: 0 7px;
+  font-size: 0.85em;
+  min-height: 1.4em;
+}
+/* Gate breakdown row: one chip per gate type used in the sanitized
+   draft, followed by a T-count callout. Wraps to a second line if it
+   would otherwise push the status block off the right edge. The
+   status block on the right (unsaved indicator + char count) stays
+   pinned via its own `flex-shrink: 0`. */
+.qs-bloch-gate-editor-breakdown {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  color: var(--qdk-host-foreground);
+  opacity: 0.85;
+}
+.qs-bloch-gate-editor-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--qdk-menu-fill);
+  border: 1px solid var(--qdk-widget-outline);
+}
+.qs-bloch-gate-editor-chip-name {
+  font-family: var(--qdk-font-family-monospace);
+  font-weight: 600;
+}
+.qs-bloch-gate-editor-chip-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+/* T-count callout. Italicised and lightly tinted so it reads as
+   secondary metadata, not another chip. T-count is the standard
+   quantum-cost metric in fault-tolerant designs since T gates are
+   the expensive primitive; surfacing it lets users see at a glance
+   how heavy their program is. */
+.qs-bloch-gate-editor-tcount {
+  margin-left: 4px;
+  font-style: italic;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+}
+/* Placeholder shown when the sanitized draft contains no gates
+   (empty input, or whitespace-only). Quieter than the chips so it
+   doesn't compete visually. The transparent border + matching padding
+   give it the same box height as a gate chip, so the feedback row
+   doesn't grow by a couple of pixels when the first gate is added. */
+.qs-bloch-gate-editor-empty {
+  font-style: italic;
+  opacity: 0.5;
+  padding: 1px 0;
+  border: 1px solid transparent;
+}
+.qs-bloch-gate-editor-status {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.qs-bloch-gate-editor-count {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.7;
+}
+.qs-bloch-gate-editor-count-warn {
+  /* Emphasise the count when the sequence reaches the gate cap. */
+  color: var(--qdk-text-error, #d83b01);
+  opacity: 1;
+  font-weight: bold;
+}
