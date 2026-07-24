@@ -186,7 +186,7 @@ class Context:
         language_features: Optional[List[str]] = None,
         _trace_circuit: Optional[bool] = None,
         _is_global_context: bool = False,
-        qsharp_config: dict[str, int | float | str | bool] = {},
+        qdk_config: dict[str, int | float | str | bool] = {},
     ):
         """
         Initializes a new isolated Q# context.
@@ -209,7 +209,7 @@ class Context:
             the statement form instead (``use q = Qubit();``). It also removes the requirement
             to use the ``set`` keyword for mutable variable assignments.
 
-        :keyword qsharp_config: configuration parameters that will be accessible in Q#
+        :keyword qdk_config: configuration parameters that will be accessible in Q#
             code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of 
             type `int`, `float`, `str`, or `bool`.
         """
@@ -286,7 +286,7 @@ class Context:
             make_callable_weak,
             make_class_weak,
             _trace_circuit,
-            qsharp_config,
+            qdk_config,
         )
 
         self._config = Config(

@@ -1185,3 +1185,8 @@ def test_swap_label_circuit_from_callable() -> None:
         q_0    ── X ──── X ──
         q_1    ──────────────
         """)
+
+
+def test_qdk_config() -> None:
+    qsharp.init(qdk_config={"int_config": 123})
+    assert qsharp.eval("""Std.Core.ConfigValue("int_config", 0)""") == 123

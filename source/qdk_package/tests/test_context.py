@@ -243,9 +243,9 @@ def test_context_released_after_drop() -> None:
     assert ref() is None
 
 
-def test_qsharp_config(context: qdk.Context) -> None:
+def test_qdk_config(context: qdk.Context) -> None:
     context = qdk.Context(
-        qsharp_config={
+        qdk_config={
             "int_config": 123,
             "bool_config": True,
             "string_config": "value",
@@ -276,7 +276,7 @@ def test_config_invalid_type(context: qdk.Context) -> None:
     with pytest.raises(
         TypeError, match="config value must be bool, int, float, or str"
     ):
-        qdk.Context(qsharp_config={"invalid": {"a": 1}})  # type: ignore
+        qdk.Context(qdk_config={"invalid": {"a": 1}})  # type: ignore
 
     with pytest.raises(TypeError, match="'int' object is not an instance of 'str'"):
-        qdk.Context(qsharp_config={1: 1})  # type: ignore
+        qdk.Context(qdk_config={1: 1})  # type: ignore
