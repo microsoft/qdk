@@ -99,7 +99,7 @@ def check(notebook_dir: str | Path | None = None) -> None:
         )
         errors.append(
             "Install missing packages by running this in a new cell, then re-run this one:"
-            f"<pre>  %pip install -r requirements.txt</pre>"
+            f"<pre>  %pip install -r ../requirements.txt</pre>"
             "Or run <b>QDK Learning: Doctor</b> to set up the full environment."
         )
     elif import_checks and in_course_venv:
@@ -151,15 +151,19 @@ def _find_course_json(nb_dir: Path) -> Path | None:
     return None
 
 
-# TODO (acasey): handle dark mode
 def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
     """Display a styled HTML summary."""
     rows = ""
     for label, detail, ok in results:
         icon = "&#x2705;" if ok else "&#x274C;"
-        color = "#2e7d32" if ok else "#c62828"
+        color = (
+            "var(--vscode-testing-iconPassed, #00ff00)"
+            if ok
+            else "var(--vscode-testing-iconFailed, #ff00ff)"
+        )
         rows += (
-            f'<tr style="border-bottom:1px solid #eee">'
+            '<tr style="border-bottom:1px solid '
+            'var(--vscode-panel-border, #00ffff)">'
             f'<td style="padding:4px 12px 4px 0;font-size:1.1em">{icon}</td>'
             f'<td style="padding:4px 12px;font-weight:600">{label}</td>'
             f'<td style="padding:4px 0;color:{color}">{detail}</td>'
@@ -167,7 +171,8 @@ def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
         )
 
     html = (
-        '<div style="font-family:system-ui,sans-serif;margin:8px 0">'
+        '<div style="font-family:system-ui,sans-serif;margin:8px 0;'
+        'color:var(--vscode-foreground, #ff00ff)">'
         '<table style="border-collapse:collapse">'
         f"{rows}"
         "</table>"
@@ -177,7 +182,10 @@ def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
         error_items = "".join(f"<li style='margin:4px 0'>{e}</li>" for e in errors)
         html += (
             '<div style="margin-top:12px;padding:10px 14px;'
-            "background:#fff3e0;border-left:4px solid #e65100;"
+            "background:var(--vscode-inputValidation-warningBackground, #ffff00);"
+            "color:var(--vscode-inputValidation-warningForeground, #0000ff);"
+            "border-left:4px solid "
+            "var(--vscode-inputValidation-warningBorder, #ff00ff);"
             'border-radius:4px">'
             f"<strong>Action needed:</strong><ul style='margin:6px 0 0 0;padding-left:18px'>{error_items}</ul>"
             "</div>"
@@ -185,7 +193,10 @@ def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
     else:
         html += (
             '<div style="margin-top:12px;padding:10px 14px;'
-            "background:#e8f5e9;border-left:4px solid #2e7d32;"
+            "background:var(--vscode-notifications-background, #00ffff);"
+            "color:var(--vscode-notifications-foreground, #ff00ff);"
+            "border-left:4px solid "
+            "var(--vscode-testing-iconPassed, #00ff00);"
             'border-radius:4px">'
             "<strong>Environment looks good. You're ready to continue!</strong>"
             "</div>"
