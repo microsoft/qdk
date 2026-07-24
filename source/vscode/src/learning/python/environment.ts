@@ -44,14 +44,10 @@ export class EnvironmentManager {
    * @param courseRoot The course's source folder (where `pyproject.toml`
    *   may live and where the environment is created).
    * @param packages Packages to install (e.g. `["ipykernel", "qdk"]`).
-   * @param minPython Optional minimum Python version (e.g. `"3.11"`). If
-   *   the created/resolved environment's Python version is below this, an
-   *   error is thrown.
    */
   async ensureEnvironment(
     courseRoot: vscode.Uri,
     packages: string[],
-    minPython?: string,
   ): Promise<void> {
     if (!this.supported) {
       return;
@@ -88,14 +84,6 @@ export class EnvironmentManager {
       this._envCache.set(courseRoot.toString(), env);
     }
 
-    // Version check.
-    if (minPython && !versionSatisfies(env.version, minPython)) {
-      throw new Error(
-        `The course requires Python ${minPython} but the environment ` +
-          `has Python ${env.version}. Select or install a newer Python interpreter.`,
-      );
-    }
-
     // Install packages.
     if (packages.length > 0) {
       log.info(`Installing packages: ${packages.join(", ")}`);
@@ -116,21 +104,6 @@ export class EnvironmentManager {
     }
     const env = await this.findEnvironment(api, courseRoot);
     return env !== undefined;
-  }
-
-  /**
-   * The Python version string for the course's environment, or `undefined`
-   * if no environment is known.
-   */
-  async environmentVersion(
-    courseRoot: vscode.Uri,
-  ): Promise<string | undefined> {
-    const api = await this.pythonEnvironmentsApi();
-    if (!api) {
-      return undefined;
-    }
-    const env = await this.findEnvironment(api, courseRoot);
-    return env?.version;
   }
 
   /**
@@ -245,25 +218,4 @@ function runPython(
         resolve(-1);
       });
   });
-}
-
-/**
- * Check whether a version string satisfies a minimum version requirement.
- * Compares major.minor only (e.g. "3.11.2" satisfies "3.11").
- */
-function versionSatisfies(version: string, minimum: string): boolean {
-  // TODO (acasey): share with service.ts
-  const parse = (v: string) => {
-    const parts = v.replace(/[^0-9.]/g, "").split(".");
-    return {
-      major: parseInt(parts[0] ?? "0", 10),
-      minor: parseInt(parts[1] ?? "0", 10),
-    };
-  };
-  const actual = parse(version);
-  const required = parse(minimum);
-  if (actual.major !== required.major) {
-    return actual.major > required.major;
-  }
-  return actual.minor >= required.minor;
 }

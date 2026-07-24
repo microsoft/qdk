@@ -584,20 +584,13 @@ export class LearningService {
     if (!options?.force && (await env.environmentExists(courseRoot))) {
       return;
     }
-    const packages = [
-      ...new Set(["ipykernel", ...(course.environment?.requirements ?? [])]),
-    ];
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
         title: `Setting up the environment for "${course.title}"…`,
       },
       async () => {
-        await env.ensureEnvironment(
-          courseRoot,
-          packages,
-          course.environment?.python,
-        );
+        await env.ensureEnvironment(courseRoot, ["ipykernel"]);
       },
     );
   }
@@ -727,38 +720,7 @@ export class LearningService {
       }),
     );
 
-    // 3. Python version sufficiency.
-    if (envExists) {
-      const version = await env.environmentVersion(courseRoot);
-      const minPython = course.environment?.python;
-      log.info(
-        `[env-check] Python version: ${version ?? "unknown"}, required: ${minPython ?? "any"}`,
-      );
-      if (version && minPython) {
-        const versionOk = this.versionSatisfies(version, minPython);
-        checks.push(
-          check("python-version", "Python version", versionOk ? "ok" : "fail", {
-            detail: versionOk
-              ? `Python ${version} (meets ${minPython} requirement).`
-              : `Python ${version} does not meet the ${minPython} requirement.`,
-            hint: versionOk
-              ? undefined
-              : "Select or install a newer Python interpreter and re-run setup.",
-            fixes: versionOk
-              ? undefined
-              : [{ label: "Set up environment", kind: "setup" }],
-          }),
-        );
-      } else if (version) {
-        checks.push(
-          check("python-version", "Python version", "ok", {
-            detail: `Python ${version}.`,
-          }),
-        );
-      }
-    }
-
-    // 4. Required packages import in the environment.
+    // 3. Required packages import in the environment.
     if (envExists) {
       log.info(`[env-check] Checking package imports…`);
       const report = await env.importsReport(courseRoot, [
@@ -801,26 +763,6 @@ export class LearningService {
 
     log.info(`[env-check] Assembling report (${checks.length} checks).`);
     return this.assembleReport(course, checks);
-  }
-
-  /**
-   * Check whether a version string satisfies a minimum version requirement.
-   * Compares major.minor only (e.g. "3.11.2" satisfies "3.11").
-   */
-  private versionSatisfies(version: string, minimum: string): boolean {
-    const parse = (v: string) => {
-      const parts = v.replace(/[^0-9.]/g, "").split(".");
-      return {
-        major: parseInt(parts[0] ?? "0", 10),
-        minor: parseInt(parts[1] ?? "0", 10),
-      };
-    };
-    const actual = parse(version);
-    const required = parse(minimum);
-    if (actual.major !== required.major) {
-      return actual.major > required.major;
-    }
-    return actual.minor >= required.minor;
   }
 
   /**

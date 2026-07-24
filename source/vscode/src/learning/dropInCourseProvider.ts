@@ -344,22 +344,9 @@ function manifestEnvironment(value: unknown): CourseEnvironment | undefined {
     return undefined;
   }
   const obj = value as {
-    requirements?: unknown;
-    python?: unknown;
     importChecks?: unknown;
   };
   const env: CourseEnvironment = {};
-
-  if (
-    Array.isArray(obj.requirements) &&
-    obj.requirements.every((r) => typeof r === "string")
-  ) {
-    env.requirements = obj.requirements as string[];
-  }
-
-  if (typeof obj.python === "string" && obj.python.length > 0) {
-    env.python = obj.python;
-  }
 
   if (
     Array.isArray(obj.importChecks) &&

@@ -333,24 +333,9 @@ export interface CourseDescriptor {
 
 /**
  * Environment requirements for a course (python-notebook courses).
- *
- * Courses that ship a `pyproject.toml` use `uv sync` for environment setup;
- * the `python` and `requirements` fields are only used as a legacy fallback
- * when no `pyproject.toml` is present.
+ * Used for things that can't be specified in `pyproject.toml`.
  */
 export interface CourseEnvironment {
-  /**
-   * Python version specifier for the course venv (e.g. `">=3.11"`, `"3.12"`).
-   * Legacy: used only when no `pyproject.toml` is present. Prefer declaring
-   * `requires-python` in `pyproject.toml` instead.
-   */
-  python?: string;
-  /**
-   * Python package requirements (e.g. `["qdk[jupyter]>=1.0", "ipympl"]`).
-   * Legacy: used only when no `pyproject.toml` is present. Prefer declaring
-   * `dependencies` in `pyproject.toml` instead.
-   */
-  requirements?: string[];
   /**
    * Module names to probe with `importlib.util.find_spec` in the notebook's
    * environment check cell (e.g. `["qdk", "qdk.widgets"]`). These are
