@@ -597,6 +597,7 @@ export class LearningService {
 
   /** Set up the environment for the currently-active course. */
   async setupActiveEnvironment(): Promise<void> {
+    // TODO (acasey): also set kernel, if possible
     await this.ensureEnvironment(this.activeCourse, { force: true });
   }
 
