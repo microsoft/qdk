@@ -337,6 +337,7 @@ fn convert_while_with_continue() {
                     if i == 3 {
                         continue;
                     }
+                    let y = i * 2;
                 }
             }
         }
@@ -345,10 +346,69 @@ fn convert_while_with_continue() {
             operation Main() : Unit {
                 mutable i = 0;
                 while i < 10 {
-                    mutable _cont_29 = false;
+                    mutable _cont_35 = false;
                     i += 1;
                     if i == 3 {
-                        _cont_29 = true;
+                        _cont_35 = true;
+                    }
+                    let y = if not _cont_35 {
+                        i * 2
+                    } else {
+                        0
+                    };
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn convert_while_with_break_and_continue_with_trailing_stmts() {
+    check(
+        indoc! {r#"
+        namespace test {
+            operation Main() : Unit {
+                mutable i = 0;
+                while i < 10 {
+                    i += 1;
+                    if i == 5 {
+                        break;
+                    }
+                    let b = i * 2;
+                    if i == 3 {
+                        continue;
+                    }
+                    let c = b * 4;
+                }
+            }
+        }
+        "#},
+        &expect![[r#"
+            operation Main() : Unit {
+                mutable i = 0;
+                {
+                    mutable _broke_50 = false;
+                    while not _broke_50 and i < 10 {
+                        mutable _cont_54 = false;
+                        i += 1;
+                        if i == 5 {
+                            _broke_50 = true;
+                        }
+                        let b = if not _broke_50 and not _cont_54 {
+                            i * 2
+                        } else {
+                            0
+                        };
+                        if not _broke_50 and not _cont_54 {
+                            if i == 3 {
+                                _cont_54 = true;
+                            }
+                        }
+                        let c = if not _broke_50 and not _cont_54 {
+                            b * 4
+                        } else {
+                            0
+                        };
                     }
                 }
             }
@@ -357,7 +417,7 @@ fn convert_while_with_continue() {
 }
 
 #[test]
-fn convert_while_with_break_and_continue() {
+fn convert_while_with_break_and_continue_no_trailing_stmts() {
     check(
         indoc! {r#"
         namespace test {
