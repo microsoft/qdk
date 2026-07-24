@@ -7,6 +7,7 @@
  * the learning feature.
  */
 
+import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "../common.js";
 import { LEARNING_FILE, LEARNING_TREE_VIEW_ID } from "./constants.js";
@@ -438,14 +439,28 @@ export class LessonPanelManager {
 
     // Try to open via the Jupyter extension's unstable API so the course's
     // Python environment is automatically set as the active kernel.
-    const envPath = await this.service.getJupyterEnvironmentPath();
-    if (envPath) {
+
+    try {
       const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
       const api = await jupyter?.activate();
       if (api && typeof api.openNotebook === "function") {
-        await api.openNotebook(notebookUri, envPath);
-        return;
+        const envPath = await this.service.getJupyterEnvironmentPath();
+        if (envPath) {
+          await api.openNotebook(notebookUri, envPath);
+          return;
+        } else {
+          log.info(
+            "Didn't find a course virtual environment to use in notebook",
+          );
+        }
       }
+      log.warn(
+        "Jupyter openNotebook API is not available; falling back to generic open.",
+      );
+    } catch (e) {
+      log.warn(
+        `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
+      );
     }
 
     // Fallback: open without pre-selecting a kernel.
