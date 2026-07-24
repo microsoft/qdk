@@ -562,13 +562,9 @@ export class LearningService {
 
   /**
    * Ensure a python-notebook course's per-course environment exists:
-   * create the venv and install pinned requirements. No-ops for Q# courses,
-   * on the Web, or when the venv already exists (unless `force` is set).
-   *
-   * When the course ships a `pyproject.toml`, the preferred path is
-   * `uv sync` which handles venv creation, Python version selection, and
-   * dependency installation in one shot. Courses without `pyproject.toml`
-   * fall back to the manual `createVenv` + `installRequirements` flow.
+   * create or update the environment and install required packages. No-ops
+   * for Q# courses, on the Web, or when the environment already exists
+   * (unless `force` is set).
    */
   async ensureEnvironment(
     course: CatalogCourse,
@@ -585,30 +581,23 @@ export class LearningService {
       return;
     }
     const courseRoot = vscode.Uri.parse(course.sourceDir);
-    if (!options?.force && (await env.venvExists(courseRoot))) {
+    if (!options?.force && (await env.environmentExists(courseRoot))) {
       return;
     }
+    const packages = [
+      ...new Set(["ipykernel", ...(course.environment?.requirements ?? [])]),
+    ];
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
         title: `Setting up the environment for "${course.title}"…`,
       },
       async () => {
-        const hasPyproject = await this.uriExists(
-          vscode.Uri.joinPath(courseRoot, "pyproject.toml"),
+        await env.ensureEnvironment(
+          courseRoot,
+          packages,
+          course.environment?.python,
         );
-        if (hasPyproject) {
-          // Preferred: `uv sync` resolves and installs from pyproject.toml.
-          // Falls back to venv + pip when uv is unavailable.
-          await env.syncEnvironment(courseRoot, course.environment?.python);
-        } else {
-          // Fallback: manual venv creation + pip install.
-          await env.createVenv(courseRoot, course.environment?.python);
-          await env.installRequirements(
-            courseRoot,
-            course.environment?.requirements ?? [],
-          );
-        }
       },
     );
   }
@@ -706,7 +695,6 @@ export class LearningService {
     checks.push(
       check(
         "extensions",
-        // TODO (acasey): Shouldn't need to keep these in sync with ensureExtensions
         "Python & Jupyter extensions",
         extMessage ? "fail" : "ok",
         {
@@ -721,101 +709,57 @@ export class LearningService {
       ),
     );
 
-    // 2. Base Python interpreter (for bootstrapping the venv).
-    log.info(`[env-check] Checking interpreter…`);
-    const interpreter = await env.ensureInterpreter();
-    log.info(`[env-check] Interpreter: ${interpreter ?? "not found"}`);
+    // 2. The per-course environment.
+    log.info(`[env-check] Checking environment existence…`);
+    const envExists = await env.environmentExists(courseRoot);
+    log.info(`[env-check] Environment exists: ${envExists}`);
     checks.push(
-      check("interpreter", "Python interpreter", interpreter ? "ok" : "fail", {
-        detail: interpreter ?? "No interpreter found.",
-        hint: interpreter
+      check("venv", "Course environment", envExists ? "ok" : "fail", {
+        detail: envExists
+          ? "Environment found."
+          : "No environment found for this course.",
+        hint: envExists
           ? undefined
-          : // TODO (acasey): how did we pick 3.9?
-            "Install Python (3.9+) and select an interpreter via the Python extension.",
-      }),
-    );
-
-    // 3. Tooling: uv (preferred) vs stdlib venv. Informational unless the
-    //    venv is missing AND the stdlib module is unavailable.
-    log.info(`[env-check] Checking for uv…`);
-    const hasUv = await env.hasUv();
-    log.info(`[env-check] uv available: ${hasUv}`);
-    log.info(`[env-check] Checking venv existence…`);
-    const venvOk = await env.venvExists(courseRoot);
-    log.info(`[env-check] Venv exists: ${venvOk}`);
-    if (hasUv) {
-      checks.push(
-        check("tooling", "Environment tooling", "ok", {
-          detail: "uv detected — fast environment creation.",
-        }),
-      );
-    } else if (interpreter) {
-      // Only probe the stdlib venv module when we'd actually need it.
-      log.info(`[env-check] Probing stdlib venv module…`);
-      const venvModuleOk = venvOk
-        ? true
-        : await env.venvModuleSupported(interpreter);
-      log.info(`[env-check] venv module supported: ${venvModuleOk}`);
-      checks.push(
-        check(
-          "tooling",
-          "Environment tooling",
-          venvModuleOk ? "warn" : "fail",
-          {
-            detail: venvModuleOk
-              ? // TODO (acasey): do we want to recommend uv?
-                "Using the standard-library `venv` (install `uv` for faster setup)."
-              : "The `venv`/`ensurepip` modules are missing from this Python.",
-            hint: venvModuleOk
-              ? undefined
-              : // TODO (acasey): can we determine the actual version number?
-                "On Debian/Ubuntu install them with `sudo apt install python3-venv` " +
-                "(matching your Python version, e.g. `python3.12-venv`).",
-          },
-        ),
-      );
-    }
-
-    // 4. The per-course virtual environment.
-    checks.push(
-      check("venv", "Course virtual environment", venvOk ? "ok" : "fail", {
-        detail: env.venvUri(courseRoot).fsPath,
-        hint: venvOk
-          ? undefined
-          : "Run environment setup to create the course virtual environment.",
-        fixes: venvOk
+          : "Run environment setup to create the course environment.",
+        fixes: envExists
           ? undefined
           : [{ label: "Set up environment", kind: "setup" }],
       }),
     );
 
-    log.info(`[env-check] Checking venv interpreter…`);
-    const venvPython = venvOk ? await env.venvPython(courseRoot) : undefined;
-    log.info(`[env-check] Venv interpreter: ${venvPython ?? "n/a"}`);
-    checks.push(
-      check(
-        "venv-interpreter",
-        "Environment interpreter",
-        !venvOk ? "skip" : venvPython ? "ok" : "fail",
-        {
-          detail: !venvOk
-            ? "No environment yet."
-            : (venvPython ?? "The venv exists but has no interpreter."),
-          hint:
-            venvOk && !venvPython
-              ? "The environment looks corrupt; re-run setup to recreate it."
-              : undefined,
-          fixes:
-            venvOk && !venvPython
-              ? [{ label: "Set up environment", kind: "setup" }]
-              : undefined,
-        },
-      ),
-    );
+    // 3. Python version sufficiency.
+    if (envExists) {
+      const version = await env.environmentVersion(courseRoot);
+      const minPython = course.environment?.python;
+      log.info(
+        `[env-check] Python version: ${version ?? "unknown"}, required: ${minPython ?? "any"}`,
+      );
+      if (version && minPython) {
+        const versionOk = this.versionSatisfies(version, minPython);
+        checks.push(
+          check("python-version", "Python version", versionOk ? "ok" : "fail", {
+            detail: versionOk
+              ? `Python ${version} (meets ${minPython} requirement).`
+              : `Python ${version} does not meet the ${minPython} requirement.`,
+            hint: versionOk
+              ? undefined
+              : "Select or install a newer Python interpreter and re-run setup.",
+            fixes: versionOk
+              ? undefined
+              : [{ label: "Set up environment", kind: "setup" }],
+          }),
+        );
+      } else if (version) {
+        checks.push(
+          check("python-version", "Python version", "ok", {
+            detail: `Python ${version}.`,
+          }),
+        );
+      }
+    }
 
-    // 5. Required packages import in the venv.
-    if (venvPython) {
-      // TODO (acasey): are these supposed to come from the course metadata or are these just a baseline for all courses?
+    // 4. Required packages import in the environment.
+    if (envExists) {
       log.info(`[env-check] Checking package imports…`);
       const report = await env.importsReport(courseRoot, [
         "qdk",
@@ -847,7 +791,7 @@ export class LearningService {
         ),
       );
     } else {
-      log.info(`[env-check] Skipping package imports — no venv interpreter.`);
+      log.info(`[env-check] Skipping package imports — no environment.`);
       checks.push(
         check("packages", "Required packages", "skip", {
           detail: "No environment yet.",
@@ -857,6 +801,26 @@ export class LearningService {
 
     log.info(`[env-check] Assembling report (${checks.length} checks).`);
     return this.assembleReport(course, checks);
+  }
+
+  /**
+   * Check whether a version string satisfies a minimum version requirement.
+   * Compares major.minor only (e.g. "3.11.2" satisfies "3.11").
+   */
+  private versionSatisfies(version: string, minimum: string): boolean {
+    const parse = (v: string) => {
+      const parts = v.replace(/[^0-9.]/g, "").split(".");
+      return {
+        major: parseInt(parts[0] ?? "0", 10),
+        minor: parseInt(parts[1] ?? "0", 10),
+      };
+    };
+    const actual = parse(version);
+    const required = parse(minimum);
+    if (actual.major !== required.major) {
+      return actual.major > required.major;
+    }
+    return actual.minor >= required.minor;
   }
 
   /**
