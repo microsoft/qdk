@@ -27,16 +27,15 @@ def check(notebook_dir: str | Path | None = None) -> None:
     nb_dir = Path(notebook_dir) if notebook_dir else Path.cwd()
 
     # --- Locate course.json ---
-    course_json = _find_course_json(nb_dir)
-    if course_json is None:
+    course_json_path = _find_course_json(nb_dir)
+    if course_json_path is None:
         raise FileNotFoundError(
             "Could not find course.json. Make sure you opened this notebook "
             "from the QDK course folder."
         )
 
-    course = json.loads(course_json.read_text())
+    course = json.loads(course_json_path.read_text())
     env_cfg = course.get("environment", {})
-    requirements = env_cfg.get("requirements", [])
     import_checks = env_cfg.get("importChecks", [])
 
     results: list[tuple[str, str, bool]] = []  # (label, detail, ok)
@@ -47,27 +46,27 @@ def check(notebook_dir: str | Path | None = None) -> None:
     results.append(("Python version", py_version, True))
 
     # --- Check 2: course .venv exists and has a Python interpreter ---
-    course_root = course_json.resolve().parent
+    course_root = course_json_path.resolve().parent
     expected_venv = (course_root / ".venv").resolve()
     venv_exists = expected_venv.is_dir()
     venv_python = _find_venv_python(expected_venv) if venv_exists else None
 
     if not venv_exists:
+        # TODO (acasey): update this to refer to the toolbar button when it exists
         results.append(("Course venv", f"{expected_venv} — not found", False))
         errors.append(
             "The course virtual environment does not exist yet.<br>"
             "Run <b>QDK Learning: Doctor</b> from the Command Palette "
             "(<code>Ctrl+Shift+P</code> / <code>Cmd+Shift+P</code>) "
             "and choose <b>Set up environment</b>."
-            + _command_link("qsharp-vscode.learningDoctor", "Run Doctor now")
         )
     elif not venv_python:
+        # TODO (acasey): update this to refer to the toolbar button when it exists
         results.append(("Course venv", f"{expected_venv} — corrupt (no python)", False))
         errors.append(
             "The course virtual environment exists but has no Python interpreter.<br>"
             "Run <b>QDK Learning: Doctor</b> from the Command Palette "
             "and choose <b>Set up environment</b> to recreate it."
-            + _command_link("qsharp-vscode.learningDoctor", "Run Doctor now")
         )
     else:
         results.append(("Course venv", str(expected_venv), True))
@@ -86,8 +85,8 @@ def check(notebook_dir: str | Path | None = None) -> None:
     if venv_exists and venv_python and not in_course_venv:
         results.append(("Kernel", f"Expected {expected_venv}, got {prefix}", False))
         errors.append(
-            "This kernel is not the course environment. "
-            "Click <b>Select Kernel</b> (top-right of the notebook) "
+            "It is recommended, but not required, that you use the course virtual environment. "
+            "To do so, you can click <b>Select Kernel</b> (top-right of the notebook) "
             "and pick the course <code>.venv</code>, then re-run this cell."
         )
 
@@ -98,23 +97,11 @@ def check(notebook_dir: str | Path | None = None) -> None:
         results.append(
             ("Packages", ", ".join(f"<code>{m}</code> missing" for m in missing), False)
         )
-        # Check if this course uses pyproject.toml (uv sync) or legacy requirements.
-        has_pyproject = (course_root / "pyproject.toml").exists()
-        if has_pyproject:
-            errors.append(
-                "Some packages are missing from the course environment.<br>"
-                "Run <b>QDK Learning: Doctor</b> to re-sync, or manually run "
-                "<code>uv sync</code> in the course folder."
-                + _command_link("qsharp-vscode.learningDoctor", "Run Doctor now")
-            )
-        else:
-            pip_cmd = f"%pip install {' '.join(requirements)}"
-            errors.append(
-                "Install missing packages by running this in a new cell, then re-run this one:"
-                f"<pre>  {pip_cmd}</pre>"
-                "Or run <b>QDK Learning: Doctor</b> to set up the full environment."
-                + _command_link("qsharp-vscode.learningDoctor", "Run Doctor now")
-            )
+        errors.append(
+            "Install missing packages by running this in a new cell, then re-run this one:"
+            f"<pre>  %pip install -r requirements.txt</pre>"
+            "Or run <b>QDK Learning: Doctor</b> to set up the full environment."
+        )
     elif import_checks and in_course_venv:
         results.append(("Packages", ", ".join(import_checks), True))
 
@@ -148,26 +135,6 @@ def _find_venv_python(venv: Path) -> Path | None:
     return None
 
 
-# TODO (acasey): these links don't seem to work in the notebook sandbox (either in input or output cells)
-# Probably want to refer people to the lesson panel and/or the command palette
-# TODO (acasey): the diagnostics don't appear to check whether the venv is active in the python notebook
-def _command_link(command_id: str, label: str) -> str:
-    """Return an HTML link that invokes a VS Code command when clicked.
-
-    VS Code renders `vscode://` and `command:` URIs in trusted notebook
-    HTML output, so clicking the link runs the command directly.
-    """
-    from urllib.parse import quote
-
-    return (
-        f'<br><a href="command:{quote(command_id)}" '
-        f'style="display:inline-block;margin-top:6px;padding:4px 10px;'
-        f"background:#1976d2;color:#fff;border-radius:4px;"
-        f'text-decoration:none;font-size:0.9em">'
-        f"{label}</a>"
-    )
-
-
 def _find_course_json(nb_dir: Path) -> Path | None:
     """Walk up from nb_dir looking for course.json."""
     candidate = nb_dir / "course.json"
@@ -184,6 +151,7 @@ def _find_course_json(nb_dir: Path) -> Path | None:
     return None
 
 
+# TODO (acasey): handle dark mode
 def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
     """Display a styled HTML summary."""
     rows = ""
