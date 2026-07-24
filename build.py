@@ -14,7 +14,7 @@ import subprocess
 import functools
 import tomllib
 
-from prereqs import check_prereqs, add_wasm_tools_to_path
+from prereqs import add_wasm_tools_to_path, check_prereqs, psutil_checks
 
 # Disable buffered output so that the log statements and subprocess output get interleaved in proper order
 print = functools.partial(print, flush=True)
@@ -188,8 +188,35 @@ QISKIT_VERSION_MATRIX = [
 ]
 
 
-def run(cmd, cwd, env=None):
-    subprocess.run(cmd, check=True, text=True, cwd=cwd, env=env)
+def run(cmd, cwd, env=None, perf_log_config=None):
+    # Build one execution policy and reuse it across plain and instrumented
+    # subprocess paths so behavior cannot drift.
+    run_kwargs={ "cwd": cwd, "env": env, "text": True }
+    check = True
+
+    if perf_log_config is None:
+        subprocess.run(cmd, check=check, **run_kwargs)
+    else:
+        run_with_logging_lazy_import(cmd, check, run_kwargs, perf_log_config) 
+
+
+def run_with_logging_lazy_import(cmd, check, run_kwargs, perf_log_config):
+    # Delay importing perf logging so prereq checks can run first.
+    from performance_logging import ExecutionPolicy
+    from performance_logging import run_with_logging
+
+    execution_policy = ExecutionPolicy(run_kwargs, check)
+    run_with_logging(args=cmd, execution_policy=execution_policy, config=perf_log_config)
+
+
+def qdk_perf_log_config_lazy_import(src, maturin):
+    target_is_qdk_native = maturin and os.path.abspath(src) == os.path.abspath(qdk_python_src)
+    if not target_is_qdk_native:
+        return None
+
+    from performance_logging import PerfLogConfig
+
+    return PerfLogConfig(repo_root=root_dir, log_context_label="qdk native wheel")
 
 
 def pip_install(python_bin, *positional_args, cwd, env=None, extra_args=()):
@@ -219,7 +246,8 @@ def build_wheel(python_bin, src, env=None, outdir=None, maturin=False):
         if platform.system() == "Linux":
             args.append("--config-setting=build-args='--compatibility'")
     args.extend(["--outdir", outdir, src])
-    run(args, cwd=src, env=env)
+    perf_log_config = qdk_perf_log_config_lazy_import(src=src, maturin=maturin)
+    run(args, cwd=src, env=env, perf_log_config=perf_log_config)
 
 
 def install_from_wheels(python_bin, *positional_args, cwd, env=None):
@@ -316,6 +344,10 @@ def run_python_checks():
 if args.check_py:
     run_python_checks()
     exit(0)
+
+def use_repo_python_env():
+    # Repo-level build-system tests run with the same interpreter as build.py.
+    return sys.executable
 
 
 if npm_install_needed:
@@ -444,6 +476,19 @@ def run_python_integration_tests(cwd, interpreter):
     subprocess.run(command_args, check=True, text=True, cwd=cwd)
 
 
+def run_build_system_tests(repo_root, tests_dir, interpreter):
+    # Keep build-system tests on pytest for consistency with other Python suites.
+    # Run from repo root so imports like `performance_logging` resolve normally.
+    command_args = [
+        interpreter,
+        "-m",
+        "pytest",
+        "-q",
+        os.path.relpath(tests_dir, repo_root),
+    ]
+    subprocess.run(command_args, check=True, text=True, cwd=repo_root)
+
+
 def run_ci_historic_benchmark():
     branch = "main"
     output = subprocess.check_output(
@@ -490,6 +535,12 @@ def run_ci_historic_benchmark():
 if build_qdk:
     step_start("Building the qdk python package")
 
+    # Intentionally local to the qdk path: psutil gates perf logging for
+    # qdk native wheel builds only. Keeping this scoped avoids imposing
+    # psutil on unrelated build targets. If we want global enforcement,
+    # that should be an explicit team decision in check_prereqs().
+    psutil_checks(install=True)
+
     # Reuse (or create) the pip environment so qdk wheel can be built/installed consistently.
     python_bin, pip_env = use_python_env(qdk_python_src)
 
@@ -522,6 +573,16 @@ if build_qdk:
         install_python_test_requirements(qdk_python_src, python_bin)
         if not args.editable:
             install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
+
+    if run_tests:
+        step_start("Running build system tests")
+        repo_python_bin = use_repo_python_env()
+        run_build_system_tests(
+            root_dir,
+            os.path.join(root_dir, "tests", "build"),
+            repo_python_bin,
+        )
+        step_end()
 
     if args.check:
         step_start("Checking qdk public API surface for private type leakage")
