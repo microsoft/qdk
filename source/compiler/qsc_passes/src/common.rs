@@ -1,13 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use num_bigint::BigInt;
 use qsc_data_structures::{namespaces::NamespaceId, span::Span};
 use qsc_hir::{
     assigner::Assigner,
     global::Table,
     hir::{
-        Expr, ExprKind, Field, Ident, Mutability, NodeId, Pat, PatKind, PrimField, Res, Stmt,
-        StmtKind,
+        Expr, ExprKind, Field, Ident, Lit, Mutability, NodeId, Pat, PatKind, Pauli, PrimField, Res,
+        Result, Stmt, StmtKind,
     },
     ty::{GenericArg, Prim, Ty},
     visit::{self, Visitor},
@@ -111,6 +112,87 @@ pub(crate) fn create_gen_core_ref(
         span,
         ty: Ty::Arrow(Rc::new(ty)),
         kind: ExprKind::Var(Res::Item(callable.id), generics),
+    }
+}
+
+/// Builds a classical default value of `ty`, or `None` when no default can be
+/// synthesized, such as for a qubit, arrow, or user-defined type.
+pub(crate) fn build_default(assigner: &mut Assigner, ty: &Ty) -> Option<Expr> {
+    let kind = build_default_kind(assigner, ty)?;
+    Some(Expr {
+        id: assigner.next_node(),
+        span: Span::default(),
+        ty: ty.clone(),
+        kind,
+    })
+}
+
+fn build_default_kind(assigner: &mut Assigner, ty: &Ty) -> Option<ExprKind> {
+    match ty {
+        Ty::Prim(Prim::Bool) => Some(ExprKind::Lit(Lit::Bool(false))),
+        Ty::Prim(Prim::Int) => Some(ExprKind::Lit(Lit::Int(0))),
+        Ty::Prim(Prim::BigInt) => Some(ExprKind::Lit(Lit::BigInt(BigInt::from(0)))),
+        Ty::Prim(Prim::Double) => Some(ExprKind::Lit(Lit::Double(0.0))),
+        Ty::Prim(Prim::Pauli) => Some(ExprKind::Lit(Lit::Pauli(Pauli::I))),
+        Ty::Prim(Prim::Result) => Some(ExprKind::Lit(Lit::Result(Result::Zero))),
+        Ty::Prim(Prim::String) => Some(ExprKind::String(Vec::new())),
+        // Preserve each range type's structural shape: `...`, `0...`, `...0`,
+        // or `0..0`. The concrete bounds only seed a never-observed path.
+        Ty::Prim(Prim::RangeFull) => Some(ExprKind::Range(None, None, None)),
+        Ty::Prim(Prim::RangeFrom) => Some(ExprKind::Range(
+            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
+            None,
+            None,
+        )),
+        Ty::Prim(Prim::RangeTo) => Some(ExprKind::Range(
+            None,
+            None,
+            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
+        )),
+        Ty::Prim(Prim::Range) => Some(ExprKind::Range(
+            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
+            None,
+            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
+        )),
+        Ty::Array(_) => Some(ExprKind::Array(Vec::new())),
+        Ty::Tuple(elems) => {
+            let exprs = elems
+                .iter()
+                .map(|elem| build_default(assigner, elem))
+                .collect::<Option<Vec<_>>>()?;
+            Some(ExprKind::Tuple(exprs))
+        }
+        Ty::Prim(Prim::Qubit)
+        | Ty::Arrow(_)
+        | Ty::Udt(_, _)
+        | Ty::Infer(_)
+        | Ty::Param { .. }
+        | Ty::Err => None,
+    }
+}
+
+/// Returns whether `ty` has a classical default that [`build_default`] can
+/// synthesize.
+pub(crate) fn is_defaultable(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(Prim::Qubit)
+        | Ty::Arrow(_)
+        | Ty::Udt(..)
+        | Ty::Infer(_)
+        | Ty::Param { .. }
+        | Ty::Err => false,
+        Ty::Prim(_) | Ty::Array(_) => true,
+        Ty::Tuple(elems) => elems.iter().all(is_defaultable),
+    }
+}
+
+/// Returns whether a resolved value of `ty` can be represented in generated
+/// HIR, including behind an array-backed temporary.
+pub(crate) fn is_representable(ty: &Ty) -> bool {
+    match ty {
+        Ty::Prim(_) | Ty::Array(_) | Ty::Arrow(_) | Ty::Udt(_, Res::Item(_)) => true,
+        Ty::Tuple(elems) => elems.iter().all(is_representable),
+        Ty::Udt(_, _) | Ty::Infer(_) | Ty::Param { .. } | Ty::Err => false,
     }
 }
 

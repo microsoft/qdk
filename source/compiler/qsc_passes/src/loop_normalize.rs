@@ -62,7 +62,7 @@ use qsc_hir::{
     assigner::Assigner,
     hir::{
         BinOp, Block, Expr, ExprKind, Field, FieldPath, Lit, Mutability, QubitInit, QubitInitKind,
-        Res, Stmt, StmtKind, StringComponent, UnOp,
+        Stmt, StmtKind, StringComponent, UnOp,
     },
     mut_visit::MutVisitor,
     ty::{Prim, Ty},
@@ -70,7 +70,9 @@ use qsc_hir::{
 };
 use thiserror::Error;
 
-use crate::common::{EnclosingBreakContinueScan, IdentTemplate, gen_ident};
+use crate::common::{
+    EnclosingBreakContinueScan, IdentTemplate, gen_ident, is_defaultable, is_representable,
+};
 
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
@@ -783,42 +785,6 @@ fn is_candidate(expr: &Expr) -> bool {
             | ExprKind::For(_, _, _)
             | ExprKind::Repeat(_, _, _)
     ) && contains_control_flow(expr)
-}
-
-/// Read-only check whether `ty` has a classical default the `loop_unification`
-/// desugar can materialize directly through its `build_default_kind`. This
-/// selects the direct binding strategy; any other representable type is
-/// array-backed instead. Kept in exact agreement with `build_default_kind` so
-/// the two passes never disagree on which types are directly defaultable;
-/// `Arrow` and every user-defined type are not.
-fn is_defaultable(ty: &Ty) -> bool {
-    match ty {
-        Ty::Prim(Prim::Qubit)
-        | Ty::Arrow(_)
-        | Ty::Udt(..)
-        | Ty::Infer(_)
-        | Ty::Param { .. }
-        | Ty::Err => false,
-        Ty::Prim(_) | Ty::Array(_) => true,
-        Ty::Tuple(elems) => elems.iter().all(is_defaultable),
-    }
-}
-
-/// Read-only check whether an array-backed temp of `ty` can be synthesized.
-/// The universal `[]` default of `ty[]` is well-typed whenever `ty`'s structure
-/// is resolvable, so a resolved user-defined type is representable regardless of
-/// which package defines it: array-backing needs only the `[]` default of `T[]`,
-/// never a default of the user-defined type itself. This excludes only
-/// genuinely-unresolvable leaves: inference and type-parameter placeholders, the
-/// error type, and an unresolved user-defined type. None of these can occur for
-/// a well-typed operand post-typecheck, so the resulting rejection is a
-/// defensive guard.
-fn is_representable(ty: &Ty) -> bool {
-    match ty {
-        Ty::Prim(_) | Ty::Array(_) | Ty::Arrow(_) | Ty::Udt(_, Res::Item(_)) => true,
-        Ty::Tuple(elems) => elems.iter().all(is_representable),
-        Ty::Udt(_, _) | Ty::Infer(_) | Ty::Param { .. } | Ty::Err => false,
-    }
 }
 
 /// Returns `true` when `expr` contains a `break`/`continue` that escapes to

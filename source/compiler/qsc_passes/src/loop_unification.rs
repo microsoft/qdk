@@ -4,14 +4,13 @@
 use std::mem::take;
 
 use miette::Diagnostic;
-use num_bigint::BigInt;
 use qsc_data_structures::span::Span;
 use qsc_hir::{
     assigner::Assigner,
     global::Table,
     hir::{
-        BinOp, Block, Expr, ExprKind, Lit, Mutability, Package, Pat, Pauli, PrimField, QubitInit,
-        QubitInitKind, Result, Stmt, StmtKind, UnOp,
+        BinOp, Block, Expr, ExprKind, Lit, Mutability, Package, Pat, PrimField, QubitInit,
+        QubitInitKind, Stmt, StmtKind, UnOp,
     },
     mut_visit::{MutVisitor, walk_expr},
     ty::{GenericArg, Prim, Ty},
@@ -20,7 +19,10 @@ use qsc_hir::{
 use thiserror::Error;
 
 use crate::CORE_NAMESPACE;
-use crate::common::{EnclosingBreakContinueScan, IdentTemplate, create_gen_core_ref, gen_ident};
+use crate::common::{
+    EnclosingBreakContinueScan, IdentTemplate, build_default, create_gen_core_ref, gen_ident,
+    is_defaultable,
+};
 
 #[cfg(test)]
 mod tests;
@@ -1297,68 +1299,6 @@ fn build_default_or_err(
     }
 }
 
-/// Builds a classical default value of `ty`, or `None` when `ty` has no
-/// synthesizable default, such as `Qubit`, an arrow type, or a user-defined
-/// type, which this desugar does not attempt to construct.
-fn build_default(assigner: &mut Assigner, ty: &Ty) -> Option<Expr> {
-    let kind = build_default_kind(assigner, ty)?;
-    Some(Expr {
-        id: assigner.next_node(),
-        span: Span::default(),
-        ty: ty.clone(),
-        kind,
-    })
-}
-
-fn build_default_kind(assigner: &mut Assigner, ty: &Ty) -> Option<ExprKind> {
-    match ty {
-        Ty::Prim(Prim::Bool) => Some(ExprKind::Lit(Lit::Bool(false))),
-        Ty::Prim(Prim::Int) => Some(ExprKind::Lit(Lit::Int(0))),
-        Ty::Prim(Prim::BigInt) => Some(ExprKind::Lit(Lit::BigInt(BigInt::from(0)))),
-        Ty::Prim(Prim::Double) => Some(ExprKind::Lit(Lit::Double(0.0))),
-        Ty::Prim(Prim::Pauli) => Some(ExprKind::Lit(Lit::Pauli(Pauli::I))),
-        Ty::Prim(Prim::Result) => Some(ExprKind::Lit(Lit::Result(Result::Zero))),
-        Ty::Prim(Prim::String) => Some(ExprKind::String(Vec::new())),
-        // Each range type's default must present exactly the bounds its shape
-        // requires, so the synthesized value's kind matches its type tag: `...`
-        // for `RangeFull`, `0...` for `RangeFrom`, `...0` for `RangeTo`, and
-        // `0..0` for a fully-bounded `Range`. Emitting the `RangeFull` shape
-        // (`...`) for every variant would tag the value with a range type it
-        // does not structurally match. This default only seeds a never-observed
-        // divergence path, so the concrete bounds are immaterial.
-        Ty::Prim(Prim::RangeFull) => Some(ExprKind::Range(None, None, None)),
-        Ty::Prim(Prim::RangeFrom) => Some(ExprKind::Range(
-            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
-            None,
-            None,
-        )),
-        Ty::Prim(Prim::RangeTo) => Some(ExprKind::Range(
-            None,
-            None,
-            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
-        )),
-        Ty::Prim(Prim::Range) => Some(ExprKind::Range(
-            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
-            None,
-            Some(Box::new(build_default(assigner, &Ty::Prim(Prim::Int))?)),
-        )),
-        Ty::Array(_) => Some(ExprKind::Array(Vec::new())),
-        Ty::Tuple(elems) => {
-            let exprs = elems
-                .iter()
-                .map(|elem| build_default(assigner, elem))
-                .collect::<Option<Vec<_>>>()?;
-            Some(ExprKind::Tuple(exprs))
-        }
-        Ty::Prim(Prim::Qubit)
-        | Ty::Arrow(_)
-        | Ty::Udt(_, _)
-        | Ty::Infer(_)
-        | Ty::Param { .. }
-        | Ty::Err => None,
-    }
-}
-
 /// Returns `true` when a statement following a set loop-control flag must be
 /// relocated into a guarded suffix block rather than guarded in place: a qubit
 /// allocation, whose binding scope must stay intact, or a non-defaultable `let`
@@ -1369,23 +1309,6 @@ fn requires_suffix_relocation(stmt: &Stmt) -> bool {
         StmtKind::Qubit(..) => true,
         StmtKind::Local(_, _, init) => !is_defaultable(&init.ty),
         _ => false,
-    }
-}
-
-/// Read-only check whether `ty` has a classical default the desugar can
-/// materialize directly. Kept in exact agreement with [`build_default_kind`]
-/// so the relocation decision matches what [`build_default_or_err`] can build;
-/// `Qubit`, `Arrow`, and every user-defined type are not defaultable.
-fn is_defaultable(ty: &Ty) -> bool {
-    match ty {
-        Ty::Prim(Prim::Qubit)
-        | Ty::Arrow(_)
-        | Ty::Udt(..)
-        | Ty::Infer(_)
-        | Ty::Param { .. }
-        | Ty::Err => false,
-        Ty::Prim(_) | Ty::Array(_) => true,
-        Ty::Tuple(elems) => elems.iter().all(is_defaultable),
     }
 }
 
