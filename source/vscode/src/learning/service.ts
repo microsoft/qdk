@@ -601,6 +601,22 @@ export class LearningService {
   }
 
   /**
+   * Return the `{ id, path }` for the active course's Python environment,
+   * suitable for passing to the Jupyter extension's `openNotebook` API.
+   * Returns `undefined` for Q# courses or when no environment exists.
+   */
+  async getActiveCourseEnvironmentPath(): Promise<
+    { id: string; path: string } | undefined
+  > {
+    const course = this.activeCourse;
+    if (course.kind !== "python-notebook" || !course.sourceDir) {
+      return undefined;
+    }
+    const courseRoot = vscode.Uri.parse(course.sourceDir);
+    return this.environment.getEnvironmentPath(courseRoot);
+  }
+
+  /**
    * Apply a fix surfaced by {@link runEnvironmentCheck}. Centralizes the
    * mapping from an {@link EnvironmentCheckFix.kind} to a concrete action so
    * the command and chat tool can offer fixes without duplicating the logic.

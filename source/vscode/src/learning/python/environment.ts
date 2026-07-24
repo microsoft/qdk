@@ -100,6 +100,31 @@ export class EnvironmentManager {
   }
 
   /**
+   * Return the `{ id, path }` for the course's Python environment, suitable
+   * for passing to the Jupyter extension's `openNotebook` API.
+   * Returns `undefined` when no environment has been resolved.
+   */
+  async getEnvironmentPath(
+    courseRoot: vscode.Uri,
+  ): Promise<{ id: string; path: string } | undefined> {
+    if (!this.supported) {
+      return undefined;
+    }
+    const api = await this.pythonEnvironmentsApi();
+    if (!api) {
+      return undefined;
+    }
+    const env = await this.findEnvironment(api, courseRoot);
+    if (!env) {
+      return undefined;
+    }
+    return {
+      id: env.envId.id,
+      path: env.environmentPath.fsPath,
+    };
+  }
+
+  /**
    * Per-module import report for the course environment. Each entry is
    * `true` when that module imports successfully. Missing environment yields
    * all `false`.

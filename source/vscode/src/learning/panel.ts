@@ -418,7 +418,8 @@ export class LessonPanelManager {
   }
 
   /**
-   * Open the current unit's notebook in the Jupyter editor (column 2).
+   * Open the current unit's notebook in the Jupyter editor (column 2),
+   * pre-selecting the course's Python environment as the active kernel.
    */
   private async openCourseNotebook(): Promise<void> {
     if (!this.service.initialized) {
@@ -434,6 +435,21 @@ export class LessonPanelManager {
       orientation: 0,
       groups: [{ size: 0.35 }, { size: 0.65 }],
     });
+
+    // Try to open via the Jupyter extension's unstable API so the course's
+    // Python environment is automatically set as the active kernel.
+    const envPath = await this.service.getActiveCourseEnvironmentPath();
+    if (envPath) {
+      const jupyter =
+        vscode.extensions.getExtension("ms-toolsai.jupyter");
+      const api = await jupyter?.activate();
+      if (api && typeof api.openNotebook === "function") {
+        await api.openNotebook(notebookUri, envPath);
+        return;
+      }
+    }
+
+    // Fallback: open without pre-selecting a kernel.
     await vscode.commands.executeCommand(
       "vscode.openWith",
       notebookUri,

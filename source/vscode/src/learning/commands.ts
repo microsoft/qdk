@@ -98,7 +98,8 @@ export function registerLearningCommands(
           node.kind === "activity" &&
           node.activity.type === "exercise"
         ) {
-        // TODO (acasey): is there a way to focus on a particular cell? (maybe goToExerciseByCellId?)
+          // TODO (acasey): is there a way to focus on a particular cell? (maybe goToExerciseByCellId?)
+          // TODO (acasey): reconcile with code for opening notebook in panel.ts
           const notebookUri = service.getCurrentCodeFileUri();
           if (notebookUri) {
             await vscode.commands.executeCommand(
