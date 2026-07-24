@@ -265,6 +265,7 @@ fn divergent_while_true_fail_body_passes_block_tail() {
                 while true {
                     fail "hello"
                 }
+                0
             }
         }
     "#;
@@ -284,6 +285,7 @@ fn divergent_repeat_fail_body_passes_block_tail() {
                 repeat {
                     fail "hello"
                 } until 1 < 2
+                0
             }
         }
     "#;

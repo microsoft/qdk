@@ -171,6 +171,7 @@ operation Main() : Int {
     repeat {
         fail "hello"
     } until 1 < 2
+    0
 }"#,
             "qsharp",
         )

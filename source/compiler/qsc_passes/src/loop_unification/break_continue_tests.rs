@@ -1578,6 +1578,7 @@ fn nested_loop_header_control_reaches_placement_validation() {
                     while break {}
                     fail "body"
                 } until true
+                0
             }
         }
     "#});
@@ -1600,6 +1601,7 @@ fn nested_repeat_fixup_control_reaches_placement_validation() {
                     repeat {} until false fixup { break }
                     fail "body"
                 } until true
+                0
             }
         }
     "#});
