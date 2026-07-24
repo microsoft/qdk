@@ -7,6 +7,7 @@ import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import {
   COURSE_MANIFEST_FILE,
+  COURSE_README_FILE,
   LEARNING_COURSES_SUBDIR,
   LEARNING_WORKSPACE_FOLDER,
 } from "./constants.js";
@@ -31,7 +32,6 @@ interface CourseManifest {
   id?: unknown;
   title?: unknown;
   shortDescription?: unknown;
-  readme?: unknown;
   units?: unknown;
   environment?: unknown;
 }
@@ -126,7 +126,6 @@ export class DropInCourseProvider implements CourseProvider {
   private async readManifest(
     dir: vscode.Uri,
   ): Promise<CourseManifest | undefined> {
-    // TODO (acasey): probably doesn't need to include readme.md - we know where that is
     const manifestUri = vscode.Uri.joinPath(dir, COURSE_MANIFEST_FILE);
     const text = await tryReadText(manifestUri);
     if (text === undefined) {
@@ -167,13 +166,9 @@ export class DropInCourseProvider implements CourseProvider {
       shortDescription: manifestString(loc.manifest.shortDescription),
       environment: manifestEnvironment(loc.manifest.environment),
     };
-    // TODO (acasey): well-known location (or eliminate)
-    const readme = manifestString(loc.manifest.readme);
-    if (readme) {
-      const readmeUri = vscode.Uri.joinPath(loc.dir, readme);
-      if (await uriExists(readmeUri)) {
-        descriptor.readmePath = readmeUri.toString();
-      }
+    const readmeUri = vscode.Uri.joinPath(loc.dir, COURSE_README_FILE);
+    if (await uriExists(readmeUri)) {
+      descriptor.readmePath = readmeUri.toString();
     }
     return descriptor;
   }

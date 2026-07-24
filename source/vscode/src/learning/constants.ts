@@ -16,6 +16,9 @@ export const LEARNING_COURSES_SUBDIR = "courses";
 /** Filename describing a drop-in course. */
 export const COURSE_MANIFEST_FILE = "course.json";
 
+/** Filename containing the overview for a drop-in course. */
+export const COURSE_README_FILE = "README.md";
+
 /** Context key set when a learning workspace is detected. */
 export const LEARNING_WORKSPACE_DETECTED_CONTEXT =
   "qsharp-vscode.learningWorkspaceDetected";
