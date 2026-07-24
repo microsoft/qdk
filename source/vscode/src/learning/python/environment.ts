@@ -37,18 +37,14 @@ export class EnvironmentManager {
 
   /**
    * Ensure a Python environment exists for the given course and install the
-   * specified packages. If an environment already exists in the target
+   * packages listed in requirements.txt. If an environment already exists in the target
    * directory it is reused and packages are installed into it; otherwise a
    * new environment is created.
    *
    * @param courseRoot The course's source folder (where `pyproject.toml`
    *   may live and where the environment is created).
-   * @param packages Packages to install (e.g. `["ipykernel", "qdk"]`).
    */
-  async ensureEnvironment(
-    courseRoot: vscode.Uri,
-    packages: string[],
-  ): Promise<void> {
+  async ensureEnvironment(courseRoot: vscode.Uri): Promise<void> {
     if (!this.supported) {
       return;
     }
@@ -83,6 +79,10 @@ export class EnvironmentManager {
       // Cache the resolved environment.
       this._envCache.set(courseRoot.toString(), env);
     }
+
+    // The environments API doesn't presently support parsing requirements.txt or pyproject.toml,
+    // so we have to do it ourselves.  Hopefully, this will be folded into createEnvironment at some point.
+    const packages = await this.readRequirements(courseRoot);
 
     // Install packages.
     if (packages.length > 0) {
@@ -136,6 +136,28 @@ export class EnvironmentManager {
   }
 
   // ─── Private helpers ───
+
+  private async readRequirements(courseRoot: vscode.Uri): Promise<string[]> {
+    const requirementsUri = vscode.Uri.joinPath(courseRoot, "requirements.txt");
+    try {
+      const contents = new TextDecoder().decode(
+        await vscode.workspace.fs.readFile(requirementsUri),
+      );
+      return contents
+        .split(/\r?\n/)
+        .map((requirement) => requirement.trim())
+        .filter(
+          (requirement) =>
+            requirement.length > 0 && !requirement.startsWith("#"),
+        );
+    } catch (e) {
+      if (e instanceof vscode.FileSystemError && e.code === "FileNotFound") {
+        log.warn(`No requirements.txt found under ${courseRoot.fsPath}`);
+        return [];
+      }
+      throw e;
+    }
+  }
 
   /**
    * The Python Environments extension API, or `undefined` when the

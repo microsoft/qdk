@@ -590,7 +590,7 @@ export class LearningService {
         title: `Setting up the environment for "${course.title}"…`,
       },
       async () => {
-        await env.ensureEnvironment(courseRoot, ["ipykernel"]);
+        await env.ensureEnvironment(courseRoot);
       },
     );
   }
