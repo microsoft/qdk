@@ -270,6 +270,7 @@
         "0": { "name": "punctuation.definition.typeparameters.end.qsharp" }
       },
       "patterns": [
+        { "include": "#comments" },
         {
           "match": "('[_[:alpha:]][_[:alnum:]]*)\\b",
           "captures": {
@@ -311,6 +312,7 @@
         "0": { "name": "punctuation.parenthesis.close.qsharp" }
       },
       "patterns": [
+        { "include": "#comments" },
         { "include": "#parameter" },
         { "include": "#punctuation-comma" }
       ]
@@ -336,6 +338,7 @@
       },
       "end": "(?=(,|\\)|\\]))",
       "patterns": [
+        { "include": "#comments" },
         { "include": "#literals" },
         { "include": "#types" },
         { "include": "#library" },
@@ -378,6 +381,7 @@
             "0": { "name": "punctuation.parenthesis.close.qsharp" }
           },
           "patterns": [
+            { "include": "#comments" },
             { "include": "#literals" },
             { "include": "#punctuation-comma" },
             { "include": "#types" },
@@ -388,6 +392,7 @@
           "begin": "(?:\\s*=\\s*)",
           "end": "(?=;)",
           "patterns": [
+            { "include": "#comments" },
             { "include": "#literals" },
             { "include": "#punctuation-comma" },
             { "include": "#types" },
@@ -432,6 +437,7 @@
       },
       "end": "(?=(,|\\}))",
       "patterns": [
+        { "include": "#comments" },
         { "include": "#type-parameter" },
         { "include": "#types" },
         { "include": "#library" }
@@ -514,6 +520,7 @@
         { "include": "#comments" },
         { "include": "#if-statement" },
         { "include": "#new-expression" },
+        { "include": "#keywords" },
         { "include": "#strings" },
         { "include": "#member-access" },
         { "include": "#library-invocation" },
@@ -559,11 +566,13 @@
       "beginCaptures": { "1": { "name": "keyword.other.import.qsharp" } },
       "end": "(?=;)|$",
       "patterns": [
+        { "include": "#comments" },
         {
           "begin": "\\b(as)\\b\\s*",
           "beginCaptures": { "1": { "name": "keyword.other.qsharp" } },
           "end": "(?=(,|;)|$)",
           "patterns": [
+            { "include": "#comments" },
             {
               "name": "entity.name.type.alias.qsharp",
               "match": "[_[:alpha:]][_[:alnum:]]*"
@@ -622,6 +631,7 @@
           "beginCaptures": { "1": { "name": "keyword.other.open.qsharp" } },
           "end": "(?=;)",
           "patterns": [
+            { "include": "#comments" },
             {
               "begin": "\\b(as)\\s+(?<alias>[_[:alpha:]][_[:alnum:]]*)",
               "beginCaptures": {
@@ -686,7 +696,7 @@
         "2": { "name": "keyword.other.mutable.qsharp" },
         "3": { "name": "entity.name.variable.local.qsharp" }
       },
-      "end": "(?=;|\\))",
+      "end": "(?=;|\\)|})",
       "patterns": [{ "include": "#variable-initializer" }]
     },
     "tuple-binding": {
@@ -715,6 +725,7 @@
         "0": { "name": "punctuation.parenthesis.close.qsharp" }
       },
       "patterns": [
+        { "include": "#comments" },
         { "include": "#tuple-pattern" },
         {
           "name": "entity.name.variable.local.qsharp",
@@ -733,7 +744,7 @@
         "5": { "name": "keyword.operator.assignment.qsharp" },
         "6": { "name": "keyword.operator.assignment.qsharp" }
       },
-      "end": "(?=;|\\))",
+      "end": "(?=;|\\)|})",
       "patterns": [
         { "name": "keyword.operator.assignment.qsharp", "match": "<-" },
         { "include": "#expression" }
@@ -745,7 +756,7 @@
         "1": { "name": "keyword.other.set.qsharp" },
         "2": { "name": "entity.name.variable.local.qsharp" }
       },
-      "end": "(?=;|\\))",
+      "end": "(?=;|\\)|})",
       "patterns": [{ "include": "#variable-initializer" }]
     },
     "variable-initializer": {
@@ -828,7 +839,7 @@
         "2": { "name": "keyword.other.borrow.qsharp" },
         "3": { "name": "entity.name.variable.local.qsharp" }
       },
-      "end": "(?=;|\\))",
+      "end": "(?=;|\\)|})",
       "patterns": [{ "include": "#quantum-initializer" }]
     },
     "quantum-initializer": {
