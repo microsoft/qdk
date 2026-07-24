@@ -28,10 +28,10 @@ fn isolated_anf_lifts_return_in_binop_operand_block() {
         &expect![[r#"
             // before anf (changed=true)
             function Main() : Int {
-                let x : Int = 1 + {
+                let x : Int = (1 + {
                     return 2;
                     3
-                };
+                });
                 x
             }
             // entry
@@ -44,7 +44,7 @@ fn isolated_anf_lifts_return_in_binop_operand_block() {
                     return 2;
                     3
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = (__operand_tmp_0 + __operand_tmp_1);
                 x
             }
             // entry
@@ -345,13 +345,13 @@ fn isolated_anf_lifts_whole_block_with_if_in_binop_operand() {
             // before anf (changed=true)
             function Main() : Int {
                 mutable c : Bool = true;
-                let x : Int = 1 + {
+                let x : Int = (1 + {
                     if c {
                         return 2;
                     }
 
                     3
-                };
+                });
                 x
             }
             // entry
@@ -368,7 +368,7 @@ fn isolated_anf_lifts_whole_block_with_if_in_binop_operand() {
 
                     3
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = (__operand_tmp_0 + __operand_tmp_1);
                 x
             }
             // entry
@@ -407,14 +407,14 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
             // before anf (changed=true)
             function Main() : Int {
                 mutable c : Bool = true;
-                let x : Int = 1 + {
+                let x : Int = (1 + {
                     while c {
                         c = false;
                         return 2;
                     }
 
                     0
-                };
+                });
                 x
             }
             // entry
@@ -432,7 +432,7 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
 
                     0
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = (__operand_tmp_0 + __operand_tmp_1);
                 x
             }
             // entry
@@ -801,10 +801,10 @@ fn isolated_anf_lifts_short_circuit_and_lhs_block_leaving_rhs_inline() {
                 true
             }
             function Main() : Bool {
-                let b : Bool = {
+                let b : Bool = ({
                     return true;
                     true
-                } and G();
+                } and G());
                 b
             }
             // entry
@@ -819,7 +819,7 @@ fn isolated_anf_lifts_short_circuit_and_lhs_block_leaving_rhs_inline() {
                     return true;
                     true
                 };
-                let b : Bool = __operand_tmp_0 and G();
+                let b : Bool = (__operand_tmp_0 and G());
                 b
             }
             // entry

@@ -462,7 +462,7 @@ fn specialize_closure_capture_types_preserved() {
                         mutable _index_id_62 : Int = _range_id_59.Start;
                         let _step_id_67 : Int = _range_id_59.Step;
                         let _end_id_72 : Int = _range_id_59.End;
-                        while _step_id_67 > 0 and _index_id_62 <= _end_id_72 or _step_id_67 < 0 and _index_id_62 >= _end_id_72 {
+                        while (((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72))) {
                             let _ : Int = _index_id_62;
                             H(q1);
                             _index_id_62 += _step_id_67;
@@ -496,7 +496,7 @@ fn specialize_closure_capture_types_preserved() {
                         mutable _index_id_62 : Int = _range_id_59.Start;
                         let _step_id_67 : Int = _range_id_59.Step;
                         let _end_id_72 : Int = _range_id_59.End;
-                        while _step_id_67 > 0 and _index_id_62 <= _end_id_72 or _step_id_67 < 0 and _index_id_62 >= _end_id_72 {
+                        while (((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72))) {
                             let _ : Int = _index_id_62;
                             H(q1);
                             _index_id_62 += _step_id_67;
@@ -1787,7 +1787,7 @@ fn specialize_closure_in_while_loop_body() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable n : Int = 3;
-                let _generated_ident_62 : Unit = while n > 0 {
+                let _generated_ident_62 : Unit = while (n > 0) {
                     ApplyOp_Empty_(/ * closure item = 3 captures = [] * / _lambda_3, q);
                     n -= 1;
                 };
@@ -1810,7 +1810,7 @@ fn specialize_closure_in_while_loop_body() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable n : Int = 3;
-                let _generated_ident_62 : Unit = while n > 0 {
+                let _generated_ident_62 : Unit = while (n > 0) {
                     ApplyOp_Empty__H_(q);
                     n -= 1;
                 };
@@ -2970,9 +2970,9 @@ fn recursive_hof_function_specialization_remaps_self_call_to_specialization() {
         &expect![[r#"
             BEFORE:
             function Repeat(op : (Int -> Int), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     let i : Int = op(n);
-                    Repeat(Id, i - 1, q);
+                    Repeat(Id, (i - 1), q);
                 }
 
             }
@@ -2989,9 +2989,9 @@ fn recursive_hof_function_specialization_remaps_self_call_to_specialization() {
 
             AFTER:
             function Repeat(op : (Int -> Int), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     let i : Int = op(n);
-                    Repeat_Id_(i - 1, q);
+                    Repeat_Id_((i - 1), q);
                 }
 
             }
@@ -3004,9 +3004,9 @@ fn recursive_hof_function_specialization_remaps_self_call_to_specialization() {
                 __quantum__rt__qubit_release(q);
             }
             function Repeat_Id_(n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     let i : Int = Id(n);
-                    Repeat_Id_(i - 1, q);
+                    Repeat_Id_((i - 1), q);
                 }
 
             }
@@ -3064,9 +3064,9 @@ fn recursive_hof_specialization_remaps_self_call_to_specialization() {
         &expect![[r#"
             BEFORE:
             operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl_(H, n - 1, q);
+                    Repeat_AdjCtl_(H, (n - 1), q);
                 }
 
             }
@@ -3076,9 +3076,9 @@ fn recursive_hof_specialization_remaps_self_call_to_specialization() {
                 __quantum__rt__qubit_release(q);
             }
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl_(H, n - 1, q);
+                    Repeat_AdjCtl_(H, (n - 1), q);
                 }
 
             }
@@ -3087,9 +3087,9 @@ fn recursive_hof_specialization_remaps_self_call_to_specialization() {
 
             AFTER:
             operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl_(H, n - 1, q);
+                    Repeat_AdjCtl_(H, (n - 1), q);
                 }
 
             }
@@ -3099,16 +3099,16 @@ fn recursive_hof_specialization_remaps_self_call_to_specialization() {
                 __quantum__rt__qubit_release(q);
             }
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl__H_(n - 1, q);
+                    Repeat_AdjCtl__H_((n - 1), q);
                 }
 
             }
             operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     H(q);
-                    Repeat_AdjCtl__H_(n - 1, q);
+                    Repeat_AdjCtl__H_((n - 1), q);
                 }
 
             }
@@ -3167,10 +3167,10 @@ fn recursive_multi_param_hof_specialization_remaps_self_call_to_specialization()
         &expect![[r#"
             BEFORE:
             operation RepeatPair(n : Int, first : (Qubit => Unit), second : (Qubit => Unit), q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     first(q);
                     second(q);
-                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                    RepeatPair_AdjCtl__AdjCtl_((n - 1), H, X, q);
                 }
 
             }
@@ -3180,10 +3180,10 @@ fn recursive_multi_param_hof_specialization_remaps_self_call_to_specialization()
                 __quantum__rt__qubit_release(q);
             }
             operation RepeatPair_AdjCtl__AdjCtl_(n : Int, first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     first(q);
                     second(q);
-                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                    RepeatPair_AdjCtl__AdjCtl_((n - 1), H, X, q);
                 }
 
             }
@@ -3192,10 +3192,10 @@ fn recursive_multi_param_hof_specialization_remaps_self_call_to_specialization()
 
             AFTER:
             operation RepeatPair(n : Int, first : (Qubit => Unit), second : (Qubit => Unit), q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     first(q);
                     second(q);
-                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                    RepeatPair_AdjCtl__AdjCtl_((n - 1), H, X, q);
                 }
 
             }
@@ -3205,18 +3205,18 @@ fn recursive_multi_param_hof_specialization_remaps_self_call_to_specialization()
                 __quantum__rt__qubit_release(q);
             }
             operation RepeatPair_AdjCtl__AdjCtl_(n : Int, first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     first(q);
                     second(q);
-                    RepeatPair_AdjCtl__AdjCtl__H__X_(n - 1, q);
+                    RepeatPair_AdjCtl__AdjCtl__H__X_((n - 1), q);
                 }
 
             }
             operation RepeatPair_AdjCtl__AdjCtl__H__X_(n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     H(q);
                     X(q);
-                    RepeatPair_AdjCtl__AdjCtl__H__X_(n - 1, q);
+                    RepeatPair_AdjCtl__AdjCtl__H__X_((n - 1), q);
                 }
 
             }
@@ -3321,9 +3321,9 @@ fn recursive_hof_self_call_with_different_callable_routes_to_sibling_specializat
         &expect![[r#"
             BEFORE:
             operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl_(X, n - 1, q);
+                    Repeat_AdjCtl_(X, (n - 1), q);
                 }
 
             }
@@ -3333,9 +3333,9 @@ fn recursive_hof_self_call_with_different_callable_routes_to_sibling_specializat
                 __quantum__rt__qubit_release(q);
             }
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl_(X, n - 1, q);
+                    Repeat_AdjCtl_(X, (n - 1), q);
                 }
 
             }
@@ -3344,9 +3344,9 @@ fn recursive_hof_self_call_with_different_callable_routes_to_sibling_specializat
 
             AFTER:
             operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl_(X, n - 1, q);
+                    Repeat_AdjCtl_(X, (n - 1), q);
                 }
 
             }
@@ -3356,30 +3356,30 @@ fn recursive_hof_self_call_with_different_callable_routes_to_sibling_specializat
                 __quantum__rt__qubit_release(q);
             }
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     op(q);
-                    Repeat_AdjCtl__X_(n - 1, q);
+                    Repeat_AdjCtl__X_((n - 1), q);
                 }
 
             }
             operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     H(q);
-                    Repeat_AdjCtl__X_(n - 1, q);
+                    Repeat_AdjCtl__X_((n - 1), q);
                 }
 
             }
             operation Repeat_AdjCtl__X_(n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     X(q);
-                    Repeat_AdjCtl__X_(n - 1, q);
+                    Repeat_AdjCtl__X_((n - 1), q);
                 }
 
             }
             operation Repeat_AdjCtl__X_(n : Int, q : Qubit) : Unit {
-                if n > 0 {
+                if (n > 0) {
                     X(q);
-                    Repeat_AdjCtl__X_(n - 1, q);
+                    Repeat_AdjCtl__X_((n - 1), q);
                 }
 
             }
@@ -3458,7 +3458,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation _lambda_4(op : (Qubit => Unit), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
-                    if n == 0 {
+                    if (n == 0) {
                         Rx(angle, q1);
                     }
 
@@ -3475,7 +3475,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation _lambda_4(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
-                    if n == 0 {
+                    if (n == 0) {
                         Rx(angle, q1);
                     }
 
@@ -3501,7 +3501,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation _lambda_4(op : (Qubit => Unit), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
-                    if n == 0 {
+                    if (n == 0) {
                         Rx(angle, q1);
                     }
 
@@ -3518,7 +3518,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation _lambda_4(op : (Qubit => Unit is Adj + Ctl), n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
-                    if n == 0 {
+                    if (n == 0) {
                         Rx(angle, q1);
                     }
 
@@ -3532,7 +3532,7 @@ fn single_param_recursive_tuple_callable_closure_capture_invariants() {
             }
             operation _lambda_4(n : Int, angle : Double, q1 : Qubit) : Unit {
                 {
-                    if n == 0 {
+                    if (n == 0) {
                         Rx(angle, q1);
                     }
 
@@ -3585,9 +3585,9 @@ fn three_branch_conditional_callable_generates_branch_split() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if n == 0 {
+                if (n == 0) {
                     op = X;
-                } else if n == 1 {
+                } else if (n == 1) {
                     op = Y;
                 } else {
                     op = Z;
@@ -3610,17 +3610,17 @@ fn three_branch_conditional_callable_generates_branch_split() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if n == 0 {
+                if (n == 0) {
                     op = X;
-                } else if n == 1 {
+                } else if (n == 1) {
                     op = Y;
                 } else {
                     op = Z;
                 }
 
-                if n == 0 {
+                if (n == 0) {
                     Apply_AdjCtl__X_(q)
-                } else if n == 1 {
+                } else if (n == 1) {
                     Apply_AdjCtl__Y_(q)
                 } else {
                     Apply_AdjCtl__Z_(q)
@@ -4332,25 +4332,25 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
             operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         X(qs[0]);
                     }
 
                 }
                 adjoint ... {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         Adjoint X(qs[0]);
                     }
 
                 }
                 controlled (ctls, ...) {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         Controlled X(ctls, qs[0]);
                     }
 
                 }
                 controlled adjoint (ctls, ...) {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         Controlled Adjoint X(ctls, qs[0]);
                     }
 
@@ -4367,7 +4367,7 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
                 let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
                 op(control, systems);
                 ReleaseQubitArray(systems);
@@ -4388,14 +4388,14 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_341 : Range = 0..power - 1;
+                        let _range_id_341 : Range = 0..(power - 1);
                         mutable _index_id_344 : Int = _range_id_341.Start;
                         let _step_id_349 : Int = _range_id_341.Step;
                         let _end_id_354 : Int = _range_id_341.End;
-                        while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        while (((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354))) {
                             let _ : Int = _index_id_344;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -4426,14 +4426,14 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_341 : Range = 0..power - 1;
+                        let _range_id_341 : Range = 0..(power - 1);
                         mutable _index_id_344 : Int = _range_id_341.Start;
                         let _step_id_349 : Int = _range_id_341.Step;
                         let _end_id_354 : Int = _range_id_341.End;
-                        while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        while (((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354))) {
                             let _ : Int = _index_id_344;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -4447,7 +4447,7 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
                 let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
                 op(control, systems);
                 ReleaseQubitArray(systems);
@@ -4460,25 +4460,25 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
             operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         X(qs[0]);
                     }
 
                 }
                 adjoint ... {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         Adjoint X(qs[0]);
                     }
 
                 }
                 controlled (ctls, ...) {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         Controlled X(ctls, qs[0]);
                     }
 
                 }
                 controlled adjoint (ctls, ...) {
-                    if Length(params::expansionOps) != 0 {
+                    if (Length(params::expansionOps) != 0) {
                         Controlled Adjoint X(ctls, qs[0]);
                     }
 
@@ -4495,7 +4495,7 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
                 let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
                 op(control, systems);
                 ReleaseQubitArray(systems);
@@ -4512,14 +4512,14 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_341 : Range = 0..power - 1;
+                        let _range_id_341 : Range = 0..(power - 1);
                         mutable _index_id_344 : Int = _range_id_341.Start;
                         let _step_id_349 : Int = _range_id_341.Step;
                         let _end_id_354 : Int = _range_id_341.End;
-                        while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        while (((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354))) {
                             let _ : Int = _index_id_344;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -4550,14 +4550,14 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_341 : Range = 0..power - 1;
+                        let _range_id_341 : Range = 0..(power - 1);
                         mutable _index_id_344 : Int = _range_id_341.Start;
                         let _step_id_349 : Int = _range_id_341.Step;
                         let _end_id_354 : Int = _range_id_341.End;
-                        while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        while (((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354))) {
                             let _ : Int = _index_id_344;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -4571,14 +4571,14 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
                 _lambda_7(prepareOp, selectOp, numSystemQubits, power, (control, systems));
                 ReleaseQubitArray(systems);
                 __quantum__rt__qubit_release(control);
             }
             operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
                 _lambda_7_closure__SelectIdentity_(numSystemQubits, power, (control, systems), __capture_0);
                 ReleaseQubitArray(systems);
                 __quantum__rt__qubit_release(control);
@@ -4588,14 +4588,14 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_341 : Range = 0..power - 1;
+                        let _range_id_341 : Range = 0..(power - 1);
                         mutable _index_id_344 : Int = _range_id_341.Start;
                         let _step_id_349 : Int = _range_id_341.Step;
                         let _end_id_354 : Int = _range_id_341.End;
-                        while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        while (((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354))) {
                             let _ : Int = _index_id_344;
                             Controlled _lambda_8([control], systems);
                             Controlled SelectIdentity([control], (systems, ancilla));
@@ -4609,14 +4609,14 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
             }
             operation _lambda_7_closure__SelectIdentity_(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[]), __capture_0 : __UDT_Item_1__Package_2_) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_341 : Range = 0..power - 1;
+                        let _range_id_341 : Range = 0..(power - 1);
                         mutable _index_id_344 : Int = _range_id_341.Start;
                         let _step_id_349 : Int = _range_id_341.Step;
                         let _end_id_354 : Int = _range_id_341.End;
-                        while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
+                        while (((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354))) {
                             let _ : Int = _index_id_344;
                             Controlled _lambda_8([control], (__capture_0, systems));
                             Controlled SelectIdentity([control], (systems, ancilla));
@@ -4927,7 +4927,7 @@ fn mixed_branch_split_partial_tuple_field_coverage_preserves_surviving_field() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let choose : Bool = M(q) == One;
+                let choose : Bool = (M(q) == One);
                 let first : (Qubit => Unit is Adj + Ctl) = if choose {
                     H
                 } else {
@@ -4956,7 +4956,7 @@ fn mixed_branch_split_partial_tuple_field_coverage_preserves_surviving_field() {
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let choose : Bool = M(q) == One;
+                let choose : Bool = (M(q) == One);
                 let angle : Double = 0.25;
                 if choose {
                     Run_AdjCtl__Empty__H__closure_(q, angle)
@@ -5085,7 +5085,7 @@ fn single_element_callable_array_into_struct_field_survives_as_array() {
                 h::Cb(3)
             }
             operation AddOne(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             operation Pick_Empty_(arr : (Int => Int)[]) : __UDT_Item_1__Package_2_ {
                 let f : (Int => Int) = arr[0];
@@ -5112,7 +5112,7 @@ fn single_element_callable_array_into_struct_field_survives_as_array() {
                 h::Cb(3)
             }
             operation AddOne(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             operation Pick_Empty_(arr : (Int => Int)[]) : __UDT_Item_1__Package_2_ {
                 let f : (Int => Int) = arr[0];
@@ -5274,7 +5274,7 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
                     let _array_id_51 : (Qubit => Unit is Adj + Ctl)[] = ops;
                     let _len_id_55 : Int = Length(_array_id_51);
                     mutable _index_id_60 : Int = 0;
-                    while _index_id_60 < _len_id_55 {
+                    while (_index_id_60 < _len_id_55) {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_60];
                         ApplyTwo_AdjCtl__AdjCtl_(op, Y, q);
                         _index_id_60 += 1;
@@ -5303,8 +5303,8 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
                     let _array_id_51 : (Qubit => Unit is Adj + Ctl)[] = ops;
                     let _len_id_55 : Int = Length(_array_id_51);
                     mutable _index_id_60 : Int = 0;
-                    while _index_id_60 < _len_id_55 {
-                        if _index_id_60 == 0 {
+                    while (_index_id_60 < _len_id_55) {
+                        if (_index_id_60 == 0) {
                             ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
                         } else {
                             ApplyTwo_AdjCtl__AdjCtl__X__Y_(q)
@@ -5377,7 +5377,7 @@ fn indexed_callable_array_param_hoists_side_effecting_index_once() {
         "side-effecting index must be hoisted into a single local after specialization:\n{after}"
     );
     assert!(
-        !after.contains("if ChooseIndex(q)") && !after.contains("else if ChooseIndex(q)"),
+        !after.contains("if (ChooseIndex(q)") && !after.contains("else if (ChooseIndex(q)"),
         "specialized dispatch guards must not re-evaluate the side-effecting index:\n{after}"
     );
     check_rewrite(
@@ -5421,9 +5421,9 @@ fn indexed_callable_array_param_hoists_side_effecting_index_once() {
             operation RunAt_AdjCtl__I__X__Y_(q : Qubit) : Unit {
                 {
                     let index : Int = ChooseIndex(q);
-                    if index == 0 {
+                    if (index == 0) {
                         I(q)
-                    } else if index == 1 {
+                    } else if (index == 1) {
                         X(q)
                     } else {
                         Y(q)
@@ -5473,7 +5473,7 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     let _array_id_55 : (Qubit => Unit)[] = ops;
                     let _len_id_59 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while (_index_id_64 < _len_id_59) {
                         let op : (Qubit => Unit) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -5495,7 +5495,7 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = ops;
                     let _len_id_59 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while (_index_id_64 < _len_id_59) {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -5516,7 +5516,7 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     let _array_id_55 : (Qubit => Unit)[] = ops;
                     let _len_id_59 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while (_index_id_64 < _len_id_59) {
                         let op : (Qubit => Unit) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -5538,7 +5538,7 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = ops;
                     let _len_id_59 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
+                    while (_index_id_64 < _len_id_59) {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
                         Run_Empty_(op, q);
                         _index_id_64 += 1;
@@ -5552,8 +5552,8 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     let _array_id_55 : (Qubit => Unit is Adj + Ctl)[] = [H, X];
                     let _len_id_59 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
-                    while _index_id_64 < _len_id_59 {
-                        if _index_id_64 == 0 {
+                    while (_index_id_64 < _len_id_59) {
+                        if (_index_id_64 == 0) {
                             Run_Empty__H_(q)
                         } else {
                             Run_Empty__X_(q)

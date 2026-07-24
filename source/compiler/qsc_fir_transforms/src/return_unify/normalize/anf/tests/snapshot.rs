@@ -38,7 +38,7 @@ fn operand_lift_return_in_array_element_block() {
                     };
                     3
                 };
-                let xs : Int[] = if not __has_returned {
+                let xs : Int[] = if (not __has_returned) {
                     [__operand_tmp_0, __operand_tmp_1, 4]
                 } else {
                     []
@@ -46,7 +46,7 @@ fn operand_lift_return_in_array_element_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         xs[0]
                     } else {
                         __ret_val
@@ -85,7 +85,7 @@ fn operand_lift_return_in_array_repeat_value_block() {
                     };
                     3
                 };
-                let xs : Int[] = if not __has_returned {
+                let xs : Int[] = if (not __has_returned) {
                     [__operand_tmp_0, size = 4]
                 } else {
                     []
@@ -93,7 +93,7 @@ fn operand_lift_return_in_array_repeat_value_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         xs[0]
                     } else {
                         __ret_val
@@ -131,15 +131,15 @@ fn operand_lift_return_in_unop_operand_block() {
                     };
                     3
                 };
-                let x : Int = if not __has_returned {
-            -__operand_tmp_0
+                let x : Int = if (not __has_returned) {
+                    (-__operand_tmp_0)
                 } else {
                     0
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -177,15 +177,15 @@ fn operand_lift_return_in_binop_lhs_operand_block() {
                     };
                     3
                 };
-                let x : Int = if not __has_returned {
-                    __operand_tmp_0 + 4
+                let x : Int = if (not __has_returned) {
+                    (__operand_tmp_0 + 4)
                 } else {
                     0
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -228,7 +228,7 @@ fn operand_lift_return_in_update_index_value_block() {
                     };
                     3
                 };
-                let ys : Int[] = if not __has_returned {
+                let ys : Int[] = if (not __has_returned) {
                     __operand_tmp_0 w/ __operand_tmp_1 <- __operand_tmp_2
                 } else {
                     []
@@ -236,7 +236,7 @@ fn operand_lift_return_in_update_index_value_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         ys[0]
                     } else {
                         __ret_val
@@ -281,7 +281,7 @@ fn operand_lift_return_in_field_receiver_block() {
                     }
 
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     __operand_tmp_0::First
                 } else {
                     0
@@ -289,7 +289,7 @@ fn operand_lift_return_in_field_receiver_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -342,7 +342,7 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         1
                     };
-                    let __operand_tmp_1 : Int = if not __has_returned {
+                    let __operand_tmp_1 : Int = if (not __has_returned) {
                         {
                             {
                                 __ret_val = ();
@@ -370,7 +370,7 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         5
                     };
-                    let __operand_tmp_1 : Int = if not __has_returned {
+                    let __operand_tmp_1 : Int = if (not __has_returned) {
                         {
                             {
                                 __ret_val = ();
@@ -398,7 +398,7 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         1
                     };
-                    let __operand_tmp_1 : Int = if not __has_returned {
+                    let __operand_tmp_1 : Int = if (not __has_returned) {
                         {
                             {
                                 __ret_val = ();
@@ -426,7 +426,7 @@ fn operand_temp_names_restart_per_specialization_body() {
                         };
                         5
                     };
-                    let __operand_tmp_1 : Int = if not __has_returned {
+                    let __operand_tmp_1 : Int = if (not __has_returned) {
                         {
                             {
                                 __ret_val = ();
@@ -492,7 +492,7 @@ fn operand_lift_return_in_range_step_block() {
                     };
                     3
                 };
-                let r : Range = if not __has_returned {
+                let r : Range = if (not __has_returned) {
                     __operand_tmp_0..__operand_tmp_1..10
                 } else {
                     ...
@@ -500,7 +500,7 @@ fn operand_lift_return_in_range_step_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         r.Start
                     } else {
                         __ret_val
@@ -542,7 +542,7 @@ fn operand_lift_return_in_struct_field_value_block() {
                     };
                     1
                 };
-                let p : __UDT_Item_1__Package_2_ = if not __has_returned {
+                let p : __UDT_Item_1__Package_2_ = if (not __has_returned) {
                     new Pair {
                         First = __operand_tmp_0,
                         Second = 2
@@ -554,7 +554,7 @@ fn operand_lift_return_in_struct_field_value_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         p::First
                     } else {
                         __ret_val
@@ -601,7 +601,7 @@ fn operand_lift_return_in_struct_copy_receiver_block() {
                     };
                     base
                 };
-                let p : __UDT_Item_1__Package_2_ = if not __has_returned {
+                let p : __UDT_Item_1__Package_2_ = if (not __has_returned) {
                     new Pair {
                         ...__operand_tmp_0,
                         First = 5
@@ -613,7 +613,7 @@ fn operand_lift_return_in_struct_copy_receiver_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         p::First
                     } else {
                         __ret_val
@@ -666,7 +666,7 @@ fn operand_lift_return_in_qubit_temp_is_array_backed() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         let arr : Qubit[] = [__operand_tmp_0[0], q2];
                         let _generated_ident_59 : Int = Length(arr);
                         __quantum__rt__qubit_release(q2);
@@ -722,7 +722,7 @@ fn operand_lift_drains_two_qubit_temps_array_backed() {
                     };
                     [q]
                 };
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     let __operand_tmp_1 : Qubit[] = [__operand_tmp_0[0]];
                     let __operand_tmp_2 : Qubit[] = {
                         {
@@ -736,7 +736,7 @@ fn operand_lift_drains_two_qubit_temps_array_backed() {
                         };
                         [q2]
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         let arr : Qubit[] = [__operand_tmp_1[0], __operand_tmp_2[0]];
                         let _generated_ident_81 : Int = Length(arr);
                         __quantum__rt__qubit_release(q2);

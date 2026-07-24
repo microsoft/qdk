@@ -248,7 +248,7 @@ fn measurement_condition_is_hoisted() {
             BEFORE:
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                if MResetZ(q) == One {
+                if (MResetZ(q) == One) {
                     X(q);
                 }
 
@@ -261,7 +261,7 @@ fn measurement_condition_is_hoisted() {
             AFTER:
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let __cond_0 : Bool = MResetZ(q) == One;
+                let __cond_0 : Bool = (MResetZ(q) == One);
                 if __cond_0 {
                     X(q);
                 }
@@ -298,7 +298,7 @@ fn nested_if_condition_accumulator_is_declared_in_root_block() {
             BEFORE:
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                if MResetZ(q) == One {
+                if (MResetZ(q) == One) {
                     if {
                         Y(q);
                         true
@@ -319,7 +319,7 @@ fn nested_if_condition_accumulator_is_declared_in_root_block() {
             operation Main() : Unit {
                 mutable __cond_1 : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let __cond_0 : Bool = MResetZ(q) == One;
+                let __cond_0 : Bool = (MResetZ(q) == One);
                 if __cond_0 {
                     __cond_1 = {
                         Y(q);
@@ -369,7 +369,7 @@ fn nested_else_if_accumulator_is_declared_in_root_block() {
             BEFORE:
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                if MResetZ(q) == One {
+                if (MResetZ(q) == One) {
                     if {
                         Y(q);
                         true
@@ -397,7 +397,7 @@ fn nested_else_if_accumulator_is_declared_in_root_block() {
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let __cond_0 : Bool = MResetZ(q) == One;
+                let __cond_0 : Bool = (MResetZ(q) == One);
                 if __cond_0 {
                     __cond_1 = {
                         Y(q);

@@ -254,7 +254,7 @@ fn struct_fields_decompose() {
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let p : (Int, Int) = (1, 2);
-                p::Item < 0 > + p::Item < 1 >
+                (p::Item < 0 > + p::Item < 1 >)
             }
             // entry
             Main()
@@ -263,7 +263,7 @@ fn struct_fields_decompose() {
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let (p_0 : Int, p_1 : Int) = (1, 2);
-                p_0 + p_1
+                (p_0 + p_1)
             }
             // entry
             Main()
@@ -281,7 +281,7 @@ fn struct_fields_decompose() {
         function Main() : Int {
             body {
                 let (p.0 : Int, p.1 : Int) = (1, 2);
-                p.0 + p.1
+                (p.0 + p.1)
             }
         }
         // entry
@@ -320,7 +320,7 @@ fn mutable_struct_fields_decompose() {
                 mutable p : (Int, Int) = (1, 2);
                 let x : Int = p::Item < 0 >;
                 let y : Int = p::Item < 1 >;
-                x + y
+                (x + y)
             }
             // entry
             Main()
@@ -331,7 +331,7 @@ fn mutable_struct_fields_decompose() {
                 mutable (p_0 : Int, p_1 : Int) = (1, 2);
                 let x : Int = p_0;
                 let y : Int = p_1;
-                x + y
+                (x + y)
             }
             // entry
             Main()
@@ -404,7 +404,7 @@ fn triple_struct_decomposes() {
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 let t : (Int, Int, Int) = (1, 2, 3);
-                t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
+                ((t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >)
             }
             // entry
             Main()
@@ -413,7 +413,7 @@ fn triple_struct_decomposes() {
             newtype Triple = (Int, Int, Int);
             function Main() : Int {
                 let (t_0 : Int, t_1 : Int, t_2 : Int) = (1, 2, 3);
-                t_0 + t_1 + t_2
+                ((t_0 + t_1) + t_2)
             }
             // entry
             Main()
@@ -537,7 +537,7 @@ fn nested_tuple_depth_two() {
             newtype Outer = (__UDT_Item_1__Package_2_, __UDT_Item_1__Package_2_);
             function Main() : Int {
                 let o : ((Int, Int), (Int, Int)) = ((1, 2), (3, 4));
-                o::Item < 0 >::Item < 0 > + o::Item < 1 >::Item < 1 >
+                (o::Item < 0 >::Item < 0 > + o::Item < 1 >::Item < 1 >)
             }
             // entry
             Main()
@@ -547,7 +547,7 @@ fn nested_tuple_depth_two() {
             newtype Outer = (__UDT_Item_1__Package_2_, __UDT_Item_1__Package_2_);
             function Main() : Int {
                 let ((o_0_0 : Int, o_0_1 : Int), (o_1_0 : Int, o_1_1 : Int)) = ((1, 2), (3, 4));
-                o_0_0 + o_1_1
+                (o_0_0 + o_1_1)
             }
             // entry
             Main()
@@ -691,7 +691,7 @@ fn mutable_tuple_partial_field_modification() {
             function Main() : Int {
                 mutable t : (Int, Int, Int) = (1, 2, 3);
                 t = (10, t::Item < 1 >, t::Item < 2 >);
-                t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
+                ((t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >)
             }
             // entry
             Main()
@@ -703,7 +703,7 @@ fn mutable_tuple_partial_field_modification() {
                 t_0 = 10;
                 t_1 = t_1;
                 t_2 = t_2;
-                t_0 + t_1 + t_2
+                ((t_0 + t_1) + t_2)
             }
             // entry
             Main()
@@ -734,7 +734,7 @@ fn tuple_passed_to_function_as_arg() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Sum(p : (Int, Int)) : Int {
-                p::Item < 0 > + p::Item < 1 >
+                (p::Item < 0 > + p::Item < 1 >)
             }
             function Main() : Int {
                 let p : (Int, Int) = (1, 2);
@@ -746,7 +746,7 @@ fn tuple_passed_to_function_as_arg() {
             AFTER:
             newtype Pair = (Int, Int);
             function Sum(p : (Int, Int)) : Int {
-                p::Item < 0 > + p::Item < 1 >
+                (p::Item < 0 > + p::Item < 1 >)
             }
             function Main() : Int {
                 let p : (Int, Int) = (1, 2);
@@ -788,9 +788,9 @@ fn tuple_binding_in_while_loop_body_decomposes() {
             function Main() : Int {
                 mutable sum : Int = 0;
                 mutable i : Int = 0;
-                while i < 3 {
-                    let p : (Int, Int) = (i, i + 1);
-                    sum += p::Item < 0 > + p::Item < 1 >;
+                while (i < 3) {
+                    let p : (Int, Int) = (i, (i + 1));
+                    sum += (p::Item < 0 > + p::Item < 1 >);
                     i += 1;
                 }
 
@@ -804,9 +804,9 @@ fn tuple_binding_in_while_loop_body_decomposes() {
             function Main() : Int {
                 mutable sum : Int = 0;
                 mutable i : Int = 0;
-                while i < 3 {
-                    let (p_0 : Int, p_1 : Int) = (i, i + 1);
-                    sum += p_0 + p_1;
+                while (i < 3) {
+                    let (p_0 : Int, p_1 : Int) = (i, (i + 1));
+                    sum += (p_0 + p_1);
                     i += 1;
                 }
 
@@ -853,14 +853,14 @@ fn tuple_binding_in_binop_operand_block_decomposes() {
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let top : (Int, Int) = (10, 20);
-                let z : Int = {
+                let z : Int = ({
                     let t : (Int, Int) = (1, 2);
                     t::Item < 0 >
                 } + {
                     let u : (Int, Int) = (3, 4);
                     u::Item < 1 >
-                };
-                top::Item < 0 > + top::Item < 1 > + z
+                });
+                ((top::Item < 0 > + top::Item < 1 >) + z)
             }
             // entry
             Main()
@@ -869,14 +869,14 @@ fn tuple_binding_in_binop_operand_block_decomposes() {
             newtype Pair = (Int, Int);
             function Main() : Int {
                 let (top_0 : Int, top_1 : Int) = (10, 20);
-                let z : Int = {
+                let z : Int = ({
                     let (t_0 : Int, t_1 : Int) = (1, 2);
                     t_0
                 } + {
                     let (u_0 : Int, u_1 : Int) = (3, 4);
                     u_1
-                };
-                top_0 + top_1 + z
+                });
+                ((top_0 + top_1) + z)
             }
             // entry
             Main()
@@ -907,9 +907,9 @@ fn tuple_binding_in_call_arg_block_decomposes() {
                 let top : (Int, Int) = (10, 20);
                 let z : Int = Sum({
                     let c : (Int, Int) = (5, 6);
-                    c::Item < 0 > + c::Item < 1 >
+                    (c::Item < 0 > + c::Item < 1 >)
                 });
-                top::Item < 0 > + top::Item < 1 > + z
+                ((top::Item < 0 > + top::Item < 1 >) + z)
             }
             // entry
             Main()
@@ -923,9 +923,9 @@ fn tuple_binding_in_call_arg_block_decomposes() {
                 let (top_0 : Int, top_1 : Int) = (10, 20);
                 let z : Int = Sum({
                     let (c_0 : Int, c_1 : Int) = (5, 6);
-                    c_0 + c_1
+                    (c_0 + c_1)
                 });
-                top_0 + top_1 + z
+                ((top_0 + top_1) + z)
             }
             // entry
             Main()
@@ -956,13 +956,13 @@ fn tuple_binding_in_if_condition_block_decomposes() {
                 mutable r : Int = 0;
                 let __cond_0 : Bool = {
                     let d : (Int, Int) = (1, 0);
-                    d::Item < 0 > > d::Item < 1 >
+                    (d::Item < 0 > > d::Item < 1 >)
                 };
                 if __cond_0 {
                     r = 1;
                 }
 
-                top::Item < 0 > + top::Item < 1 > + r
+                ((top::Item < 0 > + top::Item < 1 >) + r)
             }
             // entry
             Main()
@@ -974,13 +974,13 @@ fn tuple_binding_in_if_condition_block_decomposes() {
                 mutable r : Int = 0;
                 let __cond_0 : Bool = {
                     let (d_0 : Int, d_1 : Int) = (1, 0);
-                    d_0 > d_1
+                    (d_0 > d_1)
                 };
                 if __cond_0 {
                     r = 1;
                 }
 
-                top_0 + top_1 + r
+                ((top_0 + top_1) + r)
             }
             // entry
             Main()
@@ -1197,7 +1197,7 @@ fn tuple_decompose_nested_struct_outer_decomposed_inner_field_access() {
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
                 let o : ((Int, Int), Bool) = ((1, 2), true);
-                o::Item < 0 >::Item < 0 > + o::Item < 0 >::Item < 1 >
+                (o::Item < 0 >::Item < 0 > + o::Item < 0 >::Item < 1 >)
             }
             // entry
             Main()
@@ -1207,7 +1207,7 @@ fn tuple_decompose_nested_struct_outer_decomposed_inner_field_access() {
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
                 let ((o_0_0 : Int, o_0_1 : Int), o_1 : Bool) = ((1, 2), true);
-                o_0_0 + o_0_1
+                (o_0_0 + o_0_1)
             }
             // entry
             Main()
@@ -1244,7 +1244,7 @@ fn nested_tuple_decomposes_to_nested_scalar_binds() {
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
                 let o : ((Int, Int), Bool) = ((10, 20), false);
-                o::Item < 0 >::Item < 0 > + o::Item < 0 >::Item < 1 >
+                (o::Item < 0 >::Item < 0 > + o::Item < 0 >::Item < 1 >)
             }
             // entry
             Main()
@@ -1254,7 +1254,7 @@ fn nested_tuple_decomposes_to_nested_scalar_binds() {
             newtype Outer = (__UDT_Item_1__Package_2_, Bool);
             function Main() : Int {
                 let ((o_0_0 : Int, o_0_1 : Int), o_1 : Bool) = ((10, 20), false);
-                o_0_0 + o_0_1
+                (o_0_0 + o_0_1)
             }
             // entry
             Main()
@@ -1287,7 +1287,7 @@ fn mutable_tuple_literal_reassignment_decomposes() {
             function Main() : Int {
                 mutable x : (Int, Int) = (1, 2);
                 x = (3, 4);
-                x::Item < 0 > + x::Item < 1 >
+                (x::Item < 0 > + x::Item < 1 >)
             }
             // entry
             Main()
@@ -1298,7 +1298,7 @@ fn mutable_tuple_literal_reassignment_decomposes() {
                 mutable (x_0 : Int, x_1 : Int) = (1, 2);
                 x_0 = 3;
                 x_1 = 4;
-                x_0 + x_1
+                (x_0 + x_1)
             }
             // entry
             Main()
@@ -1475,7 +1475,7 @@ fn higher_order_tuple_field_projection_still_decomposes() {
                 Apply_closure_(p::Item < 0 >, p::Item < 1 >)
             }
             function _lambda_4((a : Int, b : Int), ) : Int {
-                a + b
+                (a + b)
             }
             function Apply_closure_(x : Int, y : Int) : Int {
                 _lambda_4((x, y), )
@@ -1493,7 +1493,7 @@ fn higher_order_tuple_field_projection_still_decomposes() {
                 Apply_closure_(p_0, p_1)
             }
             function _lambda_4((a : Int, b : Int), ) : Int {
-                a + b
+                (a + b)
             }
             function Apply_closure_(x : Int, y : Int) : Int {
                 _lambda_4((x, y), )
@@ -1533,7 +1533,7 @@ fn nested_tuple_depth_three_fully_flattened() {
             newtype Deep = (__UDT_Item_2__Package_2_, Int);
             function Main() : Int {
                 let d : (((Int, Int), Int), Int) = (((1, 2), 3), 4);
-                d::Item < 0 >::Item < 0 >::Item < 0 > + d::Item < 0 >::Item < 0 >::Item < 1 > + d::Item < 0 >::Item < 1 > + d::Item < 1 >
+                (((d::Item < 0 >::Item < 0 >::Item < 0 > + d::Item < 0 >::Item < 0 >::Item < 1 >) + d::Item < 0 >::Item < 1 >) + d::Item < 1 >)
             }
             // entry
             Main()
@@ -1544,7 +1544,7 @@ fn nested_tuple_depth_three_fully_flattened() {
             newtype Deep = (__UDT_Item_2__Package_2_, Int);
             function Main() : Int {
                 let (((d_0_0_0 : Int, d_0_0_1 : Int), d_0_1 : Int), d_1 : Int) = (((1, 2), 3), 4);
-                d_0_0_0 + d_0_0_1 + d_0_1 + d_1
+                (((d_0_0_0 + d_0_0_1) + d_0_1) + d_1)
             }
             // entry
             Main()
@@ -1969,7 +1969,7 @@ fn cross_package_tuple_pipeline_completes() {
         operation Main() : Int {
             body {
                 let (x : Int, y : Int) = MakePair(3, 4);
-                x + y
+                (x + y)
             }
         }
         // entry

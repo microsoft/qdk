@@ -223,10 +223,10 @@ fn both_branches_with_complex_arm_expressions() {
         &expect![[r#"
             // before both_branches (fired=true)
             function F(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function G(y : Int) : Int {
-                y * 2
+                (y * 2)
             }
             function Main() : Int {
                 mutable __has_returned : Bool = false;
@@ -256,10 +256,10 @@ fn both_branches_with_complex_arm_expressions() {
 
             // after both_branches
             function F(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function G(y : Int) : Int {
-                y * 2
+                (y * 2)
             }
             function Main() : Int {
                 mutable __has_returned : Bool = false;
@@ -312,7 +312,7 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
                     };
                 }
 
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     0
                 } else {
                     __ret_val
@@ -337,7 +337,7 @@ fn only_one_arm_returns_is_guard_clause_shape_not_both_branches() {
                     };
                 }
 
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     0
                 } else {
                     __ret_val

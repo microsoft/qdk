@@ -2736,7 +2736,7 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 op(register, target);
             }
             operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     CNOT(register[0], target);
                 }
 
@@ -2770,7 +2770,7 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
                 op(register, target);
             }
             operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     CNOT(register[0], target);
                 }
 
@@ -2845,7 +2845,7 @@ fn analysis_callable_from_constant_callable_array_loop() {
                     let _array_id_44 : (Qubit => Unit is Adj + Ctl)[] = ops;
                     let _len_id_48 : Int = Length(_array_id_44);
                     mutable _index_id_53 : Int = 0;
-                    while _index_id_53 < _len_id_48 {
+                    while (_index_id_53 < _len_id_48) {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_44[_index_id_53];
                         ApplyOp_AdjCtl_(op, q);
                         _index_id_53 += 1;
@@ -2872,8 +2872,8 @@ fn analysis_callable_from_constant_callable_array_loop() {
                     let _array_id_44 : (Qubit => Unit is Adj + Ctl)[] = ops;
                     let _len_id_48 : Int = Length(_array_id_44);
                     mutable _index_id_53 : Int = 0;
-                    while _index_id_53 < _len_id_48 {
-                        if _index_id_53 == 0 {
+                    while (_index_id_53 < _len_id_48) {
+                        if (_index_id_53 == 0) {
                             ApplyOp_AdjCtl__H_(q)
                         } else {
                             ApplyOp_AdjCtl__X_(q)
@@ -2935,21 +2935,21 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
             BEFORE:
             newtype Config = (((Qubit, Qubit[]) => Unit)[], Int);
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(config : __UDT_Item_1__Package_2_) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(config::Count + 1);
-                let controls : Qubit[] = qs[0..config::Count - 1];
+                let qs : Qubit[] = AllocateQubitArray((config::Count + 1));
+                let controls : Qubit[] = qs[0..(config::Count - 1)];
                 let targets : Qubit[] = qs[config::Count...];
                 {
-                    let _range_id_165 : Range = 0..config::Count - 1;
+                    let _range_id_165 : Range = 0..(config::Count - 1);
                     mutable _index_id_168 : Int = _range_id_165.Start;
                     let _step_id_173 : Int = _range_id_165.Step;
                     let _end_id_178 : Int = _range_id_165.End;
-                    while _step_id_173 > 0 and _index_id_168 <= _end_id_178 or _step_id_173 < 0 and _index_id_168 >= _end_id_178 {
+                    while (((_step_id_173 > 0) and (_index_id_168 <= _end_id_178)) or ((_step_id_173 < 0) and (_index_id_168 >= _end_id_178))) {
                         let idx : Int = _index_id_168;
                         config::Ops[idx](controls[idx], targets);
                         _index_id_168 += _step_id_173;
@@ -2985,21 +2985,21 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
             AFTER:
             newtype Config = (((Qubit, Qubit[]) => Unit)[], Int);
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(config : __UDT_Item_1__Package_2_) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(config::Count + 1);
-                let controls : Qubit[] = qs[0..config::Count - 1];
+                let qs : Qubit[] = AllocateQubitArray((config::Count + 1));
+                let controls : Qubit[] = qs[0..(config::Count - 1)];
                 let targets : Qubit[] = qs[config::Count...];
                 {
-                    let _range_id_165 : Range = 0..config::Count - 1;
+                    let _range_id_165 : Range = 0..(config::Count - 1);
                     mutable _index_id_168 : Int = _range_id_165.Start;
                     let _step_id_173 : Int = _range_id_165.Step;
                     let _end_id_178 : Int = _range_id_165.End;
-                    while _step_id_173 > 0 and _index_id_168 <= _end_id_178 or _step_id_173 < 0 and _index_id_168 >= _end_id_178 {
+                    while (((_step_id_173 > 0) and (_index_id_168 <= _end_id_178)) or ((_step_id_173 < 0) and (_index_id_168 >= _end_id_178))) {
                         let idx : Int = _index_id_168;
                         config::Ops[idx](controls[idx], targets);
                         _index_id_168 += _step_id_173;
@@ -3020,17 +3020,17 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_closure__closure_(config : Int, __capture_0 : Int, __capture_1 : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(config + 1);
-                let controls : Qubit[] = qs[0..config - 1];
+                let qs : Qubit[] = AllocateQubitArray((config + 1));
+                let controls : Qubit[] = qs[0..(config - 1)];
                 let targets : Qubit[] = qs[config...];
                 {
-                    let _range_id_165 : Range = 0..config - 1;
+                    let _range_id_165 : Range = 0..(config - 1);
                     mutable _index_id_168 : Int = _range_id_165.Start;
                     let _step_id_173 : Int = _range_id_165.Step;
                     let _end_id_178 : Int = _range_id_165.End;
-                    while _step_id_173 > 0 and _index_id_168 <= _end_id_178 or _step_id_173 < 0 and _index_id_168 >= _end_id_178 {
+                    while (((_step_id_173 > 0) and (_index_id_168 <= _end_id_178)) or ((_step_id_173 < 0) and (_index_id_168 >= _end_id_178))) {
                         let idx : Int = _index_id_168;
-                        if idx == 0 {
+                        if (idx == 0) {
                             _lambda_5(__capture_0, (controls[idx], targets))
                         } else {
                             _lambda_6(__capture_1, (controls[idx], targets))
@@ -3143,23 +3143,23 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
         &expect![[r#"
             BEFORE:
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_214 : Range = 0..numBits - 1;
+                    let _range_id_214 : Range = 0..(numBits - 1);
                     mutable _index_id_217 : Int = _range_id_214.Start;
                     let _step_id_222 : Int = _range_id_214.Step;
                     let _end_id_227 : Int = _range_id_214.End;
-                    while _step_id_222 > 0 and _index_id_217 <= _end_id_227 or _step_id_222 < 0 and _index_id_217 >= _end_id_227 {
+                    while (((_step_id_222 > 0) and (_index_id_217 <= _end_id_227)) or ((_step_id_222 < 0) and (_index_id_217 >= _end_id_227))) {
                         let ancillaIdx : Int = _index_id_217;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_217 += _step_id_222;
@@ -3178,7 +3178,7 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
                     let _array_id_257 : Qubit[] = ancillas;
                     let _len_id_261 : Int = Length(_array_id_257);
                     mutable _index_id_266 : Int = 0;
-                    while _index_id_266 < _len_id_261 {
+                    while (_index_id_266 < _len_id_261) {
                         let q : Qubit = _array_id_257[_index_id_266];
                         H(q);
                         _index_id_266 += 1;
@@ -3204,17 +3204,17 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_214 : Range = 0..numBits - 1;
+                    let _range_id_214 : Range = 0..(numBits - 1);
                     mutable _index_id_217 : Int = _range_id_214.Start;
                     let _step_id_222 : Int = _range_id_214.Step;
                     let _end_id_227 : Int = _range_id_214.End;
-                    while _step_id_222 > 0 and _index_id_217 <= _end_id_227 or _step_id_222 < 0 and _index_id_217 >= _end_id_227 {
+                    while (((_step_id_222 > 0) and (_index_id_217 <= _end_id_227)) or ((_step_id_222 < 0) and (_index_id_217 >= _end_id_227))) {
                         let ancillaIdx : Int = _index_id_217;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_217 += _step_id_222;
@@ -3230,23 +3230,23 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
 
             AFTER:
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_214 : Range = 0..numBits - 1;
+                    let _range_id_214 : Range = 0..(numBits - 1);
                     mutable _index_id_217 : Int = _range_id_214.Start;
                     let _step_id_222 : Int = _range_id_214.Step;
                     let _end_id_227 : Int = _range_id_214.End;
-                    while _step_id_222 > 0 and _index_id_217 <= _end_id_227 or _step_id_222 < 0 and _index_id_217 >= _end_id_227 {
+                    while (((_step_id_222 > 0) and (_index_id_217 <= _end_id_227)) or ((_step_id_222 < 0) and (_index_id_217 >= _end_id_227))) {
                         let ancillaIdx : Int = _index_id_217;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_217 += _step_id_222;
@@ -3265,7 +3265,7 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
                     let _array_id_257 : Qubit[] = ancillas;
                     let _len_id_261 : Int = Length(_array_id_257);
                     mutable _index_id_266 : Int = 0;
-                    while _index_id_266 < _len_id_261 {
+                    while (_index_id_266 < _len_id_261) {
                         let q : Qubit = _array_id_257[_index_id_266];
                         H(q);
                         _index_id_266 += 1;
@@ -3284,17 +3284,17 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_214 : Range = 0..numBits - 1;
+                    let _range_id_214 : Range = 0..(numBits - 1);
                     mutable _index_id_217 : Int = _range_id_214.Start;
                     let _step_id_222 : Int = _range_id_214.Step;
                     let _end_id_227 : Int = _range_id_214.End;
-                    while _step_id_222 > 0 and _index_id_217 <= _end_id_227 or _step_id_222 < 0 and _index_id_217 >= _end_id_227 {
+                    while (((_step_id_222 > 0) and (_index_id_217 <= _end_id_227)) or ((_step_id_222 < 0) and (_index_id_217 >= _end_id_227))) {
                         let ancillaIdx : Int = _index_id_217;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_217 += _step_id_222;
@@ -3306,19 +3306,19 @@ fn indexed_closure_callable_array_tuple_arg_loop_dispatches_closures() {
                 ReleaseQubitArray(qs);
             }
             operation Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(numBits : Int, systems : Int[], numAncillaQubits : Int, __capture_0 : Int, __capture_1 : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 PrepareSystems(allTargets);
                 PreparePhase(ancillas);
                 {
-                    let _range_id_214 : Range = 0..numBits - 1;
+                    let _range_id_214 : Range = 0..(numBits - 1);
                     mutable _index_id_217 : Int = _range_id_214.Start;
                     let _step_id_222 : Int = _range_id_214.Step;
                     let _end_id_227 : Int = _range_id_214.End;
-                    while _step_id_222 > 0 and _index_id_217 <= _end_id_227 or _step_id_222 < 0 and _index_id_217 >= _end_id_227 {
+                    while (((_step_id_222 > 0) and (_index_id_217 <= _end_id_227)) or ((_step_id_222 < 0) and (_index_id_217 >= _end_id_227))) {
                         let ancillaIdx : Int = _index_id_217;
-                        if ancillaIdx == 0 {
+                        if (ancillaIdx == 0) {
                             _lambda_6(__capture_0, (ancillas[ancillaIdx], allTargets))
                         } else {
                             _lambda_7(__capture_1, (ancillas[ancillaIdx], allTargets))
@@ -3393,23 +3393,23 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
         &expect![[r#"
             BEFORE:
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_222 : Range = 0..numBits - 1;
+                    let _range_id_222 : Range = 0..(numBits - 1);
                     mutable _index_id_225 : Int = _range_id_222.Start;
                     let _step_id_230 : Int = _range_id_222.Step;
                     let _end_id_235 : Int = _range_id_222.End;
-                    while _step_id_230 > 0 and _index_id_225 <= _end_id_235 or _step_id_230 < 0 and _index_id_225 >= _end_id_235 {
+                    while (((_step_id_230 > 0) and (_index_id_225 <= _end_id_235)) or ((_step_id_230 < 0) and (_index_id_225 >= _end_id_235))) {
                         let ancillaIdx : Int = _index_id_225;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_225 += _step_id_230;
@@ -3428,7 +3428,7 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                     let _array_id_265 : Qubit[] = ancillas;
                     let _len_id_269 : Int = Length(_array_id_265);
                     mutable _index_id_274 : Int = 0;
-                    while _index_id_274 < _len_id_269 {
+                    while (_index_id_274 < _len_id_269) {
                         let q : Qubit = _array_id_265[_index_id_274];
                         H(q);
                         _index_id_274 += 1;
@@ -3456,17 +3456,17 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_222 : Range = 0..numBits - 1;
+                    let _range_id_222 : Range = 0..(numBits - 1);
                     mutable _index_id_225 : Int = _range_id_222.Start;
                     let _step_id_230 : Int = _range_id_222.Step;
                     let _end_id_235 : Int = _range_id_222.End;
-                    while _step_id_230 > 0 and _index_id_225 <= _end_id_235 or _step_id_230 < 0 and _index_id_225 >= _end_id_235 {
+                    while (((_step_id_230 > 0) and (_index_id_225 <= _end_id_235)) or ((_step_id_230 < 0) and (_index_id_225 >= _end_id_235))) {
                         let ancillaIdx : Int = _index_id_225;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_225 += _step_id_230;
@@ -3482,23 +3482,23 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
 
             AFTER:
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_222 : Range = 0..numBits - 1;
+                    let _range_id_222 : Range = 0..(numBits - 1);
                     mutable _index_id_225 : Int = _range_id_222.Start;
                     let _step_id_230 : Int = _range_id_222.Step;
                     let _end_id_235 : Int = _range_id_222.End;
-                    while _step_id_230 > 0 and _index_id_225 <= _end_id_235 or _step_id_230 < 0 and _index_id_225 >= _end_id_235 {
+                    while (((_step_id_230 > 0) and (_index_id_225 <= _end_id_235)) or ((_step_id_230 < 0) and (_index_id_225 >= _end_id_235))) {
                         let ancillaIdx : Int = _index_id_225;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_225 += _step_id_230;
@@ -3517,7 +3517,7 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                     let _array_id_265 : Qubit[] = ancillas;
                     let _len_id_269 : Int = Length(_array_id_265);
                     mutable _index_id_274 : Int = 0;
-                    while _index_id_274 < _len_id_269 {
+                    while (_index_id_274 < _len_id_269) {
                         let q : Qubit = _array_id_265[_index_id_274];
                         H(q);
                         _index_id_274 += 1;
@@ -3538,17 +3538,17 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_Empty__Empty__Empty_(statePrep : (Qubit[] => Unit), controlledUnitary : ((Qubit, Qubit[]) => Unit)[], numBits : Int, systems : Int[], phaseQubitPrep : (Qubit[] => Unit), numAncillaQubits : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 statePrep(allTargets);
                 phaseQubitPrep(ancillas);
                 {
-                    let _range_id_222 : Range = 0..numBits - 1;
+                    let _range_id_222 : Range = 0..(numBits - 1);
                     mutable _index_id_225 : Int = _range_id_222.Start;
                     let _step_id_230 : Int = _range_id_222.Step;
                     let _end_id_235 : Int = _range_id_222.End;
-                    while _step_id_230 > 0 and _index_id_225 <= _end_id_235 or _step_id_230 < 0 and _index_id_225 >= _end_id_235 {
+                    while (((_step_id_230 > 0) and (_index_id_225 <= _end_id_235)) or ((_step_id_230 < 0) and (_index_id_225 >= _end_id_235))) {
                         let ancillaIdx : Int = _index_id_225;
                         controlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_225 += _step_id_230;
@@ -3560,19 +3560,19 @@ fn indexed_same_target_closure_callable_array_tuple_arg_dispatches_closures() {
                 ReleaseQubitArray(qs);
             }
             operation Run_Empty__Empty__Empty__PrepareSystems__closure__closure__PreparePhase_(numBits : Int, systems : Int[], numAncillaQubits : Int, __capture_0 : Int, __capture_1 : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(numBits + Length(systems) + numAncillaQubits);
-                let ancillas : Qubit[] = qs[0..numBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((numBits + Length(systems)) + numAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(numBits - 1)];
                 let allTargets : Qubit[] = qs[numBits...];
                 PrepareSystems(allTargets);
                 PreparePhase(ancillas);
                 {
-                    let _range_id_222 : Range = 0..numBits - 1;
+                    let _range_id_222 : Range = 0..(numBits - 1);
                     mutable _index_id_225 : Int = _range_id_222.Start;
                     let _step_id_230 : Int = _range_id_222.Step;
                     let _end_id_235 : Int = _range_id_222.End;
-                    while _step_id_230 > 0 and _index_id_225 <= _end_id_235 or _step_id_230 < 0 and _index_id_225 >= _end_id_235 {
+                    while (((_step_id_230 > 0) and (_index_id_225 <= _end_id_235)) or ((_step_id_230 < 0) and (_index_id_225 >= _end_id_235))) {
                         let ancillaIdx : Int = _index_id_225;
-                        if ancillaIdx == 0 {
+                        if (ancillaIdx == 0) {
                             _lambda_6(__capture_0, (ancillas[ancillaIdx], allTargets))
                         } else {
                             _lambda_7(__capture_1, (ancillas[ancillaIdx], allTargets))
@@ -3655,23 +3655,23 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
             BEFORE:
             newtype Config = ((Qubit[] => Unit), ((Qubit, Qubit[]) => Unit)[], (Qubit[] => Unit), Int, Int[], Int);
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(config : __UDT_Item_1__Package_2_) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(config::NumBits + Length(config::Systems) + config::NumAncillaQubits);
-                let ancillas : Qubit[] = qs[0..config::NumBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((config::NumBits + Length(config::Systems)) + config::NumAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(config::NumBits - 1)];
                 let allTargets : Qubit[] = qs[config::NumBits...];
                 config::StatePrep(allTargets);
                 config::PhaseQubitPrep(ancillas);
                 {
-                    let _range_id_219 : Range = 0..config::NumBits - 1;
+                    let _range_id_219 : Range = 0..(config::NumBits - 1);
                     mutable _index_id_222 : Int = _range_id_219.Start;
                     let _step_id_227 : Int = _range_id_219.Step;
                     let _end_id_232 : Int = _range_id_219.End;
-                    while _step_id_227 > 0 and _index_id_222 <= _end_id_232 or _step_id_227 < 0 and _index_id_222 >= _end_id_232 {
+                    while (((_step_id_227 > 0) and (_index_id_222 <= _end_id_232)) or ((_step_id_227 < 0) and (_index_id_222 >= _end_id_232))) {
                         let ancillaIdx : Int = _index_id_222;
                         config::ControlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_222 += _step_id_227;
@@ -3690,7 +3690,7 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                     let _array_id_262 : Qubit[] = ancillas;
                     let _len_id_266 : Int = Length(_array_id_262);
                     mutable _index_id_271 : Int = 0;
-                    while _index_id_271 < _len_id_266 {
+                    while (_index_id_271 < _len_id_266) {
                         let q : Qubit = _array_id_262[_index_id_271];
                         H(q);
                         _index_id_271 += 1;
@@ -3728,23 +3728,23 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
             AFTER:
             newtype Config = ((Qubit[] => Unit), ((Qubit, Qubit[]) => Unit)[], (Qubit[] => Unit), Int, Int[], Int);
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation Run(config : __UDT_Item_1__Package_2_) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(config::NumBits + Length(config::Systems) + config::NumAncillaQubits);
-                let ancillas : Qubit[] = qs[0..config::NumBits - 1];
+                let qs : Qubit[] = AllocateQubitArray(((config::NumBits + Length(config::Systems)) + config::NumAncillaQubits));
+                let ancillas : Qubit[] = qs[0..(config::NumBits - 1)];
                 let allTargets : Qubit[] = qs[config::NumBits...];
                 config::StatePrep(allTargets);
                 config::PhaseQubitPrep(ancillas);
                 {
-                    let _range_id_219 : Range = 0..config::NumBits - 1;
+                    let _range_id_219 : Range = 0..(config::NumBits - 1);
                     mutable _index_id_222 : Int = _range_id_219.Start;
                     let _step_id_227 : Int = _range_id_219.Step;
                     let _end_id_232 : Int = _range_id_219.End;
-                    while _step_id_227 > 0 and _index_id_222 <= _end_id_232 or _step_id_227 < 0 and _index_id_222 >= _end_id_232 {
+                    while (((_step_id_227 > 0) and (_index_id_222 <= _end_id_232)) or ((_step_id_227 < 0) and (_index_id_222 >= _end_id_232))) {
                         let ancillaIdx : Int = _index_id_222;
                         config::ControlledUnitary[ancillaIdx](ancillas[ancillaIdx], allTargets);
                         _index_id_222 += _step_id_227;
@@ -3763,7 +3763,7 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                     let _array_id_262 : Qubit[] = ancillas;
                     let _len_id_266 : Int = Length(_array_id_262);
                     mutable _index_id_271 : Int = 0;
-                    while _index_id_271 < _len_id_266 {
+                    while (_index_id_271 < _len_id_266) {
                         let q : Qubit = _array_id_262[_index_id_271];
                         H(q);
                         _index_id_271 += 1;
@@ -3782,19 +3782,19 @@ fn indexed_closure_callable_array_udt_with_callable_siblings_dispatches_closures
                 ApplyParityOperation(arg, hole, hole_1)
             }
             operation Run_PrepareSystems__closure__closure__PreparePhase_(config : (Int, Int[], Int), __capture_0 : Int, __capture_1 : Int) : Unit {
-                let qs : Qubit[] = AllocateQubitArray(config::StatePrep + Length(config::ControlledUnitary) + config::PhaseQubitPrep);
-                let ancillas : Qubit[] = qs[0..config::StatePrep - 1];
+                let qs : Qubit[] = AllocateQubitArray(((config::StatePrep + Length(config::ControlledUnitary)) + config::PhaseQubitPrep));
+                let ancillas : Qubit[] = qs[0..(config::StatePrep - 1)];
                 let allTargets : Qubit[] = qs[config::StatePrep...];
                 PrepareSystems(allTargets);
                 PreparePhase(ancillas);
                 {
-                    let _range_id_219 : Range = 0..config::StatePrep - 1;
+                    let _range_id_219 : Range = 0..(config::StatePrep - 1);
                     mutable _index_id_222 : Int = _range_id_219.Start;
                     let _step_id_227 : Int = _range_id_219.Step;
                     let _end_id_232 : Int = _range_id_219.End;
-                    while _step_id_227 > 0 and _index_id_222 <= _end_id_232 or _step_id_227 < 0 and _index_id_222 >= _end_id_232 {
+                    while (((_step_id_227 > 0) and (_index_id_222 <= _end_id_232)) or ((_step_id_227 < 0) and (_index_id_222 >= _end_id_232))) {
                         let ancillaIdx : Int = _index_id_222;
-                        if ancillaIdx == 0 {
+                        if (ancillaIdx == 0) {
                             _lambda_7(__capture_0, (ancillas[ancillaIdx], allTargets))
                         } else {
                             _lambda_8(__capture_1, (ancillas[ancillaIdx], allTargets))
@@ -3858,7 +3858,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                 op(register, target);
             }
             operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     CNOT(register[0], target);
                 }
 
@@ -3876,7 +3876,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                     let _array_id_118 : Int[] = [1, 2];
                     let _len_id_122 : Int = Length(_array_id_118);
                     mutable _index_id_127 : Int = 0;
-                    while _index_id_127 < _len_id_122 {
+                    while (_index_id_127 < _len_id_122) {
                         let value : Int = _array_id_118[_index_id_127];
                         let oracle : ((Qubit[], Qubit) => Unit) = Encode(value);
                         ApplyOp_Empty_(oracle, register, target);
@@ -3902,7 +3902,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                 op(register, target);
             }
             operation ApplyParityOperation(value : Int, register : Qubit[], target : Qubit) : Unit {
-                if value == 1 {
+                if (value == 1) {
                     CNOT(register[0], target);
                 }
 
@@ -3920,7 +3920,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
                     let _array_id_118 : Int[] = [1, 2];
                     let _len_id_122 : Int = Length(_array_id_118);
                     mutable _index_id_127 : Int = 0;
-                    while _index_id_127 < _len_id_122 {
+                    while (_index_id_127 < _len_id_122) {
                         let value : Int = _array_id_118[_index_id_127];
                         ApplyOp_Empty__closure_(register, target, value);
                         _index_id_127 += 1;
@@ -4690,7 +4690,7 @@ fn analysis_conditional_callable_binding_produces_multi_lattice() {
         &expect![[r#"
             BEFORE:
             operation ApplyConditional(power : Int, target : Qubit) : Unit {
-                let u : (Qubit => Unit is Adj + Ctl) = if power >= 0 {
+                let u : (Qubit => Unit is Adj + Ctl) = if (power >= 0) {
                     S
                 } else {
                     Adjoint S
@@ -4707,7 +4707,7 @@ fn analysis_conditional_callable_binding_produces_multi_lattice() {
 
             AFTER:
             operation ApplyConditional(power : Int, target : Qubit) : Unit {
-                if power >= 0 {
+                if (power >= 0) {
                     S(target)
                 } else {
                     Adjoint S(target)
@@ -4755,8 +4755,8 @@ fn callable_from_nested_conditions() {
         &expect![[r#"
             BEFORE:
             operation ApplyNested(a : Int, b : Int, target : Qubit) : Unit {
-                let u : (Qubit => Unit is Adj + Ctl) = if a >= 0 {
-                    if b >= 0 {
+                let u : (Qubit => Unit is Adj + Ctl) = if (a >= 0) {
+                    if (b >= 0) {
                         S
                     } else {
                         T
@@ -4777,8 +4777,8 @@ fn callable_from_nested_conditions() {
 
             AFTER:
             operation ApplyNested(a : Int, b : Int, target : Qubit) : Unit {
-                if a >= 0 {
-                    if b >= 0 {
+                if (a >= 0) {
+                    if (b >= 0) {
                         S(target)
                     } else {
                         T(target)
@@ -4830,9 +4830,9 @@ fn callable_from_triple_nested_conditions() {
         &expect![[r#"
             BEFORE:
             operation ApplyTriple(a : Int, b : Int, c : Int, target : Qubit) : Unit {
-                let u : (Qubit => Unit is Adj + Ctl) = if a >= 0 {
-                    if b >= 0 {
-                        if c >= 0 {
+                let u : (Qubit => Unit is Adj + Ctl) = if (a >= 0) {
+                    if (b >= 0) {
+                        if (c >= 0) {
                             S
                         } else {
                             T
@@ -4857,9 +4857,9 @@ fn callable_from_triple_nested_conditions() {
 
             AFTER:
             operation ApplyTriple(a : Int, b : Int, c : Int, target : Qubit) : Unit {
-                if a >= 0 {
-                    if b >= 0 {
-                        if c >= 0 {
+                if (a >= 0) {
+                    if (b >= 0) {
+                        if (c >= 0) {
                             S(target)
                         } else {
                             T(target)
@@ -4914,15 +4914,15 @@ fn callable_from_dual_nested_conditions() {
         &expect![[r#"
             BEFORE:
             operation ApplyDual(a : Int, b : Int, c : Int, target : Qubit) : Unit {
-                let u : (Qubit => Unit is Adj + Ctl) = if a >= 0 {
-                    if b >= 0 {
+                let u : (Qubit => Unit is Adj + Ctl) = if (a >= 0) {
+                    if (b >= 0) {
                         S
                     } else {
                         T
                     }
 
                 } else {
-                    if c >= 0 {
+                    if (c >= 0) {
                         X
                     } else {
                         Y
@@ -4941,13 +4941,13 @@ fn callable_from_dual_nested_conditions() {
 
             AFTER:
             operation ApplyDual(a : Int, b : Int, c : Int, target : Qubit) : Unit {
-                if a >= 0 {
-                    if b >= 0 {
+                if (a >= 0) {
+                    if (b >= 0) {
                         S(target)
                     } else {
                         T(target)
                     }
-                } else if c >= 0 {
+                } else if (c >= 0) {
                     X(target)
                 } else {
                     Y(target)
@@ -5291,7 +5291,7 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
                     let _len_id_40 : Int = Length(_array_id_36);
                     mutable _index_id_45 : Int = 0;
-                    while _index_id_45 < _len_id_40 {
+                    while (_index_id_45 < _len_id_40) {
                         let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         op(q);
@@ -5312,9 +5312,9 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
                     let _len_id_40 : Int = Length(_array_id_36);
                     mutable _index_id_45 : Int = 0;
-                    while _index_id_45 < _len_id_40 {
+                    while (_index_id_45 < _len_id_40) {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_45 == 0 {
+                        if (_index_id_45 == 0) {
                             S(q)
                         } else {
                             T(q)
@@ -5385,10 +5385,10 @@ fn operand_block_set_specializes_to_reaching_definition() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -5401,10 +5401,10 @@ fn operand_block_set_specializes_to_reaching_definition() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -5431,17 +5431,17 @@ fn operand_block_set_specializes_to_reaching_definition() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let z : Int = {
+                let z : Int = ({
                     f = Bar;
                     0
-                } + 1;
+                } + 1);
                 f(5)
             }
             // entry
@@ -5449,17 +5449,17 @@ fn operand_block_set_specializes_to_reaching_definition() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let z : Int = {
+                let z : Int = ({
                     f = Bar;
                     0
-                } + 1;
+                } + 1);
                 Bar(5)
             }
             // entry
@@ -5631,10 +5631,10 @@ fn hof_operand_block_set_specializes_reaching_definition() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             function Apply(g : (Int -> Int), x : Int) : Int {
                 g(x)
@@ -5650,10 +5650,10 @@ fn hof_operand_block_set_specializes_reaching_definition() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             function Apply(g : (Int -> Int), x : Int) : Int {
                 g(x)
@@ -5687,20 +5687,20 @@ fn hof_operand_block_set_specializes_reaching_definition() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             function Apply(g : (Int -> Int), x : Int) : Int {
                 g(x)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let z : Int = {
+                let z : Int = ({
                     f = Bar;
                     0
-                } + 1;
+                } + 1);
                 Apply(f, 5)
             }
             // entry
@@ -5708,20 +5708,20 @@ fn hof_operand_block_set_specializes_reaching_definition() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             function Apply(g : (Int -> Int), x : Int) : Int {
                 g(x)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let z : Int = {
+                let z : Int = ({
                     f = Bar;
                     0
-                } + 1;
+                } + 1);
                 Apply_Bar_(5)
             }
             function Apply_Bar_(x : Int) : Int {
@@ -5830,12 +5830,12 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                let z : Int = if true {
+                let z : Int = (if true {
                     op = X;
                     0
                 } else {
                     0
-                } + 1;
+                } + 1);
                 ApplyOp_AdjCtl_(op, q);
                 __quantum__rt__qubit_release(q);
             }
@@ -5852,12 +5852,12 @@ fn operand_block_conditional_set_generates_branch_dispatch() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                let z : Int = if true {
+                let z : Int = (if true {
                     op = X;
                     0
                 } else {
                     0
-                } + 1;
+                } + 1);
                 if true {
                     ApplyOp_AdjCtl__X_(q)
                 } else {
@@ -5983,10 +5983,10 @@ fn operand_block_set_in_branch_uses_correct_arm() {
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
                     op = Y;
-                    let z : Int = {
+                    let z : Int = ({
                         op = X;
                         0
-                    } + 0;
+                    } + 0);
                 }
 
                 ApplyOp_AdjCtl_(op, q);
@@ -6007,10 +6007,10 @@ fn operand_block_set_in_branch_uses_correct_arm() {
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
                 if true {
                     op = Y;
-                    let z : Int = {
+                    let z : Int = ({
                         op = X;
                         0
-                    } + 0;
+                    } + 0);
                 }
 
                 if true {
@@ -6061,14 +6061,14 @@ fn operand_block_tuple_pattern_dispatch_resolves_field_path() {
                     mutable _index_id_56 : Int = _range_id_53.Start;
                     let _step_id_61 : Int = _range_id_53.Step;
                     let _end_id_66 : Int = _range_id_53.End;
-                    while _step_id_61 > 0 and _index_id_56 <= _end_id_66 or _step_id_61 < 0 and _index_id_56 >= _end_id_66 {
+                    while (((_step_id_61 > 0) and (_index_id_56 <= _end_id_66)) or ((_step_id_61 < 0) and (_index_id_56 >= _end_id_66))) {
                         let i : Int = _index_id_56;
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        let z : Int = {
+                        let z : Int = ({
                             let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = ops[i];
                             initializer(q);
                             0
-                        } + 1;
+                        } + 1);
                         _index_id_56 += _step_id_61;
                         __quantum__rt__qubit_release(q);
                     }
@@ -6087,17 +6087,17 @@ fn operand_block_tuple_pattern_dispatch_resolves_field_path() {
                     mutable _index_id_56 : Int = _range_id_53.Start;
                     let _step_id_61 : Int = _range_id_53.Step;
                     let _end_id_66 : Int = _range_id_53.End;
-                    while _step_id_61 > 0 and _index_id_56 <= _end_id_66 or _step_id_61 < 0 and _index_id_56 >= _end_id_66 {
+                    while (((_step_id_61 > 0) and (_index_id_56 <= _end_id_66)) or ((_step_id_61 < 0) and (_index_id_56 >= _end_id_66))) {
                         let i : Int = _index_id_56;
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        let z : Int = {
-                            if i == 0 {
+                        let z : Int = ({
+                            if (i == 0) {
                                 I(q)
                             } else {
                                 X(q)
                             };
                             0
-                        } + 1;
+                        } + 1);
                         _index_id_56 += _step_id_61;
                         __quantum__rt__qubit_release(q);
                     }
@@ -6139,10 +6139,10 @@ fn pure_arithmetic_array_index_dispatch_reuses_index_expression() {
                     mutable _index_id_43 : Int = _range_id_40.Start;
                     let _step_id_48 : Int = _range_id_40.Step;
                     let _end_id_53 : Int = _range_id_40.End;
-                    while _step_id_48 > 0 and _index_id_43 <= _end_id_53 or _step_id_48 < 0 and _index_id_43 >= _end_id_53 {
+                    while (((_step_id_48 > 0) and (_index_id_43 <= _end_id_53)) or ((_step_id_48 < 0) and (_index_id_43 >= _end_id_53))) {
                         let i : Int = _index_id_43;
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        let op : (Qubit => Unit is Adj + Ctl) = ops[i + 1];
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[(i + 1)];
                         op(q);
                         _index_id_43 += _step_id_48;
                         __quantum__rt__qubit_release(q);
@@ -6162,12 +6162,12 @@ fn pure_arithmetic_array_index_dispatch_reuses_index_expression() {
                     mutable _index_id_43 : Int = _range_id_40.Start;
                     let _step_id_48 : Int = _range_id_40.Step;
                     let _end_id_53 : Int = _range_id_40.End;
-                    while _step_id_48 > 0 and _index_id_43 <= _end_id_53 or _step_id_48 < 0 and _index_id_43 >= _end_id_53 {
+                    while (((_step_id_48 > 0) and (_index_id_43 <= _end_id_53)) or ((_step_id_48 < 0) and (_index_id_43 >= _end_id_53))) {
                         let i : Int = _index_id_43;
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if i + 1 == 0 {
+                        if ((i + 1) == 0) {
                             I(q)
-                        } else if i + 1 == 1 {
+                        } else if ((i + 1) == 1) {
                             X(q)
                         } else {
                             Y(q)
@@ -6209,7 +6209,7 @@ fn pure_array_index_dispatch_reuses_index_expression() {
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     assert!(
-        after.contains("if i == 0") && after.contains("else if i == 1"),
+        after.contains("if (i == 0)") && after.contains("else if (i == 1)"),
         "pure index dispatch should reuse the original block index:\n{after}"
     );
     assert!(
@@ -6227,7 +6227,7 @@ fn pure_array_index_dispatch_reuses_index_expression() {
                     mutable _index_id_44 : Int = _range_id_41.Start;
                     let _step_id_49 : Int = _range_id_41.Step;
                     let _end_id_54 : Int = _range_id_41.End;
-                    while _step_id_49 > 0 and _index_id_44 <= _end_id_54 or _step_id_49 < 0 and _index_id_44 >= _end_id_54 {
+                    while (((_step_id_49 > 0) and (_index_id_44 <= _end_id_54)) or ((_step_id_49 < 0) and (_index_id_44 >= _end_id_54))) {
                         let i : Int = _index_id_44;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let op : (Qubit => Unit is Adj + Ctl) = ops[{
@@ -6252,12 +6252,12 @@ fn pure_array_index_dispatch_reuses_index_expression() {
                     mutable _index_id_44 : Int = _range_id_41.Start;
                     let _step_id_49 : Int = _range_id_41.Step;
                     let _end_id_54 : Int = _range_id_41.End;
-                    while _step_id_49 > 0 and _index_id_44 <= _end_id_54 or _step_id_49 < 0 and _index_id_44 >= _end_id_54 {
+                    while (((_step_id_49 > 0) and (_index_id_44 <= _end_id_54)) or ((_step_id_49 < 0) and (_index_id_44 >= _end_id_54))) {
                         let i : Int = _index_id_44;
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if i == 0 {
+                        if (i == 0) {
                             I(q)
-                        } else if i == 1 {
+                        } else if (i == 1) {
                             X(q)
                         } else {
                             Y(q)
@@ -6299,12 +6299,12 @@ fn impure_array_index_dispatch_hoists_index_expression() {
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     assert!(
         after.contains("let index : Int = {")
-            && after.contains("if index == 0")
-            && after.contains("else if index == 1"),
+            && after.contains("if (index == 0)")
+            && after.contains("else if (index == 1)"),
         "side-effecting index should be hoisted and reused by the dispatch:\n{after}"
     );
     assert!(
-        !after.contains("if i == 0") && !after.contains("else if i == 1"),
+        !after.contains("if (i == 0)") && !after.contains("else if (i == 1)"),
         "dispatch guards should not re-evaluate the side-effecting index block:\n{after}"
     );
     check_rewrite(
@@ -6318,7 +6318,7 @@ fn impure_array_index_dispatch_hoists_index_expression() {
                     mutable _index_id_48 : Int = _range_id_45.Start;
                     let _step_id_53 : Int = _range_id_45.Step;
                     let _end_id_58 : Int = _range_id_45.End;
-                    while _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
+                    while (((_step_id_53 > 0) and (_index_id_48 <= _end_id_58)) or ((_step_id_53 < 0) and (_index_id_48 >= _end_id_58))) {
                         let i : Int = _index_id_48;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let op : (Qubit => Unit is Adj + Ctl) = ops[{
@@ -6344,16 +6344,16 @@ fn impure_array_index_dispatch_hoists_index_expression() {
                     mutable _index_id_48 : Int = _range_id_45.Start;
                     let _step_id_53 : Int = _range_id_45.Step;
                     let _end_id_58 : Int = _range_id_45.End;
-                    while _step_id_53 > 0 and _index_id_48 <= _end_id_58 or _step_id_53 < 0 and _index_id_48 >= _end_id_58 {
+                    while (((_step_id_53 > 0) and (_index_id_48 <= _end_id_58)) or ((_step_id_53 < 0) and (_index_id_48 >= _end_id_58))) {
                         let i : Int = _index_id_48;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let index : Int = {
                             X(q);
                             i
                         };
-                        if index == 0 {
+                        if (index == 0) {
                             I(q)
-                        } else if index == 1 {
+                        } else if (index == 1) {
                             X(q)
                         } else {
                             Y(q)
@@ -6390,17 +6390,17 @@ fn binop_andl_short_circuit_rhs_set_does_not_reach_call() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let b : Bool = false and {
+                let b : Bool = (false and {
                     f = Bar;
                     true
-                };
+                });
                 f(5)
             }
             // entry
@@ -6408,17 +6408,17 @@ fn binop_andl_short_circuit_rhs_set_does_not_reach_call() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let b : Bool = false and {
+                let b : Bool = (false and {
                     f = Bar;
                     true
-                };
+                });
                 if false {
                     Bar(5)
                 } else {
@@ -6449,17 +6449,17 @@ fn binop_orl_short_circuit_rhs_set_does_not_reach_call() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let b : Bool = true or {
+                let b : Bool = (true or {
                     f = Bar;
                     false
-                };
+                });
                 f(5)
             }
             // entry
@@ -6467,17 +6467,17 @@ fn binop_orl_short_circuit_rhs_set_does_not_reach_call() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
-                let b : Bool = true or {
+                let b : Bool = (true or {
                     f = Bar;
                     false
-                };
+                });
                 if true {
                     Foo(5)
                 } else {
@@ -6509,10 +6509,10 @@ fn assignop_andl_short_circuit_rhs_set_does_not_reach_call() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6528,10 +6528,10 @@ fn assignop_andl_short_circuit_rhs_set_does_not_reach_call() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6573,10 +6573,10 @@ fn update_field_replace_then_record_order_reaches_call() {
             BEFORE:
             newtype Rec = (Int, Int);
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6596,10 +6596,10 @@ fn update_field_replace_then_record_order_reaches_call() {
             AFTER:
             newtype Rec = (Int, Int);
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6638,10 +6638,10 @@ fn update_index_container_last_order_reaches_call() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6656,10 +6656,10 @@ fn update_index_container_last_order_reaches_call() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6696,10 +6696,10 @@ fn assignop_non_logical_rhs_set_reaches_call() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6715,10 +6715,10 @@ fn assignop_non_logical_rhs_set_reaches_call() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 mutable f : (Int -> Int) = Foo;
@@ -6760,19 +6760,19 @@ fn orl_runtime_dynamic_condition_branch_split_dispatch() {
         &expect![[r#"
             BEFORE:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable f : (Int -> Int) = Foo;
-                let cond : Bool = MResetZ(q) == One;
-                let b : Bool = cond or {
+                let cond : Bool = (MResetZ(q) == One);
+                let b : Bool = (cond or {
                     f = Bar;
                     false
-                };
+                });
                 let _generated_ident_67 : Int = f(5);
                 __quantum__rt__qubit_release(q);
                 _generated_ident_67
@@ -6782,19 +6782,19 @@ fn orl_runtime_dynamic_condition_branch_split_dispatch() {
 
             AFTER:
             function Foo(x : Int) : Int {
-                x + 1
+                (x + 1)
             }
             function Bar(x : Int) : Int {
-                x + 100
+                (x + 100)
             }
             operation Main() : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable f : (Int -> Int) = Foo;
-                let cond : Bool = MResetZ(q) == One;
-                let b : Bool = cond or {
+                let cond : Bool = (MResetZ(q) == One);
+                let b : Bool = (cond or {
                     f = Bar;
                     false
-                };
+                });
                 let _generated_ident_67 : Int = if cond {
                     Foo(5)
                 } else {

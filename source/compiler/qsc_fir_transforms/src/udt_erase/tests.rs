@@ -1195,8 +1195,8 @@ fn udt_used_in_nested_callable() {
             BEFORE:
             newtype Pair = (Int, Int);
             function MakeAndSum(x : Int) : Int {
-                let p : __UDT_Item_1__Package_2_ = Pair(x, x + 1);
-                p::Fst + p::Snd
+                let p : __UDT_Item_1__Package_2_ = Pair(x, (x + 1));
+                (p::Fst + p::Snd)
             }
             function Main() : Unit {
                 let _ : Int = MakeAndSum(5);
@@ -1207,8 +1207,8 @@ fn udt_used_in_nested_callable() {
             AFTER:
             newtype Pair = (Int, Int);
             function MakeAndSum(x : Int) : Int {
-                let p : (Int, Int) = (x, x + 1);
-                p::Item < 0 > + p::Item < 1 >
+                let p : (Int, Int) = (x, (x + 1));
+                (p::Item < 0 > + p::Item < 1 >)
             }
             function Main() : Unit {
                 let _ : Int = MakeAndSum(5);
@@ -1833,7 +1833,7 @@ fn struct_field_access_lowered_in_adjoint_and_controlled_specs() {
                     let _ : Int = p::Y;
                 }
                 controlled (cs, ...) {
-                    let _ : Int = p::X + p::Y;
+                    let _ : Int = (p::X + p::Y);
                 }
                 controlled adjoint (ctls, ...) {
                     let _ : Int = p::Y;
@@ -1860,7 +1860,7 @@ fn struct_field_access_lowered_in_adjoint_and_controlled_specs() {
                     let _ : Int = p::Item < 1 >;
                 }
                 controlled (cs, ...) {
-                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
+                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
                 }
                 controlled adjoint (ctls, ...) {
                     let _ : Int = p::Item < 1 >;
@@ -1898,33 +1898,33 @@ fn nested_udt_mixing_scalar_and_tuple_fields_erased() {
     check_before_after_udt_erase(
         source,
         &expect![[r#"
-        BEFORE:
-        newtype Inner = (Int, Int);
-        newtype Outer = (Int, __UDT_Item_1__Package_2_);
-        function Main() : Int {
-            let o : __UDT_Item_2__Package_2_ = new Outer {
-                S = 10,
-                P = new Inner {
-                    A = 1,
-                    B = 2
-                }
+            BEFORE:
+            newtype Inner = (Int, Int);
+            newtype Outer = (Int, __UDT_Item_1__Package_2_);
+            function Main() : Int {
+                let o : __UDT_Item_2__Package_2_ = new Outer {
+                    S = 10,
+                    P = new Inner {
+                        A = 1,
+                        B = 2
+                    }
 
-            };
-            o::S + o::P::A
-        }
-        // entry
-        Main()
+                };
+                (o::S + o::P::A)
+            }
+            // entry
+            Main()
 
-        AFTER:
-        newtype Inner = (Int, Int);
-        newtype Outer = (Int, __UDT_Item_1__Package_2_);
-        function Main() : Int {
-            let o : (Int, (Int, Int)) = (10, (1, 2));
-            o::Item < 0 > + o::Item < 1 >::Item < 0 >
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            newtype Inner = (Int, Int);
+            newtype Outer = (Int, __UDT_Item_1__Package_2_);
+            function Main() : Int {
+                let o : (Int, (Int, Int)) = (10, (1, 2));
+                (o::Item < 0 > + o::Item < 1 >::Item < 0 >)
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

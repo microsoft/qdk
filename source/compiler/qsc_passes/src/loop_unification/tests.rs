@@ -26,7 +26,7 @@ fn convert_for_array() {
                     let _array_id_17 = arr;
                     let _len_id_21 = Length(_array_id_17);
                     mutable _index_id_26 = 0;
-                    while _index_id_26 < _len_id_21 {
+                    while (_index_id_26 < _len_id_21) {
                         let i = _array_id_17[_index_id_26];
                         let x = "Hello World";
                         _index_id_26 += 1;
@@ -55,7 +55,7 @@ fn convert_for_array_deconstruct() {
                     let _array_id_20 = arr;
                     let _len_id_24 = Length(_array_id_20);
                     mutable _index_id_29 = 0;
-                    while _index_id_29 < _len_id_24 {
+                    while (_index_id_29 < _len_id_24) {
                         let (i, d) = _array_id_20[_index_id_29];
                         let x = "Hello World";
                         _index_id_29 += 1;
@@ -81,10 +81,10 @@ fn convert_for_slice() {
         &expect![[r#"
             operation Main(arr : Int[]) : Unit {
                 {
-                    let _array_id_23 = arr[6..-2..2];
+                    let _array_id_23 = arr[6..(-2)..2];
                     let _len_id_27 = Length(_array_id_23);
                     mutable _index_id_32 = 0;
-                    while _index_id_32 < _len_id_27 {
+                    while (_index_id_32 < _len_id_27) {
                         let i = _array_id_23[_index_id_32];
                         let x = "Hello World";
                         _index_id_32 += 1;
@@ -114,7 +114,7 @@ fn convert_for_range() {
                     mutable _index_id_21 = _range_id_18.Start;
                     let _step_id_26 = _range_id_18.Step;
                     let _end_id_31 = _range_id_18.End;
-                    while _step_id_26 > 0 and _index_id_21 <= _end_id_31 or _step_id_26 < 0 and _index_id_21 >= _end_id_31 {
+                    while (((_step_id_26 > 0) and (_index_id_21 <= _end_id_31)) or ((_step_id_26 < 0) and (_index_id_21 >= _end_id_31))) {
                         let i = _index_id_21;
                         let x = "Hello World";
                         _index_id_21 += _step_id_26;
@@ -140,11 +140,11 @@ fn convert_for_reverse_range() {
         &expect![[r#"
             operation Main() : Unit {
                 {
-                    let _range_id_20 = 4..-1..0;
+                    let _range_id_20 = 4..(-1)..0;
                     mutable _index_id_23 = _range_id_20.Start;
                     let _step_id_28 = _range_id_20.Step;
                     let _end_id_33 = _range_id_20.End;
-                    while _step_id_28 > 0 and _index_id_23 <= _end_id_33 or _step_id_28 < 0 and _index_id_23 >= _end_id_33 {
+                    while (((_step_id_28 > 0) and (_index_id_23 <= _end_id_33)) or ((_step_id_28 < 0) and (_index_id_23 >= _end_id_33))) {
                         let i = _index_id_23;
                         let x = "Hello World";
                         _index_id_23 += _step_id_28;
@@ -173,7 +173,7 @@ fn convert_repeat() {
                     mutable _continue_cond_14 = true;
                     while _continue_cond_14 {
                         let x = "Hello World";
-                        _continue_cond_14 = not true;
+                        _continue_cond_14 = (not true);
                     }
                 };
             }
@@ -202,7 +202,7 @@ fn convert_repeat_fixup() {
                     mutable _continue_cond_19 = true;
                     while _continue_cond_19 {
                         let x = "Hello World";
-                        _continue_cond_19 = not true;
+                        _continue_cond_19 = (not true);
                         if _continue_cond_19 {
                             let y = "Fixup";
                         }
@@ -250,19 +250,19 @@ fn convert_repeat_nested() {
                             mutable _continue_cond_44 = true;
                             while _continue_cond_44 {
                                 let x = "First";
-                                _continue_cond_44 = not a;
+                                _continue_cond_44 = (not a);
                                 if _continue_cond_44 {
                                     let y = "Second";
                                 }
                             }
                         }
-                        _continue_cond_74 = not b;
+                        _continue_cond_74 = (not b);
                         if _continue_cond_74 {
                             {
                                 mutable _continue_cond_61 = true;
                                 while _continue_cond_61 {
                                     let z = "Third";
-                                    _continue_cond_61 = not c;
+                                    _continue_cond_61 = (not c);
                                 }
                             };
                         }
@@ -287,7 +287,7 @@ fn convert_treats_for_loop_with_short_circuit_expression_explicit_int() {
                     let _array_id_15 = fail "";
                     let _len_id_19 = Length(_array_id_15);
                     mutable _index_id_24 = 0;
-                    while _index_id_24 < _len_id_19 {
+                    while (_index_id_24 < _len_id_19) {
                         let i = _array_id_15[_index_id_24];
                         _index_id_24 += 1;
                     }
@@ -311,7 +311,7 @@ fn convert_treats_for_loop_with_short_circuit_expression_explicit_non_int() {
                     let _array_id_15 = fail "";
                     let _len_id_19 = Length(_array_id_15);
                     mutable _index_id_24 = 0;
-                    while _index_id_24 < _len_id_19 {
+                    while (_index_id_24 < _len_id_19) {
                         let i = _array_id_15[_index_id_24];
                         _index_id_24 += 1;
                     }
