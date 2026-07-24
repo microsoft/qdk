@@ -63,7 +63,7 @@ Example:
 
 ```python
 from qdk import qsharp
-qsharp.init(qsharp_config={"shots": 1000})
+qsharp.init(qdk_config={"shots": 1000})
 assert qsharp.eval('Std.Core.ConfigValue("shots", 100)') == 1000
 ```
 
