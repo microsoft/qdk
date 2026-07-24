@@ -40,6 +40,23 @@ fn i_gate_yields_expected_qir() {
 }
 
 #[test]
+fn i_gate_with_args_yields_error() {
+    let source = "I(0.1) 0";
+    check(
+        source,
+        &expect![[r#"
+            Qdk.Stim.Compiler.UnsupportedArgument
+
+              x unsupported argument in instruction: I
+               ,----
+             1 | I(0.1) 0
+               : ^^^^^^^^
+               `----
+        "#]],
+    );
+}
+
+#[test]
 fn x_gate_yields_expected_qir() {
     let source = "X 0";
     check(

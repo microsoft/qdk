@@ -11,7 +11,8 @@
         "--profile=dev",
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "${workspaceFolder}/samples/"
-      ]
+      ],
+      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
     },
     {
       // Launches the extension in "web extension" mode (like vscode.dev).
@@ -24,7 +25,8 @@
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "--extensionDevelopmentKind=web",
         "${workspaceFolder}/samples/"
-      ]
+      ],
+      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
     },
     {
       // Use when developing in WSL.
@@ -40,7 +42,8 @@
         "--remote=wsl+${env:WSL_DISTRO_NAME}",
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "${workspaceFolder}/samples/"
-      ]
+      ],
+      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
     },
     {
       // Use when developing in Codespaces.
@@ -57,7 +60,8 @@
         "--remote=codespaces+${env:CODESPACE_NAME}",
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "${workspaceFolder}/samples/"
-      ]
+      ],
+      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
     }
   ]
 }

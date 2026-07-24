@@ -50,7 +50,8 @@ impl Compiler {
         dependencies: &Dependencies,
         qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> Result<Self, Errors> {
-        let mut passes = PassContext::new(qdk_config);
+        let qdk_config_rc = Rc::new(qdk_config);
+        let mut passes = PassContext::new(qdk_config_rc.clone());
         let (mut unit, errors) = compile_with_pass_context(
             &store,
             dependencies,
@@ -83,7 +84,7 @@ impl Compiler {
         Ok(Self {
             store,
             source_package_id,
-            passes,
+            passes: PassContext::new(qdk_config_rc),
             frontend,
         })
     }

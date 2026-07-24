@@ -3358,6 +3358,34 @@ fn nested_interpolated_string_with_exprs() {
 }
 
 #[test]
+fn interpolated_string_block() {
+    check_expr("", r#"$"{ { 2 + 3 } }""#, &expect!["5"]);
+}
+
+#[test]
+fn interpolated_string_for_loop() {
+    check_expr("", r#"$"{for _ in 1..3 {}}""#, &expect!["()"]);
+}
+
+#[test]
+fn interpolated_string_block_with_loop() {
+    check_expr(
+        "",
+        r#"$"result is { { mutable r = 0; for _ in 1..3 { set r += 1; } r } }""#,
+        &expect!["result is 3"],
+    );
+}
+
+#[test]
+fn nested_interpolated_string_with_block() {
+    check_expr(
+        "",
+        r#"$"A={ { let b = $"B={ {2 + 3} }"; b } }""#,
+        &expect!["A=B=5"],
+    );
+}
+
+#[test]
 fn udt_unwrap() {
     check_expr(
         "",

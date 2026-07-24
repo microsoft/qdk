@@ -1158,6 +1158,200 @@ fn interpolated_string_braced() {
 }
 
 #[test]
+fn interpolated_string_block() {
+    check(
+        r#"$"{ {x} }""#,
+        &expect![[r#"
+            [
+                Ok(
+                    Token {
+                        kind: String(
+                            Interpolated(
+                                DollarQuote,
+                                LBrace,
+                            ),
+                        ),
+                        span: Span {
+                            lo: 0,
+                            hi: 3,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Open(
+                            Brace,
+                        ),
+                        span: Span {
+                            lo: 4,
+                            hi: 5,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Ident,
+                        span: Span {
+                            lo: 5,
+                            hi: 6,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Close(
+                            Brace,
+                        ),
+                        span: Span {
+                            lo: 6,
+                            hi: 7,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: String(
+                            Interpolated(
+                                RBrace,
+                                Quote,
+                            ),
+                        ),
+                        span: Span {
+                            lo: 8,
+                            hi: 10,
+                        },
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn interpolated_string_for_loop() {
+    check(
+        r#"$"{for i in 1..3 {}}""#,
+        &expect![[r#"
+            [
+                Ok(
+                    Token {
+                        kind: String(
+                            Interpolated(
+                                DollarQuote,
+                                LBrace,
+                            ),
+                        ),
+                        span: Span {
+                            lo: 0,
+                            hi: 3,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Keyword(
+                            For,
+                        ),
+                        span: Span {
+                            lo: 3,
+                            hi: 6,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Ident,
+                        span: Span {
+                            lo: 7,
+                            hi: 8,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Keyword(
+                            In,
+                        ),
+                        span: Span {
+                            lo: 9,
+                            hi: 11,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Int(
+                            Decimal,
+                        ),
+                        span: Span {
+                            lo: 12,
+                            hi: 13,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: DotDot,
+                        span: Span {
+                            lo: 13,
+                            hi: 15,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Int(
+                            Decimal,
+                        ),
+                        span: Span {
+                            lo: 15,
+                            hi: 16,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Open(
+                            Brace,
+                        ),
+                        span: Span {
+                            lo: 17,
+                            hi: 18,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: Close(
+                            Brace,
+                        ),
+                        span: Span {
+                            lo: 18,
+                            hi: 19,
+                        },
+                    },
+                ),
+                Ok(
+                    Token {
+                        kind: String(
+                            Interpolated(
+                                RBrace,
+                                Quote,
+                            ),
+                        ),
+                        span: Span {
+                            lo: 19,
+                            hi: 21,
+                        },
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn interpolated_string_escape_brace() {
     check(
         r#"$"\{""#,
