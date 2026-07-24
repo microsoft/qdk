@@ -1,0 +1,47 @@
+{
+  "_comment": "Quantum control on a COLLAPSED group. The `.qsc` snapshot harness uses `renderDepth: 999999` (force-expand), so we explicitly opt out via `dataAttributes.expanded = false`. Exercises the collapsed branch of `_groupedOperations`: the group is rendered as a single unitary summary box, with quantum control dots + connectors above (q0) and below (q3) the body. Without this case, the collapsed control path would only be reachable via interactive collapse — not snapshot-tested.",
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 0 },
+        { "id": 1, "numResults": 0 },
+        { "id": 2, "numResults": 0 },
+        { "id": 3, "numResults": 0 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "Foo",
+              "dataAttributes": { "expanded": "false" },
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 1 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "X",
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 1 }, { "qubit": 2 }],
+              "controls": [{ "qubit": 0 }, { "qubit": 3 }]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}
