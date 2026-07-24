@@ -52,20 +52,17 @@ def check(notebook_dir: str | Path | None = None) -> None:
     venv_python = _find_venv_python(expected_venv) if venv_exists else None
 
     if not venv_exists:
-        # TODO (acasey): update this to refer to the toolbar button when it exists
         results.append(("Course venv", f"{expected_venv} — not found", False))
         errors.append(
             "The course virtual environment does not exist yet.<br>"
-            "Run <b>QDK Learning: Doctor</b> from the Command Palette "
-            "(<code>Ctrl+Shift+P</code> / <code>Cmd+Shift+P</code>) "
+            "Click the <b>Run Course Diagnostics</b> button in the notebook toolbar "
             "and choose <b>Set up environment</b>."
         )
     elif not venv_python:
-        # TODO (acasey): update this to refer to the toolbar button when it exists
         results.append(("Course venv", f"{expected_venv} — corrupt (no python)", False))
         errors.append(
             "The course virtual environment exists but has no Python interpreter.<br>"
-            "Run <b>QDK Learning: Doctor</b> from the Command Palette "
+            "Click the <b>Run Course Diagnostics</b> button in the notebook toolbar "
             "and choose <b>Set up environment</b> to recreate it."
         )
     else:
@@ -100,7 +97,8 @@ def check(notebook_dir: str | Path | None = None) -> None:
         errors.append(
             "Install missing packages by running this in a new cell, then re-run this one:"
             f"<pre>  %pip install -r ../requirements.txt</pre>"
-            "Or run <b>QDK Learning: Doctor</b> to set up the full environment."
+            "Or click the <b>Run Course Diagnostics</b> button in the notebook toolbar "
+            "to set up the full environment."
         )
     elif import_checks and in_course_venv:
         results.append(("Packages", ", ".join(import_checks), True))

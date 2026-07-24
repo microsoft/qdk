@@ -463,6 +463,11 @@
           "command": "qsharp-vscode.learningNotebookHint",
           "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected",
           "group": "navigation@100"
+        },
+        {
+          "command": "qsharp-vscode.learningCheckEnvironment",
+          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected",
+          "group": "navigation@101"
         }
       ],
       "notebook/cell/title": [
