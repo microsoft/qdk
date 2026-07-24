@@ -178,7 +178,7 @@ fn operand_lift_return_in_binop_lhs_operand_block() {
                     3
                 };
                 let x : Int = if (not __has_returned) {
-                    (__operand_tmp_0 + 4)
+                    __operand_tmp_0 + 4
                 } else {
                     0
                 };

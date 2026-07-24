@@ -40,7 +40,7 @@ fn hoist_outer_return_wraps_if_with_return_in_then_branch() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
-                    let _generated_ident_35 : Int = if (M(q) == One) {
+                    let _generated_ident_35 : Int = if M(q) == One {
                         {
                             let _generated_ident_36 : Int = 1;
                             __quantum__rt__qubit_release(q);
@@ -98,7 +98,7 @@ fn hoist_outer_return_wraps_if_with_returns_in_both_branches() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
-                    let _generated_ident_36 : Unit = if (M(q) == One) {
+                    let _generated_ident_36 : Unit = if M(q) == One {
                         {
                             let _generated_ident_37 : Int = 1;
                             __quantum__rt__qubit_release(q);
@@ -166,7 +166,7 @@ fn hoist_outer_return_wraps_block_with_stmt_level_return() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
                     let _generated_ident_36 : Int = {
-                        if (M(q) == One) {
+                        if M(q) == One {
                             {
                                 let _generated_ident_37 : Int = 1;
                                 __quantum__rt__qubit_release(q);
@@ -269,8 +269,8 @@ fn hoist_outer_return_wraps_while_with_return_body() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Unit = ();
                 mutable i : Int = 0;
-                let __ret_hoist : Unit = while ((not __has_returned) and (i < 3)) {
-                    if (i == 1) {
+                let __ret_hoist : Unit = while ((not __has_returned)) and (i < 3) {
+                    if i == 1 {
                         {
                             __ret_val = ();
                             __has_returned = true;
@@ -328,8 +328,8 @@ fn hoist_outer_return_wraps_nested_ifs_with_deep_stmt_return() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
-                    let _generated_ident_46 : Int = if (M(q) == One) {
-                        if (M(q) == Zero) {
+                    let _generated_ident_46 : Int = if M(q) == One {
+                        if M(q) == Zero {
                             {
                                 let _generated_ident_47 : Int = 1;
                                 __quantum__rt__qubit_release(q);

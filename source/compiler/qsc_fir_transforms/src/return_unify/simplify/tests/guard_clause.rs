@@ -309,7 +309,7 @@ fn no_returns_block_has_no_merge_so_rule_does_not_fire() {
             // before guard_clause (fired=false)
             function Main() : Int {
                 let x : Int = 1;
-                (x + 2)
+                x + 2
             }
             // entry
             Main()
@@ -317,7 +317,7 @@ fn no_returns_block_has_no_merge_so_rule_does_not_fire() {
             // after guard_clause
             function Main() : Int {
                 let x : Int = 1;
-                (x + 2)
+                x + 2
             }
             // entry
             Main()

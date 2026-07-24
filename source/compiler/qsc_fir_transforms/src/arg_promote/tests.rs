@@ -511,7 +511,7 @@ fn param_field_access_decomposes() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
-                (p::Item < 0 > + p::Item < 1 >)
+                p::Item < 0 > + p::Item < 1 >
             }
             function Main() : Int {
                 Foo(1, 2)
@@ -522,7 +522,7 @@ fn param_field_access_decomposes() {
             AFTER:
             newtype Pair = (Int, Int);
             function Foo(p_0 : Int, p_1 : Int) : Int {
-                (p_0 + p_1)
+                p_0 + p_1
             }
             function Main() : Int {
                 Foo(1, 2)
@@ -554,7 +554,7 @@ fn call_site_rewritten_for_variable_arg() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Foo(p : (Int, Int)) : Int {
-                (p::Item < 0 > + p::Item < 1 >)
+                p::Item < 0 > + p::Item < 1 >
             }
             function Main() : Int {
                 let s : (Int, Int) = (10, 20);
@@ -566,7 +566,7 @@ fn call_site_rewritten_for_variable_arg() {
             AFTER:
             newtype Pair = (Int, Int);
             function Foo(p_0 : Int, p_1 : Int) : Int {
-                (p_0 + p_1)
+                p_0 + p_1
             }
             function Main() : Int {
                 let s : (Int, Int) = (10, 20);
@@ -646,7 +646,7 @@ fn triple_param_decomposes() {
             BEFORE:
             newtype Triple = (Int, Int, Int);
             function Sum(t : (Int, Int, Int)) : Int {
-                ((t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >)
+                (t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >
             }
             function Main() : Int {
                 Sum(1, 2, 3)
@@ -657,7 +657,7 @@ fn triple_param_decomposes() {
             AFTER:
             newtype Triple = (Int, Int, Int);
             function Sum(t_0 : Int, t_1 : Int, t_2 : Int) : Int {
-                ((t_0 + t_1) + t_2)
+                (t_0 + t_1) + t_2
             }
             function Main() : Int {
                 Sum(1, 2, 3)
@@ -771,7 +771,7 @@ fn callable_with_nested_tuple_parameter() {
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Foo(o : ((Int, Int), Int)) : Int {
-                (o::Item < 0 >::Item < 0 > + o::Item < 1 >)
+                o::Item < 0 >::Item < 0 > + o::Item < 1 >
             }
             function Main() : Int {
                 Foo((1, 2), 3)
@@ -783,7 +783,7 @@ fn callable_with_nested_tuple_parameter() {
             newtype Inner = (Int, Int);
             newtype Outer = (__UDT_Item_1__Package_2_, Int);
             function Foo(o_0_0 : Int, o_0_1 : Int, o_1 : Int) : Int {
-                ((o_0_0, o_0_1)::Item < 0 > + o_1)
+                (o_0_0, o_0_1)::Item < 0 > + o_1
             }
             function Main() : Int {
                 Foo(1, 2, 3)
@@ -822,10 +822,10 @@ fn operation_with_adj_spec() {
             newtype Pair = (Int, Int);
             operation Foo(p : (Int, Int)) : Unit is Adj {
                 body ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
                 adjoint ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
             }
             operation Main() : Unit {
@@ -838,10 +838,10 @@ fn operation_with_adj_spec() {
             newtype Pair = (Int, Int);
             operation Foo(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
                 adjoint ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
             }
             operation Main() : Unit {
@@ -885,10 +885,10 @@ fn recursive_callable_whole_value_self_use_is_promoted() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Loop(p : (Int, Int), n : Int) : Int {
-                if (n <= 0) {
-                    (p::Item < 0 > + p::Item < 1 >)
+                if n <= 0 {
+                    p::Item < 0 > + p::Item < 1 >
                 } else {
-                    Loop(p, (n - 1))
+                    Loop(p, n - 1)
                 }
 
             }
@@ -901,10 +901,10 @@ fn recursive_callable_whole_value_self_use_is_promoted() {
             AFTER:
             newtype Pair = (Int, Int);
             function Loop(p_0 : Int, p_1 : Int, n : Int) : Int {
-                if (n <= 0) {
-                    (p_0 + p_1)
+                if n <= 0 {
+                    p_0 + p_1
                 } else {
-                    Loop(p_0, p_1, (n - 1))
+                    Loop(p_0, p_1, n - 1)
                 }
 
             }
@@ -942,10 +942,10 @@ fn recursive_promoted_self_call_dissolves_to_clean_flat_form_through_pipeline() 
             BEFORE:
             newtype Pair = (Int, Int);
             function Loop(p : (Int, Int), n : Int) : Int {
-                if (n <= 0) {
-                    (p::Item < 0 > + p::Item < 1 >)
+                if n <= 0 {
+                    p::Item < 0 > + p::Item < 1 >
                 } else {
-                    Loop(p, (n - 1))
+                    Loop(p, n - 1)
                 }
 
             }
@@ -958,10 +958,10 @@ fn recursive_promoted_self_call_dissolves_to_clean_flat_form_through_pipeline() 
             AFTER:
             newtype Pair = (Int, Int);
             function Loop(p_0 : Int, p_1 : Int, n : Int) : Int {
-                if (n <= 0) {
-                    (p_0 + p_1)
+                if n <= 0 {
+                    p_0 + p_1
                 } else {
-                    Loop(p_0, p_1, (n - 1))
+                    Loop(p_0, p_1, n - 1)
                 }
 
             }
@@ -1069,7 +1069,7 @@ fn return_whole_param_is_reconstructed() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Echo(p : (Int, Int)) : (Int, Int) {
-                let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 p
             }
             function Main() : Int {
@@ -1082,7 +1082,7 @@ fn return_whole_param_is_reconstructed() {
             AFTER:
             newtype Pair = (Int, Int);
             function Echo(p_0 : Int, p_1 : Int) : (Int, Int) {
-                let _ : Int = (p_0 + p_1);
+                let _ : Int = p_0 + p_1;
                 (p_0, p_1)
             }
             function Main() : Int {
@@ -1120,7 +1120,7 @@ fn tuple_element_whole_value_use_is_reconstructed() {
             }
             function Main() : Int {
                 let ((pair_0 : Int, pair_1 : Int), n : Int) = Pack((1, 2), 5);
-                (pair_1 + n)
+                pair_1 + n
             }
             // entry
             Main()
@@ -1133,7 +1133,7 @@ fn tuple_element_whole_value_use_is_reconstructed() {
             }
             function Main() : Int {
                 let ((pair_0 : Int, pair_1 : Int), n : Int) = Pack(1, 2, 5);
-                (pair_1 + n)
+                pair_1 + n
             }
             // entry
             Main()
@@ -1169,7 +1169,7 @@ fn whole_value_call_arg_is_reconstructed() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Consume(p : (Int, Int)) : Int {
-                (p::Item < 0 > + p::Item < 1 >)
+                p::Item < 0 > + p::Item < 1 >
             }
             function Forward(p : (Int, Int)) : Int {
                 let _ : Int = p::Item < 0 >;
@@ -1184,7 +1184,7 @@ fn whole_value_call_arg_is_reconstructed() {
             AFTER:
             newtype Pair = (Int, Int);
             function Consume(p_0 : Int, p_1 : Int) : Int {
-                (p_0 + p_1)
+                p_0 + p_1
             }
             function Forward(p_0 : Int, p_1 : Int) : Int {
                 let _ : Int = p_0;
@@ -1391,12 +1391,12 @@ fn callable_with_promoted_args_full_pipeline() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Add(p : (Int, Int)) : Int {
-                (p::Item < 0 > + p::Item < 1 >)
+                p::Item < 0 > + p::Item < 1 >
             }
             function Main() : Int {
                 let a : (Int, Int) = (10, 20);
                 let b : (Int, Int) = (30, 40);
-                (Add(a) + Add(b))
+                Add(a) + Add(b)
             }
             // entry
             Main()
@@ -1404,12 +1404,12 @@ fn callable_with_promoted_args_full_pipeline() {
             AFTER:
             newtype Pair = (Int, Int);
             function Add(p_0 : Int, p_1 : Int) : Int {
-                (p_0 + p_1)
+                p_0 + p_1
             }
             function Main() : Int {
                 let a : (Int, Int) = (10, 20);
                 let b : (Int, Int) = (30, 40);
-                (Add(a::Item < 0 >, a::Item < 1 >) + Add(b::Item < 0 >, b::Item < 1 >))
+                Add(a::Item < 0 >, a::Item < 1 >) + Add(b::Item < 0 >, b::Item < 1 >)
             }
             // entry
             Main()
@@ -1446,10 +1446,10 @@ fn functor_applied_callee_not_first_class() {
             newtype Pair = (Int, Int);
             operation Op(p : (Int, Int)) : Unit is Adj {
                 body ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
                 adjoint ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
             }
             operation Main() : Unit {
@@ -1462,10 +1462,10 @@ fn functor_applied_callee_not_first_class() {
             newtype Pair = (Int, Int);
             operation Op(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
                 adjoint ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
             }
             operation Main() : Unit {
@@ -1502,7 +1502,7 @@ fn multiple_tuple_params_promotion_behavior() {
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a : (Int, Int), b : (Int, Int)) : Int {
-                (((a::Item < 0 > + a::Item < 1 >) + b::Item < 0 >) + b::Item < 1 >)
+                ((a::Item < 0 > + a::Item < 1 >) + b::Item < 0 >) + b::Item < 1 >
             }
             function Main() : Int {
                 Add((1, 2), (3, 4))
@@ -1514,7 +1514,7 @@ fn multiple_tuple_params_promotion_behavior() {
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a_0 : Int, a_1 : Int, b_0 : Int, b_1 : Int) : Int {
-                (((a_0 + a_1) + b_0) + b_1)
+                ((a_0 + a_1) + b_0) + b_1
             }
             function Main() : Int {
                 Add(1, 2, 3, 4)
@@ -1553,7 +1553,7 @@ fn unused_first_class_callable_ref_does_not_block_promotion() {
             BEFORE:
             newtype Pair = (Int, Int);
             function Sum(p : (Int, Int)) : Int {
-                (p::Item < 0 > + p::Item < 1 >)
+                p::Item < 0 > + p::Item < 1 >
             }
             function Main() : Int {
                 let p : (Int, Int) = (1, 2);
@@ -1565,7 +1565,7 @@ fn unused_first_class_callable_ref_does_not_block_promotion() {
             AFTER:
             newtype Pair = (Int, Int);
             function Sum(p_0 : Int, p_1 : Int) : Int {
-                (p_0 + p_1)
+                p_0 + p_1
             }
             function Main() : Int {
                 let p : (Int, Int) = (1, 2);
@@ -1606,7 +1606,7 @@ fn unreachable_partial_application_does_not_block_promotion() {
             BEFORE:
             newtype Pair = (Int, Int);
             operation UsePair(p : (Int, Int), q : Qubit) : Unit {
-                let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                let _ : Int = p::Item < 0 > + p::Item < 1 >;
             }
             operation Unused() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
@@ -1626,7 +1626,7 @@ fn unreachable_partial_application_does_not_block_promotion() {
             AFTER:
             newtype Pair = (Int, Int);
             operation UsePair(p_0 : Int, p_1 : Int, q : Qubit) : Unit {
-                let _ : Int = (p_0 + p_1);
+                let _ : Int = p_0 + p_1;
             }
             operation Unused() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
@@ -1674,7 +1674,7 @@ fn unreachable_first_class_reference_does_not_block_promotion() {
             BEFORE:
             newtype Pair = (Int, Int);
             operation UsePair(p : (Int, Int), q : Qubit) : Unit {
-                let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                let _ : Int = p::Item < 0 > + p::Item < 1 >;
             }
             operation UnusedRef() : Unit {}
             operation Main() : Unit {
@@ -1688,7 +1688,7 @@ fn unreachable_first_class_reference_does_not_block_promotion() {
             AFTER:
             newtype Pair = (Int, Int);
             operation UsePair(p_0 : Int, p_1 : Int, q : Qubit) : Unit {
-                let _ : Int = (p_0 + p_1);
+                let _ : Int = p_0 + p_1;
             }
             operation UnusedRef() : Unit {}
             operation Main() : Unit {
@@ -1737,16 +1737,16 @@ fn controlled_specialization_params_promoted() {
             newtype Pair = (Int, Int);
             operation Foo(p : (Int, Int)) : Unit is Adj + Ctl {
                 body ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
                 adjoint ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
                 controlled (cs, ...) {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
                 controlled adjoint (cs, ...) {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
             }
             operation Main() : Unit {
@@ -1761,16 +1761,16 @@ fn controlled_specialization_params_promoted() {
             newtype Pair = (Int, Int);
             operation Foo(p_0 : Int, p_1 : Int) : Unit is Adj + Ctl {
                 body ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
                 adjoint ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
                 controlled (cs, ...) {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
                 controlled adjoint (cs, ...) {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
             }
             operation Main() : Unit {
@@ -1818,10 +1818,10 @@ fn controlled_callable_whole_value_use_reconstructs_at_controlled_call_site() {
             newtype Pair = (Int, Int);
             operation Helper(p : (Int, Int)) : Unit is Ctl {
                 body ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
                 controlled (cs, ...) {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
             }
             operation UsePair(p : (Int, Int)) : Unit is Ctl {
@@ -1846,10 +1846,10 @@ fn controlled_callable_whole_value_use_reconstructs_at_controlled_call_site() {
             newtype Pair = (Int, Int);
             operation Helper(p_0 : Int, p_1 : Int) : Unit is Ctl {
                 body ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
                 controlled (cs, ...) {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
             }
             operation UsePair(p_0 : Int, p_1 : Int) : Unit is Ctl {
@@ -1902,10 +1902,10 @@ fn adjoint_specialization_whole_value_use_reconstructs_like_body() {
             newtype Pair = (Int, Int);
             operation Sink(p : (Int, Int)) : Unit is Adj {
                 body ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
                 adjoint ... {
-                    let _ : Int = (p::Item < 0 > + p::Item < 1 >);
+                    let _ : Int = p::Item < 0 > + p::Item < 1 >;
                 }
             }
             operation Op(p : (Int, Int)) : Unit is Adj {
@@ -1928,10 +1928,10 @@ fn adjoint_specialization_whole_value_use_reconstructs_like_body() {
             newtype Pair = (Int, Int);
             operation Sink(p_0 : Int, p_1 : Int) : Unit is Adj {
                 body ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
                 adjoint ... {
-                    let _ : Int = (p_0 + p_1);
+                    let _ : Int = p_0 + p_1;
                 }
             }
             operation Op(p_0 : Int, p_1 : Int) : Unit is Adj {
@@ -2159,7 +2159,7 @@ fn direct_callable_alias_does_not_block_promotion() {
             BEFORE:
             newtype Pair = (Int, Int);
             function UsePair(p : (Int, Int)) : Int {
-                (p::Item < 0 > + p::Item < 1 >)
+                p::Item < 0 > + p::Item < 1 >
             }
             function Main() : Int {
                 UsePair(3, 4)
@@ -2170,7 +2170,7 @@ fn direct_callable_alias_does_not_block_promotion() {
             AFTER:
             newtype Pair = (Int, Int);
             function UsePair(p_0 : Int, p_1 : Int) : Int {
-                (p_0 + p_1)
+                p_0 + p_1
             }
             function Main() : Int {
                 UsePair(3, 4)
@@ -2562,7 +2562,7 @@ fn before_after_non_parameter_local_destructure_is_normalized_and_scalar_replace
                 let (t_0 : Int, t_1 : Int) = (a, b);
                 let x : Int = t_0;
                 let y : Int = t_1;
-                (x + y)
+                x + y
             }
             // entry
             Main()
@@ -2597,7 +2597,7 @@ fn pretty_print_after_arg_promote_flattens_callable_param() {
             body {
                 let a : Int = pair.0;
                 let b : Int = pair.1;
-                (a + b)
+                a + b
             }
         }
         function Main() : Int {
@@ -2658,7 +2658,7 @@ fn reachable_caller_call_site_promoted_dead_caller_unobserved() {
             operation Foo(x : (Int, Int)) : Int {
                 let a : Int = x::Item < 0 >;
                 let b : Int = x::Item < 1 >;
-                (a + b)
+                a + b
             }
             operation Dead() : Int {
                 Foo(3, 4)
@@ -2673,7 +2673,7 @@ fn reachable_caller_call_site_promoted_dead_caller_unobserved() {
             operation Foo(x_0 : Int, x_1 : Int) : Int {
                 let a : Int = x_0;
                 let b : Int = x_1;
-                (a + b)
+                a + b
             }
             operation Dead() : Int {
                 Foo(3, 4)
@@ -2700,7 +2700,7 @@ fn non_udt_tuple_destructure_is_promoted() {
             function Foo(x : (Int, Int)) : Int {
                 let a : Int = x::Item < 0 >;
                 let b : Int = x::Item < 1 >;
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 let x : (Int, Int) = (10, 20);
@@ -2713,7 +2713,7 @@ fn non_udt_tuple_destructure_is_promoted() {
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let a : Int = x_0;
                 let b : Int = x_1;
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 let (x_0 : Int, x_1 : Int) = (10, 20);
@@ -2738,7 +2738,7 @@ fn non_udt_tuple_destructure_with_discard_is_promoted() {
             BEFORE:
             function Foo(x : (Int, Int)) : Int {
                 let a : Int = x::Item < 0 >;
-                (a + 1)
+                a + 1
             }
             function Main() : Int {
                 let x : (Int, Int) = (10, 20);
@@ -2750,7 +2750,7 @@ fn non_udt_tuple_destructure_with_discard_is_promoted() {
             AFTER:
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let a : Int = x_0;
-                (a + 1)
+                a + 1
             }
             function Main() : Int {
                 let (x_0 : Int, x_1 : Int) = (10, 20);
@@ -2776,7 +2776,7 @@ fn non_udt_tuple_destructure_name_shadowing() {
             BEFORE:
             function Foo(x : (Int, Int)) : Int {
                 let x_1 : Int = x::Item < 0 >;
-                (x_1 + 1)
+                x_1 + 1
             }
             function Main() : Int {
                 let x : (Int, Int) = (10, 20);
@@ -2788,7 +2788,7 @@ fn non_udt_tuple_destructure_name_shadowing() {
             AFTER:
             function Foo(x_0 : Int, x_1 : Int) : Int {
                 let x : Int = x_0;
-                (x + 1)
+                x + 1
             }
             function Main() : Int {
                 let (x_0 : Int, x_1 : Int) = (10, 20);
@@ -2815,7 +2815,7 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
                 let a : Int = x::Item < 0 >::Item < 0 >;
                 let b : Int = x::Item < 0 >::Item < 1 >;
                 let c : Int = x::Item < 1 >;
-                ((a + b) + c)
+                (a + b) + c
             }
             function Main() : Int {
                 let x : ((Int, Int), Int) = ((10, 20), 30);
@@ -2829,7 +2829,7 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
                 let a : Int = x_0_0;
                 let b : Int = x_0_1;
                 let c : Int = x_1;
-                ((a + b) + c)
+                (a + b) + c
             }
             function Main() : Int {
                 let ((x_0_0 : Int, x_0_1 : Int), x_1 : Int) = ((10, 20), 30);
@@ -2858,7 +2858,7 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
                 let b : Int = x::Item < 1 >::Item < 0 >;
                 let c : Int = x::Item < 1 >::Item < 1 >::Item < 0 >;
                 let d : Int = x::Item < 1 >::Item < 1 >::Item < 1 >;
-                (((a + b) + c) + d)
+                ((a + b) + c) + d
             }
             function Main() : Int {
                 let x : (Int, (Int, (Int, Int))) = (10, (20, (30, 40)));
@@ -2873,7 +2873,7 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
                 let b : Int = x_1_0;
                 let c : Int = x_1_1_0;
                 let d : Int = x_1_1_1;
-                (((a + b) + c) + d)
+                ((a + b) + c) + d
             }
             function Main() : Int {
                 let (x_0 : Int, (x_1_0 : Int, (x_1_1_0 : Int, x_1_1_1 : Int))) = (10, (20, (30, 40)));
@@ -2899,7 +2899,7 @@ fn flat_abi_mixed_discard_nested_param() {
             function Foo(x : (Int, (Int, Int))) : Int {
                 let a : Int = x::Item < 0 >;
                 let c : Int = x::Item < 1 >::Item < 1 >;
-                (a + c)
+                a + c
             }
             function Main() : Int {
                 let x : (Int, (Int, Int)) = (1, (2, 3));
@@ -2912,7 +2912,7 @@ fn flat_abi_mixed_discard_nested_param() {
             function Foo(x_0 : Int, x_1_0 : Int, x_1_1 : Int) : Int {
                 let a : Int = x_0;
                 let c : Int = x_1_1;
-                (a + c)
+                a + c
             }
             function Main() : Int {
                 let (x_0 : Int, (x_1_0 : Int, x_1_1 : Int)) = (1, (2, 3));
@@ -3018,7 +3018,7 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
                 let b0 : Int = b::Item < 0 >::Item < 0 >;
                 let b1 : Int = b::Item < 0 >::Item < 1 >;
                 let b2 : Int = b::Item < 1 >;
-                (((((a0 + a1) + a2) + b0) + b1) + b2)
+                ((((a0 + a1) + a2) + b0) + b1) + b2
             }
             function Main() : Int {
                 Foo((1, (2, 3)), ((4, 5), 6))
@@ -3034,7 +3034,7 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
                 let b0 : Int = b_0_0;
                 let b1 : Int = b_0_1;
                 let b2 : Int = b_1;
-                (((((a0 + a1) + a2) + b0) + b1) + b2)
+                ((((a0 + a1) + a2) + b0) + b1) + b2
             }
             function Main() : Int {
                 Foo(1, 2, 3, 4, 5, 6)

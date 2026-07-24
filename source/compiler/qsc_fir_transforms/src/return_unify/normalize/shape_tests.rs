@@ -51,7 +51,7 @@ fn hoist_return_in_call_argument_shape_snapshot() {
         &expect![[r#"
             BEFORE:
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 let x : Int = Add(return 1, 2);
@@ -62,7 +62,7 @@ fn hoist_return_in_call_argument_shape_snapshot() {
 
             AFTER:
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 let _ : ((Int, Int) -> Int) = Add;
@@ -122,7 +122,7 @@ fn while_condition_return_shape_snapshot() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                while ((not __has_returned) and if true {
+                while ((not __has_returned)) and if true {
                     if true {
                         {
                             __ret_val = 31;
@@ -134,7 +134,8 @@ fn while_condition_return_shape_snapshot() {
 
                 } else {
                     false
-                }) {
+                }
+                {
                     let _ : Int = 0;
                 }
 
@@ -178,32 +179,32 @@ fn while_local_initializer_return_shape_snapshot() {
         &expect![[r#"
             BEFORE:
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 mutable i : Int = 0;
-                while (i < 3) {
-                    let _ : Unit = if (i == 1) {
+                while i < 3 {
+                    let _ : Unit = if i == 1 {
                         Add(return 42, i)
                     };
                     i += 1;
                 }
 
-                (i + 5)
+                i + 5
             }
             // entry
             Main()
 
             AFTER:
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 3)) {
-                    let _ : Unit = if (i == 1) {
+                while ((not __has_returned)) and (i < 3) {
+                    let _ : Unit = if i == 1 {
                         let _ : ((Int, Int) -> Int) = Add;
                         {
                             __ret_val = 42;
@@ -219,7 +220,7 @@ fn while_local_initializer_return_shape_snapshot() {
                     __ret_val
                 } else {
                     if (not __has_returned) {
-                        (i + 5)
+                        i + 5
                     } else {
                         __ret_val
                     }

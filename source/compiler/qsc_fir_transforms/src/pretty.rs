@@ -602,13 +602,29 @@ impl<'a> FirQSharpGen<'a> {
                 self.emit_expr(*value);
             }
             ExprKind::BinOp(op, lhs, rhs) => {
-                self.write("(");
-                self.emit_expr(*lhs);
+                if matches!(
+                    self.package().get_expr(*lhs).kind,
+                    ExprKind::BinOp(..) | ExprKind::UnOp(..)
+                ) {
+                    self.write("(");
+                    self.emit_expr(*lhs);
+                    self.write(")");
+                } else {
+                    self.emit_expr(*lhs);
+                }
                 self.write(" ");
                 self.write(binop_as_str(*op));
                 self.write(" ");
-                self.emit_expr(*rhs);
-                self.write(")");
+                if matches!(
+                    self.package().get_expr(*rhs).kind,
+                    ExprKind::BinOp(..) | ExprKind::UnOp(..)
+                ) {
+                    self.write("(");
+                    self.emit_expr(*rhs);
+                    self.write(")");
+                } else {
+                    self.emit_expr(*rhs);
+                }
             }
             ExprKind::Block(block) => self.emit_block(*block),
             ExprKind::Call(callee, arg) => {

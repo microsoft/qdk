@@ -708,7 +708,7 @@ fn mono_arrow_param() {
                 f(x)
             }
             operation DoubleInt(x : Int) : Int {
-                (x * 2)
+                x * 2
             }
             operation Main() : Int {
                 ApplyOp < Int,
@@ -722,7 +722,7 @@ fn mono_arrow_param() {
                 f(x)
             }
             operation DoubleInt(x : Int) : Int {
-                (x * 2)
+                x * 2
             }
             operation Main() : Int {
                 ApplyOp_Int__Empty_(DoubleInt, 5)
@@ -1297,10 +1297,10 @@ fn mono_recursive_generic() {
         &expect![[r#"
             BEFORE:
             operation Repeat(x : 'T0, n : Int) : 'T0 {
-                if (n <= 0) {
+                if n <= 0 {
                     x
                 } else {
-                    Repeat < 'T0 > (x, (n - 1))
+                    Repeat < 'T0 > (x, n - 1)
                 }
 
             }
@@ -1312,10 +1312,10 @@ fn mono_recursive_generic() {
 
             AFTER:
             operation Repeat(x : 'T0, n : Int) : 'T0 {
-                if (n <= 0) {
+                if n <= 0 {
                     x
                 } else {
-                    Repeat(x, (n - 1))
+                    Repeat(x, n - 1)
                 }
 
             }
@@ -1323,10 +1323,10 @@ fn mono_recursive_generic() {
                 Repeat_Int_(42, 3)
             }
             operation Repeat_Int_(x : Int, n : Int) : Int {
-                if (n <= 0) {
+                if n <= 0 {
                     x
                 } else {
-                    Repeat_Int_(x, (n - 1))
+                    Repeat_Int_(x, n - 1)
                 }
 
             }
@@ -1699,10 +1699,10 @@ fn mono_mutual_recursion_different_types() {
         &expect![[r#"
             BEFORE:
             operation Ping(x : 'T0, n : Int) : 'T0 {
-                if (n <= 0) {
+                if n <= 0 {
                     x
                 } else {
-                    Pong < 'T0 > (x, (n - 1))
+                    Pong < 'T0 > (x, n - 1)
                 }
 
             }
@@ -1717,10 +1717,10 @@ fn mono_mutual_recursion_different_types() {
 
             AFTER:
             operation Ping(x : 'T0, n : Int) : 'T0 {
-                if (n <= 0) {
+                if n <= 0 {
                     x
                 } else {
-                    Pong(x, (n - 1))
+                    Pong(x, n - 1)
                 }
 
             }
@@ -1731,10 +1731,10 @@ fn mono_mutual_recursion_different_types() {
                 Ping_Int_(42, 2)
             }
             operation Ping_Int_(x : Int, n : Int) : Int {
-                if (n <= 0) {
+                if n <= 0 {
                     x
                 } else {
-                    Pong_Int_(x, (n - 1))
+                    Pong_Int_(x, n - 1)
                 }
 
             }
@@ -1832,18 +1832,18 @@ fn mutual_recursion_between_generics_specializes_both() {
         &expect![[r#"
             BEFORE:
             function IsEven(n : Int, val : 'T0) : Bool {
-                if (n == 0) {
+                if n == 0 {
                     true
                 } else {
-                    IsOdd < 'T0 > ((n - 1), val)
+                    IsOdd < 'T0 > (n - 1, val)
                 }
 
             }
             function IsOdd(n : Int, val : 'T0) : Bool {
-                if (n == 0) {
+                if n == 0 {
                     false
                 } else {
-                    IsEven < 'T0 > ((n - 1), val)
+                    IsEven < 'T0 > (n - 1, val)
                 }
 
             }
@@ -1855,18 +1855,18 @@ fn mutual_recursion_between_generics_specializes_both() {
 
             AFTER:
             function IsEven(n : Int, val : 'T0) : Bool {
-                if (n == 0) {
+                if n == 0 {
                     true
                 } else {
-                    IsOdd((n - 1), val)
+                    IsOdd(n - 1, val)
                 }
 
             }
             function IsOdd(n : Int, val : 'T0) : Bool {
-                if (n == 0) {
+                if n == 0 {
                     false
                 } else {
-                    IsEven((n - 1), val)
+                    IsEven(n - 1, val)
                 }
 
             }
@@ -1874,18 +1874,18 @@ fn mutual_recursion_between_generics_specializes_both() {
                 IsEven_Int_(4, 0)
             }
             function IsEven_Int_(n : Int, val : Int) : Bool {
-                if (n == 0) {
+                if n == 0 {
                     true
                 } else {
-                    IsOdd_Int_((n - 1), val)
+                    IsOdd_Int_(n - 1, val)
                 }
 
             }
             function IsOdd_Int_(n : Int, val : Int) : Bool {
-                if (n == 0) {
+                if n == 0 {
                     false
                 } else {
-                    IsEven_Int_((n - 1), val)
+                    IsEven_Int_(n - 1, val)
                 }
 
             }
@@ -2089,7 +2089,7 @@ fn mono_generic_with_type_class_constraint() {
         &expect![[r#"
             BEFORE:
             function Double(x : 'T0) : 'T0 {
-                (x + x)
+                x + x
             }
             operation Main() : Int {
                 Double < Int > (21)
@@ -2099,13 +2099,13 @@ fn mono_generic_with_type_class_constraint() {
 
             AFTER:
             function Double(x : 'T0) : 'T0 {
-                (x + x)
+                x + x
             }
             operation Main() : Int {
                 Double_Int_(21)
             }
             function Double_Int_(x : Int) : Int {
-                (x + x)
+                x + x
             }
             // entry
             Main()
@@ -2316,14 +2316,14 @@ fn generic_param_shared_by_value_and_arrow_arg_specializes_per_type() {
         &expect![[r#"
             BEFORE:
             function double(x : 'T0) : 'T0 {
-                (x + x)
+                x + x
             }
             function doDouble(a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
                 doubler(a)
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let _generated_ident_64 : Unit = if (M(q) == One) {
+                let _generated_ident_64 : Unit = if M(q) == One {
                     doDouble < Int > (3, double < Int >);
                 } else {
                     doDouble < Double > (3., double < Double >);
@@ -2336,14 +2336,14 @@ fn generic_param_shared_by_value_and_arrow_arg_specializes_per_type() {
 
             AFTER:
             function double(x : 'T0) : 'T0 {
-                (x + x)
+                x + x
             }
             function doDouble(a : 'T0, doubler : ('T0 -> 'T0)) : 'T0 {
                 doubler(a)
             }
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let _generated_ident_64 : Unit = if (M(q) == One) {
+                let _generated_ident_64 : Unit = if M(q) == One {
                     doDouble_Int_(3, double_Int_);
                 } else {
                     doDouble_Double_(3., double_Double_);
@@ -2355,13 +2355,13 @@ fn generic_param_shared_by_value_and_arrow_arg_specializes_per_type() {
                 doubler(a)
             }
             function double_Int_(x : Int) : Int {
-                (x + x)
+                x + x
             }
             function doDouble_Double_(a : Double, doubler : (Double -> Double)) : Double {
                 doubler(a)
             }
             function double_Double_(x : Double) : Double {
-                (x + x)
+                x + x
             }
             // entry
             Main()

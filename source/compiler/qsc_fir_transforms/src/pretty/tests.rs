@@ -32,7 +32,7 @@ fn simple_function_renders() {
         &expect![[r#"
             function Add(a : Int, b : Int) : Int {
                 body {
-                    (a + b)
+                    a + b
                 }
             }
             function Main() : Int {
@@ -112,7 +112,7 @@ fn nested_block_renders() {
                 body {
                     let x : Int = {
                         let y : Int = 1;
-                        (y + 2)
+                        y + 2
                     };
                     x
                 }
@@ -151,7 +151,7 @@ fn common_expr_kinds_render() {
                     let r : Int[] = arr w/ 1 <- 99;
                     let tup : (Int, Int, Int) = (1, 2, 3);
                     let s : String = $"value is {tup}";
-                    if (arr[0] > 0) {
+                    if arr[0] > 0 {
                         arr[0]
                     } else {
                         (-1)
@@ -244,7 +244,7 @@ fn write_expr_renders_expression() {
     }
     let expr_id = found.expect("Main body has a trailing expression");
     let rendered = write_expr_qsharp(&store, pkg_id, expr_id);
-    expect!["(1 + 2)"].assert_eq(&rendered);
+    expect!["1 + 2"].assert_eq(&rendered);
 }
 
 #[test]

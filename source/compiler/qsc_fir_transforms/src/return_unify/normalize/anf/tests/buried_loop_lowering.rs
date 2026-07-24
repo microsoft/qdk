@@ -90,7 +90,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
             }
             operation Main() : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let cond : Bool = (M(q) == One);
+                let cond : Bool = M(q) == One;
                 let _generated_ident_75 : Int = Foo(cond);
                 __quantum__rt__qubit_release(q);
                 _generated_ident_75
@@ -106,7 +106,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 if cond {
-                    while ((not __has_returned) and cond) {
+                    while ((not __has_returned)) and cond {
                         {
                             __ret_val = 1;
                             __has_returned = true;
@@ -120,7 +120,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                     };
                     let __operand_tmp_1 : Int = if (not __has_returned) {
                         {
-                            while ((not __has_returned) and cond) {
+                            while ((not __has_returned)) and cond {
                                 {
                                     __ret_val = 2;
                                     __has_returned = true;
@@ -150,7 +150,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
             }
             operation Main() : Int {
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let cond : Bool = (M(q) == One);
+                let cond : Bool = M(q) == One;
                 let _generated_ident_75 : Int = Foo(cond);
                 __quantum__rt__qubit_release(q);
                 _generated_ident_75

@@ -333,7 +333,7 @@ fn hoist_break_in_binop_operand() {
                     } else {
                         3
                     };
-                    let y = (_operand_tmp_33 + _operand_tmp_37);
+                    let y = _operand_tmp_33 + _operand_tmp_37;
                 }
             }
         "#]],
@@ -534,7 +534,7 @@ fn preserves_type_of_surface_if() {
                     } else {
                         3
                     };
-                    let y = (x + 1);
+                    let y = x + 1;
                 }
             }
         "#]],
@@ -1115,7 +1115,7 @@ fn hoist_bare_break_in_short_circuit_lhs() {
                 mutable cond = true;
                 while cond {
                     let _operand_tmp_24 = break;
-                    let z = (_operand_tmp_24 or y);
+                    let z = _operand_tmp_24 or y;
                 }
             }
         "#]],

@@ -23,17 +23,17 @@ fn grover_sample_full_pipeline_reachable_items() {
             body intrinsic;
         }
         operation AllocateQubitArray(size : Int) : Qubit[] {
-            if (size < 0) {
+            if size < 0 {
                 fail $"Cannot allocate qubit array with a negative length";
             }
 
             mutable qs : Qubit[] = [];
             {
-                let _range_id_219 : Range = 0..(size - 1);
+                let _range_id_219 : Range = 0..size - 1;
                 mutable _index_id_222 : Int = _range_id_219.Start;
                 let _step_id_227 : Int = _range_id_219.Step;
                 let _end_id_232 : Int = _range_id_219.End;
-                while (((_step_id_227 > 0) and (_index_id_222 <= _end_id_232)) or ((_step_id_227 < 0) and (_index_id_222 >= _end_id_232))) {
+                while ((_step_id_227 > 0) and (_index_id_222 <= _end_id_232)) or ((_step_id_227 < 0) and (_index_id_222 >= _end_id_232)) {
                     let _ : Int = _index_id_222;
                     qs += [__quantum__rt__qubit_allocate()];
                     _index_id_222 += _step_id_227;
@@ -48,7 +48,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                 let _array_id_305 : Qubit[] = qs;
                 let _len_id_309 : Int = Length(_array_id_305);
                 mutable _index_id_314 : Int = 0;
-                while (_index_id_314 < _len_id_309) {
+                while _index_id_314 < _len_id_309 {
                     let q : Qubit = _array_id_305[_index_id_314];
                     __quantum__rt__qubit_release(q);
                     _index_id_314 += 1;
@@ -63,17 +63,17 @@ fn grover_sample_full_pipeline_reachable_items() {
         // package 1
         operation MapPauliAxis(from : Pauli, to : Pauli, q : Qubit) : Unit is Adj + Ctl {
             body ... {
-                if (from == to) {} else if (((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ))) {
+                if from == to {} else if ((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ)) {
                     H(q);
-                } else if ((from == PauliZ) and (to == PauliY)) {
+                } else if (from == PauliZ) and (to == PauliY) {
                     Adjoint S(q);
                     H(q);
-                } else if ((from == PauliY) and (to == PauliZ)) {
+                } else if (from == PauliY) and (to == PauliZ) {
                     H(q);
                     S(q);
-                } else if ((from == PauliY) and (to == PauliX)) {
+                } else if (from == PauliY) and (to == PauliX) {
                     S(q);
-                } else if ((from == PauliX) and (to == PauliY)) {
+                } else if (from == PauliX) and (to == PauliY) {
                     Adjoint S(q);
                 } else {
                     fail $"Unsupported mapping of Pauli axes.";
@@ -81,17 +81,17 @@ fn grover_sample_full_pipeline_reachable_items() {
 
             }
             adjoint ... {
-                if (from == to) {} else if (((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ))) {
+                if from == to {} else if ((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ)) {
                     Adjoint H(q);
-                } else if ((from == PauliZ) and (to == PauliY)) {
+                } else if (from == PauliZ) and (to == PauliY) {
                     Adjoint H(q);
                     Adjoint Adjoint S(q);
-                } else if ((from == PauliY) and (to == PauliZ)) {
+                } else if (from == PauliY) and (to == PauliZ) {
                     Adjoint S(q);
                     Adjoint H(q);
-                } else if ((from == PauliY) and (to == PauliX)) {
+                } else if (from == PauliY) and (to == PauliX) {
                     Adjoint S(q);
-                } else if ((from == PauliX) and (to == PauliY)) {
+                } else if (from == PauliX) and (to == PauliY) {
                     Adjoint Adjoint S(q);
                 } else {
                     fail $"Unsupported mapping of Pauli axes.";
@@ -99,17 +99,17 @@ fn grover_sample_full_pipeline_reachable_items() {
 
             }
             controlled (ctls, ...) {
-                if (from == to) {} else if (((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ))) {
+                if from == to {} else if ((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ)) {
                     Controlled H(ctls, q);
-                } else if ((from == PauliZ) and (to == PauliY)) {
+                } else if (from == PauliZ) and (to == PauliY) {
                     Controlled Adjoint S(ctls, q);
                     Controlled H(ctls, q);
-                } else if ((from == PauliY) and (to == PauliZ)) {
+                } else if (from == PauliY) and (to == PauliZ) {
                     Controlled H(ctls, q);
                     Controlled S(ctls, q);
-                } else if ((from == PauliY) and (to == PauliX)) {
+                } else if (from == PauliY) and (to == PauliX) {
                     Controlled S(ctls, q);
-                } else if ((from == PauliX) and (to == PauliY)) {
+                } else if (from == PauliX) and (to == PauliY) {
                     Controlled Adjoint S(ctls, q);
                 } else {
                     fail $"Unsupported mapping of Pauli axes.";
@@ -117,17 +117,17 @@ fn grover_sample_full_pipeline_reachable_items() {
 
             }
             controlled adjoint (ctls, ...) {
-                if (from == to) {} else if (((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ))) {
+                if from == to {} else if ((from == PauliZ) and (to == PauliX)) or ((from == PauliX) and (to == PauliZ)) {
                     Controlled Adjoint H(ctls, q);
-                } else if ((from == PauliZ) and (to == PauliY)) {
+                } else if (from == PauliZ) and (to == PauliY) {
                     Controlled Adjoint H(ctls, q);
                     Controlled Adjoint Adjoint S(ctls, q);
-                } else if ((from == PauliY) and (to == PauliZ)) {
+                } else if (from == PauliY) and (to == PauliZ) {
                     Controlled Adjoint S(ctls, q);
                     Controlled Adjoint H(ctls, q);
-                } else if ((from == PauliY) and (to == PauliX)) {
+                } else if (from == PauliY) and (to == PauliX) {
                     Controlled Adjoint S(ctls, q);
-                } else if ((from == PauliX) and (to == PauliY)) {
+                } else if (from == PauliX) and (to == PauliY) {
                     Controlled Adjoint Adjoint S(ctls, q);
                 } else {
                     fail $"Unsupported mapping of Pauli axes.";
@@ -253,12 +253,12 @@ fn grover_sample_full_pipeline_reachable_items() {
                 GlobalPhase([], theta);
             }
             controlled (ctls, ...) {
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 if __cond_0 {
                     GlobalPhase([], theta);
                 } else {
                     Controlled Rz(ctls[1...], (theta, ctls[0]));
-                    GlobalPhase(ctls[1...], (theta / 2.));
+                    GlobalPhase(ctls[1...], theta / 2.);
                 }
 
             }
@@ -268,16 +268,16 @@ fn grover_sample_full_pipeline_reachable_items() {
         }
         operation CRz(control : Qubit, theta : Double, target : Qubit) : Unit is Adj {
             body ... {
-                Rz((theta / 2.), target);
+                Rz(theta / 2., target);
                 CNOT(control, target);
-                Rz(((-theta) / 2.), target);
+                Rz(((-theta)) / 2., target);
                 CNOT(control, target);
             }
             adjoint ... {
                 Adjoint CNOT(control, target);
-                Adjoint Rz(((-theta) / 2.), target);
+                Adjoint Rz(((-theta)) / 2., target);
                 Adjoint CNOT(control, target);
-                Adjoint Rz((theta / 2.), target);
+                Adjoint Rz(theta / 2., target);
             }
         }
         operation CS(control : Qubit, target : Qubit) : Unit is Adj + Ctl {
@@ -312,17 +312,17 @@ fn grover_sample_full_pipeline_reachable_items() {
         }
         operation CT(control : Qubit, target : Qubit) : Unit is Adj {
             body ... {
-                let angle : Double = (PI() / 8.);
+                let angle : Double = PI() / 8.;
                 Rz(angle, control);
                 Rz(angle, target);
                 CNOT(control, target);
                 Adjoint Rz(angle, target);
                 CNOT(control, target);
-                ApplyGlobalPhase((angle / 2.));
+                ApplyGlobalPhase(angle / 2.);
             }
             adjoint ... {
-                let angle : Double = (PI() / 8.);
-                Adjoint ApplyGlobalPhase((angle / 2.));
+                let angle : Double = PI() / 8.;
+                Adjoint ApplyGlobalPhase(angle / 2.);
                 Adjoint CNOT(control, target);
                 Adjoint Adjoint Rz(angle, target);
                 Adjoint CNOT(control, target);
@@ -333,26 +333,26 @@ fn grover_sample_full_pipeline_reachable_items() {
         operation CollectControls(ctls : Qubit[], aux : Qubit[], adjustment : Int) : Unit is Adj {
             body ... {
                 {
-                    let _range_id_49088 : Range = 0..2..(Length(ctls) - 2);
+                    let _range_id_49088 : Range = 0..2..Length(ctls) - 2;
                     mutable _index_id_49091 : Int = _range_id_49088.Start;
                     let _step_id_49096 : Int = _range_id_49088.Step;
                     let _end_id_49101 : Int = _range_id_49088.End;
-                    while (((_step_id_49096 > 0) and (_index_id_49091 <= _end_id_49101)) or ((_step_id_49096 < 0) and (_index_id_49091 >= _end_id_49101))) {
+                    while ((_step_id_49096 > 0) and (_index_id_49091 <= _end_id_49101)) or ((_step_id_49096 < 0) and (_index_id_49091 >= _end_id_49101)) {
                         let i : Int = _index_id_49091;
-                        CCNOT(ctls[i], ctls[(i + 1)], aux[(i / 2)]);
+                        CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
                         _index_id_49091 += _step_id_49096;
                     }
 
                 }
 
                 {
-                    let _range_id_49131 : Range = 0..(((Length(ctls) / 2) - 2) - adjustment);
+                    let _range_id_49131 : Range = 0..((Length(ctls) / 2) - 2) - adjustment;
                     mutable _index_id_49134 : Int = _range_id_49131.Start;
                     let _step_id_49139 : Int = _range_id_49131.Step;
                     let _end_id_49144 : Int = _range_id_49131.End;
-                    while (((_step_id_49139 > 0) and (_index_id_49134 <= _end_id_49144)) or ((_step_id_49139 < 0) and (_index_id_49134 >= _end_id_49144))) {
+                    while ((_step_id_49139 > 0) and (_index_id_49134 <= _end_id_49144)) or ((_step_id_49139 < 0) and (_index_id_49134 >= _end_id_49144)) {
                         let i_1 : Int = _index_id_49134;
-                        CCNOT(aux[(i_1 * 2)], aux[((i_1 * 2) + 1)], aux[(i_1 + (Length(ctls) / 2))]);
+                        CCNOT(aux[i_1 * 2], aux[(i_1 * 2) + 1], aux[i_1 + (Length(ctls) / 2)]);
                         _index_id_49134 += _step_id_49139;
                     }
 
@@ -361,15 +361,15 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             adjoint ... {
                 {
-                    let _range : Range = 0..(((Length(ctls) / 2) - 2) - adjustment);
+                    let _range : Range = 0..((Length(ctls) / 2) - 2) - adjustment;
                     {
-                        let _range_id_49174 : Range = (_range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step))..(-_range.Step).._range.Start;
+                        let _range_id_49174 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
                         mutable _index_id_49177 : Int = _range_id_49174.Start;
                         let _step_id_49182 : Int = _range_id_49174.Step;
                         let _end_id_49187 : Int = _range_id_49174.End;
-                        while (((_step_id_49182 > 0) and (_index_id_49177 <= _end_id_49187)) or ((_step_id_49182 < 0) and (_index_id_49177 >= _end_id_49187))) {
+                        while ((_step_id_49182 > 0) and (_index_id_49177 <= _end_id_49187)) or ((_step_id_49182 < 0) and (_index_id_49177 >= _end_id_49187)) {
                             let i : Int = _index_id_49177;
-                            Adjoint CCNOT(aux[(i * 2)], aux[((i * 2) + 1)], aux[(i + (Length(ctls) / 2))]);
+                            Adjoint CCNOT(aux[i * 2], aux[(i * 2) + 1], aux[i + (Length(ctls) / 2)]);
                             _index_id_49177 += _step_id_49182;
                         }
 
@@ -378,15 +378,15 @@ fn grover_sample_full_pipeline_reachable_items() {
                 }
 
                 {
-                    let _range_1 : Range = 0..2..(Length(ctls) - 2);
+                    let _range_1 : Range = 0..2..Length(ctls) - 2;
                     {
-                        let _range_id_49217 : Range = (_range_1.Start + (((_range_1.End - _range_1.Start) / _range_1.Step) * _range_1.Step))..(-_range_1.Step).._range_1.Start;
+                        let _range_id_49217 : Range = _range_1.Start + (((_range_1.End - _range_1.Start) / _range_1.Step) * _range_1.Step)..(-_range_1.Step).._range_1.Start;
                         mutable _index_id_49220 : Int = _range_id_49217.Start;
                         let _step_id_49225 : Int = _range_id_49217.Step;
                         let _end_id_49230 : Int = _range_id_49217.End;
-                        while (((_step_id_49225 > 0) and (_index_id_49220 <= _end_id_49230)) or ((_step_id_49225 < 0) and (_index_id_49220 >= _end_id_49230))) {
+                        while ((_step_id_49225 > 0) and (_index_id_49220 <= _end_id_49230)) or ((_step_id_49225 < 0) and (_index_id_49220 >= _end_id_49230)) {
                             let i_1 : Int = _index_id_49220;
-                            Adjoint CCNOT(ctls[i_1], ctls[(i_1 + 1)], aux[(i_1 / 2)]);
+                            Adjoint CCNOT(ctls[i_1], ctls[i_1 + 1], aux[i_1 / 2]);
                             _index_id_49220 += _step_id_49225;
                         }
 
@@ -398,16 +398,16 @@ fn grover_sample_full_pipeline_reachable_items() {
         }
         operation AdjustForSingleControl(ctls : Qubit[], aux : Qubit[]) : Unit is Adj {
             body ... {
-                let __cond_0 : Bool = ((Length(ctls) % 2) != 0);
+                let __cond_0 : Bool = (Length(ctls) % 2) != 0;
                 if __cond_0 {
-                    CCNOT(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], aux[(Length(ctls) - 2)]);
+                    CCNOT(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], aux[Length(ctls) - 2]);
                 }
 
             }
             adjoint ... {
-                let __cond_0 : Bool = ((Length(ctls) % 2) != 0);
+                let __cond_0 : Bool = (Length(ctls) % 2) != 0;
                 if __cond_0 {
-                    Adjoint CCNOT(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], aux[(Length(ctls) - 2)]);
+                    Adjoint CCNOT(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], aux[Length(ctls) - 2]);
                 }
 
             }
@@ -456,10 +456,10 @@ fn grover_sample_full_pipeline_reachable_items() {
                 __quantum__qis__ccx__body(control1, control2, target);
             }
             controlled (ctls, ...) {
-                Controlled X((ctls + [control1, control2]), target);
+                Controlled X(ctls + [control1, control2], target);
             }
             controlled adjoint (ctls, ...) {
-                Controlled X((ctls + [control1, control2]), target);
+                Controlled X(ctls + [control1, control2], target);
             }
         }
         operation CNOT(control : Qubit, target : Qubit) : Unit is Adj + Ctl {
@@ -470,10 +470,10 @@ fn grover_sample_full_pipeline_reachable_items() {
                 __quantum__qis__cx__body(control, target);
             }
             controlled (ctls, ...) {
-                Controlled X((ctls + [control]), target);
+                Controlled X(ctls + [control], target);
             }
             controlled adjoint (ctls, ...) {
-                Controlled X((ctls + [control]), target);
+                Controlled X(ctls + [control], target);
             }
         }
         operation H(qubit : Qubit) : Unit is Adj + Ctl {
@@ -485,32 +485,32 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__h__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         CH(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             CCH(ctls[0], ctls[1], qubit);
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray(((Length(ctls) - 1) - (Length(ctls) % 2)));
+                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 1) - (Length(ctls) % 2));
                             let _generated_ident_54247 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 0);
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        CCH(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], qubit);
+                                        CCH(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], qubit);
                                     } else {
-                                        CCH(aux[(Length(ctls) - 3)], aux[(Length(ctls) - 4)], qubit);
+                                        CCH(aux[Length(ctls) - 3], aux[Length(ctls) - 4], qubit);
                                     }
 
                                 };
@@ -531,32 +531,32 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled adjoint (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__h__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         CH(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             CCH(ctls[0], ctls[1], qubit);
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray(((Length(ctls) - 1) - (Length(ctls) % 2)));
+                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 1) - (Length(ctls) % 2));
                             let _generated_ident_54261 : Unit = {
                                 {
                                     CollectControls(ctls, aux, 0);
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        CCH(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], qubit);
+                                        CCH(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], qubit);
                                     } else {
-                                        CCH(aux[(Length(ctls) - 3)], aux[(Length(ctls) - 4)], qubit);
+                                        CCH(aux[Length(ctls) - 3], aux[Length(ctls) - 4], qubit);
                                     }
 
                                 };
@@ -584,16 +584,16 @@ fn grover_sample_full_pipeline_reachable_items() {
                 Rz((-theta), qubit);
             }
             controlled (ctls, ...) {
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__rz__body(theta, qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         CRz(ctls[0], theta, qubit);
                     } else {
-                        let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 1));
+                        let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
                         let _generated_ident_54317 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
@@ -601,7 +601,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             }
 
                             let _apply_res : Unit = {
-                                CRz(aux[(Length(ctls) - 2)], theta, qubit);
+                                CRz(aux[Length(ctls) - 2], theta, qubit);
                             };
                             {
                                 Adjoint AdjustForSingleControl(ctls, aux);
@@ -630,37 +630,37 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__s__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         CS(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             Controlled CS([ctls[0]], (ctls[1], qubit));
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 2));
+                            let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
                             let _generated_ident_54345 : Unit = {
                                 {
-                                    CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        Controlled CS([ctls[(Length(ctls) - 1)]], (aux[(Length(ctls) - 3)], qubit));
+                                        Controlled CS([ctls[Length(ctls) - 1]], (aux[Length(ctls) - 3], qubit));
                                     } else {
-                                        Controlled CS([aux[(Length(ctls) - 3)]], (aux[(Length(ctls) - 4)], qubit));
+                                        Controlled CS([aux[Length(ctls) - 3]], (aux[Length(ctls) - 4], qubit));
                                     }
 
                                 };
                                 {
-                                    Adjoint CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    Adjoint CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 _apply_res
@@ -676,37 +676,37 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled adjoint (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__s__adj(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         Adjoint CS(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             Controlled Adjoint CS([ctls[0]], (ctls[1], qubit));
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 2));
+                            let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
                             let _generated_ident_54359 : Unit = {
                                 {
-                                    CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        Controlled Adjoint CS([ctls[(Length(ctls) - 1)]], (aux[(Length(ctls) - 3)], qubit));
+                                        Controlled Adjoint CS([ctls[Length(ctls) - 1]], (aux[Length(ctls) - 3], qubit));
                                     } else {
-                                        Controlled Adjoint CS([aux[(Length(ctls) - 3)]], (aux[(Length(ctls) - 4)], qubit));
+                                        Controlled Adjoint CS([aux[Length(ctls) - 3]], (aux[Length(ctls) - 4], qubit));
                                     }
 
                                 };
                                 {
-                                    Adjoint CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    Adjoint CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 _apply_res
@@ -729,16 +729,16 @@ fn grover_sample_full_pipeline_reachable_items() {
                 __quantum__qis__t__adj(qubit);
             }
             controlled (ctls, ...) {
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__t__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         CT(ctls[0], qubit);
                     } else {
-                        let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 1));
+                        let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
                         let _generated_ident_54401 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
@@ -746,7 +746,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             }
 
                             let _apply_res : Unit = {
-                                CT(aux[(Length(ctls) - 2)], qubit);
+                                CT(aux[Length(ctls) - 2], qubit);
                             };
                             {
                                 Adjoint AdjustForSingleControl(ctls, aux);
@@ -763,16 +763,16 @@ fn grover_sample_full_pipeline_reachable_items() {
 
             }
             controlled adjoint (ctls, ...) {
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__t__adj(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         Adjoint CT(ctls[0], qubit);
                     } else {
-                        let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 1));
+                        let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 1);
                         let _generated_ident_54415 : Unit = {
                             {
                                 CollectControls(ctls, aux, 0);
@@ -780,7 +780,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                             }
 
                             let _apply_res : Unit = {
-                                Adjoint CT(aux[(Length(ctls) - 2)], qubit);
+                                Adjoint CT(aux[Length(ctls) - 2], qubit);
                             };
                             {
                                 Adjoint AdjustForSingleControl(ctls, aux);
@@ -806,37 +806,37 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__x__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         __quantum__qis__cx__body(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             __quantum__qis__ccx__body(ctls[0], ctls[1], qubit);
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 2));
+                            let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
                             let _generated_ident_54429 : Unit = {
                                 {
-                                    CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        __quantum__qis__ccx__body(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], qubit);
+                                        __quantum__qis__ccx__body(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], qubit);
                                     } else {
-                                        __quantum__qis__ccx__body(aux[(Length(ctls) - 3)], aux[(Length(ctls) - 4)], qubit);
+                                        __quantum__qis__ccx__body(aux[Length(ctls) - 3], aux[Length(ctls) - 4], qubit);
                                     }
 
                                 };
                                 {
-                                    Adjoint CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    Adjoint CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 _apply_res
@@ -852,37 +852,37 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled adjoint (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__x__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         __quantum__qis__cx__body(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             __quantum__qis__ccx__body(ctls[0], ctls[1], qubit);
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 2));
+                            let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
                             let _generated_ident_54443 : Unit = {
                                 {
-                                    CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        __quantum__qis__ccx__body(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], qubit);
+                                        __quantum__qis__ccx__body(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], qubit);
                                     } else {
-                                        __quantum__qis__ccx__body(aux[(Length(ctls) - 3)], aux[(Length(ctls) - 4)], qubit);
+                                        __quantum__qis__ccx__body(aux[Length(ctls) - 3], aux[Length(ctls) - 4], qubit);
                                     }
 
                                 };
                                 {
-                                    Adjoint CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    Adjoint CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 _apply_res
@@ -906,37 +906,37 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__z__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         __quantum__qis__cz__body(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             CCZ(ctls[0], ctls[1], qubit);
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 2));
+                            let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
                             let _generated_ident_54485 : Unit = {
                                 {
-                                    CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        CCZ(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], qubit);
+                                        CCZ(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], qubit);
                                     } else {
-                                        CCZ(aux[(Length(ctls) - 3)], aux[(Length(ctls) - 4)], qubit);
+                                        CCZ(aux[Length(ctls) - 3], aux[Length(ctls) - 4], qubit);
                                     }
 
                                 };
                                 {
-                                    Adjoint CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    Adjoint CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 _apply_res
@@ -952,37 +952,37 @@ fn grover_sample_full_pipeline_reachable_items() {
             }
             controlled adjoint (ctls, ...) {
                 mutable __cond_3 : Bool = false;
-                let __cond_0 : Bool = (Length(ctls) == 0);
+                let __cond_0 : Bool = Length(ctls) == 0;
                 mutable __cond_1 : Bool = false;
                 mutable __cond_2 : Bool = false;
                 if __cond_0 {
                     __quantum__qis__z__body(qubit);
                 } else {
-                    __cond_1 = (Length(ctls) == 1);
+                    __cond_1 = Length(ctls) == 1;
                     if __cond_1 {
                         __quantum__qis__cz__body(ctls[0], qubit);
                     } else {
-                        __cond_2 = (Length(ctls) == 2);
+                        __cond_2 = Length(ctls) == 2;
                         if __cond_2 {
                             CCZ(ctls[0], ctls[1], qubit);
                         } else {
-                            let aux : Qubit[] = AllocateQubitArray((Length(ctls) - 2));
+                            let aux : Qubit[] = AllocateQubitArray(Length(ctls) - 2);
                             let _generated_ident_54499 : Unit = {
                                 {
-                                    CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 let _apply_res : Unit = {
-                                    __cond_3 = ((Length(ctls) % 2) != 0);
+                                    __cond_3 = (Length(ctls) % 2) != 0;
                                     if __cond_3 {
-                                        CCZ(ctls[(Length(ctls) - 1)], aux[(Length(ctls) - 3)], qubit);
+                                        CCZ(ctls[Length(ctls) - 1], aux[Length(ctls) - 3], qubit);
                                     } else {
-                                        CCZ(aux[(Length(ctls) - 3)], aux[(Length(ctls) - 4)], qubit);
+                                        CCZ(aux[Length(ctls) - 3], aux[Length(ctls) - 4], qubit);
                                     }
 
                                 };
                                 {
-                                    Adjoint CollectControls(ctls, aux, (1 - (Length(ctls) % 2)));
+                                    Adjoint CollectControls(ctls, aux, 1 - (Length(ctls) % 2));
                                 }
 
                                 _apply_res
@@ -1004,7 +1004,7 @@ fn grover_sample_full_pipeline_reachable_items() {
             3.141592653589793
         }
         function AbsD(a : Double) : Double {
-            if (a < 0.) {
+            if a < 0. {
                 (-a)
             } else {
                 a
@@ -1021,18 +1021,18 @@ fn grover_sample_full_pipeline_reachable_items() {
         }
         function ExtendedTruncation(value : Double) : (Int, Double, Bool) {
             let truncated : Int = Truncate(value);
-            (truncated, (IntAsDouble(truncated) - value), (value >= 0.))
+            (truncated, IntAsDouble(truncated) - value, value >= 0.)
         }
         function Round(value : Double) : Int {
             let (truncated : Int, remainder : Double, isPositive : Bool) = ExtendedTruncation(value);
             let abs : Double = AbsD(remainder);
-            (truncated + if (abs <= 0.5) {
+            truncated + if abs <= 0.5 {
                 0
             } else if isPositive {
                 1
             } else {
                 (-1)
-            })
+            }
         }
         operation MResetEachZ(register : Qubit[]) : Result[] {
             mutable results : Result[] = [];
@@ -1040,7 +1040,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                 let _array_id_49856 : Qubit[] = register;
                 let _len_id_49860 : Int = Length(_array_id_49856);
                 mutable _index_id_49865 : Int = 0;
-                while (_index_id_49865 < _len_id_49860) {
+                while _index_id_49865 < _len_id_49860 {
                     let qubit : Qubit = _array_id_49856[_index_id_49865];
                     results += [MResetZ(qubit)];
                     _index_id_49865 += 1;
@@ -1090,12 +1090,12 @@ fn grover_sample_full_pipeline_reachable_items() {
             body intrinsic;
         }
         function Most_Qubit_(array : Qubit[]) : Qubit[] {
-            array[...(Length(array) - 2)]
+            array[...Length(array) - 2]
         }
         function Tail_Qubit_(array : Qubit[]) : Qubit {
             let size : Int = Length(array);
-            Fact((size > 0), $"Array must have at least 1 element");
-            array[(size - 1)]
+            Fact(size > 0, $"Array must have at least 1 element");
+            array[size - 1]
         }
         // package 2
         operation Main() : Result[] {
@@ -1106,13 +1106,13 @@ fn grover_sample_full_pipeline_reachable_items() {
             results
         }
         function IterationsToMarked(nQubits : Int) : Int {
-            if (nQubits > 126) {
+            if nQubits > 126 {
                 fail $"This sample supports at most 126 qubits.";
             }
 
-            let nItems : Double = (2.^IntAsDouble(nQubits));
-            let angle : Double = ArcSin((1. / Sqrt(nItems)));
-            let iterations : Int = Round((((0.25 * PI()) / angle) - 0.5));
+            let nItems : Double = 2.^IntAsDouble(nQubits);
+            let angle : Double = ArcSin(1. / Sqrt(nItems));
+            let iterations : Int = Round(((0.25 * PI()) / angle) - 0.5);
             iterations
         }
         operation ReflectAboutMarked(inputQubits : Qubit[]) : Unit {
@@ -1126,7 +1126,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                         let _array_id_483 : Qubit[] = inputQubits[...2...];
                         let _len_id_487 : Int = Length(_array_id_483);
                         mutable _index_id_492 : Int = 0;
-                        while (_index_id_492 < _len_id_487) {
+                        while _index_id_492 < _len_id_487 {
                             let q : Qubit = _array_id_483[_index_id_492];
                             X(q);
                             _index_id_492 += 1;
@@ -1143,11 +1143,11 @@ fn grover_sample_full_pipeline_reachable_items() {
                     {
                         let _array : Qubit[] = inputQubits[...2...];
                         {
-                            let _range_id_511 : Range = (Length(_array) - 1)..-1..0;
+                            let _range_id_511 : Range = Length(_array) - 1..-1..0;
                             mutable _index_id_514 : Int = _range_id_511.Start;
                             let _step_id_519 : Int = _range_id_511.Step;
                             let _end_id_524 : Int = _range_id_511.End;
-                            while (((_step_id_519 > 0) and (_index_id_514 <= _end_id_524)) or ((_step_id_519 < 0) and (_index_id_514 >= _end_id_524))) {
+                            while ((_step_id_519 > 0) and (_index_id_514 <= _end_id_524)) or ((_step_id_519 < 0) and (_index_id_514 >= _end_id_524)) {
                                 let _index : Int = _index_id_514;
                                 let q_1 : Qubit = _array[_index];
                                 Adjoint X(q_1);
@@ -1173,7 +1173,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                     let _array_id_554 : Qubit[] = inputQubits;
                     let _len_id_558 : Int = Length(_array_id_554);
                     mutable _index_id_563 : Int = 0;
-                    while (_index_id_563 < _len_id_558) {
+                    while _index_id_563 < _len_id_558 {
                         let q : Qubit = _array_id_554[_index_id_563];
                         H(q);
                         _index_id_563 += 1;
@@ -1186,11 +1186,11 @@ fn grover_sample_full_pipeline_reachable_items() {
                 {
                     let _array : Qubit[] = inputQubits;
                     {
-                        let _range_id_582 : Range = (Length(_array) - 1)..-1..0;
+                        let _range_id_582 : Range = Length(_array) - 1..-1..0;
                         mutable _index_id_585 : Int = _range_id_582.Start;
                         let _step_id_590 : Int = _range_id_582.Step;
                         let _end_id_595 : Int = _range_id_582.End;
-                        while (((_step_id_590 > 0) and (_index_id_585 <= _end_id_595)) or ((_step_id_590 < 0) and (_index_id_585 >= _end_id_595))) {
+                        while ((_step_id_590 > 0) and (_index_id_585 <= _end_id_595)) or ((_step_id_590 < 0) and (_index_id_585 >= _end_id_595)) {
                             let _index : Int = _index_id_585;
                             let q : Qubit = _array[_index];
                             Adjoint H(q);
@@ -1207,7 +1207,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                     let _array_id_625 : Qubit[] = inputQubits;
                     let _len_id_629 : Int = Length(_array_id_625);
                     mutable _index_id_634 : Int = 0;
-                    while (_index_id_634 < _len_id_629) {
+                    while _index_id_634 < _len_id_629 {
                         let q : Qubit = _array_id_625[_index_id_634];
                         Controlled H(ctls, q);
                         _index_id_634 += 1;
@@ -1220,11 +1220,11 @@ fn grover_sample_full_pipeline_reachable_items() {
                 {
                     let _array : Qubit[] = inputQubits;
                     {
-                        let _range_id_653 : Range = (Length(_array) - 1)..-1..0;
+                        let _range_id_653 : Range = Length(_array) - 1..-1..0;
                         mutable _index_id_656 : Int = _range_id_653.Start;
                         let _step_id_661 : Int = _range_id_653.Step;
                         let _end_id_666 : Int = _range_id_653.End;
-                        while (((_step_id_661 > 0) and (_index_id_656 <= _end_id_666)) or ((_step_id_661 < 0) and (_index_id_656 >= _end_id_666))) {
+                        while ((_step_id_661 > 0) and (_index_id_656 <= _end_id_666)) or ((_step_id_661 < 0) and (_index_id_656 >= _end_id_666)) {
                             let _index : Int = _index_id_656;
                             let q : Qubit = _array[_index];
                             Controlled Adjoint H(ctls, q);
@@ -1248,7 +1248,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                         let _array_id_696 : Qubit[] = inputQubits;
                         let _len_id_700 : Int = Length(_array_id_696);
                         mutable _index_id_705 : Int = 0;
-                        while (_index_id_705 < _len_id_700) {
+                        while _index_id_705 < _len_id_700 {
                             let q : Qubit = _array_id_696[_index_id_705];
                             X(q);
                             _index_id_705 += 1;
@@ -1265,11 +1265,11 @@ fn grover_sample_full_pipeline_reachable_items() {
                     {
                         let _array : Qubit[] = inputQubits;
                         {
-                            let _range_id_724 : Range = (Length(_array) - 1)..-1..0;
+                            let _range_id_724 : Range = Length(_array) - 1..-1..0;
                             mutable _index_id_727 : Int = _range_id_724.Start;
                             let _step_id_732 : Int = _range_id_724.Step;
                             let _end_id_737 : Int = _range_id_724.End;
-                            while (((_step_id_732 > 0) and (_index_id_727 <= _end_id_737)) or ((_step_id_732 < 0) and (_index_id_727 >= _end_id_737))) {
+                            while ((_step_id_732 > 0) and (_index_id_727 <= _end_id_737)) or ((_step_id_732 < 0) and (_index_id_727 >= _end_id_737)) {
                                 let _index : Int = _index_id_727;
                                 let q_1 : Qubit = _array[_index];
                                 Adjoint X(q_1);
@@ -1297,7 +1297,7 @@ fn grover_sample_full_pipeline_reachable_items() {
                 mutable _index_id_443 : Int = _range_id_440.Start;
                 let _step_id_448 : Int = _range_id_440.Step;
                 let _end_id_453 : Int = _range_id_440.End;
-                while (((_step_id_448 > 0) and (_index_id_443 <= _end_id_453)) or ((_step_id_448 < 0) and (_index_id_443 >= _end_id_453))) {
+                while ((_step_id_448 > 0) and (_index_id_443 <= _end_id_453)) or ((_step_id_448 < 0) and (_index_id_443 >= _end_id_453)) {
                     let _ : Int = _index_id_443;
                     ReflectAboutMarked(qubits);
                     ReflectAboutUniform(qubits);

@@ -398,7 +398,7 @@ fn hof_inside_for_loop_passes_invariants() {
                     mutable _index_id_42 : Int = _range_id_39.Start;
                     let _step_id_47 : Int = _range_id_39.Step;
                     let _end_id_52 : Int = _range_id_39.End;
-                    while (((_step_id_47 > 0) and (_index_id_42 <= _end_id_52)) or ((_step_id_47 < 0) and (_index_id_42 >= _end_id_52))) {
+                    while ((_step_id_47 > 0) and (_index_id_42 <= _end_id_52)) or ((_step_id_47 < 0) and (_index_id_42 >= _end_id_52)) {
                         let _ : Int = _index_id_42;
                         ApplyOp_AdjCtl_(H, q);
                         _index_id_42 += _step_id_47;
@@ -425,7 +425,7 @@ fn hof_inside_for_loop_passes_invariants() {
                     mutable _index_id_42 : Int = _range_id_39.Start;
                     let _step_id_47 : Int = _range_id_39.Step;
                     let _end_id_52 : Int = _range_id_39.End;
-                    while (((_step_id_47 > 0) and (_index_id_42 <= _end_id_52)) or ((_step_id_47 < 0) and (_index_id_42 >= _end_id_52))) {
+                    while ((_step_id_47 > 0) and (_index_id_42 <= _end_id_52)) or ((_step_id_47 < 0) and (_index_id_42 >= _end_id_52)) {
                         let _ : Int = _index_id_42;
                         ApplyOp_AdjCtl__H_(q);
                         _index_id_42 += _step_id_47;
@@ -468,7 +468,7 @@ fn function_callable_argument_defunctionalizes() {
                 f(x)
             }
             function Double(x : Int) : Int {
-                (x * 2)
+                x * 2
             }
             operation Main() : Unit {
                 let _ : Int = ApplyFn(Double, 5);
@@ -481,7 +481,7 @@ fn function_callable_argument_defunctionalizes() {
                 f(x)
             }
             function Double(x : Int) : Int {
-                (x * 2)
+                x * 2
             }
             operation Main() : Unit {
                 let _ : Int = ApplyFn_Double_(5);
@@ -833,13 +833,13 @@ fn five_branch_conditional_callable_resolves_successfully() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if (n == 0) {
+                if n == 0 {
                     op = X;
-                } else if (n == 1) {
+                } else if n == 1 {
                     op = Y;
-                } else if (n == 2) {
+                } else if n == 2 {
                     op = Z;
-                } else if (n == 3) {
+                } else if n == 3 {
                     op = S;
                 } else {
                     op = T;
@@ -862,25 +862,25 @@ fn five_branch_conditional_callable_resolves_successfully() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 2;
                 mutable op : (Qubit => Unit is Adj + Ctl) = H;
-                if (n == 0) {
+                if n == 0 {
                     op = X;
-                } else if (n == 1) {
+                } else if n == 1 {
                     op = Y;
-                } else if (n == 2) {
+                } else if n == 2 {
                     op = Z;
-                } else if (n == 3) {
+                } else if n == 3 {
                     op = S;
                 } else {
                     op = T;
                 }
 
-                if (n == 0) {
+                if n == 0 {
                     Apply_AdjCtl__X_(q)
-                } else if (n == 1) {
+                } else if n == 1 {
                     Apply_AdjCtl__Y_(q)
-                } else if (n == 2) {
+                } else if n == 2 {
                     Apply_AdjCtl__Z_(q)
-                } else if (n == 3) {
+                } else if n == 3 {
                     Apply_AdjCtl__S_(q)
                 } else {
                     Apply_AdjCtl__T_(q)
@@ -1185,13 +1185,13 @@ fn newtype_ctor_callable_field_cleanup() {
                 let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
                 let fT : (Int -> Int) = selectedT::F;
                 let fF : (Int -> Int) = selectedF::F;
-                (((fT(10) + fF(10)) + selectedT::Offset) + selectedF::Offset)
+                ((fT(10) + fF(10)) + selectedT::Offset) + selectedF::Offset
             }
             function _lambda_4(x : Int, ) : Int {
-                (x + 1)
+                x + 1
             }
             function _lambda_5(x : Int, ) : Int {
-                (x * 2)
+                x * 2
             }
             // entry
             Main()
@@ -1209,7 +1209,7 @@ fn newtype_ctor_callable_field_cleanup() {
             function Main() : Int {
                 let selectedT : __UDT_Item_1__Package_2_ = Choose(true);
                 let selectedF : __UDT_Item_1__Package_2_ = Choose(false);
-                (((if true {
+                ((if true {
                     _lambda_4(10)
                 } else {
                     _lambda_5(10)
@@ -1217,13 +1217,13 @@ fn newtype_ctor_callable_field_cleanup() {
                     _lambda_4(10)
                 } else {
                     _lambda_5(10)
-                }) + selectedT::Offset) + selectedF::Offset)
+                }) + selectedT::Offset) + selectedF::Offset
             }
             function _lambda_4(x : Int, ) : Int {
-                (x + 1)
+                x + 1
             }
             function _lambda_5(x : Int, ) : Int {
-                (x * 2)
+                x * 2
             }
             // entry
             Main()
@@ -1308,25 +1308,25 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             newtype PauliSelectParams = (Pauli[][], Int[], Int[]);
             operation ApplySelect(params : __UDT_Item_1__Package_2_, systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         X(systems[0]);
                     }
 
                 }
                 adjoint ... {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         Adjoint X(systems[0]);
                     }
 
                 }
                 controlled (ctls, ...) {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         Controlled X(ctls, systems[0]);
                     }
 
                 }
                 controlled adjoint (ctls, ...) {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         Controlled Adjoint X(ctls, systems[0]);
                     }
 
@@ -1343,7 +1343,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
                 let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
                 op(control, systems);
                 ReleaseQubitArray(systems);
@@ -1363,14 +1363,14 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_346 : Range = 0..(power - 1);
+                        let _range_id_346 : Range = 0..power - 1;
                         mutable _index_id_349 : Int = _range_id_346.Start;
                         let _step_id_354 : Int = _range_id_346.Step;
                         let _end_id_359 : Int = _range_id_346.End;
-                        while (((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359))) {
+                        while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -1401,14 +1401,14 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_346 : Range = 0..(power - 1);
+                        let _range_id_346 : Range = 0..power - 1;
                         mutable _index_id_349 : Int = _range_id_346.Start;
                         let _step_id_354 : Int = _range_id_346.Step;
                         let _end_id_359 : Int = _range_id_346.End;
-                        while (((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359))) {
+                        while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -1422,7 +1422,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
                 let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
                 op(control, systems);
                 ReleaseQubitArray(systems);
@@ -1435,25 +1435,25 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             newtype PauliSelectParams = (Pauli[][], Int[], Int[]);
             operation ApplySelect(params : __UDT_Item_1__Package_2_, systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
                 body ... {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         X(systems[0]);
                     }
 
                 }
                 adjoint ... {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         Adjoint X(systems[0]);
                     }
 
                 }
                 controlled (ctls, ...) {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         Controlled X(ctls, systems[0]);
                     }
 
                 }
                 controlled adjoint (ctls, ...) {
-                    if (Length(params::signs) != 0) {
+                    if Length(params::signs) != 0 {
                         Controlled Adjoint X(ctls, systems[0]);
                     }
 
@@ -1470,7 +1470,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
                 let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
                 op(control, systems);
                 ReleaseQubitArray(systems);
@@ -1486,14 +1486,14 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_346 : Range = 0..(power - 1);
+                        let _range_id_346 : Range = 0..power - 1;
                         mutable _index_id_349 : Int = _range_id_346.Start;
                         let _step_id_354 : Int = _range_id_346.Step;
                         let _end_id_359 : Int = _range_id_346.End;
-                        while (((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359))) {
+                        while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -1524,14 +1524,14 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_346 : Range = 0..(power - 1);
+                        let _range_id_346 : Range = 0..power - 1;
                         mutable _index_id_349 : Int = _range_id_346.Start;
                         let _step_id_354 : Int = _range_id_346.Step;
                         let _end_id_359 : Int = _range_id_346.End;
-                        while (((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359))) {
+                        while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled prepareOp([control], systems);
                             Controlled selectOp([control], (systems, ancilla));
@@ -1545,14 +1545,14 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
                 _lambda_7(prepareOp, selectOp, numSystemQubits, power, (control, systems));
                 ReleaseQubitArray(systems);
                 __quantum__rt__qubit_release(control);
             }
             operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__ApplyPrepare__closure_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : Unit {
                 let control : Qubit = __quantum__rt__qubit_allocate();
-                let systems : Qubit[] = AllocateQubitArray((numSystemQubits + 1));
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
                 _lambda_7_ApplyPrepare__closure_(numSystemQubits, power, (control, systems), __capture_0);
                 ReleaseQubitArray(systems);
                 __quantum__rt__qubit_release(control);
@@ -1562,14 +1562,14 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_346 : Range = 0..(power - 1);
+                        let _range_id_346 : Range = 0..power - 1;
                         mutable _index_id_349 : Int = _range_id_346.Start;
                         let _step_id_354 : Int = _range_id_346.Step;
                         let _end_id_359 : Int = _range_id_346.End;
-                        while (((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359))) {
+                        while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled ApplyPrepare([control], systems);
                             Controlled _lambda_8([control], (systems, ancilla));
@@ -1583,14 +1583,14 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
             }
             operation _lambda_7_ApplyPrepare__closure_(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[]), __capture_0 : __UDT_Item_1__Package_2_) : Unit {
                 {
-                    let systems : Qubit[] = allQubits[0..(numSystemQubits - 1)];
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
                     {
-                        let _range_id_346 : Range = 0..(power - 1);
+                        let _range_id_346 : Range = 0..power - 1;
                         mutable _index_id_349 : Int = _range_id_346.Start;
                         let _step_id_354 : Int = _range_id_346.Step;
                         let _end_id_359 : Int = _range_id_346.End;
-                        while (((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359))) {
+                        while ((_step_id_354 > 0) and (_index_id_349 <= _end_id_359)) or ((_step_id_354 < 0) and (_index_id_349 >= _end_id_359)) {
                             let _ : Int = _index_id_349;
                             Controlled ApplyPrepare([control], systems);
                             Controlled _lambda_8([control], (__capture_0, (systems, ancilla)));
@@ -1639,7 +1639,7 @@ fn width2_mixed_direct_dispatch_removes_dead_partial_app_binding() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 1;
                 mutable op : (Qubit => Unit is Adj + Ctl) = X;
-                if (n == 0) {
+                if n == 0 {
                     op = {
                         let arg : Double = 0.;
                         / * closure item = 2 captures = [arg] * / _lambda_2
@@ -1670,9 +1670,9 @@ fn width2_mixed_direct_dispatch_removes_dead_partial_app_binding() {
             operation Main() : Unit {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let n : Int = 1;
-                if (n == 0) {}
+                if n == 0 {}
 
-                if (n == 0) {
+                if n == 0 {
                     _lambda_2(0., q)
                 } else {
                     X(q)

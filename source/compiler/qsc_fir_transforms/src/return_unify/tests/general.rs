@@ -18,7 +18,7 @@ fn no_op_function_without_returns() {
         &expect![[r#"
             function Main() : Int {
                 let x : Int = 1;
-                (x + 2)
+                x + 2
             }
             // entry
             Main()
@@ -198,7 +198,7 @@ fn both_branches_return_with_qubit_scope() {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let r : Result = M(q);
                 Reset(q);
-                let _generated_ident_67 : Unit = if (r == One) {
+                let _generated_ident_67 : Unit = if r == One {
                     {
                         let _generated_ident_43 : Bool = true;
                         __quantum__rt__qubit_release(q);
@@ -454,11 +454,11 @@ fn return_value_is_complex_expression() {
     "#},
         &expect![[r#"
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 if true {
-                    (Add(1, 2) + Add(3, 4))
+                    Add(1, 2) + Add(3, 4)
                 } else {
                     0
                 }
@@ -519,7 +519,7 @@ fn return_bool_in_dynamic_branch() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Bool = false;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                if (M(q) == One) {
+                if M(q) == One {
                     {
                         let _generated_ident_32 : Bool = true;
                         __quantum__rt__qubit_release(q);
@@ -577,7 +577,7 @@ fn multiple_returns_in_helper_function() {
             function Classify(x : Int) : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                if (x > 0) {
+                if x > 0 {
                     {
                         __ret_val = 1;
                         __has_returned = true;
@@ -585,7 +585,7 @@ fn multiple_returns_in_helper_function() {
                 }
 
                 if (not __has_returned) {
-                    if (x < 0) {
+                    if x < 0 {
                         {
                             __ret_val = (-1);
                             __has_returned = true;
@@ -635,7 +635,7 @@ fn return_unit_after_side_effects() {
                 mutable __ret_val : Unit = ();
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 H(q);
-                if (M(q) == One) {
+                if M(q) == One {
                     X(q);
                     {
                         let _generated_ident_42 : Unit = ();
@@ -701,7 +701,7 @@ fn bare_return_with_dead_code() {
                     0
                 };
                 let _generated_ident_45 : Int = if (not __has_returned) {
-                    (x + 2)
+                    x + 2
                 } else {
                     0
                 };
@@ -931,7 +931,7 @@ fn return_after_dynamic_branch_with_dead_code() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Unit = ();
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                if (M(q) == One) {
+                if M(q) == One {
                     X(q);
                 } else {
                     H(q);
@@ -991,9 +991,9 @@ fn for_loop_with_early_return() {
                     mutable _index_id_33 : Int = _range_id_30.Start;
                     let _step_id_38 : Int = _range_id_30.Step;
                     let _end_id_43 : Int = _range_id_30.End;
-                    while ((not __has_returned) and (((_step_id_38 > 0) and (_index_id_33 <= _end_id_43)) or ((_step_id_38 < 0) and (_index_id_33 >= _end_id_43)))) {
+                    while ((not __has_returned)) and (((_step_id_38 > 0) and (_index_id_33 <= _end_id_43)) or ((_step_id_38 < 0) and (_index_id_33 >= _end_id_43))) {
                         let i : Int = _index_id_33;
-                        if (i == 5) {
+                        if i == 5 {
                             {
                                 __ret_val = i;
                                 __has_returned = true;
@@ -1179,10 +1179,10 @@ fn recursive_function_with_return() {
     "#},
         &expect![[r#"
             function Factorial(n : Int) : Int {
-                if (n <= 1) {
+                if n <= 1 {
                     1
                 } else {
-                    (n * Factorial((n - 1)))
+                    n * Factorial(n - 1)
                 }
 
             }
@@ -1265,10 +1265,10 @@ fn arrow_typed_return_simplifies_to_if() {
                 f(10)
             }
             function _lambda_3(x : Int, ) : Int {
-                (x + 1)
+                x + 1
             }
             function _lambda_4(x : Int, ) : Int {
-                (x * 2)
+                x * 2
             }
             function __return_unify_fail_5(_ : Int) : Int {
                 fail $"callable init expr"

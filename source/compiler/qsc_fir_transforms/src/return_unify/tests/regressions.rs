@@ -64,9 +64,9 @@ fn triple_nested_if_return_with_else_return() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __trailing_result : Int = if (0 > 0) {
-                    if (0 > 0) {
-                        if (0 > 0) {
+                let __trailing_result : Int = if 0 > 0 {
+                    if 0 > 0 {
+                        if 0 > 0 {
                             {
                                 __ret_val = 1;
                                 __has_returned = true;

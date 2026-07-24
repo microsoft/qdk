@@ -189,10 +189,10 @@ fn qubit_release_guarded_in_for_loop_with_early_return() {
                     mutable _index_id_44 : Int = _range_id_41.Start;
                     let _step_id_49 : Int = _range_id_41.Step;
                     let _end_id_54 : Int = _range_id_41.End;
-                    while ((not __has_returned) and (((_step_id_49 > 0) and (_index_id_44 <= _end_id_54)) or ((_step_id_49 < 0) and (_index_id_44 >= _end_id_54)))) {
+                    while ((not __has_returned)) and (((_step_id_49 > 0) and (_index_id_44 <= _end_id_54)) or ((_step_id_49 < 0) and (_index_id_44 >= _end_id_54))) {
                         let i : Int = _index_id_44;
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if (i == 3) {
+                        if i == 3 {
                             result = i;
                             {
                                 let _generated_ident_89 : Int = result;
@@ -257,8 +257,8 @@ fn body_level_qubit_release_guarded_with_while_return() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 10)) {
-                    if (i == 3) {
+                while ((not __has_returned)) and (i < 10) {
+                    if i == 3 {
                         Reset(q);
                         {
                             let _generated_ident_52 : Int = i;
@@ -319,7 +319,7 @@ fn qubits_should_be_able_to_be_threaded_through_early_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
@@ -364,7 +364,7 @@ fn qubit_arrays_should_be_able_to_be_threaded_through_early_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;

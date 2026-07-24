@@ -240,7 +240,7 @@ fn hoist_return_in_call_argument() {
     "#},
         &expect![[r#"
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 let _ : ((Int, Int) -> Int) = Add;
@@ -533,7 +533,7 @@ fn hoist_return_in_range_endpoint() {
                         0
                     };
                     if (not __has_returned) {
-                        while (((_step_id_36 > 0) and (_index_id_31 <= _end_id_41)) or ((_step_id_36 < 0) and (_index_id_31 >= _end_id_41))) {
+                        while ((_step_id_36 > 0) and (_index_id_31 <= _end_id_41)) or ((_step_id_36 < 0) and (_index_id_31 >= _end_id_41)) {
                             let i : Int = _index_id_31;
                             sum += i;
                             _index_id_31 += _step_id_36;
@@ -645,7 +645,7 @@ fn hoist_return_in_local_init_preserves_binding() {
                         0
                     };
                     if (not __has_returned) {
-                        while (((_step_id_100 > 0) and (_index_id_95 <= _end_id_105)) or ((_step_id_100 < 0) and (_index_id_95 >= _end_id_105))) {
+                        while ((_step_id_100 > 0) and (_index_id_95 <= _end_id_105)) or ((_step_id_100 < 0) and (_index_id_95 >= _end_id_105)) {
                             let i : Int = _index_id_95;
                             sum += i;
                             _index_id_95 += _step_id_100;
@@ -675,7 +675,7 @@ fn hoist_return_in_local_init_preserves_binding() {
                 7
             }
             function Main() : Int {
-                ((RangeShape() + TupleShape()) + CallShape())
+                (RangeShape() + TupleShape()) + CallShape()
             }
             // entry
             Main()
@@ -932,7 +932,7 @@ fn hoist_return_chained() {
     "#},
         &expect![[r#"
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 let _ : ((Int, Int) -> Int) = Add;

@@ -37,7 +37,7 @@ fn operand_lift_return_in_binop_operand_block() {
                     3
                 };
                 let x : Int = if (not __has_returned) {
-                    (__operand_tmp_0 + __operand_tmp_1)
+                    __operand_tmp_0 + __operand_tmp_1
                 } else {
                     0
                 };
@@ -75,7 +75,7 @@ fn operand_lift_return_in_call_tuple_arg_block() {
     "#},
         &expect![[r#"
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 mutable __has_returned : Bool = false;

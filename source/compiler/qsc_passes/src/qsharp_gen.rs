@@ -345,13 +345,23 @@ impl<'a> HirQSharpGen<'a> {
                 self.emit_expr(rhs);
             }
             ExprKind::BinOp(op, lhs, rhs) => {
-                self.write("(");
-                self.emit_expr(lhs);
+                if matches!(lhs.kind, ExprKind::BinOp(..) | ExprKind::UnOp(..)) {
+                    self.write("(");
+                    self.emit_expr(lhs);
+                    self.write(")");
+                } else {
+                    self.emit_expr(lhs);
+                }
                 self.write(" ");
                 self.write(binop_as_str(*op));
                 self.write(" ");
-                self.emit_expr(rhs);
-                self.write(")");
+                if matches!(rhs.kind, ExprKind::BinOp(..) | ExprKind::UnOp(..)) {
+                    self.write("(");
+                    self.emit_expr(rhs);
+                    self.write(")");
+                } else {
+                    self.emit_expr(rhs);
+                }
             }
             ExprKind::Block(block) => self.emit_block(block),
             ExprKind::Call(callee, arg) => {

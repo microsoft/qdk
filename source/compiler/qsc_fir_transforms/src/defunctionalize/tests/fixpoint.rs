@@ -66,7 +66,7 @@ fn fixpoint_no_hof_call_sites_prunes_dead_callable_local_chain() {
                 let second : (Int -> Bool) = first;
             }
             function _lambda_2(value : Int, ) : Bool {
-                (value == 0)
+                value == 0
             }
             // entry
             Main()
@@ -74,7 +74,7 @@ fn fixpoint_no_hof_call_sites_prunes_dead_callable_local_chain() {
             AFTER:
             operation Main() : Unit {}
             function _lambda_2(value : Int, ) : Bool {
-                (value == 0)
+                value == 0
             }
             // entry
             Main()
@@ -1113,18 +1113,18 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
         &expect![[r#"
             BEFORE:
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if (value == 1) {
+                if value == 1 {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
-                    let _range_id_183 : Range = 0..(count - 1);
+                    let _range_id_183 : Range = 0..count - 1;
                     mutable _index_id_186 : Int = _range_id_183.Start;
                     let _step_id_191 : Int = _range_id_183.Step;
                     let _end_id_196 : Int = _range_id_183.End;
-                    while (((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196))) {
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
                         _index_id_186 += _step_id_191;
@@ -1159,11 +1159,11 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             }
             operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
-                    let _range_id_183 : Range = 0..(count - 1);
+                    let _range_id_183 : Range = 0..count - 1;
                     mutable _index_id_186 : Int = _range_id_183.Start;
                     let _step_id_191 : Int = _range_id_183.Step;
                     let _end_id_196 : Int = _range_id_183.End;
-                    while (((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196))) {
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
                         _index_id_186 += _step_id_191;
@@ -1180,18 +1180,18 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
 
             AFTER:
             operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
-                if (value == 1) {
+                if value == 1 {
                     Controlled X([control], register[0]);
                 }
 
             }
             operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
-                    let _range_id_183 : Range = 0..(count - 1);
+                    let _range_id_183 : Range = 0..count - 1;
                     mutable _index_id_186 : Int = _range_id_183.Start;
                     let _step_id_191 : Int = _range_id_183.Step;
                     let _end_id_196 : Int = _range_id_183.End;
-                    while (((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196))) {
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
                         _index_id_186 += _step_id_191;
@@ -1219,11 +1219,11 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             }
             operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
                 {
-                    let _range_id_183 : Range = 0..(count - 1);
+                    let _range_id_183 : Range = 0..count - 1;
                     mutable _index_id_186 : Int = _range_id_183.Start;
                     let _step_id_191 : Int = _range_id_183.Step;
                     let _end_id_196 : Int = _range_id_183.End;
-                    while (((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196))) {
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
                         let idx : Int = _index_id_186;
                         ops[idx](controls[idx], targets);
                         _index_id_186 += _step_id_191;
@@ -1240,13 +1240,13 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
             }
             operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
                 {
-                    let _range_id_183 : Range = 0..(count - 1);
+                    let _range_id_183 : Range = 0..count - 1;
                     mutable _index_id_186 : Int = _range_id_183.Start;
                     let _step_id_191 : Int = _range_id_183.Step;
                     let _end_id_196 : Int = _range_id_183.End;
-                    while (((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196))) {
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
                         let idx : Int = _index_id_186;
-                        if (idx == 0) {
+                        if idx == 0 {
                             _lambda_5(__capture_0, (controls[idx], targets))
                         } else {
                             _lambda_6(__capture_1, (controls[idx], targets))
@@ -1630,13 +1630,13 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
         &expect![[r#"
             BEFORE:
             operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     op(q);
                     Repeat_Empty_({
                         let arg : (Qubit => Unit is Adj + Ctl) = H;
                         let arg_1 : Int = 1;
                         / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
-                    }, (n - 1), q);
+                    }, n - 1, q);
                 }
 
             }
@@ -1649,13 +1649,13 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                 Repeat_AdjCtl_(arg, arg_1, hole)
             }
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     op(q);
                     Repeat_AdjCtl_({
                         let arg : (Qubit => Unit is Adj + Ctl) = H;
                         let arg_1 : Int = 1;
                         / * closure item = 5 captures = [arg, arg_1] * / _lambda_3
-                    }, (n - 1), q);
+                    }, n - 1, q);
                 }
 
             }
@@ -1663,13 +1663,13 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                 Repeat_AdjCtl_(arg, arg_1, hole)
             }
             operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     op(q);
                     Repeat_Empty_({
                         let arg : (Qubit => Unit is Adj + Ctl) = H;
                         let arg_1 : Int = 1;
                         / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
-                    }, (n - 1), q);
+                    }, n - 1, q);
                 }
 
             }
@@ -1681,13 +1681,13 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
 
             AFTER:
             operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     op(q);
                     Repeat_Empty_({
                         let arg : (Qubit => Unit is Adj + Ctl) = H;
                         let arg_1 : Int = 1;
                         / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
-                    }, (n - 1), q);
+                    }, n - 1, q);
                 }
 
             }
@@ -1700,9 +1700,9 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                 Repeat_AdjCtl_(arg, arg_1, hole)
             }
             operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     op(q);
-                    Repeat_AdjCtl__closure_((n - 1), q, 1);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1710,13 +1710,13 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                 Repeat_AdjCtl__H_(arg, hole)
             }
             operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     op(q);
                     Repeat_Empty_({
                         let arg : (Qubit => Unit is Adj + Ctl) = H;
                         let arg_1 : Int = 1;
                         / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
-                    }, (n - 1), q);
+                    }, n - 1, q);
                 }
 
             }
@@ -1724,9 +1724,9 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                 Repeat_Empty_(arg, arg_1, hole)
             }
             operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     H(q);
-                    Repeat_AdjCtl__closure_((n - 1), q, 1);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1734,9 +1734,9 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                 Repeat_AdjCtl__H_(H, arg, hole)
             }
             operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_((n - 1), q, 1);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1744,16 +1744,16 @@ fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
                 Repeat_AdjCtl__closure_(H, arg, hole)
             }
             operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_((n - 1), q, 1);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
                 }
 
             }
             operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
-                if (n > 0) {
+                if n > 0 {
                     _lambda_3(__capture_0, q);
-                    Repeat_AdjCtl__closure_((n - 1), q, 1);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
                 }
 
             }
@@ -1915,7 +1915,7 @@ fn single_capture_single_closure_param_rewrite() {
                 RunOp(/ * closure item = 3 captures = [threshold] * / _lambda_3)
             }
             function _lambda_3(threshold : Int, x : Int) : Bool {
-                (x >= threshold)
+                x >= threshold
             }
             // entry
             Main()
@@ -1929,7 +1929,7 @@ fn single_capture_single_closure_param_rewrite() {
                 RunOp_closure_(threshold)
             }
             function _lambda_3(threshold : Int, x : Int) : Bool {
-                (x >= threshold)
+                x >= threshold
             }
             function RunOp_closure_(__capture_0 : Int) : Bool {
                 _lambda_3(__capture_0, 5)
@@ -2079,7 +2079,7 @@ fn pipeline_resolves_conditional_callable_binding() {
             BEFORE:
             operation ApplyPower(power : Int, op : (Qubit => Unit), target : Qubit) : Unit is Adj {
                 body ... {
-                    let u : (Qubit => Unit) = if (power >= 0) {
+                    let u : (Qubit => Unit) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2089,7 +2089,7 @@ fn pipeline_resolves_conditional_callable_binding() {
                         mutable _index_id_119 : Int = _range_id_116.Start;
                         let _step_id_124 : Int = _range_id_116.Step;
                         let _end_id_129 : Int = _range_id_116.End;
-                        while (((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129))) {
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -2099,7 +2099,7 @@ fn pipeline_resolves_conditional_callable_binding() {
 
                 }
                 adjoint ... {
-                    let u : (Qubit => Unit) = if (power >= 0) {
+                    let u : (Qubit => Unit) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2107,11 +2107,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = (_range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step))..(-_range.Step).._range.Start;
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
                             mutable _index_id_162 : Int = _range_id_159.Start;
                             let _step_id_167 : Int = _range_id_159.Step;
                             let _end_id_172 : Int = _range_id_159.End;
-                            while (((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172))) {
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -2130,7 +2130,7 @@ fn pipeline_resolves_conditional_callable_binding() {
             }
             operation ApplyPower_AdjCtl_(power : Int, op : (Qubit => Unit is Adj + Ctl), target : Qubit) : Unit is Adj {
                 body ... {
-                    let u : (Qubit => Unit is Adj + Ctl) = if (power >= 0) {
+                    let u : (Qubit => Unit is Adj + Ctl) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2140,7 +2140,7 @@ fn pipeline_resolves_conditional_callable_binding() {
                         mutable _index_id_119 : Int = _range_id_116.Start;
                         let _step_id_124 : Int = _range_id_116.Step;
                         let _end_id_129 : Int = _range_id_116.End;
-                        while (((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129))) {
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -2150,7 +2150,7 @@ fn pipeline_resolves_conditional_callable_binding() {
 
                 }
                 adjoint ... {
-                    let u : (Qubit => Unit is Adj + Ctl) = if (power >= 0) {
+                    let u : (Qubit => Unit is Adj + Ctl) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2158,11 +2158,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = (_range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step))..(-_range.Step).._range.Start;
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
                             mutable _index_id_162 : Int = _range_id_159.Start;
                             let _step_id_167 : Int = _range_id_159.Step;
                             let _end_id_172 : Int = _range_id_159.End;
-                            while (((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172))) {
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -2180,7 +2180,7 @@ fn pipeline_resolves_conditional_callable_binding() {
             AFTER:
             operation ApplyPower(power : Int, op : (Qubit => Unit), target : Qubit) : Unit is Adj {
                 body ... {
-                    let u : (Qubit => Unit) = if (power >= 0) {
+                    let u : (Qubit => Unit) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2190,7 +2190,7 @@ fn pipeline_resolves_conditional_callable_binding() {
                         mutable _index_id_119 : Int = _range_id_116.Start;
                         let _step_id_124 : Int = _range_id_116.Step;
                         let _end_id_129 : Int = _range_id_116.End;
-                        while (((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129))) {
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -2200,7 +2200,7 @@ fn pipeline_resolves_conditional_callable_binding() {
 
                 }
                 adjoint ... {
-                    let u : (Qubit => Unit) = if (power >= 0) {
+                    let u : (Qubit => Unit) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2208,11 +2208,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = (_range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step))..(-_range.Step).._range.Start;
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
                             mutable _index_id_162 : Int = _range_id_159.Start;
                             let _step_id_167 : Int = _range_id_159.Step;
                             let _end_id_172 : Int = _range_id_159.End;
-                            while (((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172))) {
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -2231,7 +2231,7 @@ fn pipeline_resolves_conditional_callable_binding() {
             }
             operation ApplyPower_AdjCtl_(power : Int, op : (Qubit => Unit is Adj + Ctl), target : Qubit) : Unit is Adj {
                 body ... {
-                    let u : (Qubit => Unit is Adj + Ctl) = if (power >= 0) {
+                    let u : (Qubit => Unit is Adj + Ctl) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2241,7 +2241,7 @@ fn pipeline_resolves_conditional_callable_binding() {
                         mutable _index_id_119 : Int = _range_id_116.Start;
                         let _step_id_124 : Int = _range_id_116.Step;
                         let _end_id_129 : Int = _range_id_116.End;
-                        while (((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129))) {
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -2251,7 +2251,7 @@ fn pipeline_resolves_conditional_callable_binding() {
 
                 }
                 adjoint ... {
-                    let u : (Qubit => Unit is Adj + Ctl) = if (power >= 0) {
+                    let u : (Qubit => Unit is Adj + Ctl) = if power >= 0 {
                         op
                     } else {
                         Adjoint op
@@ -2259,11 +2259,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = (_range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step))..(-_range.Step).._range.Start;
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
                             mutable _index_id_162 : Int = _range_id_159.Start;
                             let _step_id_167 : Int = _range_id_159.Step;
                             let _end_id_172 : Int = _range_id_159.End;
-                            while (((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172))) {
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -2282,9 +2282,9 @@ fn pipeline_resolves_conditional_callable_binding() {
                         mutable _index_id_119 : Int = _range_id_116.Start;
                         let _step_id_124 : Int = _range_id_116.Step;
                         let _end_id_129 : Int = _range_id_116.End;
-                        while (((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129))) {
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
-                            if (power >= 0) {
+                            if power >= 0 {
                                 S(target)
                             } else {
                                 Adjoint S(target)
@@ -2299,13 +2299,13 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = (_range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step))..(-_range.Step).._range.Start;
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
                             mutable _index_id_162 : Int = _range_id_159.Start;
                             let _step_id_167 : Int = _range_id_159.Step;
                             let _end_id_172 : Int = _range_id_159.End;
-                            while (((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172))) {
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
-                                if (power >= 0) {
+                                if power >= 0 {
                                     Adjoint S(target)
                                 } else {
                                     S(target)
@@ -2350,7 +2350,7 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
                     let _len_id_40 : Int = Length(_array_id_36);
                     mutable _index_id_45 : Int = 0;
-                    while (_index_id_45 < _len_id_40) {
+                    while _index_id_45 < _len_id_40 {
                         let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         op(q);
@@ -2371,9 +2371,9 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                     let _array_id_36 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = arr;
                     let _len_id_40 : Int = Length(_array_id_36);
                     mutable _index_id_45 : Int = 0;
-                    while (_index_id_45 < _len_id_40) {
+                    while _index_id_45 < _len_id_40 {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if (_index_id_45 == 0) {
+                        if _index_id_45 == 0 {
                             S(q)
                         } else {
                             T(q)
@@ -2461,7 +2461,7 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                     let _array_id_156 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
                     let _len_id_160 : Int = Length(_array_id_156);
                     mutable _index_id_165 : Int = 0;
-                    while (_index_id_165 < _len_id_160) {
+                    while _index_id_165 < _len_id_160 {
                         let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_156[_index_id_165];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         initializer(q);
@@ -2514,13 +2514,13 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                     let _array_id_156 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
                     let _len_id_160 : Int = Length(_array_id_156);
                     mutable _index_id_165 : Int = 0;
-                    while (_index_id_165 < _len_id_160) {
+                    while _index_id_165 < _len_id_160 {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if (_index_id_165 == 0) {
+                        if _index_id_165 == 0 {
                             I(q)
-                        } else if (_index_id_165 == 1) {
+                        } else if _index_id_165 == 1 {
                             X(q)
-                        } else if (_index_id_165 == 2) {
+                        } else if _index_id_165 == 2 {
                             SetToPlus(q)
                         } else {
                             SetToMinus(q)
@@ -2608,7 +2608,7 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                     let _array_id_162 : (Pauli, (Qubit => Unit is Adj + Ctl), Bool)[] = ops;
                     let _len_id_166 : Int = Length(_array_id_162);
                     mutable _index_id_171 : Int = 0;
-                    while (_index_id_171 < _len_id_166) {
+                    while _index_id_171 < _len_id_166 {
                         let (_basis : Pauli, initializer : (Qubit => Unit is Adj + Ctl), _flag : Bool) = _array_id_162[_index_id_171];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         initializer(q);
@@ -2661,13 +2661,13 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                     let _array_id_162 : (Pauli, (Qubit => Unit is Adj + Ctl), Bool)[] = ops;
                     let _len_id_166 : Int = Length(_array_id_162);
                     mutable _index_id_171 : Int = 0;
-                    while (_index_id_171 < _len_id_166) {
+                    while _index_id_171 < _len_id_166 {
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if (_index_id_171 == 0) {
+                        if _index_id_171 == 0 {
                             I(q)
-                        } else if (_index_id_171 == 1) {
+                        } else if _index_id_171 == 1 {
                             X(q)
-                        } else if (_index_id_171 == 2) {
+                        } else if _index_id_171 == 2 {
                             SetToPlus(q)
                         } else {
                             SetToMinus(q)
@@ -2757,7 +2757,7 @@ fn pipeline_teleportation_like_callable_from_string_tagged_triple_array() {
                     let _array_id_169 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
                     let _len_id_173 : Int = Length(_array_id_169);
                     mutable _index_id_178 : Int = 0;
-                    while (_index_id_178 < _len_id_173) {
+                    while _index_id_178 < _len_id_173 {
                         let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_178];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         initializer(q);
@@ -2812,14 +2812,14 @@ fn pipeline_teleportation_like_callable_from_string_tagged_triple_array() {
                     let _array_id_169 : ((Qubit => Unit is Adj + Ctl), Pauli)[] = ops;
                     let _len_id_173 : Int = Length(_array_id_169);
                     mutable _index_id_178 : Int = 0;
-                    while (_index_id_178 < _len_id_173) {
+                    while _index_id_178 < _len_id_173 {
                         let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_178];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if (_index_id_178 == 0) {
+                        if _index_id_178 == 0 {
                             I(q)
-                        } else if (_index_id_178 == 1) {
+                        } else if _index_id_178 == 1 {
                             X(q)
-                        } else if (_index_id_178 == 2) {
+                        } else if _index_id_178 == 2 {
                             SetToPlus(q)
                         } else {
                             SetToMinus(q)
@@ -2864,16 +2864,16 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
             BEFORE:
             operation SX(q : Qubit) : Unit is Adj + Ctl {
                 body ... {
-                    Rx((PI() / 2.), q);
+                    Rx(PI() / 2., q);
                 }
                 adjoint ... {
-                    Adjoint Rx((PI() / 2.), q);
+                    Adjoint Rx(PI() / 2., q);
                 }
                 controlled (ctls, ...) {
-                    Controlled Rx(ctls, ((PI() / 2.), q));
+                    Controlled Rx(ctls, (PI() / 2., q));
                 }
                 controlled adjoint (ctls, ...) {
-                    Controlled Adjoint Rx(ctls, ((PI() / 2.), q));
+                    Controlled Adjoint Rx(ctls, (PI() / 2., q));
                 }
             }
             operation Main() : Unit {
@@ -2883,7 +2883,7 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
                     let _array_id_104 : (Qubit => Unit is Adj + Ctl)[] = gates;
                     let _len_id_108 : Int = Length(_array_id_104);
                     mutable _index_id_113 : Int = 0;
-                    while (_index_id_113 < _len_id_108) {
+                    while _index_id_113 < _len_id_108 {
                         let gate : (Qubit => Unit is Adj + Ctl) = _array_id_104[_index_id_113];
                         gate(q);
                         _index_id_113 += 1;
@@ -2899,16 +2899,16 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
             AFTER:
             operation SX(q : Qubit) : Unit is Adj + Ctl {
                 body ... {
-                    Rx((PI() / 2.), q);
+                    Rx(PI() / 2., q);
                 }
                 adjoint ... {
-                    Adjoint Rx((PI() / 2.), q);
+                    Adjoint Rx(PI() / 2., q);
                 }
                 controlled (ctls, ...) {
-                    Controlled Rx(ctls, ((PI() / 2.), q));
+                    Controlled Rx(ctls, (PI() / 2., q));
                 }
                 controlled adjoint (ctls, ...) {
-                    Controlled Adjoint Rx(ctls, ((PI() / 2.), q));
+                    Controlled Adjoint Rx(ctls, (PI() / 2., q));
                 }
             }
             operation Main() : Unit {
@@ -2918,18 +2918,18 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
                     let _array_id_104 : (Qubit => Unit is Adj + Ctl)[] = gates;
                     let _len_id_108 : Int = Length(_array_id_104);
                     mutable _index_id_113 : Int = 0;
-                    while (_index_id_113 < _len_id_108) {
-                        if (_index_id_113 == 0) {
+                    while _index_id_113 < _len_id_108 {
+                        if _index_id_113 == 0 {
                             H(q)
-                        } else if (_index_id_113 == 1) {
+                        } else if _index_id_113 == 1 {
                             X(q)
-                        } else if (_index_id_113 == 2) {
+                        } else if _index_id_113 == 2 {
                             Y(q)
-                        } else if (_index_id_113 == 3) {
+                        } else if _index_id_113 == 3 {
                             Z(q)
-                        } else if (_index_id_113 == 4) {
+                        } else if _index_id_113 == 4 {
                             S(q)
-                        } else if (_index_id_113 == 5) {
+                        } else if _index_id_113 == 5 {
                             Adjoint S(q)
                         } else {
                             SX(q)

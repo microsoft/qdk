@@ -219,7 +219,7 @@ fn dynamic_tuple_eq_decomposed() {
                 let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
                 let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
                 let (r0 : Result, r1 : Result) = (M(q0), M(q1));
-                let _generated_ident_55 : Bool = ((r0, r1) == (Zero, Zero));
+                let _generated_ident_55 : Bool = (r0, r1) == (Zero, Zero);
                 __quantum__rt__qubit_release(_generated_ident_41);
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
@@ -233,7 +233,7 @@ fn dynamic_tuple_eq_decomposed() {
                 let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
                 let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
                 let (r0 : Result, r1 : Result) = (M(q0), M(q1));
-                let _generated_ident_55 : Bool = ((r0 == Zero) and (r1 == Zero));
+                let _generated_ident_55 : Bool = (r0 == Zero) and (r1 == Zero);
                 __quantum__rt__qubit_release(_generated_ident_41);
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
@@ -279,7 +279,7 @@ fn dynamic_tuple_neq_decomposed() {
                 let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
                 let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
                 let (r0 : Result, r1 : Result) = (M(q0), M(q1));
-                let _generated_ident_55 : Bool = ((r0, r1) != (Zero, Zero));
+                let _generated_ident_55 : Bool = (r0, r1) != (Zero, Zero);
                 __quantum__rt__qubit_release(_generated_ident_41);
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
@@ -293,7 +293,7 @@ fn dynamic_tuple_neq_decomposed() {
                 let _generated_ident_41 : Qubit = __quantum__rt__qubit_allocate();
                 let (q0 : Qubit, q1 : Qubit) = (_generated_ident_39, _generated_ident_41);
                 let (r0 : Result, r1 : Result) = (M(q0), M(q1));
-                let _generated_ident_55 : Bool = ((r0 != Zero) or (r1 != Zero));
+                let _generated_ident_55 : Bool = (r0 != Zero) or (r1 != Zero);
                 __quantum__rt__qubit_release(_generated_ident_41);
                 __quantum__rt__qubit_release(_generated_ident_39);
                 _generated_ident_55
@@ -326,14 +326,14 @@ fn classical_tuple_eq_decomposed() {
         &expect![[r#"
             BEFORE:
             function Main() : Bool {
-                ((1, 2) == (3, 4))
+                (1, 2) == (3, 4)
             }
             // entry
             Main()
 
             AFTER:
             function Main() : Bool {
-                ((1 == 3) and (2 == 4))
+                (1 == 3) and (2 == 4)
             }
             // entry
             Main()
@@ -372,7 +372,7 @@ fn mixed_classical_dynamic_tuple_decomposed() {
             operation Main() : Bool {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let r : Result = M(q);
-                let _generated_ident_32 : Bool = ((1, r) == (0, Zero));
+                let _generated_ident_32 : Bool = (1, r) == (0, Zero);
                 __quantum__rt__qubit_release(q);
                 _generated_ident_32
             }
@@ -383,7 +383,7 @@ fn mixed_classical_dynamic_tuple_decomposed() {
             operation Main() : Bool {
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let r : Result = M(q);
-                let _generated_ident_32 : Bool = ((1 == 0) and (r == Zero));
+                let _generated_ident_32 : Bool = (1 == 0) and (r == Zero);
                 __quantum__rt__qubit_release(q);
                 _generated_ident_32
             }
@@ -464,7 +464,7 @@ fn nested_tuple_eq_recursively_decomposes_inner_elements() {
                 let q2 : Qubit = __quantum__rt__qubit_allocate();
                 let a : (Result, Result) = (M(q1), M(q2));
                 let b : (Result, Result) = (M(q1), M(q2));
-                let _generated_ident_55 : Bool = ((a, a) == (b, b));
+                let _generated_ident_55 : Bool = (a, a) == (b, b);
                 __quantum__rt__qubit_release(q2);
                 __quantum__rt__qubit_release(q1);
                 _generated_ident_55
@@ -478,7 +478,7 @@ fn nested_tuple_eq_recursively_decomposes_inner_elements() {
                 let q2 : Qubit = __quantum__rt__qubit_allocate();
                 let a : (Result, Result) = (M(q1), M(q2));
                 let b : (Result, Result) = (M(q1), M(q2));
-                let _generated_ident_55 : Bool = (((a::Item < 0 > == b::Item < 0 >) and (a::Item < 1 > == b::Item < 1 >)) and ((a::Item < 0 > == b::Item < 0 >) and (a::Item < 1 > == b::Item < 1 >)));
+                let _generated_ident_55 : Bool = ((a::Item < 0 > == b::Item < 0 >) and (a::Item < 1 > == b::Item < 1 >)) and ((a::Item < 0 > == b::Item < 0 >) and (a::Item < 1 > == b::Item < 1 >));
                 __quantum__rt__qubit_release(q2);
                 __quantum__rt__qubit_release(q1);
                 _generated_ident_55
@@ -519,14 +519,14 @@ fn nested_tuple_neq_recursively_decomposes_inner_elements() {
         &expect![[r#"
             BEFORE:
             function Main() : Bool {
-                (((1, 2), (3, 4)) != ((1, 5), (3, 4)))
+                ((1, 2), (3, 4)) != ((1, 5), (3, 4))
             }
             // entry
             Main()
 
             AFTER:
             function Main() : Bool {
-                (((1 != 1) or (2 != 5)) or ((3 != 3) or (4 != 4)))
+                ((1 != 1) or (2 != 5)) or ((3 != 3) or (4 != 4))
             }
             // entry
             Main()
@@ -580,14 +580,14 @@ fn empty_tuple_eq_unchanged_no_decomposition() {
         &expect![[r#"
             BEFORE:
             function Main() : Bool {
-                (() == ())
+                () == ()
             }
             // entry
             Main()
 
             AFTER:
             function Main() : Bool {
-                (() == ())
+                () == ()
             }
             // entry
             Main()

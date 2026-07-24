@@ -40,7 +40,7 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
                     3
                 };
                 let __operand_tmp_2 : Int = if (not __has_returned) {
-                    (__operand_tmp_0 + __operand_tmp_1)
+                    __operand_tmp_0 + __operand_tmp_1
                 } else {
                     0
                 };
@@ -57,7 +57,7 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
                     0
                 };
                 let x : Int = if (not __has_returned) {
-                    (__operand_tmp_2 + __operand_tmp_3)
+                    __operand_tmp_2 + __operand_tmp_3
                 } else {
                     0
                 };
@@ -106,10 +106,10 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
                         };
                         3
                     };
-                    (y + 4)
+                    y + 4
                 };
                 let x : Int = if (not __has_returned) {
-                    (__operand_tmp_0 + __operand_tmp_1)
+                    __operand_tmp_0 + __operand_tmp_1
                 } else {
                     0
                 };
@@ -242,7 +242,7 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                let flag : Bool = (M(q) == One);
+                let flag : Bool = M(q) == One;
                 let __operand_tmp_0 : Int = {
                     {
                         let _generated_ident_52 : Int = 1;
@@ -278,7 +278,7 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
                     0
                 };
                 let x : Int = if (not __has_returned) {
-                    (__operand_tmp_1 + __operand_tmp_2)
+                    __operand_tmp_1 + __operand_tmp_2
                 } else {
                     0
                 };

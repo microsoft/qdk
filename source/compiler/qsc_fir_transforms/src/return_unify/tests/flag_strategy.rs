@@ -28,8 +28,8 @@ fn return_inside_while_loop() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 10)) {
-                    if (i == 5) {
+                while ((not __has_returned)) and (i < 10) {
+                    if i == 5 {
                         {
                             __ret_val = i;
                             __has_returned = true;
@@ -82,8 +82,8 @@ fn while_return_tuple_value_via_flag_transform() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int, Bool) = (0, false);
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 3)) {
-                    if (i == 1) {
+                while ((not __has_returned)) and (i < 3) {
+                    if i == 1 {
                         {
                             __ret_val = (i, true);
                             __has_returned = true;
@@ -212,10 +212,10 @@ fn while_return_array_value_via_flag_transform() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int[] = [];
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 3)) {
-                    if (i == 1) {
+                while ((not __has_returned)) and (i < 3) {
+                    if i == 1 {
                         {
-                            __ret_val = [i, (i + 1)];
+                            __ret_val = [i, i + 1];
                             __has_returned = true;
                         };
                     }
@@ -1045,14 +1045,14 @@ fn nested_loop_exit_convergence_is_guarded_by_flag() {
 
     assert!(
         rendered.contains(&format!(
-            "while ((not {}) and (outer < 2))",
+            "while ((not {})) and (outer < 2)",
             symbols::HAS_RETURNED
         )),
         "outer loop exit convergence must be guarded by __has_returned",
     );
     assert!(
         rendered.contains(&format!(
-            "while ((not {}) and (inner < 2))",
+            "while ((not {})) and (inner < 2)",
             symbols::HAS_RETURNED
         )),
         "inner loop exit convergence must be guarded by __has_returned",
@@ -1333,7 +1333,7 @@ fn recursive_while_body_qubit_suffix_uses_lazy_continuation() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
@@ -1387,7 +1387,7 @@ fn recursive_nested_block_qubit_suffix_uses_lazy_continuation() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         {
                             __ret_val = 1;
@@ -1444,13 +1444,13 @@ fn recursive_qubit_suffix_after_defaultable_local_uses_single_lazy_continuation(
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
                     };
                     if (not __has_returned) {
-                        let fallback : Int = (i + 1);
+                        let fallback : Int = i + 1;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         Reset(q);
                         i = fallback;
@@ -1556,7 +1556,7 @@ fn final_trailing_side_effect_after_flag_return_shape() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
@@ -1817,9 +1817,9 @@ fn tuple_return_in_while_with_nested_if() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int, Bool) = (0, false);
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 10)) {
-                    if (i > 5) {
-                        if (i == 7) {
+                while ((not __has_returned)) and (i < 10) {
+                    if i > 5 {
+                        if i == 7 {
                             {
                                 __ret_val = (i, true);
                                 __has_returned = true;
@@ -1910,8 +1910,8 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable i : Int = 0;
-                    while ((not __has_returned) and (i < 5)) {
-                        if (i == 3) {
+                    while ((not __has_returned)) and (i < 5) {
+                        if i == 3 {
                             {
                                 __ret_val = ();
                                 __has_returned = true;
@@ -1938,8 +1938,8 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable j : Int = 0;
-                    while ((not __has_returned) and (j < 5)) {
-                        if (j == 2) {
+                    while ((not __has_returned)) and (j < 5) {
+                        if j == 2 {
                             {
                                 __ret_val = ();
                                 __has_returned = true;
@@ -1966,8 +1966,8 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable k : Int = 0;
-                    while ((not __has_returned) and (k < 5)) {
-                        if (k == 4) {
+                    while ((not __has_returned)) and (k < 5) {
+                        if k == 4 {
                             {
                                 __ret_val = ();
                                 __has_returned = true;
@@ -1994,8 +1994,8 @@ fn all_four_specializations_with_return_in_loop() {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Unit = ();
                     mutable m : Int = 0;
-                    while ((not __has_returned) and (m < 5)) {
-                        if (m == 1) {
+                    while ((not __has_returned)) and (m < 5) {
+                        if m == 1 {
                             {
                                 __ret_val = ();
                                 __has_returned = true;
@@ -2056,9 +2056,9 @@ fn qubit_alloc_scope_with_flag_lowering() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 5)) {
+                while ((not __has_returned)) and (i < 5) {
                     let q : Qubit = __quantum__rt__qubit_allocate();
-                    if (i == 3) {
+                    if i == 3 {
                         {
                             let _generated_ident_45 : Int = i;
                             __quantum__rt__qubit_release(q);
@@ -2121,8 +2121,8 @@ fn repeat_until_with_return() {
                 mutable attempt : Int = 0;
                 {
                     mutable _continue_cond_46 : Bool = true;
-                    while ((not __has_returned) and _continue_cond_46) {
-                        if (attempt > 3) {
+                    while ((not __has_returned)) and _continue_cond_46 {
+                        if attempt > 3 {
                             {
                                 __ret_val = (-1);
                                 __has_returned = true;
@@ -2133,10 +2133,10 @@ fn repeat_until_with_return() {
                             attempt += 1;
                         };
                         if (not __has_returned) {
-                            result = (attempt * 2);
+                            result = attempt * 2;
                         };
                         if (not __has_returned) {
-                            _continue_cond_46 = (not (result > 5));
+                            _continue_cond_46 = (not result > 5);
                         };
                     }
 
@@ -2184,8 +2184,8 @@ fn while_body_side_effect_guarded_after_return() {
                 mutable __ret_val : Int = 0;
                 mutable sum : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 10)) {
-                    if (i == 3) {
+                while ((not __has_returned)) and (i < 10) {
+                    if i == 3 {
                         {
                             __ret_val = sum;
                             __has_returned = true;
@@ -2245,8 +2245,8 @@ fn if_expr_init_with_while_return_uses_flag_lowering() {
                 mutable __ret_val : Int = 0;
                 let x : Int = if true {
                     mutable i : Int = 0;
-                    while ((not __has_returned) and (i < 5)) {
-                        if (i == 3) {
+                    while ((not __has_returned)) and (i < 5) {
+                        if i == 3 {
                             {
                                 __ret_val = 42;
                                 __has_returned = true;
@@ -2304,8 +2304,8 @@ fn flag_lowering_guards_local_after_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 5)) {
-                    if (i == 3) {
+                while ((not __has_returned)) and (i < 5) {
+                    if i == 3 {
                         {
                             __ret_val = i;
                             __has_returned = true;
@@ -2313,7 +2313,7 @@ fn flag_lowering_guards_local_after_return() {
                     }
 
                     let y : Int = if (not __has_returned) {
-                        (i * 2)
+                        i * 2
                     } else {
                         0
                     };
@@ -2360,7 +2360,7 @@ fn split_suffix_includes_defaultable_local_before_qubit_local() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     {
                         __ret_val = 1;
                         __has_returned = true;
@@ -2371,7 +2371,7 @@ fn split_suffix_includes_defaultable_local_before_qubit_local() {
                     __ret_val
                 } else {
                     if (not __has_returned) {
-                        let y : Int = (i + 2);
+                        let y : Int = i + 2;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let _generated_ident_39 : Int = y;
                         __quantum__rt__qubit_release(q);
@@ -2416,7 +2416,7 @@ fn split_suffix_return_rewrites_through_shared_flag_pair() {
                 mutable __ret_val : Int = 0;
                 mutable flag : Bool = false;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 1)) {
+                while ((not __has_returned)) and (i < 1) {
                     if flag {
                         {
                             __ret_val = 1;

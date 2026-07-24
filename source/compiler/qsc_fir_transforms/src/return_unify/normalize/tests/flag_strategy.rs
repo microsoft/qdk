@@ -180,13 +180,13 @@ fn while_body_with_call_arg_return() {
     "#},
         &expect![[r#"
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 3)) {
+                while ((not __has_returned)) and (i < 3) {
                     let _ : ((Int, Int) -> Int) = Add;
                     let _ : Int = 0;
                     {
@@ -359,8 +359,8 @@ fn flag_fallback_handles_arrow_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int -> Int) = __return_unify_fail_5;
                 mutable i : Int = 0;
-                while ((not __has_returned) and (i < 3)) {
-                    if (i == n) {
+                while ((not __has_returned)) and (i < 3) {
+                    if i == n {
                         {
                             __ret_val = / * closure item = 3 captures = [] * / _lambda_3;
                             __has_returned = true;
@@ -388,7 +388,7 @@ fn flag_fallback_handles_arrow_return() {
                 f(10)
             }
             function _lambda_3(x : Int, ) : Int {
-                (x + 1)
+                x + 1
             }
             function _lambda_4(x : Int, ) : Int {
                 x

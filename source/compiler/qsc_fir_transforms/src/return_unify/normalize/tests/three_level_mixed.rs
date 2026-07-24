@@ -41,7 +41,7 @@ fn block_block_if_returns_at_each_level() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 let _generated_ident_101 : Int = {
-                    if (M(q) == One) {
+                    if M(q) == One {
                         {
                             let _generated_ident_65 : Int = 1;
                             __quantum__rt__qubit_release(q);
@@ -54,7 +54,7 @@ fn block_block_if_returns_at_each_level() {
 
                     if (not __has_returned) {
                         {
-                            if (M(q) == Zero) {
+                            if M(q) == Zero {
                                 {
                                     let _generated_ident_77 : Int = 2;
                                     __quantum__rt__qubit_release(q);
@@ -67,7 +67,7 @@ fn block_block_if_returns_at_each_level() {
 
                             if (not __has_returned) {
                                 {
-                                    if (M(q) == One) {
+                                    if M(q) == One {
                                         {
                                             let _generated_ident_89 : Int = 3;
                                             __quantum__rt__qubit_release(q);
@@ -140,11 +140,11 @@ fn qubit_scopes_with_deep_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 let q0 : Qubit = __quantum__rt__qubit_allocate();
-                if (M(q0) == One) {
+                if M(q0) == One {
                     let q1 : Qubit = __quantum__rt__qubit_allocate();
-                    let _generated_ident_97 : Unit = if (M(q1) == One) {
+                    let _generated_ident_97 : Unit = if M(q1) == One {
                         let q2 : Qubit = __quantum__rt__qubit_allocate();
-                        let _generated_ident_88 : Unit = if (M(q2) == One) {
+                        let _generated_ident_88 : Unit = if M(q2) == One {
                             {
                                 let _generated_ident_68 : Int = 42;
                                 __quantum__rt__qubit_release(q2);
@@ -227,7 +227,7 @@ fn nested_returns_at_every_level() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
-                if (M(q) == One) {
+                if M(q) == One {
                     {
                         let _generated_ident_74 : Int = 1;
                         __quantum__rt__qubit_release(q);
@@ -239,8 +239,8 @@ fn nested_returns_at_every_level() {
                 }
 
                 if (not __has_returned) {
-                    if (M(q) == Zero) {
-                        if (M(q) == One) {
+                    if M(q) == Zero {
+                        if M(q) == One {
                             {
                                 let _generated_ident_86 : Int = 2;
                                 __quantum__rt__qubit_release(q);
@@ -252,8 +252,8 @@ fn nested_returns_at_every_level() {
                         }
 
                         if (not __has_returned) {
-                            if (M(q) == Zero) {
-                                if (M(q) == One) {
+                            if M(q) == Zero {
+                                if M(q) == One {
                                     {
                                         let _generated_ident_98 : Int = 3;
                                         __quantum__rt__qubit_release(q);
@@ -321,7 +321,7 @@ fn hoist_return_in_call_arg_deep() {
     "#},
         &expect![[r#"
             function Add(a : Int, b : Int) : Int {
-                (a + b)
+                a + b
             }
             operation Main() : Int {
                 mutable __has_returned : Bool = false;
@@ -332,16 +332,16 @@ fn hoist_return_in_call_arg_deep() {
                     mutable _index_id_73 : Int = _range_id_70.Start;
                     let _step_id_78 : Int = _range_id_70.Step;
                     let _end_id_83 : Int = _range_id_70.End;
-                    while ((not __has_returned) and (((_step_id_78 > 0) and (_index_id_73 <= _end_id_83)) or ((_step_id_78 < 0) and (_index_id_73 >= _end_id_83)))) {
+                    while ((not __has_returned)) and (((_step_id_78 > 0) and (_index_id_73 <= _end_id_83)) or ((_step_id_78 < 0) and (_index_id_73 >= _end_id_83))) {
                         let i : Int = _index_id_73;
                         mutable j : Int = 0;
-                        while ((not __has_returned) and (j < 2)) {
-                            if (i == j) {
+                        while ((not __has_returned)) and (j < 2) {
+                            if i == j {
                                 let _ : Int = total;
                                 let _ : ((Int, Int) -> Int) = Add;
                                 let _ : Int = total;
                                 {
-                                    __ret_val = ((i * 100) + j);
+                                    __ret_val = (i * 100) + j;
                                     __has_returned = true;
                                 };
                             }
@@ -408,9 +408,9 @@ fn outer_return_wraps_three_deep_block() {
                 mutable __ret_val : Int = 0;
                 let q : Qubit = __quantum__rt__qubit_allocate();
                 {
-                    let _generated_ident_59 : Int = if (M(q) == One) {
-                        if (M(q) == Zero) {
-                            if (M(q) == One) {
+                    let _generated_ident_59 : Int = if M(q) == One {
+                        if M(q) == Zero {
+                            if M(q) == One {
                                 {
                                     let _generated_ident_60 : Int = 1;
                                     __quantum__rt__qubit_release(q);
