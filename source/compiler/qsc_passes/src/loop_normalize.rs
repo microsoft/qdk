@@ -106,15 +106,6 @@ pub(super) struct LoopNormalize<'a> {
     pub(super) errors: Vec<Error>,
 }
 
-/// Which short-circuit operator form is being reshaped into an `If`, carrying
-/// whether the operator is `and` (`true`) or `or` (`false`).
-enum ShortCircuitForm {
-    /// A value-producing `a and/or b` `BinOp`.
-    BinOp(bool),
-    /// A compound `set p and=/or= rhs` assignment.
-    AssignOp(bool),
-}
-
 impl<'a> LoopNormalize<'a> {
     pub(super) fn new(assigner: &'a mut Assigner) -> Self {
         Self {
@@ -319,6 +310,15 @@ impl<'a> LoopNormalize<'a> {
     /// it for the guard condition is side-effect-free. Mirrors
     /// `return_unify::normalize::hoist_short_circuit`.
     fn rewrite_short_circuit_rhs_in_place(&mut self, expr: &mut Expr) -> bool {
+        /// Which short-circuit operator form is being reshaped into an `If`, carrying
+        /// whether the operator is `and` (`true`) or `or` (`false`).
+        enum ShortCircuitForm {
+            /// A value-producing `a and/or b` `BinOp`.
+            BinOp(bool),
+            /// A compound `set p and=/or= rhs` assignment.
+            AssignOp(bool),
+        }
+
         // Classify the short-circuit form first so the borrow of `expr.kind`
         // ends before the in-place rewrite mutates it.
         let form = match &expr.kind {
@@ -529,7 +529,7 @@ impl<'a> LoopNormalize<'a> {
         let StmtKind::Local(_, _, init) = &mut stmt.kind else {
             return None;
         };
-        if is_defaultable(&init.ty) || !contains_control_flow(init) || !is_representable(&init.ty) {
+        if is_defaultable(&init.ty) || !is_representable(&init.ty) || !contains_control_flow(init) {
             return None;
         }
         let ty = init.ty.clone();
@@ -562,7 +562,6 @@ impl<'a> LoopNormalize<'a> {
         {
             return;
         }
-        let ty = value.ty.clone();
         self.arrayify_value_in_place(value);
     }
 
