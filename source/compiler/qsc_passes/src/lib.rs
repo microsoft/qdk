@@ -91,18 +91,18 @@ pub fn lower_hir_to_fir(
 pub struct PassContext {
     borrow_check: borrowck::Checker,
     /// Read-only config values exposed to Q# via Std.Core.ConfigValue.
-    qsharp_config: FxHashMap<Rc<str>, Value>,
+    qsharp_config: Rc<FxHashMap<Rc<str>, Value>>,
 }
 
 impl Default for PassContext {
     fn default() -> Self {
-        Self::new(FxHashMap::default())
+        Self::new(Default::default())
     }
 }
 
 impl PassContext {
     #[must_use]
-    pub fn new(qsharp_config: FxHashMap<Rc<str>, Value>) -> Self {
+    pub fn new(qsharp_config: Rc<FxHashMap<Rc<str>, Value>>) -> Self {
         Self {
             borrow_check: borrowck::Checker::default(),
             qsharp_config,
