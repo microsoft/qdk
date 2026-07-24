@@ -14,7 +14,7 @@ class TestPerformanceLoggingHelpers(unittest.TestCase):
         self.assertEqual(perf._sanitize_path("/repo/src/file.py", "/repo"), "<repo>/src/file.py")
         self.assertEqual(perf._sanitize_path("/tmp/file.py", "/repo"), "/tmp/file.py")
 
-        with patch("performance_logging.os.path.expanduser", return_value="/home/test"):
+        with patch("pathlib.Path.home", return_value=__import__("pathlib").Path("/home/test")):
             self.assertEqual(perf._sanitize_path("/home/test", None), "~")
             self.assertEqual(perf._sanitize_path("/home/test/work/file.py", None), "~/work/file.py")
 

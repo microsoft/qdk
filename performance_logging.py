@@ -14,7 +14,7 @@ Public API:
 import ctypes
 from dataclasses import dataclass, field
 from enum import Enum
-import os
+from pathlib import Path, PurePath, PureWindowsPath
 import platform
 import shlex
 import subprocess
@@ -104,6 +104,19 @@ class ExecutionPolicy:
 
     run_kwargs: SubprocessRunKwargs
     check: bool = True
+
+
+def _detect_path_type(*paths: str) -> type[PurePath]:
+    """Detect path type (Windows vs POSIX) from path content.
+    
+    Returns PureWindowsPath if any path contains backslash, else PurePath.
+    Follows QDK pattern from source/qdk_package/qdk/_context.py for
+    cross-platform path parsing based on path format, not OS platform.
+    """
+    for path in paths:
+        if "\\" in path:
+            return PureWindowsPath
+    return PurePath
 
 
 def run_with_logging(
@@ -575,18 +588,44 @@ def _system_memory_snapshot_provider_for_system(system: str) -> SystemMemorySnap
 
 
 def _sanitize_path(path: str, repo_root: Optional[str]) -> str:
+    """Sanitize path by replacing repo_root with <repo> or home with ~ (cross-platform).
+    
+    Uses forward slashes for output on all platforms for consistency.
+    """
     if repo_root is not None:
-        root = os.path.abspath(repo_root)
-        if path == root:
+        root_path = Path(repo_root).resolve()
+        path_obj = Path(path).resolve()
+        
+        if path_obj == root_path:
             return "<repo>"
-        if path.startswith(root + os.sep):
-            return "<repo>" + path[len(root) :]
+        try:
+            relative = path_obj.relative_to(root_path)
+            return "<repo>/" + relative.as_posix()
+        except ValueError:
+            # path is not relative to root, continue to next check
+            pass
 
-    home_dir = os.path.expanduser("~")
-    if path == home_dir:
-        return "~"
-    if path.startswith(home_dir + os.sep):
-        return "~" + path[len(home_dir) :]
+    home_dir = str(Path.home())
+    # Use PurePath for cross-platform path parsing
+    path_type = _detect_path_type(path, home_dir)
+    
+    try:
+        path_parsed = path_type(path)
+        home_parsed = path_type(home_dir)
+        
+        if path_parsed == home_parsed:
+            return "~"
+        
+        try:
+            relative = path_parsed.relative_to(home_parsed)
+            # Output with forward slashes for consistency across platforms
+            return "~/" + relative.as_posix()
+        except ValueError:
+            # path is not relative to home, fall through
+            pass
+    except ValueError:
+        # Path parsing failed, return original path
+        pass
 
     return path
 
@@ -598,7 +637,9 @@ def _sanitize_command_args(args: Sequence[object], repo_root: Optional[str]) -> 
     sanitized = []
     for token in args:
         token = str(token)
-        if os.path.isabs(token):
+        # Use pathlib to detect absolute paths (handles both / and \ separators)
+        token_type = _detect_path_type(token)
+        if token_type(token).is_absolute():
             token = _sanitize_path(token, repo_root)
         sanitized.append(token)
     return sanitized
@@ -680,14 +721,24 @@ def _derive_process_role(name: str, cmdline: Sequence[str]) -> str:
     if not cmdline:
         return name
 
-    executable = os.path.basename(cmdline[0]) if cmdline[0] else name
+    # Extract executable name using pathlib, handles both / and \ path separators
+    executable_path = cmdline[0] if cmdline[0] else name
+    path_type = _detect_path_type(executable_path)
+    try:
+        executable = path_type(executable_path).name
+    except ValueError:
+        executable = executable_path
 
     def _normalize_role_token(token: str) -> str:
         if not token:
             return token
-        if os.sep in token:
-            return os.path.basename(token)
-        return token
+        # Use pathlib's PurePath for cross-platform path parsing
+        path_type = _detect_path_type(token)
+        try:
+            return path_type(token).name
+        except ValueError:
+            # If path parsing fails, return token as-is
+            return token
 
     subcommand = ""
 
