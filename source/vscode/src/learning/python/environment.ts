@@ -23,11 +23,13 @@ export class EnvironmentManager {
   /** Cached Python Environments extension API (only set on success). */
   private _pythonEnvApi: PythonEnvironmentApi | undefined;
   /** Cached environments keyed by courseRoot.toString(). */
-  // TODO (acasey): do we need a cache?
-  private readonly _envCache = new Map<string, PythonEnvironment>();
+  private readonly _projectEnvironmentMap = new Map<
+    string,
+    PythonEnvironment
+  >();
 
   dispose(): void {
-    this._envCache.clear();
+    this._projectEnvironmentMap.clear();
   }
 
   /** True on a host where environment management can run (desktop only). */
@@ -78,7 +80,7 @@ export class EnvironmentManager {
       }
 
       // Cache the resolved environment.
-      this._envCache.set(courseRoot.toString(), env);
+      this._projectEnvironmentMap.set(courseRoot.toString(), env);
     }
   }
 
@@ -155,7 +157,7 @@ export class EnvironmentManager {
     courseRoot: vscode.Uri,
   ): Promise<PythonEnvironment | undefined> {
     // Check cache first.
-    const cached = this._envCache.get(courseRoot.toString());
+    const cached = this._projectEnvironmentMap.get(courseRoot.toString());
     if (cached) {
       return cached;
     }
@@ -174,7 +176,7 @@ export class EnvironmentManager {
         );
         return undefined;
       }
-      this._envCache.set(courseRoot.toString(), env);
+      this._projectEnvironmentMap.set(courseRoot.toString(), env);
     }
     return env;
   }
