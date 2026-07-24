@@ -721,12 +721,10 @@ export class LearningService {
     );
 
     // 3. Required packages import in the environment.
-    if (envExists) {
+    const importChecks = course.environment?.importChecks ?? [];
+    if (envExists && importChecks.length > 0) {
       log.info(`[env-check] Checking package imports…`);
-      const report = await env.importsReport(courseRoot, [
-        "qdk",
-        "qsharp_widgets",
-      ]);
+      const report = await env.importsReport(courseRoot, importChecks);
       const missing = report.filter((r) => !r.ok).map((r) => r.module);
       log.info(
         `[env-check] Import results: ${report.map((r) => `${r.module}=${r.ok ? "ok" : "fail"}`).join(", ")}`,
@@ -752,7 +750,7 @@ export class LearningService {
           },
         ),
       );
-    } else {
+    } else if (importChecks.length > 0) {
       log.info(`[env-check] Skipping package imports — no environment.`);
       checks.push(
         check("packages", "Required packages", "skip", {
