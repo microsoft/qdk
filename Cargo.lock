@@ -1987,9 +1987,12 @@ dependencies = [
 name = "qre"
 version = "0.0.0"
 dependencies = [
+ "indoc",
  "miette",
  "num-traits",
  "probability",
+ "qsc",
+ "rand 0.10.1",
  "rustc-hash",
  "serde",
  "thiserror",

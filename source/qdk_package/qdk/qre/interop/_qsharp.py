@@ -5,9 +5,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import time
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 
-from ..._interpreter import logical_counts
+from ..._interpreter import (
+    Closure,
+    GlobalCallable,
+    _get_context_or_default,
+    logical_counts,
+)
 from ...estimator import LogicalCounts
 from .._qre import Trace
 from ..instruction_ids import CCX, MEAS_Z, RZ, T, READ_FROM_MEMORY, WRITE_TO_MEMORY
@@ -54,22 +59,11 @@ def _bucketize_rotation_counts(
     return result
 
 
-def trace_from_entry_expr(
-    entry_expr: str | Callable | LogicalCounts, *args: Any
+def _trace_from_entry_expr_using_logical_counts(
+    entry_expr: str | Callable | LogicalCounts,
+    args: tuple,
 ) -> Trace:
-    """Convert a Q# entry expression into a resource-estimation Trace.
-
-    Evaluates the entry expression to obtain logical counts, then builds
-    a trace containing the corresponding quantum operations.
-
-    Args:
-        entry_expr (str or :class:`~typing.Callable` or :class:`~qdk.estimator.LogicalCounts`): A Q# entry expression
-            string, a callable, or pre-computed logical counts.
-        *args: The arguments to pass to the callable, if one is provided.
-
-    Returns:
-        :class:`~qdk.qre.Trace`: A trace representing the resource profile of the program.
-    """
+    """Build a Trace from logical counts."""
 
     start = time.time_ns()
     counts = (
@@ -127,10 +121,70 @@ def trace_from_entry_expr(
     return trace
 
 
+def _trace_from_entry_expr_using_trace_builder(
+    entry_expr: str | Callable, args: tuple
+) -> Trace:
+    """Build a Trace directly from Q# execution via the native trace backend."""
+    context = _get_context_or_default(entry_expr)
+
+    start = time.time_ns()
+    if isinstance(entry_expr, Callable) and hasattr(entry_expr, "__global_callable"):
+        context._check_same_context_callable(entry_expr)
+        interpreter_args = context._python_args_to_interpreter_args(args)
+        trace = context._interpreter.trace(
+            callable=getattr(entry_expr, "__global_callable"), args=interpreter_args
+        )
+    elif isinstance(entry_expr, (GlobalCallable, Closure)):
+        interpreter_args = context._python_args_to_interpreter_args(args)
+        trace = context._interpreter.trace(callable=entry_expr, args=interpreter_args)
+    else:
+        assert isinstance(entry_expr, str)
+        trace = context._interpreter.trace(entry_expr=entry_expr)
+    evaluation_time = time.time_ns() - start
+
+    trace.set_property(EVALUATION_TIME, evaluation_time)
+    trace.set_property(ALGORITHM_COMPUTE_QUBITS, trace.compute_qubits)
+    trace.set_property(ALGORITHM_MEMORY_QUBITS, trace.memory_qubits or 0)
+    return trace
+
+
+def trace_from_entry_expr(
+    entry_expr: str | Callable | LogicalCounts,
+    use_trace_backend: bool = False,
+    args: tuple = (),
+) -> Trace:
+    """Convert a Q# entry expression into a resource-estimation Trace.
+
+    Evaluates the entry expression to obtain logical counts, then builds
+    a trace containing the corresponding quantum operations.
+
+    Args:
+        entry_expr (str or :class:`~typing.Callable` or :class:`~qdk.estimator.LogicalCounts`): A Q# entry expression
+            string, a callable, or pre-computed logical counts.
+        use_trace_backend (bool): If True, uses the native Q# trace backend to
+            build the trace directly from execution. If False, derives the
+            trace from logical counts.
+        args (tuple): Positional arguments to pass to the callable entry
+            expression, if one is provided.
+
+    Returns:
+        :class:`~qdk.qre.Trace`: A trace representing the resource profile of the program.
+    """
+    if use_trace_backend:
+        if isinstance(entry_expr, LogicalCounts):
+            raise TypeError(
+                "LogicalCounts input is not supported when use_trace_backend=True"
+            )
+        return _trace_from_entry_expr_using_trace_builder(entry_expr, args)
+    else:
+        return _trace_from_entry_expr_using_logical_counts(entry_expr, args)
+
+
 def trace_from_entry_expr_cached(
     entry_expr: str | Callable | LogicalCounts,
     cache_path: Optional[Path],
-    *args: Any,
+    use_trace_backend: bool = False,
+    args: tuple = (),
 ) -> Trace:
     """Convert a Q# entry expression into a Trace, with optional caching.
 
@@ -143,6 +197,11 @@ def trace_from_entry_expr_cached(
             string, a callable, or pre-computed logical counts.
         cache_path (Optional[Path]): Path for reading/writing the cached
             trace. If None, caching is disabled.
+        use_trace_backend (bool): Passed through to
+            ``trace_from_entry_expr``. If True, uses the native trace backend;
+            otherwise uses the logical-counts-based path.
+        args (tuple): Positional arguments to pass to the callable entry
+            expression, if one is provided.
 
     Returns:
         :class:`~qdk.qre.Trace`: A trace representing the resource profile of the program.
@@ -150,7 +209,9 @@ def trace_from_entry_expr_cached(
     if cache_path and cache_path.exists():
         return Trace.from_json(cache_path.read_text(encoding="utf-8"))
 
-    trace = trace_from_entry_expr(entry_expr, *args)
+    trace = trace_from_entry_expr(
+        entry_expr, use_trace_backend=use_trace_backend, args=args
+    )
 
     if cache_path:
         cache_path.parent.mkdir(parents=True, exist_ok=True)

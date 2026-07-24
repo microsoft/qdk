@@ -61,4 +61,4 @@ class OpenQASMApplication(Application[None]):
             import_openqasm(self.program, name=name, program_type=ProgramType.File)
             self.program = getattr(code.qasm_import, name)
 
-        return trace_from_entry_expr(self.program, *self.args)
+        return trace_from_entry_expr(self.program, args=self.args)

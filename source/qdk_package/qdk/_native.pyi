@@ -14,6 +14,8 @@ from typing import (
     overload,
 )
 
+from .qre import Trace
+
 # pylint: disable=unused-argument
 # E302 is fighting with the formatter for number of blank lines
 # flake8: noqa: E302
@@ -321,6 +323,23 @@ class Interpreter:
         :param args: The arguments to pass to the callable, if any.
 
         :returns resources: The logical resources.
+        """
+        ...
+
+    def trace(
+        self,
+        entry_expr: Optional[str] = None,
+        callable: Optional[GlobalCallable | Closure] = None,
+        args: Optional[Any] = None,
+    ) -> Trace:
+        """
+        Builds a QRE trace for Q# source code.
+
+        :param entry_expr: The entry expression to run.
+        :param callable: The callable to run, if no entry expression is provided.
+        :param args: The arguments to pass to the callable, if any.
+
+        :returns trace: The resource-estimation trace.
         """
         ...
 

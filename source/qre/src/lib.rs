@@ -27,6 +27,8 @@ pub use trace::{
     Property, Trace, TraceTransform, Unmemory, WalkIterator, estimate_parallel,
     estimate_with_graph,
 };
+mod trace_builder;
+pub use trace_builder::{TraceBuilder, trace_call, trace_expr};
 mod utils;
 pub use utils::{binom_ppf, float_from_bits, float_to_bits};
 
