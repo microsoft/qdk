@@ -605,7 +605,7 @@ export class LearningService {
    * suitable for passing to the Jupyter extension's `openNotebook` API.
    * Returns `undefined` for Q# courses or when no environment exists.
    */
-  async getActiveCourseEnvironmentPath(): Promise<
+  async getJupyterEnvironmentPath(): Promise<
     { id: string; path: string } | undefined
   > {
     const course = this.activeCourse;
@@ -613,7 +613,7 @@ export class LearningService {
       return undefined;
     }
     const courseRoot = vscode.Uri.parse(course.sourceDir);
-    return this.environment.getEnvironmentPath(courseRoot);
+    return this.environment.getJupyterEnvironmentPath(courseRoot);
   }
 
   /**

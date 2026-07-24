@@ -438,10 +438,9 @@ export class LessonPanelManager {
 
     // Try to open via the Jupyter extension's unstable API so the course's
     // Python environment is automatically set as the active kernel.
-    const envPath = await this.service.getActiveCourseEnvironmentPath();
+    const envPath = await this.service.getJupyterEnvironmentPath();
     if (envPath) {
-      const jupyter =
-        vscode.extensions.getExtension("ms-toolsai.jupyter");
+      const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
       const api = await jupyter?.activate();
       if (api && typeof api.openNotebook === "function") {
         await api.openNotebook(notebookUri, envPath);

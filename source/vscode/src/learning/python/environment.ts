@@ -104,7 +104,7 @@ export class EnvironmentManager {
    * for passing to the Jupyter extension's `openNotebook` API.
    * Returns `undefined` when no environment has been resolved.
    */
-  async getEnvironmentPath(
+  async getJupyterEnvironmentPath(
     courseRoot: vscode.Uri,
   ): Promise<{ id: string; path: string } | undefined> {
     if (!this.supported) {
