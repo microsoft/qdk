@@ -58,7 +58,7 @@ export class EnvironmentManager {
     }
     const api = await this.pythonEnvironmentsApi();
     if (!api) {
-      // TODO (acasey): where does this go?
+      // TODO (acasey): this goes to the extension host output window, which isn't useful
       throw new Error(
         "The Python Environments extension is required for Python courses. " +
           "Install it from the VS Code Marketplace.",
@@ -200,6 +200,16 @@ export class EnvironmentManager {
     await api.refreshEnvironments(courseRoot);
     const env = await api.getEnvironment(courseRoot);
     if (env) {
+      // If there's no local venv, getEnvironment will return the global install
+      const envPath = env.environmentPath.toString();
+      const rootPath = courseRoot.toString().replace(/\/?$/, "/");
+      if (!envPath.startsWith(rootPath)) {
+        log.debug(
+          `Ignoring environment "${env.name}" at ${envPath} ` +
+            `because it is not under ${rootPath}`,
+        );
+        return undefined;
+      }
       this._envCache.set(courseRoot.toString(), env);
     }
     return env;
