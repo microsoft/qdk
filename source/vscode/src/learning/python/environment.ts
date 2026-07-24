@@ -65,7 +65,8 @@ export class EnvironmentManager {
         `Updating existing environment for ${courseRoot.fsPath}: ${env.name}`,
       );
     } else {
-      // Create a new environment. The API picks up pyproject.toml if present.
+      // Create a new environment. The API picks up requirements.txt, if present.
+      // As of July 2026, it will not parse pyproject.toml.
       log.info(`Creating new environment for ${courseRoot.fsPath}`);
       env = await api.createEnvironment(courseRoot, { quickCreate: true });
       if (!env) {
@@ -78,16 +79,6 @@ export class EnvironmentManager {
 
       // Cache the resolved environment.
       this._envCache.set(courseRoot.toString(), env);
-    }
-
-    // The environments API doesn't presently support parsing requirements.txt or pyproject.toml,
-    // so we have to do it ourselves.  Hopefully, this will be folded into createEnvironment at some point.
-    const packages = await this.readRequirements(courseRoot);
-
-    // Install packages.
-    if (packages.length > 0) {
-      log.info(`Installing packages: ${packages.join(", ")}`);
-      await api.managePackages(env, { install: packages });
     }
   }
 
@@ -136,28 +127,6 @@ export class EnvironmentManager {
   }
 
   // ─── Private helpers ───
-
-  private async readRequirements(courseRoot: vscode.Uri): Promise<string[]> {
-    const requirementsUri = vscode.Uri.joinPath(courseRoot, "requirements.txt");
-    try {
-      const contents = new TextDecoder().decode(
-        await vscode.workspace.fs.readFile(requirementsUri),
-      );
-      return contents
-        .split(/\r?\n/)
-        .map((requirement) => requirement.trim())
-        .filter(
-          (requirement) =>
-            requirement.length > 0 && !requirement.startsWith("#"),
-        );
-    } catch (e) {
-      if (e instanceof vscode.FileSystemError && e.code === "FileNotFound") {
-        log.warn(`No requirements.txt found under ${courseRoot.fsPath}`);
-        return [];
-      }
-      throw e;
-    }
-  }
 
   /**
    * The Python Environments extension API, or `undefined` when the
