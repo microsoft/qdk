@@ -3,6 +3,11 @@
 A short, hands-on course that shows how to generate and visualize circuit
 diagrams from Q# operations using the QDK Python API in a Jupyter notebook.
 
+## Getting started
+
+Pick a unit in the **Learning** tree view to open its notebook and start working
+through it. Your progress is tracked there as you run the exercise cells.
+
 ## What you'll learn
 
 - Run Q# code from Python with the `qdk` package.

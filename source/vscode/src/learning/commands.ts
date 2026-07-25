@@ -144,6 +144,21 @@ export function registerLearningCommands(
           return;
         }
         await service.switchCourse(courseId, "tree");
+
+        // python-notebook courses don't use the lesson panel. For a course
+        // that hasn't been started yet, show the README so there's something
+        // to read while the environment is set up in the background;
+        // otherwise pick up where the learner left off.
+        if (service.getActiveCourseInfo().kind === "python-notebook") {
+          if (service.getProgress().stats.completedActivities === 0) {
+            // TODO (acasey): close this once a notebook is open
+            await showCourseInfo(service, courseId);
+          } else {
+            await openCourseNotebook(service);
+          }
+          return;
+        }
+
         await panelManager.show();
       },
     ),
