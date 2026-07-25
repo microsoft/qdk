@@ -20,7 +20,7 @@ use qsc_hir::{
 
 use crate::loop_unification::{
     Error, check_no_break_continue,
-    test_utils::{check, check_normalized, desugar},
+    test_utils::{check, check_normalized, desugar, desugar_normalized},
 };
 
 #[test]
@@ -946,7 +946,7 @@ fn break_in_value_block_of_non_defaultable_type_normalized_and_relocated() {
 
 #[test]
 fn convert_operand_position_break_normalized_then_desugared() {
-    // The normalize pass hoists the operand-position `break` value block to a
+    // The normalize pass lifts the operand-position `break` value block to a
     // statement-position `let`, which the desugar then rewrites in place.
     check_normalized(
         indoc! {r#"
@@ -963,25 +963,24 @@ fn convert_operand_position_break_normalized_then_desugared() {
             operation Foo(x : Int) : Unit {}
             operation Main() : Unit {
                 {
-                    let _range_id_59 = 0..4;
-                    mutable _index_id_62 = _range_id_59.Start;
-                    let _step_id_67 = _range_id_59.Step;
-                    let _end_id_72 = _range_id_59.End;
-                    mutable _broke_43 = false;
-                    while ((not _broke_43)) and (((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72))) {
-                        let i = _index_id_62;
-                        let _operand_tmp_35 = Foo;
-                        let _operand_tmp_39 = if i == 2 {
-                            _broke_43 = true;
+                    let _range_id_55 = 0..4;
+                    mutable _index_id_58 = _range_id_55.Start;
+                    let _step_id_63 = _range_id_55.Step;
+                    let _end_id_68 = _range_id_55.End;
+                    mutable _broke_39 = false;
+                    while ((not _broke_39)) and (((_step_id_63 > 0) and (_index_id_58 <= _end_id_68)) or ((_step_id_63 < 0) and (_index_id_58 >= _end_id_68))) {
+                        let i = _index_id_58;
+                        let _operand_tmp_35 = if i == 2 {
+                            _broke_39 = true;
                             0
                         } else {
                             i
                         };
-                        if (not _broke_43) {
-                            _operand_tmp_35(_operand_tmp_39);
+                        if (not _broke_39) {
+                            Foo(_operand_tmp_35);
                         }
-                        if (not _broke_43) {
-                            _index_id_62 += _step_id_67;
+                        if (not _broke_39) {
+                            _index_id_58 += _step_id_63;
                         }
                     }
                 }
@@ -1016,25 +1015,24 @@ fn convert_array_backed_operand_break_normalized_then_desugared() {
             operation Main() : Unit {
                 use q = Qubit();
                 {
-                    let _range_id_66 = 0..4;
-                    mutable _index_id_69 = _range_id_66.Start;
-                    let _step_id_74 = _range_id_66.Step;
-                    let _end_id_79 = _range_id_66.End;
-                    mutable _broke_50 = false;
-                    while ((not _broke_50)) and (((_step_id_74 > 0) and (_index_id_69 <= _end_id_79)) or ((_step_id_74 < 0) and (_index_id_69 >= _end_id_79))) {
-                        let i = _index_id_69;
-                        let _operand_tmp_39 = Foo;
-                        let _operand_tmp_43 = if i == 2 {
-                            _broke_50 = true;
+                    let _range_id_62 = 0..4;
+                    mutable _index_id_65 = _range_id_62.Start;
+                    let _step_id_70 = _range_id_62.Step;
+                    let _end_id_75 = _range_id_62.End;
+                    mutable _broke_46 = false;
+                    while ((not _broke_46)) and (((_step_id_70 > 0) and (_index_id_65 <= _end_id_75)) or ((_step_id_70 < 0) and (_index_id_65 >= _end_id_75))) {
+                        let i = _index_id_65;
+                        let _operand_tmp_39 = if i == 2 {
+                            _broke_46 = true;
                             []
                         } else {
                             [q]
                         };
-                        if (not _broke_50) {
-                            _operand_tmp_39(_operand_tmp_43[0]);
+                        if (not _broke_46) {
+                            Foo(_operand_tmp_39[0]);
                         }
-                        if (not _broke_50) {
-                            _index_id_69 += _step_id_74;
+                        if (not _broke_46) {
+                            _index_id_65 += _step_id_70;
                         }
                     }
                 }
@@ -1151,7 +1149,7 @@ fn convert_descending_for_range_with_break_and_continue() {
 
 #[test]
 fn convert_operand_position_continue_normalized_then_desugared() {
-    // The normalize pass hoists an operand-position `continue` value block to a
+    // The normalize pass lifts an operand-position `continue` value block to a
     // statement-position `let`, which the desugar then rewrites in place. The
     // per-iteration `.cont_<id>` flag skips the eager consumer but still lets the
     // loop step run.
@@ -1170,24 +1168,23 @@ fn convert_operand_position_continue_normalized_then_desugared() {
             operation Foo(x : Int) : Unit {}
             operation Main() : Unit {
                 {
-                    let _range_id_59 = 0..4;
-                    mutable _index_id_62 = _range_id_59.Start;
-                    let _step_id_67 = _range_id_59.Step;
-                    let _end_id_72 = _range_id_59.End;
-                    while ((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72)) {
-                        mutable _cont_43 = false;
-                        let i = _index_id_62;
-                        let _operand_tmp_35 = Foo;
-                        let _operand_tmp_39 = if i == 2 {
-                            _cont_43 = true;
+                    let _range_id_55 = 0..4;
+                    mutable _index_id_58 = _range_id_55.Start;
+                    let _step_id_63 = _range_id_55.Step;
+                    let _end_id_68 = _range_id_55.End;
+                    while ((_step_id_63 > 0) and (_index_id_58 <= _end_id_68)) or ((_step_id_63 < 0) and (_index_id_58 >= _end_id_68)) {
+                        mutable _cont_39 = false;
+                        let i = _index_id_58;
+                        let _operand_tmp_35 = if i == 2 {
+                            _cont_39 = true;
                             0
                         } else {
                             i
                         };
-                        if (not _cont_43) {
-                            _operand_tmp_35(_operand_tmp_39);
+                        if (not _cont_39) {
+                            Foo(_operand_tmp_35);
                         }
-                        _index_id_62 += _step_id_67;
+                        _index_id_58 += _step_id_63;
                     }
                 }
             }
@@ -1353,6 +1350,198 @@ fn break_flag_set_is_steppable_and_guards_are_non_steppable() {
         }
     "#]]
         .assert_eq(&crate::qsharp_gen::write_package_qsharp(&store, &unit.package));
+}
+
+#[test]
+fn nested_ancestor_assignment_full_pass_preserves_prefix_and_guards_consumer() {
+    let (unit, store, errors) = desugar_normalized(indoc! {r#"
+        namespace test {
+            operation Effect(value : Int) : Unit {}
+            function Inner(value : Int) : Int { value }
+            operation Consume(value : Int) : Unit {}
+            operation Main() : Unit {
+                mutable cond = true;
+                mutable target = 0;
+                while cond {
+                    target += ({ Effect(1); Inner })(if cond { Effect(2); break } else { 3 });
+                    Consume(target);
+                }
+            }
+        }
+        "#});
+    assert!(errors.is_empty(), "unexpected desugar errors: {errors:?}");
+    let qsharp = crate::qsharp_gen::write_package_qsharp(&store, &unit.package);
+
+    let first_effect = qsharp
+        .find("Effect(1)")
+        .expect("outer effect should remain");
+    let second_effect = qsharp
+        .find("Effect(2)")
+        .expect("nested effect should remain");
+    let flag_write = second_effect
+        + qsharp[second_effect..]
+            .find("= true;")
+            .expect("break should become a flag write");
+    let assignment = qsharp
+        .rfind("target =")
+        .expect("assignment continuation should remain");
+    let consumer = qsharp
+        .find("Consume(target)")
+        .expect("suffix consumer should remain");
+    assert!(
+        first_effect < second_effect && second_effect < flag_write,
+        "ancestor effects must remain ordered before the break flag write\n{qsharp}"
+    );
+    assert!(
+        flag_write < assignment && assignment < consumer,
+        "assignment and suffix consumer must remain after the break flag write\n{qsharp}"
+    );
+
+    expect![[r#"
+        operation Effect(value : Int) : Unit {}
+        function Inner(value : Int) : Int {
+            value
+        }
+        operation Consume(value : Int) : Unit {}
+        operation Main() : Unit {
+            mutable cond = true;
+            mutable target = 0;
+            {
+                mutable _broke_82 = false;
+                while ((not _broke_82)) and cond {
+                    let _operand_tmp_77 = target;
+                    let _operand_tmp_68 = {
+                        Effect(1);
+                        Inner
+                    };
+                    let _operand_tmp_72 = if cond {
+                        Effect(2);
+                        _broke_82 = true;
+                        0
+                    } else {
+                        3
+                    };
+                    if (not _broke_82) {
+                        target = _operand_tmp_77 + _operand_tmp_68(_operand_tmp_72);
+                    }
+                    if (not _broke_82) {
+                        Consume(target);
+                    }
+                }
+            }
+        }
+    "#]]
+    .assert_eq(&qsharp);
+}
+
+#[test]
+fn default_passes_keep_fresh_and_dirty_qubit_cleanup_outside_break_guards() {
+    use crate::{PackageType, PassContext};
+
+    let store = PackageStore::new(compile::core());
+    let source = indoc! {r#"
+        namespace test {
+            operation Consume(value : Int) : Unit {}
+            operation Dirty(q : Qubit) : Unit {}
+            operation Main() : Unit {
+                while true {
+                    use fresh = Qubit();
+                    Consume(if true { break } else { 1 });
+                }
+                while true {
+                    use dirty = Qubit();
+                    Dirty(dirty);
+                    Consume(if true { break } else { 2 });
+                }
+            }
+        }
+        "#};
+    let sources = SourceMap::new([("test".into(), source.into())], None);
+    let mut unit = compile(
+        &store,
+        &[],
+        sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let errors = PassContext::default().run_default_passes(
+        &mut unit.package,
+        &mut unit.assigner,
+        store.core(),
+        PackageType::Lib,
+    );
+    assert!(
+        errors.is_empty(),
+        "unexpected default-pass errors: {errors:?}"
+    );
+    let qsharp = crate::qsharp_gen::write_package_qsharp(&store, &unit.package);
+
+    assert_eq!(
+        qsharp.matches("__quantum__rt__qubit_release").count(),
+        2,
+        "each loop allocation must have exactly one cleanup\n{qsharp}"
+    );
+    for release in qsharp
+        .match_indices("__quantum__rt__qubit_release")
+        .map(|(index, _)| index)
+    {
+        let preceding_guard = qsharp[..release]
+            .rfind("if (not _broke")
+            .expect("each release should follow a skipped consumer guard");
+        let preceding_flag = qsharp[..release]
+            .rfind("= true;")
+            .expect("each release should follow a break flag write");
+        assert!(
+            preceding_flag < preceding_guard,
+            "release must remain after the skipped consumer guard, not inside it\n{qsharp}"
+        );
+    }
+
+    expect![[r#"
+        operation Consume(value : Int) : Unit {}
+        operation Dirty(q : Qubit) : Unit {}
+        operation Main() : Unit {
+            {
+                mutable _broke_75 = false;
+                while ((not _broke_75)) and true {
+                    let fresh = __quantum__rt__qubit_allocate();
+                    let _operand_tmp_67 = if true {
+                        _broke_75 = true;
+                        0
+                    } else {
+                        1
+                    };
+                    let _generated_ident_126 = if (not _broke_75) {
+                        Consume(_operand_tmp_67);
+                    };
+                    __quantum__rt__qubit_release(fresh);
+                    _generated_ident_126
+                }
+            }
+            {
+                mutable _broke_98 = false;
+                while ((not _broke_98)) and true {
+                    let dirty = __quantum__rt__qubit_allocate();
+                    Dirty(dirty);
+                    let _operand_tmp_71 = if true {
+                        _broke_98 = true;
+                        0
+                    } else {
+                        2
+                    };
+                    let _generated_ident_140 = if (not _broke_98) {
+                        Consume(_operand_tmp_71);
+                    };
+                    __quantum__rt__qubit_release(dirty);
+                    _generated_ident_140
+                }
+            }
+        }
+        // entry
+        Main()
+    "#]]
+    .assert_eq(&qsharp);
 }
 
 #[test]

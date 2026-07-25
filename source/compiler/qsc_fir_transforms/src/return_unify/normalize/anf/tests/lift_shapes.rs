@@ -80,6 +80,7 @@ fn operand_lift_return_in_call_tuple_arg_block() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
+                let __operand_tmp_1 : ((Int, Int) -> Int) = Add;
                 let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
@@ -88,7 +89,7 @@ fn operand_lift_return_in_call_tuple_arg_block() {
                     3
                 };
                 let x : Int = if (not __has_returned) {
-                    Add(__operand_tmp_0, 4)
+                    __operand_tmp_1(__operand_tmp_0, 4)
                 } else {
                     0
                 };

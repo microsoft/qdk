@@ -17,6 +17,9 @@
 //! pins the termination property directly: it steps the ANF sweep by hand over
 //! pipeline-derived FIR and samples the measure between iterations to witness
 //! the strict decrease that guarantees convergence.
+//! [`anf_fixpoint_is_structurally_idempotent_after_nested_ancestor_lift`]
+//! runs the completed fixpoint a second time and proves it reports no change
+//! and leaves the rendered FIR identical.
 //!
 //! The negative test exercises the defensive path. It compiles Q# whose two
 //! operand-position conditional expressions have *bare* `Return` conditions
@@ -37,6 +40,69 @@ use super::*;
 use qsc_fir::assigner::Assigner;
 
 use crate::return_unify::Error;
+
+#[test]
+fn anf_fixpoint_is_structurally_idempotent_after_nested_ancestor_lift() {
+    let source = indoc! {r#"
+        namespace Test {
+            operation Apply(pair : (Int, Int)) : Unit {}
+
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                ({ X(q); Reset(q); Apply })((0, { return 5; 1 }));
+                0
+            }
+        }
+    "#};
+
+    let (mut store, pkg_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, PipelineStage::Mono);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    let block_id = find_body_block_id(store.get(pkg_id), "Main");
+    let mut errors = Vec::new();
+    crate::return_unify::normalize::hoist_returns_to_statement_boundary(
+        store.get_mut(pkg_id),
+        &mut assigner,
+        pkg_id,
+        block_id,
+        &mut errors,
+    );
+    assert!(errors.is_empty(), "hoist produced errors: {errors:?}");
+
+    let first_changed = super::super::run_to_fixpoint(
+        store.get_mut(pkg_id),
+        &mut assigner,
+        pkg_id,
+        block_id,
+        &mut errors,
+    );
+    assert!(
+        first_changed,
+        "the first ANF run should lift nested operands"
+    );
+    assert!(
+        errors.is_empty(),
+        "first ANF run produced errors: {errors:?}"
+    );
+    let after_first = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
+
+    let second_changed = super::super::run_to_fixpoint(
+        store.get_mut(pkg_id),
+        &mut assigner,
+        pkg_id,
+        block_id,
+        &mut errors,
+    );
+    let after_second = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
+
+    assert!(!second_changed, "the second ANF run should be a no-op");
+    assert!(
+        errors.is_empty(),
+        "second ANF run produced errors: {errors:?}"
+    );
+    assert_eq!(after_first, after_second, "the second ANF run changed FIR");
+}
 
 #[test]
 fn nonconverging_operand_lift_pushes_fixpoint_not_reached_without_aborting() {
@@ -99,6 +165,7 @@ fn anf_step_once(
     package_id: qsc_fir::fir::PackageId,
     block_id: qsc_fir::fir::BlockId,
     operand_temp_counter: &mut u32,
+    generated_operand_reads: &mut rustc_hash::FxHashSet<qsc_fir::fir::ExprId>,
 ) -> bool {
     let mut changed = false;
     for reachable in crate::return_unify::normalize::collect_reachable_blocks(package, block_id) {
@@ -108,6 +175,7 @@ fn anf_step_once(
             package_id,
             reachable,
             operand_temp_counter,
+            generated_operand_reads,
         ) {
             changed = true;
         }
@@ -158,6 +226,7 @@ fn anf_operand_position_return_measure_strictly_decreases_each_iteration() {
     );
 
     let mut counter = 0u32;
+    let mut generated_operand_reads = rustc_hash::FxHashSet::default();
 
     let changed_1 = anf_step_once(
         store.get_mut(pkg_id),
@@ -165,6 +234,7 @@ fn anf_operand_position_return_measure_strictly_decreases_each_iteration() {
         pkg_id,
         block_id,
         &mut counter,
+        &mut generated_operand_reads,
     );
     let measure_1 = super::super::count_operand_position_returns(store.get(pkg_id), block_id);
 
@@ -174,6 +244,7 @@ fn anf_operand_position_return_measure_strictly_decreases_each_iteration() {
         pkg_id,
         block_id,
         &mut counter,
+        &mut generated_operand_reads,
     );
     let measure_2 = super::super::count_operand_position_returns(store.get(pkg_id), block_id);
 
@@ -200,10 +271,69 @@ fn anf_operand_position_return_measure_strictly_decreases_each_iteration() {
         pkg_id,
         block_id,
         &mut counter,
+        &mut generated_operand_reads,
     ) {}
     let measure_final = super::super::count_operand_position_returns(store.get(pkg_id), block_id);
     assert_eq!(
         measure_final, 0,
         "every buried operand return should be drained at the fixed point"
+    );
+}
+
+#[test]
+fn scalar_assignop_staging_reduces_measure_in_same_sweep() {
+    let source = indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable x = 10;
+                let go = false;
+                set x += {
+                    set x = 20;
+                    if go { return 7; }
+                    5
+                };
+                x
+            }
+        }
+    "#};
+
+    let (mut store, pkg_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, PipelineStage::Mono);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    let block_id = find_body_block_id(store.get(pkg_id), "Main");
+    let mut errors = Vec::new();
+    crate::return_unify::normalize::hoist_returns_to_statement_boundary(
+        store.get_mut(pkg_id),
+        &mut assigner,
+        pkg_id,
+        block_id,
+        &mut errors,
+    );
+    assert!(errors.is_empty(), "hoist produced errors: {errors:?}");
+
+    let measure_before = super::super::count_operand_position_returns(store.get(pkg_id), block_id);
+    let mut counter = 0u32;
+    let mut generated_operand_reads = rustc_hash::FxHashSet::default();
+    let changed = anf_step_once(
+        store.get_mut(pkg_id),
+        &mut assigner,
+        pkg_id,
+        block_id,
+        &mut counter,
+        &mut generated_operand_reads,
+    );
+    let measure_after = super::super::count_operand_position_returns(store.get(pkg_id), block_id);
+
+    assert!(
+        changed,
+        "the scalar AssignOp should be rewritten in one sweep"
+    );
+    assert_eq!(
+        measure_before, 1,
+        "the RHS should contain one buried return"
+    );
+    assert_eq!(
+        measure_after, 0,
+        "old-value staging and RHS lifting should retire the return together"
     );
 }

@@ -3682,6 +3682,111 @@ mod given_interpreter {
         use indoc::indoc;
 
         #[test]
+        fn nested_ancestor_break_preserves_order_and_skips_consumer() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    function Identity(value : Int) : Int { value }
+                    operation NestedAncestorBreak() : Int {
+                        mutable trace = 0;
+                        while true {
+                            ({ trace = trace * 10 + 1; Identity })(
+                                if true { trace = trace * 10 + 2; break } else { 3 }
+                            );
+                            trace = trace * 10 + 9;
+                        }
+                        trace
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "NestedAncestorBreak()");
+            is_only_value(&result, &output, &Value::Int(12));
+        }
+
+        #[test]
+        fn nested_ancestor_continue_preserves_order_and_runs_next_iteration() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    function Identity(value : Int) : Int { value }
+                    operation NestedAncestorContinue() : Int {
+                        mutable trace = 0;
+                        mutable iteration = 0;
+                        while iteration < 2 {
+                            iteration += 1;
+                            ({ trace = trace * 10 + 1; Identity })(
+                                if iteration == 1 { trace = trace * 10 + 2; continue } else { 3 }
+                            );
+                            trace = trace * 10 + 3;
+                        }
+                        trace
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "NestedAncestorContinue()");
+            is_only_value(&result, &output, &Value::Int(1213));
+        }
+
+        #[test]
+        fn nested_candidate_in_untaken_branch_remains_conditional() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    function Identity(value : Int) : Int { value }
+                    operation UntakenNestedCandidate() : Int {
+                        mutable trace = 1;
+                        while true {
+                            Identity(if false {
+                                trace = trace * 10 + 9;
+                                if true { break } else { 2 }
+                            } else { 3 });
+                            break;
+                        }
+                        trace
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "UntakenNestedCandidate()");
+            is_only_value(&result, &output, &Value::Int(1));
+        }
+
+        #[test]
+        fn range_struct_and_string_prefixes_preserve_runtime_order() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {r#"
+                    struct Pair { First : Int, Second : Int }
+                    operation ProjectedPrefixes() : Int {
+                        mutable trace = 0;
+                        mutable cond = false;
+                        while true {
+                            let range = { trace = trace * 10 + 1; 1 }
+                                ..{ trace = trace * 10 + 2; 1 }
+                                ..(if cond { break } else { 3 });
+                            let pair = new Pair {
+                                First = { trace = trace * 10 + 4; range.Start },
+                                Second = if cond { break } else { 5 }
+                            };
+                            let text = $"{trace}:{pair.Second}";
+                            if text == "124:5" { break; }
+                        }
+                        trace
+                    }
+                "#},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "ProjectedPrefixes()");
+            is_only_value(&result, &output, &Value::Int(124));
+        }
+
+        #[test]
         fn break_in_qubit_initializer_skips_later_initializers() {
             let mut interpreter = get_interpreter();
             let (result, output) = line(
@@ -4927,6 +5032,116 @@ mod given_interpreter {
             is_only_value(&result, &output, &Value::unit());
             let (result, output) = run(&mut interpreter, "AndAssignIfContinue()");
             is_only_value(&result, &output, &Value::Bool(true));
+        }
+
+        #[test]
+        fn dead_break_in_scalar_assignop_rhs_uses_pre_rhs_value() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation DeadBreakInScalarAssignOp() : Int {
+                        mutable x = 10;
+                        let go = false;
+                        while true {
+                            set x += {
+                                set x = 20;
+                                if go { break; }
+                                5
+                            };
+                            break;
+                        }
+                        x
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "DeadBreakInScalarAssignOp()");
+            is_only_value(&result, &output, &Value::Int(15));
+        }
+
+        #[test]
+        fn dead_continue_in_scalar_assignop_rhs_uses_pre_rhs_value() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation DeadContinueInScalarAssignOp() : Int {
+                        mutable x = 10;
+                        mutable iterations = 0;
+                        let go = false;
+                        while iterations < 1 {
+                            set iterations += 1;
+                            set x += {
+                                set x = 20;
+                                if go { continue; }
+                                5
+                            };
+                            set x += 100;
+                        }
+                        x
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "DeadContinueInScalarAssignOp()");
+            is_only_value(&result, &output, &Value::Int(115));
+        }
+
+        #[test]
+        fn dead_break_in_array_assignop_rhs_uses_post_rhs_binding() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation DeadBreakInArrayAssignOp() : Int[] {
+                        mutable xs = [1];
+                        let go = false;
+                        while true {
+                            set xs += {
+                                set xs = [2];
+                                if go { break; }
+                                [3]
+                            };
+                            break;
+                        }
+                        xs
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "DeadBreakInArrayAssignOp()");
+            is_only_value(
+                &result,
+                &output,
+                &Value::Array(vec![Value::Int(2), Value::Int(3)].into()),
+            );
+        }
+
+        #[test]
+        fn dead_break_in_indexed_compound_rhs_uses_pre_rhs_element() {
+            let mut interpreter = get_interpreter();
+            let (result, output) = line(
+                &mut interpreter,
+                indoc! {"
+                    operation DeadBreakInIndexedCompound() : Int {
+                        mutable xs = [10];
+                        let go = false;
+                        while true {
+                            set xs[0] += {
+                                set xs w/= 0 <- 20;
+                                if go { break; }
+                                5
+                            };
+                            break;
+                        }
+                        xs[0]
+                    }
+                "},
+            );
+            is_only_value(&result, &output, &Value::unit());
+            let (result, output) = run(&mut interpreter, "DeadBreakInIndexedCompound()");
+            is_only_value(&result, &output, &Value::Int(15));
         }
 
         #[test]

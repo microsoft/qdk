@@ -202,8 +202,8 @@ fn operand_lift_return_in_binop_lhs_operand_block() {
 #[test]
 fn operand_lift_return_in_update_index_value_block() {
     // `xs w/ 0 <- { return 2; 3 }` — return buried in the value operand block
-    // of an UpdateIndex. The value is lifted to a spine temp before the update
-    // runs.
+    // of an UpdateIndex. The index is pinned first, then the value is lifted;
+    // the later container stays inline.
     check_no_returns_q_roundtrip(
         indoc! {r#"
         namespace Test {
@@ -219,9 +219,8 @@ fn operand_lift_return_in_update_index_value_block() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 let xs : Int[] = [10, 20];
-                let __operand_tmp_0 : Int[] = xs;
-                let __operand_tmp_1 : Int = 0;
-                let __operand_tmp_2 : Int = {
+                let __operand_tmp_0 : Int = 0;
+                let __operand_tmp_1 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
@@ -229,7 +228,7 @@ fn operand_lift_return_in_update_index_value_block() {
                     3
                 };
                 let ys : Int[] = if (not __has_returned) {
-                    __operand_tmp_0 w/ __operand_tmp_1 <- __operand_tmp_2
+                    xs w/ __operand_tmp_0 <- __operand_tmp_1
                 } else {
                     []
                 };
@@ -687,8 +686,8 @@ fn operand_lift_return_in_qubit_temp_is_array_backed() {
 #[test]
 fn operand_lift_drains_two_qubit_temps_array_backed() {
     // `[{ return 1; q }, { return 2; q2 }]` — two return-bearing operand blocks
-    // of value type `Qubit` are drained from one statement, innermost-first,
-    // alongside the pinned earlier sibling. Each temp is backed by a length-1
+    // of value type `Qubit` are drained from one statement in runtime order.
+    // Each temp is backed by a length-1
     // array (`Qubit[]`), its trailing value retyped to yield `[q]`/`[q2]` and
     // its slot reading the element back through `[0]`. The statements after the
     // first return-bearing temp move into a lazy continuation so they never run
@@ -723,8 +722,7 @@ fn operand_lift_drains_two_qubit_temps_array_backed() {
                     [q]
                 };
                 let __trailing_result : Int = if (not __has_returned) {
-                    let __operand_tmp_1 : Qubit[] = [__operand_tmp_0[0]];
-                    let __operand_tmp_2 : Qubit[] = {
+                    let __operand_tmp_1 : Qubit[] = {
                         {
                             let _generated_ident_65 : Int = 2;
                             __quantum__rt__qubit_release(q2);
@@ -737,7 +735,7 @@ fn operand_lift_drains_two_qubit_temps_array_backed() {
                         [q2]
                     };
                     if (not __has_returned) {
-                        let arr : Qubit[] = [__operand_tmp_1[0], __operand_tmp_2[0]];
+                        let arr : Qubit[] = [__operand_tmp_0[0], __operand_tmp_1[0]];
                         let _generated_ident_81 : Int = Length(arr);
                         __quantum__rt__qubit_release(q2);
                         __quantum__rt__qubit_release(q);

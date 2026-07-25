@@ -6,11 +6,20 @@
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures, source::SourceMap, span::Span,
+    target::TargetCapabilityFlags,
 };
 use qsc_frontend::compile::{self, PackageStore, compile};
-use qsc_hir::{mut_visit::MutVisitor, validate::Validator, visit::Visitor};
+use qsc_hir::{
+    assigner::Assigner,
+    hir::{Block, Expr, ExprKind, Lit, PatKind, Res, Stmt, StmtKind},
+    mut_visit::MutVisitor,
+    ty::{Prim, Ty},
+    validate::Validator,
+    visit::{self, Visitor},
+};
 
+use crate::common::gen_ident;
 use crate::loop_normalize::LoopNormalize;
 
 /// Compiles `file`, runs [`LoopNormalize`] once over the package, asserts the
@@ -120,6 +129,288 @@ fn normalize_to_string(file: &str) -> String {
 
 fn operand_temp_bind_count(package: &str) -> usize {
     package.matches("let _operand_tmp").count()
+}
+
+/// Returns whether `package` contains a chained operand-temp copy, that is a
+/// generated temp whose initializer is nothing but a read of another generated
+/// temp, such as `let _operand_tmp_9 = _operand_tmp_5;` or its array-backed
+/// form `let _operand_tmp_9 = _operand_tmp_5[0];`.
+fn has_chained_operand_temp_copy(package: &str) -> bool {
+    package.lines().any(|line| {
+        let line = line.trim_start();
+        line.starts_with("let _operand_tmp")
+            && line
+                .split_once('=')
+                .is_some_and(|(_, init)| init.trim_start().starts_with("_operand_tmp"))
+    })
+}
+
+#[derive(Default)]
+struct AncestorSpanCollector {
+    generated_bindings: Vec<(Span, Span, Span, qsc_hir::hir::NodeId)>,
+    generated_reference_spans: Vec<(qsc_hir::hir::NodeId, Span)>,
+    user_statement_spans: Vec<Span>,
+}
+
+impl<'a> Visitor<'a> for AncestorSpanCollector {
+    fn visit_stmt(&mut self, stmt: &'a Stmt) {
+        if let StmtKind::Local(_, pat, initializer) = &stmt.kind
+            && let PatKind::Bind(ident) = &pat.kind
+            && ident.name.starts_with(".operand_tmp")
+        {
+            self.generated_bindings
+                .push((stmt.span, pat.span, initializer.span, ident.id));
+        }
+        self.user_statement_spans.push(stmt.span);
+        visit::walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'a Expr) {
+        if let ExprKind::Var(Res::Local(id), _) = &expr.kind {
+            self.generated_reference_spans.push((*id, expr.span));
+        }
+        visit::walk_expr(self, expr);
+    }
+}
+
+#[test]
+fn ancestor_pin_binding_is_non_steppable_and_preserves_operand_spans() {
+    let source = indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Unit {}
+            function Inner(value : Int) : Int { value }
+            operation Consume(value : Int) : Unit {}
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    ({ Effect(1); Consume })(Inner(if cond { Effect(2); break } else { 3 }));
+                }
+            }
+        }
+    "};
+    let store = PackageStore::new(compile::core());
+    let sources = SourceMap::new([("test".into(), source.into())], None);
+    let mut unit = compile(
+        &store,
+        &[],
+        sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    LoopNormalize::new(&mut unit.assigner).visit_package(&mut unit.package);
+
+    let operand_text = "{ Effect(1); Consume }";
+    let operand_lo = source
+        .find(operand_text)
+        .expect("source operand should exist");
+    let operand_span = Span {
+        lo: u32::try_from(operand_lo).expect("source offset should fit in u32"),
+        hi: u32::try_from(operand_lo + operand_text.len())
+            .expect("source offset should fit in u32"),
+    };
+    let user_stmt_text = "Effect(1);";
+    let user_stmt_lo = source
+        .find(user_stmt_text)
+        .expect("source statement should exist");
+    let user_stmt_span = Span {
+        lo: u32::try_from(user_stmt_lo).expect("source offset should fit in u32"),
+        hi: u32::try_from(user_stmt_lo + user_stmt_text.len())
+            .expect("source offset should fit in u32"),
+    };
+
+    let mut collector = AncestorSpanCollector::default();
+    collector.visit_package(&unit.package);
+    let (stmt_span, pat_span, _, local_id) = collector
+        .generated_bindings
+        .iter()
+        .copied()
+        .find(|(_, _, initializer_span, _)| *initializer_span == operand_span)
+        .expect("outer ancestor binding should retain the operand span");
+    assert_eq!(
+        stmt_span,
+        Span::default(),
+        "administrative binding must be non-steppable"
+    );
+    assert_eq!(
+        pat_span, operand_span,
+        "generated pattern should retain operand provenance"
+    );
+    assert!(
+        collector
+            .generated_reference_spans
+            .iter()
+            .any(|(id, span)| *id == local_id && *span == operand_span),
+        "replacement reference should retain operand provenance"
+    );
+    assert!(
+        collector.user_statement_spans.contains(&user_stmt_span),
+        "nested user statement should retain its narrower source span"
+    );
+}
+
+#[test]
+fn plain_and_field_assignment_preserve_abrupt_rhs_order() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            newtype Pair = (First : Int, Second : Int);
+            operation Main() : Unit {
+                mutable cond = false;
+                mutable x = 0;
+                mutable pair = Pair(1, 2);
+                while true {
+                    x = { x = 3; if cond { break; } 4 };
+                    pair w/= First <- { x = 5; if cond { break; } 6 };
+                    break;
+                }
+            }
+        }
+    "});
+
+    let plain_rhs = package
+        .find("x = 3")
+        .expect("plain RHS effect should remain");
+    let plain_write = package
+        .rfind("x = _operand_tmp")
+        .expect("plain write should remain");
+    let field_rhs = package
+        .find("x = 5")
+        .expect("field RHS effect should remain");
+    let field_write = package
+        .find("pair w/=::First <- _operand_tmp")
+        .expect("field write should remain");
+    assert!(
+        plain_rhs < plain_write && field_rhs < field_write,
+        "writes must follow RHS fall-through\n{package}"
+    );
+}
+
+#[test]
+fn nested_candidate_in_untaken_branch_remains_conditional() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Unit {}
+            operation Consume(value : Int) : Unit {}
+            operation Main() : Unit {
+                mutable cond = false;
+                while true {
+                    Consume(if cond { Effect(1); if true { break } else { 2 } } else { 3 });
+                    break;
+                }
+            }
+        }
+    "});
+
+    let branch = package
+        .find("if cond {")
+        .expect("conditional branch should remain");
+    let effect = package
+        .find("Effect(1)")
+        .expect("branch effect should remain");
+    let abrupt = package.find("break").expect("nested break should remain");
+    assert!(
+        branch < effect && effect < abrupt,
+        "untaken branch work must stay under its condition\n{package}"
+    );
+}
+
+#[test]
+fn outer_for_iterable_evaluates_once_before_nested_break() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Unit {}
+            function MakeRange(value : Int) : Range { value..value }
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    for item in ({ Effect(1); MakeRange })(if cond { Effect(2); break } else { 3 }) {
+                        Effect(item);
+                    }
+                }
+            }
+        }
+    "});
+
+    let first = package
+        .find("Effect(1)")
+        .expect("iterable prefix should remain");
+    let second = package
+        .find("Effect(2)")
+        .expect("nested effect should remain");
+    let for_loop = package.find("for item in").expect("for loop should remain");
+    assert!(
+        first < second && second < for_loop,
+        "iterable work must be staged once before the for loop\n{package}"
+    );
+}
+
+#[test]
+fn range_struct_and_string_prefixes_preserve_order() {
+    let package = normalize_to_string(indoc! {r#"
+        namespace Test {
+            struct Pair { First : Int, Second : Int }
+            operation Effect(value : Int) : Int { value }
+            function Identity(value : Int) : Int { value }
+            operation ConsumeRange(value : Range) : Unit {}
+            operation ConsumePair(value : Pair) : Unit {}
+            operation ConsumeString(value : String) : Unit {}
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    ConsumeRange(Effect(1)..Effect(2)..(if cond { break } else { 3 }));
+                    ConsumePair(new Pair { First = Effect(4), Second = if cond { break } else { 5 } });
+                    ConsumeString($"{Effect(6)}:{Identity(break)}");
+                }
+            }
+        }
+    "#});
+
+    for (prefix, abrupt) in [
+        ("Effect(1)", "Effect(2)"),
+        ("Effect(4)", "Second"),
+        ("Effect(6)", "break"),
+    ] {
+        let prefix_pos = package
+            .find(prefix)
+            .unwrap_or_else(|| panic!("missing {prefix}\n{package}"));
+        let abrupt_pos = package[prefix_pos..].find(abrupt).map_or_else(
+            || panic!("missing {abrupt} after {prefix}\n{package}"),
+            |pos| prefix_pos + pos,
+        );
+        assert!(
+            prefix_pos <= abrupt_pos,
+            "prefix {prefix} must remain before {abrupt}\n{package}"
+        );
+    }
+}
+
+#[test]
+fn controlled_adjoint_nondefaultable_prefix_preserves_shape() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Target(value : Qubit) : Unit is Adj + Ctl {}
+            operation Main() : Unit {
+                use (control, target) = (Qubit(), Qubit());
+                mutable cond = true;
+                while cond {
+                    (Controlled Adjoint Target)([control], if cond { break } else { target });
+                }
+            }
+        }
+    "});
+
+    assert!(
+        package.contains("Controlled Adjoint Target"),
+        "functor shape must survive\n{package}"
+    );
+    assert!(
+        package.contains("[control]"),
+        "control tuple layer must survive\n{package}"
+    );
+    assert!(
+        package.contains("[target]"),
+        "non-defaultable target must remain array-backed\n{package}"
+    );
 }
 
 #[test]
@@ -263,13 +554,12 @@ fn hoist_break_in_call_argument() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_33 = Foo;
-                    let _operand_tmp_37 = if cond {
+                    let _operand_tmp_33 = if cond {
                         break
                     } else {
                         3
                     };
-                    _operand_tmp_33(_operand_tmp_37);
+                    Foo(_operand_tmp_33);
                 }
             }
         "#]],
@@ -295,13 +585,12 @@ fn hoist_continue_in_call_argument() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_33 = Foo;
-                    let _operand_tmp_37 = if cond {
+                    let _operand_tmp_33 = if cond {
                         continue
                     } else {
                         3
                     };
-                    _operand_tmp_33(_operand_tmp_37);
+                    Foo(_operand_tmp_33);
                 }
             }
         "#]],
@@ -359,14 +648,13 @@ fn hoist_break_in_operand_block() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_34 = Foo;
-                    let _operand_tmp_38 = {
+                    let _operand_tmp_34 = {
                         if cond {
                             break
                         };
                         3
                     };
-                    _operand_tmp_34(_operand_tmp_38);
+                    Foo(_operand_tmp_34);
                 }
             }
         "#]],
@@ -396,17 +684,482 @@ fn hoist_nested_operand_blocks() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_43 = Bar;
-                    let _operand_tmp_47 = if cond {
+                    let _operand_tmp_43 = if cond {
                         break
                     } else {
                         3
                     };
-                    Foo(_operand_tmp_43(_operand_tmp_47));
+                    Foo(Bar(_operand_tmp_43));
                 }
             }
         "#]],
     );
+}
+
+#[test]
+fn ancestor_prefix_preserves_effectful_outer_callee_before_nested_break() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Unit {}
+            operation Inner(value : Int) : Int { value }
+            operation Outer(value : Int) : Unit {}
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    ({ Effect(1); Outer })(Inner([if cond { Effect(2); break } else { 3 }, 4][0]));
+                }
+            }
+        }
+    "});
+
+    let outer_effect = package
+        .find("Effect(1)")
+        .expect("outer effect should remain");
+    let nested_effect = package
+        .find("Effect(2)")
+        .expect("nested effect should remain");
+    assert!(
+        outer_effect < nested_effect,
+        "outer callee effects must be hoisted before the nested break: {package}"
+    );
+}
+
+#[test]
+fn ancestor_prefix_preserves_effectful_outer_callee_before_nested_continue() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Unit {}
+            operation Inner(value : Int) : Int { value }
+            operation Outer(value : Int) : Unit {}
+            operation Main() : Unit {
+                mutable iterations = 0;
+                while iterations < 1 {
+                    iterations += 1;
+                    ({ Effect(1); Outer })(Inner([if true { Effect(2); continue } else { 3 }, 4][0]));
+                }
+            }
+        }
+    "});
+
+    let outer_effect = package
+        .find("Effect(1)")
+        .expect("outer effect should remain");
+    let nested_effect = package
+        .find("Effect(2)")
+        .expect("nested effect should remain");
+    assert!(
+        outer_effect < nested_effect,
+        "outer callee effects must be hoisted before the nested continue: {package}"
+    );
+}
+
+#[test]
+fn multiple_nested_break_candidates_converge_without_dropping_outer_prefix() {
+    // HIR analogue of the FIR
+    // `multiple_nested_candidates_converge_without_dropping_outer_prefix`: two
+    // candidates in one statement at different depths — a bare operand and one
+    // buried a call deeper — ahead of which an effectful callee must stay
+    // pinned. Each fixpoint pass lifts one candidate, so the risk is the outer
+    // prefix being dropped or re-pinned as later passes rewrite the argument
+    // tuple. The snapshot pins the resulting spine; the assertion pins the
+    // ordering property the snapshot would otherwise only imply.
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Unit {}
+            operation Inner(value : Int) : Int { value }
+            operation Consume(pair : (Int, Int)) : Unit {}
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    ({ Effect(1); Consume })((
+                        if cond { break } else { 0 },
+                        Inner(if cond { break } else { 1 })
+                    ));
+                }
+            }
+        }
+    "});
+
+    expect![[r#"
+        operation Effect(value : Int) : Unit {}
+        operation Inner(value : Int) : Int {
+            value
+        }
+        operation Consume(pair : (Int, Int)) : Unit {}
+        operation Main() : Unit {
+            mutable cond = true;
+            while cond {
+                let _operand_tmp_71 = {
+                    Effect(1);
+                    Consume
+                };
+                let _operand_tmp_67 = if cond {
+                    break
+                } else {
+                    0
+                };
+                let _operand_tmp_75 = if cond {
+                    break
+                } else {
+                    1
+                };
+                _operand_tmp_71(_operand_tmp_67, Inner(_operand_tmp_75));
+            }
+        }
+    "#]]
+    .assert_eq(&package);
+
+    let outer_effect = package
+        .find("Effect(1)")
+        .expect("the outer callee effect should survive both lifts");
+    let first_candidate = package
+        .find("break")
+        .expect("the first candidate should be lifted");
+    assert!(
+        outer_effect < first_candidate,
+        "the effectful callee must stay pinned ahead of every nested candidate: {package}"
+    );
+}
+
+#[test]
+fn multiple_nested_continue_candidates_converge_without_dropping_outer_prefix() {
+    // Same two-candidate shape with `continue`. The pass must reach the same
+    // fixed point: one spine temp per candidate, with the effectful callee
+    // pinned once ahead of both and never re-pinned by the second pass.
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Unit {}
+            operation Inner(value : Int) : Int { value }
+            operation Consume(pair : (Int, Int)) : Unit {}
+            operation Main() : Unit {
+                mutable iterations = 0;
+                while iterations < 1 {
+                    iterations += 1;
+                    ({ Effect(1); Consume })((
+                        if iterations > 0 { continue } else { 0 },
+                        Inner(if iterations > 0 { continue } else { 1 })
+                    ));
+                }
+            }
+        }
+    "});
+
+    expect![[r#"
+        operation Effect(value : Int) : Unit {}
+        operation Inner(value : Int) : Int {
+            value
+        }
+        operation Consume(pair : (Int, Int)) : Unit {}
+        operation Main() : Unit {
+            mutable iterations = 0;
+            while iterations < 1 {
+                iterations += 1;
+                let _operand_tmp_81 = {
+                    Effect(1);
+                    Consume
+                };
+                let _operand_tmp_77 = if iterations > 0 {
+                    continue
+                } else {
+                    0
+                };
+                let _operand_tmp_85 = if iterations > 0 {
+                    continue
+                } else {
+                    1
+                };
+                _operand_tmp_81(_operand_tmp_77, Inner(_operand_tmp_85));
+            }
+        }
+    "#]]
+    .assert_eq(&package);
+
+    let outer_effect = package
+        .find("Effect(1)")
+        .expect("the outer callee effect should survive both lifts");
+    let first_candidate = package
+        .find("continue")
+        .expect("the first candidate should be lifted");
+    assert!(
+        outer_effect < first_candidate,
+        "the effectful callee must stay pinned ahead of every nested candidate: {package}"
+    );
+    assert!(
+        !has_chained_operand_temp_copy(&package),
+        "the second pass must not re-pin the first pass's temps: {package}"
+    );
+}
+
+#[test]
+fn earlier_direct_candidate_wins_before_later_nested_candidate() {
+    let package = check_idempotent(indoc! {"
+        namespace Test {
+            operation Inner(value : Int) : Int { value }
+            operation Consume(value : (Qubit, Int)) : Unit {}
+            operation Main() : Unit {
+                use q = Qubit();
+                mutable cond = true;
+                while cond {
+                    Consume((if cond { break } else { q }, Inner(if cond { break } else { 3 })));
+                }
+            }
+        }
+    "});
+
+    let first_candidate = package
+        .find("if cond {\n            break\n        } else {\n            [q]")
+        .expect("the earlier non-defaultable candidate should be array-backed first");
+    let later_candidate = package
+        .rfind("if cond")
+        .expect("the later nested candidate should remain in the consumer");
+    assert!(
+        first_candidate < later_candidate,
+        "the earlier direct candidate must win before a later nested candidate: {package}"
+    );
+}
+
+#[test]
+fn later_candidate_does_not_re_pin_already_lifted_operands() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Effect(value : Int) : Int { value }
+            operation Consume(first : Int, second : Int, third : Int) : Unit {}
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    Consume(Effect(1), { if cond { break; } 2 }, { if cond { continue; } 3 });
+                }
+            }
+        }
+    "});
+
+    assert!(
+        !has_chained_operand_temp_copy(&package),
+        "a slot pinned by an earlier fixpoint iteration must not be pinned again\n{package}"
+    );
+    assert_eq!(
+        operand_temp_bind_count(&package),
+        3,
+        "the effectful prefix and each of the two candidates should be bound once; the \
+         value-stable callee is not pinned at all\n{package}"
+    );
+
+    expect![[r#"
+        operation Effect(value : Int) : Int {
+            value
+        }
+        operation Consume(first : Int, second : Int, third : Int) : Unit {}
+        operation Main() : Unit {
+            mutable cond = true;
+            while cond {
+                let _operand_tmp_62 = Effect(1);
+                let _operand_tmp_66 = {
+                    if cond {
+                        break;
+                    }
+                    2
+                };
+                let _operand_tmp_70 = {
+                    if cond {
+                        continue;
+                    }
+                    3
+                };
+                Consume(_operand_tmp_62, _operand_tmp_66, _operand_tmp_70);
+            }
+        }
+    "#]]
+    .assert_eq(&package);
+}
+
+#[test]
+fn later_candidate_does_not_re_pin_an_array_backed_read() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Consume(first : Qubit, second : Int) : Unit {}
+            operation Main() : Unit {
+                use q = Qubit();
+                mutable cond = true;
+                while cond {
+                    Consume(if cond { break } else { q }, if cond { continue } else { 3 });
+                }
+            }
+        }
+    "});
+
+    assert!(
+        !has_chained_operand_temp_copy(&package),
+        "the array-backed read must not be pinned again by the later candidate\n{package}"
+    );
+    assert_eq!(
+        operand_temp_bind_count(&package),
+        2,
+        "each of the two candidates should be bound once; the value-stable callee is not \
+         pinned at all\n{package}"
+    );
+
+    expect![[r#"
+        operation Consume(first : Qubit, second : Int) : Unit {}
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable cond = true;
+            while cond {
+                let _operand_tmp_51 = if cond {
+                    break
+                } else {
+                    [q]
+                };
+                let _operand_tmp_58 = if cond {
+                    continue
+                } else {
+                    3
+                };
+                Consume(_operand_tmp_51[0], _operand_tmp_58);
+            }
+        }
+    "#]]
+    .assert_eq(&package);
+}
+
+/// Builds `{ break; 1 }` as a fresh `Int`-typed block expression, the smallest
+/// shape the direct-candidate path of `lift_operands` accepts.
+fn break_bearing_block_expr(assigner: &mut Assigner) -> Expr {
+    let span = Span::default();
+    let break_stmt = Stmt {
+        id: assigner.next_node(),
+        span,
+        kind: StmtKind::Semi(Expr {
+            id: assigner.next_node(),
+            span,
+            ty: Ty::UNIT,
+            kind: ExprKind::Break,
+        }),
+    };
+    let value_stmt = Stmt {
+        id: assigner.next_node(),
+        span,
+        kind: StmtKind::Expr(Expr {
+            id: assigner.next_node(),
+            span,
+            ty: Ty::Prim(Prim::Int),
+            kind: ExprKind::Lit(Lit::Int(1)),
+        }),
+    };
+    Expr {
+        id: assigner.next_node(),
+        span,
+        ty: Ty::Prim(Prim::Int),
+        kind: ExprKind::Block(Block {
+            id: assigner.next_node(),
+            span,
+            ty: Ty::Prim(Prim::Int),
+            stmts: vec![break_stmt, value_stmt],
+        }),
+    }
+}
+
+#[test]
+fn direct_candidate_is_bound_even_when_registered_as_a_generated_read() {
+    let mut assigner = Assigner::new();
+    let pin = gen_ident(
+        &mut assigner,
+        "operand_tmp",
+        Ty::Prim(Prim::Int),
+        Span::default(),
+    );
+    let mut earlier = pin.gen_local_ref(&mut assigner);
+    let mut candidate = break_bearing_block_expr(&mut assigner);
+    let earlier_id = earlier.id;
+    let candidate_id = candidate.id;
+
+    let mut pass = LoopNormalize::new(&mut assigner);
+    // Register the candidate alongside the earlier read, so the only thing that
+    // can suppress the candidate's binding is an over-broad earlier-operand
+    // skip. Widening the skip to `operand_idx <= idx` leaves the candidate slot
+    // unbound, which both starves the desugar of the guarded binding and stalls
+    // the per-statement fixpoint on an unchanged operand.
+    pass.generated_operand_reads.insert(earlier_id);
+    pass.generated_operand_reads.insert(candidate_id);
+
+    let lifted = pass
+        .lift_operands(vec![&mut earlier, &mut candidate])
+        .expect("the direct candidate should still be lifted");
+
+    assert_eq!(
+        lifted.len(),
+        1,
+        "only the candidate should be bound, because the earlier read is already pinned"
+    );
+    assert_eq!(
+        earlier.id, earlier_id,
+        "the earlier generated read must be left in place"
+    );
+    assert!(
+        matches!(candidate.kind, ExprKind::Var(Res::Local(_), _)),
+        "the candidate slot must be rewritten to read its own temp"
+    );
+}
+
+#[test]
+fn earlier_local_read_is_pinned_while_item_and_literal_are_skipped() {
+    // The callee is a global item reference and the first argument is a
+    // literal. Neither can take a different value at the pin point than at its
+    // original evaluation point, so both stay inline. The second argument reads
+    // a mutable local that the candidate operand then assigns, so it must still
+    // be pinned: a plain local read is side-effect-free, and widening the skip
+    // from value stability to plain purity would drop that pin and leave
+    // `Consume` reading 99 where the source program reads 1.
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Consume(first : Int, second : Int, third : Int) : Unit {}
+            operation Main() : Unit {
+                mutable cond = true;
+                mutable acc = 1;
+                while cond {
+                    Consume(7, acc, { acc = 99; if cond { break; } 3 });
+                }
+            }
+        }
+    "});
+
+    let generated: Vec<&str> = package
+        .lines()
+        .map(str::trim)
+        .filter(|line| line.starts_with("let _operand_tmp"))
+        .collect();
+    assert_eq!(
+        generated.len(),
+        2,
+        "only the local read and the candidate should be bound\n{package}"
+    );
+    assert!(
+        generated[0].ends_with("= acc;"),
+        "the earlier local read must still be pinned ahead of the assigning candidate\n{package}"
+    );
+    assert!(
+        generated[1].ends_with("= {"),
+        "the candidate block must be the second generated binding\n{package}"
+    );
+
+    expect![[r#"
+        operation Consume(first : Int, second : Int, third : Int) : Unit {}
+        operation Main() : Unit {
+            mutable cond = true;
+            mutable acc = 1;
+            while cond {
+                let _operand_tmp_50 = acc;
+                let _operand_tmp_54 = {
+                    acc = 99;
+                    if cond {
+                        break;
+                    }
+                    3
+                };
+                Consume(7, _operand_tmp_50, _operand_tmp_54);
+            }
+        }
+    "#]]
+    .assert_eq(&package);
 }
 
 #[test]
@@ -428,13 +1181,12 @@ fn hoist_break_in_tuple_operand() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_35 = 1;
-                    let _operand_tmp_39 = if cond {
+                    let _operand_tmp_35 = if cond {
                         break
                     } else {
                         3
                     };
-                    Foo(_operand_tmp_35, _operand_tmp_39);
+                    Foo(1, _operand_tmp_35);
                 }
             }
         "#]],
@@ -460,13 +1212,12 @@ fn idempotent_after_hoisting_break() {
         operation Main() : Unit {
             mutable cond = true;
             while cond {
-                let _operand_tmp_33 = Foo;
-                let _operand_tmp_37 = if cond {
+                let _operand_tmp_33 = if cond {
                     break
                 } else {
                     3
                 };
-                _operand_tmp_33(_operand_tmp_37);
+                Foo(_operand_tmp_33);
             }
         }
     "#]]
@@ -496,13 +1247,12 @@ fn idempotent_after_hoisting_nested_operands() {
         operation Main() : Unit {
             mutable cond = true;
             while cond {
-                let _operand_tmp_43 = Bar;
-                let _operand_tmp_47 = if cond {
+                let _operand_tmp_43 = if cond {
                     break
                 } else {
                     3
                 };
-                Foo(_operand_tmp_43(_operand_tmp_47));
+                Foo(Bar(_operand_tmp_43));
             }
         }
     "#]]
@@ -663,16 +1413,216 @@ fn hoist_break_in_tuple_qubit_initializer_preserves_evaluation_order() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_46 = Length(1);
-                    let _operand_tmp_50 = if cond {
+                    use _qubit_46 = Qubit[Length(1)];
+                    let _operand_tmp_55 = if cond {
                         break
                     } else {
                         Length(2)
                     };
-                    use (first, second) = (Qubit[_operand_tmp_46], Qubit[_operand_tmp_50]);
+                    use _qubit_49 = Qubit[_operand_tmp_55];
+                    let (first, second) = (_qubit_46, _qubit_49);
                 }
             }
         "#]],
+    );
+}
+
+#[test]
+fn stage_break_after_single_qubit_initializer() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation Main() : Unit {
+                    mutable cond = true;
+                    while cond {
+                        use (first, second) = (
+                            Qubit(),
+                            Qubit[if cond { break } else { 2 }]
+                        );
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    use _qubit_33 = Qubit();
+                    let _operand_tmp_42 = if cond {
+                        break
+                    } else {
+                        2
+                    };
+                    use _qubit_36 = Qubit[_operand_tmp_42];
+                    let (first, second) = (_qubit_33, _qubit_36);
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn stage_continue_after_array_borrow_initializer() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation Main() : Unit {
+                    mutable cond = true;
+                    while cond {
+                        borrow (first, second) = (
+                            Qubit[1],
+                            Qubit[if cond { continue } else { 2 }]
+                        );
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    borrow _qubit_34 = Qubit[1];
+                    let _operand_tmp_43 = if cond {
+                        continue
+                    } else {
+                        2
+                    };
+                    borrow _qubit_37 = Qubit[_operand_tmp_43];
+                    let (first, second) = (_qubit_34, _qubit_37);
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn stage_break_in_nested_mixed_qubit_initializer() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation Main() : Unit {
+                    mutable cond = true;
+                    while cond {
+                        use (first, (second, third)) = (
+                            Qubit[1],
+                            (Qubit(), Qubit[if cond { break } else { 2 }])
+                        );
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    use _qubit_39 = Qubit[1];
+                    use _qubit_42 = Qubit();
+                    let _operand_tmp_53 = if cond {
+                        break
+                    } else {
+                        2
+                    };
+                    use _qubit_45 = Qubit[_operand_tmp_53];
+                    let (first, (second, third)) = (_qubit_39, (_qubit_42, _qubit_45));
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn stage_break_in_scoped_tuple_qubit_initializer() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation Main() : Int {
+                    mutable cond = true;
+                    while cond {
+                        use (first, second) = (
+                            Qubit(),
+                            Qubit[if cond { break } else { 2 }]
+                        ) {
+                            return 1;
+                        }
+                    }
+                    0
+                }
+            }
+        "},
+        &expect![[r#"
+            operation Main() : Int {
+                mutable cond = true;
+                while cond {
+                    {
+                        use _qubit_39 = Qubit();
+                        let _operand_tmp_50 = if cond {
+                            break
+                        } else {
+                            2
+                        };
+                        use _qubit_42 = Qubit[_operand_tmp_50];
+                        let (first, second) = (_qubit_39, _qubit_42);
+                        return 1;
+                    }
+                }
+                0
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn first_leaf_abrupt_qubit_initializer_avoids_unneeded_staging() {
+    check(
+        indoc! {"
+            namespace Test {
+                operation Main() : Unit {
+                    mutable cond = true;
+                    while cond {
+                        use (first, second) = (
+                            Qubit[if cond { break } else { 1 }],
+                            Qubit()
+                        );
+                    }
+                }
+            }
+        "},
+        &expect![[r#"
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    let _operand_tmp_33 = if cond {
+                        break
+                    } else {
+                        1
+                    };
+                    use (first, second) = (Qubit[_operand_tmp_33], Qubit());
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
+fn staged_qubit_initializer_is_idempotent() {
+    let package = check_idempotent(indoc! {"
+        namespace Test {
+            operation Main() : Unit {
+                mutable cond = true;
+                while cond {
+                    use (first, second) = (
+                        Qubit(),
+                        Qubit[if cond { break } else { 2 }]
+                    );
+                }
+            }
+        }
+    "});
+
+    assert_eq!(
+        package.matches("use _qubit").count(),
+        2,
+        "staging should emit exactly one owner per initializer leaf: {package}"
     );
 }
 
@@ -703,14 +1653,13 @@ fn hoist_break_in_qubit_operand_block_array_backed() {
                 use q = Qubit();
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_38 = Foo;
-                    let _operand_tmp_42 = {
+                    let _operand_tmp_38 = {
                         if cond {
                             break
                         };
                         [q]
                     };
-                    _operand_tmp_38(_operand_tmp_42[0]);
+                    Foo(_operand_tmp_38[0]);
                 }
             }
         "#]],
@@ -741,13 +1690,12 @@ fn hoist_break_in_arrow_operand_block_array_backed() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_39 = Foo;
-                    let _operand_tmp_43 = if cond {
+                    let _operand_tmp_39 = if cond {
                         break
                     } else {
                         [Bar]
                     };
-                    _operand_tmp_39(_operand_tmp_43[0]);
+                    Foo(_operand_tmp_39[0]);
                 }
             }
         "#]],
@@ -778,13 +1726,12 @@ fn hoist_break_in_udt_operand_block_array_backed() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_38 = Foo;
-                    let _operand_tmp_42 = if cond {
+                    let _operand_tmp_38 = if cond {
                         break
                     } else {
                         [Pair(1, 2)]
                     };
-                    _operand_tmp_38(_operand_tmp_42[0]);
+                    Foo(_operand_tmp_38[0]);
                 }
             }
         "#]],
@@ -815,13 +1762,12 @@ fn hoist_break_in_tuple_with_qubit_operand_array_backed() {
                 use q = Qubit();
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_39 = Foo;
-                    let _operand_tmp_43 = if cond {
+                    let _operand_tmp_39 = if cond {
                         break
                     } else {
                         [(1, q)]
                     };
-                    _operand_tmp_39(_operand_tmp_43[0]::Item < 0 >, _operand_tmp_43[0]::Item < 1 >);
+                    Foo(_operand_tmp_39[0]::Item < 0 >, _operand_tmp_39[0]::Item < 1 >);
                 }
             }
         "#]],
@@ -877,14 +1823,13 @@ fn idempotent_after_array_backing_qubit_operand() {
             use q = Qubit();
             mutable cond = true;
             while cond {
-                let _operand_tmp_38 = Foo;
-                let _operand_tmp_42 = {
+                let _operand_tmp_38 = {
                     if cond {
                         break
                     };
                     [q]
                 };
-                _operand_tmp_38(_operand_tmp_42[0]);
+                Foo(_operand_tmp_38[0]);
             }
         }
     "#]]
@@ -961,9 +1906,8 @@ fn hoist_bare_break_in_call_argument() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_24 = Foo;
-                    let _operand_tmp_28 = break;
-                    _operand_tmp_24(_operand_tmp_28);
+                    let _operand_tmp_24 = break;
+                    Foo(_operand_tmp_24);
                 }
             }
         "#]],
@@ -991,12 +1935,176 @@ fn hoist_bare_continue_in_call_argument() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_24 = Foo;
-                    let _operand_tmp_28 = continue;
-                    _operand_tmp_24(_operand_tmp_28);
+                    let _operand_tmp_24 = continue;
+                    Foo(_operand_tmp_24);
                 }
             }
         "#]],
+    );
+}
+
+#[test]
+fn scalar_assignop_pins_old_value_before_break_bearing_rhs() {
+    // HIR analogue of the FIR `nonfiring_return_in_scalar_assignop_rhs_uses_pre_rhs_value`.
+    // Q# reads a compound assignment's place before its RHS runs, so the RHS's
+    // own `x = 20` must not reach the `+`. `lift_scalar_assign_op` rewrites the
+    // statement into an old-value pin plus a plain assignment; the snapshot pins
+    // that the pin is emitted *ahead* of the break-bearing candidate, which is
+    // what the positional assertions below check structurally.
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Main() : Unit {
+                mutable x = 10;
+                mutable cond = true;
+                while cond {
+                    x += {
+                        x = 20;
+                        if cond { break; }
+                        5
+                    };
+                }
+            }
+        }
+    "});
+
+    expect![[r#"
+        operation Main() : Unit {
+            mutable x = 10;
+            mutable cond = true;
+            while cond {
+                let _operand_tmp_41 = x;
+                let _operand_tmp_36 = {
+                    x = 20;
+                    if cond {
+                        break;
+                    }
+                    5
+                };
+                x = _operand_tmp_41 + _operand_tmp_36;
+            }
+        }
+    "#]]
+    .assert_eq(&package);
+
+    let old_value = package
+        .find("let _operand_tmp")
+        .expect("the scalar old value should be pinned before the RHS");
+    let rhs_mutation = package
+        .find("x = 20")
+        .expect("the RHS mutation should remain represented");
+    assert!(
+        old_value < rhs_mutation && package.contains("x = _operand_tmp"),
+        "scalar compound assignment should become an old-value pin plus plain assignment: {package}"
+    );
+}
+
+#[test]
+fn scalar_assignop_pins_old_value_before_continue_bearing_rhs() {
+    // Same shape as the break case, with `continue` as the abrupt operand. The
+    // desugar guards a `continue` differently from a `break`, but the pin
+    // ordering this pass establishes must be identical: the old value is read
+    // before the RHS regardless of which abrupt form the candidate carries.
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Main() : Unit {
+                mutable x = 10;
+                mutable iterations = 0;
+                while iterations < 1 {
+                    iterations += 1;
+                    x += {
+                        x = 20;
+                        if iterations > 0 { continue; }
+                        5
+                    };
+                }
+            }
+        }
+    "});
+
+    expect![[r#"
+        operation Main() : Unit {
+            mutable x = 10;
+            mutable iterations = 0;
+            while iterations < 1 {
+                iterations += 1;
+                let _operand_tmp_49 = x;
+                let _operand_tmp_44 = {
+                    x = 20;
+                    if iterations > 0 {
+                        continue;
+                    }
+                    5
+                };
+                x = _operand_tmp_49 + _operand_tmp_44;
+            }
+        }
+    "#]]
+    .assert_eq(&package);
+
+    let old_value = package
+        .find("let _operand_tmp")
+        .expect("the scalar old value should be pinned before the RHS");
+    let rhs_mutation = package
+        .find("x = 20")
+        .expect("the RHS mutation should remain represented");
+    assert!(
+        old_value < rhs_mutation && package.contains("x = _operand_tmp"),
+        "scalar compound assignment should become an old-value pin plus plain assignment: {package}"
+    );
+}
+
+#[test]
+fn array_assignop_does_not_pin_old_value_before_break_bearing_rhs() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Main() : Unit {
+                mutable xs = [1];
+                mutable cond = true;
+                while cond {
+                    xs += {
+                        xs = [2];
+                        if cond { break; }
+                        [3]
+                    };
+                }
+            }
+        }
+    "});
+
+    assert_eq!(
+        operand_temp_bind_count(&package),
+        1,
+        "array append should lift only its RHS and retain post-RHS target semantics: {package}"
+    );
+}
+
+#[test]
+fn indexed_compound_assignment_preserves_pre_rhs_element_read() {
+    let package = normalize_to_string(indoc! {"
+        namespace Test {
+            operation Main() : Unit {
+                mutable xs = [10];
+                mutable cond = true;
+                while cond {
+                    xs w/= 0 <- xs[0] + {
+                        xs w/= 0 <- 20;
+                        if cond { break; }
+                        5
+                    };
+                }
+            }
+        }
+    "});
+
+    let element_read = package
+        .find("xs[0]")
+        .expect("the indexed compound assignment should retain its old-element read");
+    let rhs_mutation = package
+        .find("xs w/= 0 <- 20")
+        .expect("the RHS mutation should remain represented");
+    assert!(
+        element_read < rhs_mutation,
+        "the indexed old-element read must remain before RHS effects: {package}"
     );
 }
 
@@ -1151,9 +2259,8 @@ fn hoist_break_in_short_circuit_or_rhs() {
                     let z = if y {
                         true
                     } else {
-                        let _operand_tmp_41 = Foo;
-                        let _operand_tmp_45 = break;
-                        _operand_tmp_41(_operand_tmp_45)
+                        let _operand_tmp_41 = break;
+                        Foo(_operand_tmp_41)
                     };
                 }
             }
@@ -1189,9 +2296,8 @@ fn hoist_continue_in_short_circuit_and_rhs() {
                 mutable cond = true;
                 while cond {
                     let z = if y {
-                        let _operand_tmp_41 = Foo;
-                        let _operand_tmp_45 = continue;
-                        _operand_tmp_41(_operand_tmp_45)
+                        let _operand_tmp_41 = continue;
+                        Foo(_operand_tmp_41)
                     } else {
                         false
                     };
@@ -1231,9 +2337,8 @@ fn hoist_break_in_compound_short_circuit_and_assign_rhs() {
                 mutable cond = true;
                 while cond {
                     if b {
-                        let _operand_tmp_37 = Foo;
-                        let _operand_tmp_41 = break;
-                        b = _operand_tmp_37(_operand_tmp_41);
+                        let _operand_tmp_37 = break;
+                        b = Foo(_operand_tmp_37);
                     };
                 }
             }
@@ -1269,9 +2374,8 @@ fn hoist_continue_in_compound_short_circuit_or_assign_rhs() {
                 mutable cond = true;
                 while cond {
                     if (not b) {
-                        let _operand_tmp_38 = Foo;
-                        let _operand_tmp_42 = continue;
-                        b = _operand_tmp_38(_operand_tmp_42);
+                        let _operand_tmp_38 = continue;
+                        b = Foo(_operand_tmp_38);
                     };
                 }
             }
@@ -1466,13 +2570,12 @@ fn hoist_break_in_core_udt_operand_block_array_backed() {
             operation Main() : Unit {
                 mutable cond = true;
                 while cond {
-                    let _operand_tmp_37 = Foo;
-                    let _operand_tmp_41 = if cond {
+                    let _operand_tmp_37 = if cond {
                         break
                     } else {
                         [Complex(1., 2.)]
                     };
-                    _operand_tmp_37(_operand_tmp_41[0]);
+                    Foo(_operand_tmp_37[0]);
                 }
             }
         "#]],

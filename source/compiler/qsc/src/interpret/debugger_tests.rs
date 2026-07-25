@@ -32,6 +32,15 @@ fn expect_bp(debugger: &mut Debugger, ids: &[StmtId], expected_id: StmtId) {
     }
 }
 
+fn expect_bp_continue(debugger: &mut Debugger, ids: &[StmtId], expected_id: StmtId) {
+    let r = step_continue(debugger, ids);
+    match r.0 {
+        Ok(StepResult::BreakpointHit(actual_id)) => assert_eq!(actual_id, expected_id),
+        Ok(v) => panic!("Expected BP, got {v:?}"),
+        Err(e) => panic!("Expected BP, got {e:?}"),
+    }
+}
+
 fn step_in(
     debugger: &mut Debugger,
     breakpoints: &[StmtId],
@@ -44,6 +53,13 @@ fn step_next(
     breakpoints: &[StmtId],
 ) -> (Result<StepResult, Vec<crate::interpret::Error>>, String) {
     step(debugger, breakpoints, qsc_eval::StepAction::Next)
+}
+
+fn step_continue(
+    debugger: &mut Debugger,
+    breakpoints: &[StmtId],
+) -> (Result<StepResult, Vec<crate::interpret::Error>>, String) {
+    step(debugger, breakpoints, qsc_eval::StepAction::Continue)
 }
 
 fn step_out(
@@ -683,11 +699,12 @@ mod given_debugger {
             let debugger = make_debugger(OPERAND_BREAK_SOURCE);
             // The `break` sits in operand position inside `Foo(if i == 2 { break }
             // else { q })`. Because the operand is `Qubit`-typed with no classical
-            // default, the desugar lifts it to a synthetic array-backed temp and
-            // guards the consuming `set` statement. Every synthetic node the lift
-            // and guard introduce carries `Span::default()`, so none surfaces as a
-            // `0:0-0:0` breakpoint; only real user statements are breakpointable,
-            // including the `break` keyword at its own span.
+            // default, normalization lifts it to a synthetic array-backed temp and
+            // the desugar guards the consuming `set` statement. The administrative
+            // temp statement and guard are non-steppable; generated patterns and
+            // references may retain operand provenance without becoming separate
+            // breakpoints. Only user statements surface, including the `break`
+            // keyword at its own span.
             expect![[r#"
                 1:37-1:38 "5"
                 4:8-4:24 "use q = Qubit();"
@@ -707,10 +724,144 @@ mod given_debugger {
             let mut debugger = make_debugger(OPERAND_BREAK_SOURCE);
             // Setting only the operand-position `break` breakpoint and running hits
             // it, proving the lifted, guarded desugar keeps the user's `break`
-            // keyword as a reachable, steppable location; the synthetic temp and
-            // guard nodes carry `Span::default()` and are never stepped onto.
+            // keyword as a reachable, steppable location; the administrative temp
+            // statement and guard carry `Span::default()` and are never stepped onto.
             let break_id = breakpoint_id_for_text(&debugger, "test", OPERAND_BREAK_SOURCE, "break");
             expect_bp(&mut debugger, &[break_id], break_id);
+        }
+
+        static ANCESTOR_PIN_BREAK_SOURCE: &str = r#"namespace Test {
+    operation Baz(value : Int) : Unit {}
+    operation Foo(value : Int) : Unit {}
+    function Bar(value : Int) : Int { value }
+    @EntryPoint()
+    operation Main() : Unit {
+        mutable cond = true;
+        while cond {
+            ({ Baz(1); Foo })(Bar(if cond { Baz(2); break } else { 3 }));
+        }
+    }
+}"#;
+
+        static ANCESTOR_PIN_CONTINUE_SOURCE: &str = r#"namespace Test {
+    operation Baz(value : Int) : Unit {}
+    operation Foo(value : Int) : Unit {}
+    function Bar(value : Int) : Int { value }
+    @EntryPoint()
+    operation Main() : Unit {
+        mutable i = 0;
+        while i < 2 {
+            set i += 1;
+            ({ Baz(1); Foo })(Bar(if i == 1 { Baz(2); continue } else { 3 }));
+        }
+    }
+}"#;
+
+        #[test]
+        fn ancestor_pin_break_has_source_only_breakpoints_in_execution_order() {
+            let mut debugger = make_debugger(ANCESTOR_PIN_BREAK_SOURCE);
+            let first_id =
+                breakpoint_id_for_text(&debugger, "test", ANCESTOR_PIN_BREAK_SOURCE, "Baz(1);");
+            let second_id =
+                breakpoint_id_for_text(&debugger, "test", ANCESTOR_PIN_BREAK_SOURCE, "Baz(2);");
+            let break_id =
+                breakpoint_id_for_text(&debugger, "test", ANCESTOR_PIN_BREAK_SOURCE, "break");
+            let consumer_id = breakpoint_id_for_text(
+                &debugger,
+                "test",
+                ANCESTOR_PIN_BREAK_SOURCE,
+                "({ Baz(1); Foo })(Bar(if cond { Baz(2); break } else { 3 }));",
+            );
+            let ids = [first_id, second_id, break_id, consumer_id];
+
+            expect_bp_continue(&mut debugger, &ids, first_id);
+            expect_bp_continue(&mut debugger, &ids, second_id);
+            expect_bp_continue(&mut debugger, &ids, break_id);
+            let names = debugger
+                .get_locals(1)
+                .into_iter()
+                .map(|variable| variable.name.to_string())
+                .collect::<Vec<_>>();
+            assert_eq!(names, ["cond"]);
+            let result = step_continue(&mut debugger, &ids);
+            assert!(
+                matches!(result.0, Ok(StepResult::Return(_))),
+                "consumer breakpoint should be skipped: {result:?}"
+            );
+
+            let rendered = rendered_breakpoints(&debugger, ANCESTOR_PIN_BREAK_SOURCE);
+            assert!(
+                !rendered.contains("0:0-0:0"),
+                "generated statements must not be breakpointable\n{rendered}"
+            );
+        }
+
+        #[test]
+        fn ancestor_pin_continue_has_source_only_breakpoints_in_execution_order() {
+            let mut debugger = make_debugger(ANCESTOR_PIN_CONTINUE_SOURCE);
+            let first_id =
+                breakpoint_id_for_text(&debugger, "test", ANCESTOR_PIN_CONTINUE_SOURCE, "Baz(1);");
+            let second_id =
+                breakpoint_id_for_text(&debugger, "test", ANCESTOR_PIN_CONTINUE_SOURCE, "Baz(2);");
+            let continue_id =
+                breakpoint_id_for_text(&debugger, "test", ANCESTOR_PIN_CONTINUE_SOURCE, "continue");
+            let consumer_id = breakpoint_id_for_text(
+                &debugger,
+                "test",
+                ANCESTOR_PIN_CONTINUE_SOURCE,
+                "({ Baz(1); Foo })(Bar(if i == 1 { Baz(2); continue } else { 3 }));",
+            );
+            let ids = [first_id, second_id, continue_id, consumer_id];
+
+            expect_bp_continue(&mut debugger, &ids, first_id);
+            expect_bp_continue(&mut debugger, &ids, second_id);
+            expect_bp_continue(&mut debugger, &ids, continue_id);
+            let names = debugger
+                .get_locals(1)
+                .into_iter()
+                .map(|variable| variable.name.to_string())
+                .collect::<Vec<_>>();
+            assert_eq!(names, ["i"]);
+            expect_bp_continue(&mut debugger, &ids, first_id);
+            expect_bp_continue(&mut debugger, &ids, consumer_id);
+            let result = step_continue(&mut debugger, &ids);
+            assert!(
+                matches!(result.0, Ok(StepResult::Return(_))),
+                "program should return after the second iteration: {result:?}"
+            );
+
+            let rendered = rendered_breakpoints(&debugger, ANCESTOR_PIN_CONTINUE_SOURCE);
+            assert!(
+                !rendered.contains("0:0-0:0"),
+                "generated statements must not be breakpointable\n{rendered}"
+            );
+        }
+
+        #[test]
+        fn ancestor_pin_next_ranges_are_non_synthetic() {
+            for source in [ANCESTOR_PIN_BREAK_SOURCE, ANCESTOR_PIN_CONTINUE_SOURCE] {
+                let mut debugger = make_debugger(source);
+                loop {
+                    let (result, _) = step_next(&mut debugger, &[]);
+                    match result {
+                        Ok(StepResult::Next) => {
+                            let frame = debugger
+                                .get_stack_frames()
+                                .pop()
+                                .expect("a next step should have a stack frame");
+                            let start = offset_of(source, frame.location.range.start);
+                            let end = offset_of(source, frame.location.range.end);
+                            assert!(
+                                start < end && end <= source.len(),
+                                "next range must stay within user source: {start}..{end}"
+                            );
+                        }
+                        Ok(StepResult::Return(_)) => break,
+                        Ok(other) => panic!("unexpected step result: {other:?}"),
+                        Err(error) => panic!("unexpected error while stepping: {error:?}"),
+                    }
+                }
+            }
         }
 
         static REPEAT_FIXUP_SOURCE: &str = r#"namespace Test {
@@ -891,6 +1042,354 @@ mod given_debugger {
                 11:12-11:34 "set total = total + i;"
                 13:8-13:13 "total""#]]
                 .assert_eq(&rendered_breakpoints(&debugger, FOR_BREAK_CONTINUE_SOURCE));
+        }
+
+        static STAGED_TUPLE_USE_SOURCE: &str = r#"namespace Test {
+    @EntryPoint()
+    operation Main() : Unit {
+        mutable stop = false;
+        for _ in 0..0 {
+            use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]);
+            Reset(first);
+        }
+    }
+}"#;
+
+        static STAGED_TUPLE_USE_SCOPED_SOURCE: &str = r#"namespace Test {
+    @EntryPoint()
+    operation Main() : Unit {
+        mutable stop = false;
+        for _ in 0..0 {
+            use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]) {
+                Reset(first);
+            }
+        }
+    }
+}"#;
+
+        /// The same tuple `use` with a constant array length. Nothing can abruptly
+        /// exit the loop from the length, so staging does not apply and this source
+        /// exercises the pre-existing `ReplaceQubitAllocation` lowering. Line numbers
+        /// are kept aligned with [`STAGED_TUPLE_USE_SOURCE`] so the two step-over
+        /// snapshots compare directly.
+        static UNSTAGED_TUPLE_USE_SOURCE: &str = r#"namespace Test {
+    @EntryPoint()
+    operation Main() : Unit {
+        mutable stop = false;
+        for _ in 0..0 {
+            use (first, second) = (Qubit(), Qubit[1]);
+            Reset(first);
+        }
+    }
+}"#;
+
+        /// Scoped counterpart of [`UNSTAGED_TUPLE_USE_SOURCE`], aligned with
+        /// [`STAGED_TUPLE_USE_SCOPED_SOURCE`].
+        static UNSTAGED_TUPLE_USE_SCOPED_SOURCE: &str = r#"namespace Test {
+    @EntryPoint()
+    operation Main() : Unit {
+        mutable stop = false;
+        for _ in 0..0 {
+            use (first, second) = (Qubit(), Qubit[1]) {
+                Reset(first);
+            }
+        }
+    }
+}"#;
+
+        /// Renders the innermost stack frame as `startLine:startCol-endLine:endCol
+        /// "<source text>"`, matching [`format_breakpoint`], and asserts the frame
+        /// stays inside the user's source.
+        fn render_top_frame(debugger: &Debugger, source: &str) -> String {
+            let frames = debugger.get_stack_frames();
+            let frame = frames.last().expect("a stop should have a stack frame");
+            assert_eq!(
+                &*frame.location.source, "test",
+                "step-over should stay in user source"
+            );
+            let start = offset_of(source, frame.location.range.start);
+            let end = offset_of(source, frame.location.range.end);
+            assert!(
+                start < end && end <= source.len(),
+                "step range must stay within user source: {start}..{end}"
+            );
+            let snippet = source[start..end].replace('\n', " ");
+            format!(
+                "{}:{}-{}:{} {snippet:?}",
+                frame.location.range.start.line,
+                frame.location.range.start.column,
+                frame.location.range.end.line,
+                frame.location.range.end.column,
+            )
+        }
+
+        /// Steps over `source` from its first statement to the program's return,
+        /// rendering the innermost user-source frame at every stop so a snapshot
+        /// records the exact step-over sequence a debugger user would observe.
+        ///
+        /// A bare `Next` from program start steps over the whole entry call, so the
+        /// frame is entered by running to the first breakpoint before stepping.
+        fn stepped_next_locations(source: &str) -> String {
+            let mut debugger = make_debugger(source);
+            let ids = get_breakpoint_ids(&debugger, "test");
+            let (entry, _) = step_next(&mut debugger, &ids);
+            assert!(
+                matches!(entry, Ok(StepResult::BreakpointHit(_))),
+                "expected to enter the entry-point frame: {entry:?}"
+            );
+            let mut stops = vec![render_top_frame(&debugger, source)];
+            loop {
+                let (result, _) = step_next(&mut debugger, &[]);
+                match result {
+                    Ok(StepResult::Next) => stops.push(render_top_frame(&debugger, source)),
+                    Ok(StepResult::Return(_)) => break,
+                    Ok(other) => panic!("unexpected step result: {other:?}"),
+                    Err(error) => panic!("unexpected error while stepping: {error:?}"),
+                }
+            }
+            stops.join("\n")
+        }
+
+        /// Reduces a step-over sequence to the ordered shape of its stops on the
+        /// `use` statement's line, labelling each by the construct it lands on.
+        ///
+        /// This is what lets a staged and an unstaged sequence be compared
+        /// directly. Their rendered snapshots can never be equal, because the
+        /// sources differ (`Qubit[1]` versus `Qubit[if stop { break } else { 1 }]`),
+        /// but the *shape* must be: one stop per initializer leaf, then one on the
+        /// `use` statement. Stops interior to the array-length expression are
+        /// dropped, since they exist only in the staged sources, where the length
+        /// contains an `if`, and are not staging artifacts.
+        fn use_line_stop_shape(sequence: &str) -> Vec<&'static str> {
+            sequence
+                .lines()
+                .filter_map(|line| {
+                    let line = line.trim();
+                    if line.starts_with("5:35-") {
+                        Some("first-leaf")
+                    } else if line.starts_with("5:44-") {
+                        Some("second-leaf")
+                    } else if line.starts_with("5:12-") {
+                        Some("use-statement")
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        }
+
+        #[test]
+        fn staged_tuple_use_breakpoints_map_to_user_statements() {
+            let debugger = make_debugger(STAGED_TUPLE_USE_SOURCE);
+            // A tuple `use` whose array length can abruptly exit the loop is staged
+            // into one owning `use` per initializer leaf plus a reconstruction
+            // binding for the user's tuple pattern. Each staged owner carries its
+            // own initializer span (`Qubit()` and `Qubit[...]`) and the
+            // reconstruction carries the original `use` statement span, so all
+            // three are breakpointable at real user text and no `0:0-0:0` entry
+            // surfaces.
+            let rendered = rendered_breakpoints(&debugger, STAGED_TUPLE_USE_SOURCE);
+            // Asserted standalone, matching the scoped sibling: this suite is
+            // regenerated with `UPDATE_EXPECT=1`, which would absorb a `0:0-0:0`
+            // entry into the snapshot instead of failing.
+            assert!(
+                !rendered.contains("0:0-0:0"),
+                "generated statements must not be breakpointable\n{rendered}"
+            );
+            expect![[r#"
+                3:8-3:29 "mutable stop = false;"
+                4:8-7:9 "for _ in 0..0 {             use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]);             Reset(first);         }"
+                4:12-4:13 "_"
+                4:17-4:21 "0..0"
+                5:12-5:81 "use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]);"
+                5:35-5:42 "Qubit()"
+                5:44-5:79 "Qubit[if stop { break } else { 1 }]"
+                5:60-5:65 "break"
+                5:75-5:76 "1"
+                6:12-6:25 "Reset(first);""#]]
+            .assert_eq(&rendered_breakpoints(&debugger, STAGED_TUPLE_USE_SOURCE));
+        }
+
+        #[test]
+        fn scoped_staged_tuple_use_shared_span_yields_one_breakpoint() {
+            let debugger = make_debugger(STAGED_TUPLE_USE_SCOPED_SOURCE);
+            // In the scoped branch the wrapper `Stmt`, its `Block` expression, and
+            // the reconstruction binding all reuse the original `use` statement
+            // span. `BreakpointCollector` keys on the start position, so the three
+            // collapse into a single hittable breakpoint rather than duplicating.
+            let rendered = rendered_breakpoints(&debugger, STAGED_TUPLE_USE_SCOPED_SOURCE);
+            let use_statement_hits = rendered
+                .lines()
+                .filter(|line| line.starts_with("5:12-"))
+                .count();
+            assert_eq!(
+                use_statement_hits, 1,
+                "the scoped wrapper, block, and reconstruction share one span and must \
+                 collapse to one breakpoint\n{rendered}"
+            );
+            assert!(
+                !rendered.contains("0:0-0:0"),
+                "generated statements must not be breakpointable\n{rendered}"
+            );
+        }
+
+        #[test]
+        fn scoped_staged_tuple_use_breakpoints_map_to_user_statements() {
+            let debugger = make_debugger(STAGED_TUPLE_USE_SCOPED_SOURCE);
+            // Scoped staging keeps the owners and the reconstruction inside the
+            // user's scope, wrapped in a block statement that reuses the `use`
+            // span. Only one entry appears for that span and no `0:0-0:0` entry
+            // surfaces, so the wrapper adds no synthetic breakpoint.
+            expect![[r#"
+                3:8-3:29 "mutable stop = false;"
+                4:8-8:9 "for _ in 0..0 {             use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]) {                 Reset(first);             }         }"
+                4:12-4:13 "_"
+                4:17-4:21 "0..0"
+                5:12-7:13 "use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]) {                 Reset(first);             }"
+                5:35-5:42 "Qubit()"
+                5:44-5:79 "Qubit[if stop { break } else { 1 }]"
+                5:60-5:65 "break"
+                5:75-5:76 "1"
+                6:16-6:29 "Reset(first);""#]]
+            .assert_eq(&rendered_breakpoints(&debugger, STAGED_TUPLE_USE_SCOPED_SOURCE));
+        }
+
+        #[test]
+        fn unstaged_tuple_use_stepping_visits_each_leaf_then_the_binding() {
+            // Step-granularity baseline. `ReplaceQubitAllocation::process_qubit_init`
+            // already splits any tuple `use` into one generated owner per initializer
+            // leaf, each carrying that leaf's span, followed by the user binding at the
+            // `use` statement span. A tuple `use` therefore already stopped three times
+            // without staging, so per-leaf stops are not new behavior.
+            expect![[r#"
+                3:8-3:29 "mutable stop = false;"
+                4:8-7:9 "for _ in 0..0 {             use (first, second) = (Qubit(), Qubit[1]);             Reset(first);         }"
+                4:17-4:21 "0..0"
+                4:12-4:13 "_"
+                5:35-5:42 "Qubit()"
+                5:44-5:52 "Qubit[1]"
+                5:12-5:54 "use (first, second) = (Qubit(), Qubit[1]);"
+                6:12-6:25 "Reset(first);"
+                4:17-4:21 "0..0"
+                7:8-7:9 "}"
+                7:8-7:9 "}"
+                8:4-8:5 "}""#]].assert_eq(&stepped_next_locations(UNSTAGED_TUPLE_USE_SOURCE));
+        }
+
+        #[test]
+        fn unstaged_scoped_tuple_use_stepping_repeats_the_use_statement_span() {
+            // Scoped baseline. `ReplaceQubitAllocation::generate_block_stmt` wraps a
+            // scoped `use` in a block statement that reuses the `use` statement span,
+            // and the user binding inside reuses it again, so the `use` range already
+            // appeared twice in the step-over sequence without staging.
+            expect![[r#"
+                3:8-3:29 "mutable stop = false;"
+                4:8-8:9 "for _ in 0..0 {             use (first, second) = (Qubit(), Qubit[1]) {                 Reset(first);             }         }"
+                4:17-4:21 "0..0"
+                4:12-4:13 "_"
+                5:12-7:13 "use (first, second) = (Qubit(), Qubit[1]) {                 Reset(first);             }"
+                5:35-5:42 "Qubit()"
+                5:44-5:52 "Qubit[1]"
+                5:12-7:13 "use (first, second) = (Qubit(), Qubit[1]) {                 Reset(first);             }"
+                6:16-6:29 "Reset(first);"
+                7:12-7:13 "}"
+                4:17-4:21 "0..0"
+                8:8-8:9 "}"
+                8:8-8:9 "}"
+                9:4-9:5 "}""#]].assert_eq(&stepped_next_locations(UNSTAGED_TUPLE_USE_SCOPED_SOURCE));
+        }
+
+        #[test]
+        fn staged_tuple_use_stepping_visits_each_leaf_then_the_reconstruction() {
+            // Locks the step-over granularity of a staged tuple `use`. `emit_qubit_leaf`
+            // gives each staged owner the span of its own initializer leaf and the
+            // reconstruction binding keeps the original `use` statement span, which
+            // reproduces the unstaged baseline shape above: one stop per leaf, then one
+            // on the `use` statement. Staging therefore does not change step
+            // granularity; the extra stops inside `Qubit[...]` come from the `if`
+            // expression in the length, not from staging.
+            let staged = stepped_next_locations(STAGED_TUPLE_USE_SOURCE);
+            // That parity claim is asserted here rather than left to a reader
+            // comparing two snapshots. Both snapshots regenerate independently
+            // under `UPDATE_EXPECT=1`, so without this the baseline test would
+            // establish nothing.
+            assert_eq!(
+                use_line_stop_shape(&staged),
+                use_line_stop_shape(&stepped_next_locations(UNSTAGED_TUPLE_USE_SOURCE)),
+                "staging must not change the step-over shape of a tuple `use`"
+            );
+            expect![[r#"
+                3:8-3:29 "mutable stop = false;"
+                4:8-7:9 "for _ in 0..0 {             use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]);             Reset(first);         }"
+                4:17-4:21 "0..0"
+                4:12-4:13 "_"
+                5:35-5:42 "Qubit()"
+                5:75-5:76 "1"
+                5:77-5:78 "}"
+                5:44-5:79 "Qubit[if stop { break } else { 1 }]"
+                5:12-5:81 "use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]);"
+                6:12-6:25 "Reset(first);"
+                4:17-4:21 "0..0"
+                7:8-7:9 "}"
+                7:8-7:9 "}"
+                8:4-8:5 "}""#]]
+            .assert_eq(&staged);
+        }
+
+        #[test]
+        fn scoped_staged_tuple_use_stepping_visits_each_leaf_then_the_reconstruction() {
+            // The scoped branch wraps the staged owners, the reconstruction, and the
+            // user's scope body in a block statement that reuses the original `use`
+            // span, so the `use` range appears twice in the step-over sequence. The
+            // unstaged scoped baseline above shows the same repetition, so this is the
+            // pre-existing scoped `use` shape rather than something staging adds.
+            let staged = stepped_next_locations(STAGED_TUPLE_USE_SCOPED_SOURCE);
+            assert_eq!(
+                use_line_stop_shape(&staged),
+                use_line_stop_shape(&stepped_next_locations(UNSTAGED_TUPLE_USE_SCOPED_SOURCE)),
+                "staging must not change the step-over shape of a scoped tuple `use`"
+            );
+            expect![[r#"
+                3:8-3:29 "mutable stop = false;"
+                4:8-8:9 "for _ in 0..0 {             use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]) {                 Reset(first);             }         }"
+                4:17-4:21 "0..0"
+                4:12-4:13 "_"
+                5:12-7:13 "use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]) {                 Reset(first);             }"
+                5:35-5:42 "Qubit()"
+                5:75-5:76 "1"
+                5:77-5:78 "}"
+                5:44-5:79 "Qubit[if stop { break } else { 1 }]"
+                5:12-7:13 "use (first, second) = (Qubit(), Qubit[if stop { break } else { 1 }]) {                 Reset(first);             }"
+                6:16-6:29 "Reset(first);"
+                7:12-7:13 "}"
+                4:17-4:21 "0..0"
+                8:8-8:9 "}"
+                8:8-8:9 "}"
+                9:4-9:5 "}""#]]
+            .assert_eq(&staged);
+        }
+
+        #[test]
+        fn staged_tuple_use_locals_hide_generated_qubit_owners() {
+            let mut debugger = make_debugger(STAGED_TUPLE_USE_SOURCE);
+            // Staging binds each initializer leaf to a generated `.qubit_<id>`
+            // owner. Generated names are `.`-prefixed and `get_locals` filters
+            // `['@', '.']`, so only the user's own bindings are visible.
+            let body_id =
+                breakpoint_id_for_text(&debugger, "test", STAGED_TUPLE_USE_SOURCE, "Reset(first);");
+            expect_bp_continue(&mut debugger, &[body_id], body_id);
+
+            let mut names = debugger
+                .get_locals(1)
+                .into_iter()
+                .map(|variable| variable.name.to_string())
+                .collect::<Vec<_>>();
+            names.sort();
+            assert_eq!(names, ["first", "second", "stop"]);
+            assert!(
+                !names.iter().any(|name| name.starts_with('.')),
+                "generated staging owners must stay hidden: {names:?}"
+            );
         }
     }
 }

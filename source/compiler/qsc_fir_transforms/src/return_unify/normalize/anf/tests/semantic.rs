@@ -13,6 +13,53 @@
 use super::*;
 
 #[test]
+fn plain_and_field_assignment_preserve_abrupt_rhs_order() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            struct Pair { First : Int, Second : Int }
+            function Main() : Int {
+                mutable trace = 0;
+                mutable x = 0;
+                mutable pair = new Pair { First = 1, Second = 2 };
+                let go = false;
+                set x = {
+                    set trace = trace * 10 + 1;
+                    if go { return 90; }
+                    4
+                };
+                set pair w/= First <- {
+                    set trace = trace * 10 + 2;
+                    if go { return 91; }
+                    6
+                };
+                trace * 100 + x * 10 + pair.First
+            }
+        }
+    "#});
+}
+
+#[test]
+fn return_in_while_condition_remains_per_iteration() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable checks = 0;
+                mutable iterations = 0;
+                let go = false;
+                while {
+                    set checks += 1;
+                    if go { return 99; }
+                    checks <= 3
+                } {
+                    set iterations += 1;
+                }
+                checks * 10 + iterations
+            }
+        }
+    "#});
+}
+
+#[test]
 fn return_in_first_tuple_element_short_circuits_before_sibling_out_of_range() {
     check_semantic_equivalence(indoc! {r#"
         namespace Test {
@@ -358,6 +405,112 @@ fn nonfiring_return_in_assignop_rhs_preserves_compound_assignment_write() {
                 let go = false;
                 set x += { if go { return 7; } 5 };
                 x
+            }
+        }
+    "#});
+}
+
+#[test]
+fn nonfiring_return_in_scalar_assignop_rhs_uses_pre_rhs_value() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable x = 10;
+                let go = false;
+                set x += {
+                    set x = 20;
+                    if go { return 7; }
+                    5
+                };
+                x
+            }
+        }
+    "#});
+}
+
+#[test]
+fn nonfiring_return_in_array_assignop_rhs_uses_post_rhs_binding() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int[] {
+                mutable xs = [1];
+                let go = false;
+                set xs += {
+                    set xs = [2];
+                    if go { return [7]; }
+                    [3]
+                };
+                xs
+            }
+        }
+    "#});
+}
+
+#[test]
+fn nonfiring_return_in_indexed_compound_rhs_uses_pre_rhs_element() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable xs = [10];
+                let go = false;
+                set xs[0] += {
+                    set xs w/= 0 <- 20;
+                    if go { return 7; }
+                    5
+                };
+                xs[0]
+            }
+        }
+    "#});
+}
+
+#[test]
+fn short_circuited_and_assign_skips_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = false;
+                set keep and= { return 7; true };
+                if keep { 1 } else { 2 }
+            }
+        }
+    "#});
+}
+
+#[test]
+fn short_circuited_or_assign_skips_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = true;
+                set keep or= { return 7; false };
+                if keep { 1 } else { 2 }
+            }
+        }
+    "#});
+}
+
+#[test]
+fn non_short_circuited_and_assign_runs_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = true;
+                set keep and= { return 7; false };
+                if keep { 1 } else { 2 }
+            }
+        }
+    "#});
+}
+
+#[test]
+fn non_short_circuited_or_assign_runs_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = false;
+                set keep or= { return 7; true };
+                if keep { 1 } else { 2 }
             }
         }
     "#});

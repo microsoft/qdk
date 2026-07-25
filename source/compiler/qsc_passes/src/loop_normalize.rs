@@ -1,24 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Administrative-normal-form (ANF) operand lifting for loop control flow.
+//! Lifts operand-position `break` and `continue` before loop unification.
 //!
-//! A Q# block is an expression, so `break`/`continue` can sit behind a
-//! statement-carrying `Block`/`If`/`While`/`For`/`Repeat` that itself feeds an
-//! enclosing operator, call, or binding — an operand position the later
-//! `loop_unification` desugar cannot rewrite in place. This pass lifts each such
-//! operand to a fresh spine `let` binding, innermost-first, so the buried
-//! `break`/`continue` is exposed at a statement boundary before the desugar
-//! runs. Earlier sibling operands are pinned to their own temps first so
-//! left-to-right evaluation order and side effects are preserved.
-//!
-//! This is a port to HIR of the `return_unify` FIR transform's ANF operand
-//! lift, `return_unify::normalize::anf`. Two things change from the original:
-//! the IR is HIR rather than FIR, and the lift fires on `break`/`continue`
-//! rather than `return`. `return` is already unified downstream by
-//! `return_unify` on the FIR codegen path, so hoisting it here would needlessly
-//! change return handling. The operand-slot walk and the innermost-first,
-//! evaluation-order-preserving lift mirror the original.
+//! `loop_unification` needs abrupt control flow at statement boundaries. This
+//! pass preserves eager evaluation by pinning earlier operands before lifting a
+//! candidate. It avoids redundant pins for generated reads and value-stable
+//! literals or item references; the lifted candidate is always bound.
 //!
 //! ## Control-flow scoping
 //!
@@ -28,26 +16,9 @@
 //!
 //! ## Non-defaultable operands and array-backing
 //!
-//! A lifted candidate can diverge through the control flow it carries before
-//! producing its value, so on the divergence path the hoisted temporary holds
-//! no meaningful value. The later desugar linearizes that path and still reads
-//! the temp's slot textually, so the slot needs a well-typed placeholder even
-//! though the value is never observed, because the read is guarded behind the
-//! `break`/`continue` flags. When the operand's type `T` has a classical
-//! default the temp is bound directly and that default seeds the divergence
-//! path. Otherwise the temp is array-backed: it is stored as `T[]`, whose
-//! divergence-path default is the universal `[]` that is well-typed for every
-//! element type. The candidate's produced value `v` is wrapped as `[v]`, and
-//! the operand slot reads the element back through `.operand_tmp_<id>[0]`. Because
-//! the read is only reached on the fall-through path, the empty array is never
-//! indexed. This mirrors the array-backed return slot of the `return_unify`
-//! FIR transform and covers `Qubit`, arrow, user-defined types, and tuples
-//! thereof uniformly, without synthesizing a default of the operand's own
-//! type. Only a genuinely-unrepresentable operand type — an inference or
-//! type-parameter placeholder, the error type, or an unresolved user-defined
-//! type — is rejected with [`Error::UnsupportedType`]. None of these can occur
-//! for a well-typed operand post-typecheck, so the rejection is a defensive
-//! guard.
+//! A non-defaultable lifted value is represented as `T[]`: the divergence path
+//! can use `[]`, while the guarded fall-through path reads element zero. This
+//! avoids inventing defaults for qubits, arrows, and user-defined types.
 //!
 //! This module runs immediately before `loop_unification` in the pass drivers,
 //! so operand-position `break`/`continue` is exposed at a statement boundary
@@ -61,13 +32,14 @@ use qsc_data_structures::span::Span;
 use qsc_hir::{
     assigner::Assigner,
     hir::{
-        BinOp, Block, Expr, ExprKind, Field, FieldPath, Lit, Mutability, QubitInit, QubitInitKind,
-        Stmt, StmtKind, StringComponent, UnOp,
+        BinOp, Block, Expr, ExprKind, Field, FieldPath, Ident, Lit, Mutability, NodeId, Pat,
+        PatKind, QubitInit, QubitInitKind, QubitSource, Res, Stmt, StmtKind, StringComponent, UnOp,
     },
     mut_visit::MutVisitor,
     ty::{Prim, Ty},
     visit::Visitor,
 };
+use rustc_hash::FxHashSet;
 use thiserror::Error;
 
 use crate::common::{
@@ -106,6 +78,18 @@ pub enum Error {
 pub(super) struct LoopNormalize<'a> {
     pub(super) assigner: &'a mut Assigner,
     pub(super) errors: Vec<Error>,
+    /// Generated operand reads, retained to prevent fixpoint iterations from
+    /// introducing temp-to-temp copies.
+    generated_operand_reads: FxHashSet<NodeId>,
+}
+
+struct QubitLeafPlan {
+    source: QubitSource,
+    pattern: Pat,
+    initializer: QubitInit,
+    ty: Ty,
+    span: Span,
+    reference: Expr,
 }
 
 impl<'a> LoopNormalize<'a> {
@@ -113,6 +97,7 @@ impl<'a> LoopNormalize<'a> {
         Self {
             assigner,
             errors: Vec::new(),
+            generated_operand_reads: FxHashSet::default(),
         }
     }
 
@@ -131,18 +116,136 @@ impl<'a> LoopNormalize<'a> {
         }
     }
 
-    /// Lifts one innermost-first operand-position candidate out of `expr`,
-    /// rewriting the operand slot in place to read a fresh temp and returning
-    /// the spine `let` bindings to splice before the enclosing statement.
-    ///
-    /// Mirrors the operand-slot enumeration of the `return_unify` ANF: every
-    /// eager operand site is descended to find a deeper candidate first; a
-    /// statement-carrying construct in an operand slot is lifted whole by its
-    /// parent via [`is_candidate`]; an `If` condition is an unconditional
-    /// operand site, while `If` branches and loop bodies are separate blocks
-    /// normalized by the visitor recursion. A `While` condition is deliberately
-    /// not an operand site: it is re-evaluated each iteration, so lifting it
-    /// once to a spine temp would break per-iteration re-evaluation.
+    /// Stages a tuple initializer only when a later array length can exit after
+    /// an earlier leaf allocates. This preserves ownership for allocation
+    /// lowering and cleanup.
+    fn stage_qubit_initializer(&mut self, stmt: Stmt) -> Vec<Stmt> {
+        let Stmt { id, span, kind } = stmt;
+        let StmtKind::Qubit(source, pattern, initializer, scope) = kind else {
+            return vec![Stmt { id, span, kind }];
+        };
+        if !qubit_init_needs_staging(&initializer) {
+            return vec![Stmt {
+                id,
+                span,
+                kind: StmtKind::Qubit(source, pattern, initializer, scope),
+            }];
+        }
+
+        let initializer_ty = initializer.ty.clone();
+        let mut leaves = Vec::new();
+        let reconstruction = self.plan_qubit_initializer(initializer, source, &mut leaves);
+        debug_assert_eq!(pattern.ty, initializer_ty);
+        debug_assert_eq!(reconstruction.ty, initializer_ty);
+
+        let mut staged = leaves
+            .into_iter()
+            .map(|leaf| self.emit_qubit_leaf(leaf))
+            .collect::<Vec<_>>();
+        let reconstruction = StmtKind::Local(Mutability::Immutable, pattern, reconstruction);
+
+        if let Some(mut scope) = scope {
+            staged.push(Stmt {
+                id: self.assigner.next_node(),
+                span,
+                kind: reconstruction,
+            });
+            scope.stmts.splice(0..0, staged);
+            vec![Stmt {
+                id,
+                span,
+                kind: StmtKind::Expr(Expr {
+                    id: self.assigner.next_node(),
+                    span,
+                    ty: scope.ty.clone(),
+                    kind: ExprKind::Block(scope),
+                }),
+            }]
+        } else {
+            staged.push(Stmt {
+                id,
+                span,
+                kind: reconstruction,
+            });
+            staged
+        }
+    }
+
+    /// Plans depth-first leaf owners and rebuilds the initializer value from
+    /// provenance-preserving references to those owners.
+    fn plan_qubit_initializer(
+        &mut self,
+        initializer: QubitInit,
+        source: QubitSource,
+        leaves: &mut Vec<QubitLeafPlan>,
+    ) -> Expr {
+        let span = initializer.span;
+        let ty = initializer.ty.clone();
+        match initializer.kind {
+            QubitInitKind::Tuple(initializers) => {
+                let items = initializers
+                    .into_iter()
+                    .map(|initializer| self.plan_qubit_initializer(initializer, source, leaves))
+                    .collect();
+                Expr {
+                    id: self.assigner.next_node(),
+                    span,
+                    ty,
+                    kind: ExprKind::Tuple(items),
+                }
+            }
+            QubitInitKind::Single | QubitInitKind::Array(_) => {
+                let ident = gen_ident(self.assigner, "qubit", ty.clone(), span);
+                let reference = ident.gen_local_ref(self.assigner);
+                let pattern = Pat {
+                    id: self.assigner.next_node(),
+                    span,
+                    ty: ty.clone(),
+                    kind: PatKind::Bind(Ident {
+                        id: ident.id,
+                        span,
+                        name: ident.name,
+                    }),
+                };
+                leaves.push(QubitLeafPlan {
+                    source,
+                    pattern,
+                    initializer: QubitInit {
+                        id: initializer.id,
+                        span,
+                        ty: ty.clone(),
+                        kind: initializer.kind,
+                    },
+                    ty,
+                    span,
+                    reference: reference.clone(),
+                });
+                reference
+            }
+            QubitInitKind::Err => Expr {
+                id: self.assigner.next_node(),
+                span,
+                ty,
+                kind: ExprKind::Err,
+            },
+        }
+    }
+
+    /// Emits one staged qubit owner at the source span of its initializer leaf.
+    fn emit_qubit_leaf(&mut self, leaf: QubitLeafPlan) -> Stmt {
+        debug_assert_eq!(leaf.pattern.ty, leaf.ty);
+        debug_assert_eq!(leaf.initializer.ty, leaf.ty);
+        debug_assert_eq!(leaf.reference.ty, leaf.ty);
+        Stmt {
+            id: self.assigner.next_node(),
+            span: leaf.span,
+            kind: StmtKind::Qubit(leaf.source, leaf.pattern, leaf.initializer, None),
+        }
+    }
+
+    /// Lifts one operand-position candidate from `expr` to the statement spine.
+    /// `While` conditions remain in place because they are evaluated per
+    /// iteration.
     ///
     /// # Before
     /// ```text
@@ -159,6 +262,9 @@ impl<'a> LoopNormalize<'a> {
     /// # Mutations
     /// - Rewrites the lifted operand slot in place to read the fresh temp.
     /// - Allocates temp `Pat`/`Expr`/`Stmt` nodes through `assigner`.
+    /// - Gives administrative binding statements the default, non-steppable
+    ///   span while generated patterns and replacement references retain the
+    ///   operand's source provenance.
     #[allow(clippy::too_many_lines)] // Exhaustive `ExprKind` operand-site dispatch.
     fn lift_once(&mut self, expr: &mut Expr) -> Option<Vec<Stmt>> {
         if !contains_control_flow(expr) {
@@ -170,6 +276,9 @@ impl<'a> LoopNormalize<'a> {
         // inside a branch block; the reshaped `If` is then re-dispatched here.
         if self.rewrite_short_circuit_rhs_in_place(expr) {
             return self.lift_once(expr);
+        }
+        if let Some(prefix) = self.lift_scalar_assign_op(expr) {
+            return Some(prefix);
         }
         match &mut expr.kind {
             // Short-circuit `and`/`or` and `and=`/`or=`: only the left side
@@ -279,6 +388,57 @@ impl<'a> LoopNormalize<'a> {
         self.lift_operands(vec![lhs])
     }
 
+    /// Preserves the pre-RHS read required by eager scalar compound assignment.
+    ///
+    /// Before: `x += <control-flow RHS>`.
+    /// After: `let old = x; <lift RHS>; x = old + <rhs>`.
+    /// Array append is excluded because it deliberately reads its target after
+    /// evaluating the RHS.
+    fn lift_scalar_assign_op(&mut self, expr: &mut Expr) -> Option<Vec<Stmt>> {
+        let ExprKind::AssignOp(op, place, rhs) = &expr.kind else {
+            return None;
+        };
+        if matches!(op, BinOp::AndL | BinOp::OrL)
+            || matches!(place.ty, Ty::Array(_))
+            || !matches!(place.kind, ExprKind::Var(_, _))
+            || !contains_control_flow(rhs)
+        {
+            return None;
+        }
+
+        let mut prefix = match &mut expr.kind {
+            ExprKind::AssignOp(_, _, rhs) => self.lift_operands(vec![rhs.as_mut()])?,
+            _ => unreachable!("expr.kind was just matched as an eager scalar AssignOp"),
+        };
+        let ExprKind::AssignOp(op, place, rhs) = std::mem::take(&mut expr.kind) else {
+            unreachable!("expr.kind was just matched as an eager scalar AssignOp");
+        };
+        let old_value = Expr {
+            id: self.assigner.next_node(),
+            span: place.span,
+            ty: place.ty.clone(),
+            kind: place.kind.clone(),
+        };
+        let old_value_ident = gen_ident(
+            self.assigner,
+            "operand_tmp",
+            old_value.ty.clone(),
+            old_value.span,
+        );
+        let old_value_ref = old_value_ident.gen_local_ref(self.assigner);
+        let old_value_binding =
+            old_value_ident.gen_id_init(Mutability::Immutable, old_value, self.assigner);
+        prefix.insert(0, old_value_binding);
+        let value = Expr {
+            id: self.assigner.next_node(),
+            span: expr.span,
+            ty: place.ty.clone(),
+            kind: ExprKind::BinOp(op, Box::new(old_value_ref), rhs),
+        };
+        expr.kind = ExprKind::Assign(place, Box::new(value));
+        Some(prefix)
+    }
+
     /// Reshapes a short-circuit `and`/`or` whose conditional right operand
     /// buries escaping control flow into the equivalent `If`, in place,
     /// returning `true` when a reshape was applied.
@@ -291,8 +451,8 @@ impl<'a> LoopNormalize<'a> {
     /// ```text
     /// a and <rhs>       ->  if a { <rhs> } else { false }
     /// a or  <rhs>       ->  if a { true } else { <rhs> }
-    /// set p and= <rhs>  ->  if p     { set p = <rhs> }
-    /// set p or=  <rhs>  ->  if not p { set p = <rhs> }
+    /// p and= <rhs>  ->  if p     { p = <rhs> }
+    /// p or=  <rhs>  ->  if not p { p = <rhs> }
     /// ```
     ///
     /// The reshaped value `If` keeps the operator's `Bool` type and span; the
@@ -317,7 +477,7 @@ impl<'a> LoopNormalize<'a> {
         enum ShortCircuitForm {
             /// A value-producing `a and/or b` `BinOp`.
             BinOp(bool),
-            /// A compound `set p and=/or= rhs` assignment.
+            /// A compound `p and=/or= rhs` assignment.
             AssignOp(bool),
         }
 
@@ -386,7 +546,7 @@ impl<'a> LoopNormalize<'a> {
         }
     }
 
-    /// Wraps `set <place> = <rhs>` in a fresh `Unit`-typed single-statement
+    /// Wraps `<place> = <rhs>` in a fresh `Unit`-typed single-statement
     /// block expr, for use as the `then` branch of a reshaped compound
     /// short-circuit assignment.
     fn wrap_assign_in_unit_block(&mut self, place: Box<Expr>, rhs: Box<Expr>) -> Expr {
@@ -456,46 +616,44 @@ impl<'a> LoopNormalize<'a> {
         }
     }
 
-    /// Lifts one operand from an ordered operand list, innermost-first.
+    /// Lifts one candidate from an ordered operand list.
     ///
-    /// First recurses into each operand to lift a deeper candidate; only if
-    /// none is found does it lift the first directly-liftable operand at this
-    /// level, pinning every earlier operand to its own spine temp so
-    /// left-to-right evaluation order is preserved.
+    /// Earlier operands are pinned to preserve eager evaluation. Generated
+    /// reads and value-stable operands stay inline; the candidate is always
+    /// bound so loop unification can guard it.
     fn lift_operands(&mut self, mut operands: Vec<&mut Expr>) -> Option<Vec<Stmt>> {
-        // Innermost-first: try to lift a deeper operand inside any child first.
-        for op in &mut operands {
-            if let Some(stmts) = self.lift_once(op) {
-                return Some(stmts);
+        for idx in 0..operands.len() {
+            if let Some(mut descendant) = self.lift_once(&mut *operands[idx]) {
+                let mut out = Vec::with_capacity(idx + descendant.len());
+                for op in operands.iter_mut().take(idx) {
+                    if self.generated_operand_reads.contains(&op.id) || is_value_stable(op) {
+                        continue;
+                    }
+                    out.push(self.bind_temp(op, false));
+                }
+                out.append(&mut descendant);
+                return Some(out);
+            }
+
+            if is_candidate(operands[idx]) {
+                let mut out = Vec::with_capacity(idx + 1);
+                for (operand_idx, op) in operands.iter_mut().take(idx + 1).enumerate() {
+                    if operand_idx < idx
+                        && (self.generated_operand_reads.contains(&op.id) || is_value_stable(op))
+                    {
+                        continue;
+                    }
+                    out.push(self.bind_temp(op, operand_idx == idx));
+                }
+                return Some(out);
             }
         }
-        // No deeper candidate; lift the first liftable operand at this level.
-        let idx = operands.iter().position(|op| is_candidate(op))?;
-        let mut out = Vec::with_capacity(idx + 1);
-        for (i, op) in operands.iter_mut().enumerate() {
-            if i < idx {
-                // Pin each earlier operand to preserve evaluation order.
-                out.push(self.bind_temp(op, false));
-            } else if i == idx {
-                out.push(self.bind_temp(op, true));
-                break;
-            }
-        }
-        Some(out)
+        None
     }
 
-    /// Binds `op` to a fresh immutable `let .operand_tmp_<id> = <op>;` on the
-    /// statement spine and rewrites `op` in place to read the temp.
-    ///
-    /// When `check_defaultable` is set, the lifted candidate can diverge before
-    /// producing a value, so the temp must have a well-typed placeholder on the
-    /// divergence path. A type with a classical default is bound directly; any
-    /// other representable type is array-backed by
-    /// [`Self::bind_array_backed_temp`]; only a genuinely-unrepresentable type
-    /// records [`Error::UnsupportedType`], a defensive guard that is unreachable
-    /// for a well-typed operand post-typecheck, before falling through to a
-    /// direct bind so the tree stays well-formed. Pinned earlier siblings always
-    /// produce a value, so they are bound directly without any check.
+    /// Binds `op` on the statement spine and rewrites its slot to read the temp.
+    /// A lifted non-defaultable candidate is array-backed so its divergence path
+    /// remains well typed. Generated reads are recorded to avoid repeat pins.
     fn bind_temp(&mut self, op: &mut Expr, check_defaultable: bool) -> Stmt {
         let ty = op.ty.clone();
         let span = op.span;
@@ -508,6 +666,7 @@ impl<'a> LoopNormalize<'a> {
         }
         let ident = gen_ident(self.assigner, "operand_tmp", ty, span);
         let init = std::mem::replace(op, ident.gen_local_ref(self.assigner));
+        self.generated_operand_reads.insert(op.id);
         ident.gen_id_init(Mutability::Immutable, init, self.assigner)
     }
 
@@ -578,11 +737,15 @@ impl<'a> LoopNormalize<'a> {
     /// reached on the fall-through path, which the desugar guards behind the
     /// `break`/`continue` flags, so the empty array is never indexed. This
     /// mirrors the array-backed return slot of the `return_unify` FIR transform.
+    ///
+    /// The rewritten slot is recorded in `generated_operand_reads` so a later
+    /// fixpoint iteration does not pin the `[0]` read again.
     fn bind_array_backed_temp(&mut self, op: &mut Expr, ty: &Ty, span: Span) -> Stmt {
         let array_ty = Ty::Array(Box::new(ty.clone()));
         let ident = gen_ident(self.assigner, "operand_tmp", array_ty, span);
         let read = self.gen_array_backed_read(&ident, ty, &[]);
         let mut init = std::mem::replace(op, read);
+        self.generated_operand_reads.insert(op.id);
         self.arrayify_value_in_place(&mut init);
         ident.gen_id_init(Mutability::Immutable, init, self.assigner)
     }
@@ -715,39 +878,71 @@ impl MutVisitor for LoopNormalize<'_> {
     fn visit_block(&mut self, block: &mut Block) {
         let stmts = std::mem::take(&mut block.stmts);
         let mut out = Vec::with_capacity(stmts.len());
-        for mut stmt in stmts {
-            // Per-statement fixpoint: lift operand-position candidates from the
-            // surface expression into preceding `let` bindings until stable.
-            while let Some(prefix) = self.lift_stmt_surface(&mut stmt) {
-                for mut lifted in prefix {
-                    // Normalize nested blocks and deeper operands inside each
-                    // lifted temp's initializer.
-                    self.visit_stmt(&mut lifted);
-                    out.push(lifted);
+        for stmt in stmts {
+            for mut stmt in self.stage_qubit_initializer(stmt) {
+                // Per-statement fixpoint: lift operand-position candidates from the
+                // surface expression into preceding `let` bindings until stable.
+                while let Some(prefix) = self.lift_stmt_surface(&mut stmt) {
+                    for mut lifted in prefix {
+                        // Normalize nested blocks and deeper operands inside each
+                        // lifted temp's initializer.
+                        self.visit_stmt(&mut lifted);
+                        out.push(lifted);
+                    }
                 }
+                // Array-back a non-defaultable `let` binding whose initializer buries
+                // escaping control flow, for example `let x = if c { break } else v`
+                // where `x` has no classical default. The value is stored behind a
+                // defaultable array temp, so the buried break/continue reaches a
+                // statement boundary without the binding needing a default of its own
+                // type; the `loop_unification` desugar then relocates the guarded
+                // read into the fall-through branch.
+                if let Some(mut backing) = self.array_back_control_flow_local(&mut stmt) {
+                    self.visit_stmt(&mut backing);
+                    out.push(backing);
+                }
+                // Array-back a discarded non-defaultable value-block statement, whose
+                // result is dropped, so a break/continue buried in it desugars
+                // without a default of the value's type.
+                self.array_back_discarded_control_flow_value(&mut stmt);
+                // Normalize nested blocks such as branches, loop bodies, and block
+                // exprs, along with any remaining sub-structure of the finalized
+                // statement.
+                self.visit_stmt(&mut stmt);
+                out.push(stmt);
             }
-            // Array-back a non-defaultable `let` binding whose initializer buries
-            // escaping control flow, for example `let x = if c { break } else v`
-            // where `x` has no classical default. The value is stored behind a
-            // defaultable array temp, so the buried break/continue reaches a
-            // statement boundary without the binding needing a default of its own
-            // type; the `loop_unification` desugar then relocates the guarded
-            // read into the fall-through branch.
-            if let Some(mut backing) = self.array_back_control_flow_local(&mut stmt) {
-                self.visit_stmt(&mut backing);
-                out.push(backing);
-            }
-            // Array-back a discarded non-defaultable value-block statement, whose
-            // result is dropped, so a break/continue buried in it desugars
-            // without a default of the value's type.
-            self.array_back_discarded_control_flow_value(&mut stmt);
-            // Normalize nested blocks such as branches, loop bodies, and block
-            // exprs, along with any remaining sub-structure of the finalized
-            // statement.
-            self.visit_stmt(&mut stmt);
-            out.push(stmt);
         }
         block.stmts = out;
+    }
+}
+
+/// Returns whether depth-first leaf evaluation can allocate a prefix before a
+/// later qubit-array length abruptly exits the enclosing loop.
+fn qubit_init_needs_staging(initializer: &QubitInit) -> bool {
+    if !matches!(initializer.kind, QubitInitKind::Tuple(_)) {
+        return false;
+    }
+
+    qubit_init_has_abrupt_after_leaf(initializer, &mut 0)
+}
+
+/// Scans initializer leaves in depth-first runtime order, tracking whether an
+/// allocation leaf has already been reached before an abrupt array length.
+fn qubit_init_has_abrupt_after_leaf(initializer: &QubitInit, leaves_seen: &mut usize) -> bool {
+    match &initializer.kind {
+        QubitInitKind::Array(length) => {
+            let needs_staging = *leaves_seen > 0 && contains_control_flow(length);
+            *leaves_seen += 1;
+            needs_staging
+        }
+        QubitInitKind::Single => {
+            *leaves_seen += 1;
+            false
+        }
+        QubitInitKind::Tuple(initializers) => initializers
+            .iter()
+            .any(|initializer| qubit_init_has_abrupt_after_leaf(initializer, leaves_seen)),
+        QubitInitKind::Err => false,
     }
 }
 
@@ -785,6 +980,32 @@ fn is_candidate(expr: &Expr) -> bool {
             | ExprKind::For(_, _, _)
             | ExprKind::Repeat(_, _, _)
     ) && contains_control_flow(expr)
+}
+
+/// Returns `true` when `expr` yields the same value at an earlier-operand pin
+/// point as it would at its original evaluation point, so pinning it is pure
+/// overhead and [`LoopNormalize::lift_operands`] may skip it.
+///
+/// Exactly two shapes qualify:
+///
+/// * [`ExprKind::Lit`] — a literal denotes a constant.
+/// * [`ExprKind::Var`] resolving to [`Res::Item`] — a global item reference
+///   names a fixed callable or constant that no statement can reassign.
+///
+/// # This is value stability, not purity — do not widen it
+///
+/// The test is deliberately *not* side-effect freedom, and must not be
+/// rewritten in those terms. A plain local read `ExprKind::Var(Res::Local(_))`
+/// is side-effect-free, yet a *later* operand may `set` that local before the
+/// original program would have read it, so dropping the local's pin makes the
+/// enclosing expression observe the post-mutation value instead. The same
+/// applies to any pure-but-mutable-dependent shape, such as an index or field
+/// read rooted at a local. Every such operand must keep its pin.
+///
+/// `earlier_local_read_is_pinned_while_item_and_literal_are_skipped` in the
+/// test module fails if this predicate is widened to plain purity.
+fn is_value_stable(expr: &Expr) -> bool {
+    matches!(expr.kind, ExprKind::Lit(_) | ExprKind::Var(Res::Item(_), _))
 }
 
 /// Returns `true` when `expr` contains a `break`/`continue` that escapes to

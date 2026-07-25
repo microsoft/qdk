@@ -453,8 +453,6 @@ fn hoist_return_in_update_index_value() {
     "#},
         &expect![[r#"
             function Main() : Int[] {
-                let arr : Int[] = [0, 0, 0];
-                let _ : Int[] = arr;
                 let _ : Int = 0;
                 []
             }

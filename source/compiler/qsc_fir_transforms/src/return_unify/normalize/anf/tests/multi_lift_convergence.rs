@@ -5,7 +5,7 @@
 //!
 //! When a single statement holds *multiple* operand-position returns, each in
 //! its own `{ … return … }` block, every lift binds one spine
-//! `let __operand_tmp`, so the hoist must iterate until every operand return
+//! `let __operand_tmp`, so the ANF fixpoint must iterate until every operand return
 //! has been lifted before the statement reaches a fixed point. Reaching the
 //! snapshot (and `check_no_returns` passing) witnesses that the multi-lift
 //! converges without re-issuing work forever.
@@ -16,7 +16,7 @@ use super::*;
 fn hoist_multiple_operand_returns_in_one_binop_converges() {
     // `1 + { return 2; 3 } + { return 4; 5 }` — two sibling operand blocks,
     // each carrying its own return, in a single arithmetic expression. The
-    // hoist lifts each block to its own spine temp; the first return that
+    // ANF lifts each block to its own spine temp; the first return that
     // fires short-circuits the rest.
     check_no_returns_q(
         indoc! {r#"
@@ -131,15 +131,35 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
 }
 
 #[test]
+fn multiple_nested_candidates_converge_without_dropping_outer_prefix() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation Consume(pair : (Int, Int)) : Unit {}
+            function Inner(value : Int) : Int { value }
+
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                ({ X(q); Reset(q); Consume })((
+                    { return 5; 0 },
+                    Inner({ return 6; 1 })
+                ));
+                0
+            }
+        }
+    "#});
+}
+
+#[test]
 fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
     // `Pick([{ return 1; 10 }, 20], ({ return 2; 0 }, 5))[{ return 3; 0 }]` —
     // one statement holds returns buried across several operand kinds at once:
     // an array-literal element and a tuple element inside the two call
-    // arguments, and the index of the access enclosing the call. The hoist
-    // drains them innermost-first, taking several passes (the array element and
-    // tuple element lift before their enclosing call arguments, which lift
-    // before the surrounding index) before the statement reaches a fixed point
-    // with no `Return` surviving.
+    // arguments, and the index of the access enclosing the call. ANF
+    // drains them in runtime order over several passes. Within each operand it
+    // recurses before lifting that operand directly, so the array and tuple
+    // elements lift before their enclosing arguments, and the surrounding
+    // index follows after the call. No `Return` survives at the fixed point.
     check_no_returns_q(
         indoc! {r#"
         namespace Test {
@@ -157,6 +177,7 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
+                let __operand_tmp_1 : ((Int[], (Int, Int)) -> Int[]) = Pick;
                 let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 1;
@@ -164,7 +185,12 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                     };
                     10
                 };
-                let __operand_tmp_1 : Int = if (not __has_returned) {
+                let __operand_tmp_3 : Int[] = if (not __has_returned) {
+                    [__operand_tmp_0, 20]
+                } else {
+                    []
+                };
+                let __operand_tmp_2 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 2;
@@ -176,12 +202,12 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                 } else {
                     0
                 };
-                let __operand_tmp_2 : Int[] = if (not __has_returned) {
-                    Pick([__operand_tmp_0, 20], (__operand_tmp_1, 5))
+                let __operand_tmp_4 : Int[] = if (not __has_returned) {
+                    __operand_tmp_1(__operand_tmp_3, (__operand_tmp_2, 5))
                 } else {
                     []
                 };
-                let __operand_tmp_3 : Int = if (not __has_returned) {
+                let __operand_tmp_5 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 3;
@@ -194,7 +220,7 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                     0
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_2[__operand_tmp_3]
+                    __operand_tmp_4[__operand_tmp_5]
                 } else {
                     0
                 };
@@ -255,11 +281,6 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
                     5
                 };
                 let __operand_tmp_1 : Int = if (not __has_returned) {
-                    __operand_tmp_0
-                } else {
-                    0
-                };
-                let __operand_tmp_2 : Int = if (not __has_returned) {
                     if flag {
                         {
                             let _generated_ident_64 : Int = 2;
@@ -278,7 +299,7 @@ fn hoist_mixed_block_and_if_construct_operand_returns_converges() {
                     0
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_1 + __operand_tmp_2
+                    __operand_tmp_0 + __operand_tmp_1
                 } else {
                     0
                 };
