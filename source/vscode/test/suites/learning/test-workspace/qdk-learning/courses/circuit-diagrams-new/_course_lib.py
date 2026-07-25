@@ -14,8 +14,6 @@ learner's function, validates the result and renders a pass/fail banner and othe
 relevant visuals or output.
 """
 
-import re
-from pathlib import Path
 from typing import Callable
 
 from IPython.display import HTML, display
@@ -179,10 +177,14 @@ def register_exercise(
 
 
 def complete_unit(required_exercises: list[str] | None = None) -> None:
-    """Verify all exercises passed and write the unit-complete marker.
+    """Verify every exercise in the unit has passed and celebrate.
 
     When ``required_exercises`` is omitted, every exercise registered in this
     kernel session is required — i.e. all of the current unit's exercises.
+
+    Progress is recorded per exercise as each exercise cell runs, so this is a
+    final check and a celebration rather than the thing that marks the unit
+    complete.
     """
     if required_exercises is None:
         required_exercises = _registered
@@ -194,11 +196,6 @@ def complete_unit(required_exercises: list[str] | None = None) -> None:
             f"Not all exercises are complete. Missing: {names}. "
             "Run the exercise cells above first."
         )
-
-    unit_id = re.sub(r"^\d+-", "", Path.cwd().name)
-
-    marker = Path(".qdk-unit-complete")
-    marker.write_text(f"{unit_id}\n")
 
     display(
         HTML(

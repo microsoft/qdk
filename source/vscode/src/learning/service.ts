@@ -138,7 +138,6 @@ export class LearningService {
 
   private _lastSnapshot: OverallProgress | undefined;
   private _progressFileWatcher: vscode.FileSystemWatcher | undefined;
-  private _sentinelWatcher: vscode.FileSystemWatcher | undefined;
   private _writingProgress = false;
   private _initPromise: Promise<boolean> | undefined;
   private readonly _disposables: vscode.Disposable[] = [];
@@ -242,7 +241,6 @@ export class LearningService {
     this._onDidChangeState.dispose();
     this._onDidChangeProgress.dispose();
     this._progressFileWatcher?.dispose();
-    this.stopSentinelWatcher();
     this._environment?.dispose();
     for (const d of this._disposables) {
       d.dispose();
@@ -780,7 +778,6 @@ export class LearningService {
     }
     ws.progressData.position = this.firstIncompletePosition(course);
     await this.saveProgress();
-    this.startSentinelWatcher();
     const state = this.getState();
     this._onDidChangeState.fire(state);
     if (source) {
@@ -1023,20 +1020,6 @@ export class LearningService {
       }
       // Re-materialize the unit from source.
       await this.pythonRunner.rematerializeUnit(this.activeCourse, unit.id);
-      // Delete the sentinel file if present.
-      if (unit.notebookRel) {
-        const workingCopyUri = this.notebookFileUri(unit.notebookRel);
-        const sentinelUri = vscode.Uri.joinPath(
-          workingCopyUri,
-          "..",
-          ".qdk-unit-complete",
-        );
-        try {
-          await vscode.workspace.fs.delete(sentinelUri);
-        } catch {
-          // may not exist
-        }
-      }
       // Clear completion for every activity in the unit, not just the
       // current one, since the whole unit was re-materialized.
       this.markUnitIncomplete(this.activeCourse.id, unit);
@@ -1130,9 +1113,9 @@ export class LearningService {
       this.sendActivityActionTelemetry("check", source);
     }
 
-    // Python-notebook courses use in-notebook verification via
-    // complete_unit(). The extension detects completion via the sentinel
-    // file watcher, not through this method.
+    // Python-notebook courses verify in the notebook itself: running an
+    // exercise cell runs its checker, and the extension records completion
+    // from the cell's execution result rather than through this method.
     if (this.activeCourse.kind === "python-notebook") {
       return {
         result: {
@@ -1140,8 +1123,8 @@ export class LearningService {
           messages: [],
           error:
             "This course uses native notebook execution. " +
-            "Run all cells in the notebook, including the final " +
-            "complete_unit() cell, to mark the unit complete.",
+            "Run the exercise cell in the notebook — each cell that " +
+            "succeeds marks that exercise complete.",
         },
         state: this.getState(),
       };
@@ -1298,7 +1281,6 @@ export class LearningService {
         detected.learningContentRoot,
       );
       this.startWatcher();
-      this.startSentinelWatcher();
       sendTelemetryEvent(
         EventType.LearningSessionStarted,
         { isFirstTime: "false" },
@@ -1329,7 +1311,6 @@ export class LearningService {
       this._writingProgress = false;
     }
     this.startWatcher();
-    this.startSentinelWatcher();
     sendTelemetryEvent(
       EventType.LearningSessionStarted,
       { isFirstTime: "true" },
@@ -1876,69 +1857,6 @@ export class LearningService {
     }
     this._lastSnapshot = this.getProgress();
     this._onDidChangeProgress.fire(this._lastSnapshot);
-  }
-
-  // TODO (acasey): consider having a state.json file for the whole course instead of a bunch of little sentinel files
-  // This may require more coordination than is comfortable for content authors.
-
-  /**
-   * Start watching for `.qdk-unit-complete` sentinel files in the active
-   * python-notebook course folder. When the notebook's `complete_unit()` writes this
-   * file, we mark the unit complete.
-   */
-  private startSentinelWatcher(): void {
-    this.stopSentinelWatcher();
-    const course = this.activeCourse;
-    if (course.kind !== "python-notebook" || !course.sourceDir) {
-      return;
-    }
-    const coursesDir = vscode.Uri.parse(course.sourceDir);
-    const pattern = new vscode.RelativePattern(
-      coursesDir,
-      "**/.qdk-unit-complete",
-    );
-    this._sentinelWatcher = vscode.workspace.createFileSystemWatcher(pattern);
-
-    const onSentinel = async (uri: vscode.Uri) => {
-      try {
-        const bytes = await vscode.workspace.fs.readFile(uri);
-        const unitId = new TextDecoder().decode(bytes).trim();
-        if (!unitId) {
-          return;
-        }
-        // Find the unit and mark all its activities complete.
-        const unit = course.units.find((u) => u.id === unitId);
-        if (!unit || unit.activities.length === 0) {
-          return;
-        }
-        let changed = false;
-        for (const activity of unit.activities) {
-          const location: ActivityLocation = {
-            courseId: course.id,
-            unitId: unit.id,
-            activityId: activity.id,
-          };
-          if (!this.isComplete(location)) {
-            this.markComplete(location);
-            changed = true;
-          }
-        }
-        if (changed) {
-          await this.saveProgress();
-          this._onDidChangeState.fire(this.getState());
-        }
-      } catch {
-        // sentinel may be transient or corrupt; ignore
-      }
-    };
-
-    this._sentinelWatcher.onDidCreate(onSentinel);
-    this._sentinelWatcher.onDidChange(onSentinel);
-  }
-
-  private stopSentinelWatcher(): void {
-    this._sentinelWatcher?.dispose();
-    this._sentinelWatcher = undefined;
   }
 
   /**
