@@ -14,7 +14,6 @@ from _check_env import check as check_env  # noqa: E402, F401
 from _course_lib import (  # noqa: E402, F401
     exercise,
     register_exercise,
-    complete_unit,
 )
 
 
