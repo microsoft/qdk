@@ -74,6 +74,7 @@ export function registerLearningCommands(
         }
 
         await service.resetExercise();
+        await openCourseNotebook(service);
         vscode.window.showInformationMessage("Unit has been reset.");
       },
     ),
