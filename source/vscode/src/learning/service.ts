@@ -1037,7 +1037,9 @@ export class LearningService {
           // may not exist
         }
       }
-      this.markIncomplete(this.requireWorkspace().progressData.position);
+      // Clear completion for every activity in the unit, not just the
+      // current one, since the whole unit was re-materialized.
+      this.markUnitIncomplete(this.activeCourse.id, unit);
       await this.saveProgress();
       this._onDidChangeState.fire(this.getState());
       if (source) {
@@ -1822,6 +1824,17 @@ export class LearningService {
   private markIncomplete(location: ActivityLocation): void {
     const key = this.completionKey(location);
     delete this.requireWorkspace().progressData.completions[key];
+  }
+
+  /** Clear completion for every activity in the given unit. */
+  private markUnitIncomplete(courseId: string, unit: CatalogUnit): void {
+    for (const activity of unit.activities) {
+      this.markIncomplete({
+        courseId,
+        unitId: unit.id,
+        activityId: activity.id,
+      });
+    }
   }
 
   private startWatcher(): void {
