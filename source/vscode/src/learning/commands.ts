@@ -124,9 +124,14 @@ export function registerLearningCommands(
         await service.goTo(location, "tree");
 
         // python-notebook courses don't use the lesson panel — the notebook
-        // is the primary surface, so open it directly.
+        // is the primary surface, so open it directly. Clicking a unit
+        // targets the unit as a whole (the position lands on its first
+        // activity), so start the learner at the top of the notebook rather
+        // than jumping straight to an exercise.
         if (service.getActiveCourseInfo().kind === "python-notebook") {
-          await openCourseNotebook(service);
+          await openCourseNotebook(service, {
+            reveal: node.kind === "unit" ? "top" : "exercise",
+          });
           return;
         }
 
@@ -245,10 +250,15 @@ export function registerLearningCommands(
 
 /**
  * Open the current unit's notebook working copy, pre-selecting the course's
- * Python environment as the active kernel, and reveal the current exercise
- * cell when there is one.
+ * Python environment as the active kernel.
+ *
+ * By default this reveals the current exercise cell; pass `reveal: "top"` to
+ * start at the beginning of the notebook instead.
  */
-async function openCourseNotebook(service: LearningService): Promise<void> {
+async function openCourseNotebook(
+  service: LearningService,
+  options?: { reveal?: "exercise" | "top" },
+): Promise<void> {
   const notebookUri = service.getCurrentCodeFileUri();
   if (!notebookUri) {
     log.warn("No notebook associated with the current position.");
@@ -292,7 +302,9 @@ async function openCourseNotebook(service: LearningService): Promise<void> {
     );
   }
 
-  if (cellId) {
+  if (options?.reveal === "top") {
+    revealNotebookTop(notebookUri);
+  } else if (cellId) {
     revealNotebookCell(notebookUri, cellId);
   }
 
@@ -315,19 +327,15 @@ async function openCourseNotebook(service: LearningService): Promise<void> {
  * No-op if the notebook isn't visible or the cell can't be found.
  */
 function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
-  const uriStr = notebookUri.toString();
-  const editor = vscode.window.visibleNotebookEditors.find(
-    (e) => e.notebook.uri.toString() === uriStr,
-  );
+  const editor = findNotebookEditor(notebookUri);
   if (!editor) {
-    log.warn(`Notebook editor not found for ${uriStr}; can't reveal cell.`);
     return;
   }
   const cell = editor.notebook
     .getCells()
     .find((c) => c.metadata?.id === cellId);
   if (!cell) {
-    log.warn(`Cell ${cellId} not found in ${uriStr}; can't reveal it.`);
+    log.warn(`Cell ${cellId} not found in ${notebookUri}; can't reveal it.`);
     return;
   }
 
@@ -343,8 +351,36 @@ function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
       : cell.index;
   editor.revealRange(
     new vscode.NotebookRange(revealStart, cell.index + 1),
-    vscode.NotebookEditorRevealType.Default,
+    vscode.NotebookEditorRevealType.AtTop,
   );
+}
+
+/**
+ * Scroll an already-open notebook back to its first cell. Used when the
+ * learner opens a unit as a whole rather than a specific exercise.
+ */
+function revealNotebookTop(notebookUri: vscode.Uri): void {
+  const editor = findNotebookEditor(notebookUri);
+  if (!editor || editor.notebook.cellCount === 0) {
+    return;
+  }
+  const range = new vscode.NotebookRange(0, 1);
+  editor.selection = range;
+  editor.revealRange(range, vscode.NotebookEditorRevealType.AtTop);
+}
+
+/** The visible editor showing the given notebook, if there is one. */
+function findNotebookEditor(
+  notebookUri: vscode.Uri,
+): vscode.NotebookEditor | undefined {
+  const uriStr = notebookUri.toString();
+  const editor = vscode.window.visibleNotebookEditors.find(
+    (e) => e.notebook.uri.toString() === uriStr,
+  );
+  if (!editor) {
+    log.warn(`Notebook editor not found for ${uriStr}; can't scroll it.`);
+  }
+  return editor;
 }
 
 function nodeToTitle(node: LearningProgressNode): string {
