@@ -548,7 +548,51 @@ async function runEnvironmentCheckCommand(
     return;
   }
   const fix = report.fixes.find((r) => r.label === choice);
-  if (fix) {
-    await service.applyEnvironmentCheckFix(fix);
+  if (!fix) {
+    return;
+  }
+  await service.applyEnvironmentCheckFix(fix);
+
+  // These fixes change how the notebook binds to a kernel (creating the
+  // course environment, or installing the Python/Jupyter extensions), so
+  // close and re-open the notebook to pick up the new environment.
+  // Best-effort: a failure here shouldn't make the fix look like it failed.
+  if (fix.kind === "setup" || fix.kind === "install-extensions") {
+    try {
+      const notebookUri = service.getCurrentCodeFileUri();
+      if (notebookUri) {
+        await closeNotebook(notebookUri);
+      }
+      await openCourseNotebook(service);
+    } catch (e) {
+      log.warn(`Failed to re-open the course notebook after a fix: ${e}`);
+    }
+  }
+}
+
+/**
+ * Close every tab showing the given notebook, saving first if it has unsaved
+ * changes so no confirmation dialog blocks the close. No-op when the notebook
+ * isn't open.
+ */
+async function closeNotebook(notebookUri: vscode.Uri): Promise<void> {
+  const uriStr = notebookUri.toString();
+
+  const doc = vscode.workspace.notebookDocuments.find(
+    (n) => n.uri.toString() === uriStr,
+  );
+  if (doc?.isDirty) {
+    await doc.save();
+  }
+
+  const tabs = vscode.window.tabGroups.all
+    .flatMap((group) => group.tabs)
+    .filter(
+      (tab) =>
+        tab.input instanceof vscode.TabInputNotebook &&
+        tab.input.uri.toString() === uriStr,
+    );
+  if (tabs.length > 0) {
+    await vscode.window.tabGroups.close(tabs);
   }
 }
