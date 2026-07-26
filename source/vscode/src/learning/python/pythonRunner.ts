@@ -4,6 +4,7 @@
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { WORKBOOK_SUFFIX } from "../constants.js";
+import { stripAuthoringCells } from "../notebookExercises.js";
 import type { CatalogCourse } from "../types.js";
 
 // TODO (acasey): rename this
@@ -92,8 +93,8 @@ export class PythonCourseRunner {
   }
 
   /**
-   * Materialize the working copy for every unit in the course: copy each
-   * authored notebook to its `*.workbook.ipynb` sibling. Existing workbooks
+   * Materialize the working copy for every unit in the course: derive each
+   * `*.workbook.ipynb` sibling from the authored notebook. Existing workbooks
    * are never overwritten, preserving learner edits.
    */
   async materializeCourse(course: CatalogCourse): Promise<void> {
@@ -106,16 +107,24 @@ export class PythonCourseRunner {
       if (!unit.notebookRel) {
         continue;
       }
-      await this.copyIfMissing(
+      const dest = vscode.Uri.joinPath(
+        sourceRoot,
+        toWorkbookRel(unit.notebookRel),
+      );
+      if (await uriExists(dest)) {
+        continue;
+      }
+      await this.materializeNotebook(
         vscode.Uri.joinPath(sourceRoot, unit.notebookRel),
-        vscode.Uri.joinPath(sourceRoot, toWorkbookRel(unit.notebookRel)),
+        dest,
+        unit.id,
       );
     }
   }
 
   /**
    * Re-materialize a single unit: overwrite its `*.workbook.ipynb`
-   * with a fresh copy of the authored notebook.
+   * with a fresh copy derived from the authored notebook.
    */
   async rematerializeUnit(
     course: CatalogCourse,
@@ -130,28 +139,44 @@ export class PythonCourseRunner {
     }
 
     const sourceRoot = vscode.Uri.parse(course.sourceDir);
-    const src = vscode.Uri.joinPath(sourceRoot, unit.notebookRel);
-    const dest = vscode.Uri.joinPath(
-      sourceRoot,
-      toWorkbookRel(unit.notebookRel),
+    await this.materializeNotebook(
+      vscode.Uri.joinPath(sourceRoot, unit.notebookRel),
+      vscode.Uri.joinPath(sourceRoot, toWorkbookRel(unit.notebookRel)),
+      unit.id,
     );
-    await ensureParentDir(dest);
-    await vscode.workspace.fs.copy(src, dest, { overwrite: true });
   }
 
-  /** Copy a file only if the destination doesn't already exist. */
-  private async copyIfMissing(
+  /**
+   * Write a unit's working copy: the authored notebook minus its author-only
+   * cells (hints, solutions, explanations).
+   *
+   * If the notebook can't be parsed we fall back to copying it verbatim, so a
+   * malformed notebook still leaves the learner with something to work in
+   * rather than nothing.
+   */
+  private async materializeNotebook(
     src: vscode.Uri,
     dest: vscode.Uri,
+    unitId: string,
   ): Promise<void> {
-    if (await uriExists(dest)) {
-      return;
-    }
     try {
       await ensureParentDir(dest);
-      await vscode.workspace.fs.copy(src, dest, { overwrite: false });
+      const text = new TextDecoder().decode(
+        await vscode.workspace.fs.readFile(src),
+      );
+      const stripped = stripAuthoringCells(text, unitId);
+      if (stripped === undefined) {
+        await vscode.workspace.fs.copy(src, dest, { overwrite: true });
+        return;
+      }
+      await vscode.workspace.fs.writeFile(
+        dest,
+        new TextEncoder().encode(stripped),
+      );
     } catch (e) {
-      log.warn(`Failed to copy ${src.fsPath} → ${dest.fsPath}: ${String(e)}`);
+      log.warn(
+        `Failed to materialize ${src.fsPath} → ${dest.fsPath}: ${String(e)}`,
+      );
     }
   }
 }

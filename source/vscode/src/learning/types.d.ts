@@ -265,16 +265,18 @@ export interface CatalogLesson {
 export type CatalogActivity = CatalogExercise | CatalogLesson;
 
 /**
- * Exercise metadata loaded from a per-unit `exercises.json` sidecar
- * (python-notebook courses). Provides hints, solutions, and descriptions
- * for the chat LM tools without requiring cell parsing or execution.
+ * Exercise metadata for a `python-notebook` unit, parsed from cell tags in
+ * the authored notebook. Provides hints, solutions, and descriptions for the
+ * chat LM tools without requiring cell execution.
  */
 export interface NotebookExerciseInfo {
+  /** Name of the `@exercise`-decorated function the learner implements. */
   id: string;
   title: string;
   description: string;
   hints: string[];
-  solution: string;
+  /** Reference solutions, one per `solution`-tagged cell. */
+  solutions: string[];
   solutionExplanation: string;
   /** Stable cell ID (from the notebook's cell metadata) for this exercise. */
   cellId: string;
@@ -285,8 +287,8 @@ export interface CatalogUnit {
   title: string;
   activities: CatalogActivity[];
   /**
-   * Exercise metadata for python-notebook courses, loaded from
-   * `exercises.json`. Used by chat LM tools for hints/solutions.
+   * Exercise metadata for python-notebook courses, parsed from the authored
+   * notebook's cell tags. Used by chat LM tools for hints/solutions.
    */
   notebookExercises?: NotebookExerciseInfo[];
   /**

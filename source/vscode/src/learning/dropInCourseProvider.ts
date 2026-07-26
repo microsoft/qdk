@@ -13,6 +13,7 @@ import {
   WORKBOOK_SUFFIX,
 } from "./constants.js";
 import type { CourseProvider } from "./courseProvider.js";
+import { parseNotebookExercises } from "./notebookExercises.js";
 import type {
   CatalogActivity,
   CatalogCourse,
@@ -52,8 +53,8 @@ interface CourseLocation {
 /**
  * Loads "drop-in" courses authored as folders on disk. A course is a
  * folder containing a `course.json` manifest plus per-unit subfolders.
- * Each unit is a Python notebook (`*.ipynb`) with an `intro.md` for the
- * lesson panel and optional exercise metadata in `exercises.json`.
+ * Each unit is a Python notebook (`*.ipynb`) whose exercise metadata is
+ * marked up with cell tags.
  *
  * Course folders are discovered under `qdk-learning/courses/*` in the
  * workspace. Malformed courses are skipped with a warning rather than
@@ -220,10 +221,11 @@ export class DropInCourseProvider implements CourseProvider {
   /**
    * Parse a `python-notebook` unit. The notebook itself carries the unit's
    * narrative content and is opened directly by the user; the extension does
-   * not parse or execute cells.
+   * not execute cells.
    *
-   * Exercise metadata (hints, solutions) is loaded from `exercises.json`
-   * if present and attached to the returned unit for use by chat LM tools.
+   * Exercise metadata (hints, solutions) is parsed from the authored
+   * notebook's cell tags and attached to the returned unit for use by chat
+   * LM tools. See `notebookExercises.ts` for the tag vocabulary.
    */
   private async parseNotebookUnit(
     unitDir: vscode.Uri,
@@ -256,32 +258,14 @@ export class DropInCourseProvider implements CourseProvider {
 
     const activities: CatalogActivity[] = [];
 
-    // Load exercise metadata from exercises.json (optional).
-    const exercisesJson = await tryReadText(
-      vscode.Uri.joinPath(unitDir, "exercises.json"),
+    // Exercise metadata lives in the authored notebook, marked up with cell
+    // tags. Read it here so it's available before materialization.
+    const notebookText = await tryReadText(
+      vscode.Uri.joinPath(unitDir, notebookEntry.name),
     );
-    let notebookExercises: NotebookExerciseInfo[] | undefined;
-    if (exercisesJson) {
-      try {
-        const parsed = JSON.parse(exercisesJson) as {
-          exercises?: unknown;
-        };
-        if (Array.isArray(parsed.exercises)) {
-          // TODO (acasey): validate the rest of the parsed input?
-          notebookExercises = parsed.exercises.filter(
-            (e): e is NotebookExerciseInfo =>
-              !!e &&
-              typeof e === "object" &&
-              typeof (e as NotebookExerciseInfo).id === "string" &&
-              typeof (e as NotebookExerciseInfo).cellId === "string",
-          );
-        }
-      } catch (e) {
-        log.warn(
-          `Failed to parse exercises.json in unit "${unit.id}": ${String(e)}`, // TODO (acasey): Include course name?
-        );
-      }
-    }
+    const notebookExercises = notebookText
+      ? parseNotebookExercises(notebookText, unit.id)
+      : undefined;
 
     // Surface each notebook exercise as a catalog activity so it appears
     // in the progress tree and can be navigated to.
@@ -295,8 +279,8 @@ export class DropInCourseProvider implements CourseProvider {
           placeholderCode: "",
           sourceIds: [],
           hints: ex.hints,
-          solutionCodes: ex.solution ? [ex.solution] : [], // TODO (acasey): might want multiple solutions in python courses too
-          solutionExplanation: ex.solutionExplanation ?? "",
+          solutionCodes: ex.solutions,
+          solutionExplanation: ex.solutionExplanation,
         } satisfies CatalogExercise);
       }
     }
