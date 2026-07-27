@@ -156,6 +156,11 @@
   display: flex;
   flex-direction: column;
   width: 100%;
+  /* Never render narrower than the content requires. Below this floor the
+     host shows a single horizontal scrollbar and the whole widget scrolls
+     as one unit, instead of the toolbar staying put while the body keeps
+     shrinking underneath it. */
+  min-width: min-content;
   box-sizing: border-box;
   /* Breathing room above the widget so its top border isn't flush against
      the host's tab/toolbar edge. */
@@ -211,7 +216,7 @@
   flex: 1 1 auto;
   position: relative;
   height: min(60vh, 600px);
-  min-width: 0;
+  min-width: 320px;
 }
 
 /* The 3D canvas stage fills the whole visualization. `position: relative`
@@ -554,32 +559,6 @@
 .qs-bloch-trace-toggle-icon {
   font-size: 1.15em;
   opacity: 0.8;
-}
-
-/* On narrow hosts (split editor, small Jupyter outputs) the side-by-side
-   body gets cramped, so stack the trace pane below the visualization. The
-   toolbar already wraps on its own. */
-@media (max-width: 720px) {
-  .qs-bloch-body {
-    flex-direction: column;
-  }
-  .qs-bloch-main {
-    width: 100%;
-  }
-  .qs-bloch-trace {
-    /* Full width below the sphere, with an explicit height so the
-       absolutely-positioned inner list has a box to fill and scroll
-       within. Override the flex-basis/max-width the wide layout sets. */
-    flex: 0 0 auto;
-    max-width: none;
-    width: 100%;
-    height: 40vh;
-  }
-  /* Collapsed in the stacked layout: just drop the trace pane entirely;
-     the sphere's overlay toggle reopens it. */
-  .qs-bloch-trace-collapsed .qs-bloch-trace {
-    display: none;
-  }
 }
 
 /* Bloch sphere widget: the gate-trace pane sitting to the right of the

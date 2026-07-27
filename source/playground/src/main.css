@@ -113,7 +113,7 @@ pre:has(code) {
 .bloch-view {
   grid-column: 2 / 4;
   grid-row: 2;
-  min-width: 0;
+  min-width: min-content;
   min-height: 0;
   padding: 12px;
 }
