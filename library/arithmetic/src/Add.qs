@@ -9,19 +9,25 @@ import Std.Arithmetic.RippleCarryTTKIncByLE;
 /// Computes y += x (mod 2^n).
 operation Add(x : Qubit[], y : Qubit[]) : Unit is Ctl + Adj {
     body (...) {
-        if (Std.Core.ConfigValue("minimize_qubits", true)) {
+        let optimize = Std.Core.ConfigValue("optimize", "");
+        if (optimize == "space") {
             RippleCarryTTKIncByLE(x, y);
-        } else {
+        } elif (optimize == "time") {
             RippleCarryCGIncByLE(x, y);
+        } else {
+            RippleCarryTTKIncByLE(x, y);
         }
     }
     controlled (controls, ...) {
+        let optimize = Std.Core.ConfigValue("optimize", "");
         if (Length(controls) == 0) {
             Add(x, y);
-        } elif (Std.Core.ConfigValue("minimize_qubits", true)) {
+        } elif (optimize == "space") {
             Controlled RippleCarryTTKIncByLE(controls, (x, y));
-        } else {
+        } elif (optimize == "time") {
             Controlled RippleCarryCGIncByLE(controls, (x, y));
+        } else {
+            Controlled RippleCarryTTKIncByLE(controls, (x, y));
         }
     }
 }

@@ -139,7 +139,8 @@ operation ParallelModAddLookup(
         Fact(Length(tables[i]) == table_length, "All tables must have the same length.");
     }
 
-    if (Std.Core.ConfigValue("minimize_qubits", true)) {
+    let optimize = Std.Core.ConfigValue("optimize", "");
+    if (optimize == "space") {
         for i in 0..num_tables - 1 {
             ModAddLookup(q_address, q_result[i], tables[i], modulus);
         }

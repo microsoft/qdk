@@ -1,12 +1,14 @@
 import random
 
 import pytest
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
 
+from test.test_utils import get_qdk_context
 
-def test_compress_garbage(context: Context) -> None:
+
+def test_compress_garbage() -> None:
     """Tests that the compression circuit always leaves last qubit in 0 state."""
+    context = get_qdk_context()
 
     def _is_valid_input(x: int) -> bool:
         for i in range(3):
@@ -24,7 +26,8 @@ def test_compress_garbage(context: Context) -> None:
 
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
-def test_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
+def test_mod_mul(num_bits: int, modulus: int) -> None:
+    context = get_qdk_context()
     op = f"ModDiv.ModMul(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
     for _ in range(5):
@@ -35,7 +38,8 @@ def test_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
 
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
-def test_safe_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
+def test_safe_mod_mul(num_bits: int, modulus: int) -> None:
+    context = get_qdk_context()
     op = f"ModDiv.SafeModMul(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
 
@@ -54,7 +58,8 @@ def test_safe_mod_mul(num_bits: int, modulus: int, context: Context) -> None:
 
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
-def test_mod_div(num_bits: int, modulus: int, context: Context) -> None:
+def test_mod_div(num_bits: int, modulus: int) -> None:
+    context = get_qdk_context()
     op = f"ModDiv.ModDiv(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
     for _ in range(5):
@@ -65,7 +70,8 @@ def test_mod_div(num_bits: int, modulus: int, context: Context) -> None:
 
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
-def test_safe_mod_div(num_bits: int, modulus: int, context: Context) -> None:
+def test_safe_mod_div(num_bits: int, modulus: int) -> None:
+    context = get_qdk_context()
     op = f"ModDiv.SafeModDiv(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
 
@@ -84,7 +90,8 @@ def test_safe_mod_div(num_bits: int, modulus: int, context: Context) -> None:
 
 
 @pytest.mark.parametrize("num_bits,modulus", [(3, 5), (4, 13), (5, 31), (6, 61)])
-def test_mod_inv(num_bits: int, modulus: int, context: Context) -> None:
+def test_mod_inv(num_bits: int, modulus: int) -> None:
+    context = get_qdk_context()
     op = f"ModDiv.ModInv(_,_,{modulus}L)"
     tester = ArithmeticOpTester(op, [num_bits, num_bits], context)
     for _ in range(5):

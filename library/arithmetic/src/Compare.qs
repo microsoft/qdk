@@ -73,10 +73,13 @@ operation CompareRippleCarry(x : Qubit[], y : Qubit[], result : Qubit) : Unit is
 
 /// Flips `result` iff x > y.
 operation CompareGT(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ctl {
-    if (Std.Core.ConfigValue("minimize_qubits", true)) {
+    let optimize = Std.Core.ConfigValue("optimize", "");
+    if (optimize == "space") {
         CompareCuccaro(x, y, result);
+    } elif (optimize == "time") {
+        CompareRippleCarry(x, y, result);        
     } else {
-        CompareRippleCarry(x, y, result);
+        CompareCuccaro(x, y, result);
     }
 }
 

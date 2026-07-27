@@ -1,11 +1,13 @@
 import random
 
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
 
+from test.test_utils import get_qdk_context
 
-def test_mod_double(context: Context):
+
+def test_mod_double():
     """Tests for ModDouble."""
+    context = get_qdk_context()
     n = 20
     for _ in range(10):
         # The modulus is an odd number in the range [3, 2^n-1].
@@ -15,8 +17,9 @@ def test_mod_double(context: Context):
         assert ArithmeticOpTester.run_unary_op(op, n, x, context) == (2 * x) % modulus
 
 
-def test_mod_mul(context: Context):
+def test_mod_mul():
     """Tests for ModMul."""
+    context = get_qdk_context()
     n = 8
     for _ in range(10):
         # The modulus is an odd number in the range [3, 2^n-1].
@@ -29,8 +32,9 @@ def test_mod_mul(context: Context):
         assert result == [x, y, ((z << (n - 1)) + x * y) % modulus]
 
 
-def test_mod_square(context: Context):
+def test_mod_square():
     """Tests for ModSquare."""
+    context = get_qdk_context()
     n = 8
     for _ in range(10):
         # The modulus is an odd number in the range [3, 2^n-1].

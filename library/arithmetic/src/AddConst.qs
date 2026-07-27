@@ -108,10 +108,11 @@ operation AddConstant(constant : BigInt, input : Qubit[]) : Unit is Adj + Ctl {
         let constant = SafeMod(constant, 1L <<< n);
         if (constant != 0L) {
             let tz = TrailingZeroCountL(constant);
-            if (Std.Core.ConfigValue("minimize_qubits", true) or Length(ctrl) == 0) {
-                Controlled AddConstantSanders(ctrl, (constant >>> tz, input[tz...]));
-            } else {
+            let optimize = Std.Core.ConfigValue("optimize", "");
+            if (optimize == "time" and Length(ctrl) > 0) {
                 Controlled AddConstantUsingCGAdd(ctrl, (constant >>> tz, input[tz...]));
+            } else {
+                Controlled AddConstantSanders(ctrl, (constant >>> tz, input[tz...]));
             }
         }
     }

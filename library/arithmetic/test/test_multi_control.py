@@ -3,13 +3,15 @@
 import random
 
 import pytest
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
+
+from test.test_utils import get_qdk_context
 
 
 @pytest.mark.parametrize("n", [1, 2, 3, 4, 5, 6, 7, 8, 10, 20])
-def test_multi_control(context: Context, n: int):
+def test_multi_control(n: int):
     """Correctness tests for MultiControl."""
+    context = get_qdk_context()
     op = "MultiControl.MultiControl"
     op = f"((ctrl, target) => {op}(ctrl, target[0]))"
     values = []

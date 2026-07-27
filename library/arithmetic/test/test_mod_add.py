@@ -1,13 +1,15 @@
 import random
 
 import pytest
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
 
+from test.test_utils import get_qdk_context
 
-@pytest.mark.parametrize("context", ["min_gates", "min_qubits"], indirect=True)
+
+@pytest.mark.parametrize("optimize", ["space", "time"])
 @pytest.mark.parametrize("n", [2, 5, 20])
-def test_mod_add(n: int, context: Context):
+def test_mod_add(n: int, optimize: str):
+    context = get_qdk_context(optimize=optimize)
     for _ in range(10):
         modulus = random.randint(2, 2**n - 1)
         x = random.randint(0, modulus - 1)
@@ -17,9 +19,10 @@ def test_mod_add(n: int, context: Context):
         assert result == [x, (x + y) % modulus]
 
 
-@pytest.mark.parametrize("context", ["min_gates", "min_qubits"], indirect=True)
+@pytest.mark.parametrize("optimize", ["space", "time"])
 @pytest.mark.parametrize("n", [2, 5, 20])
-def test_mod_add_controlled(n: int, context: Context):
+def test_mod_add_controlled(n: int, optimize: str):
+    context = get_qdk_context(optimize=optimize)
     for _ in range(10):
         modulus = random.randint(2, 2**n - 1)
         x = random.randint(0, modulus - 1)
@@ -36,9 +39,10 @@ def test_mod_add_controlled(n: int, context: Context):
         assert result == [0, x, y]
 
 
-@pytest.mark.parametrize("context", ["min_gates", "min_qubits"], indirect=True)
+@pytest.mark.parametrize("optimize", ["space", "time"])
 @pytest.mark.parametrize("n", [2, 5, 20])
-def test_mod_add_adjoint(n: int, context: Context):
+def test_mod_add_adjoint(n: int, optimize: str):
+    context = get_qdk_context(optimize=optimize)
     for _ in range(10):
         modulus = random.randint(2, 2**n - 1)
         x = random.randint(0, modulus - 1)
@@ -50,9 +54,10 @@ def test_mod_add_adjoint(n: int, context: Context):
         assert result == [x, (y - x) % modulus]
 
 
-@pytest.mark.parametrize("context", ["min_gates", "min_qubits"], indirect=True)
+@pytest.mark.parametrize("optimize", ["space", "time"])
 @pytest.mark.parametrize("n", [2, 5, 20])
-def test_mod_add_controlled_adjoint(n: int, context: Context):
+def test_mod_add_controlled_adjoint(n: int, optimize: str):
+    context = get_qdk_context(optimize=optimize)
     for _ in range(10):
         modulus = random.randint(2, 2**n - 1)
         x = random.randint(0, modulus - 1)

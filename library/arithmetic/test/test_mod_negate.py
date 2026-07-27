@@ -1,11 +1,13 @@
 import random
 
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
 
+from test.test_utils import get_qdk_context
 
-def test_mod_negate(context: Context):
+
+def test_mod_negate():
     """Tests for ModNegate."""
+    context = get_qdk_context()
     n = 16
     for _ in range(10):
         modulus = random.randint(3, 2**n - 1)
@@ -15,8 +17,9 @@ def test_mod_negate(context: Context):
         assert result == (-x) % modulus
 
 
-def test_mod_negate_zero(context: Context):
+def test_mod_negate_zero():
     """Tests for ModNegate when input is 0."""
+    context = get_qdk_context()
     n = 16
     modulus = random.randint(3, 2**n - 1)
     op = f"ModNegate.ModNegate(_,{modulus}L)"

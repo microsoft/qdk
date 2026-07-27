@@ -23,15 +23,16 @@ The library contains the following algorithms:
   * `Modular/WindowModExp.qs` - modular exponentiation (computes `t:=(t*b^x)%m` where
     `t`, `x` are quantum and `b`, `m` are classical).
 
-### Qubit-optimized and gate-optimized variants
+### Space-optimized and time-optimized variants
 
 Some algorithms (addition, constant addition, comparison) are implemented with two
-different circuit variants: gate-optimized and qubit-optimized. They are functionally
-equivalent, but have different resource usage.
+different circuit variants: space-optimized (minimizing the number of qubits used) and
+time-optimized (minimizing the number of certain gates). The variants are functionally
+equivalent but have different resource usage.
 
-To specify which version to use, use Q# configuration `minimize_qubits`.
-For example, when creating a QDK Context using the Python API:
- `qdk.Context(..., qsharp_config={"minimize_qubits": True})`.
+To select a variant, use the Q# configuration `"optimize"` with the value `"space"` or
+`"time"`. For example, when creating a QDK Context using the Python API:
+`qdk.Context(..., qdk_config={"optimize": "space"})`.
 
-By default, qubit-optimized versions are used.
+The variant used by default is unspecified (but it is usually the space-optimized one).
 

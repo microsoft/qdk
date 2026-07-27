@@ -2,8 +2,9 @@ import math
 import random
 
 import pytest
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
+
+from test.test_utils import get_qdk_context
 
 
 def _random_coprime(modulus: int, attempts: int = 100) -> int:
@@ -18,8 +19,9 @@ def _random_coprime(modulus: int, attempts: int = 100) -> int:
     ("target_size", "exp_size"),
     [(2, 2), (5, 3), (6, 3), (7, 4), (10, 10)],
 )
-def test_window_modular_exp(target_size: int, exp_size: int, context: Context):
+def test_window_modular_exp(target_size: int, exp_size: int):
     """Tests for WindowModularExp."""
+    context = get_qdk_context()
     mul_w = 2
     exp_w = 2
 

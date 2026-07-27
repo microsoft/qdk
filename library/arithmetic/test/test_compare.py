@@ -4,8 +4,9 @@ import random
 from collections.abc import Callable
 
 import pytest
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
+
+from test.test_utils import get_qdk_context
 
 COMPARE_CASES = [
     ("CompareGT", lambda x, y: x > y),
@@ -16,11 +17,14 @@ COMPARE_CASES = [
 ]
 
 
-@pytest.mark.parametrize("context", ["min_gates", "min_qubits"], indirect=True)
+@pytest.mark.parametrize("optimize", ["space", "time"])
 @pytest.mark.parametrize("n", [1, 2, 5, 20])
 @pytest.mark.parametrize(("op_name", "predicate"), COMPARE_CASES)
-def test_compare(n: int, op_name: str, predicate: Callable, context: Context):
+def test_compare(
+    n: int, op_name: str, predicate: Callable, optimize: str
+):
     """Test compare operations."""
+    context = get_qdk_context(optimize=optimize)
     op = f"((x, y, result) => Compare.{op_name}(x, y, result[0]))"
     tester = ArithmeticOpTester(op, [n, n, 1], context)
 
@@ -43,13 +47,14 @@ def test_compare(n: int, op_name: str, predicate: Callable, context: Context):
         assert result == [x, y, 1 - ans_bit if predicate(x, y) else ans_bit]
 
 
-@pytest.mark.parametrize("context", ["min_gates", "min_qubits"], indirect=True)
+@pytest.mark.parametrize("optimize", ["space", "time"])
 @pytest.mark.parametrize("n", [1, 2, 5, 20])
 @pytest.mark.parametrize(("op_name", "predicate"), COMPARE_CASES)
 def test_compare_controlled(
-    n: int, op_name: str, predicate: Callable, context: Context
+    n: int, op_name: str, predicate: Callable, optimize: str
 ):
     """Test controlled compare operations."""
+    context = get_qdk_context(optimize=optimize)
     op = f"((ctrl, x, y, result) => (Controlled Compare.{op_name})(ctrl, (x, y, result[0])))"
     tester = ArithmeticOpTester(op, [1, n, n, 1], context)
 

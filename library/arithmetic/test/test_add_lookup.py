@@ -2,16 +2,18 @@
 
 import random
 
-from qdk import Context
 from qdk.test_utils import ArithmeticOpTester
+
+from test.test_utils import get_qdk_context
 
 
 def _list_to_qs(data: list[int]) -> str:
     return "[" + ",".join(f"{x}L" for x in data) + "]"
 
 
-def test_add_lookup_simple(context: Context):
+def test_add_lookup_simple():
     """Simple deterministic smoke test for AddLookup.AddLookup."""
+    context = get_qdk_context()
     address_size = 2
     n = 4
     data = [1, 3, 5, 7]
@@ -23,8 +25,9 @@ def test_add_lookup_simple(context: Context):
         assert op_tester.run([address, y]) == expected
 
 
-def test_add_lookup_non_mod(context: Context):
+def test_add_lookup_non_mod():
     """Tests AddLookup.AddLookup for addition modulo 2^n."""
+    context = get_qdk_context()
     address_size = 3
     n = 8
     modulus = 2**n
@@ -40,8 +43,9 @@ def test_add_lookup_non_mod(context: Context):
         assert op_tester.run([address, y]) == [address, (y + data[address]) % modulus]
 
 
-def test_parallel_mod_add_lookup(context: Context):
+def test_parallel_mod_add_lookup():
     """Tests AddLookup.ParallelModAddLookup for modular table adds."""
+    context = get_qdk_context()
     address_size = 3
     n = 8
     modulus = 211
