@@ -97,9 +97,7 @@
         "github": {
           "owner": "microsoft",
           "repo": "qdk",
-          "refs": [
-            { "ref": "main", "notes": "nightly, unstable" }
-          ],
+          "refs": [{ "ref": "main", "notes": "nightly, unstable" }],
           "path": "library/arithmetic"
         }
       }
