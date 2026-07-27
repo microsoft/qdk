@@ -187,6 +187,11 @@ export class EnvironmentManager {
       return cached;
     }
 
+    // TODO (acasey): try this.  It will persist the location to the workspace metadata and there's a chance jupyter will find it there
+    // const project  = api.addPythonProject({name: "Some Project", uri: someUri }); // Can drop result - just want side effect
+    // await api.refreshEnvironments(someUri); // As now
+    // const envs = await api.getEnvironments(someUri); // React somehow if there are multiple
+
     // Without a refresh, getEnvironment seems to pick up the global install
     await api.refreshEnvironments(courseRoot);
     const env = await api.getEnvironment(courseRoot);
