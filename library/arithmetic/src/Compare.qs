@@ -77,7 +77,7 @@ operation CompareGT(x : Qubit[], y : Qubit[], result : Qubit) : Unit is Adj + Ct
     if (optimize == "space") {
         CompareCuccaro(x, y, result);
     } elif (optimize == "time") {
-        CompareRippleCarry(x, y, result);        
+        CompareRippleCarry(x, y, result);
     } else {
         CompareCuccaro(x, y, result);
     }
