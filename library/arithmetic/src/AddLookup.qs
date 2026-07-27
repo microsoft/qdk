@@ -44,11 +44,10 @@ operation _Lookup(data : BigInt[], address : Qubit[], target : Qubit[]) : Unit i
     let can_use_formula = (address_size >= 3) and (Length(data) == 2^address_size);
 
     if (can_use_formula and IsResourceEstimating()) {
-        // TODO: make Lookup a primitive instruction in resource estimator.
         let num_ancilla = address_size - 1;
         use q_anc = Qubit[num_ancilla];
         within {
-            RepeatEstimates(2 ^^^ address_size - 2);
+            RepeatEstimates(2^address_size - 2);
         } apply {
             AND(address[0], address[1], q_anc[0]);
             Adjoint AND(address[0], address[1], q_anc[0]);
