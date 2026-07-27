@@ -59,7 +59,10 @@
         "--profile=dev",
         "--remote=codespaces+${env:CODESPACE_NAME}",
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
-        "${workspaceFolder}/samples/"
+        "${workspaceFolder}/source/vscode/test/suites/learning/test-workspace"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js"
       ]
     }
   ]
