@@ -440,7 +440,11 @@ def run_python_tests(cwd, interpreter, pip_env):
 def run_python_integration_tests(cwd, interpreter):
     # don't check to see if pip succeeds. We'll see if the import works later.
     # If it doesn't, we'll skip the tests.
-    command_args = [interpreter, "-m", "pytest"]
+    paths = [
+        cwd,
+        os.path.join(root_dir, "library", "arithmetic", "test"),
+    ]
+    command_args = [interpreter, "-m", "pytest", *paths]
     subprocess.run(command_args, check=True, text=True, cwd=cwd)
 
 
