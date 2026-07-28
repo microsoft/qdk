@@ -1957,6 +1957,7 @@ export class LearningService {
     this._onDidChangeProgress.fire(this._lastSnapshot);
   }
 
+  // TODO (acasey): de-dup against commands.ts
   /**
    * Close any open editor tabs whose URI matches the given notebook URI.
    */

@@ -193,7 +193,7 @@ export class EnvironmentManager {
     // python environment operations easier in the future
     const courseName = courseRoot.path.split("/").pop();
     void api.addPythonProject({
-      name: `QDK Course: ${courseName}`,
+      name: `QDK Course: ${courseName}`, // This doesn't seem to persist across sessions
       uri: courseRoot,
     }); // Can drop result - just want side effect
     await api.refreshEnvironments(courseRoot); // As now

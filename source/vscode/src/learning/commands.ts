@@ -589,6 +589,7 @@ async function runEnvironmentCheckCommand(
   }
   await service.applyEnvironmentCheckFix(fix);
 
+  // TODO (acasey): this may no longer be necessary if jupyter picks up python projects
   // These fixes change how the notebook binds to a kernel (creating the
   // course environment, or installing the Python/Jupyter extensions), so
   // close and re-open the notebook to pick up the new environment.
