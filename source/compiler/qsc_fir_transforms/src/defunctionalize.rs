@@ -140,6 +140,11 @@ pub(crate) fn defunctionalize(
     // specialization never reach that terminal state.
     let mut unresolved_direct_call_sites: Vec<StoreExprId> = Vec::new();
 
+    // Callables outside a rewritten package that are side-effect free and total.
+    // Dead-binding cleanup needs them to prove that discarding a producer call
+    // is unobservable, and the package set does not change during the loop.
+    let total_foreign = crate::walk_utils::collect_total_foreign_callables(store);
+
     // Capture the initial callable-value count for before/after progress
     // tracking, mirroring LLVM's DevirtSCCRepeatedPass: detect when an
     // iteration fails to reduce the remaining work set.
@@ -194,7 +199,14 @@ pub(crate) fn defunctionalize(
         // iterations where no new specializations were discovered. Call sites
         // can live in foreign bodies so rewrite runs once per package
         // that owns call sites, each with that package's own assigner.
-        rewrite_call_sites(store, package_id, &analysis, &spec_map, assigners);
+        rewrite_call_sites(
+            store,
+            package_id,
+            &analysis,
+            &spec_map,
+            assigners,
+            &total_foreign,
+        );
 
         track_specialized_closures(
             &analysis,
@@ -355,6 +367,7 @@ fn rewrite_call_sites(
     analysis: &AnalysisResult,
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
     assigners: &mut PackageAssigners,
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let mut packages: Vec<PackageId> = vec![package_id];
     for cs in &analysis.call_sites {
@@ -371,7 +384,7 @@ fn rewrite_call_sites(
     for pkg_id in packages {
         let assigner = assigners.get_mut(store, pkg_id);
         let package = store.get_mut(pkg_id);
-        rewrite::rewrite(package, pkg_id, analysis, spec_map, assigner);
+        rewrite::rewrite(package, pkg_id, analysis, spec_map, assigner, total_foreign);
     }
 }
 

@@ -113,12 +113,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                         };
                     }
 
-                    let __operand_tmp_0 : (Int => Int) = if (not __has_returned) {
-                        Bar
-                    } else {
-                        __return_unify_fail_4
-                    };
-                    let __operand_tmp_1 : Int = if (not __has_returned) {
+                    let __operand_tmp_0 : Int = if (not __has_returned) {
                         {
                             while ((not __has_returned)) and cond {
                                 {
@@ -134,7 +129,7 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                         0
                     };
                     let z : Int = if (not __has_returned) {
-                        __operand_tmp_0(__operand_tmp_1)
+                        Bar(__operand_tmp_0)
                     } else {
                         0
                     };
@@ -154,9 +149,6 @@ fn two_while_returns_with_buried_operand_loop_lower_cleanly() {
                 let _generated_ident_75 : Int = Foo(cond);
                 __quantum__rt__qubit_release(q);
                 _generated_ident_75
-            }
-            operation __return_unify_fail_4(_ : Int) : Int {
-                fail $"callable init expr"
             }
             // entry
             Main()

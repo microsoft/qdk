@@ -2873,6 +2873,7 @@ fn analysis_callable_from_constant_callable_array_loop() {
                     let _len_id_48 : Int = Length(_array_id_44);
                     mutable _index_id_53 : Int = 0;
                     while _index_id_53 < _len_id_48 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_44[_index_id_53];
                         if _index_id_53 == 0 {
                             ApplyOp_AdjCtl__H_(q)
                         } else {
@@ -5313,6 +5314,7 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
                     let _len_id_40 : Int = Length(_array_id_36);
                     mutable _index_id_45 : Int = 0;
                     while _index_id_45 < _len_id_40 {
+                        let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         if _index_id_45 == 0 {
                             S(q)
@@ -6091,6 +6093,7 @@ fn operand_block_tuple_pattern_dispatch_resolves_field_path() {
                         let i : Int = _index_id_56;
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         let z : Int = {
+                            let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = ops[i];
                             if i == 0 {
                                 I(q)
                             } else {
@@ -6165,6 +6168,7 @@ fn pure_arithmetic_array_index_dispatch_reuses_index_expression() {
                     while ((_step_id_48 > 0) and (_index_id_43 <= _end_id_53)) or ((_step_id_48 < 0) and (_index_id_43 >= _end_id_53)) {
                         let i : Int = _index_id_43;
                         let q : Qubit = __quantum__rt__qubit_allocate();
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[i + 1];
                         if (i + 1) == 0 {
                             I(q)
                         } else if (i + 1) == 1 {
@@ -6255,6 +6259,9 @@ fn pure_array_index_dispatch_reuses_index_expression() {
                     while ((_step_id_49 > 0) and (_index_id_44 <= _end_id_54)) or ((_step_id_49 < 0) and (_index_id_44 >= _end_id_54)) {
                         let i : Int = _index_id_44;
                         let q : Qubit = __quantum__rt__qubit_allocate();
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[{
+                            i
+                        }];
                         if i == 0 {
                             I(q)
                         } else if i == 1 {
@@ -6351,6 +6358,10 @@ fn impure_array_index_dispatch_hoists_index_expression() {
                             X(q);
                             i
                         };
+                        let op : (Qubit => Unit is Adj + Ctl) = ops[{
+                            X(q);
+                            i
+                        }];
                         if index == 0 {
                             I(q)
                         } else if index == 1 {

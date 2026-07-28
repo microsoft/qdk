@@ -28,8 +28,7 @@ fn operand_lift_return_in_binop_operand_block() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
@@ -37,7 +36,7 @@ fn operand_lift_return_in_binop_operand_block() {
                     3
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_0 + __operand_tmp_1
+                    1 + __operand_tmp_0
                 } else {
                     0
                 };
@@ -80,7 +79,6 @@ fn operand_lift_return_in_call_tuple_arg_block() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_1 : ((Int, Int) -> Int) = Add;
                 let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
@@ -89,7 +87,7 @@ fn operand_lift_return_in_call_tuple_arg_block() {
                     3
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_1(__operand_tmp_0, 4)
+                    Add(__operand_tmp_0, 4)
                 } else {
                     0
                 };
@@ -177,8 +175,7 @@ fn operand_lift_return_in_tuple_element_block() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
@@ -186,7 +183,7 @@ fn operand_lift_return_in_tuple_element_block() {
                     3
                 };
                 let (a : Int, _ : Int, _ : Int) = if (not __has_returned) {
-                    (__operand_tmp_0, __operand_tmp_1, 4)
+                    (1, __operand_tmp_0, 4)
                 } else {
                     (0, 0, 0)
                 };
@@ -229,8 +226,7 @@ fn operand_lift_return_in_call_arg_block_unit_call() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_0 : (Int -> Int) = Use;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
@@ -238,7 +234,7 @@ fn operand_lift_return_in_call_arg_block_unit_call() {
                     3
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_0(__operand_tmp_1)
+                    Use(__operand_tmp_0)
                 } else {
                     0
                 };

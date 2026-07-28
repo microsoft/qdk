@@ -2718,6 +2718,11 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_52862 : Int = _range_id_52849.End;
                                     while ((_step_id_52857 > 0) and (_index_id_52852 <= _end_id_52862)) or ((_step_id_52857 < 0) and (_index_id_52852 >= _end_id_52862)) {
                                         let i_1 : Int = _index_id_52852;
+                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                            AND
+                                        } else {
+                                            ApplyOrAssuming0Target
+                                        };
                                         if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {
@@ -2822,6 +2827,11 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_52948 : Int = _range_id_52935.End;
                                     while ((_step_id_52943 > 0) and (_index_id_52938 <= _end_id_52948)) or ((_step_id_52943 < 0) and (_index_id_52938 >= _end_id_52948)) {
                                         let i_1 : Int = _index_id_52938;
+                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                            AND
+                                        } else {
+                                            ApplyOrAssuming0Target
+                                        };
                                         if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {
@@ -2926,6 +2936,11 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_53034 : Int = _range_id_53021.End;
                                     while ((_step_id_53029 > 0) and (_index_id_53024 <= _end_id_53034)) or ((_step_id_53029 < 0) and (_index_id_53024 >= _end_id_53034)) {
                                         let i_1 : Int = _index_id_53024;
+                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                            AND
+                                        } else {
+                                            ApplyOrAssuming0Target
+                                        };
                                         if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {
@@ -3030,6 +3045,11 @@ fn shor_sample_full_pipeline_reachable_items() {
                                     let _end_id_53120 : Int = _range_id_53107.End;
                                     while ((_step_id_53115 > 0) and (_index_id_53110 <= _end_id_53120)) or ((_step_id_53115 < 0) and (_index_id_53110 >= _end_id_53120)) {
                                         let i_1 : Int = _index_id_53110;
+                                        let op : ((Qubit, Qubit, Qubit) => Unit is Adj) = if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
+                                            AND
+                                        } else {
+                                            ApplyOrAssuming0Target
+                                        };
                                         if (cNormalized &&& (1L <<< (i_1 + 1))) != 0L {
                                             Adjoint AND(cs1[i_1], xNormalized[i_1 + 1], qs[i_1])
                                         } else {

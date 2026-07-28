@@ -1,20 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Hoist-returns pre-pass for the return-unification pass.
+//! Hoists compound-position `Return` expressions for return unification.
 //!
-//! Rewrites every callable-body block so that any `ExprKind::Return`
-//! surviving in a compound (non-statement-carrying) position is lifted to a
-//! bare `return v;` statement at the enclosing statement boundary. After
-//! this pass, `Return` only appears as:
-//!
-//! * a `StmtKind::Semi`/`StmtKind::Expr` whose expression is `ExprKind::Return(_)`,
-//! * the trailing expression of a block reached through `ExprKind::Block`,
-//! * a branch of `ExprKind::If`, or
-//! * the body of `ExprKind::While`.
-//!
-//! The downstream flag-lowering pass (`transform_block_with_flags`) consumes
-//! that statement-level shape.
+//! The downstream flag transform consumes statement-boundary returns, so this
+//! pass preserves prior operand effects while exposing returns at that boundary.
 //!
 //! ## Match exhaustiveness
 //!
@@ -156,7 +146,13 @@ fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
             count_compound_returns_in_expr(package, *a)
                 + count_compound_returns_in_expr(package, *b)
         }
-        // Ternary
+        // Ternary. Grouping the mutable `AssignIndex` form with the immutable
+        // `UpdateIndex` form is safe here, unlike in `hoist_in_expr`, because
+        // this is a sum over the whole sub-tree and so does not depend on
+        // operand order. Descending the `AssignIndex` place `a` is harmless for
+        // the same reason it is excluded there: `borrowck::verify_assignment`
+        // limits an assignment target to `Var(Res::Local)`, `Hole`, or a
+        // `Tuple` of those, all of which are leaves that contribute zero.
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
             count_compound_returns_in_expr(package, *a)
                 + count_compound_returns_in_expr(package, *b)
@@ -303,6 +299,13 @@ pub(super) fn visit_expr_for_collect(
             visit_expr_for_collect(package, a, out, seen);
             visit_expr_for_collect(package, b, out, seen);
         }
+        // Grouping the mutable `AssignIndex` form with the immutable
+        // `UpdateIndex` form is safe here, unlike in `hoist_in_expr`, because
+        // this collects the set of reachable blocks and so does not depend on
+        // operand order. Descending the `AssignIndex` place `a` is harmless:
+        // `borrowck::verify_assignment` limits an assignment target to
+        // `Var(Res::Local)`, `Hole`, or a `Tuple` of those, none of which holds
+        // a nested block.
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
             visit_expr_for_collect(package, a, out, seen);
             visit_expr_for_collect(package, b, out, seen);
@@ -565,8 +568,12 @@ fn hoist_in_expr(
             hoist_n_ary(package, assigner, package_id, &[replacement, record])
         }
 
-        // Three-operand assignment supplied in runtime order.
-        ExprKind::AssignIndex(a, b, c) => hoist_n_ary(package, assigner, package_id, &[a, b, c]),
+        // The target is a place, not an rvalue: `AssignIndex` evaluates only
+        // its index and replacement. Borrow checking and `ConvertToWSlash`
+        // ensure the target cannot hide a return. ANF uses the same contract.
+        ExprKind::AssignIndex(_, index, replacement) => {
+            hoist_n_ary(package, assigner, package_id, &[index, replacement])
+        }
 
         // Immutable index updates evaluate index, replacement, then container.
         ExprKind::UpdateIndex(container, index, replacement) => hoist_n_ary(
@@ -701,6 +708,12 @@ fn hoist_short_circuit_assign(
     }
     let place_expr = package.get_expr(place);
     if !matches!(place_expr.kind, ExprKind::Var(_, _)) {
+        debug_assert!(
+            false,
+            "a short-circuit `AssignOp` place is expected to be `ExprKind::Var`; \
+             an unhandled place shape returns without rewriting and leaves the \
+             right-hand side `Return` in a compound position"
+        );
         return None;
     }
     let place_read = alloc_expr(

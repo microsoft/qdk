@@ -39,6 +39,8 @@
 //! * [`convergence`] — the operand-lift driver's convergence: the measure
 //!   strictly decreases per changed iteration, and a hand-built diverging block
 //!   surfaces `FixpointNotReached("anf", _)` instead of looping or panicking.
+//! * [`capabilities`] — the spine temps the lift mints leave a base-profile-legal
+//!   program base-profile legal.
 
 pub(super) use crate::PipelineStage;
 pub(super) use crate::return_unify::normalize::tests::check_no_returns_q_roundtrip;
@@ -55,6 +57,7 @@ pub(super) use indoc::indoc;
 
 mod boundary;
 mod buried_loop_lowering;
+mod capabilities;
 mod convergence;
 mod invariant;
 mod isolation;

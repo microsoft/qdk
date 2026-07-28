@@ -219,7 +219,7 @@ fn assert_while_condition_return_flag_shape(source: &str, expected_ret_val: i64)
     );
     assert!(
         saw_flag_assignment,
-        "expected rewritten while-condition return path to set __has_returned = true"
+        "expected rewritten while-condition return path to __has_returned = true"
     );
 }
 
@@ -451,6 +451,47 @@ fn hoist_return_in_update_index_value() {
             }
         }
     "#},
+        &expect![[r#"
+            function Main() : Int[] {
+                let _ : Int = 0;
+                []
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn hoist_return_in_assign_index_value_discards_only_the_index() {
+    // `arr w/= 0 <- (return [])` — Return as the replacement of an
+    // AssignIndex. The exec graph evaluates the index, then the replacement,
+    // and truncates the container, so only the index is discarded ahead of
+    // the hoisted Return — the container place produces no `let _ = arr;`.
+    let source = indoc! {r#"
+        namespace Test {
+            function Main() : Int[] {
+                mutable arr = [0, 0, 0];
+                arr w/= 0 <- (return []);
+                arr
+            }
+        }
+    "#};
+
+    // Assert the container-place discard's absence directly rather than relying
+    // on the snapshot alone. This suite is regenerated with `UPDATE_EXPECT=1`,
+    // which would absorb a reintroduced `let _ : Int[] = arr;` into the
+    // expectation and leave the test green while it stopped testing its name.
+    let (store, pkg_id) = crate::return_unify::tests::compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
+    assert!(
+        !rendered.contains("= arr;"),
+        "the AssignIndex container place must not be enumerated as an operand, \
+         so no discard binding reads it:\n{rendered}"
+    );
+
+    check_no_returns_q(
+        source,
         &expect![[r#"
             function Main() : Int[] {
                 let _ : Int = 0;

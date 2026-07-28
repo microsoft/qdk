@@ -5304,6 +5304,7 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
                     let _len_id_55 : Int = Length(_array_id_51);
                     mutable _index_id_60 : Int = 0;
                     while _index_id_60 < _len_id_55 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_60];
                         if _index_id_60 == 0 {
                             ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
                         } else {
@@ -5553,6 +5554,7 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     let _len_id_59 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
                     while _index_id_64 < _len_id_59 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
                         if _index_id_64 == 0 {
                             Run_Empty__H_(q)
                         } else {

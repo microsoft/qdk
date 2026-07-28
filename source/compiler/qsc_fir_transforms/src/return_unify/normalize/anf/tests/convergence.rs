@@ -1,43 +1,17 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The operand-lift driver's convergence: the measure strictly decreases per
-//! changed iteration, and the divergence guard degrades gracefully.
+//! Tests ANF fixpoint convergence and its defensive failure paths.
 //!
-//! [`super::super::run_to_fixpoint`] proves termination with the monotone
-//! measure [`super::super::count_operand_position_returns`], which counts every
-//! `Return` sitting in an operand position. Each operand lift the normal
-//! pipeline produces retires exactly one such `Return`, so the measure strictly
-//! decreases on every changed iteration and the driver always reaches a fixed
-//! point. The guard that compares successive measures is therefore defensive:
-//! for pipeline-derived input it never fires.
-//!
-//! The positive test
-//! [`anf_operand_position_return_measure_strictly_decreases_each_iteration`]
-//! pins the termination property directly: it steps the ANF sweep by hand over
-//! pipeline-derived FIR and samples the measure between iterations to witness
-//! the strict decrease that guarantees convergence.
-//! [`anf_fixpoint_is_structurally_idempotent_after_nested_ancestor_lift`]
-//! runs the completed fixpoint a second time and proves it reports no change
-//! and leaves the rendered FIR identical.
-//!
-//! The negative test exercises the defensive path. It compiles Q# whose two
-//! operand-position conditional expressions have *bare* `Return` conditions
-//! (`(return 5) ? 1 | 2`) and feeds the `Mono`-stage FIR straight to
-//! [`super::super::run_to_fixpoint`], bypassing the statement-boundary hoist the
-//! full pipeline runs first. That hoist rewrites such condition `Return`s before
-//! the ANF phase ever sees them, so feeding the un-hoisted FIR directly is what
-//! surfaces the shape to the driver. It is deliberately pathological for the
-//! measure: an `if` condition's `Return` is always counted in operand position
-//! regardless of where the `if` itself sits, yet the lift moves the *whole* `if`
-//! to a temp without removing the condition's `Return`. So each changed
-//! iteration lifts one `if` whole (reporting progress) while the measure stays
-//! flat. After two such iterations the guard observes the stalled measure and
-//! pushes `Error::FixpointNotReached("anf", _)`, returning instead of looping
-//! forever or panicking.
+//! Normal pipeline input lowers the operand-return measure until stable. Tests
+//! also cover malformed pre-ANF shapes where the measure stalls or an unowned
+//! `AssignOp` would otherwise leave a return buried.
 
 use super::*;
 use qsc_fir::assigner::Assigner;
+// The assertion test is debug-only, matching its debug-only imports.
+#[cfg(debug_assertions)]
+use qsc_fir::fir::{ExprId, ExprKind, PackageLookup, StmtKind};
 
 use crate::return_unify::Error;
 
@@ -106,13 +80,7 @@ fn anf_fixpoint_is_structurally_idempotent_after_nested_ancestor_lift() {
 
 #[test]
 fn nonconverging_operand_lift_pushes_fixpoint_not_reached_without_aborting() {
-    // Two operand-position conditional expressions whose conditions are *bare*
-    // `Return`s:
-    //   `let x = ((return 5) ? 1 | 2) + ((return 6) ? 3 | 4);`
-    // The full pipeline would hoist the condition `Return`s to the statement
-    // boundary before the ANF phase runs, so this test stops at `Mono` and
-    // feeds the un-hoisted FIR straight to the fixpoint driver to exercise the
-    // divergence guard on the shape the hoist would otherwise eliminate.
+    // Bypass the prior hoist to feed the driver's stalled-measure guard.
     let source = indoc! {r#"
         namespace Test {
             function Main() : Int {
@@ -335,5 +303,130 @@ fn scalar_assignop_staging_reduces_measure_in_same_sweep() {
     assert_eq!(
         measure_after, 0,
         "old-value staging and RHS lifting should retire the return together"
+    );
+}
+
+/// Returns the surface expression of the first statement in `block_id` whose
+/// expression kind satisfies `predicate`.
+///
+/// Gated with its sole caller, which is a debug-only test: `build.py` runs
+/// `cargo test --release`, where an ungated helper would be dead code.
+#[cfg(debug_assertions)]
+fn find_surface_expr(
+    package: &qsc_fir::fir::Package,
+    block_id: qsc_fir::fir::BlockId,
+    predicate: impl Fn(&ExprKind) -> bool,
+) -> ExprId {
+    package
+        .get_block(block_id)
+        .stmts
+        .iter()
+        .find_map(|&stmt_id| {
+            let expr_id = match &package.get_stmt(stmt_id).kind {
+                StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => *e,
+                StmtKind::Item(_) => return None,
+            };
+            predicate(&package.get_expr(expr_id).kind).then_some(expr_id)
+        })
+        .expect("expected the body to contain a statement matching the predicate")
+}
+
+/// A compound assignment whose place is a `Field`/`Index` projection is the one
+/// `AssignOp` shape [`super::super::anf_lift_in_expr`] cannot lower: it is
+/// neither the scalar `Var` place nor the array place the two guarded arms
+/// accept. No front end emits it — Q# spells indexed update as
+/// `a w/= i <- v` (an `UpdateIndex`/`AssignIndex`) and the OpenQASM
+/// compiler never passes `is_assignment = true` — so the shape cannot be
+/// reached from a Q# source string.
+///
+/// The package is therefore assembled from real compiler output rather than
+/// faked: a scalar `x += { return 5; 1 };` supplies the compound assignment
+/// and a separate `arr[idx]` binding supplies a genuine `ExprKind::Index`
+/// projection, whose kind and type are copied into a fresh expression that
+/// replaces the assignment's place slot. Every id and type comes from the
+/// compiler; only the place slot is repointed.
+///
+/// Before the dedicated `AssignOp` arm existed this shape fell through to the
+/// shared leaf/no-op arm, so the lift returned `None` and the right-hand side
+/// `Return` stayed buried in an operand position with neither a lift nor a
+/// diagnostic. `run_to_fixpoint` cannot catch that by inspecting its own
+/// measure, because `count_operand_position_returns` is legitimately nonzero at
+/// convergence for the `while`-condition shapes ANF treats as leaves.
+///
+/// Gated on debug builds because `debug_assert!` is elided in release.
+#[cfg(debug_assertions)]
+#[test]
+fn projected_assign_op_place_trips_the_unhandled_shape_assertion() {
+    let source = indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable x = 0;
+                let arr = [1, 2, 3];
+                mutable idx = 0;
+                let projected = arr[idx];
+                x += { return 5; 1 };
+                x + projected
+            }
+        }
+    "#};
+
+    let (mut store, pkg_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, PipelineStage::Mono);
+    let mut assigner = Assigner::from_package(store.get(pkg_id));
+    let block_id = find_body_block_id(store.get(pkg_id), "Main");
+
+    // Run the statement-boundary hoist first so the ANF sweep sees exactly the
+    // FIR the pipeline would hand it. The hoist leaves the compound assignment
+    // alone: its RHS is a statement-carrying `Block`.
+    let mut errors = Vec::new();
+    crate::return_unify::normalize::hoist_returns_to_statement_boundary(
+        store.get_mut(pkg_id),
+        &mut assigner,
+        pkg_id,
+        block_id,
+        &mut errors,
+    );
+    assert!(errors.is_empty(), "hoist produced errors: {errors:?}");
+
+    // Repoint the compound assignment's place at a copy of the compiler-built
+    // `arr[idx]` projection.
+    let package = store.get_mut(pkg_id);
+    let projection_id = find_surface_expr(package, block_id, |kind| {
+        matches!(kind, ExprKind::Index(_, _))
+    });
+    let assign_op_id = find_surface_expr(package, block_id, |kind| {
+        matches!(kind, ExprKind::AssignOp(_, _, _))
+    });
+
+    let projection = package.get_expr(projection_id).clone();
+    let place_id = crate::fir_builder::alloc_expr(
+        package,
+        &mut assigner,
+        projection.ty,
+        projection.kind,
+        qsc_data_structures::span::Span::default(),
+    );
+
+    let ExprKind::AssignOp(op, _, rhs) = package.get_expr(assign_op_id).kind.clone() else {
+        unreachable!("the located expression is an AssignOp")
+    };
+    package
+        .exprs
+        .get_mut(assign_op_id)
+        .expect("assignment expression should exist")
+        .kind = ExprKind::AssignOp(op, place_id, rhs);
+
+    crate::test_utils::assert_panics_with(
+        "a scalar `AssignOp` place is expected to be `ExprKind::Var`",
+        move || {
+            let mut errors = Vec::new();
+            super::super::run_to_fixpoint(
+                store.get_mut(pkg_id),
+                &mut assigner,
+                pkg_id,
+                block_id,
+                &mut errors,
+            );
+        },
     );
 }

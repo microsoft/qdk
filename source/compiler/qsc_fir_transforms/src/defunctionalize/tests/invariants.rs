@@ -10,6 +10,30 @@ use crate::package_assigners::PackageAssigners;
 use super::*;
 use expect_test::expect;
 
+// A partial application whose captured argument is computed by an effectful
+// call. The binding cannot be deleted, because `GetAngle` measures its qubit,
+// but its callable value is consumed by the rewrite. Cleanup must drop that
+// dead value instead of blanking a closure that is still the result of an
+// arrow-typed block.
+#[test]
+fn retained_effectful_partial_application_binding_passes_invariants() {
+    let source = r#"
+        operation GetAngle(q : Qubit) : Double {
+            X(q);
+            0.0
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = Rx(GetAngle(q), _);
+            ApplyOp(op, q);
+        }
+        "#;
+    check_invariants(source);
+}
+
 #[test]
 fn invariants_single_hof() {
     let source = r#"

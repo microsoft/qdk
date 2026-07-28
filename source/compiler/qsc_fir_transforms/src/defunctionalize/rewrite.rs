@@ -49,7 +49,8 @@ use crate::fir_builder::{
     alloc_local_var_expr,
 };
 use crate::walk_utils::{
-    DirectChild, UseClass, classify_block_use, expr_is_side_effect_free, for_each_direct_child,
+    DirectChild, UseClass, classify_block_use, expr_is_safe_to_discard,
+    expr_is_safe_to_discard_with_total_foreign, expr_is_side_effect_free, for_each_direct_child,
 };
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
@@ -89,6 +90,7 @@ pub(super) fn rewrite(
     analysis: &AnalysisResult,
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
     assigner: &mut Assigner,
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let expr_owner_lookup = build_expr_owner_lookup(package);
     let mut rewritten_callable_arg_locals = FxHashSet::default();
@@ -212,8 +214,10 @@ pub(super) fn rewrite(
 
     prune_dead_callable_arg_locals(
         package,
+        package_id,
         &rewritten_callable_arg_locals,
         &hof_consumed_source_arrays,
+        total_foreign,
     );
 }
 
@@ -1457,8 +1461,10 @@ fn find_local_init_expr_in_callable(
 /// [`prune_dead_top_level_callable_locals`].
 fn prune_dead_callable_arg_locals(
     package: &mut Package,
+    package_id: PackageId,
     rewritten_callable_arg_locals: &FxHashSet<(LocalItemId, LocalVarId)>,
     hof_consumed_source_arrays: &FxHashSet<(LocalItemId, LocalVarId)>,
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let mut source_arrays: FxHashSet<(LocalItemId, LocalVarId)> = FxHashSet::default();
 
@@ -1470,6 +1476,18 @@ fn prune_dead_callable_arg_locals(
 
     for &(callable_id, local_var) in rewritten_callable_arg_locals {
         if !local_var_is_used_in_callable(package, callable_id, local_var) {
+            // Every use was consumed by the call-site rewrite, so only the
+            // initializer's own evaluation is still observable. Deleting the
+            // binding is allowed only when that evaluation is not observable.
+            if !rewritten_arg_local_is_removable(
+                package,
+                package_id,
+                callable_id,
+                local_var,
+                total_foreign,
+            ) {
+                continue;
+            }
             // A direct-dispatch callee bound from an indexed read
             // (`let op = ops[i]`) leaves its source array potentially dead once
             // this local is gone. Record it so the source array can be pruned
@@ -1508,7 +1526,7 @@ fn prune_dead_callable_arg_locals(
         }
     }
 
-    prune_dead_top_level_callable_locals(package);
+    prune_dead_top_level_callable_locals(package, package_id);
 }
 
 /// Builds a map from each expression id to the local callable that owns it, so
@@ -1949,9 +1967,64 @@ fn expr_is_assign_to_local(package: &Package, expr_id: ExprId, local_var: LocalV
     }
 }
 
+/// Returns whether a callable argument local consumed by a call-site rewrite
+/// may be deleted along with its initializer.
+///
+/// The local itself is already unused, so the only remaining question is
+/// whether evaluating its initializer is observable. Three things make it
+/// unobservable: the evaluation is safe to discard outright, it is a static
+/// callable selection whose conditions the generated dispatch already replays,
+/// or it is an indexed read of a closure-bearing callable array, whose
+/// selection that dispatch likewise replays.
+///
+/// `total_foreign` lets the discard proof see through calls into other
+/// packages, such as the `Length` intrinsic that a producer function commonly
+/// uses to compute a captured value.
+fn rewritten_arg_local_is_removable(
+    package: &Package,
+    package_id: PackageId,
+    callable_id: LocalItemId,
+    local_var: LocalVarId,
+    total_foreign: &FxHashSet<ItemId>,
+) -> bool {
+    let Some(init_expr_id) = find_local_init_expr_in_callable(package, callable_id, local_var)
+    else {
+        // No `let` binding to delete, so there is no initializer to preserve.
+        return true;
+    };
+    expr_is_safe_to_discard_with_total_foreign(package, package_id, init_expr_id, total_foreign)
+        || is_replayed_callable_selection(package, init_expr_id)
+        || captures_relocated_into_call(package, init_expr_id)
+        || reads_closure_bearing_callable_array(package, callable_id, local_var)
+}
+
+/// Returns whether the local is bound from an indexed read of a callable array
+/// that still holds a partial-application closure.
+///
+/// The index dispatch that replaced this local's use enumerates the array's
+/// elements, so the selection is replayed and only the bounds check is dropped —
+/// a check the generated dispatch already elides. Retaining the binding instead
+/// keeps the array live, and closure cleanup then blanks its consumed element,
+/// stranding an arrow-typed block with a unit tail.
+///
+/// This mirrors the closure-bearing gate in [`prune_dead_callable_arg_locals`]:
+/// an array of plain callable references carries no closure to strand, so it
+/// stays protected by discard safety.
+fn reads_closure_bearing_callable_array(
+    package: &Package,
+    callable_id: LocalItemId,
+    local_var: LocalVarId,
+) -> bool {
+    local_index_source_array_local(package, callable_id, local_var)
+        .is_some_and(|source| local_var_has_closure_valued_binding(package, callable_id, source))
+}
+
 /// Removes a specific dead callable local from the given callable's body by
 /// deleting its `Local` binding and any references that remain, recursing
 /// into nested blocks via [`remove_dead_callable_local_from_block`].
+///
+/// The caller decides whether removal is allowed; see
+/// [`rewritten_arg_local_is_removable`].
 fn remove_dead_callable_local_from_callable(
     package: &mut Package,
     callable_id: LocalItemId,
@@ -1980,10 +2053,43 @@ fn remove_dead_callable_local_from_callable(
     }
 }
 
+/// Returns whether a binding is a partial application whose captures the
+/// rewrite already relocated into the specialized call.
+///
+/// Partial application lowers to a block that binds each capture and yields a
+/// closure. When that closure is consumed, `allocate_capture_exprs` splices the
+/// capture initializers into the rewritten call's arguments, so deleting the
+/// binding *moves* their evaluation rather than discarding it, and they still
+/// run exactly once. Keeping the binding is what would be wrong: the spliced
+/// initializer would then be evaluated both there and at the call.
+///
+/// Only the closure-yielding shape qualifies. A binding whose initializer
+/// merely produces a callable some other way, such as a call to an effectful
+/// producer, relocates nothing and stays protected by discard safety.
+fn captures_relocated_into_call(package: &Package, expr_id: ExprId) -> bool {
+    match package.get_expr(expr_id).kind {
+        ExprKind::Closure(_, _) => true,
+        ExprKind::Block(block_id) => {
+            package
+                .get_block(block_id)
+                .stmts
+                .last()
+                .is_some_and(|&tail_stmt_id| {
+                    matches!(
+                        package.get_stmt(tail_stmt_id).kind,
+                        StmtKind::Expr(tail_expr_id)
+                            if captures_relocated_into_call(package, tail_expr_id)
+                    )
+                })
+        }
+        _ => false,
+    }
+}
+
 /// Removes top-level callable-typed locals whose only uses were direct
 /// dispatch rewrites, scoped to the package-level entry expression. Filters
 /// `Block.stmts` across all callable bodies in the package.
-fn prune_dead_top_level_callable_locals(package: &mut Package) {
+fn prune_dead_top_level_callable_locals(package: &mut Package, package_id: PackageId) {
     let callable_items: Vec<(LocalItemId, qsc_fir::fir::CallableImpl)> = package
         .items
         .iter()
@@ -1997,15 +2103,15 @@ fn prune_dead_top_level_callable_locals(package: &mut Package) {
         match implementation {
             qsc_fir::fir::CallableImpl::Intrinsic => {}
             qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec_decl) => {
-                prune_dead_callable_locals_in_block(package, spec_decl.block);
+                prune_dead_callable_locals_in_block(package, package_id, spec_decl.block);
             }
             qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
-                prune_dead_callable_locals_in_block(package, spec_impl.body.block);
+                prune_dead_callable_locals_in_block(package, package_id, spec_impl.body.block);
                 for spec in [spec_impl.adj, spec_impl.ctl, spec_impl.ctl_adj]
                     .into_iter()
                     .flatten()
                 {
-                    prune_dead_callable_locals_in_block(package, spec.block);
+                    prune_dead_callable_locals_in_block(package, package_id, spec.block);
                 }
             }
         }
@@ -2020,7 +2126,11 @@ fn prune_dead_top_level_callable_locals(package: &mut Package) {
 /// rather than requiring multiple outer fixpoint iterations. Rewrites
 /// `Block.stmts` to drop unused `Local` bindings, then recurses into nested
 /// blocks.
-fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir::fir::BlockId) {
+fn prune_dead_callable_locals_in_block(
+    package: &mut Package,
+    package_id: PackageId,
+    block_id: qsc_fir::fir::BlockId,
+) {
     loop {
         let stmt_ids = package.get_block(block_id).stmts.clone();
         let initial_count = stmt_ids.len();
@@ -2029,12 +2139,13 @@ fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir:
         for stmt_id in stmt_ids {
             let stmt = package.get_stmt(stmt_id);
             let remove_stmt = match stmt.kind {
-                StmtKind::Local(Mutability::Immutable, pat_id, _) => {
+                StmtKind::Local(Mutability::Immutable, pat_id, init_expr_id) => {
                     let pat = package.get_pat(pat_id);
                     if local_ty_contains_arrow_through_udts(package, &pat.ty) {
                         let mut bound_vars = Vec::new();
                         collect_bound_pat_vars(package, pat_id, &mut bound_vars);
                         !bound_vars.is_empty()
+                            && expr_is_safe_to_discard(package, package_id, init_expr_id)
                             && bound_vars.iter().all(|var| {
                                 classify_block_use(package, block_id, *var) == UseClass::Unused
                             })
@@ -2060,7 +2171,7 @@ fn prune_dead_callable_locals_in_block(package: &mut Package, block_id: qsc_fir:
         if retained.len() == initial_count {
             // No removals this pass — walk nested blocks and stop.
             for stmt_id in retained {
-                prune_dead_callable_locals_in_stmt(package, stmt_id);
+                prune_dead_callable_locals_in_stmt(package, package_id, stmt_id);
             }
             break;
         }
@@ -2112,14 +2223,41 @@ fn remove_dead_callable_local_from_block(
     }
 }
 
+/// Returns whether a direct-rewrite cleanup candidate is a static callable
+/// selection whose conditions have already been replayed by branch dispatch.
+///
+/// Removing the source binding does not drop its condition evaluation:
+/// `branch_split_direct_call_rewrite` emits the same `if` tree at the replaced
+/// call site. Leaves are restricted to item references, while branch blocks
+/// must be transparent value wrappers, so arbitrary producers remain protected
+/// by discard safety.
+fn is_replayed_callable_selection(package: &Package, expr_id: ExprId) -> bool {
+    match package.get_expr(expr_id).kind {
+        ExprKind::If(_, then_expr_id, Some(else_expr_id)) => {
+            is_replayed_callable_selection(package, then_expr_id)
+                && is_replayed_callable_selection(package, else_expr_id)
+        }
+        ExprKind::Block(block_id) => {
+            let block = package.get_block(block_id);
+            matches!(block.stmts.as_slice(), [stmt_id] if matches!(package.get_stmt(*stmt_id).kind, StmtKind::Expr(tail) if is_replayed_callable_selection(package, tail)))
+        }
+        ExprKind::Var(Res::Item(_), _) => true,
+        _ => false,
+    }
+}
+
 /// Inspects a single statement for dead callable-local bindings and deletes
 /// them when safe, delegating to [`prune_dead_callable_locals_in_expr`] for
 /// the statement's inner expression.
-fn prune_dead_callable_locals_in_stmt(package: &mut Package, stmt_id: qsc_fir::fir::StmtId) {
+fn prune_dead_callable_locals_in_stmt(
+    package: &mut Package,
+    package_id: PackageId,
+    stmt_id: qsc_fir::fir::StmtId,
+) {
     let stmt = package.get_stmt(stmt_id).clone();
     match stmt.kind {
         StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) | StmtKind::Local(_, _, expr_id) => {
-            prune_dead_callable_locals_in_expr(package, expr_id);
+            prune_dead_callable_locals_in_expr(package, package_id, expr_id);
         }
         StmtKind::Item(_) => {}
     }
@@ -2129,12 +2267,16 @@ fn prune_dead_callable_locals_in_stmt(package: &mut Package, stmt_id: qsc_fir::f
 /// bindings introduced by direct-call rewrites, delegating to
 /// [`prune_dead_callable_locals_in_block`] for nested `Block` and `While`
 /// bodies until all dead bindings are removed.
-fn prune_dead_callable_locals_in_expr(package: &mut Package, expr_id: ExprId) {
+fn prune_dead_callable_locals_in_expr(
+    package: &mut Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+) {
     let expr = package.get_expr(expr_id).clone();
     match expr.kind {
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
             for expr_id in exprs {
-                prune_dead_callable_locals_in_expr(package, expr_id);
+                prune_dead_callable_locals_in_expr(package, package_id, expr_id);
             }
         }
         ExprKind::ArrayRepeat(lhs, rhs)
@@ -2145,49 +2287,53 @@ fn prune_dead_callable_locals_in_expr(package: &mut Package, expr_id: ExprId) {
         | ExprKind::Index(lhs, rhs)
         | ExprKind::AssignField(lhs, _, rhs)
         | ExprKind::UpdateField(lhs, _, rhs) => {
-            prune_dead_callable_locals_in_expr(package, lhs);
-            prune_dead_callable_locals_in_expr(package, rhs);
+            prune_dead_callable_locals_in_expr(package, package_id, lhs);
+            prune_dead_callable_locals_in_expr(package, package_id, rhs);
         }
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            prune_dead_callable_locals_in_expr(package, a);
-            prune_dead_callable_locals_in_expr(package, b);
-            prune_dead_callable_locals_in_expr(package, c);
+            prune_dead_callable_locals_in_expr(package, package_id, a);
+            prune_dead_callable_locals_in_expr(package, package_id, b);
+            prune_dead_callable_locals_in_expr(package, package_id, c);
         }
-        ExprKind::Block(block_id) => prune_dead_callable_locals_in_block(package, block_id),
+        ExprKind::Block(block_id) => {
+            prune_dead_callable_locals_in_block(package, package_id, block_id);
+        }
         ExprKind::Fail(inner)
         | ExprKind::Field(inner, _)
         | ExprKind::Return(inner)
-        | ExprKind::UnOp(_, inner) => prune_dead_callable_locals_in_expr(package, inner),
+        | ExprKind::UnOp(_, inner) => {
+            prune_dead_callable_locals_in_expr(package, package_id, inner);
+        }
         ExprKind::If(cond, body, otherwise) => {
-            prune_dead_callable_locals_in_expr(package, cond);
-            prune_dead_callable_locals_in_expr(package, body);
+            prune_dead_callable_locals_in_expr(package, package_id, cond);
+            prune_dead_callable_locals_in_expr(package, package_id, body);
             if let Some(otherwise) = otherwise {
-                prune_dead_callable_locals_in_expr(package, otherwise);
+                prune_dead_callable_locals_in_expr(package, package_id, otherwise);
             }
         }
         ExprKind::Range(start, step, end) => {
             for expr_id in [start, step, end].into_iter().flatten() {
-                prune_dead_callable_locals_in_expr(package, expr_id);
+                prune_dead_callable_locals_in_expr(package, package_id, expr_id);
             }
         }
         ExprKind::String(components) => {
             for component in components {
                 if let qsc_fir::fir::StringComponent::Expr(expr_id) = component {
-                    prune_dead_callable_locals_in_expr(package, expr_id);
+                    prune_dead_callable_locals_in_expr(package, package_id, expr_id);
                 }
             }
         }
         ExprKind::Struct(_, copy, fields) => {
             if let Some(copy) = copy {
-                prune_dead_callable_locals_in_expr(package, copy);
+                prune_dead_callable_locals_in_expr(package, package_id, copy);
             }
             for field in fields {
-                prune_dead_callable_locals_in_expr(package, field.value);
+                prune_dead_callable_locals_in_expr(package, package_id, field.value);
             }
         }
         ExprKind::While(cond, block_id) => {
-            prune_dead_callable_locals_in_expr(package, cond);
-            prune_dead_callable_locals_in_block(package, block_id);
+            prune_dead_callable_locals_in_expr(package, package_id, cond);
+            prune_dead_callable_locals_in_block(package, package_id, block_id);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }

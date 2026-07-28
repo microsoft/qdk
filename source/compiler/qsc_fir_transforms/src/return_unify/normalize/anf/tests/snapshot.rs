@@ -30,8 +30,7 @@ fn operand_lift_return_in_array_element_block() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
@@ -39,7 +38,7 @@ fn operand_lift_return_in_array_element_block() {
                     3
                 };
                 let xs : Int[] = if (not __has_returned) {
-                    [__operand_tmp_0, __operand_tmp_1, 4]
+                    [1, __operand_tmp_0, 4]
                 } else {
                     []
                 };
@@ -219,8 +218,7 @@ fn operand_lift_return_in_update_index_value_block() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 let xs : Int[] = [10, 20];
-                let __operand_tmp_0 : Int = 0;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
@@ -228,7 +226,7 @@ fn operand_lift_return_in_update_index_value_block() {
                     3
                 };
                 let ys : Int[] = if (not __has_returned) {
-                    xs w/ __operand_tmp_0 <- __operand_tmp_1
+                    xs w/ 0 <- __operand_tmp_0
                 } else {
                     []
                 };
@@ -483,8 +481,7 @@ fn operand_lift_return_in_range_step_block() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
@@ -492,7 +489,7 @@ fn operand_lift_return_in_range_step_block() {
                     3
                 };
                 let r : Range = if (not __has_returned) {
-                    __operand_tmp_0..__operand_tmp_1..10
+                    1..__operand_tmp_0..10
                 } else {
                     ...
                 };
@@ -755,5 +752,99 @@ fn operand_lift_drains_two_qubit_temps_array_backed() {
             // entry
             Main()
         "#]],
+    );
+}
+
+#[test]
+fn effectful_arrow_operand_pins_to_an_immutable_temp() {
+    // `GetOp(q)({ ...return...; 5 })` — the callee operand evaluates before the
+    // return-bearing argument, so it is pinned to a spine temp. Its type is
+    // `Ty::Arrow` and its initializer is an operation call. Defunctionalization
+    // preserves that initializer's `X(q)` effect when it rewrites the callable
+    // read to direct dispatch.
+    //
+    // `let __operand_tmp_0 : (Int -> Int) = GetOp(q);` below is the assertion.
+    let source = indoc! {r#"
+        namespace Test {
+            function Inc(x : Int) : Int { x + 1 }
+            operation GetOp(q : Qubit) : (Int -> Int) {
+                X(q);
+                Inc
+            }
+            operation Main() : Int {
+                use q = Qubit();
+                let go = false;
+                GetOp(q)({
+                    if go { return 7; }
+                    5
+                })
+            }
+        }
+    "#};
+    check_no_returns_q(
+        source,
+        &expect![[r#"
+            function Inc(x : Int) : Int {
+                x + 1
+            }
+            operation GetOp(q : Qubit) : (Int -> Int) {
+                X(q);
+                Inc
+            }
+            operation Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let go : Bool = false;
+                let __operand_tmp_0 : (Int -> Int) = GetOp(q);
+                let __operand_tmp_1 : Int = {
+                    if go {
+                        {
+                            let _generated_ident_61 : Int = 7;
+                            __quantum__rt__qubit_release(q);
+                            {
+                                __ret_val = _generated_ident_61;
+                                __has_returned = true;
+                            };
+                        };
+                    }
+
+                    5
+                };
+                let _generated_ident_73 : Int = if (not __has_returned) {
+                    __operand_tmp_0(__operand_tmp_1)
+                } else {
+                    0
+                };
+                if (not __has_returned) {
+                    __quantum__rt__qubit_release(q);
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if (not __has_returned) {
+                        _generated_ident_73
+                    } else {
+                        __ret_val
+                    }
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+
+    // The snapshot above is regenerable with `UPDATE_EXPECT=1`, so assert the
+    // binding form separately to keep a refresh from hiding a regression.
+    let (store, pkg_id) = compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
+    assert!(
+        rendered.contains("let __operand_tmp_0 : (Int -> Int) = GetOp(q);"),
+        "an effectful arrow-typed operand pin must bind with `let`; rendered:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("mutable __operand_tmp_0 : (Int -> Int) = GetOp(q);"),
+        "an effectful arrow-typed operand pin must not bind `mutable`; rendered:\n{rendered}"
     );
 }

@@ -1,14 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Fixpoint draining of several operand returns from one statement.
-//!
-//! When a single statement holds *multiple* operand-position returns, each in
-//! its own `{ … return … }` block, every lift binds one spine
-//! `let __operand_tmp`, so the ANF fixpoint must iterate until every operand return
-//! has been lifted before the statement reaches a fixed point. Reaching the
-//! snapshot (and `check_no_returns` passing) witnesses that the multi-lift
-//! converges without re-issuing work forever.
+//! Tests that the ANF fixpoint drains multiple operand-position returns.
 
 use super::*;
 
@@ -31,20 +24,19 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 2;
                         __has_returned = true;
                     };
                     3
                 };
-                let __operand_tmp_2 : Int = if (not __has_returned) {
-                    __operand_tmp_0 + __operand_tmp_1
+                let __operand_tmp_1 : Int = if (not __has_returned) {
+                    1 + __operand_tmp_0
                 } else {
                     0
                 };
-                let __operand_tmp_3 : Int = if (not __has_returned) {
+                let __operand_tmp_2 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 4;
@@ -57,7 +49,7 @@ fn hoist_multiple_operand_returns_in_one_binop_converges() {
                     0
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_2 + __operand_tmp_3
+                    __operand_tmp_1 + __operand_tmp_2
                 } else {
                     0
                 };
@@ -97,8 +89,7 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     let y : Int = {
                         {
                             __ret_val = 2;
@@ -109,7 +100,7 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
                     y + 4
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_0 + __operand_tmp_1
+                    1 + __operand_tmp_0
                 } else {
                     0
                 };
@@ -132,7 +123,8 @@ fn hoist_nested_operand_returns_lift_innermost_first() {
 
 #[test]
 fn multiple_nested_candidates_converge_without_dropping_outer_prefix() {
-    check_semantic_equivalence(indoc! {r#"
+    // The effectful callee must remain pinned once, before both candidates.
+    let source = indoc! {r#"
         namespace Test {
             operation Consume(pair : (Int, Int)) : Unit {}
             function Inner(value : Int) : Int { value }
@@ -147,7 +139,75 @@ fn multiple_nested_candidates_converge_without_dropping_outer_prefix() {
                 0
             }
         }
-    "#});
+    "#};
+    check_no_returns_q(
+        source,
+        &expect![[r#"
+        operation Consume(pair : (Int, Int)) : Unit {}
+        function Inner(value : Int) : Int {
+            value
+        }
+        operation Main() : Int {
+            mutable __has_returned : Bool = false;
+            mutable __ret_val : Int = 0;
+            let q : Qubit = __quantum__rt__qubit_allocate();
+            let __operand_tmp_1 : ((Int, Int) => Unit) = {
+                X(q);
+                Reset(q);
+                Consume
+            };
+            let __operand_tmp_0 : Int = {
+                {
+                    let _generated_ident_65 : Int = 5;
+                    __quantum__rt__qubit_release(q);
+                    {
+                        __ret_val = _generated_ident_65;
+                        __has_returned = true;
+                    };
+                };
+                0
+            };
+            let __operand_tmp_2 : Int = if (not __has_returned) {
+                {
+                    {
+                        let _generated_ident_77 : Int = 6;
+                        __quantum__rt__qubit_release(q);
+                        {
+                            __ret_val = _generated_ident_77;
+                            __has_returned = true;
+                        };
+                    };
+                    1
+                }
+
+            } else {
+                0
+            };
+            if (not __has_returned) {
+                __operand_tmp_1(__operand_tmp_0, Inner(__operand_tmp_2));
+            };
+            let _generated_ident_89 : Int = {
+                0
+            };
+            if (not __has_returned) {
+                __quantum__rt__qubit_release(q);
+            };
+            if __has_returned {
+                __ret_val
+            } else {
+                if (not __has_returned) {
+                    _generated_ident_89
+                } else {
+                    __ret_val
+                }
+            }
+
+        }
+        // entry
+        Main()
+    "#]],
+    );
+    check_semantic_equivalence(source);
 }
 
 #[test]
@@ -177,7 +237,6 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                let __operand_tmp_1 : ((Int[], (Int, Int)) -> Int[]) = Pick;
                 let __operand_tmp_0 : Int = {
                     {
                         __ret_val = 1;
@@ -185,12 +244,12 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                     };
                     10
                 };
-                let __operand_tmp_3 : Int[] = if (not __has_returned) {
+                let __operand_tmp_2 : Int[] = if (not __has_returned) {
                     [__operand_tmp_0, 20]
                 } else {
                     []
                 };
-                let __operand_tmp_2 : Int = if (not __has_returned) {
+                let __operand_tmp_1 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 2;
@@ -202,12 +261,12 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                 } else {
                     0
                 };
-                let __operand_tmp_4 : Int[] = if (not __has_returned) {
-                    __operand_tmp_1(__operand_tmp_3, (__operand_tmp_2, 5))
+                let __operand_tmp_3 : Int[] = if (not __has_returned) {
+                    Pick(__operand_tmp_2, (__operand_tmp_1, 5))
                 } else {
                     []
                 };
-                let __operand_tmp_5 : Int = if (not __has_returned) {
+                let __operand_tmp_4 : Int = if (not __has_returned) {
                     {
                         {
                             __ret_val = 3;
@@ -220,7 +279,7 @@ fn hoist_mixed_kind_operand_returns_in_one_statement_converges() {
                     0
                 };
                 let x : Int = if (not __has_returned) {
-                    __operand_tmp_4[__operand_tmp_5]
+                    __operand_tmp_3[__operand_tmp_4]
                 } else {
                     0
                 };

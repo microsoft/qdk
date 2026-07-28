@@ -1516,6 +1516,7 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     let _len_id_248 : Int = Length(_array_id_244);
                     mutable _index_id_253 : Int = 0;
                     while _index_id_253 < _len_id_248 {
+                        let fn : ((Qubit[], Qubit) => Unit) = _array_id_244[_index_id_253];
                         let _ : Bool = if _index_id_253 == 0 {
                             DeutschJozsa_Empty__SimpleConstantBoolF_(5)
                         } else if _index_id_253 == 1 {

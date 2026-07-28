@@ -1,33 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Administrative-normal-form (ANF) operand lifting for the
-//! return-unification Normalize stage.
+//! ANF operand lifting for the return-unification normalize stage.
 //!
-//! A `Return` can sit behind a statement-carrying `Block`/`If`/`While` that
-//! itself feeds an enclosing operator, call, or binding — an *operand
-//! position* the statement-level [`super::hoist_in_expr`] rewrite cannot
-//! reach. This module lifts each such operand to a fresh spine `let` binding,
-//! scanning in runtime order and recursing into an operand before considering
-//! that operand directly, so the buried `Return` is exposed to a statement
-//! boundary where flag lowering can consume it. Earlier sibling operands are
-//! pinned to their own temps first so evaluation order and side effects are
-//! preserved.
-//!
-//! The module provides three cooperating responsibilities:
-//!
-//! * **Convergence measure** — [`count_operand_position_returns`] counts the
-//!   Returns still buried in operand positions, the companion to the
-//!   compound-position measure the fixpoint driver also tracks.
-//! * **Pre-check** — [`find_unsupported_operand_lifts`] reports every operand
-//!   the lift would attempt but cannot lower soundly. Ordinary
-//!   non-defaultable operand types are array-backed; rejection is only a
-//!   defensive future case where that effective array-backed temp type is
-//!   itself not defaultable.
-//! * **Lift** — [`anf_lift_in_expr`] performs one runtime-ordered
-//!   recurse-then-direct operand lift, rewriting the operand slot in place and
-//!   returning the spine `let` bindings to splice before the enclosing
-//!   statement.
+//! A `Return` inside a statement-carrying operand must be exposed at a
+//! statement boundary for flag lowering. Earlier eager operands are pinned to
+//! preserve their effects; generated reads and value-stable operands are not
+//! re-pinned.
 //!
 //! ## Operand-slot consistency contract
 //!
@@ -43,6 +22,10 @@
 //! ANF runs only after compound-position hoisting reaches its fixpoint. Bare
 //! `Return` is therefore not an ANF direct candidate; ANF lifts the remaining
 //! statement-carrying operand constructs that contain one.
+//!
+//! Like HIR loop normalization, this pass scans operands in runtime order and
+//! pins only earlier operands. The passes differ in their control-flow kind and
+//! representation; this pass handles only FIR `Return`.
 
 #[cfg(test)]
 mod tests;
@@ -51,8 +34,8 @@ use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, BlockId, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, StmtId,
-        StmtKind, StringComponent,
+        BinOp, BlockId, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, Res,
+        StmtId, StmtKind, StringComponent,
     },
     ty::Ty,
 };
@@ -564,6 +547,16 @@ fn is_anf_lift_candidate(package: &Package, expr_id: ExprId) -> bool {
         )
 }
 
+/// Returns whether an earlier operand can stay inline without changing value.
+/// This is deliberately narrower than purity: a later operand can mutate a
+/// side-effect-free local read before its original evaluation point.
+fn is_value_stable_operand(package: &Package, expr_id: ExprId) -> bool {
+    matches!(
+        package.get_expr(expr_id).kind,
+        ExprKind::Lit(_) | ExprKind::Var(Res::Item(_), _)
+    )
+}
+
 /// Drives the ANF operand lift over a single statement's surface expression,
 /// lifting one operand subexpression that contains a `Return` buried behind a
 /// statement-carrying construct.
@@ -660,6 +653,19 @@ pub(super) fn anf_lift_in_expr(
                 temp_counter,
                 generated_operand_reads,
             )
+        }
+        // All supported shapes were handled above. A silent `None` would leave
+        // a return buried with no owner, so catch violated pre-lowering
+        // invariants in debug builds.
+        ExprKind::AssignOp(_, _, _) => {
+            debug_assert!(
+                false,
+                "a scalar `AssignOp` place is expected to be `ExprKind::Var`, and a \
+                 short-circuit `AssignOp` is expected to have been rewritten by \
+                 `hoist_short_circuit_assign`; an unhandled shape returns without \
+                 lifting and leaves the right-hand side `Return` in an operand position"
+            );
+            None
         }
         // AssignIndex: place excluded; index and value are genuine rvalue operands.
         ExprKind::AssignIndex(_, b, c) => anf_lift_operands(
@@ -808,10 +814,7 @@ pub(super) fn anf_lift_in_expr(
         // flag lowering's `replace_returns_in_condition_expr`. The branches /
         // loop body are separate blocks the fixpoint driver visits
         // independently.
-        // Any remaining AssignOp has an invalid scalar place. Leave it
-        // unchanged so the existing invariant checks remain its owner.
-        ExprKind::AssignOp(_, _, _)
-        | ExprKind::Block(_)
+        ExprKind::Block(_)
         | ExprKind::While(_, _)
         | ExprKind::Closure(_, _)
         | ExprKind::Hole
@@ -893,15 +896,12 @@ fn anf_lift_scalar_assign_op(
     Some(prefix)
 }
 
-/// Lift one operand from `parent_id`'s runtime-ordered operand list.
+/// Lifts one operand from a runtime-ordered operand list.
 ///
-/// Scans operands in semantic order, first recursing into an operand and then
-/// considering that same operand as a direct candidate before advancing. When
-/// either path succeeds for operand `i`, every earlier operand `0..i` is pinned
-/// to its own spine temp (and its slot rewritten to read it) so left-to-right
-/// evaluation order is preserved at every ancestor. Later operands stay
-/// inline: they are dead on the return path (the reconstructed statement is
-/// flag-guarded) and evaluate in original order otherwise.
+/// Before: `f(earlier, <return-bearing operand>)`.
+/// After: `let pinned = earlier; let lifted = ...; f(pinned, lifted)`.
+/// Earlier generated reads and value-stable values stay inline; the candidate
+/// is always bound for flag lowering.
 fn anf_lift_operands(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -922,7 +922,9 @@ fn anf_lift_operands(
         ) {
             let mut out = Vec::with_capacity(i + stmts.len());
             for &earlier in &operands[..i] {
-                if generated_operand_reads.contains(&earlier) {
+                if generated_operand_reads.contains(&earlier)
+                    || is_value_stable_operand(package, earlier)
+                {
                     continue;
                 }
                 let (pin_stmt, _pin_var) = anf_lift_operand(
@@ -943,7 +945,9 @@ fn anf_lift_operands(
             let mut out: Vec<StmtId> = Vec::with_capacity(i + 1);
             // Pin each earlier operand to preserve evaluation order.
             for &earlier in &operands[..i] {
-                if generated_operand_reads.contains(&earlier) {
+                if generated_operand_reads.contains(&earlier)
+                    || is_value_stable_operand(package, earlier)
+                {
                     continue;
                 }
                 let (pin_stmt, _pin_var) = anf_lift_operand(
@@ -973,11 +977,9 @@ fn anf_lift_operands(
     None
 }
 
-/// Binds an operand subexpression to a fresh local on the statement spine and
-/// rewrites the matching slot of `parent_id` to read the temp. Bindings are
-/// immutable except for an effectful arrow-valued earlier prefix. That binding
-/// is mutable so later defunctionalization cannot fold away its initializer
-/// effects when replacing the generated callable read with direct dispatch.
+/// Binds an operand on the statement spine and rewrites its parent slot.
+/// Defunctionalization cleanup preserves initializer evaluation before removing
+/// dead callable locals.
 ///
 /// Used both for the return-bearing operand lift and for pinning its earlier
 /// sibling operands (the mechanics are identical). The operand's own internal
@@ -1034,28 +1036,21 @@ fn anf_lift_operand(
     generated_operand_reads: &mut FxHashSet<ExprId>,
 ) -> (StmtId, ExprId) {
     let operand_ty = package.get_expr(operand_id).ty.clone();
-    let is_candidate = is_anf_lift_candidate(package, operand_id);
     let temp_name = format!("{}_{}", super::super::symbols::OPERAND_TEMP, *temp_counter);
     *temp_counter += 1;
 
     if is_type_defaultable(package, package_id, &operand_ty) {
         // The temp type has a classical default, so a later flag guard can seed
         // the non-return path with it directly: bind the operand value as-is.
-        let mutability = if !is_candidate
-            && matches!(operand_ty, Ty::Arrow(_))
-            && !crate::walk_utils::expr_is_side_effect_free(package, package_id, operand_id)
-        {
-            Mutability::Mutable
-        } else {
-            Mutability::Immutable
-        };
+        // Defunctionalization preserves this initializer when its evaluation
+        // is not safe to discard before removing a dead callable local.
         let (local_id, local_stmt_id) = alloc_local_var(
             package,
             assigner,
             &temp_name,
             &operand_ty,
             operand_id,
-            mutability,
+            Mutability::Immutable,
         );
         let var_expr_id =
             alloc_local_var_expr(package, assigner, local_id, operand_ty, Span::default());

@@ -39,12 +39,11 @@ fn isolated_anf_lifts_return_in_binop_operand_block() {
 
             // after anf
             function Main() : Int {
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 2;
                     3
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = 1 + __operand_tmp_0;
                 x
             }
             // entry
@@ -142,12 +141,11 @@ fn isolated_anf_lifts_update_field_receiver_block() {
                     First = 1,
                     Second = 2
                 };
-                let __operand_tmp_0 : Int = 9;
-                let __operand_tmp_1 : __UDT_Item_1__Package_2_ = {
+                let __operand_tmp_0 : __UDT_Item_1__Package_2_ = {
                     return 7;
                     p
                 };
-                let q : __UDT_Item_1__Package_2_ = __operand_tmp_1 w/::First <- __operand_tmp_0;
+                let q : __UDT_Item_1__Package_2_ = __operand_tmp_0 w/::First <- 9;
                 q::First
             }
             // entry
@@ -280,8 +278,7 @@ fn earlier_direct_candidate_wins_before_later_nested_candidate() {
 
                     [q]
                 };
-                let __operand_tmp_1 : (Int -> Int) = Inner;
-                let __operand_tmp_2 : Int = {
+                let __operand_tmp_1 : Int = {
                     if true {
                         {
                             let _generated_ident_73 : Int = 2;
@@ -292,7 +289,7 @@ fn earlier_direct_candidate_wins_before_later_nested_candidate() {
 
                     3
                 };
-                let (first : Qubit, second : Int) = (__operand_tmp_0[0], __operand_tmp_1(__operand_tmp_2));
+                let (first : Qubit, second : Int) = (__operand_tmp_0[0], Inner(__operand_tmp_1));
                 let _generated_ident_85 : Int = second;
                 __quantum__rt__qubit_release(q);
                 _generated_ident_85
@@ -450,15 +447,14 @@ fn isolated_anf_lifts_whole_block_with_if_in_binop_operand() {
             // after anf
             function Main() : Int {
                 mutable c : Bool = true;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     if c {
                         return 2;
                     }
 
                     3
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = 1 + __operand_tmp_0;
                 x
             }
             // entry
@@ -513,8 +509,7 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
             // after anf
             function Main() : Int {
                 mutable c : Bool = true;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     while c {
                         c = false;
                         return 2;
@@ -522,7 +517,7 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
 
                     0
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = 1 + __operand_tmp_0;
                 x
             }
             // entry
@@ -613,12 +608,11 @@ fn isolated_anf_lifts_range_end_block() {
 
             // after anf
             function Main() : Int {
-                let __operand_tmp_0 : Int = 0;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 1;
                     5
                 };
-                let r : Range = __operand_tmp_0..__operand_tmp_1;
+                let r : Range = 0..__operand_tmp_0;
                 r.End
             }
             // entry
@@ -657,12 +651,11 @@ fn isolated_anf_lifts_array_repeat_size_block() {
 
             // after anf
             function Main() : Int {
-                let __operand_tmp_0 : Int = 0;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 1;
                     5
                 };
-                let a : Int[] = [__operand_tmp_0, size = __operand_tmp_1];
+                let a : Int[] = [0, size = __operand_tmp_0];
                 a[0]
             }
             // entry
@@ -803,12 +796,11 @@ fn isolated_anf_lifts_assignindex_replacement_block() {
             // after anf
             function Main() : Int {
                 mutable arr : Int[] = [1, 2, 3];
-                let __operand_tmp_0 : Int = 0;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 3;
                     5
                 };
-                arr w/= __operand_tmp_0 <- __operand_tmp_1;
+                arr w/= 0 <- __operand_tmp_0;
                 arr[0]
             }
             // entry

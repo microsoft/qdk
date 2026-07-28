@@ -2372,6 +2372,7 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                     let _len_id_40 : Int = Length(_array_id_36);
                     mutable _index_id_45 : Int = 0;
                     while _index_id_45 < _len_id_40 {
+                        let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         if _index_id_45 == 0 {
                             S(q)
@@ -2515,6 +2516,7 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                     let _len_id_160 : Int = Length(_array_id_156);
                     mutable _index_id_165 : Int = 0;
                     while _index_id_165 < _len_id_160 {
+                        let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_156[_index_id_165];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         if _index_id_165 == 0 {
                             I(q)
@@ -2662,6 +2664,7 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                     let _len_id_166 : Int = Length(_array_id_162);
                     mutable _index_id_171 : Int = 0;
                     while _index_id_171 < _len_id_166 {
+                        let (_basis : Pauli, initializer : (Qubit => Unit is Adj + Ctl), _flag : Bool) = _array_id_162[_index_id_171];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         if _index_id_171 == 0 {
                             I(q)
@@ -2919,6 +2922,7 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
                     let _len_id_108 : Int = Length(_array_id_104);
                     mutable _index_id_113 : Int = 0;
                     while _index_id_113 < _len_id_108 {
+                        let gate : (Qubit => Unit is Adj + Ctl) = _array_id_104[_index_id_113];
                         if _index_id_113 == 0 {
                             H(q)
                         } else if _index_id_113 == 1 {
