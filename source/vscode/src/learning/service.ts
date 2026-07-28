@@ -145,7 +145,6 @@ export class LearningService {
   >();
   readonly onDidChangeProgress = this._onDidChangeProgress.event;
 
-  private _lastSnapshot: OverallProgress | undefined;
   private _progressFileWatcher: vscode.FileSystemWatcher | undefined;
   private _writingProgress = false;
   private _initPromise: Promise<boolean> | undefined;
@@ -213,6 +212,8 @@ export class LearningService {
         return true;
       }
       // The in-flight attempt didn't create — fall through to retry.
+      // TODO (acasey): this retry isn't safe if A wins the initial race, leaving B and C waiting,
+      // and then fails to actually initialize, B and C will race to call detectAndLoadWorkspace.
     }
 
     this._initPromise = this.detectAndLoadWorkspace(options).finally(() => {
@@ -1792,6 +1793,7 @@ export class LearningService {
       // expected when file is missing or corrupt
     }
     const course = this.defaultCourseOf(ws);
+    // TODO (acasey): is this identical to what was passed in?
     ws.progressData = {
       version: 1,
       position: {
@@ -1890,7 +1892,6 @@ export class LearningService {
       // File removed externally — tear down all workspace state.
       this.workspace = undefined;
       this.syncContextKey();
-      this._lastSnapshot = undefined;
       this._onDidChangeProgress.fire(undefined);
     };
 
@@ -1906,12 +1907,10 @@ export class LearningService {
 
   private emitProgress(): void {
     if (!this.workspace) {
-      this._lastSnapshot = undefined;
       this._onDidChangeProgress.fire(undefined);
       return;
     }
-    this._lastSnapshot = this.getProgress();
-    this._onDidChangeProgress.fire(this._lastSnapshot);
+    this._onDidChangeProgress.fire(this.getProgress());
   }
 
   /**
