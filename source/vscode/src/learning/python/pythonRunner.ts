@@ -4,6 +4,7 @@
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { WORKBOOK_SUFFIX } from "../constants.js";
+import { ensureParentDir, uriExists } from "../fsUtils.js";
 import { stripAuthoringCells } from "../notebookExercises.js";
 import type { CatalogCourse } from "../types.js";
 
@@ -190,22 +191,4 @@ export class PythonCourseRunner {
  */
 function toWorkbookRel(notebookRel: string): string {
   return notebookRel.replace(/\.ipynb$/i, WORKBOOK_SUFFIX);
-}
-
-async function uriExists(uri: vscode.Uri): Promise<boolean> {
-  try {
-    await vscode.workspace.fs.stat(uri);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-async function ensureParentDir(fileUri: vscode.Uri): Promise<void> {
-  const parentUri = vscode.Uri.joinPath(fileUri, "..");
-  try {
-    await vscode.workspace.fs.createDirectory(parentUri);
-  } catch {
-    // already exists
-  }
 }

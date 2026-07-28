@@ -13,6 +13,7 @@ import {
   WORKBOOK_SUFFIX,
 } from "./constants.js";
 import type { CourseProvider } from "./courseProvider.js";
+import { uriExists } from "./fsUtils.js";
 import { parseNotebookExercises } from "./notebookExercises.js";
 import type {
   CatalogActivity,
@@ -370,14 +371,5 @@ async function tryReadText(uri: vscode.Uri): Promise<string | undefined> {
     return new TextDecoder().decode(bytes); // TODO (acasey): encoding?
   } catch {
     return undefined;
-  }
-}
-
-async function uriExists(uri: vscode.Uri): Promise<boolean> {
-  try {
-    await vscode.workspace.fs.stat(uri);
-    return true;
-  } catch {
-    return false;
   }
 }

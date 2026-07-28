@@ -18,6 +18,7 @@ import {
   LEARNING_WORKSPACE_FOLDER,
   LEARNING_WORKSPACE_RELATIVE_PATH,
 } from "./constants.js";
+import { ensureParentDir, uriExists } from "./fsUtils.js";
 import type {
   ActionGroup,
   ActivityContent,
@@ -1998,10 +1999,10 @@ export class LearningService {
             kata.id,
             `${activity.id}.qs`,
           );
-          if (await this.uriExists(fileUri)) {
+          if (await uriExists(fileUri)) {
             continue;
           }
-          await this.ensureParentDir(fileUri);
+          await ensureParentDir(fileUri);
           await vscode.workspace.fs.writeFile(
             fileUri,
             new TextEncoder().encode(activity.placeholderCode),
@@ -2013,32 +2014,13 @@ export class LearningService {
             kata.id,
             `${activity.example.id}.qs`,
           );
-          await this.ensureParentDir(fileUri);
+          await ensureParentDir(fileUri);
           await vscode.workspace.fs.writeFile(
             fileUri,
             new TextEncoder().encode(activity.example.code),
           );
         }
       }
-    }
-  }
-
-  // TODO (acasey): check for clones
-  private async uriExists(uri: vscode.Uri): Promise<boolean> {
-    try {
-      await vscode.workspace.fs.stat(uri);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async ensureParentDir(fileUri: vscode.Uri): Promise<void> {
-    const parentUri = vscode.Uri.joinPath(fileUri, "..");
-    try {
-      await vscode.workspace.fs.createDirectory(parentUri);
-    } catch {
-      // already exists
     }
   }
 }
