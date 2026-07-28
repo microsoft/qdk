@@ -59,6 +59,15 @@ import type {
 } from "./types.js";
 import type { EnvironmentCheckStatus } from "./types.js";
 
+/**
+ * How many times {@link LearningService.tryInitialize} will re-evaluate after
+ * waiting on an in-flight attempt that couldn't satisfy it.
+ *
+ * Bounded so that a steady stream of detect-only probes can't keep a caller
+ * that needs creation looping forever.
+ */
+const MAX_INIT_ATTEMPTS = 3;
+
 /** Build an {@link EnvironmentCheckItem}. */
 function check(
   id: string,
@@ -148,6 +157,8 @@ export class LearningService {
   private _progressFileWatcher: vscode.FileSystemWatcher | undefined;
   private _writingProgress = false;
   private _initPromise: Promise<boolean> | undefined;
+  /** Whether {@link _initPromise} was started with `createIfMissing`. */
+  private _initCreates = false;
   private readonly _disposables: vscode.Disposable[] = [];
   private _environment: EnvironmentManager | undefined;
 
@@ -192,34 +203,74 @@ export class LearningService {
    * open folder instead of returning `false`.
    *
    * Safe to call multiple times — concurrent calls are coalesced and
-   * subsequent calls after success return immediately.
+   * subsequent calls after success return immediately. Gives up after
+   * {@link MAX_INIT_ATTEMPTS} rounds of waiting on other callers' attempts.
    */
   async tryInitialize(options?: {
     createIfMissing?: boolean;
   }): Promise<boolean> {
-    if (this.workspace) {
-      return true;
-    }
+    const create = options?.createIfMissing === true;
 
-    // If there's an in-flight attempt, wait for it first.
-    if (this._initPromise) {
-      const result = await this._initPromise;
-      // If init succeeded, or the caller doesn't need creation, we're done.
-      if (result || !options?.createIfMissing) {
-        return result;
-      }
+    for (let attempt = 1; attempt <= MAX_INIT_ATTEMPTS; attempt++) {
       if (this.workspace) {
         return true;
       }
-      // The in-flight attempt didn't create — fall through to retry.
-      // TODO (acasey): this retry isn't safe if A wins the initial race, leaving B and C waiting,
-      // and then fails to actually initialize, B and C will race to call detectAndLoadWorkspace.
+
+      const inFlight = this._initPromise;
+      if (!inFlight) {
+        const succeeded = await this.startInitialize(create);
+        if (!succeeded && create) {
+          log.warn(
+            "Unable to create a QDK Learning workspace: no workspace folder is open.",
+          );
+        }
+        return succeeded;
+      }
+
+      // Joining an in-flight attempt is only sound when that attempt is at
+      // least as capable as what this caller needs. A detect-only attempt
+      // can't satisfy a caller that asked for creation. Whoever started the
+      // attempt reports its failure, so don't warn again here.
+      if (this._initCreates || !create) {
+        return await inFlight;
+      }
+
+      // Let the weaker attempt finish rather than starting a second one
+      // alongside it, which would scaffold the same files twice. Then loop:
+      // by that point it may have found a workspace, or another caller may
+      // have started a creating attempt worth joining. Re-evaluating is what
+      // keeps concurrent callers from each launching their own attempt.
+      await inFlight.catch(() => false);
+      log.warn(
+        `QDK Learning workspace initialization attempt ${attempt} of ` +
+          `${MAX_INIT_ATTEMPTS} did not produce a workspace; retrying.`,
+      );
     }
 
-    this._initPromise = this.detectAndLoadWorkspace(options).finally(() => {
-      this._initPromise = undefined;
+    log.warn(
+      `Giving up on initializing a QDK Learning workspace after ` +
+        `${MAX_INIT_ATTEMPTS} attempts.`,
+    );
+    return false;
+  }
+
+  /**
+   * Begin the one and only in-flight initialization attempt, publishing it
+   * so concurrent callers coalesce onto it instead of starting their own.
+   */
+  private startInitialize(create: boolean): Promise<boolean> {
+    const attempt = this.detectAndLoadWorkspace({
+      createIfMissing: create,
+    }).finally(() => {
+      // Only retract our own attempt: a later one may already have replaced it.
+      if (this._initPromise === attempt) {
+        this._initPromise = undefined;
+        this._initCreates = false;
+      }
     });
-    return await this._initPromise;
+    this._initPromise = attempt;
+    this._initCreates = create;
+    return attempt;
   }
 
   dispose(): void {
