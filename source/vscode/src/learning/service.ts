@@ -10,7 +10,15 @@ import { EventType, sendTelemetryEvent } from "../telemetry.js";
 import { createCourseRegistry } from "./catalog.js";
 import { CourseRegistry } from "./courseProvider.js";
 import { EnvironmentManager } from "./python/environment.js";
-import { PythonCourseRunner } from "./python/pythonRunner.js";
+import {
+  checkPythonExtensions,
+  promptInstallPythonExtensions,
+} from "./python/extensionUtils.js";
+import {
+  materializeCourseWorkbooks,
+  rematerializeUnitWorkbook,
+  workbookFileUri,
+} from "./python/materialization.js";
 import {
   KATAS_COURSE_ID,
   LEARNING_FILE,
@@ -142,7 +150,6 @@ export class LearningService {
   private _writingProgress = false;
   private _initPromise: Promise<boolean> | undefined;
   private readonly _disposables: vscode.Disposable[] = [];
-  private _pythonRunner: PythonCourseRunner | undefined;
   private _environment: EnvironmentManager | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {
@@ -167,14 +174,6 @@ export class LearningService {
   /** The workspace folder that owns the learning content. */
   get workspaceFolder(): vscode.Uri {
     return this.requireWorkspace().workspaceRoot;
-  }
-
-  /** Lazily-created runner for `python-notebook` courses. */
-  private get pythonRunner(): PythonCourseRunner {
-    if (!this._pythonRunner) {
-      this._pythonRunner = new PythonCourseRunner();
-    }
-    return this._pythonRunner;
   }
 
   /** Lazily-created per-course Python environment manager. */
@@ -496,10 +495,7 @@ export class LearningService {
         if (!unit.notebookRel) {
           continue;
         }
-        const workbook = this.pythonRunner.workbookFileUri(
-          course,
-          unit.notebookRel,
-        );
+        const workbook = workbookFileUri(course, unit.notebookRel);
         if (workbook.toString() === target) {
           return { course, unit };
         }
@@ -649,7 +645,7 @@ export class LearningService {
         await this.setupActiveEnvironment();
         return;
       case "install-extensions":
-        await this.pythonRunner.promptInstallExtensions();
+        await promptInstallPythonExtensions();
         return;
     }
   }
@@ -714,7 +710,7 @@ export class LearningService {
 
     // 1. Required extensions (Python + Jupyter).
     log.info(`[env-check] Checking extensions…`);
-    const extMessage = await this.pythonRunner.ensureExtensions();
+    const extMessage = checkPythonExtensions();
     log.info(`[env-check] Extensions: ${extMessage ?? "ok"}`);
     checks.push(
       check(
@@ -859,7 +855,7 @@ export class LearningService {
       await this.scaffoldCourse(ws, course);
     }
     if (course.kind === "python-notebook") {
-      void this.pythonRunner.promptInstallExtensions();
+      void promptInstallPythonExtensions();
       void this.ensureEnvironment(course);
     }
     ws.progressData.position = this.firstIncompletePosition(course);
@@ -1105,7 +1101,7 @@ export class LearningService {
         await this.closeNotebookTab(notebookUri);
       }
       // Re-materialize the unit from source.
-      await this.pythonRunner.rematerializeUnit(this.activeCourse, unit.id);
+      await rematerializeUnitWorkbook(this.activeCourse, unit.id);
       // Clear completion for every activity in the unit, not just the
       // current one, since the whole unit was re-materialized.
       this.markUnitIncomplete(this.activeCourse.id, unit);
@@ -1689,7 +1685,7 @@ export class LearningService {
 
   /** Working-copy (`*.workbook.ipynb`) URI of a notebook for the active python-notebook course. */
   private notebookFileUri(notebookRel: string): vscode.Uri {
-    return this.pythonRunner.workbookFileUri(this.activeCourse, notebookRel);
+    return workbookFileUri(this.activeCourse, notebookRel);
   }
 
   private findCurrentActivity(): {
@@ -1988,7 +1984,7 @@ export class LearningService {
     if (course.kind === "python-notebook") {
       // Copy the course's notebooks into the workspace working copy so the
       // learner edits a stable location, then surface any missing tooling.
-      await this.pythonRunner.materializeCourse(course);
+      await materializeCourseWorkbooks(course);
       return;
     }
     if (course.kind !== "qsharp") {
