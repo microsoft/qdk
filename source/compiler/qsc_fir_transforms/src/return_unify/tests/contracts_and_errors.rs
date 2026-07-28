@@ -336,7 +336,7 @@ fn guarded_qubit_local_after_flag_lowering_return_is_supported() {
     // qubit now lives inside the trailing merge's else-branch.
     assert!(
         rendered
-            .contains("if _.has_returned _.ret_val else {\n            if not _.has_returned {"),
+            .contains("if _.has_returned _.ret_val else {\n            if (not _.has_returned) {"),
         "post-return qubit local should be moved into a lazy continuation behind the trailing merge\n{rendered}"
     );
     assert!(

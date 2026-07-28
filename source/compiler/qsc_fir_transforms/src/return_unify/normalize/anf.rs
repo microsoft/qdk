@@ -1,42 +1,31 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Administrative-normal-form (ANF) operand lifting for the
-//! return-unification Normalize stage.
+//! ANF operand lifting for the return-unification normalize stage.
 //!
-//! A `Return` can sit behind a statement-carrying `Block`/`If`/`While` that
-//! itself feeds an enclosing operator, call, or binding — an *operand
-//! position* the statement-level [`super::hoist_in_expr`] rewrite cannot
-//! reach. This module lifts each such operand to a fresh spine `let` binding,
-//! innermost-first, so the buried `Return` is exposed to a statement boundary
-//! where flag lowering can consume it. Earlier sibling operands are pinned to
-//! their own temps first so left-to-right evaluation order (and side effects)
-//! are preserved.
-//!
-//! The module provides three cooperating responsibilities:
-//!
-//! * **Convergence measure** — [`count_operand_position_returns`] counts the
-//!   Returns still buried in operand positions, the companion to the
-//!   compound-position measure the fixpoint driver also tracks.
-//! * **Pre-check** — [`find_unsupported_operand_lifts`] reports every operand
-//!   the lift would attempt but cannot lower soundly. A non-defaultable temp
-//!   type (such as `Qubit`) is *not* such a case: the lift backs it with a
-//!   length-1 array (`operand.ty[]`, always defaultable), so the pre-check is a
-//!   defensive guard for any future non-array-defaultable type, letting the
-//!   caller emit a graceful rejection rather than panicking in the slot
-//!   machinery.
-//! * **Lift** — [`anf_lift_in_expr`] performs a single innermost-first operand
-//!   lift, rewriting the operand slot in place and returning the spine `let`
-//!   bindings to splice before the enclosing statement.
+//! A `Return` inside a statement-carrying operand must be exposed at a
+//! statement boundary for flag lowering. Earlier eager operands are pinned to
+//! preserve their effects; generated reads and value-stable operands are not
+//! re-pinned.
 //!
 //! ## Operand-slot consistency contract
 //!
-//! Four exhaustive `ExprKind` matches enumerate the same operand slots in the
-//! same left-to-right order with no wildcard arm:
+//! Four exhaustive `ExprKind` matches cover the same operand families with no
+//! wildcard arm:
 //! [`count_operand_returns_in_expr`], [`anf_lift_in_expr`],
 //! [`scan_operand_tree_for_unsupported_lifts`], and [`replace_operand_slot`].
-//! Adding a new `ExprKind` variant forces a compile error in each, keeping the
-//! measure, the lift, the pre-check, and the write-back in lockstep.
+//! Counting and slot replacement are order-insensitive. The pre-check scan and
+//! lift must additionally agree on runtime order wherever effects are
+//! observable. Adding a new `ExprKind` variant forces a compile error in each,
+//! keeping family coverage in lockstep while each match retains its own role.
+//!
+//! ANF runs only after compound-position hoisting reaches its fixpoint. Bare
+//! `Return` is therefore not an ANF direct candidate; ANF lifts the remaining
+//! statement-carrying operand constructs that contain one.
+//!
+//! Like HIR loop normalization, this pass scans operands in runtime order and
+//! pins only earlier operands. The passes differ in their control-flow kind and
+//! representation; this pass handles only FIR `Return`.
 
 #[cfg(test)]
 mod tests;
@@ -45,18 +34,19 @@ use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, BlockId, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, StmtId,
-        StmtKind, StringComponent,
+        BinOp, BlockId, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, Res,
+        StmtId, StmtKind, StringComponent,
     },
     ty::Ty,
 };
+use rustc_hash::FxHashSet;
 
 use crate::{
     EMPTY_EXEC_RANGE,
     return_unify::{is_type_defaultable, slot::singleton_array_index_read},
 };
 use crate::{
-    fir_builder::{alloc_local_var, alloc_local_var_expr},
+    fir_builder::{alloc_bin_op_expr, alloc_expr, alloc_local_var, alloc_local_var_expr},
     return_unify::slot::wrap_in_singleton_array,
 };
 
@@ -67,7 +57,7 @@ use super::collect_reachable_blocks;
 /// `block_id`.
 ///
 /// Each iteration sweeps every block reachable from `block_id` and applies one
-/// innermost-first operand lift per statement. The loop owns a single operand
+/// runtime-ordered operand lift per statement. The loop owns a single operand
 /// temp counter so every minted `__operand_tmp_<n>` within one specialization
 /// body draws a distinct display suffix; the counter advances across fixpoint
 /// iterations and never resets until the next call.
@@ -97,11 +87,19 @@ pub(in super::super) fn run_to_fixpoint(
     // distinct display suffixes. The counter advances across fixpoint
     // iterations and never resets until the next specialization.
     let mut operand_temp_counter: u32 = 0;
+    let mut generated_operand_reads = FxHashSet::default();
     for _ in 0..hard_cap {
         let blocks = collect_reachable_blocks(package, block_id);
         let mut changed_this_iter = false;
         for b in blocks {
-            if anf_block_once(package, assigner, package_id, b, &mut operand_temp_counter) {
+            if anf_block_once(
+                package,
+                assigner,
+                package_id,
+                b,
+                &mut operand_temp_counter,
+                &mut generated_operand_reads,
+            ) {
                 changed_this_iter = true;
             }
         }
@@ -130,7 +128,7 @@ pub(in super::super) fn run_to_fixpoint(
 /// Runs one ANF operand lift over a single block's direct statement list.
 ///
 /// Does not descend into nested blocks — those are visited independently by
-/// [`run_to_fixpoint`]. For each statement, attempts at most one innermost-first
+/// [`run_to_fixpoint`]. For each statement, attempts at most one runtime-ordered
 /// operand lift on the statement's surface expression; on success the lifted
 /// spine `let` bindings are spliced before the reused original statement.
 /// `StmtKind::Item` statements carry no surface expression and are kept as-is.
@@ -141,6 +139,7 @@ fn anf_block_once(
     package_id: PackageId,
     block_id: BlockId,
     operand_temp_counter: &mut u32,
+    generated_operand_reads: &mut FxHashSet<ExprId>,
 ) -> bool {
     let stmts = package.get_block(block_id).stmts.clone();
     let mut new_stmts: Vec<StmtId> = Vec::with_capacity(stmts.len());
@@ -153,9 +152,14 @@ fn anf_block_once(
                 continue;
             }
         };
-        if let Some(lifted) =
-            anf_lift_in_expr(package, assigner, package_id, surface, operand_temp_counter)
-        {
+        if let Some(lifted) = anf_lift_in_expr(
+            package,
+            assigner,
+            package_id,
+            surface,
+            operand_temp_counter,
+            generated_operand_reads,
+        ) {
             new_stmts.extend(lifted);
             new_stmts.push(stmt_id);
             changed = true;
@@ -181,8 +185,8 @@ fn anf_block_once(
 /// fixpoints, each with its own convergence measure: the hoist fixpoint first
 /// drives [`super::count_compound_position_returns`] to zero, then the ANF
 /// fixpoint drives this operand measure to zero. This measure strictly
-/// decreases across consecutive changed ANF iterations because each lift runs
-/// innermost-first.
+/// decreases across consecutive changed ANF iterations because each successful
+/// lift retires an operand-position `Return` on normal post-hoist input.
 pub(super) fn count_operand_position_returns(
     package: &Package,
     block_id: qsc_fir::fir::BlockId,
@@ -358,21 +362,17 @@ fn count_operand_returns_in_expr(package: &Package, expr_id: ExprId, in_operand:
 /// lower soundly, returning each offending operand's type and span for the
 /// caller to surface as a graceful rejection diagnostic.
 ///
-/// One candidate shape is rejected, detected by mirroring the operand
-/// classification [`anf_lift_in_expr`] uses, so detection matches exactly what
-/// the lift would otherwise do: a statement-carrying `Block`/`If`/`While`
-/// reached in an operand position whose type has no synthesizable classical
-/// default (realistically `Qubit` or a tuple/UDT containing it). The lift binds
-/// it into an immutable `let __operand_tmp_<n> = <candidate>;`; once that
-/// return-bearing initializer is processed, flag lowering would need a
-/// classical default for the temp's type, which does not exist.
+/// Candidate family coverage follows [`anf_lift_in_expr`]. Ordinary
+/// non-defaultable types, including `Qubit` and tuples/UDTs containing it, are
+/// soundly stored behind a length-1 array. Rejection is reserved for a
+/// defensive future case where the effective array-backed temp type is itself
+/// not classically defaultable.
 ///
 /// Projected operand parents (`Range`/`Struct`/`String`) are *not* a rejection
 /// reason: each of their eager children has a stable in-place write-back slot
 /// (mirrored across the operand-slot contract), so a defaultable projected
-/// child lifts like any other operand. Only a genuinely non-defaultable child
-/// underneath them is reported, by the same defaultability test applied
-/// everywhere.
+/// child lifts like any other operand. A child is reported only if its
+/// effective array-backed temp type fails the defensive defaultability check.
 ///
 /// Scans every block transitively reachable from `block_id`. Each operand
 /// candidate is recorded once; its interior is not descended here, since its
@@ -396,17 +396,17 @@ pub(crate) fn find_unsupported_operand_lifts(
     rejected
 }
 
-/// Walk the unconditional operand sites of `expr_id` exactly as
-/// [`anf_lift_in_expr`] does, sending each direct operand to
-/// [`check_operand_for_unsupported_lift`].
+/// Walk the unconditional operand sites of `expr_id`, sending each direct
+/// operand to [`check_operand_for_unsupported_lift`].
 ///
-/// Every eager operand site is enumerated identically to the lift, including
-/// the projected parents `Range`/`Struct`/`String` (each of whose eager
-/// children has a stable write-back slot). `Block`/`If`/`While` and the
-/// short-circuit `and`/`or` RHS are not unconditional operand sites (conditions
-/// and RHS returns are rewritten in place by the condition/short-circuit
-/// handling, and statement-carrying constructs are lifted whole by their
-/// parent), so they are not descended.
+/// Candidate family coverage matches the lift, and operands are scanned in
+/// runtime order where effects would be observable. This pre-check neither
+/// performs scalar compound-assignment old-value staging nor replaces operand
+/// slots. Projected parents `Range`/`Struct`/`String` are included because each
+/// eager child has a stable write-back slot. `Block`/`If`/`While` and the
+/// short-circuit `and`/`or` RHS are not descended: condition/RHS returns are
+/// rewritten by the preceding compound hoist, while statement-carrying
+/// constructs are direct ANF candidates for their parent.
 fn scan_operand_tree_for_unsupported_lifts(
     package: &Package,
     package_id: PackageId,
@@ -437,17 +437,20 @@ fn scan_operand_tree_for_unsupported_lifts(
         ExprKind::BinOp(_, a, b)
         | ExprKind::Call(a, b)
         | ExprKind::Index(a, b)
-        | ExprKind::ArrayRepeat(a, b)
-        | ExprKind::UpdateField(a, _, b) => {
+        | ExprKind::ArrayRepeat(a, b) => {
             check_operand_for_unsupported_lift(package, package_id, a, rejected);
             check_operand_for_unsupported_lift(package, package_id, b, rejected);
         }
-        // Three-operand eager compounds. The functional `UpdateIndex` receiver
-        // `a` stays a value operand.
-        ExprKind::UpdateIndex(a, b, c) => {
-            check_operand_for_unsupported_lift(package, package_id, a, rejected);
-            check_operand_for_unsupported_lift(package, package_id, b, rejected);
-            check_operand_for_unsupported_lift(package, package_id, c, rejected);
+        // Immutable field updates evaluate the replacement before the record.
+        ExprKind::UpdateField(record, _, replacement) => {
+            check_operand_for_unsupported_lift(package, package_id, replacement, rejected);
+            check_operand_for_unsupported_lift(package, package_id, record, rejected);
+        }
+        // Immutable index updates evaluate index, replacement, then container.
+        ExprKind::UpdateIndex(container, index, replacement) => {
+            check_operand_for_unsupported_lift(package, package_id, index, rejected);
+            check_operand_for_unsupported_lift(package, package_id, replacement, rejected);
+            check_operand_for_unsupported_lift(package, package_id, container, rejected);
         }
         // N-ary eager compounds.
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
@@ -460,8 +463,8 @@ fn scan_operand_tree_for_unsupported_lifts(
             check_operand_for_unsupported_lift(package, package_id, e, rejected);
         }
         // Projected kinds: each eager child has a stable write-back slot, so
-        // they are scanned like any other operand site (a defaultable child
-        // lifts; only a non-defaultable child is reported).
+        // they are scanned like any other operand site. Ordinary
+        // non-defaultable children remain supported through array backing.
         ExprKind::Range(start, step, end) => {
             for e in [start, step, end].into_iter().flatten() {
                 check_operand_for_unsupported_lift(package, package_id, e, rejected);
@@ -544,14 +547,24 @@ fn is_anf_lift_candidate(package: &Package, expr_id: ExprId) -> bool {
         )
 }
 
+/// Returns whether an earlier operand can stay inline without changing value.
+/// This is deliberately narrower than purity: a later operand can mutate a
+/// side-effect-free local read before its original evaluation point.
+fn is_value_stable_operand(package: &Package, expr_id: ExprId) -> bool {
+    matches!(
+        package.get_expr(expr_id).kind,
+        ExprKind::Lit(_) | ExprKind::Var(Res::Item(_), _)
+    )
+}
+
 /// Drives the ANF operand lift over a single statement's surface expression,
-/// lifting exactly one operand subexpression (innermost-first) that contains
-/// a `Return` buried behind a statement-carrying construct.
+/// lifting one operand subexpression that contains a `Return` buried behind a
+/// statement-carrying construct.
 ///
-/// Recurses into each unconditional operand site — the eager-compound
-/// children, the short-circuit **LHS only**, and an `If`'s **condition** —
-/// descending into deeper operands before considering the current level so the
-/// innermost candidate is lifted first. `Block`/`While` are recursion leaves:
+/// Scans unconditional operand sites in runtime order — the eager-compound
+/// children, the short-circuit **LHS only**, and an `If`'s **condition** — and
+/// for each operand recurses before considering that operand directly.
+/// `Block`/`While` are recursion leaves:
 /// each is lifted *whole* (its interior statements / condition / branches are
 /// separate blocks the fixpoint driver visits independently, and a `While`
 /// condition's returns are handled in place by `hoist_short_circuit` / flag
@@ -561,6 +574,8 @@ fn is_anf_lift_candidate(package: &Package, expr_id: ExprId) -> bool {
 ///
 /// # Requires
 /// - `expr_id` is valid in `package`.
+/// - The compound-position hoist fixpoint has completed; bare `Return` is not
+///   an ANF direct candidate.
 ///
 /// # Ensures
 /// - Returns `Some(stmts)` — the spine `let` bindings to splice *before* the
@@ -579,6 +594,7 @@ pub(super) fn anf_lift_in_expr(
     package_id: PackageId,
     expr_id: ExprId,
     temp_counter: &mut u32,
+    generated_operand_reads: &mut FxHashSet<ExprId>,
 ) -> Option<Vec<StmtId>> {
     if !contains_return_in_expr(package, expr_id) {
         return None;
@@ -588,15 +604,68 @@ pub(super) fn anf_lift_in_expr(
         // Short-circuit `and`/`or`: only the LHS evaluates unconditionally.
         // The RHS is conditional and stays on the `hoist_short_circuit`
         // path, so it is never an ANF operand site.
-        ExprKind::BinOp(BinOp::AndL | BinOp::OrL, a, _) => {
-            anf_lift_operands(package, assigner, package_id, expr_id, &[a], temp_counter)
+        ExprKind::BinOp(BinOp::AndL | BinOp::OrL, a, _) => anf_lift_operands(
+            package,
+            assigner,
+            package_id,
+            expr_id,
+            &[a],
+            temp_counter,
+            generated_operand_reads,
+        ),
+        ExprKind::AssignOp(op, place, rhs)
+            if !matches!(op, BinOp::AndL | BinOp::OrL)
+                && !matches!(package.get_expr(place).ty, Ty::Array(_))
+                && matches!(package.get_expr(place).kind, ExprKind::Var(_, _)) =>
+        {
+            anf_lift_scalar_assign_op(
+                package,
+                assigner,
+                package_id,
+                expr_id,
+                place,
+                rhs,
+                temp_counter,
+                generated_operand_reads,
+            )
         }
         // Assign family: the lvalue place is provably `Var`/`Hole`/`Tuple`-of-those
         // and never buries a return, so it is excluded from the operand
         // enumeration; including it would pin the mutable place to a by-value
         // copy and silently lose the write.
-        ExprKind::Assign(_, b) | ExprKind::AssignOp(_, _, b) | ExprKind::AssignField(_, _, b) => {
-            anf_lift_operands(package, assigner, package_id, expr_id, &[b], temp_counter)
+        ExprKind::Assign(_, b) | ExprKind::AssignField(_, _, b) => anf_lift_operands(
+            package,
+            assigner,
+            package_id,
+            expr_id,
+            &[b],
+            temp_counter,
+            generated_operand_reads,
+        ),
+        // Array append deliberately reads the target binding after the RHS.
+        ExprKind::AssignOp(_, place, rhs) if matches!(package.get_expr(place).ty, Ty::Array(_)) => {
+            anf_lift_operands(
+                package,
+                assigner,
+                package_id,
+                expr_id,
+                &[rhs],
+                temp_counter,
+                generated_operand_reads,
+            )
+        }
+        // All supported shapes were handled above. A silent `None` would leave
+        // a return buried with no owner, so catch violated pre-lowering
+        // invariants in debug builds.
+        ExprKind::AssignOp(_, _, _) => {
+            debug_assert!(
+                false,
+                "a scalar `AssignOp` place is expected to be `ExprKind::Var`, and a \
+                 short-circuit `AssignOp` is expected to have been rewritten by \
+                 `hoist_short_circuit_assign`; an unhandled shape returns without \
+                 lifting and leaves the right-hand side `Return` in an operand position"
+            );
+            None
         }
         // AssignIndex: place excluded; index and value are genuine rvalue operands.
         ExprKind::AssignIndex(_, b, c) => anf_lift_operands(
@@ -606,39 +675,63 @@ pub(super) fn anf_lift_in_expr(
             expr_id,
             &[b, c],
             temp_counter,
+            generated_operand_reads,
         ),
-        // Two-operand eager compounds; the functional `UpdateField` receiver `a`
-        // is a genuine value operand and stays liftable.
+        // Two-operand eager compounds.
         ExprKind::BinOp(_, a, b)
         | ExprKind::Call(a, b)
         | ExprKind::Index(a, b)
-        | ExprKind::ArrayRepeat(a, b)
-        | ExprKind::UpdateField(a, _, b) => anf_lift_operands(
+        | ExprKind::ArrayRepeat(a, b) => anf_lift_operands(
             package,
             assigner,
             package_id,
             expr_id,
             &[a, b],
             temp_counter,
+            generated_operand_reads,
         ),
-        // Three-operand eager compounds; the functional `UpdateIndex` receiver
-        // `a` stays liftable.
-        ExprKind::UpdateIndex(a, b, c) => anf_lift_operands(
+        // Immutable field updates evaluate the replacement before the record.
+        ExprKind::UpdateField(record, _, replacement) => anf_lift_operands(
             package,
             assigner,
             package_id,
             expr_id,
-            &[a, b, c],
+            &[replacement, record],
             temp_counter,
+            generated_operand_reads,
+        ),
+        // Immutable index updates evaluate index, replacement, then container.
+        ExprKind::UpdateIndex(container, index, replacement) => anf_lift_operands(
+            package,
+            assigner,
+            package_id,
+            expr_id,
+            &[index, replacement, container],
+            temp_counter,
+            generated_operand_reads,
         ),
         // N-ary eager compounds.
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
-            anf_lift_operands(package, assigner, package_id, expr_id, &exprs, temp_counter)
+            anf_lift_operands(
+                package,
+                assigner,
+                package_id,
+                expr_id,
+                &exprs,
+                temp_counter,
+                generated_operand_reads,
+            )
         }
         // Single-operand eager compounds.
-        ExprKind::UnOp(_, e) | ExprKind::Field(e, _) | ExprKind::Fail(e) => {
-            anf_lift_operands(package, assigner, package_id, expr_id, &[e], temp_counter)
-        }
+        ExprKind::UnOp(_, e) | ExprKind::Field(e, _) | ExprKind::Fail(e) => anf_lift_operands(
+            package,
+            assigner,
+            package_id,
+            expr_id,
+            &[e],
+            temp_counter,
+            generated_operand_reads,
+        ),
         // Optional operands in left-to-right order.
         ExprKind::Range(start, step, end) => {
             let operands: Vec<ExprId> = [start, step, end].into_iter().flatten().collect();
@@ -649,6 +742,7 @@ pub(super) fn anf_lift_in_expr(
                 expr_id,
                 &operands,
                 temp_counter,
+                generated_operand_reads,
             )
         }
         // `copy` (if present) evaluates before field values, in source order.
@@ -667,6 +761,7 @@ pub(super) fn anf_lift_in_expr(
                 expr_id,
                 &operands,
                 temp_counter,
+                generated_operand_reads,
             )
         }
         // Interpolated string components in source order.
@@ -685,6 +780,7 @@ pub(super) fn anf_lift_in_expr(
                 expr_id,
                 &operands,
                 temp_counter,
+                generated_operand_reads,
             )
         }
         // An `If` condition is an unconditional operand site: it is evaluated
@@ -706,6 +802,7 @@ pub(super) fn anf_lift_in_expr(
             expr_id,
             &[cond],
             temp_counter,
+            generated_operand_reads,
         ),
 
         // `Block`/`While` are recursion leaves. A `Block`/`While` in an operand
@@ -727,16 +824,84 @@ pub(super) fn anf_lift_in_expr(
     }
 }
 
-/// Lift one operand from `parent_id`'s ordered operand list, innermost-first.
+/// Pins an eager scalar compound assignment's old value before lifting its
+/// return-bearing RHS, then replaces the continuation with a plain assignment.
+#[allow(clippy::too_many_arguments)] // Keeps the assignment slots explicit beside ANF state.
+fn anf_lift_scalar_assign_op(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    package_id: PackageId,
+    expr_id: ExprId,
+    place: ExprId,
+    rhs: ExprId,
+    temp_counter: &mut u32,
+    generated_operand_reads: &mut FxHashSet<ExprId>,
+) -> Option<Vec<StmtId>> {
+    let old_value_temp = *temp_counter;
+    *temp_counter += 1;
+    let Some(mut prefix) = anf_lift_operands(
+        package,
+        assigner,
+        package_id,
+        expr_id,
+        &[rhs],
+        temp_counter,
+        generated_operand_reads,
+    ) else {
+        *temp_counter = old_value_temp;
+        return None;
+    };
+    let ExprKind::AssignOp(op, current_place, lifted_rhs) = package.get_expr(expr_id).kind.clone()
+    else {
+        unreachable!("scalar compound assignment changed kind during RHS lift");
+    };
+    debug_assert_eq!(current_place, place);
+
+    let place_expr = package.get_expr(place);
+    let place_ty = place_expr.ty.clone();
+    let old_value = alloc_expr(
+        package,
+        assigner,
+        place_ty.clone(),
+        place_expr.kind.clone(),
+        Span::default(),
+    );
+    let temp_name = format!("{}_{}", super::super::symbols::OPERAND_TEMP, old_value_temp);
+    let (old_value_local, old_value_stmt) = alloc_local_var(
+        package,
+        assigner,
+        &temp_name,
+        &place_ty,
+        old_value,
+        Mutability::Immutable,
+    );
+    let old_value_read = alloc_local_var_expr(
+        package,
+        assigner,
+        old_value_local,
+        place_ty.clone(),
+        Span::default(),
+    );
+    let value = alloc_bin_op_expr(
+        package,
+        assigner,
+        op,
+        old_value_read,
+        lifted_rhs,
+        place_ty,
+        Span::default(),
+    );
+    package.exprs.get_mut(expr_id).expect("expr not found").kind = ExprKind::Assign(place, value);
+    prefix.insert(0, old_value_stmt);
+    Some(prefix)
+}
+
+/// Lifts one operand from a runtime-ordered operand list.
 ///
-/// First recurses into each operand to lift a *deeper* candidate; only if
-/// none is found does it lift the first directly-liftable operand at this
-/// level. When lifting operand `i`, every earlier operand `0..i` is pinned to
-/// its own spine temp (and its slot rewritten to read it) so left-to-right
-/// evaluation order is preserved — an earlier operand's side effects must run
-/// before the lifted operand's `Return` fires. Later operands stay inline:
-/// they are dead on the return path (the reconstructed statement is
-/// flag-guarded) and evaluate in original order otherwise.
+/// Before: `f(earlier, <return-bearing operand>)`.
+/// After: `let pinned = earlier; let lifted = ...; f(pinned, lifted)`.
+/// Earlier generated reads and value-stable values stay inline; the candidate
+/// is always bound for flag lowering.
 fn anf_lift_operands(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -744,19 +909,24 @@ fn anf_lift_operands(
     parent_id: ExprId,
     operands: &[ExprId],
     temp_counter: &mut u32,
+    generated_operand_reads: &mut FxHashSet<ExprId>,
 ) -> Option<Vec<StmtId>> {
-    // Innermost-first: try to lift a deeper operand inside any child first.
-    for &op in operands {
-        if let Some(stmts) = anf_lift_in_expr(package, assigner, package_id, op, temp_counter) {
-            return Some(stmts);
-        }
-    }
-    // No deeper candidate; lift the first liftable operand at this level.
     for (i, &op) in operands.iter().enumerate() {
-        if is_anf_lift_candidate(package, op) {
-            let mut out: Vec<StmtId> = Vec::with_capacity(i + 1);
-            // Pin each earlier operand to preserve evaluation order.
+        if let Some(stmts) = anf_lift_in_expr(
+            package,
+            assigner,
+            package_id,
+            op,
+            temp_counter,
+            generated_operand_reads,
+        ) {
+            let mut out = Vec::with_capacity(i + stmts.len());
             for &earlier in &operands[..i] {
+                if generated_operand_reads.contains(&earlier)
+                    || is_value_stable_operand(package, earlier)
+                {
+                    continue;
+                }
                 let (pin_stmt, _pin_var) = anf_lift_operand(
                     package,
                     assigner,
@@ -764,11 +934,42 @@ fn anf_lift_operands(
                     parent_id,
                     earlier,
                     temp_counter,
+                    generated_operand_reads,
                 );
                 out.push(pin_stmt);
             }
-            let (lift_stmt, _lift_var) =
-                anf_lift_operand(package, assigner, package_id, parent_id, op, temp_counter);
+            out.extend(stmts);
+            return Some(out);
+        }
+        if is_anf_lift_candidate(package, op) {
+            let mut out: Vec<StmtId> = Vec::with_capacity(i + 1);
+            // Pin each earlier operand to preserve evaluation order.
+            for &earlier in &operands[..i] {
+                if generated_operand_reads.contains(&earlier)
+                    || is_value_stable_operand(package, earlier)
+                {
+                    continue;
+                }
+                let (pin_stmt, _pin_var) = anf_lift_operand(
+                    package,
+                    assigner,
+                    package_id,
+                    parent_id,
+                    earlier,
+                    temp_counter,
+                    generated_operand_reads,
+                );
+                out.push(pin_stmt);
+            }
+            let (lift_stmt, _lift_var) = anf_lift_operand(
+                package,
+                assigner,
+                package_id,
+                parent_id,
+                op,
+                temp_counter,
+                generated_operand_reads,
+            );
             out.push(lift_stmt);
             return Some(out);
         }
@@ -776,9 +977,9 @@ fn anf_lift_operands(
     None
 }
 
-/// Binds an operand subexpression to a fresh immutable
-/// `let __operand_tmp_<n> = <operand>;` on the statement spine and rewrites the
-/// matching slot of `parent_id` to read the temp.
+/// Binds an operand on the statement spine and rewrites its parent slot.
+/// Defunctionalization cleanup preserves initializer evaluation before removing
+/// dead callable locals.
 ///
 /// Used both for the return-bearing operand lift and for pinning its earlier
 /// sibling operands (the mechanics are identical). The operand's own internal
@@ -819,6 +1020,9 @@ fn anf_lift_operands(
 ///   (the Bind ident and the `Var(Res::Local(id))` share one
 ///   `assigner.next_local()`, so `check_local_reference` holds).
 /// - Overwrites the operand slot of `parent_id` in place with the slot read.
+/// - Records the generated slot read by `ExprId`; later fixpoint iterations
+///   skip that synthetic read when materializing another candidate's ancestor
+///   prefix, while still permitting independent source operands to be pinned.
 /// - For the array-backed path, retypes the operand value in place to yield
 ///   `operand.ty[]`.
 /// - Advances `temp_counter` by one.
@@ -829,6 +1033,7 @@ fn anf_lift_operand(
     parent_id: ExprId,
     operand_id: ExprId,
     temp_counter: &mut u32,
+    generated_operand_reads: &mut FxHashSet<ExprId>,
 ) -> (StmtId, ExprId) {
     let operand_ty = package.get_expr(operand_id).ty.clone();
     let temp_name = format!("{}_{}", super::super::symbols::OPERAND_TEMP, *temp_counter);
@@ -837,6 +1042,8 @@ fn anf_lift_operand(
     if is_type_defaultable(package, package_id, &operand_ty) {
         // The temp type has a classical default, so a later flag guard can seed
         // the non-return path with it directly: bind the operand value as-is.
+        // Defunctionalization preserves this initializer when its evaluation
+        // is not safe to discard before removing a dead callable local.
         let (local_id, local_stmt_id) = alloc_local_var(
             package,
             assigner,
@@ -848,6 +1055,7 @@ fn anf_lift_operand(
         let var_expr_id =
             alloc_local_var_expr(package, assigner, local_id, operand_ty, Span::default());
         replace_operand_slot(package, parent_id, operand_id, var_expr_id);
+        generated_operand_reads.insert(var_expr_id);
         (local_stmt_id, var_expr_id)
     } else {
         // The temp type has no classical default. Back it with a length-1 array
@@ -878,6 +1086,7 @@ fn anf_lift_operand(
         // free, so it preserves evaluation order and never re-buries a `Return`.
         let read_id = singleton_array_index_read(package, assigner, array_var_id, &operand_ty);
         replace_operand_slot(package, parent_id, operand_id, read_id);
+        generated_operand_reads.insert(read_id);
         (local_stmt_id, read_id)
     }
 }

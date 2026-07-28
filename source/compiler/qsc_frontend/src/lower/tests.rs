@@ -3058,3 +3058,114 @@ fn literal_complex_lowers_as_struct_decl() {
                         ctl-adj: <none>"#]],
     );
 }
+
+#[test]
+fn lower_break_continue_in_for() {
+    check_hir(
+        indoc! {"
+            operation Foo() : Unit {
+                for _ in 0..3 {
+                    break;
+                    continue;
+                }
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-85] (Public):
+                    Namespace (Ident 16 [0-85] "test"): Item 1
+                Item 1 [0-85] (Internal):
+                    Parent: 0
+                    Callable 0 [0-85] (operation):
+                        name: Ident 1 [10-13] "Foo"
+                        input: Pat 2 [13-15] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-85]: Impl:
+                            Block 4 [23-85] [Type Unit]:
+                                Stmt 5 [29-83]: Expr: Expr 6 [29-83] [Type Unit]: For:
+                                    Pat 7 [33-34] [Type Int]: Discard
+                                    Expr 8 [38-42] [Type Range]: Range:
+                                        Expr 9 [38-39] [Type Int]: Lit: Int(0)
+                                        <no step>
+                                        Expr 10 [41-42] [Type Int]: Lit: Int(3)
+                                    Block 11 [43-83] [Type Unit]:
+                                        Stmt 12 [53-59]: Semi: Expr 13 [53-58] [Type Unit]: Break
+                                        Stmt 14 [68-77]: Semi: Expr 15 [68-76] [Type Unit]: Continue
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn lower_break_continue_in_while() {
+    check_hir(
+        indoc! {"
+            operation Foo() : Unit {
+                while true {
+                    break;
+                    continue;
+                }
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-82] (Public):
+                    Namespace (Ident 13 [0-82] "test"): Item 1
+                Item 1 [0-82] (Internal):
+                    Parent: 0
+                    Callable 0 [0-82] (operation):
+                        name: Ident 1 [10-13] "Foo"
+                        input: Pat 2 [13-15] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-82]: Impl:
+                            Block 4 [23-82] [Type Unit]:
+                                Stmt 5 [29-80]: Expr: Expr 6 [29-80] [Type Unit]: While:
+                                    Expr 7 [35-39] [Type Bool]: Lit: Bool(true)
+                                    Block 8 [40-80] [Type Unit]:
+                                        Stmt 9 [50-56]: Semi: Expr 10 [50-55] [Type Unit]: Break
+                                        Stmt 11 [65-74]: Semi: Expr 12 [65-73] [Type Unit]: Continue
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn lower_break_continue_in_repeat() {
+    check_hir(
+        indoc! {"
+            operation Foo() : Unit {
+                repeat {
+                    break;
+                    continue;
+                }
+                until true;
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-94] (Public):
+                    Namespace (Ident 13 [0-94] "test"): Item 1
+                Item 1 [0-94] (Internal):
+                    Parent: 0
+                    Callable 0 [0-94] (operation):
+                        name: Ident 1 [10-13] "Foo"
+                        input: Pat 2 [13-15] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-94]: Impl:
+                            Block 4 [23-94] [Type Unit]:
+                                Stmt 5 [29-92]: Semi: Expr 6 [29-91] [Type Unit]: Repeat:
+                                    Block 7 [36-76] [Type Unit]:
+                                        Stmt 8 [46-52]: Semi: Expr 9 [46-51] [Type Unit]: Break
+                                        Stmt 10 [61-70]: Semi: Expr 11 [61-69] [Type Unit]: Continue
+                                    Expr 12 [87-91] [Type Bool]: Lit: Bool(true)
+                                    <no fixup>
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}

@@ -305,7 +305,7 @@ fn guard_clause_via_run_to_fixpoint() {
                     };
                 }
 
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     2
                 } else {
                     __ret_val
