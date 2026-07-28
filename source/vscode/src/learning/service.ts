@@ -613,11 +613,6 @@ export class LearningService {
     );
   }
 
-  /** Set up the environment for the currently-active course. */
-  async setupActiveEnvironment(): Promise<void> {
-    await this.ensureEnvironment(this.activeCourse, { force: true });
-  }
-
   /**
    * Return the `{ id, path }` for the active course's Python environment,
    * suitable for passing to the Jupyter extension's `openNotebook` API.
@@ -642,7 +637,7 @@ export class LearningService {
   async applyEnvironmentCheckFix(fix: EnvironmentCheckFix): Promise<void> {
     switch (fix.kind) {
       case "setup":
-        await this.setupActiveEnvironment();
+        await this.ensureEnvironment(this.activeCourse, { force: true });
         return;
       case "install-extensions":
         await promptInstallPythonExtensions();
