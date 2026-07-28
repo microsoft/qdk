@@ -470,7 +470,7 @@ async function showCourseInfo(
   const courses = await service.getCourses();
   const descriptor = courses.find((c) => c.id === courseId);
   if (!descriptor) {
-    // TODO (acasey): log
+    log.warn(`Unable to show course info for unknown course ${courseId}`);
     return;
   }
   if (descriptor.readmePath) {
