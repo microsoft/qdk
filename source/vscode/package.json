@@ -361,6 +361,10 @@
         {
           "command": "qsharp-vscode.learningNotebookHint",
           "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningNotebookExplain",
+          "when": "false"
         }
       ],
       "view/title": [
@@ -480,8 +484,8 @@
       ],
       "notebook/cell/title": [
         {
-          "command": "qsharp-vscode.learningNotebookHint",
-          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected && notebookCellType == 'code'",
+          "command": "qsharp-vscode.learningNotebookExplain",
+          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected",
           "group": "inline/cell@50"
         }
       ],
@@ -792,6 +796,12 @@
       {
         "command": "qsharp-vscode.learningNotebookHint",
         "title": "Ask for a Hint",
+        "category": "QDK Learning",
+        "icon": "$(comment-discussion-sparkle)"
+      },
+      {
+        "command": "qsharp-vscode.learningNotebookExplain",
+        "title": "Explain",
         "category": "QDK Learning",
         "icon": "$(comment-discussion-sparkle)"
       }

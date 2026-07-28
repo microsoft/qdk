@@ -222,18 +222,7 @@ export function registerLearningCommands(
           return;
         }
 
-        // Resolve cell ID from the argument:
-        // - string: passed directly from the cell status bar item
-        // - { cell }: passed by VS Code when invoked from notebook/cell/title
-        let cellId: string | undefined;
-        if (typeof arg === "string") {
-          cellId = arg;
-        } else if (arg && "cell" in arg) {
-          const id = arg.cell.metadata?.id;
-          if (typeof id === "string") {
-            cellId = id;
-          }
-        }
+        const cellId = resolveCellId(arg);
 
         // Navigate to the exercise so the service state matches.
         if (cellId) {
@@ -245,7 +234,52 @@ export function registerLearningCommands(
         });
       },
     ),
+
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningNotebookExplain",
+      async (arg?: string | { cell: vscode.NotebookCell }) => {
+        if (!service.initialized) {
+          return;
+        }
+
+        const courseInfo = service.getActiveCourseInfo();
+        if (courseInfo.kind !== "python-notebook") {
+          return;
+        }
+
+        // The button is offered on every cell, so the cell may not be an
+        // exercise. Only move the service's position when it is one.
+        const cellId = resolveCellId(arg);
+        if (cellId && service.getExerciseCellIds().has(cellId)) {
+          await service.goToExerciseByCellId(cellId, "notebook");
+        }
+
+        await vscode.commands.executeCommand("workbench.action.chat.open", {
+          query: `/qdk-learning Explain this concept in more detail`,
+        });
+      },
+    ),
   );
+}
+
+/**
+ * Resolve a notebook cell ID from a command argument:
+ * - string: passed directly from the cell status bar item
+ * - { cell }: passed by VS Code when invoked from notebook/cell/title
+ */
+function resolveCellId(
+  arg?: string | { cell: vscode.NotebookCell },
+): string | undefined {
+  if (typeof arg === "string") {
+    return arg;
+  }
+  if (arg && "cell" in arg) {
+    const id = arg.cell.metadata?.id;
+    if (typeof id === "string") {
+      return id;
+    }
+  }
+  return undefined;
 }
 
 /**
