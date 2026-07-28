@@ -660,12 +660,8 @@ export class LearningService {
    */
   async runEnvironmentCheck(): Promise<EnvironmentCheckReport> {
     const course = this.activeCourse;
-    log.info(
-      `[env-check] Starting for course "${course.id}" (kind=${course.kind})`,
-    );
 
     if (course.kind !== "python-notebook") {
-      log.info(`[env-check] Q# course — skipping environment checks.`);
       const checks: EnvironmentCheckItem[] = [
         check("course-kind", "Course type", "ok", {
           detail: "Q# course — runs on the built-in simulator.",
@@ -681,9 +677,6 @@ export class LearningService {
 
     // Hard stop: environment management can't run on the Web.
     if (!env.supported) {
-      log.info(
-        `[env-check] Environment management unavailable in current editor.`,
-      );
       const checks: EnvironmentCheckItem[] = [
         check("host", "Desktop VS Code", "fail", {
           detail: "Python courses require the desktop version of VS Code.",
@@ -696,7 +689,6 @@ export class LearningService {
     // Resolve the course's working root (its source folder); the venv
     // lives here, beside the authored notebooks.
     if (!course.sourceDir) {
-      log.info(`[env-check] No sourceDir — cannot resolve course root.`);
       return this.assembleReport(course, [
         check("course-folder", "Course folder", "fail", {
           detail: "This course has no source folder on disk.",
@@ -704,14 +696,11 @@ export class LearningService {
       ]);
     }
     const courseRoot = vscode.Uri.parse(course.sourceDir);
-    log.info(`[env-check] Course root: ${courseRoot.fsPath}`);
 
     const checks: EnvironmentCheckItem[] = [];
 
     // 1. Required extensions (Python + Jupyter).
-    log.info(`[env-check] Checking extensions…`);
     const extMessage = checkPythonExtensions();
-    log.info(`[env-check] Extensions: ${extMessage ?? "ok"}`);
     checks.push(
       check(
         "extensions",
@@ -730,9 +719,7 @@ export class LearningService {
     );
 
     // 2. The per-course environment.
-    log.info(`[env-check] Checking environment existence…`);
     const envExists = await env.environmentExists(courseRoot);
-    log.info(`[env-check] Environment exists: ${envExists}`);
     checks.push(
       check("venv", "Course environment", envExists ? "ok" : "fail", {
         detail: envExists
@@ -750,12 +737,8 @@ export class LearningService {
     // 3. Required packages import in the environment.
     const importChecks = course.environment?.importChecks ?? [];
     if (envExists && importChecks.length > 0) {
-      log.info(`[env-check] Checking package imports…`);
       const report = await env.importsReport(courseRoot, importChecks);
       const missing = report.filter((r) => !r.ok).map((r) => r.module);
-      log.info(
-        `[env-check] Import results: ${report.map((r) => `${r.module}=${r.ok ? "ok" : "fail"}`).join(", ")}`,
-      );
       checks.push(
         check(
           "packages",
@@ -778,7 +761,6 @@ export class LearningService {
         ),
       );
     } else if (importChecks.length > 0) {
-      log.info(`[env-check] Skipping package imports — no environment.`);
       checks.push(
         check("packages", "Required packages", "skip", {
           detail: "No environment yet.",
@@ -786,7 +768,6 @@ export class LearningService {
       );
     }
 
-    log.info(`[env-check] Assembling report (${checks.length} checks).`);
     return this.assembleReport(course, checks);
   }
 
