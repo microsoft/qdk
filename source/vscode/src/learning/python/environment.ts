@@ -195,8 +195,8 @@ export class EnvironmentManager {
       return cached;
     }
 
-    await api.refreshEnvironments(courseRoot); // As now
-    const envs = await api.getEnvironments(courseRoot); // React somehow if there are multiple
+    await api.refreshEnvironments(courseRoot);
+    const envs = await api.getEnvironments(courseRoot);
 
     switch (envs.length) {
       case 0:
@@ -209,24 +209,6 @@ export class EnvironmentManager {
         );
         return envs[0];
     }
-
-    // // Without a refresh, getEnvironment seems to pick up the global install
-    // await api.refreshEnvironments(courseRoot);
-    // const env = await api.getEnvironment(courseRoot);
-    // if (env) {
-    //   // If there's no local venv, getEnvironment will return the global install
-    //   const envPath = env.environmentPath.toString();
-    //   const rootPath = courseRoot.toString().replace(/\/?$/, "/");
-    //   if (!envPath.startsWith(rootPath)) {
-    //     log.debug(
-    //       `Ignoring environment "${env.name}" at ${envPath} ` +
-    //         `because it is not under ${rootPath}`,
-    //     );
-    //     return undefined;
-    //   }
-    //   this._projectEnvironmentMap.set(courseRoot.toString(), env);
-    // }
-    // return env;
   }
 }
 
