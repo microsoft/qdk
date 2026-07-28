@@ -53,21 +53,21 @@ fn guarded_discarded_non_defaultable_statement_value_needs_no_default() {
                     let _step_id_67 = _range_id_59.Step;
                     let _end_id_72 = _range_id_59.End;
                     mutable _broke_39 = false;
-                    while ((not _broke_39)) and (((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72))) {
+                    while (not _broke_39) and (((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72))) {
                         let i = _index_id_62;
                         if i == 2 {
                             _broke_39 = true;
                         }
-                        if (not _broke_39) {
+                        if not _broke_39 {
                             {
                                 let temp = 3;
                                 Foo
                             };
                         }
-                        if (not _broke_39) {
+                        if not _broke_39 {
                             ();
                         }
-                        if (not _broke_39) {
+                        if not _broke_39 {
                             _index_id_62 += _step_id_67;
                         }
                     }
@@ -102,15 +102,15 @@ fn convert_for_range_with_break() {
                     let _step_id_53 = _range_id_45.Step;
                     let _end_id_58 = _range_id_45.End;
                     mutable _broke_31 = false;
-                    while ((not _broke_31)) and (((_step_id_53 > 0) and (_index_id_48 <= _end_id_58)) or ((_step_id_53 < 0) and (_index_id_48 >= _end_id_58))) {
+                    while (not _broke_31) and (((_step_id_53 > 0) and (_index_id_48 <= _end_id_58)) or ((_step_id_53 < 0) and (_index_id_48 >= _end_id_58))) {
                         let i = _index_id_48;
                         if i == 2 {
                             _broke_31 = true;
                         }
-                        if (not _broke_31) {
+                        if not _broke_31 {
                             total += i;
                         }
-                        if (not _broke_31) {
+                        if not _broke_31 {
                             _index_id_48 += _step_id_53;
                         }
                     }
@@ -150,7 +150,7 @@ fn convert_for_range_with_continue() {
                         if i == 2 {
                             _cont_31 = true;
                         }
-                        if (not _cont_31) {
+                        if not _cont_31 {
                             total += i;
                         }
                         _index_id_48 += _step_id_53;
@@ -189,21 +189,21 @@ fn convert_for_range_with_break_and_continue() {
                     let _step_id_82 = _range_id_74.Step;
                     let _end_id_87 = _range_id_74.End;
                     mutable _broke_40 = false;
-                    while ((not _broke_40)) and (((_step_id_82 > 0) and (_index_id_77 <= _end_id_87)) or ((_step_id_82 < 0) and (_index_id_77 >= _end_id_87))) {
+                    while (not _broke_40) and (((_step_id_82 > 0) and (_index_id_77 <= _end_id_87)) or ((_step_id_82 < 0) and (_index_id_77 >= _end_id_87))) {
                         mutable _cont_44 = false;
                         let i = _index_id_77;
                         if i == 3 {
                             _broke_40 = true;
                         }
-                        if ((not _broke_40)) and ((not _cont_44)) {
+                        if (not _broke_40) and (not _cont_44) {
                             if i == 1 {
                                 _cont_44 = true;
                             }
                         }
-                        if ((not _broke_40)) and ((not _cont_44)) {
+                        if (not _broke_40) and (not _cont_44) {
                             total += i;
                         }
-                        if (not _broke_40) {
+                        if not _broke_40 {
                             _index_id_77 += _step_id_82;
                         }
                     }
@@ -237,15 +237,15 @@ fn convert_for_array_with_break() {
                     let _len_id_48 = Length(_array_id_44);
                     mutable _index_id_53 = 0;
                     mutable _broke_30 = false;
-                    while ((not _broke_30)) and (_index_id_53 < _len_id_48) {
+                    while (not _broke_30) and (_index_id_53 < _len_id_48) {
                         let x = _array_id_44[_index_id_53];
                         if x == 3 {
                             _broke_30 = true;
                         }
-                        if (not _broke_30) {
+                        if not _broke_30 {
                             total += x;
                         }
-                        if (not _broke_30) {
+                        if not _broke_30 {
                             _index_id_53 += 1;
                         }
                     }
@@ -284,7 +284,7 @@ fn convert_for_array_with_continue() {
                         if x == 1 {
                             _cont_30 = true;
                         }
-                        if (not _cont_30) {
+                        if not _cont_30 {
                             total += x;
                         }
                         _index_id_53 += 1;
@@ -322,21 +322,21 @@ fn convert_for_array_with_break_and_continue() {
                     let _len_id_77 = Length(_array_id_73);
                     mutable _index_id_82 = 0;
                     mutable _broke_39 = false;
-                    while ((not _broke_39)) and (_index_id_82 < _len_id_77) {
+                    while (not _broke_39) and (_index_id_82 < _len_id_77) {
                         mutable _cont_43 = false;
                         let x = _array_id_73[_index_id_82];
                         if x == 3 {
                             _broke_39 = true;
                         }
-                        if ((not _broke_39)) and ((not _cont_43)) {
+                        if (not _broke_39) and (not _cont_43) {
                             if x == 1 {
                                 _cont_43 = true;
                             }
                         }
-                        if ((not _broke_39)) and ((not _cont_43)) {
+                        if (not _broke_39) and (not _cont_43) {
                             total += x;
                         }
-                        if (not _broke_39) {
+                        if not _broke_39 {
                             _index_id_82 += 1;
                         }
                     }
@@ -367,7 +367,7 @@ fn convert_while_with_break() {
                 mutable i = 0;
                 {
                     mutable _broke_29 = false;
-                    while ((not _broke_29)) and (i < 10) {
+                    while (not _broke_29) and (i < 10) {
                         i += 1;
                         if i == 5 {
                             _broke_29 = true;
@@ -405,7 +405,7 @@ fn convert_while_with_continue() {
                     if i == 3 {
                         _cont_35 = true;
                     }
-                    let y = if (not _cont_35) {
+                    let y = if not _cont_35 {
                         i * 2
                     } else {
                         0
@@ -442,23 +442,23 @@ fn convert_while_with_break_and_continue_with_trailing_stmts() {
                 mutable i = 0;
                 {
                     mutable _broke_50 = false;
-                    while ((not _broke_50)) and (i < 10) {
+                    while (not _broke_50) and (i < 10) {
                         mutable _cont_54 = false;
                         i += 1;
                         if i == 5 {
                             _broke_50 = true;
                         }
-                        let b = if ((not _broke_50)) and ((not _cont_54)) {
+                        let b = if (not _broke_50) and (not _cont_54) {
                             i * 2
                         } else {
                             0
                         };
-                        if ((not _broke_50)) and ((not _cont_54)) {
+                        if (not _broke_50) and (not _cont_54) {
                             if i == 3 {
                                 _cont_54 = true;
                             }
                         }
-                        let c = if ((not _broke_50)) and ((not _cont_54)) {
+                        let c = if (not _broke_50) and (not _cont_54) {
                             b * 4
                         } else {
                             0
@@ -494,13 +494,13 @@ fn convert_while_with_break_and_continue_no_trailing_stmts() {
                 mutable i = 0;
                 {
                     mutable _broke_38 = false;
-                    while ((not _broke_38)) and (i < 10) {
+                    while (not _broke_38) and (i < 10) {
                         mutable _cont_42 = false;
                         i += 1;
                         if i == 5 {
                             _broke_38 = true;
                         }
-                        if ((not _broke_38)) and ((not _cont_42)) {
+                        if (not _broke_38) and (not _cont_42) {
                             if i == 3 {
                                 _cont_42 = true;
                             }
@@ -558,13 +558,13 @@ fn convert_repeat_until_with_break() {
                 {
                     mutable _continue_cond_29 = true;
                     mutable _broke_33 = false;
-                    while ((not _broke_33)) and _continue_cond_29 {
+                    while (not _broke_33) and _continue_cond_29 {
                         i += 1;
                         if i == 5 {
                             _broke_33 = true;
                         }
-                        if (not _broke_33) {
-                            _continue_cond_29 = (not i >= 10);
+                        if not _broke_33 {
+                            _continue_cond_29 = not i >= 10;
                         }
                     }
                 };
@@ -600,7 +600,7 @@ fn convert_repeat_until_with_continue() {
                         if i == 3 {
                             _cont_33 = true;
                         }
-                        _continue_cond_29 = (not i >= 10);
+                        _continue_cond_29 = not i >= 10;
                     }
                 };
             }
@@ -633,19 +633,19 @@ fn convert_repeat_until_with_break_and_continue() {
                 {
                     mutable _continue_cond_38 = true;
                     mutable _broke_42 = false;
-                    while ((not _broke_42)) and _continue_cond_38 {
+                    while (not _broke_42) and _continue_cond_38 {
                         mutable _cont_46 = false;
                         i += 1;
                         if i == 5 {
                             _broke_42 = true;
                         }
-                        if ((not _broke_42)) and ((not _cont_46)) {
+                        if (not _broke_42) and (not _cont_46) {
                             if i == 3 {
                                 _cont_46 = true;
                             }
                         }
-                        if (not _broke_42) {
-                            _continue_cond_38 = (not i >= 10);
+                        if not _broke_42 {
+                            _continue_cond_38 = not i >= 10;
                         }
                     }
                 };
@@ -679,13 +679,13 @@ fn convert_repeat_until_fixup_with_break() {
                 {
                     mutable _continue_cond_34 = true;
                     mutable _broke_38 = false;
-                    while ((not _broke_38)) and _continue_cond_34 {
+                    while (not _broke_38) and _continue_cond_34 {
                         i += 1;
                         if i == 5 {
                             _broke_38 = true;
                         }
-                        if (not _broke_38) {
-                            _continue_cond_34 = (not i >= 10);
+                        if not _broke_38 {
+                            _continue_cond_34 = not i >= 10;
                             if _continue_cond_34 {
                                 i += 1;
                             }
@@ -725,19 +725,19 @@ fn convert_repeat_until_fixup_with_break_and_continue() {
                 {
                     mutable _continue_cond_43 = true;
                     mutable _broke_47 = false;
-                    while ((not _broke_47)) and _continue_cond_43 {
+                    while (not _broke_47) and _continue_cond_43 {
                         mutable _cont_51 = false;
                         i += 1;
                         if i == 5 {
                             _broke_47 = true;
                         }
-                        if ((not _broke_47)) and ((not _cont_51)) {
+                        if (not _broke_47) and (not _cont_51) {
                             if i == 3 {
                                 _cont_51 = true;
                             }
                         }
-                        if (not _broke_47) {
-                            _continue_cond_43 = (not i >= 10);
+                        if not _broke_47 {
+                            _continue_cond_43 = not i >= 10;
                             if _continue_cond_43 {
                                 i += 1;
                             }
@@ -779,7 +779,7 @@ fn convert_repeat_until_fixup_with_continue() {
                         if i == 3 {
                             _cont_38 = true;
                         }
-                        _continue_cond_34 = (not i >= 10);
+                        _continue_cond_34 = not i >= 10;
                         if _continue_cond_34 {
                             i += 1;
                         }
@@ -817,22 +817,22 @@ fn convert_nested_for_in_while_with_break_in_each() {
                 mutable total = 0;
                 {
                     mutable _broke_116 = false;
-                    while ((not _broke_116)) and (total < 100) {
+                    while (not _broke_116) and (total < 100) {
                         {
                             let _range_id_64 = 0..4;
                             mutable _index_id_67 = _range_id_64.Start;
                             let _step_id_72 = _range_id_64.Step;
                             let _end_id_77 = _range_id_64.End;
                             mutable _broke_50 = false;
-                            while ((not _broke_50)) and (((_step_id_72 > 0) and (_index_id_67 <= _end_id_77)) or ((_step_id_72 < 0) and (_index_id_67 >= _end_id_77))) {
+                            while (not _broke_50) and (((_step_id_72 > 0) and (_index_id_67 <= _end_id_77)) or ((_step_id_72 < 0) and (_index_id_67 >= _end_id_77))) {
                                 let i = _index_id_67;
                                 if i == 2 {
                                     _broke_50 = true;
                                 }
-                                if (not _broke_50) {
+                                if not _broke_50 {
                                     total += i;
                                 }
-                                if (not _broke_50) {
+                                if not _broke_50 {
                                     _index_id_67 += _step_id_72;
                                 }
                             }
@@ -840,7 +840,7 @@ fn convert_nested_for_in_while_with_break_in_each() {
                         if total > 50 {
                             _broke_116 = true;
                         }
-                        if (not _broke_116) {
+                        if not _broke_116 {
                             total += 1;
                         }
                     }
@@ -879,7 +879,7 @@ fn convert_loop_with_return_and_break() {
                     let _step_id_65 = _range_id_57.Step;
                     let _end_id_70 = _range_id_57.End;
                     mutable _broke_43 = false;
-                    while ((not _broke_43)) and (((_step_id_65 > 0) and (_index_id_60 <= _end_id_70)) or ((_step_id_65 < 0) and (_index_id_60 >= _end_id_70))) {
+                    while (not _broke_43) and (((_step_id_65 > 0) and (_index_id_60 <= _end_id_70)) or ((_step_id_65 < 0) and (_index_id_60 >= _end_id_70))) {
                         let i = _index_id_60;
                         if i == 2 {
                             return total;
@@ -887,10 +887,10 @@ fn convert_loop_with_return_and_break() {
                         if i == 3 {
                             _broke_43 = true;
                         }
-                        if (not _broke_43) {
+                        if not _broke_43 {
                             total += i;
                         }
-                        if (not _broke_43) {
+                        if not _broke_43 {
                             _index_id_60 += _step_id_65;
                         }
                     }
@@ -924,7 +924,7 @@ fn convert_for_range_with_break_in_value_block_defaultable() {
                     let _step_id_61 = _range_id_53.Step;
                     let _end_id_66 = _range_id_53.End;
                     mutable _broke_37 = false;
-                    while ((not _broke_37)) and (((_step_id_61 > 0) and (_index_id_56 <= _end_id_66)) or ((_step_id_61 < 0) and (_index_id_56 >= _end_id_66))) {
+                    while (not _broke_37) and (((_step_id_61 > 0) and (_index_id_56 <= _end_id_66)) or ((_step_id_61 < 0) and (_index_id_56 >= _end_id_66))) {
                         let i = _index_id_56;
                         let x = if i == 2 {
                             _broke_37 = true;
@@ -932,10 +932,10 @@ fn convert_for_range_with_break_in_value_block_defaultable() {
                         } else {
                             i
                         };
-                        if (not _broke_37) {
+                        if not _broke_37 {
                             total += x;
                         }
-                        if (not _broke_37) {
+                        if not _broke_37 {
                             _index_id_56 += _step_id_61;
                         }
                     }
@@ -976,7 +976,7 @@ fn break_in_value_block_of_non_defaultable_type_normalized_and_relocated() {
                     let _step_id_74 = _range_id_66.Step;
                     let _end_id_79 = _range_id_66.End;
                     mutable _broke_50 = false;
-                    while ((not _broke_50)) and (((_step_id_74 > 0) and (_index_id_69 <= _end_id_79)) or ((_step_id_74 < 0) and (_index_id_69 >= _end_id_79))) {
+                    while (not _broke_50) and (((_step_id_74 > 0) and (_index_id_69 <= _end_id_79)) or ((_step_id_74 < 0) and (_index_id_69 >= _end_id_79))) {
                         let i = _index_id_69;
                         let _operand_tmp_43 = if i == 2 {
                             _broke_50 = true;
@@ -984,11 +984,11 @@ fn break_in_value_block_of_non_defaultable_type_normalized_and_relocated() {
                         } else {
                             [q]
                         };
-                        if (not _broke_50) {
+                        if not _broke_50 {
                             let x = _operand_tmp_43[0];
                             Op(x);
                         }
-                        if (not _broke_50) {
+                        if not _broke_50 {
                             _index_id_69 += _step_id_74;
                         }
                     }
@@ -1022,7 +1022,7 @@ fn convert_operand_position_break_normalized_then_desugared() {
                     let _step_id_63 = _range_id_55.Step;
                     let _end_id_68 = _range_id_55.End;
                     mutable _broke_39 = false;
-                    while ((not _broke_39)) and (((_step_id_63 > 0) and (_index_id_58 <= _end_id_68)) or ((_step_id_63 < 0) and (_index_id_58 >= _end_id_68))) {
+                    while (not _broke_39) and (((_step_id_63 > 0) and (_index_id_58 <= _end_id_68)) or ((_step_id_63 < 0) and (_index_id_58 >= _end_id_68))) {
                         let i = _index_id_58;
                         let _operand_tmp_35 = if i == 2 {
                             _broke_39 = true;
@@ -1030,10 +1030,10 @@ fn convert_operand_position_break_normalized_then_desugared() {
                         } else {
                             i
                         };
-                        if (not _broke_39) {
+                        if not _broke_39 {
                             Foo(_operand_tmp_35);
                         }
-                        if (not _broke_39) {
+                        if not _broke_39 {
                             _index_id_58 += _step_id_63;
                         }
                     }
@@ -1074,7 +1074,7 @@ fn convert_array_backed_operand_break_normalized_then_desugared() {
                     let _step_id_70 = _range_id_62.Step;
                     let _end_id_75 = _range_id_62.End;
                     mutable _broke_46 = false;
-                    while ((not _broke_46)) and (((_step_id_70 > 0) and (_index_id_65 <= _end_id_75)) or ((_step_id_70 < 0) and (_index_id_65 >= _end_id_75))) {
+                    while (not _broke_46) and (((_step_id_70 > 0) and (_index_id_65 <= _end_id_75)) or ((_step_id_70 < 0) and (_index_id_65 >= _end_id_75))) {
                         let i = _index_id_65;
                         let _operand_tmp_39 = if i == 2 {
                             _broke_46 = true;
@@ -1082,10 +1082,10 @@ fn convert_array_backed_operand_break_normalized_then_desugared() {
                         } else {
                             [q]
                         };
-                        if (not _broke_46) {
+                        if not _broke_46 {
                             Foo(_operand_tmp_39[0]);
                         }
-                        if (not _broke_46) {
+                        if not _broke_46 {
                             _index_id_65 += _step_id_70;
                         }
                     }
@@ -1123,7 +1123,7 @@ fn break_in_value_block_of_range_type_uses_shaped_default() {
                     let _step_id_68 = _range_id_60.Step;
                     let _end_id_73 = _range_id_60.End;
                     mutable _broke_42 = false;
-                    while ((not _broke_42)) and (((_step_id_68 > 0) and (_index_id_63 <= _end_id_73)) or ((_step_id_68 < 0) and (_index_id_63 >= _end_id_73))) {
+                    while (not _broke_42) and (((_step_id_68 > 0) and (_index_id_63 <= _end_id_73)) or ((_step_id_68 < 0) and (_index_id_63 >= _end_id_73))) {
                         let i = _index_id_63;
                         let r = if i == 2 {
                             _broke_42 = true;
@@ -1131,10 +1131,10 @@ fn break_in_value_block_of_range_type_uses_shaped_default() {
                         } else {
                             0..i
                         };
-                        if (not _broke_42) {
+                        if not _broke_42 {
                             acc += r.End;
                         }
-                        if (not _broke_42) {
+                        if not _broke_42 {
                             _index_id_63 += _step_id_68;
                         }
                     }
@@ -1172,26 +1172,26 @@ fn convert_descending_for_range_with_break_and_continue() {
             operation Main() : Unit {
                 mutable total = 0;
                 {
-                    let _range_id_76 = 5..(-1)..0;
+                    let _range_id_76 = 5..-1..0;
                     mutable _index_id_79 = _range_id_76.Start;
                     let _step_id_84 = _range_id_76.Step;
                     let _end_id_89 = _range_id_76.End;
                     mutable _broke_42 = false;
-                    while ((not _broke_42)) and (((_step_id_84 > 0) and (_index_id_79 <= _end_id_89)) or ((_step_id_84 < 0) and (_index_id_79 >= _end_id_89))) {
+                    while (not _broke_42) and (((_step_id_84 > 0) and (_index_id_79 <= _end_id_89)) or ((_step_id_84 < 0) and (_index_id_79 >= _end_id_89))) {
                         mutable _cont_46 = false;
                         let i = _index_id_79;
                         if i == 1 {
                             _broke_42 = true;
                         }
-                        if ((not _broke_42)) and ((not _cont_46)) {
+                        if (not _broke_42) and (not _cont_46) {
                             if i == 3 {
                                 _cont_46 = true;
                             }
                         }
-                        if ((not _broke_42)) and ((not _cont_46)) {
+                        if (not _broke_42) and (not _cont_46) {
                             total += i;
                         }
-                        if (not _broke_42) {
+                        if not _broke_42 {
                             _index_id_79 += _step_id_84;
                         }
                     }
@@ -1235,7 +1235,7 @@ fn convert_operand_position_continue_normalized_then_desugared() {
                         } else {
                             i
                         };
-                        if (not _cont_39) {
+                        if not _cont_39 {
                             Foo(_operand_tmp_35);
                         }
                         _index_id_58 += _step_id_63;
@@ -1275,12 +1275,12 @@ fn convert_sequential_loops_with_separate_break_flags() {
                     let _step_id_56 = _range_id_48.Step;
                     let _end_id_61 = _range_id_48.End;
                     mutable _broke_40 = false;
-                    while ((not _broke_40)) and (((_step_id_56 > 0) and (_index_id_51 <= _end_id_61)) or ((_step_id_56 < 0) and (_index_id_51 >= _end_id_61))) {
+                    while (not _broke_40) and (((_step_id_56 > 0) and (_index_id_51 <= _end_id_61)) or ((_step_id_56 < 0) and (_index_id_51 >= _end_id_61))) {
                         let i = _index_id_51;
                         if i == 2 {
                             _broke_40 = true;
                         }
-                        if (not _broke_40) {
+                        if not _broke_40 {
                             _index_id_51 += _step_id_56;
                         }
                     }
@@ -1291,12 +1291,12 @@ fn convert_sequential_loops_with_separate_break_flags() {
                     let _step_id_116 = _range_id_108.Step;
                     let _end_id_121 = _range_id_108.End;
                     mutable _broke_100 = false;
-                    while ((not _broke_100)) and (((_step_id_116 > 0) and (_index_id_111 <= _end_id_121)) or ((_step_id_116 < 0) and (_index_id_111 >= _end_id_121))) {
+                    while (not _broke_100) and (((_step_id_116 > 0) and (_index_id_111 <= _end_id_121)) or ((_step_id_116 < 0) and (_index_id_111 >= _end_id_121))) {
                         let j = _index_id_111;
                         if j == 3 {
                             _broke_100 = true;
                         }
-                        if (not _broke_100) {
+                        if not _broke_100 {
                             _index_id_111 += _step_id_116;
                         }
                     }
@@ -1390,13 +1390,13 @@ fn break_flag_set_is_steppable_and_guards_are_non_steppable() {
                 let _step_id_46 = _range_id_38.Step;
                 let _end_id_51 = _range_id_38.End;
                 mutable _broke_24 = false;
-                while ((not _broke_24)) and (((_step_id_46 > 0) and (_index_id_41 <= _end_id_51)) or ((_step_id_46 < 0) and (_index_id_41 >= _end_id_51))) {
+                while (not _broke_24) and (((_step_id_46 > 0) and (_index_id_41 <= _end_id_51)) or ((_step_id_46 < 0) and (_index_id_41 >= _end_id_51))) {
                     let i = _index_id_41;
                     _broke_24 = true;
-                    if (not _broke_24) {
+                    if not _broke_24 {
                         x = 1;
                     }
-                    if (not _broke_24) {
+                    if not _broke_24 {
                         _index_id_41 += _step_id_46;
                     }
                 }
@@ -1462,7 +1462,7 @@ fn nested_ancestor_assignment_full_pass_preserves_prefix_and_guards_consumer() {
             mutable target = 0;
             {
                 mutable _broke_82 = false;
-                while ((not _broke_82)) and cond {
+                while (not _broke_82) and cond {
                     let _operand_tmp_77 = target;
                     let _operand_tmp_68 = {
                         Effect(1);
@@ -1475,10 +1475,10 @@ fn nested_ancestor_assignment_full_pass_preserves_prefix_and_guards_consumer() {
                     } else {
                         3
                     };
-                    if (not _broke_82) {
+                    if not _broke_82 {
                         target = _operand_tmp_77 + _operand_tmp_68(_operand_tmp_72);
                     }
-                    if (not _broke_82) {
+                    if not _broke_82 {
                         Consume(target);
                     }
                 }
@@ -1541,7 +1541,7 @@ fn default_passes_keep_fresh_and_dirty_qubit_cleanup_outside_break_guards() {
         .map(|(index, _)| index)
     {
         let preceding_guard = qsharp[..release]
-            .rfind("if (not _broke")
+            .rfind("if not _broke")
             .expect("each release should follow a skipped consumer guard");
         let preceding_flag = qsharp[..release]
             .rfind("= true;")
@@ -1558,7 +1558,7 @@ fn default_passes_keep_fresh_and_dirty_qubit_cleanup_outside_break_guards() {
         operation Main() : Unit {
             {
                 mutable _broke_75 = false;
-                while ((not _broke_75)) and true {
+                while (not _broke_75) and true {
                     let fresh = __quantum__rt__qubit_allocate();
                     let _operand_tmp_67 = if true {
                         _broke_75 = true;
@@ -1566,7 +1566,7 @@ fn default_passes_keep_fresh_and_dirty_qubit_cleanup_outside_break_guards() {
                     } else {
                         1
                     };
-                    let _generated_ident_126 = if (not _broke_75) {
+                    let _generated_ident_126 = if not _broke_75 {
                         Consume(_operand_tmp_67);
                     };
                     __quantum__rt__qubit_release(fresh);
@@ -1575,7 +1575,7 @@ fn default_passes_keep_fresh_and_dirty_qubit_cleanup_outside_break_guards() {
             }
             {
                 mutable _broke_98 = false;
-                while ((not _broke_98)) and true {
+                while (not _broke_98) and true {
                     let dirty = __quantum__rt__qubit_allocate();
                     Dirty(dirty);
                     let _operand_tmp_71 = if true {
@@ -1584,7 +1584,7 @@ fn default_passes_keep_fresh_and_dirty_qubit_cleanup_outside_break_guards() {
                     } else {
                         2
                     };
-                    let _generated_ident_140 = if (not _broke_98) {
+                    let _generated_ident_140 = if not _broke_98 {
                         Consume(_operand_tmp_71);
                     };
                     __quantum__rt__qubit_release(dirty);
@@ -1618,7 +1618,7 @@ fn break_guards_following_qubit_allocation_suffix() {
         .find("use q = Qubit();")
         .expect("rendered package should contain the qubit allocation");
     let guard_pos = qsharp[..qubit_pos]
-        .rfind("if (not _broke")
+        .rfind("if not _broke")
         .unwrap_or_else(|| panic!("qubit allocation should be guarded after break\n{qsharp}"));
     let flag_pos = qsharp
         .find("= true;")
@@ -1638,14 +1638,14 @@ fn break_guards_following_qubit_allocation_suffix() {
                 let _step_id_52 = _range_id_44.Step;
                 let _end_id_57 = _range_id_44.End;
                 mutable _broke_30 = false;
-                while ((not _broke_30)) and (((_step_id_52 > 0) and (_index_id_47 <= _end_id_57)) or ((_step_id_52 < 0) and (_index_id_47 >= _end_id_57))) {
+                while (not _broke_30) and (((_step_id_52 > 0) and (_index_id_47 <= _end_id_57)) or ((_step_id_52 < 0) and (_index_id_47 >= _end_id_57))) {
                     let i = _index_id_47;
                     _broke_30 = true;
-                    if (not _broke_30) {
+                    if not _broke_30 {
                         use q = Qubit();
                         Foo(q);
                     }
-                    if (not _broke_30) {
+                    if not _broke_30 {
                         _index_id_47 += _step_id_52;
                     }
                 }
@@ -1674,13 +1674,13 @@ fn operand_breaks_in_qubit_allocation_and_controlled_call_are_guarded() {
                 {
                     mutable _continue_cond_46 = true;
                     mutable _broke_50 = false;
-                    while ((not _broke_50)) and _continue_cond_46 {
+                    while (not _broke_50) and _continue_cond_46 {
                         let _operand_tmp_26 = {
                             _broke_50 = true;
                             0
                         };
-                        if (not _broke_50) {
-                            _continue_cond_46 = (not true);
+                        if not _broke_50 {
+                            _continue_cond_46 = not true;
                         }
                     }
                 };
@@ -1765,21 +1765,21 @@ fn check_no_break_continue_clean_after_desugar() {
                 let _step_id_82 = _range_id_74.Step;
                 let _end_id_87 = _range_id_74.End;
                 mutable _broke_40 = false;
-                while ((not _broke_40)) and (((_step_id_82 > 0) and (_index_id_77 <= _end_id_87)) or ((_step_id_82 < 0) and (_index_id_77 >= _end_id_87))) {
+                while (not _broke_40) and (((_step_id_82 > 0) and (_index_id_77 <= _end_id_87)) or ((_step_id_82 < 0) and (_index_id_77 >= _end_id_87))) {
                     mutable _cont_44 = false;
                     let i = _index_id_77;
                     if i == 3 {
                         _cont_44 = true;
                     }
-                    if ((not _broke_40)) and ((not _cont_44)) {
+                    if (not _broke_40) and (not _cont_44) {
                         if i == 7 {
                             _broke_40 = true;
                         }
                     }
-                    if ((not _broke_40)) and ((not _cont_44)) {
+                    if (not _broke_40) and (not _cont_44) {
                         total += i;
                     }
-                    if (not _broke_40) {
+                    if not _broke_40 {
                         _index_id_77 += _step_id_82;
                     }
                 }
@@ -1954,37 +1954,37 @@ fn composed_multi_break_multi_continue() {
                 mutable total = 0;
                 {
                     mutable _broke_84 = false;
-                    while ((not _broke_84)) and (i < 10) {
+                    while (not _broke_84) and (i < 10) {
                         mutable _cont_88 = false;
                         i += 1;
                         if i == skipFirst {
                             _cont_88 = true;
                         }
-                        if ((not _broke_84)) and ((not _cont_88)) {
+                        if (not _broke_84) and (not _cont_88) {
                             total += 1;
                         }
-                        if ((not _broke_84)) and ((not _cont_88)) {
+                        if (not _broke_84) and (not _cont_88) {
                             if i == stopFirst {
                                 _broke_84 = true;
                             }
                         }
-                        if ((not _broke_84)) and ((not _cont_88)) {
+                        if (not _broke_84) and (not _cont_88) {
                             total += 10;
                         }
-                        if ((not _broke_84)) and ((not _cont_88)) {
+                        if (not _broke_84) and (not _cont_88) {
                             if i == skipSecond {
                                 _cont_88 = true;
                             }
                         }
-                        if ((not _broke_84)) and ((not _cont_88)) {
+                        if (not _broke_84) and (not _cont_88) {
                             total += 100;
                         }
-                        if ((not _broke_84)) and ((not _cont_88)) {
+                        if (not _broke_84) and (not _cont_88) {
                             if i == stopSecond {
                                 _broke_84 = true;
                             }
                         }
-                        if ((not _broke_84)) and ((not _cont_88)) {
+                        if (not _broke_84) and (not _cont_88) {
                             total += 1000;
                         }
                     }
@@ -2059,77 +2059,77 @@ fn nested_composed_multi_break_multi_continue() {
                 mutable total = 0;
                 {
                     mutable _broke_252 = false;
-                    while ((not _broke_252)) and (i < 10) {
+                    while (not _broke_252) and (i < 10) {
                         mutable _cont_256 = false;
                         i += 1;
                         mutable j = 0;
                         if i == outerSkipFirst {
                             _cont_256 = true;
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             total += 1;
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             {
                                 mutable _broke_158 = false;
-                                while ((not _broke_158)) and (j < 10) {
+                                while (not _broke_158) and (j < 10) {
                                     mutable _cont_162 = false;
                                     j += 1;
                                     if j == innerSkipFirst {
                                         _cont_162 = true;
                                     }
-                                    if ((not _broke_158)) and ((not _cont_162)) {
+                                    if (not _broke_158) and (not _cont_162) {
                                         total += 10;
                                     }
-                                    if ((not _broke_158)) and ((not _cont_162)) {
+                                    if (not _broke_158) and (not _cont_162) {
                                         if j == innerStopFirst {
                                             _broke_158 = true;
                                         }
                                     }
-                                    if ((not _broke_158)) and ((not _cont_162)) {
+                                    if (not _broke_158) and (not _cont_162) {
                                         total += 100;
                                     }
-                                    if ((not _broke_158)) and ((not _cont_162)) {
+                                    if (not _broke_158) and (not _cont_162) {
                                         if j == innerSkipSecond {
                                             _cont_162 = true;
                                         }
                                     }
-                                    if ((not _broke_158)) and ((not _cont_162)) {
+                                    if (not _broke_158) and (not _cont_162) {
                                         total += 1000;
                                     }
-                                    if ((not _broke_158)) and ((not _cont_162)) {
+                                    if (not _broke_158) and (not _cont_162) {
                                         if j == innerStopSecond {
                                             _broke_158 = true;
                                         }
                                     }
-                                    if ((not _broke_158)) and ((not _cont_162)) {
+                                    if (not _broke_158) and (not _cont_162) {
                                         total += 10000;
                                     }
                                 }
                             }
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             if i == outerStopFirst {
                                 _broke_252 = true;
                             }
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             total += 100000;
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             if i == outerSkipSecond {
                                 _cont_256 = true;
                             }
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             total += 1000000;
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             if i == outerStopSecond {
                                 _broke_252 = true;
                             }
                         }
-                        if ((not _broke_252)) and ((not _cont_256)) {
+                        if (not _broke_252) and (not _cont_256) {
                             total += 10000000;
                         }
                     }

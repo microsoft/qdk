@@ -2373,7 +2373,7 @@ fn hoist_continue_in_compound_short_circuit_or_assign_rhs() {
                 mutable b = false;
                 mutable cond = true;
                 while cond {
-                    if (not b) {
+                    if not b {
                         let _operand_tmp_38 = continue;
                         b = Foo(_operand_tmp_38);
                     };

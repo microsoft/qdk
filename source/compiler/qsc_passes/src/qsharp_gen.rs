@@ -446,19 +446,12 @@ impl<'a> HirQSharpGen<'a> {
             }
             ExprKind::UnOp(op, expr) => {
                 let op_str = unop_as_str(*op);
-                if matches!(op, UnOp::Functor(_)) {
+                if matches!(op, UnOp::Unwrap) {
+                    self.emit_expr(expr);
+                    self.write(op_str);
+                } else {
                     self.write(op_str);
                     self.emit_expr(expr);
-                } else {
-                    self.write("(");
-                    if matches!(op, UnOp::Unwrap) {
-                        self.emit_expr(expr);
-                        self.write(op_str);
-                    } else {
-                        self.write(op_str);
-                        self.emit_expr(expr);
-                    }
-                    self.write(")");
                 }
             }
             ExprKind::Var(res, _generics) => self.emit_res(res),

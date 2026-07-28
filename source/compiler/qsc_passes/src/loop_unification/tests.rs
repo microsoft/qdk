@@ -81,7 +81,7 @@ fn convert_for_slice() {
         &expect![[r#"
             operation Main(arr : Int[]) : Unit {
                 {
-                    let _array_id_23 = arr[6..(-2)..2];
+                    let _array_id_23 = arr[6..-2..2];
                     let _len_id_27 = Length(_array_id_23);
                     mutable _index_id_32 = 0;
                     while _index_id_32 < _len_id_27 {
@@ -140,7 +140,7 @@ fn convert_for_reverse_range() {
         &expect![[r#"
             operation Main() : Unit {
                 {
-                    let _range_id_20 = 4..(-1)..0;
+                    let _range_id_20 = 4..-1..0;
                     mutable _index_id_23 = _range_id_20.Start;
                     let _step_id_28 = _range_id_20.Step;
                     let _end_id_33 = _range_id_20.End;
@@ -173,7 +173,7 @@ fn convert_repeat() {
                     mutable _continue_cond_14 = true;
                     while _continue_cond_14 {
                         let x = "Hello World";
-                        _continue_cond_14 = (not true);
+                        _continue_cond_14 = not true;
                     }
                 };
             }
@@ -202,7 +202,7 @@ fn convert_repeat_fixup() {
                     mutable _continue_cond_19 = true;
                     while _continue_cond_19 {
                         let x = "Hello World";
-                        _continue_cond_19 = (not true);
+                        _continue_cond_19 = not true;
                         if _continue_cond_19 {
                             let y = "Fixup";
                         }
@@ -250,19 +250,19 @@ fn convert_repeat_nested() {
                             mutable _continue_cond_44 = true;
                             while _continue_cond_44 {
                                 let x = "First";
-                                _continue_cond_44 = (not a);
+                                _continue_cond_44 = not a;
                                 if _continue_cond_44 {
                                     let y = "Second";
                                 }
                             }
                         }
-                        _continue_cond_74 = (not b);
+                        _continue_cond_74 = not b;
                         if _continue_cond_74 {
                             {
                                 mutable _continue_cond_61 = true;
                                 while _continue_cond_61 {
                                     let z = "Third";
-                                    _continue_cond_61 = (not c);
+                                    _continue_cond_61 = not c;
                                 }
                             };
                         }
