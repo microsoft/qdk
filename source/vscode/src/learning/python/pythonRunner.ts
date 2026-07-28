@@ -17,6 +17,23 @@ import type { CatalogCourse } from "../types.js";
  * readiness checks.
  */
 export class PythonCourseRunner {
+  /** Extensions required to run `python-notebook` courses. */
+  private static readonly REQUIRED_EXTENSIONS: { id: string; name: string }[] =
+    [
+      { id: "ms-python.python", name: "Python" },
+      { id: "ms-toolsai.jupyter", name: "Jupyter" },
+    ];
+
+  /**
+   * Returns the subset of `REQUIRED_EXTENSIONS` that are not currently
+   * installed.
+   */
+  private getMissingExtensions(): { id: string; name: string }[] {
+    return PythonCourseRunner.REQUIRED_EXTENSIONS.filter(
+      (e) => !vscode.extensions.getExtension(e.id),
+    );
+  }
+
   /**
    * Soft-check that the Python and Jupyter extensions are available. On
    * VS Code for the Web (where they can't run) returns a desktop-only
@@ -29,13 +46,7 @@ export class PythonCourseRunner {
         "with the Python and Jupyter extensions."
       );
     }
-    const missing: { id: string; name: string }[] = [];
-    if (!vscode.extensions.getExtension("ms-python.python")) {
-      missing.push({ id: "ms-python.python", name: "Python" });
-    }
-    if (!vscode.extensions.getExtension("ms-toolsai.jupyter")) {
-      missing.push({ id: "ms-toolsai.jupyter", name: "Jupyter" });
-    }
+    const missing = this.getMissingExtensions();
     if (missing.length === 0) {
       return undefined;
     }
@@ -52,11 +63,7 @@ export class PythonCourseRunner {
     if (vscode.env.uiKind === vscode.UIKind.Web) {
       return;
     }
-    // TODO (acasey): share code with ensureExtensions
-    const required: { id: string; name: string }[] = [
-      { id: "ms-python.python", name: "Python" },
-      { id: "ms-toolsai.jupyter", name: "Jupyter" },
-    ].filter((e) => !vscode.extensions.getExtension(e.id));
+    const required = this.getMissingExtensions();
     if (required.length === 0) {
       return;
     }
