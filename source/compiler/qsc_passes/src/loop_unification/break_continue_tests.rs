@@ -24,6 +24,60 @@ use crate::loop_unification::{
 };
 
 #[test]
+fn guarded_discarded_non_defaultable_statement_value_needs_no_default() {
+    // `{ let temp = 3; Foo }();` parses as a statement-final block statement of
+    // the non-defaultable type `(Unit => Unit)` followed by the unit statement
+    // `();`. Because the block statement is not the enclosing block's value
+    // statement, its value is discarded, so the desugar guards it as a
+    // discarded `Semi` instead of synthesizing an arrow-typed default.
+    check(
+        indoc! {r#"
+        namespace test {
+            operation Foo() : Unit {}
+            operation Main() : Unit {
+                for i in 0..4 {
+                    if i == 2 {
+                        break;
+                    }
+                    { let temp = 3; Foo }();
+                }
+            }
+        }
+        "#},
+        &expect![[r#"
+            operation Foo() : Unit {}
+            operation Main() : Unit {
+                {
+                    let _range_id_59 = 0..4;
+                    mutable _index_id_62 = _range_id_59.Start;
+                    let _step_id_67 = _range_id_59.Step;
+                    let _end_id_72 = _range_id_59.End;
+                    mutable _broke_39 = false;
+                    while ((not _broke_39)) and (((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72))) {
+                        let i = _index_id_62;
+                        if i == 2 {
+                            _broke_39 = true;
+                        }
+                        if (not _broke_39) {
+                            {
+                                let temp = 3;
+                                Foo
+                            };
+                        }
+                        if (not _broke_39) {
+                            ();
+                        }
+                        if (not _broke_39) {
+                            _index_id_62 += _step_id_67;
+                        }
+                    }
+                }
+            }
+        "#]],
+    );
+}
+
+#[test]
 fn convert_for_range_with_break() {
     check(
         indoc! {r#"

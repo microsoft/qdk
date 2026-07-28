@@ -979,7 +979,7 @@ impl MutVisitor for BreakContinueDesugar<'_> {
                 };
                 let flag_set = gen_flag_set_stmt(self.assigner, flag, kw_span);
                 let flag_set = if seen_control_flow {
-                    self.guard_stmt(flag_set)
+                    self.guard_stmt(flag_set, false)
                 } else {
                     flag_set
                 };
@@ -1007,7 +1007,7 @@ impl MutVisitor for BreakContinueDesugar<'_> {
                 }
                 self.visit_stmt(&mut stmt);
                 let stmt = if seen_control_flow {
-                    self.guard_stmt(stmt)
+                    self.guard_stmt(stmt, is_last && block_ty != Ty::UNIT)
                 } else {
                     stmt
                 };
@@ -1060,11 +1060,17 @@ impl BreakContinueDesugar<'_> {
     ///
     /// A `Local` keeps its binding visible to later statements, so its
     /// initializer is guarded instead of the whole statement; a value-position
-    /// trailing expression is guarded with a defaulting `else` so the block
-    /// still yields a value. Item statements are left as is. A qubit allocation
-    /// after a flag set is handled earlier by [`Self::guard_suffix_block`] so
-    /// its binding scope stays intact.
-    fn guard_stmt(&mut self, stmt: Stmt) -> Stmt {
+    /// trailing expression, flagged by `yields_block_value`, is guarded with a
+    /// defaulting `else` so the block still yields a value. Item statements are
+    /// left as is. A qubit allocation after a flag set is handled earlier by
+    /// [`Self::guard_suffix_block`] so its binding scope stays intact.
+    ///
+    /// A non-trailing expression statement discards its value even when that
+    /// value is not `Unit`, as in the statement-final block of
+    /// `{ let temp = 3; Foo }();`. Such a statement is guarded as a discarded
+    /// `Semi`, so no classical default of its type is needed and a
+    /// non-defaultable type such as an arrow does not fail the desugar.
+    fn guard_stmt(&mut self, stmt: Stmt, yields_block_value: bool) -> Stmt {
         match stmt.kind {
             StmtKind::Local(mutability, pat, init) => {
                 let ty = init.ty.clone();
@@ -1080,7 +1086,7 @@ impl BreakContinueDesugar<'_> {
                     kind: StmtKind::Local(mutability, pat, guarded),
                 }
             }
-            StmtKind::Expr(e) if e.ty != Ty::UNIT => {
+            StmtKind::Expr(e) if yields_block_value && e.ty != Ty::UNIT => {
                 let ty = e.ty.clone();
                 let span = e.span;
                 let default = build_default_or_err(self.assigner, &mut self.errors, &ty, span);
@@ -1088,6 +1094,17 @@ impl BreakContinueDesugar<'_> {
                 let els = block_wrap_expr(self.assigner, default, ty.clone());
                 let guard_if =
                     flag_guard_if(self.assigner, self.broke, self.cont, then, Some(els), ty);
+                expr_stmt(self.assigner, guard_if)
+            }
+            StmtKind::Expr(e) if e.ty != Ty::UNIT => {
+                let discarded = Stmt {
+                    id: stmt.id,
+                    span: stmt.span,
+                    kind: StmtKind::Semi(e),
+                };
+                let then = block_wrap_stmt(self.assigner, discarded);
+                let guard_if =
+                    flag_guard_if(self.assigner, self.broke, self.cont, then, None, Ty::UNIT);
                 expr_stmt(self.assigner, guard_if)
             }
             StmtKind::Qubit(..) | StmtKind::Item(_) => stmt,
