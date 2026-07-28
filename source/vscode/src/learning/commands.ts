@@ -267,6 +267,8 @@ async function openCourseNotebook(
   const cellId = service.getCurrentExerciseCellId();
   let opened = false;
 
+  // TODO (acasey): this may be unnecessary if we create a python project
+  // TODO (acasey): switch to a proposed/unstable API
   // Try to open via the Jupyter extension's unstable API so the course's
   // Python environment is automatically set as the active kernel.
   try {

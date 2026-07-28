@@ -187,28 +187,47 @@ export class EnvironmentManager {
       return cached;
     }
 
-    // TODO (acasey): try this.  It will persist the location to the workspace metadata and there's a chance jupyter will find it there
-    // const project  = api.addPythonProject({name: "Some Project", uri: someUri }); // Can drop result - just want side effect
-    // await api.refreshEnvironments(someUri); // As now
-    // const envs = await api.getEnvironments(someUri); // React somehow if there are multiple
+    // TODO (acasey): pick an approach
+    // This version creates a workspace setting, which could be noise for the user
+    // but seems to cause Jupyter to pick up the venv and might make other
+    // python environment operations easier in the future
+    const courseName = courseRoot.path.split("/").pop();
+    void api.addPythonProject({
+      name: `QDK Course: ${courseName}`,
+      uri: courseRoot,
+    }); // Can drop result - just want side effect
+    await api.refreshEnvironments(courseRoot); // As now
+    const envs = await api.getEnvironments(courseRoot); // React somehow if there are multiple
 
-    // Without a refresh, getEnvironment seems to pick up the global install
-    await api.refreshEnvironments(courseRoot);
-    const env = await api.getEnvironment(courseRoot);
-    if (env) {
-      // If there's no local venv, getEnvironment will return the global install
-      const envPath = env.environmentPath.toString();
-      const rootPath = courseRoot.toString().replace(/\/?$/, "/");
-      if (!envPath.startsWith(rootPath)) {
-        log.debug(
-          `Ignoring environment "${env.name}" at ${envPath} ` +
-            `because it is not under ${rootPath}`,
-        );
+    switch (envs.length) {
+      case 0:
         return undefined;
-      }
-      this._projectEnvironmentMap.set(courseRoot.toString(), env);
+      case 1:
+        return envs[0]; // TODO (acasey): need to enforce location?
+      default:
+        log.warn(
+          `Found multiple virtual environments, using first: ${envs.join(", ")}`,
+        );
+        return envs[0];
     }
-    return env;
+
+    // // Without a refresh, getEnvironment seems to pick up the global install
+    // await api.refreshEnvironments(courseRoot);
+    // const env = await api.getEnvironment(courseRoot);
+    // if (env) {
+    //   // If there's no local venv, getEnvironment will return the global install
+    //   const envPath = env.environmentPath.toString();
+    //   const rootPath = courseRoot.toString().replace(/\/?$/, "/");
+    //   if (!envPath.startsWith(rootPath)) {
+    //     log.debug(
+    //       `Ignoring environment "${env.name}" at ${envPath} ` +
+    //         `because it is not under ${rootPath}`,
+    //     );
+    //     return undefined;
+    //   }
+    //   this._projectEnvironmentMap.set(courseRoot.toString(), env);
+    // }
+    // return env;
   }
 }
 
