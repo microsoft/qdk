@@ -272,21 +272,6 @@ export class LearningService {
     };
   }
 
-  /**
-   * State snapshot for the lesson webview panel.
-   *
-   * python-notebook courses don't use the panel at all — the notebook is the
-   * primary surface there — so calling this for one is a programming error.
-   */
-  getStateForPanel(): LearningState {
-    if (this.activeCourse.kind === "python-notebook") {
-      throw new Error(
-        "The lesson panel is not used for python-notebook courses.",
-      );
-    }
-    return this.getState();
-  }
-
   async next(source: TelemetrySource): Promise<NavigationResult> {
     const ws = this.requireWorkspace();
     const currentPos = ws.progressData.position;

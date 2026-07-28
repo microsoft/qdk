@@ -7,11 +7,12 @@
  * the learning feature.
  */
 
+import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "../common.js";
 import { LEARNING_FILE, LEARNING_TREE_VIEW_ID } from "./constants.js";
 import type { LearningService } from "./service.js";
-import type { TelemetrySource } from "./types.js";
+import type { LearningState, TelemetrySource } from "./types.js";
 import type {
   HostToWebviewMessage,
   ResultAction,
@@ -205,14 +206,34 @@ export class LessonPanelManager {
     }
   }
 
+  /**
+   * The state payload to attach to a webview message, or `undefined` when
+   * there is no panel to send it to.
+   *
+   * Every message carrying state must resolve it through here, because the
+   * panel check has to happen *before* the message is built.
+   * {@link sendMessage}'s own guard runs too late: by then the state argument
+   * has already been evaluated.
+   */
+  private panelState(): LearningState | undefined {
+    if (!this.panel || !this.service.initialized) {
+      return undefined;
+    }
+    if (this.isPythonNotebook) {
+      // The panel disposes itself as soon as the service switches into a
+      // course that doesn't use it, so this is not expected to happen.
+      log.warn("The lesson panel is not used for python-notebook courses.");
+      return undefined;
+    }
+    return this.service.getState();
+  }
+
   private sendState(): void {
-    if (!this.service.initialized) {
+    const state = this.panelState();
+    if (!state) {
       return;
     }
-    this.sendMessage({
-      command: "state",
-      state: this.service.getStateForPanel(),
-    });
+    this.sendMessage({ command: "state", state });
   }
 
   /**
@@ -253,14 +274,15 @@ export class LessonPanelManager {
     action: Action,
     result: ResultPayload<Action>,
   ): void {
-    if (!this.service.initialized) {
+    const state = this.panelState();
+    if (!state) {
       return;
     }
     this.sendMessage({
       command: "result",
       action,
       result,
-      state: this.service.getStateForPanel(),
+      state,
     } as Extract<HostToWebviewMessage, { command: "result" }>);
   }
 
@@ -459,12 +481,13 @@ export class LessonPanelManager {
     source?: TelemetrySource,
   ): Promise<boolean> {
     const { result } = await this.service.checkSolution(source);
-    this.sendMessage({
-      command: "result",
-      action: "check",
-      result,
-      state: this.service.getStateForPanel(),
-    });
+    // Checking is async, so the panel may have gone away while it ran (a
+    // course switch disposes it). The result still goes back to the caller —
+    // there's just no webview left to render it.
+    const state = this.panelState();
+    if (state) {
+      this.sendMessage({ command: "result", action: "check", result, state });
+    }
     return result.passed;
   }
 }
