@@ -219,7 +219,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
-        qsharp_config: FxHashMap<Rc<str>, Value>,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::NoDebug,
@@ -230,7 +230,7 @@ impl Interpreter {
             store,
             dependencies,
             None,
-            qsharp_config,
+            qdk_config,
         )
     }
 
@@ -243,7 +243,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         circuit_tracer_config: TracerConfig,
-        qsharp_config: FxHashMap<Rc<str>, Value>,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::NoDebug,
@@ -254,7 +254,7 @@ impl Interpreter {
             store,
             dependencies,
             Some(circuit_tracer_config),
-            qsharp_config,
+            qdk_config,
         )
     }
 
@@ -270,7 +270,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         trace_circuit_config: TracerConfig,
-        qsharp_config: FxHashMap<Rc<str>, Value>,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::Debug,
@@ -281,7 +281,7 @@ impl Interpreter {
             store,
             dependencies,
             Some(trace_circuit_config),
-            qsharp_config,
+            qdk_config,
         )
     }
 
@@ -295,7 +295,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         circuit_tracer_config: Option<TracerConfig>,
-        qsharp_config: FxHashMap<Rc<str>, Value>,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -304,7 +304,7 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
-            qsharp_config,
+            qdk_config,
         )
         .map_err(into_errors)?;
 
