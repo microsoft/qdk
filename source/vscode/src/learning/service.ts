@@ -652,12 +652,6 @@ export class LearningService {
       case "install-extensions":
         await this.pythonRunner.promptInstallExtensions();
         return;
-      case "select-kernel":
-        // TODO (acasey): is this ever offered?
-        await vscode.commands.executeCommand("notebook.selectKernel");
-        return;
-      case "docs":
-        return;
     }
   }
 

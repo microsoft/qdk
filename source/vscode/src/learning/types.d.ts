@@ -367,10 +367,8 @@ export interface EnvironmentCheckFix {
    * What the fix does when chosen:
    * - `setup`: run the per-course environment setup.
    * - `install-extensions`: prompt to install Python/Jupyter.
-   * - `select-kernel`: re-select the course kernel for the notebook.
-   * - `docs`: informational only; no action.
    */
-  kind: "setup" | "install-extensions" | "select-kernel" | "docs"; // TODO (acasey): select-kernel appears to be unused
+  kind: "setup" | "install-extensions";
 }
 
 /** One diagnostic in an {@link EnvironmentCheckReport}. */
