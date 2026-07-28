@@ -319,7 +319,7 @@ export class LessonPanelManager {
     }
 
     if (msg.command === "browseCourses") {
-      // TODO (acasey): was this supposed to be list courses?
+      // TODO (acasey): we might want to rename some of the commands and tools for consistency
       await vscode.commands.executeCommand(
         "qsharp-vscode.learningSwitchCourse",
       );

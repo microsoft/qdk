@@ -423,7 +423,7 @@ export class LearningService {
     const unit = this.findUnit(this.position.unitId);
     const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
     if (!exercise) {
-      // TODO (acasey): log unknown exercise
+      log.warn(`Unable to find exercise corresponding to cell ${cellId}`);
       return false;
     }
     const location: ActivityLocation = {
@@ -646,7 +646,6 @@ export class LearningService {
   async applyEnvironmentCheckFix(fix: EnvironmentCheckFix): Promise<void> {
     switch (fix.kind) {
       case "setup":
-        // TODO (acasey): should this be a command?
         await this.setupActiveEnvironment();
         return;
       case "install-extensions":
@@ -1425,7 +1424,7 @@ export class LearningService {
     const descriptors = await registry.listCourses();
     for (const descriptor of descriptors) {
       try {
-        // TODO (acasey): other code (and Mine) mentioned doing this lazily
+        // TODO (acasey): parsing all courses seems fine, but we probably only want to materialize the active one
         const course = await registry.loadCourse(descriptor.id);
         courses.set(course.id, course);
       } catch {
@@ -1774,6 +1773,10 @@ export class LearningService {
     this._onDidChangeState.fire(this.getState());
 
     // TODO (acasey): do we actually want telemetry for other courses?
+    // We need to either drop it so that all telemetry is about the katas
+    // or introduce a new property to distinguish kata telemetry from python telemetry.
+    // We may want to have an allow-list of known python courses and record others
+    // as "other" (unless one-way hashing is allowed).
     const units = this.activeCourse.units;
     const unitIndex = units.findIndex((u) => u.id === location.unitId);
     const unit = unitIndex >= 0 ? units[unitIndex] : undefined;
