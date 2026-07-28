@@ -81,6 +81,14 @@ export class EnvironmentManager {
 
       // Cache the resolved environment.
       this._projectEnvironmentMap.set(courseRoot.toString(), env);
+
+      // Register the course folder as a Python project. This creates a workspace
+      // setting, which causes Jupyter to pick up the venv.
+      const courseName = courseRoot.path.split("/").pop();
+      await api.addPythonProject({
+        name: `QDK Course: ${courseName}`,
+        uri: courseRoot,
+      });
     }
   }
 
@@ -187,15 +195,6 @@ export class EnvironmentManager {
       return cached;
     }
 
-    // TODO (acasey): pick an approach
-    // This version creates a workspace setting, which could be noise for the user
-    // but seems to cause Jupyter to pick up the venv and might make other
-    // python environment operations easier in the future
-    const courseName = courseRoot.path.split("/").pop();
-    void api.addPythonProject({
-      name: `QDK Course: ${courseName}`, // This doesn't seem to persist across sessions
-      uri: courseRoot,
-    }); // Can drop result - just want side effect
     await api.refreshEnvironments(courseRoot); // As now
     const envs = await api.getEnvironments(courseRoot); // React somehow if there are multiple
 
