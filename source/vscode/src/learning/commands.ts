@@ -299,7 +299,6 @@ async function openCourseNotebook(
   }
   const cellId = service.getCurrentExerciseCellId();
 
-  // Fallback: open without pre-selecting a kernel.
   await vscode.commands.executeCommand(
     "vscode.openWith",
     notebookUri,
