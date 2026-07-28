@@ -146,7 +146,7 @@ export function registerLearningCommands(
       async (node?: LearningProgressNode) => {
         const courseId = await resolveCourseId(service, node);
         if (!courseId) {
-          // TODO (acasey): at least log this
+          // This may simply indicate that the user declined to pick a course
           return;
         }
         await service.switchCourse(courseId, "tree");
@@ -174,7 +174,7 @@ export function registerLearningCommands(
       async (node?: LearningProgressNode) => {
         const courseId = await resolveCourseId(service, node);
         if (!courseId) {
-          // TODO (acasey): at least log this
+          // This may simply indicate that the user declined to pick a course
           return;
         }
         await showCourseInfo(service, courseId);
