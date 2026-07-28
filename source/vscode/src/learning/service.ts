@@ -787,6 +787,8 @@ export class LearningService {
       course = await ws.registry.loadCourse(courseId);
       ws.courses.set(course.id, course);
       await this.scaffoldCourse(ws, course);
+      // TODO (acasey): if scaffolding fails, you basically have to reload the window.
+      // That's probably fine, but confirm.
     }
     if (course.kind === "python-notebook") {
       // Need to await extension installation since environment setup depends
