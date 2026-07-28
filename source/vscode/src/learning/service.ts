@@ -836,7 +836,9 @@ export class LearningService {
       await this.scaffoldCourse(ws, course);
     }
     if (course.kind === "python-notebook") {
-      void promptInstallPythonExtensions();
+      // Need to await extension installation since environment setup depends
+      // on the Python Environments extension
+      await promptInstallPythonExtensions();
       void this.ensureEnvironment(course);
     }
     ws.progressData.position = this.firstIncompletePosition(course);
@@ -1344,6 +1346,7 @@ export class LearningService {
         detected.learningContentRoot,
       );
       this.startWatcher();
+      // TODO (acasey): make sure we're firing this an appropriate number of times
       sendTelemetryEvent(
         EventType.LearningSessionStarted,
         { isFirstTime: "false" },
@@ -1444,6 +1447,7 @@ export class LearningService {
         await this.scaffoldCourse(ws, course);
       } catch {
         // A failing scaffold should not block workspace initialization.
+        // TODO (acasey): log
       }
     }
   }
