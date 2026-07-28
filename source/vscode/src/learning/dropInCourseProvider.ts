@@ -261,7 +261,7 @@ export class DropInCourseProvider implements CourseProvider {
       default:
         notebookEntry = notebookEntries[0];
         log.warn(
-          `Unit "${unit.id}" has no multiple .ipynb notebooks in ${unitDir.fsPath} - using ${notebookEntry.name}.`,
+          `Unit "${unit.id}" has multiple .ipynb notebooks in ${unitDir.fsPath} - using ${notebookEntry.name}.`,
         );
         break;
     }
