@@ -1584,6 +1584,33 @@ export class LearningService {
   }
 
   /**
+   * Close every open text or notebook tab whose URI matches {@link predicate}.
+   * Tabs backed by any other input kind (diff views, webviews, terminals) are
+   * skipped, since they have no single URI to match against.
+   */
+  private async closeTabs(
+    predicate: (uri: vscode.Uri, tab: vscode.Tab) => boolean,
+  ): Promise<void> {
+    const matches: vscode.Tab[] = [];
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        const tabUri =
+          input instanceof vscode.TabInputText ||
+          input instanceof vscode.TabInputNotebook
+            ? input.uri
+            : undefined;
+        if (tabUri && predicate(tabUri, tab)) {
+          matches.push(tab);
+        }
+      }
+    }
+    if (matches.length > 0) {
+      await vscode.window.tabGroups.close(matches);
+    }
+  }
+
+  /**
    * Close any open editor or notebook tabs under the QDK Learning root that
    * don't match {@link keepUri}. When {@link keepUri} is undefined, all such
    * tabs are closed.
@@ -1595,27 +1622,10 @@ export class LearningService {
     const learningRoot = this.learningContentRoot.toString();
     const keepStr = keepUri?.toString();
 
-    const staleTabs: vscode.Tab[] = [];
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        const input = tab.input;
-        const tabUri =
-          input instanceof vscode.TabInputText ||
-          input instanceof vscode.TabInputNotebook
-            ? input.uri
-            : undefined;
-        if (!tabUri) {
-          continue;
-        }
-        const tabUriStr = tabUri.toString();
-        if (tabUriStr.startsWith(learningRoot) && tabUriStr !== keepStr) {
-          staleTabs.push(tab);
-        }
-      }
-    }
-    if (staleTabs.length > 0) {
-      await vscode.window.tabGroups.close(staleTabs);
-    }
+    await this.closeTabs((uri) => {
+      const uriStr = uri.toString();
+      return uriStr.startsWith(learningRoot) && uriStr !== keepStr;
+    });
   }
 
   /** Turns a catalog activity into the typed content payload (exercise, lesson-example, or lesson-text). */
@@ -1956,20 +1966,11 @@ export class LearningService {
    */
   private async closeNotebookTab(uri: vscode.Uri): Promise<void> {
     const uriStr = uri.toString();
-    const tabs: vscode.Tab[] = [];
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        if (
-          tab.input instanceof vscode.TabInputNotebook &&
-          tab.input.uri.toString() === uriStr
-        ) {
-          tabs.push(tab);
-        }
-      }
-    }
-    if (tabs.length > 0) {
-      await vscode.window.tabGroups.close(tabs);
-    }
+    await this.closeTabs(
+      (tabUri, tab) =>
+        tab.input instanceof vscode.TabInputNotebook &&
+        tabUri.toString() === uriStr,
+    );
   }
 
   /**
