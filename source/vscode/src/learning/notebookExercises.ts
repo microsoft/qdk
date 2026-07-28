@@ -175,6 +175,7 @@ export function parseNotebookExercises(
   return exercises;
 }
 
+// TODO (acasey): share code with readCells
 /**
  * Remove the author-only cells from a notebook's JSON text, returning the
  * notebook the learner works in.

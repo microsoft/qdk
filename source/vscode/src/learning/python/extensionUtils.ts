@@ -40,6 +40,8 @@ export function checkPythonExtensions(): string | undefined {
     .join(" and ")} extension${missing.length > 1 ? "s" : ""}.`;
 }
 
+// TODO (acasey): there's no real reason to prompt here if it's only reachable from
+// the environment check dialog and the user already clicked a button.
 /**
  * Prompt the user to install any missing required extensions. Safe to
  * call when nothing is missing (it no-ops).

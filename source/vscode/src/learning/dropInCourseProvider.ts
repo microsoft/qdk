@@ -263,7 +263,7 @@ export class DropInCourseProvider implements CourseProvider {
         log.warn(
           `Unit "${unit.id}" has no multiple .ipynb notebooks in ${unitDir.fsPath} - using ${notebookEntry.name}.`,
         );
-        return { activities: [] };
+        break;
     }
 
     const notebookRel = `${unit.dir}/${notebookEntry.name}`;

@@ -185,19 +185,6 @@ export class LearningService {
   }
 
   /**
-   * Re-scan available courses (e.g. after a new drop-in course is added).
-   * Drop-in courses are enumerated lazily by the registry, so this just
-   * refreshes the UI to pick up newly-added folders.
-   */
-  async reloadCourses(): Promise<void> {
-    if (!this.workspace) {
-      return;
-    }
-    this.emitProgress();
-    this._onDidChangeState.fire(this.getState());
-  }
-
-  /**
    * Try to initialize the service. Returns `true` when ready, `false`
    * when no learning workspace could be found (or created).
    *
@@ -529,6 +516,7 @@ export class LearningService {
     };
   }
 
+  // TODO (acasey): isExerciseCellId
   /**
    * Returns the set of cell IDs that correspond to exercises in the
    * current unit. Empty if the course isn't a python-notebook course or
@@ -611,22 +599,6 @@ export class LearningService {
         await env.ensureEnvironment(courseRoot);
       },
     );
-  }
-
-  /**
-   * Return the `{ id, path }` for the active course's Python environment,
-   * suitable for passing to the Jupyter extension's `openNotebook` API.
-   * Returns `undefined` for Q# courses or when no environment exists.
-   */
-  async getJupyterEnvironmentPath(): Promise<
-    { id: string; path: string } | undefined
-  > {
-    const course = this.activeCourse;
-    if (course.kind !== "python-notebook" || !course.sourceDir) {
-      return undefined;
-    }
-    const courseRoot = vscode.Uri.parse(course.sourceDir);
-    return this.environment.getJupyterEnvironmentPath(courseRoot);
   }
 
   /**
@@ -852,6 +824,7 @@ export class LearningService {
    */
   private firstIncompletePosition(course: CatalogCourse): ActivityLocation {
     for (const unit of course.units) {
+      // TODO (acasey): reuse firstIncompleteInUnit
       for (const activity of unit.activities) {
         const location: ActivityLocation = {
           courseId: course.id,
@@ -1400,6 +1373,7 @@ export class LearningService {
     for (const descriptor of descriptors) {
       try {
         // TODO (acasey): parsing all courses seems fine, but we probably only want to materialize the active one
+        // TODO (acasey): this shouldn't redo discovery for each course
         const course = await registry.loadCourse(descriptor.id);
         courses.set(course.id, course);
       } catch {

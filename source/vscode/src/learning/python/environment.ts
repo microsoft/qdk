@@ -64,7 +64,7 @@ export class EnvironmentManager {
 
     if (env) {
       log.info(
-        `Updating existing environment for ${courseRoot.fsPath}: ${env.name}`,
+        `Using existing environment for ${courseRoot.fsPath}: ${env.name}`,
       );
     } else {
       // Create a new environment. The API picks up requirements.txt, if present.
@@ -105,31 +105,6 @@ export class EnvironmentManager {
     }
     const env = await this.findEnvironment(api, courseRoot);
     return env !== undefined;
-  }
-
-  /**
-   * Return the `{ id, path }` for the course's Python environment, suitable
-   * for passing to the Jupyter extension's `openNotebook` API.
-   * Returns `undefined` when no environment has been resolved.
-   */
-  async getJupyterEnvironmentPath(
-    courseRoot: vscode.Uri,
-  ): Promise<{ id: string; path: string } | undefined> {
-    if (!this.supported) {
-      return undefined;
-    }
-    const api = await this.pythonEnvironmentsApi();
-    if (!api) {
-      return undefined;
-    }
-    const env = await this.findEnvironment(api, courseRoot);
-    if (!env) {
-      return undefined;
-    }
-    return {
-      id: env.envId.id,
-      path: env.environmentPath.fsPath,
-    };
   }
 
   /**

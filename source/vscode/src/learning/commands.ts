@@ -283,8 +283,7 @@ function resolveCellId(
 }
 
 /**
- * Open the current unit's notebook working copy, pre-selecting the course's
- * Python environment as the active kernel.
+ * Open the current unit's notebook working copy.
  *
  * By default this reveals the current exercise cell; pass `reveal: "top"` to
  * start at the beginning of the notebook instead.

@@ -311,7 +311,7 @@ export interface CatalogCourse {
    * URI string of the folder the course was loaded from (drop-in courses
    * only). Used to locate notebooks and other assets for materialization.
    */
-  sourceDir?: string;
+  sourceDir?: string; // TODO (acasey): vscode.Uri?
   /** Environment requirements (python-notebook courses). */
   environment?: CourseEnvironment;
 }

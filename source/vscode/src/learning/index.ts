@@ -43,6 +43,8 @@ export function initLearning(
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeNotebookDocument((e) => {
+      // TODO (acasey): move to notebookSync.ts?
+
       // When a cell finishes executing (executionSummary changes), auto-save
       // the notebook, check if it corresponds to an exercise in the active
       // python-notebook course and update focus. If execution succeeded,
@@ -53,18 +55,11 @@ export function initLearning(
       ) {
         return;
       }
-      const hasExecutionChange = e.cellChanges.some(
-        (change) => change.executionSummary !== undefined,
-      );
-      if (hasExecutionChange) {
-        // Moving between notebooks is clumsy when they're unsaved.  Since this
-        // is a working copy we created on the user's behalf, we're free to
-        // auto-save.
-        void e.notebook.save();
-      }
 
+      let hasExecutionChange = false;
       for (const change of e.cellChanges) {
         if (change.executionSummary !== undefined) {
+          hasExecutionChange = true;
           const cellId = change.cell.metadata?.id;
           if (typeof cellId !== "string") {
             continue;
@@ -74,6 +69,12 @@ export function initLearning(
             void learningService.markExerciseCompleteByCellId(cellId);
           }
         }
+      }
+      if (hasExecutionChange) {
+        // Moving between notebooks is clumsy when they're unsaved.  Since this
+        // is a working copy we created on the user's behalf, we're free to
+        // auto-save.
+        void e.notebook.save();
       }
     }),
   );
