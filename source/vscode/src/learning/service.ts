@@ -440,6 +440,99 @@ export class LearningService {
   }
 
   /**
+   * Move the current position to the unit backing the given workbook URI,
+   * so that unit-scoped UI (hint status bar items, notebook toolbar actions,
+   * completion tracking) applies to the notebook the learner is looking at.
+   *
+   * Returns `true` when the URI belongs to a known course workbook, whether
+   * or not the position actually had to move.
+   */
+  async syncToWorkbook(uri: vscode.Uri): Promise<boolean> {
+    if (!this.workspace) {
+      return false;
+    }
+    const resolved = this.resolveWorkbookLocation(uri);
+    if (!resolved) {
+      return false;
+    }
+    const { course, unit } = resolved;
+
+    // Compare on the unit and never the activity: commands navigate to a
+    // specific activity and *then* open its notebook, so re-deriving the
+    // activity here would undo that. The guard is also what terminates the
+    // open-notebook -> active-editor-change -> sync feedback loop.
+    const pos = this.position;
+    if (pos.courseId === course.id && pos.unitId === unit.id) {
+      return true;
+    }
+
+    this.workspace.progressData.position = this.firstIncompleteInUnit(
+      course,
+      unit,
+    );
+    await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+    return true;
+  }
+
+  /**
+   * Resolve a `*.workbook.ipynb` URI to the course and unit that own it.
+   * Only python-notebook courses have workbooks.
+   *
+   * Purely in-memory: every course is already loaded by `loadWorkspace`,
+   * so this is a handful of string comparisons and cheap enough to run on
+   * every active-editor change.
+   */
+  private resolveWorkbookLocation(
+    uri: vscode.Uri,
+  ): { course: CatalogCourse; unit: CatalogUnit } | undefined {
+    const target = uri.toString();
+    for (const course of this.requireWorkspace().courses.values()) {
+      if (course.kind !== "python-notebook" || !course.sourceDir) {
+        continue;
+      }
+      for (const unit of course.units) {
+        if (!unit.notebookRel) {
+          continue;
+        }
+        const workbook = this.pythonRunner.workbookFileUri(
+          course,
+          unit.notebookRel,
+        );
+        if (workbook.toString() === target) {
+          return { course, unit };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The first activity in a unit that has not been completed, or the unit's
+   * first activity when everything in it is already done.
+   */
+  private firstIncompleteInUnit(
+    course: CatalogCourse,
+    unit: CatalogUnit,
+  ): ActivityLocation {
+    for (const activity of unit.activities) {
+      const location: ActivityLocation = {
+        courseId: course.id,
+        unitId: unit.id,
+        activityId: activity.id,
+      };
+      if (!this.isComplete(location)) {
+        return location;
+      }
+    }
+    return {
+      courseId: course.id,
+      unitId: unit.id,
+      activityId: unit.activities[0]?.id ?? "",
+    };
+  }
+
+  /**
    * Returns the set of cell IDs that correspond to exercises in the
    * current unit. Empty if the course isn't a python-notebook course or
    * there are no exercises.
@@ -1286,6 +1379,10 @@ export class LearningService {
         { isFirstTime: "false" },
         {},
       );
+      // Surfaces registered before initialization (notebook cell status bar
+      // items, the lesson panel) need a nudge to re-query now that there is
+      // state to read.
+      this._onDidChangeState.fire(this.getState());
       return true;
     }
 
@@ -1316,6 +1413,7 @@ export class LearningService {
       { isFirstTime: "true" },
       {},
     );
+    this._onDidChangeState.fire(this.getState());
     return true;
   }
 
