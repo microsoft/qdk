@@ -239,19 +239,30 @@ export class DropInCourseProvider implements CourseProvider {
     // copies (`*.workbook.ipynb`) sit beside the source and must be ignored
     // here so they are never mistaken for the authored source notebook.
     const entries = await readDirSafe(unitDir);
-    const notebookEntry = entries
+    const notebookEntries = entries
       .filter(
         (e) =>
           e.type === vscode.FileType.File &&
           e.name.toLowerCase().endsWith(".ipynb") &&
           !e.name.toLowerCase().endsWith(WORKBOOK_SUFFIX),
       )
-      .sort((a, b) => a.name.localeCompare(b.name))[0]; // TODO (acasey): log finding multiple
-    if (!notebookEntry) {
-      log.warn(
-        `Unit "${unit.id}" has no .ipynb notebook in ${unitDir.fsPath}.`,
-      );
-      return { activities: [] };
+      .sort((a, b) => a.name.localeCompare(b.name));
+    let notebookEntry: (typeof notebookEntries)[number];
+    switch (notebookEntries.length) {
+      case 0:
+        log.warn(
+          `Unit "${unit.id}" has no .ipynb notebook in ${unitDir.fsPath}.`,
+        );
+        return { activities: [] };
+      case 1:
+        notebookEntry = notebookEntries[0];
+        break;
+      default:
+        notebookEntry = notebookEntries[0];
+        log.warn(
+          `Unit "${unit.id}" has no multiple .ipynb notebooks in ${unitDir.fsPath} - using ${notebookEntry.name}.`,
+        );
+        return { activities: [] };
     }
 
     const notebookRel = `${unit.dir}/${notebookEntry.name}`;
