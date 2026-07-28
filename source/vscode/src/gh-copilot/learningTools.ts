@@ -174,7 +174,6 @@ export class LearningTools {
     descriptor: CourseDescriptor | undefined;
     readme?: string;
   }> {
-    // TODO (acasey): drop readme?
     await this.ensureInitialized();
     return this.invoke(async () => {
       const courseId = input?.courseId ?? this.service.getActiveCourseId();

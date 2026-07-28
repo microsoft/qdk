@@ -202,7 +202,7 @@ export class EnvironmentManager {
       case 0:
         return undefined;
       case 1:
-        return envs[0]; // TODO (acasey): need to enforce location?
+        return envs[0];
       default:
         log.warn(
           `Found multiple virtual environments, using first: ${envs.join(", ")}`,
