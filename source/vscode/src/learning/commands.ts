@@ -299,44 +299,14 @@ async function openCourseNotebook(
     return;
   }
   const cellId = service.getCurrentExerciseCellId();
-  let opened = false;
 
-  // TODO (acasey): this may be unnecessary if we create a python project
-  // TODO (acasey): switch to a proposed/unstable API
-  // Try to open via the Jupyter extension's unstable API so the course's
-  // Python environment is automatically set as the active kernel.
-  try {
-    const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
-    const api = await jupyter?.activate();
-    if (api && typeof api.openNotebook === "function") {
-      const envPath = await service.getJupyterEnvironmentPath();
-      if (envPath) {
-        await api.openNotebook(notebookUri, envPath);
-        opened = true;
-      } else {
-        log.info("Didn't find a course virtual environment to use in notebook");
-      }
-    }
-    if (!opened) {
-      log.warn(
-        "Jupyter openNotebook API is not available; falling back to generic open.",
-      );
-    }
-  } catch (e) {
-    log.warn(
-      `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
-    );
-  }
-
-  if (!opened) {
-    // Fallback: open without pre-selecting a kernel.
-    await vscode.commands.executeCommand(
-      "vscode.openWith",
-      notebookUri,
-      "jupyter-notebook",
-      { viewColumn: vscode.ViewColumn.Active, preview: false },
-    );
-  }
+  // Fallback: open without pre-selecting a kernel.
+  await vscode.commands.executeCommand(
+    "vscode.openWith",
+    notebookUri,
+    "jupyter-notebook",
+    { viewColumn: vscode.ViewColumn.Active, preview: false },
+  );
 
   if (options?.reveal === "top") {
     revealNotebookTop(notebookUri);
@@ -462,7 +432,6 @@ function nodeToLocation(
  * Resolve a target course id from a tree node, or prompt the user with a
  * quick pick when invoked without one (e.g. from the command palette).
  */
-// TODO (acasey): is this actually in the command palette?  If not, do we need a picker?
 async function resolveCourseId(
   service: LearningService,
   node?: LearningProgressNode,
