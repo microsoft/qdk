@@ -52,7 +52,7 @@ use qsc_fir::fir::{
 };
 use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Prim, Ty, TypeParameter, Udt};
 use qsc_formatter::formatter::format_str;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write as _;
 use std::rc::Rc;
 
@@ -216,8 +216,16 @@ impl<'a> FirQSharpGen<'a> {
     }
 
     fn emit_callable_decl(&mut self, decl: &CallableDecl) {
-        let local_names = self.local_names_for_callable(decl);
-        let previous_local_names = std::mem::replace(&mut self.local_names, local_names);
+        // The signature line and body specialization share the callable input
+        // parameters, so name them together; sibling specs are scoped separately
+        // below via `local_names_for_spec`.
+        let (body_spec_input, body_block) = match &decl.implementation {
+            CallableImpl::Spec(spec) => (spec.body.input, Some(spec.body.block)),
+            CallableImpl::SimulatableIntrinsic(spec) => (spec.input, Some(spec.block)),
+            CallableImpl::Intrinsic => (None, None),
+        };
+        let body_local_names = self.local_names_for_spec(decl.input, body_spec_input, body_block);
+        let previous_local_names = std::mem::replace(&mut self.local_names, body_local_names);
 
         match decl.kind {
             CallableKind::Function => self.write("function "),
@@ -263,21 +271,25 @@ impl<'a> FirQSharpGen<'a> {
                     return;
                 }
                 self.writeln(" {");
+                // The body reuses the signature scope already installed above.
                 self.emit_spec_decl("body", &body);
-                if let Some(s) = adj {
-                    self.emit_spec_decl("adjoint", &s);
-                }
-                if let Some(s) = ctl {
-                    self.emit_spec_decl("controlled", &s);
-                }
-                if let Some(s) = ctl_adj {
-                    self.emit_spec_decl("controlled adjoint", &s);
+                for (label, spec) in [
+                    ("adjoint", adj),
+                    ("controlled", ctl),
+                    ("controlled adjoint", ctl_adj),
+                ] {
+                    if let Some(s) = spec {
+                        self.local_names =
+                            self.local_names_for_spec(decl.input, s.input, Some(s.block));
+                        self.emit_spec_decl(label, &s);
+                    }
                 }
                 self.writeln("}");
             }
             CallableImpl::SimulatableIntrinsic(spec) => {
                 let spec = spec.clone();
                 self.writeln(" {");
+                // The simulation body reuses the signature scope installed above.
                 self.emit_spec_decl("body", &spec);
                 self.writeln("}");
             }
@@ -286,63 +298,79 @@ impl<'a> FirQSharpGen<'a> {
         self.local_names = previous_local_names;
     }
 
-    fn local_names_for_callable(&self, decl: &CallableDecl) -> FxHashMap<LocalVarId, Rc<str>> {
+    /// Builds the display-name map for one specialization scope.
+    ///
+    /// The map spans the callable input parameters, this specialization's own
+    /// input (for example the control register of a `controlled` spec), and the
+    /// locals declared in its block. Names are scoped per specialization so a
+    /// local shared by sibling specs (such as `ctls`) renders identically in
+    /// each, while duplicate names within a single specialization are made
+    /// unique by [`Self::disambiguate_local_names`].
+    fn local_names_for_spec(
+        &self,
+        input: PatId,
+        spec_input: Option<PatId>,
+        block: Option<BlockId>,
+    ) -> FxHashMap<LocalVarId, Rc<str>> {
         let mut local_names = FxHashMap::default();
-        self.collect_pat_names(decl.input, &mut local_names);
-        match &decl.implementation {
-            CallableImpl::Intrinsic => {}
-            CallableImpl::Spec(spec) => {
-                for spec in std::iter::once(&spec.body)
-                    .chain(spec.adj.iter())
-                    .chain(spec.ctl.iter())
-                    .chain(spec.ctl_adj.iter())
-                {
-                    if let Some(input_pat) = spec.input {
-                        self.collect_pat_names(input_pat, &mut local_names);
+        self.collect_pat_names(input, &mut local_names);
+        if let Some(spec_input) = spec_input {
+            self.collect_pat_names(spec_input, &mut local_names);
+        }
+        if let Some(block) = block {
+            self.collect_block_local_names(block, &mut local_names);
+        }
+        Self::disambiguate_local_names(local_names)
+    }
+
+    /// Ensures every local in a callable renders with a distinct name.
+    ///
+    /// Distinct locals can share a source name (for example, partial-application
+    /// lowering names every fixed argument `arg`), which is unambiguous in the
+    /// FIR because each local carries a unique [`LocalVarId`] but confusing in
+    /// the printed Q#. This assigns a unique display name to each local: the
+    /// first occurrence of a name (in ascending `LocalVarId` order, which mirrors
+    /// declaration order) keeps the base name, and each later collision receives
+    /// the smallest unused `{base}_{n}` suffix. Names that are already unique are
+    /// reserved first so a generated suffix never shadows an unrelated local.
+    fn disambiguate_local_names(
+        names: FxHashMap<LocalVarId, Rc<str>>,
+    ) -> FxHashMap<LocalVarId, Rc<str>> {
+        let mut entries: Vec<(LocalVarId, Rc<str>)> = names.into_iter().collect();
+        entries.sort_by_key(|(id, _)| *id);
+
+        let mut counts: FxHashMap<Rc<str>, usize> = FxHashMap::default();
+        for (_, name) in &entries {
+            *counts.entry(name.clone()).or_default() += 1;
+        }
+
+        let mut used: FxHashSet<Rc<str>> = entries
+            .iter()
+            .filter(|(_, name)| counts[name] == 1)
+            .map(|(_, name)| name.clone())
+            .collect();
+
+        let mut result = FxHashMap::default();
+        for (id, base) in entries {
+            if counts[&base] == 1 {
+                result.insert(id, base);
+                continue;
+            }
+            let unique = if used.insert(base.clone()) {
+                base
+            } else {
+                let mut n = 1usize;
+                loop {
+                    let candidate: Rc<str> = Rc::from(format!("{base}_{n}"));
+                    if used.insert(candidate.clone()) {
+                        break candidate;
                     }
+                    n += 1;
                 }
-            }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                if let Some(input_pat) = spec.input {
-                    self.collect_pat_names(input_pat, &mut local_names);
-                }
-            }
+            };
+            result.insert(id, unique);
         }
-        self.collect_impl_local_names(&decl.implementation, &mut local_names);
-        local_names
-    }
-
-    fn collect_impl_local_names(
-        &self,
-        implementation: &CallableImpl,
-        local_names: &mut FxHashMap<LocalVarId, Rc<str>>,
-    ) {
-        match implementation {
-            CallableImpl::Intrinsic => {}
-            CallableImpl::Spec(spec) => {
-                self.collect_spec_decl_local_names(&spec.body, local_names);
-                if let Some(adj) = &spec.adj {
-                    self.collect_spec_decl_local_names(adj, local_names);
-                }
-                if let Some(ctl) = &spec.ctl {
-                    self.collect_spec_decl_local_names(ctl, local_names);
-                }
-                if let Some(ctl_adj) = &spec.ctl_adj {
-                    self.collect_spec_decl_local_names(ctl_adj, local_names);
-                }
-            }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                self.collect_spec_decl_local_names(spec, local_names);
-            }
-        }
-    }
-
-    fn collect_spec_decl_local_names(
-        &self,
-        spec: &SpecDecl,
-        local_names: &mut FxHashMap<LocalVarId, Rc<str>>,
-    ) {
-        self.collect_block_local_names(spec.block, local_names);
+        result
     }
 
     fn collect_block_local_names(
@@ -864,7 +892,7 @@ impl<'a> FirQSharpGen<'a> {
         let pat = self.package().get_pat(pat_id).clone();
         match pat.kind {
             PatKind::Bind(ident) => {
-                self.write(&self.render_ident(&ident.name));
+                self.write(&self.local_display(ident.id));
                 self.write(" : ");
                 self.emit_ty(&pat.ty);
             }
@@ -920,7 +948,7 @@ impl<'a> FirQSharpGen<'a> {
     fn emit_pat_bindings(&mut self, pat_id: PatId) {
         let pat = self.package().get_pat(pat_id).clone();
         match pat.kind {
-            PatKind::Bind(ident) => self.write(&self.render_ident(&ident.name)),
+            PatKind::Bind(ident) => self.write(&self.local_display(ident.id)),
             PatKind::Discard => self.write("_"),
             PatKind::Tuple(pats) => {
                 self.write("(");

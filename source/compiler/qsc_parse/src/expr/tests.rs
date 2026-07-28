@@ -2367,6 +2367,36 @@ fn interpolated_string_braced() {
 }
 
 #[test]
+fn interpolated_string_block() {
+    check(
+        expr,
+        r#"$"{ {x} }""#,
+        &expect![[r#"
+            Expr _id_ [0-10]: Interpolate:
+                Expr: Expr _id_ [4-7]: Expr Block: Block _id_ [4-7]:
+                    Stmt _id_ [5-6]: Expr: Expr _id_ [5-6]: Path: Path _id_ [5-6] (Ident _id_ [5-6] "x")"#]],
+    );
+}
+
+#[test]
+fn interpolated_string_for_loop() {
+    check(
+        expr,
+        r#"$"{for i in 1..3 {}}""#,
+        &expect![[r#"
+            Expr _id_ [0-21]: Interpolate:
+                Expr: Expr _id_ [3-19]: For:
+                    Pat _id_ [7-8]: Bind:
+                        Ident _id_ [7-8] "i"
+                    Expr _id_ [12-16]: Range:
+                        Expr _id_ [12-13]: Lit: Int(1)
+                        <no step>
+                        Expr _id_ [15-16]: Lit: Int(3)
+                    Block _id_ [17-19]: <empty>"#]],
+    );
+}
+
+#[test]
 fn interpolated_string_escape_brace() {
     check(
         expr,

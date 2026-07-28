@@ -351,8 +351,8 @@ fn grover_sample_full_pipeline_reachable_items() {
                     let _step_id_49139 : Int = _range_id_49131::Step;
                     let _end_id_49144 : Int = _range_id_49131::End;
                     while _step_id_49139 > 0 and _index_id_49134 <= _end_id_49144 or _step_id_49139 < 0 and _index_id_49134 >= _end_id_49144 {
-                        let i : Int = _index_id_49134;
-                        CCNOT(aux[i * 2], aux[i * 2 + 1], aux[i + Length(ctls) / 2]);
+                        let i_1 : Int = _index_id_49134;
+                        CCNOT(aux[i_1 * 2], aux[i_1 * 2 + 1], aux[i_1 + Length(ctls) / 2]);
                         _index_id_49134 += _step_id_49139;
                     }
 
@@ -378,15 +378,15 @@ fn grover_sample_full_pipeline_reachable_items() {
                 }
 
                 {
-                    let _range : Range = 0..2..Length(ctls) - 2;
+                    let _range_1 : Range = 0..2..Length(ctls) - 2;
                     {
-                        let _range_id_49217 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
+                        let _range_id_49217 : Range = _range_1::Start + _range_1::End - _range_1::Start / _range_1::Step * _range_1::Step..-_range_1::Step.._range_1::Start;
                         mutable _index_id_49220 : Int = _range_id_49217::Start;
                         let _step_id_49225 : Int = _range_id_49217::Step;
                         let _end_id_49230 : Int = _range_id_49217::End;
                         while _step_id_49225 > 0 and _index_id_49220 <= _end_id_49230 or _step_id_49225 < 0 and _index_id_49220 >= _end_id_49230 {
-                            let i : Int = _index_id_49220;
-                            Adjoint CCNOT(ctls[i], ctls[i + 1], aux[i / 2]);
+                            let i_1 : Int = _index_id_49220;
+                            Adjoint CCNOT(ctls[i_1], ctls[i_1 + 1], aux[i_1 / 2]);
                             _index_id_49220 += _step_id_49225;
                         }
 
@@ -1149,8 +1149,8 @@ fn grover_sample_full_pipeline_reachable_items() {
                             let _end_id_524 : Int = _range_id_511::End;
                             while _step_id_519 > 0 and _index_id_514 <= _end_id_524 or _step_id_519 < 0 and _index_id_514 >= _end_id_524 {
                                 let _index : Int = _index_id_514;
-                                let q : Qubit = _array[_index];
-                                Adjoint X(q);
+                                let q_1 : Qubit = _array[_index];
+                                Adjoint X(q_1);
                                 _index_id_514 += _step_id_519;
                             }
 
@@ -1271,8 +1271,8 @@ fn grover_sample_full_pipeline_reachable_items() {
                             let _end_id_737 : Int = _range_id_724::End;
                             while _step_id_732 > 0 and _index_id_727 <= _end_id_737 or _step_id_732 < 0 and _index_id_727 >= _end_id_737 {
                                 let _index : Int = _index_id_727;
-                                let q : Qubit = _array[_index];
-                                Adjoint X(q);
+                                let q_1 : Qubit = _array[_index];
+                                Adjoint X(q_1);
                                 _index_id_727 += _step_id_732;
                             }
 

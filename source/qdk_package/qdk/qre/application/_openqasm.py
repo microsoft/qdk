@@ -17,6 +17,15 @@ from .._application import Application
 from ..interop import trace_from_entry_expr
 
 
+def _find_unique_openqasm_name() -> str:
+    """Find an unused module name for importing an OpenQASM program."""
+    for _ in range(1_000):
+        name = f"openqasm{random.randint(0, 1_000_000)}"
+        if not hasattr(code, "qasm_import") or not hasattr(code.qasm_import, name):
+            return name
+    raise RuntimeError("Failed to find a unique name for the OpenQASM program.")
+
+
 @dataclass
 class OpenQASMApplication(Application[None]):
     """Application that produces a resource estimation trace from OpenQASM code.
@@ -48,20 +57,7 @@ class OpenQASMApplication(Application[None]):
         if isinstance(self.program, str):
             from ...openqasm import import_openqasm, ProgramType
 
-            name_found = False
-            for _ in range(1_000):
-                name = f"openqasm{random.randint(0, 1_000_000)}"
-                if not hasattr(code, "qasm_import") or not hasattr(
-                    code.qasm_import, name
-                ):
-                    name_found = True
-                    break
-
-            if not name_found:
-                raise RuntimeError(
-                    "Failed to find a unique name for the OpenQASM program."
-                )
-
+            name = _find_unique_openqasm_name()
             import_openqasm(self.program, name=name, program_type=ProgramType.File)
             self.program = getattr(code.qasm_import, name)
 

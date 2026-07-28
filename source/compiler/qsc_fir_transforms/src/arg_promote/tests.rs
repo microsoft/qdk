@@ -2775,8 +2775,8 @@ fn non_udt_tuple_destructure_name_shadowing() {
         &expect![[r#"
             BEFORE:
             function Foo(x : (Int, Int)) : Int {
-                let x : Int = x::Item < 0 >;
-                x + 1
+                let x_1 : Int = x::Item < 0 >;
+                x_1 + 1
             }
             function Main() : Int {
                 let x : (Int, Int) = (10, 20);

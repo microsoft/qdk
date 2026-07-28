@@ -1852,10 +1852,6 @@ impl Lowerer {
                 }
                 all_cases_return
             }
-            // We don't know if the iterable of the loop is empty at compile time.
-            // We take a best effort approach and check if the body always returns.
-            semantic::StmtKind::For(stmt) => Self::stmt_always_returns(&stmt.body),
-            semantic::StmtKind::WhileLoop(stmt) => Self::stmt_always_returns(&stmt.body),
             semantic::StmtKind::Return(..) | semantic::StmtKind::End(..) => true,
             _ => false,
         }

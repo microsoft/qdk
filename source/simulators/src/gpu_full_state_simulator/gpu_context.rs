@@ -72,6 +72,10 @@ pub(crate) struct RunParams {
     pub num_call_args: usize,
     pub num_constant_data: usize,
     pub max_memory: usize,
+    // Number of output record outputs (result / bool / int / double) per shot.
+    // Also the per-shot stride into the output records region of the results
+    // buffer and a shader compile-time constant.
+    pub num_output_records: usize,
     // Noise table sizes for BatchData (minimum 1, since WGSL arrays must have length ≥ 1).
     pub noise_table_count: usize,
     pub noise_entry_count: usize,
@@ -81,6 +85,10 @@ pub(crate) struct RunParams {
 pub struct RunResults {
     pub shot_results: Vec<Vec<u32>>,
     pub shot_result_codes: Vec<u32>,
+    /// Per-shot output record values (raw `u32` bits for each result / bool /
+    /// int / double record output, in record order). Empty inner vectors when
+    /// the program has no output record outputs.
+    pub shot_output_records: Vec<Vec<u32>>,
     // Box used below lessen size of RunResults struct, as DiagnosticsData is large, and
     // clippy was warning about the size of the Future returned by run_shots otherwise,
     // as the large value may put on the stack which can cause stack overflows.
@@ -369,6 +377,7 @@ impl GpuContext {
         Ok(RunResults {
             shot_results,
             shot_result_codes,
+            shot_output_records: Vec::new(),
             diagnostics,
             success,
         })
@@ -499,9 +508,21 @@ impl GpuContext {
         params.state_vector_buffer_size =
             i32_to_usize(params.shots_per_batch * state_vector_size_per_shot);
 
-        // Each result is a u32, plus one extra on the end for the shader to set an 'error code' if needed
-        params.results_buffer_size = i32_to_usize(params.shots_per_batch * (params.result_count + 1)) // +1 for error code per shot
-                * size_of::<u32>();
+        // Each result is a u32, plus one extra on the end for the shader to set an 'error code' if needed.
+        // In adaptive mode, output record values (result / bool / int / double
+        // record outputs) are appended after all per-shot result regions in the
+        // same buffer, so no separate binding is needed (which keeps us within
+        // the WebGPU minimum of 8 storage buffers per shader stage). Region layout:
+        //   [ shots_per_batch * (result_count + 1) results ]
+        //   [ shots_per_batch * num_output_records output records ]  (adaptive only)
+        let output_records_region = if self.is_adaptive {
+            params.num_output_records
+        } else {
+            0
+        };
+        params.results_buffer_size = i32_to_usize(params.shots_per_batch)
+            * (i32_to_usize(params.result_count + 1) + output_records_region)
+            * size_of::<u32>();
 
         params.diagnostics_buffer_size = 6 * 4 /* error_code, termination_count, extra1, extra2, extra3, padding */
                 + gpu_shot_size + size_of::<Op>() // ShotData (GPU-side, may include interp+registers) + Op
@@ -578,6 +599,18 @@ impl GpuContext {
             ));
         }
 
+        // Count output record outputs (result / bool / int / double). This is
+        // the per-shot stride into the output records buffer and a shader
+        // compile-time constant, so a change requires a pipeline rebuild.
+        let num_output_records = program
+            .instructions
+            .iter()
+            .filter(|instr| {
+                (instr.opcode & 0xFF) == 0x14 /* OP_RECORD_OUTPUT */
+                    && (instr.aux1 == 0 || instr.aux1 >= 3)
+            })
+            .count();
+
         if self.adaptive_program.is_none()
             || qubit_count != self.run_params.qubit_count
             || self.run_params.result_count != result_count
@@ -590,6 +623,7 @@ impl GpuContext {
             || self.run_params.num_call_args != program.call_args.len()
             || self.run_params.num_constant_data != program.constant_data.len()
             || self.run_params.max_memory != max_memory
+            || self.run_params.num_output_records != num_output_records
         {
             self.pipeline_is_dirty = true;
         }
@@ -605,6 +639,7 @@ impl GpuContext {
         self.run_params.num_call_args = program.call_args.len();
         self.run_params.num_constant_data = program.constant_data.len();
         self.run_params.max_memory = max_memory;
+        self.run_params.num_output_records = num_output_records;
 
         self.adaptive_program = Some(program);
         self.program_is_dirty = true;
@@ -754,6 +789,8 @@ impl GpuContext {
         let bind_group = self.resources.get_bind_group_adaptive()?;
 
         let mut results: Vec<u32> = Vec::new();
+        let mut output_record_values: Vec<u32> = Vec::new();
+        let num_output_records = self.run_params.num_output_records;
         let mut diagnostics: Option<Box<DiagnosticsData>> = None;
         let mut shots_remaining = self.run_params.shot_count;
 
@@ -889,7 +926,17 @@ impl GpuContext {
             let (batch_results, batch_diagnostics) =
                 self.resources.download_batch_results().await?;
 
-            results.extend(batch_results);
+            // The results buffer holds the per-shot result regions followed by an
+            // appended region of output record values. Split the two apart before
+            // accumulating so each can be chunked independently below.
+            let results_region_len =
+                i32_to_usize(self.run_params.shots_per_batch * (self.run_params.result_count + 1));
+            let (batch_result_region, batch_record_region) =
+                batch_results.split_at(results_region_len.min(batch_results.len()));
+            results.extend_from_slice(batch_result_region);
+            if num_output_records > 0 {
+                output_record_values.extend_from_slice(batch_record_region);
+            }
             if batch_diagnostics.error_code != 0 && diagnostics.is_none() {
                 diagnostics = Some(batch_diagnostics);
             }
@@ -918,9 +965,28 @@ impl GpuContext {
             .collect::<Vec<u32>>();
         let success = shot_result_codes.iter().all(|&code| code == 0);
 
+        // Split the output record values into per-shot vectors. Each shot has
+        // exactly `num_output_records` values (in record order); shots get an
+        // empty vector when the program records no output values.
+        let shot_count_usize: usize = self
+            .run_params
+            .shot_count
+            .try_into()
+            .expect("Shot count should fit in usize");
+        let shot_output_records = if num_output_records > 0 {
+            output_record_values.truncate(shot_count_usize * num_output_records);
+            output_record_values
+                .chunks(num_output_records)
+                .map(<[u32]>::to_vec)
+                .collect::<Vec<Vec<u32>>>()
+        } else {
+            vec![Vec::new(); shot_count_usize]
+        };
+
         Ok(RunResults {
             shot_results,
             shot_result_codes,
+            shot_output_records,
             diagnostics,
             success,
         })

@@ -172,7 +172,7 @@ pub enum CommentKind {
 #[derive(Clone)]
 pub struct Lexer<'a> {
     chars: Peekable<CharIndices<'a>>,
-    interpolation: u8,
+    interp_brace_depths: Vec<u32>,
     starting_offset: u32,
 }
 
@@ -181,7 +181,7 @@ impl<'a> Lexer<'a> {
     pub fn new(input: &'a str) -> Self {
         Self {
             chars: input.char_indices().peekable(),
-            interpolation: 0,
+            interp_brace_depths: Vec::new(),
             starting_offset: 0,
         }
     }
@@ -190,7 +190,7 @@ impl<'a> Lexer<'a> {
     pub fn new_with_starting_offset(input: &'a str, starting_offset: u32) -> Self {
         Self {
             chars: input.char_indices().peekable(),
-            interpolation: 0,
+            interp_brace_depths: Vec::new(),
             starting_offset,
         }
     }
@@ -348,12 +348,22 @@ impl<'a> Lexer<'a> {
             }
         } else if c == '"' {
             Some(StringKind::Normal)
-        } else if self.interpolation > 0 && c == '}' {
-            self.interpolation = self
-                .interpolation
-                .checked_sub(1)
-                .expect("interpolation level should have been incremented at left brace");
-            Some(StringKind::Interpolated)
+        } else if let Some(depth) = self.interp_brace_depths.last_mut() {
+            match c {
+                '{' => {
+                    *depth += 1;
+                    None
+                }
+                '}' if *depth > 0 => {
+                    *depth -= 1;
+                    None
+                }
+                '}' => {
+                    self.interp_brace_depths.pop();
+                    Some(StringKind::Interpolated)
+                }
+                _ => None,
+            }
         } else {
             None
         }
@@ -372,10 +382,7 @@ impl<'a> Lexer<'a> {
                 };
 
                 let end = if self.next_if_eq('{') {
-                    self.interpolation = self
-                        .interpolation
-                        .checked_add(1)
-                        .expect("interpolation should not exceed maximum depth");
+                    self.interp_brace_depths.push(0);
                     Some(InterpolatedEnding::LBrace)
                 } else if self.next_if_eq('"') {
                     Some(InterpolatedEnding::Quote)

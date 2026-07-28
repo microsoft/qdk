@@ -1,13 +1,13 @@
-/// # Sample
-/// Simple Quantum Phase Estimation
-///
-/// # Description
-/// This sample demonstrates how to use ApplyQPE to perform
-/// Quantum Phase Estimation of a simple unitary operation.
-/// Rz gate is used as the unitary operation,
-/// and the eigenvector |1⟩ is chosen for the phase estimation.
-/// Run this sample and check the histogram of results.
-/// This sample is suitable for base profile.
+// # Sample
+// Simple Quantum Phase Estimation
+//
+// # Description
+// This sample demonstrates how to use ApplyQPE to perform
+// Quantum Phase Estimation of a simple unitary operation.
+// Rz gate is used as the unitary operation,
+// and the eigenvector |1⟩ is chosen for the phase estimation.
+// Run this sample and check the histogram of results.
+// This sample is suitable for base profile.
 
 /// # Summary
 /// Estimate the phase of the eigenvalue of the unitary gate U
