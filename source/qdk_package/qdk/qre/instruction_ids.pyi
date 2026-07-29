@@ -104,6 +104,9 @@ BLOCK_RX: int
 BLOCK_RY: int
 BLOCK_RZ: int
 
+# Resource states
+BELL_STATE: int
+
 # Multi-qubit Pauli measurement
 MULTI_PAULI_MEAS: int
 

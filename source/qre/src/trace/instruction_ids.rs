@@ -136,6 +136,8 @@ define_instructions! {
         (BLOCK_RY, 0x60E),
         (BLOCK_RZ, 0x60F),
 
+        // Resource states
+        (BELL_STATE, 0x800),
 
         // Multi-qubit Pauli measurement
         (MULTI_PAULI_MEAS, 0x1000),
