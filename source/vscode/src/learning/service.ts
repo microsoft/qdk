@@ -833,7 +833,11 @@ export class LearningService {
       // Need to await extension installation since environment setup depends
       // on the Python Environments extension
       await promptInstallPythonExtensions();
-      void this.ensureEnvironment(course);
+      this.ensureEnvironment(course).catch((e) => {
+        log.warn(
+          `Failed to set up the environment for "${course.title}": ${String(e)}`,
+        );
+      });
     }
     ws.progressData.position = this.firstIncompletePosition(course);
     await this.saveProgress();

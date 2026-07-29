@@ -27,9 +27,12 @@ export class EnvironmentManager {
     string,
     PythonEnvironment
   >();
+  /** In-flight {@link ensureEnvironment} calls, keyed by courseRoot.toString(). */
+  private readonly _pendingEnvironments = new Map<string, Promise<void>>();
 
   dispose(): void {
     this._projectEnvironmentMap.clear();
+    this._pendingEnvironments.clear();
   }
 
   /** True on a host where environment management can run (desktop only). */
@@ -50,6 +53,20 @@ export class EnvironmentManager {
     if (!this.supported) {
       return;
     }
+    // Finding an existing environment and creating one are separate awaits, so
+    // concurrent callers must share a single attempt or each creates its own.
+    const key = courseRoot.toString();
+    let pending = this._pendingEnvironments.get(key);
+    if (!pending) {
+      pending = this.resolveEnvironment(courseRoot).finally(() => {
+        this._pendingEnvironments.delete(key);
+      });
+      this._pendingEnvironments.set(key, pending);
+    }
+    return pending;
+  }
+
+  private async resolveEnvironment(courseRoot: vscode.Uri): Promise<void> {
     const api = await this.pythonEnvironmentsApi();
     if (!api) {
       log.warn(
@@ -79,9 +96,6 @@ export class EnvironmentManager {
         return;
       }
 
-      // Cache the resolved environment.
-      this._projectEnvironmentMap.set(courseRoot.toString(), env);
-
       // Register the course folder as a Python project. This creates a workspace
       // setting, which causes Jupyter to pick up the venv.
       const courseName = courseRoot.path.split("/").pop();
@@ -90,6 +104,8 @@ export class EnvironmentManager {
         uri: courseRoot,
       });
     }
+
+    this._projectEnvironmentMap.set(courseRoot.toString(), env);
   }
 
   /**
