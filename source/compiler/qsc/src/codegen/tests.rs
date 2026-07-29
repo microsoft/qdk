@@ -5779,10 +5779,7 @@ fn foreign_table_lookup_callable_generates_qir() {
             use address = Qubit[1];
             use output = Qubit[1];
             Std.TableLookup.Select([[false], [true]], address, output);
-
-            // Adjoint of Select does not work until support for static sized, dynamic content arrays is added.
-            // See related issue: https://github.com/microsoft/qdk/issues/3388
-            // Adjoint Std.TableLookup.Select([[false], [true]], address, output);
+            Adjoint Std.TableLookup.Select([[false], [true]], address, output);
         }
     "#};
     for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {

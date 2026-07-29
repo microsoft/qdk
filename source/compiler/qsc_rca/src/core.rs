@@ -182,12 +182,12 @@ impl<'a> Analyzer<'a> {
 
         let mut default_value_kind = ValueKind::Constant;
         // If we are within a dynamic scope, the compute kind of the assign index expression must be variable and an additional
-        // runtime feature is used to mark the array itself as dynamically sized.
+        // runtime feature is used to mark the array itself as dynamic.
         if !application_instance.active_dynamic_scopes.is_empty() {
             default_value_kind = ValueKind::Variable;
             replacement_value_compute_kind =
                 replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {
-                    runtime_features: RuntimeFeatureFlags::UseOfDynamicallySizedArray,
+                    runtime_features: RuntimeFeatureFlags::UseOfDynamicArray,
                     value_kind: ValueKind::Constant,
                 });
         }
@@ -829,8 +829,10 @@ impl<'a> Analyzer<'a> {
 
         // If the index expression is variable, the value kind of the expression is at least dynamic (possibly variable)
         // and an additional runtime feature is used.
-        if let ComputeKind::Dynamic { value_kind, .. } = &index_expr_compute_kind
-            && *value_kind == ValueKind::Variable
+        if let ComputeKind::Dynamic {
+            value_kind: ValueKind::Variable,
+            ..
+        } = &index_expr_compute_kind
         {
             let mut dynamic_runtime_features = RuntimeFeatureFlags::UseOfDynamicIndex;
 

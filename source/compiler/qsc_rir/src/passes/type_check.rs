@@ -81,6 +81,24 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             assert_eq!(index.get_type(), Ty::Prim(Prim::Integer));
         }
 
+        Instruction::StoreArray(operands, var) => {
+            let Ty::Array(size, elem_ty) = &var.ty else {
+                panic!("expected variable to be of array type");
+            };
+            assert_eq!(
+                operands.len(),
+                *size,
+                "expected number of operands to match array size"
+            );
+            for opr in operands {
+                assert_eq!(
+                    opr.get_type(),
+                    Ty::Prim(*elem_ty),
+                    "expected operand type to match array element type"
+                );
+            }
+        }
+
         Instruction::Convert(_, _)
         | Instruction::Jump(_)
         | Instruction::Alloca(..)
