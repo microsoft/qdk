@@ -53,6 +53,9 @@ interface RawNotebook {
   cells?: unknown;
 }
 
+/** A {@link RawNotebook} whose `cells` array has been validated to exist. */
+type ParsedNotebook = RawNotebook & { cells: RawCell[] };
+
 /**
  * Parse the exercise metadata out of an authored notebook's JSON text.
  *
@@ -175,7 +178,6 @@ export function parseNotebookExercises(
   return exercises;
 }
 
-// TODO (acasey): share code with readCells
 /**
  * Remove the author-only cells from a notebook's JSON text, returning the
  * notebook the learner works in.
@@ -189,23 +191,12 @@ export function stripAuthoringCells(
   text: string,
   unitLabel: string,
 ): string | undefined {
-  let notebook: RawNotebook;
-  try {
-    notebook = JSON.parse(text) as RawNotebook;
-  } catch (e) {
-    log.warn(
-      `Learning: failed to parse the notebook for unit "${unitLabel}": ${String(e)}`,
-    );
-    return undefined;
-  }
-  if (!Array.isArray(notebook.cells)) {
-    log.warn(
-      `Learning: the notebook for unit "${unitLabel}" has no "cells" array.`,
-    );
+  const notebook = parseNotebook(text, unitLabel);
+  if (!notebook) {
     return undefined;
   }
 
-  notebook.cells = (notebook.cells as RawCell[]).filter((cell) => {
+  notebook.cells = notebook.cells.filter((cell) => {
     const tags = cellTags(cell);
     return !AUTHORING_TAGS.some((t) => tags.includes(t));
   });
@@ -217,7 +208,14 @@ export function stripAuthoringCells(
 
 // ─── Cell readers ───
 
-function readCells(text: string, unitLabel: string): RawCell[] | undefined {
+/**
+ * Parse a notebook's JSON text and validate it has a `cells` array. Shared by
+ * every entry point that needs the raw notebook rather than just its cells.
+ */
+function parseNotebook(
+  text: string,
+  unitLabel: string,
+): ParsedNotebook | undefined {
   let notebook: RawNotebook;
   try {
     notebook = JSON.parse(text) as RawNotebook;
@@ -233,9 +231,14 @@ function readCells(text: string, unitLabel: string): RawCell[] | undefined {
     );
     return undefined;
   }
-  return (notebook.cells as unknown[]).filter(
+  notebook.cells = (notebook.cells as unknown[]).filter(
     (c): c is RawCell => !!c && typeof c === "object",
   );
+  return notebook as ParsedNotebook;
+}
+
+function readCells(text: string, unitLabel: string): RawCell[] | undefined {
+  return parseNotebook(text, unitLabel)?.cells;
 }
 
 function cellTags(cell: RawCell): string[] {
