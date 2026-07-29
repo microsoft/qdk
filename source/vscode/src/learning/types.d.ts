@@ -319,7 +319,7 @@ export interface CatalogCourse {
    * URI string of the folder the course was loaded from (drop-in courses
    * only). Used to locate notebooks and other assets for materialization.
    */
-  sourceDir?: string; // TODO (acasey): vscode.Uri?
+  sourceDir?: string;
   /** Optional path (URI string) to a README rendered for "Course info". */
   readmePath?: string;
   /** Environment requirements (python-notebook courses). */
