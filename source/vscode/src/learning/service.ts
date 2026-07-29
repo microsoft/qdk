@@ -1420,9 +1420,6 @@ export class LearningService {
       }
     }
 
-    const defaultCourse =
-      courses.get(KATAS_COURSE_ID) ?? courses.values().next().value;
-
     // Build workspace state; assigned to this.workspace only after all
     // async setup succeeds so that `initialized` stays false on failure.
     const ws: WorkspaceState = {
@@ -1431,16 +1428,7 @@ export class LearningService {
       learningFile,
       courses,
       registry,
-      progressData: {
-        version: 1,
-        position: {
-          courseId: defaultCourse?.id ?? "",
-          unitId: defaultCourse?.units[0]?.id ?? "",
-          activityId: defaultCourse?.units[0]?.activities[0]?.id ?? "",
-        },
-        completions: {},
-        startedAt: new Date().toISOString(),
-      },
+      progressData: this.defaultProgressData(courses),
     };
 
     await this.loadProgress(ws);
@@ -1785,54 +1773,91 @@ export class LearningService {
     );
   }
 
+  /**
+   * Overlay the saved `qdk-learning.json` onto `ws.progressData`.
+   *
+   * A missing, unreadable, or malformed file leaves `ws.progressData`
+   * untouched, so the caller's seed value stands. On a fresh workspace that
+   * seed is {@link defaultProgressData}; on {@link reloadProgress} it is the
+   * progress already in memory, which is preferable to discarding it because
+   * the file happens to be mid-write or corrupt.
+   */
   private async loadProgress(ws: WorkspaceState): Promise<void> {
+    let parsed;
     try {
       const bytes = await vscode.workspace.fs.readFile(ws.learningFile);
-      const parsed = JSON.parse(new TextDecoder().decode(bytes));
-      if (
-        parsed &&
-        typeof parsed === "object" &&
-        parsed.version === 1 &&
-        typeof parsed.completions === "object" &&
-        parsed.completions !== null &&
-        typeof parsed.position === "object" &&
-        parsed.position !== null
-      ) {
-        ws.progressData = parsed as ProgressFileData;
-        // Resolve the course the saved position points at, falling back to
-        // the default loaded course if it references one not yet loaded.
-        const course =
-          ws.courses.get(ws.progressData.position.courseId) ??
-          this.defaultCourseOf(ws);
-        // Validate saved position references a known unit and activity
-        if (course && course.units.length > 0) {
-          const unit =
-            ws.progressData.position.courseId === course.id
-              ? course.units.find(
-                  (k) => k.id === ws.progressData.position.unitId,
-                )
-              : undefined;
-          const activityValid =
-            unit &&
-            unit.activities.some(
-              (s) => s.id === ws.progressData.position.activityId,
-            );
-          if (!activityValid) {
-            ws.progressData.position = {
-              courseId: course.id,
-              unitId: course.units[0].id,
-              activityId: course.units[0].activities[0]?.id ?? "",
-            };
-          }
-        }
-        return;
-      }
+      parsed = JSON.parse(new TextDecoder().decode(bytes));
     } catch {
-      // expected when file is missing or corrupt
+      // Expected when the file is missing or unparseable.
+      // In this case, leave ws (and, in particular, ws.ProgressData)
+      // untouched, since it's either the last known state or the default.
+      return;
     }
-    const course = this.defaultCourseOf(ws);
-    // TODO (acasey): is this identical to what was passed in?
-    ws.progressData = {
+
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      parsed.version !== 1 ||
+      typeof parsed.completions !== "object" ||
+      parsed.completions === null ||
+      typeof parsed.position !== "object" ||
+      parsed.position === null
+    ) {
+      // As above, leave ws.ProgressData untouched if we can't load it
+      return;
+    }
+
+    ws.progressData = parsed as ProgressFileData;
+    // Resolve the course the saved position points at, falling back to
+    // the default loaded course if it references one not yet loaded.
+    const course =
+      ws.courses.get(ws.progressData.position.courseId) ??
+      this.defaultCourse(ws.courses);
+    // Validate saved position references a known unit and activity
+    if (course && course.units.length > 0) {
+      const unit =
+        ws.progressData.position.courseId === course.id
+          ? course.units.find((k) => k.id === ws.progressData.position.unitId)
+          : undefined;
+      const activityValid =
+        unit &&
+        unit.activities.some(
+          (s) => s.id === ws.progressData.position.activityId,
+        );
+      if (!activityValid) {
+        // Keep the learner as close to where they left off as the catalog
+        // still allows: stay in their unit when it survived and only the
+        // activity is gone, and fall back to the start of the course only
+        // when the unit itself is no longer there.
+        const fallbackUnit = unit ?? course.units[0];
+        ws.progressData.position = {
+          courseId: course.id,
+          unitId: fallbackUnit.id,
+          activityId: fallbackUnit.activities[0]?.id ?? "",
+        };
+      }
+    }
+  }
+
+  /** The default course for a workspace (built-in katas, else the first loaded). */
+  private defaultCourse(
+    courses: Map<string, CatalogCourse>,
+  ): CatalogCourse | undefined {
+    return courses.get(KATAS_COURSE_ID) ?? courses.values().next().value;
+  }
+
+  /**
+   * A fresh progress file, positioned at the start of the default course.
+   *
+   * This is the single definition of "no progress yet". {@link WorkspaceState}
+   * is seeded with it, so {@link loadProgress} only has to handle the case
+   * where a saved file *is* readable.
+   */
+  private defaultProgressData(
+    courses: Map<string, CatalogCourse>,
+  ): ProgressFileData {
+    const course = this.defaultCourse(courses);
+    return {
       version: 1,
       position: {
         courseId: course?.id ?? "",
@@ -1842,11 +1867,6 @@ export class LearningService {
       completions: {},
       startedAt: new Date().toISOString(),
     };
-  }
-
-  /** The default course for a workspace (built-in katas, else the first loaded). */
-  private defaultCourseOf(ws: WorkspaceState): CatalogCourse | undefined {
-    return ws.courses.get(KATAS_COURSE_ID) ?? ws.courses.values().next().value;
   }
 
   private async saveProgress(): Promise<void> {
