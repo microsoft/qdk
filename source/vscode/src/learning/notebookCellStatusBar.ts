@@ -64,8 +64,7 @@ class LearningCellStatusBarProvider
     }
 
     // Only show the hint button for cells that are exercises.
-    const exerciseCellIds = service.getExerciseCellIds();
-    if (!exerciseCellIds.has(cellId)) {
+    if (!service.isExerciseCellId(cellId)) {
       return [];
     }
 

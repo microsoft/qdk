@@ -553,24 +553,17 @@ export class LearningService {
     };
   }
 
-  // TODO (acasey): isExerciseCellId
   /**
-   * Returns the set of cell IDs that correspond to exercises in the
-   * current unit. Empty if the course isn't a python-notebook course or
-   * there are no exercises.
+   * Returns `true` if the given cell ID corresponds to an exercise in the
+   * current unit. Always `false` if the course isn't a python-notebook
+   * course or there are no exercises.
    */
-  getExerciseCellIds(): Set<string> {
+  isExerciseCellId(cellId: string): boolean {
     if (this.activeCourse.kind !== "python-notebook") {
-      return new Set();
+      return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    const ids = new Set<string>();
-    if (unit.notebookExercises) {
-      for (const ex of unit.notebookExercises) {
-        ids.add(ex.cellId);
-      }
-    }
-    return ids;
+    return unit.notebookExercises?.some((ex) => ex.cellId === cellId) ?? false;
   }
 
   /**

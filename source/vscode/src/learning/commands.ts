@@ -253,7 +253,7 @@ export function registerLearningCommands(
         // The button is offered on every cell, so the cell may not be an
         // exercise. Only move the service's position when it is one.
         const cellId = resolveCellId(arg);
-        if (cellId && service.getExerciseCellIds().has(cellId)) {
+        if (cellId && service.isExerciseCellId(cellId)) {
           await service.goToExerciseByCellId(cellId, "notebook");
         }
 
