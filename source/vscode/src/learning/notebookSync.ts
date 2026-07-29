@@ -41,7 +41,7 @@ async function syncActiveNotebook(
     // Detect-only — never `createIfMissing`. A `*.workbook.ipynb` is
     // generated during initialization, so its presence normally implies a
     // learning workspace already exists. When it doesn't, the learner
-    // hasn't started yet and merely opening a notebook must not scaffold
+    // hasn't started yet and merely opening a notebook must not materialize
     // one behind their back.
     if (await service.tryInitialize()) {
       await service.syncToWorkbook(editor.notebook.uri);

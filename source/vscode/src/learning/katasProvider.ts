@@ -2,21 +2,26 @@
 // Licensed under the MIT License.
 
 import { getAllKatas } from "qsharp-lang/katas-md";
-import * as vscode from "vscode";
 import { KATAS_COURSE_ID } from "./constants.js";
-import { CourseRegistry, KatasProvider } from "./courseProvider.js";
-import { DropInCourseProvider } from "./dropInCourseProvider.js";
+import type { CourseProvider } from "./courseProvider.js";
 import type {
-  CatalogUnit,
-  CatalogCourse,
   CatalogActivity,
+  CatalogCourse,
   CatalogExercise,
+  CatalogUnit,
 } from "./types.js";
 
-/**
- * Load the built-in Quantum Katas as a single `CatalogCourse`.
- */
-export async function loadKatasCourse(): Promise<CatalogCourse> {
+/** Provider for the built-in Quantum Katas course. */
+export class KatasProvider implements CourseProvider {
+  readonly id = "katas-provider";
+
+  async listCourses(): Promise<CatalogCourse[]> {
+    return [await loadKatasCourse()];
+  }
+}
+
+/** Load the built-in Quantum Katas as a single {@link CatalogCourse}. */
+async function loadKatasCourse(): Promise<CatalogCourse> {
   const raw = await getAllKatas();
   const units: CatalogUnit[] = raw.map((kata) => ({
     id: kata.id,
@@ -83,21 +88,12 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
     }),
   }));
 
-  return { id: KATAS_COURSE_ID, title: "Quantum Katas", kind: "qsharp", units };
-}
-
-/**
- * Create the {@link CourseRegistry} with all available course providers.
- *
- * Registers the built-in Quantum Katas provider plus a
- * {@link DropInCourseProvider} that discovers courses authored on disk
- * (under `qdk-learning/courses/*`).
- */
-export function createCourseRegistry(
-  workspaceRoot: vscode.Uri,
-): CourseRegistry {
-  return new CourseRegistry([
-    new KatasProvider(),
-    new DropInCourseProvider(workspaceRoot),
-  ]);
+  return {
+    id: KATAS_COURSE_ID,
+    title: "Quantum Katas",
+    shortDescription:
+      "Hands-on quantum computing tutorials and exercises in Q#.",
+    kind: "qsharp",
+    units,
+  };
 }

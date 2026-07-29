@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// TODO (acasey): consider merging into catalog.ts
-
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import {
@@ -20,7 +18,6 @@ import type {
   CatalogCourse,
   CatalogExercise,
   CatalogUnit,
-  CourseDescriptor,
   CourseEnvironment,
   NotebookExerciseInfo,
 } from "./types.js";
@@ -66,34 +63,24 @@ export class DropInCourseProvider implements CourseProvider {
 
   constructor(private readonly workspaceRoot: vscode.Uri) {}
 
-  async listCourses(): Promise<CourseDescriptor[]> {
-    const locations = await this.discover();
+  async listCourses(): Promise<CatalogCourse[]> {
+    const courses: CatalogCourse[] = [];
     const seen = new Set<string>();
-    const descriptors: CourseDescriptor[] = [];
-    for (const loc of locations) {
-      const descriptor = await this.toDescriptor(loc);
-      if (!descriptor || seen.has(descriptor.id)) {
-        if (descriptor && seen.has(descriptor.id)) {
-          log.warn(
-            `Duplicate drop-in course id "${descriptor.id}" ignored at ${loc.dir.toString()}`,
-          );
-        }
+    for (const loc of await this.discover()) {
+      const course = await this.parseCourse(loc);
+      if (!course) {
         continue;
       }
-      seen.add(descriptor.id);
-      descriptors.push(descriptor);
-    }
-    return descriptors;
-  }
-
-  async loadCourse(id: string): Promise<CatalogCourse | undefined> {
-    const locations = await this.discover();
-    for (const loc of locations) {
-      if (manifestString(loc.manifest.id) === id) {
-        return this.parseCourse(loc);
+      if (seen.has(course.id)) {
+        log.warn(
+          `Duplicate drop-in course id "${course.id}" ignored at ${loc.dir.toString()}`,
+        );
+        continue;
       }
+      seen.add(course.id);
+      courses.push(course);
     }
-    return undefined;
+    return courses;
   }
 
   // ─── Discovery ───
@@ -153,28 +140,6 @@ export class DropInCourseProvider implements CourseProvider {
 
   // ─── Parsing ───
 
-  private async toDescriptor(
-    loc: CourseLocation,
-  ): Promise<CourseDescriptor | undefined> {
-    const id = manifestString(loc.manifest.id);
-    const title = manifestString(loc.manifest.title);
-    if (id === undefined || title === undefined) {
-      return undefined;
-    }
-    const descriptor: CourseDescriptor = {
-      id,
-      title,
-      kind: "python-notebook",
-      shortDescription: manifestString(loc.manifest.shortDescription),
-      environment: manifestEnvironment(loc.manifest.environment),
-    };
-    const readmeUri = vscode.Uri.joinPath(loc.dir, COURSE_README_FILE);
-    if (await uriExists(readmeUri)) {
-      descriptor.readmePath = readmeUri.toString();
-    }
-    return descriptor;
-  }
-
   private async parseCourse(
     loc: CourseLocation,
   ): Promise<CatalogCourse | undefined> {
@@ -193,7 +158,7 @@ export class DropInCourseProvider implements CourseProvider {
         );
         continue;
       }
-      const { activities, notebookExercises, notebookRel } =
+      const { activities, notebookExercises, sourceNotebookRel } =
         await this.parseNotebookUnit(unitDir, manifestUnit);
       if (activities.length === 0) {
         log.warn(
@@ -205,16 +170,23 @@ export class DropInCourseProvider implements CourseProvider {
         title: manifestUnit.title,
         activities,
         notebookExercises,
-        notebookRel,
+        sourceNotebookRel,
       });
     }
+
+    const readmeUri = vscode.Uri.joinPath(loc.dir, COURSE_README_FILE);
+    const readmePath = (await uriExists(readmeUri))
+      ? readmeUri.toString()
+      : undefined;
 
     return {
       id,
       title,
+      shortDescription: manifestString(loc.manifest.shortDescription),
       kind: "python-notebook",
       units,
       sourceDir: loc.dir.toString(),
+      readmePath,
       environment: manifestEnvironment(loc.manifest.environment),
     };
   }
@@ -234,7 +206,7 @@ export class DropInCourseProvider implements CourseProvider {
   ): Promise<{
     activities: CatalogActivity[];
     notebookExercises?: NotebookExerciseInfo[];
-    notebookRel?: string;
+    sourceNotebookRel?: string;
   }> {
     // Find the source notebook file in the unit dir. Materialized working
     // copies (`*.workbook.ipynb`) sit beside the source and must be ignored
@@ -266,7 +238,7 @@ export class DropInCourseProvider implements CourseProvider {
         break;
     }
 
-    const notebookRel = `${unit.dir}/${notebookEntry.name}`;
+    const sourceNotebookRel = `${unit.dir}/${notebookEntry.name}`;
 
     const activities: CatalogActivity[] = [];
 
@@ -297,7 +269,7 @@ export class DropInCourseProvider implements CourseProvider {
       }
     }
 
-    return { activities, notebookExercises, notebookRel };
+    return { activities, notebookExercises, sourceNotebookRel };
   }
 }
 

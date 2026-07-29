@@ -295,15 +295,23 @@ export interface CatalogUnit {
    * Path (relative to the course source dir) of the notebook for this
    * unit. Set for python-notebook courses.
    */
-  notebookRel?: string;
+  sourceNotebookRel?: string;
 }
 
 /** The execution model for a course's activities. */
 export type CourseKind = "qsharp" | "python-notebook";
 
+/**
+ * The complete in-memory model of a loaded course: every unit, activity,
+ * hint and solution. Held by the service for the courses it knows about.
+ *
+ * Being loaded says nothing about whether the course's learner-editable
+ * files exist on disk; see `materializeCourseWorkbooks`.
+ */
 export interface CatalogCourse {
   id: string;
   title: string;
+  shortDescription?: string;
   /** Execution model for this course. Defaults to `"qsharp"`. */
   kind: CourseKind;
   units: CatalogUnit[];
@@ -312,14 +320,18 @@ export interface CatalogCourse {
    * only). Used to locate notebooks and other assets for materialization.
    */
   sourceDir?: string; // TODO (acasey): vscode.Uri?
+  /** Optional path (URI string) to a README rendered for "Course info". */
+  readmePath?: string;
   /** Environment requirements (python-notebook courses). */
   environment?: CourseEnvironment;
 }
 
 /**
- * Lightweight metadata describing a course that can be loaded by the
- * {@link CourseRegistry}. Used to populate course pickers and the tree
- * view without forcing a full course load.
+ * A flat summary of a course, used at UI and serialization boundaries — tree
+ * rows, the course quick pick, and chat tool payloads — where the unit
+ * contents are irrelevant and shouldn't be serialized.
+ *
+ * Derived from a {@link CatalogCourse} via `toDescriptor`.
  */
 export interface CourseDescriptor {
   id: string;

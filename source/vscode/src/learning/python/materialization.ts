@@ -3,29 +3,14 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
-import { WORKBOOK_SUFFIX } from "../constants.js";
+import {
+  notebookUnits,
+  sourceNotebookUri,
+  workbookUri,
+} from "../courseLayout.js";
 import { ensureParentDir, uriExists } from "../fsUtils.js";
 import { stripAuthoringCells } from "../notebookExercises.js";
 import type { CatalogCourse } from "../types.js";
-
-/**
- * Working-copy URI of a unit's notebook: a `*.workbook.ipynb` file that
- * sits beside the authored source notebook in the same unit folder.
- *
- * Keeping the working copy as a sibling means the learner's notebook
- * resolves the same relative imports (`_course_lib.py`, `_unit.py`, etc.) as the
- * source.
- */
-export function workbookFileUri(
-  course: CatalogCourse,
-  notebookRel: string,
-): vscode.Uri {
-  if (!course.sourceDir) {
-    throw new Error(`Course "${course.id}" has no source folder.`);
-  }
-  const sourceRoot = vscode.Uri.parse(course.sourceDir);
-  return vscode.Uri.joinPath(sourceRoot, toWorkbookRel(notebookRel));
-}
 
 /**
  * Materialize the working copy for every unit in the course: derive each
@@ -35,27 +20,12 @@ export function workbookFileUri(
 export async function materializeCourseWorkbooks(
   course: CatalogCourse,
 ): Promise<void> {
-  if (!course.sourceDir) {
-    throw new Error(`Course "${course.id}" has no source folder.`);
-  }
-  const sourceRoot = vscode.Uri.parse(course.sourceDir);
-
-  for (const unit of course.units) {
-    if (!unit.notebookRel) {
-      continue;
-    }
-    const dest = vscode.Uri.joinPath(
-      sourceRoot,
-      toWorkbookRel(unit.notebookRel),
-    );
+  for (const unit of notebookUnits(course)) {
+    const dest = workbookUri(course, unit);
     if (await uriExists(dest)) {
       continue;
     }
-    await materializeNotebook(
-      vscode.Uri.joinPath(sourceRoot, unit.notebookRel),
-      dest,
-      unit.id,
-    );
+    await materializeNotebook(sourceNotebookUri(course, unit), dest, unit.id);
   }
 }
 
@@ -67,18 +37,13 @@ export async function rematerializeUnitWorkbook(
   course: CatalogCourse,
   unitId: string,
 ): Promise<void> {
-  if (!course.sourceDir) {
-    throw new Error(`Course "${course.id}" has no source folder.`);
-  }
   const unit = course.units.find((u) => u.id === unitId);
-  if (!unit?.notebookRel) {
+  if (!unit) {
     throw new Error(`Unit "${unitId}" not found in course "${course.id}".`);
   }
-
-  const sourceRoot = vscode.Uri.parse(course.sourceDir);
   await materializeNotebook(
-    vscode.Uri.joinPath(sourceRoot, unit.notebookRel),
-    vscode.Uri.joinPath(sourceRoot, toWorkbookRel(unit.notebookRel)),
+    sourceNotebookUri(course, unit),
+    workbookUri(course, unit),
     unit.id,
   );
 }
@@ -115,13 +80,4 @@ async function materializeNotebook(
       `Failed to materialize ${src.fsPath} → ${dest.fsPath}: ${String(e)}`,
     );
   }
-}
-
-/**
- * Map a source notebook's relative path to its working-copy sibling by
- * swapping the `.ipynb` extension for `.workbook.ipynb`
- * (e.g. `01-intro/intro.ipynb` → `01-intro/intro.workbook.ipynb`).
- */
-function toWorkbookRel(notebookRel: string): string {
-  return notebookRel.replace(/\.ipynb$/i, WORKBOOK_SUFFIX);
 }

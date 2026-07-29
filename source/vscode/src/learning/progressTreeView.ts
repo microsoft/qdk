@@ -181,7 +181,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       }
       let descriptors: CourseDescriptor[];
       try {
-        descriptors = await this.service.getCourses();
+        descriptors = this.service.getCourses();
       } catch {
         return [];
       }
@@ -194,7 +194,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
           progress = this.snapshot;
         } else {
           try {
-            progress = await this.service.getCourseProgress(descriptor.id);
+            progress = this.service.getCourseProgress(descriptor.id);
           } catch {
             progress = undefined;
           }

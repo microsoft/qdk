@@ -446,7 +446,7 @@ async function resolveCourseId(
       return undefined;
     }
   }
-  const courses = await service.getCourses();
+  const courses = service.getCourses();
   if (courses.length === 0) {
     return undefined;
   }
@@ -468,7 +468,7 @@ async function showCourseInfo(
   service: LearningService,
   courseId: string,
 ): Promise<void> {
-  const courses = await service.getCourses();
+  const courses = service.getCourses();
   const descriptor = courses.find((c) => c.id === courseId);
   if (!descriptor) {
     log.warn(`Unable to show course info for unknown course ${courseId}`);

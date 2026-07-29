@@ -1,105 +1,98 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// TODO (acasey): consider merging into catalog.ts
-// A course catalog, a course registry, and a course provider seem
-// semantically very similar.  We might not need three distinct types.
-
-import { loadKatasCourse } from "./catalog.js";
-import { KATAS_COURSE_ID } from "./constants.js";
+import { log } from "qsharp-lang";
+import * as vscode from "vscode";
+import { DropInCourseProvider } from "./dropInCourseProvider.js";
+import { KatasProvider } from "./katasProvider.js";
 import type { CatalogCourse, CourseDescriptor } from "./types.js";
 
 /**
- * A source of learning courses. Implementations know how to enumerate the
- * courses they provide and how to fully load a course by id.
+ * A source of learning courses. Implementations know how to find the courses
+ * they provide and parse them into memory.
  *
- * Loading is intentionally split from enumeration so the UI can list
- * available courses cheaply without materializing every course.
+ * Loading a course only reads and parses it. Creating the learner's editable
+ * files is a separate step — see `materializeCourseWorkbooks`.
  */
 export interface CourseProvider {
   /** Stable identifier for this provider (for diagnostics/telemetry). */
   readonly id: string;
-  /** Enumerate the descriptors for all courses this provider offers. */
-  listCourses(): Promise<CourseDescriptor[]>;
-  /** Fully load a course by id. Returns `undefined` if not provided here. */
-  loadCourse(id: string): Promise<CatalogCourse | undefined>;
+  /** Find and parse every course this provider offers. */
+  listCourses(): Promise<CatalogCourse[]>;
 }
 
 /**
- * Aggregates multiple {@link CourseProvider}s into a single catalog of
- * courses. The registry is the single entry point the service uses to
- * discover and load courses regardless of where they come from.
+ * Aggregates multiple {@link CourseProvider}s so the service has a single
+ * place to ask for courses regardless of where they come from.
  */
-export class CourseRegistry {
+export class CompositeCourseProvider implements CourseProvider {
+  readonly id = "composite-provider";
+
   constructor(private readonly providers: CourseProvider[]) {}
 
-  /** Enumerate descriptors across all providers, in provider order. */
-  async listCourses(): Promise<CourseDescriptor[]> {
-    const all: CourseDescriptor[] = [];
-    const seen = new Set<string>();
+  /**
+   * Parse the courses from every provider, in provider order. When two
+   * providers offer the same course id, the earlier provider wins.
+   */
+  async listCourses(): Promise<CatalogCourse[]> {
+    const all: CatalogCourse[] = [];
+    // Course id -> id of the provider that claimed it.
+    const claimedBy = new Map<string, string>();
+
     for (const provider of this.providers) {
-      let descriptors: CourseDescriptor[];
+      let courses: CatalogCourse[];
       try {
-        descriptors = await provider.listCourses();
-      } catch {
+        courses = await provider.listCourses();
+      } catch (e) {
         // A misbehaving provider should not break the whole catalog.
+        log.warn(
+          `Course provider "${provider.id}" failed to list courses: ${String(e)}`,
+        );
         continue;
       }
-      for (const descriptor of descriptors) {
-        // TODO (acasey): what is this guarding against?
-        // Multiple providers offering the same course?
-        // One provider offering multiple courses with the same ID?
-        if (seen.has(descriptor.id)) {
+
+      for (const course of courses) {
+        const winner = claimedBy.get(course.id);
+        if (winner !== undefined) {
+          const from = course.sourceDir
+            ? ` at ${vscode.Uri.parse(course.sourceDir).fsPath}`
+            : "";
+          log.warn(
+            `Ignoring course "${course.id}" from "${provider.id}"${from}: ` +
+              `that id is already provided by "${winner}".`,
+          );
           continue;
         }
-        seen.add(descriptor.id);
-        all.push(descriptor);
+        claimedBy.set(course.id, provider.id);
+        all.push(course);
       }
     }
     return all;
   }
-
-  /** Look up a single descriptor by id, or `undefined` if not found. */
-  async getDescriptor(id: string): Promise<CourseDescriptor | undefined> {
-    const all = await this.listCourses();
-    return all.find((d) => d.id === id);
-  }
-
-  /**
-   * Fully load a course by id. Tries each provider in order and returns
-   * the first match. Throws if no provider can load the course.
-   */
-  async loadCourse(id: string): Promise<CatalogCourse> {
-    for (const provider of this.providers) {
-      const course = await provider.loadCourse(id);
-      if (course) {
-        return course;
-      }
-    }
-    throw new Error(`No provider could load course "${id}".`);
-  }
 }
 
-/** Provider for the built-in Quantum Katas course. */
-export class KatasProvider implements CourseProvider {
-  readonly id = "katas-provider";
+/**
+ * Create the {@link CompositeCourseProvider} with every available source of
+ * courses: the built-in Quantum Katas plus any courses authored on disk
+ * under `qdk-learning/courses/*`.
+ */
+export function createCourseProvider(
+  workspaceRoot: vscode.Uri,
+): CompositeCourseProvider {
+  return new CompositeCourseProvider([
+    new KatasProvider(),
+    new DropInCourseProvider(workspaceRoot),
+  ]);
+}
 
-  async listCourses(): Promise<CourseDescriptor[]> {
-    return [
-      {
-        id: KATAS_COURSE_ID,
-        title: "Quantum Katas",
-        shortDescription:
-          "Hands-on quantum computing tutorials and exercises in Q#.",
-        kind: "qsharp",
-      },
-    ];
-  }
-
-  async loadCourse(id: string): Promise<CatalogCourse | undefined> {
-    if (id !== KATAS_COURSE_ID) {
-      return undefined;
-    }
-    return await loadKatasCourse();
-  }
+/** Project a loaded course down to the summary used by UI surfaces. */
+export function toDescriptor(course: CatalogCourse): CourseDescriptor {
+  return {
+    id: course.id,
+    title: course.title,
+    shortDescription: course.shortDescription,
+    kind: course.kind,
+    readmePath: course.readmePath,
+    environment: course.environment,
+  };
 }

@@ -7,8 +7,8 @@ import * as vscode from "vscode";
 import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
 import { ProgramRunStatus, runProgram } from "../run.js";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
-import { createCourseRegistry } from "./catalog.js";
-import { CourseRegistry } from "./courseProvider.js";
+import { createCourseProvider, toDescriptor } from "./courseProvider.js";
+import { courseRootUri, workbookUri } from "./courseLayout.js";
 import { EnvironmentManager } from "./python/environment.js";
 import {
   checkPythonExtensions,
@@ -17,7 +17,6 @@ import {
 import {
   materializeCourseWorkbooks,
   rematerializeUnitWorkbook,
-  workbookFileUri,
 } from "./python/materialization.js";
 import {
   KATAS_COURSE_ID,
@@ -136,10 +135,8 @@ interface LearningWorkspaceInfo {
 
 /** All state that exists only while a learning workspace is loaded. */
 interface WorkspaceState extends LearningWorkspaceInfo {
-  /** Loaded courses, keyed by course id. May contain more than one. */
+  /** Every course found at load time, keyed by course id. */
   courses: Map<string, CatalogCourse>;
-  /** Registry used to enumerate and lazily load additional courses. */
-  registry: CourseRegistry;
   progressData: ProgressFileData;
 }
 
@@ -236,7 +233,7 @@ export class LearningService {
       }
 
       // Let the weaker attempt finish rather than starting a second one
-      // alongside it, which would scaffold the same files twice. Then loop:
+      // alongside it, which would materialize the same files twice. Then loop:
       // by that point it may have found a workspace, or another caller may
       // have started a creating attempt worth joining. Re-evaluating is what
       // keeps concurrent callers from each launching their own attempt.
@@ -516,10 +513,10 @@ export class LearningService {
         continue;
       }
       for (const unit of course.units) {
-        if (!unit.notebookRel) {
+        if (!unit.sourceNotebookRel) {
           continue;
         }
-        const workbook = workbookFileUri(course, unit.notebookRel);
+        const workbook = workbookUri(course, unit);
         if (workbook.toString() === target) {
           return { course, unit };
         }
@@ -579,9 +576,9 @@ export class LearningService {
     return unit.notebookExercises?.find((e) => e.id === activity.id)?.cellId;
   }
 
-  /** Enumerate all available courses (loaded or not). */
-  async getCourses(): Promise<CourseDescriptor[]> {
-    return this.requireWorkspace().registry.listCourses();
+  /** Enumerate all available courses. */
+  getCourses(): CourseDescriptor[] {
+    return [...this.requireWorkspace().courses.values()].map(toDescriptor);
   }
 
   /** The id of the currently-active course. */
@@ -616,7 +613,7 @@ export class LearningService {
     if (!course.sourceDir) {
       return;
     }
-    const courseRoot = vscode.Uri.parse(course.sourceDir);
+    const courseRoot = courseRootUri(course);
     if (!options?.force && (await env.environmentExists(courseRoot))) {
       return;
     }
@@ -692,7 +689,7 @@ export class LearningService {
         }),
       ]);
     }
-    const courseRoot = vscode.Uri.parse(course.sourceDir);
+    const courseRoot = courseRootUri(course);
 
     const checks: EnvironmentCheckItem[] = [];
 
@@ -817,23 +814,21 @@ export class LearningService {
   }
 
   /**
-   * Switch the active course. Lazily loads the course (and scaffolds its
-   * files) if it isn't loaded yet, moves the position to the first
-   * incomplete activity, persists, and fires change events.
+   * Switch the active course, creating its learner-editable files if they
+   * don't exist yet, then move the position to the first incomplete
+   * activity, persist, and fire change events.
    */
   async switchCourse(
     courseId: string,
     source?: TelemetrySource,
   ): Promise<LearningState> {
     const ws = this.requireWorkspace();
-    let course = ws.courses.get(courseId);
-    if (!course) {
-      course = await ws.registry.loadCourse(courseId);
-      ws.courses.set(course.id, course);
-      await this.materializeCourse(ws, course);
-      // TODO (acasey): if scaffolding fails, you basically have to reload the window.
-      // That's probably fine, but confirm.
-    }
+    const course = this.requireCourse(ws, courseId);
+    // Idempotent: existing workbooks are left alone, so this only writes
+    // files the first time the learner opens the course.
+    // TODO (acasey): if materializing fails, you basically have to reload the
+    // window. That's probably fine, but confirm.
+    await this.materializeCourse(ws, course);
     if (course.kind === "python-notebook") {
       // Need to await extension installation since environment setup depends
       // on the Python Environments extension
@@ -916,18 +911,13 @@ export class LearningService {
   }
 
   /**
-   * Compute progress for an arbitrary course, lazily loading it if needed.
-   * Does **not** change the active course or position. Used to populate
-   * per-course progress badges in the tree view.
+   * Compute progress for an arbitrary course. Does **not** change the active
+   * course or position. Used to populate per-course progress badges in the
+   * tree view.
    */
-  async getCourseProgress(courseId: string): Promise<OverallProgress> {
+  getCourseProgress(courseId: string): OverallProgress {
     const ws = this.requireWorkspace();
-    let course = ws.courses.get(courseId);
-    if (!course) {
-      course = await ws.registry.loadCourse(courseId);
-      ws.courses.set(course.id, course);
-    }
-    return this.computeProgress(course);
+    return this.computeProgress(this.requireCourse(ws, courseId));
   }
 
   private computeProgress(course: CatalogCourse): OverallProgress {
@@ -1054,8 +1044,8 @@ export class LearningService {
     // Python-notebook courses: the "code" is the notebook itself.
     if (this.activeCourse.kind === "python-notebook") {
       const { unit } = this.findCurrentActivity();
-      if (unit.notebookRel) {
-        return this.notebookFileUri(unit.notebookRel);
+      if (unit.sourceNotebookRel) {
+        return workbookUri(this.activeCourse, unit);
       }
       return undefined;
     }
@@ -1079,9 +1069,8 @@ export class LearningService {
     if (this.activeCourse.kind === "python-notebook") {
       const { unit } = this.findCurrentActivity();
       // Close any open notebook tabs for this unit.
-      if (unit.notebookRel) {
-        const notebookUri = this.notebookFileUri(unit.notebookRel);
-        await this.closeNotebookTab(notebookUri);
+      if (unit.sourceNotebookRel) {
+        await this.closeNotebookTab(workbookUri(this.activeCourse, unit));
       }
       // Re-materialize the unit from source.
       await rematerializeUnitWorkbook(this.activeCourse, unit.id);
@@ -1396,21 +1385,13 @@ export class LearningService {
   ): Promise<void> {
     const learningFile = vscode.Uri.joinPath(workspaceRoot, LEARNING_FILE);
 
-    const registry = createCourseRegistry(workspaceRoot);
+    const courseProvider = createCourseProvider(workspaceRoot);
 
-    // Eagerly load all available courses so that the saved position
-    // (which may reference a drop-in course) resolves correctly.
+    // Load every course up front so the tree view can show unit counts and
+    // progress badges, and so a saved position naming any course resolves.
     const courses = new Map<string, CatalogCourse>();
-    const descriptors = await registry.listCourses();
-    for (const descriptor of descriptors) {
-      try {
-        // TODO (acasey): parsing all courses seems fine, but we probably only want to materialize the active one
-        // TODO (acasey): this shouldn't redo discovery for each course
-        const course = await registry.loadCourse(descriptor.id);
-        courses.set(course.id, course);
-      } catch {
-        // Skip courses that fail to load.
-      }
+    for (const course of await courseProvider.listCourses()) {
+      courses.set(course.id, course);
     }
 
     // Build workspace state; assigned to this.workspace only after all
@@ -1420,22 +1401,28 @@ export class LearningService {
       learningContentRoot: katasRoot,
       learningFile,
       courses,
-      registry,
       progressData: this.defaultProgressData(courses),
     };
 
     await this.loadProgress(ws);
 
-    // Publish the workspace before scaffolding so that methods relying on
+    // Publish the workspace before materializing so that methods relying on
     // `requireWorkspace()` can resolve.
     this.workspace = ws;
     this.syncContextKey();
 
+    // Q# files are cheap to write, so materialize those courses up front.
+    // Notebook workbooks are only created for the course the learner is on;
+    // the rest wait until `switchCourse`.
+    const activeCourseId = ws.progressData.position.courseId;
     for (const course of courses.values()) {
+      if (course.kind !== "qsharp" && course.id !== activeCourseId) {
+        continue;
+      }
       try {
         await this.materializeCourse(ws, course);
       } catch {
-        // A failing scaffold should not block workspace initialization.
+        // A failure here should not block workspace initialization.
         log.warn(`Failed to materialize course ${course.title}`);
       }
     }
@@ -1655,11 +1642,6 @@ export class LearningService {
       type: "lesson-text",
       content: activity.content ?? "",
     } satisfies LessonTextContent;
-  }
-
-  /** Working-copy (`*.workbook.ipynb`) URI of a notebook for the active python-notebook course. */
-  private notebookFileUri(notebookRel: string): vscode.Uri {
-    return workbookFileUri(this.activeCourse, notebookRel);
   }
 
   private findCurrentActivity(): {
@@ -1977,9 +1959,9 @@ export class LearningService {
   }
 
   /**
-   * Materialize the editable files (exercise placeholders and example code)
-   * for a Q# course into the learning content folder. No-op for non-qsharp
-   * courses (those are scaffolded by their own runtime).
+   * Create the learner-editable files for a course: workbooks for
+   * python-notebook courses, exercise placeholders and example code for Q#
+   * courses. Existing files are left alone, so this is safe to re-run.
    */
   private async materializeCourse(
     ws: WorkspaceState,
