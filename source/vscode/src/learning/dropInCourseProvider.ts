@@ -368,7 +368,7 @@ async function readDirSafe(
 async function tryReadText(uri: vscode.Uri): Promise<string | undefined> {
   try {
     const bytes = await vscode.workspace.fs.readFile(uri);
-    return new TextDecoder().decode(bytes); // TODO (acasey): encoding?
+    return new TextDecoder().decode(bytes);
   } catch {
     return undefined;
   }

@@ -837,7 +837,7 @@ export class LearningService {
     if (!course) {
       course = await ws.registry.loadCourse(courseId);
       ws.courses.set(course.id, course);
-      await this.scaffoldCourse(ws, course);
+      await this.materializeCourse(ws, course);
       // TODO (acasey): if scaffolding fails, you basically have to reload the window.
       // That's probably fine, but confirm.
     }
@@ -1440,10 +1440,10 @@ export class LearningService {
 
     for (const course of courses.values()) {
       try {
-        await this.scaffoldCourse(ws, course);
+        await this.materializeCourse(ws, course);
       } catch {
         // A failing scaffold should not block workspace initialization.
-        // TODO (acasey): log
+        log.warn(`Failed to materialize course ${course.title}`);
       }
     }
   }
@@ -1988,7 +1988,7 @@ export class LearningService {
    * for a Q# course into the learning content folder. No-op for non-qsharp
    * courses (those are scaffolded by their own runtime).
    */
-  private async scaffoldCourse(
+  private async materializeCourse(
     ws: WorkspaceState,
     course: CatalogCourse,
   ): Promise<void> {

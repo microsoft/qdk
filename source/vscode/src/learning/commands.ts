@@ -157,7 +157,10 @@ export function registerLearningCommands(
         // otherwise pick up where the learner left off.
         if (service.getActiveCourseInfo().kind === "python-notebook") {
           if (service.getProgress().stats.completedActivities === 0) {
-            // TODO (acasey): close this once a notebook is open
+            // TODO (acasey): the readme serves as a sort of splash screen while things are set up.
+            // Ideally, we would close it once you navigate away.
+            // Alternatively, we could go back to using a panel, which would have the advantage of
+            // being able to include a "Get Started" button (even greyed out while not ready?).
             await showCourseInfo(service, courseId);
           } else {
             await openCourseNotebook(service);
@@ -493,7 +496,8 @@ async function runEnvironmentCheckCommand(
   service: LearningService,
   node?: LearningProgressNode,
 ): Promise<void> {
-  // TODO (acasey): don't allow overlapping runs
+  // TODO (acasey): don't allow overlapping runs.
+  // I think the user can click the button while it's already running from switch-course.
   if (!service.initialized) {
     const ok = await service.tryInitialize({ createIfMissing: true });
     if (!ok) {
@@ -541,7 +545,7 @@ async function runEnvironmentCheckCommand(
   ].join("\n");
 
   const actions = report.fixes.map((r) => r.label);
-  // TODO (acasey): this is ugly and unthemed - can we do better?
+  // TODO (acasey): this dialog is ugly and unthemed - can we do better?
   const choice = await vscode.window.showInformationMessage(
     body,
     { modal: true },
