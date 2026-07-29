@@ -319,9 +319,30 @@ function manifestUnits(value: unknown, dir: vscode.Uri): ManifestUnit[] {
       );
       continue;
     }
+    if (!isContainedRelativePath(unitDir)) {
+      log.warn(
+        `Ignoring unit "${id}" in course at ${dir.toString()}: "dir" must be a relative path inside the course folder.`,
+      );
+      continue;
+    }
     units.push({ id, title, dir: unitDir });
   }
   return units;
+}
+
+/**
+ * True when a manifest-supplied path stays inside the course folder.
+ *
+ * `dir` is the only path segment a course author controls, and it is joined
+ * onto the course root to locate notebooks that are later read and written.
+ * `Uri.joinPath` resolves `..`, so an unchecked value could escape the
+ * workspace entirely.
+ */
+function isContainedRelativePath(value: string): boolean {
+  if (/^[/\\]/.test(value) || /^[a-zA-Z]:/.test(value)) {
+    return false;
+  }
+  return !value.split(/[/\\]/).includes("..");
 }
 
 // ─── Filesystem helpers ───
