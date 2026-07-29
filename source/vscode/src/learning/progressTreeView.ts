@@ -100,7 +100,6 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
     }
 
     if (node.kind === "continue") {
-      // TODO (acasey): does this make sense for notebook courses?
       const item = new vscode.TreeItem(
         `Up next: ${node.activityTitle}`,
         vscode.TreeItemCollapsibleState.None,
@@ -213,7 +212,9 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       const children: LearningProgressNode[] = [];
 
       // The "Up next" shortcut targets the active course's saved position.
-      if (isActive) {
+      // Notebook courses don't have a meaningful per-activity position, so the
+      // shortcut is only shown for Q# courses.
+      if (isActive && descriptor.kind !== "python-notebook") {
         const { courseId, unitId, activityId } = progress.currentPosition;
         const unit = progress.units.find((u) => u.id === unitId);
         const activity = unit?.activities.find((a) => a.id === activityId);
