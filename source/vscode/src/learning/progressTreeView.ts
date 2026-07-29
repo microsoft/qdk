@@ -344,10 +344,7 @@ export type LearningProgressNode =
 // ─── Tree node icons ───
 
 const iconCourse = new vscode.ThemeIcon("mortar-board");
-const iconPython = new vscode.ThemeIcon(
-  "notebook",
-  new vscode.ThemeColor("charts.blue"),
-);
+const iconPython = new vscode.ThemeIcon("notebook");
 const iconContinue = new vscode.ThemeIcon(
   "sparkle",
   new vscode.ThemeColor("charts.blue"),
