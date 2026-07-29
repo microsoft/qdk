@@ -1595,6 +1595,9 @@ export class LearningService {
     if (activity.type === "exercise") {
       // Python-notebook exercises live in the notebook — show their
       // description as lesson text so the panel renders something useful.
+      // TODO (acasey): If we went back to using the lesson panel, we'd probably
+      // need to sanitize activity.description (course author-provided) before
+      // it gets rendered as HTML/markdown.
       if (this.activeCourse.kind === "python-notebook") {
         return {
           type: "lesson-text",
