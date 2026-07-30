@@ -32,8 +32,8 @@ import {
   setStatePanelLoading,
 } from "./stateViz.js";
 
-import { getCurrentCircuitModel } from "../events.js";
-import type { Circuit } from "../circuit.js";
+import { getCurrentCircuitModel } from "../editor/events.js";
+import type { Circuit } from "../data/circuit.js";
 import {
   computeAmpMapForCircuit,
   UnsupportedStateComputeError,

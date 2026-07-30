@@ -15,4 +15,4 @@ export {
   type PrepareStateVizOptions,
 } from "./stateVizPrep.js";
 
-export type { Circuit as CircuitModel } from "../../circuit.js";
+export type { Circuit as CircuitModel } from "../../data/circuit.js";

@@ -1,0 +1,929 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+import { GateRenderData, GateType } from "../gateRenderData.js";
+import {
+  minGateWidth,
+  gateHeight,
+  labelFontSize,
+  argsFontSize,
+  controlCircleRadius,
+  controlCircleOffset,
+  groupTopPadding,
+  labelPaddingX,
+  groupLabelPaddingY,
+  groupBottomPadding,
+} from "../constants.js";
+import {
+  createSvgElement,
+  group,
+  line,
+  circle,
+  controlDot,
+  box,
+  text,
+  arc,
+  dashedLine,
+  dashedBox,
+} from "./formatUtils.js";
+
+import { mathChars } from "../../utils.js";
+
+/**
+ * Given an array of operations render data, return the SVG representation.
+ *
+ * @param renderData 2D array of rendering data for gates.
+ * @param nestedDepth Depth of nested operations (used in classically controlled and grouped operations).
+ *
+ * @returns SVG representation of operations.
+ */
+const formatGates = (renderData: GateRenderData[][]): SVGElement => {
+  const formattedGates: SVGElement[] = renderData
+    .map((col) => col.map((renderData) => formatGate(renderData)))
+    .flat();
+  return group(formattedGates);
+};
+
+/**
+ * Takes in an operation's rendering data and formats it into SVG.
+ *
+ * @param renderData The rendering data of the gate.
+ *
+ * @returns SVG representation of gate.
+ */
+const formatGate = (renderData: GateRenderData): SVGElement => {
+  const { type, x, controlsY, targetsY, label, displayArgs, width } =
+    renderData;
+  switch (type) {
+    case GateType.Measure:
+      return _createGate([_measure(x, controlsY[0], controlsY)], renderData);
+    case GateType.Unitary: {
+      let bodyWidth = width;
+      let bodyX = x;
+      if (renderData.classicalControlIds != null) {
+        bodyWidth = width - controlCircleOffset;
+        bodyX = x + controlCircleOffset / 2;
+      }
+      const elems: SVGElement[] = [
+        _unitary(label, bodyX, targetsY as number[][], bodyWidth, displayArgs),
+      ];
+      // A classically-controlled Unitary can carry quantum controls
+      // mixed in alongside its classical refs. Render those as
+      // standard control dots+connectors on the column center,
+      // attached to the unitary body box's nearest edge — not as
+      // classical circles (that path is `_classicalControls`).
+      const quantumControlsY = _getQuantumControlYs(renderData);
+      if (quantumControlsY.length > 0) {
+        const flatTargets = (targetsY as number[][]).flat();
+        const bodyTopY = Math.min(...flatTargets) - gateHeight / 2;
+        const bodyBottomY = Math.max(...flatTargets) + gateHeight / 2;
+        elems.push(
+          ..._renderQuantumGroupControls(
+            quantumControlsY,
+            x,
+            bodyTopY,
+            bodyBottomY,
+          ),
+        );
+      }
+      return _createGate(elems, renderData);
+    }
+    case GateType.X:
+      return _createGate([_x(renderData)], renderData);
+    case GateType.Ket:
+      return _createGate([_ket(label, renderData)], renderData);
+    case GateType.Swap:
+      return controlsY.length > 0
+        ? _controlledGate(renderData)
+        : _createGate([_swap(renderData)], renderData);
+    case GateType.Cnot:
+    case GateType.ControlledUnitary:
+      return _controlledGate(renderData);
+    case GateType.Group:
+      return _groupedOperations(renderData);
+    default:
+      throw new Error(`ERROR: unknown gate (${label}) of type ${type}.`);
+  }
+};
+
+/**
+ * Groups SVG elements into a gate SVG group.
+ *
+ * @param svgElems - Array of SVG elements that make up the gate.
+ * @param renderData - Render data containing information about the gate, such as data attributes.
+ * @param nestedDepth - Depth of nested operation.
+ *
+ * @returns SVG representation of a gate.
+ */
+const _createGate = (
+  svgElems: SVGElement[],
+  renderData: GateRenderData,
+): SVGElement => {
+  const { dataAttributes } = renderData || {};
+  const expanded = renderData.isExpanded;
+  const attributes: { [attr: string]: string } = { class: "gate" };
+  Object.entries(dataAttributes || {}).forEach(
+    ([attr, val]) => (attributes[`data-${attr}`] = val),
+  );
+
+  const hasClassicalControls =
+    renderData.classicalControlIds != null && renderData.controlsY.length > 0;
+  const classicalControlElems: SVGElement[] = hasClassicalControls
+    ? _classicalControls(_gateBoundingBox(renderData).x, renderData)
+    : [];
+
+  // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
+  //
+  // Expanded groups contain clickable child gates, so the group itself should not be clickable.
+  // Collapsed groups are rendered as a single summary gate and can be clickable.
+  if (renderData.link && !(renderData.type === GateType.Group && expanded)) {
+    const linkElem = createLinkElement(
+      renderData.link.href,
+      renderData.link.title,
+    );
+
+    // Add the gate elements as children of the link.
+    // If this operation is classically controlled, keep the control circles
+    // outside the link so they remain independently interactive.
+    for (const e of svgElems) {
+      linkElem.appendChild(e);
+    }
+
+    svgElems = classicalControlElems.concat([linkElem]);
+  } else {
+    svgElems = classicalControlElems.concat(svgElems);
+  }
+
+  // Zoom button comes last so it's on top of the <a> element if both are present
+  // This allows clicking the zoom button without triggering the link
+  const zoomBtn: SVGElement | null = _zoomButton(renderData);
+  if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
+
+  const gate = group(svgElems, attributes);
+  if (hasClassicalControls) {
+    gate.classList.add("classically-controlled-group");
+  }
+
+  return gate;
+};
+
+/**
+ * Returns the expand/collapse button for an operation if it can be zoomed-in or zoomed-out,
+ * respectively. If neither are allowed, return `null`.
+ *
+ * @param renderData Operation render data.
+ * @param nestedDepth Depth of nested operation.
+ *
+ * @returns SVG element for expand/collapse button if needed, or null otherwise.
+ */
+const _zoomButton = (renderData: GateRenderData): SVGElement | null => {
+  if (renderData == undefined) return null;
+
+  const { x: gateBoundingBoxX, y: gateBoundingBoxY } =
+    _gateBoundingBox(renderData);
+  const expanded = renderData.isExpanded;
+
+  // If this operation has classical controls, the overall gate bounding box includes
+  // extra space on the left for the control circles. The expand/collapse button should
+  // align with the left edge of the gate *body* (dashed box / unitary box), not the
+  // outermost bounding box.
+  const hasClassicalControls =
+    renderData.classicalControlIds != null && renderData.controlsY.length > 0;
+
+  const x =
+    gateBoundingBoxX + 2 + (hasClassicalControls ? controlCircleOffset : 0);
+  const y = gateBoundingBoxY + 2;
+  const circleBorder: SVGElement = circle(x, y, 10);
+
+  if (expanded) {
+    // Create collapse button if expanded
+    const minusSign: SVGElement = createSvgElement("path", {
+      d: `M${x - 7},${y} h14`,
+    });
+    const elements: SVGElement[] = [circleBorder, minusSign];
+    return group(elements, { class: "gate-control gate-collapse" });
+  } else if (renderData.type === GateType.Group) {
+    // Create expand button if operation is a composite/group gate
+    const plusSign: SVGElement = createSvgElement("path", {
+      d: `M${x},${y - 7} v14 M${x - 7},${y} h14`,
+    });
+    const elements: SVGElement[] = [circleBorder, plusSign];
+    return group(elements, { class: "gate-control gate-expand" });
+  }
+
+  return null;
+};
+
+/**
+ * Calculate the bounding box for a given operation, which
+ * may itself be a group of operations.
+ *
+ * @param renderData Operation render data.
+ *
+ * @returns Bounding box of the gate, including any control dots and circles.
+ */
+const _gateBoundingBox = (
+  renderData: GateRenderData,
+): { x: number; y: number; width: number; height: number } => {
+  const {
+    x: centerX,
+    width,
+    targetsY,
+    controlsY,
+    topPadding,
+    bottomPadding,
+  } = renderData;
+
+  const x = centerX - width / 2;
+
+  // If we are rendering a classically controlled group, we want the bounding box to go around
+  // the targets AND controls. This is because the classical control circle is rendered next
+  // to the dashed box, and needs to touch the box, like so:
+  //          ┌╌╌╌╌╌┐
+  //          ╎ ┌─┐ ╎
+  // ─────────┼─│X│─┼─
+  //          ╎ └─┘ ╎
+  //  ┌─┐     ╎ ┌─┐ ╎
+  // ─│M│─────┼─│Y│─┼─
+  //  └╥┘ ╭─╮ ╎ └─┘ ╎
+  //   ╚══╡ ╞═╪═════╪═
+  //      │c│┄╎     ╎
+  //      ╰─╯ └╌╌╌╌╌┘
+  const ys = targetsY.flatMap((y) => y as number[]).concat(controlsY);
+
+  const maxY = Math.max(...ys);
+  const minY = Math.min(...ys);
+
+  // Here, we want to expand the bounding box to include the whole dashed
+  // box around the group, which will be sized according to the nested depth.
+  //
+  // Example of a grouped operation:
+  //
+  // y ->            ┌╌╌╌╌╌╌╌┐
+  //                 ╎┌╌╌╌╌╌┐╎
+  //                 ╎╎     ╎╎
+  //                 ╎╎ ┌─┐ ╎╎
+  // minY ->      ───┼┼─│ │─┼┼──
+  //                 ╎╎ │X│ ╎╎
+  // maxY ->      ───┼┼─│ │─┼┼──
+  //                 ╎╎ └╥┘ ╎╎
+  //                 ╎╎  ╚══╪╪══
+  //                 ╎╎     ╎╎
+  //                 ╎└╌╌╌╌╌┘╎
+  // y + height ->   └╌╌╌╌╌╌╌┘
+  //
+  const y = minY - gateHeight / 2 - topPadding;
+  const height = maxY - minY + gateHeight + bottomPadding + topPadding;
+
+  return { x, y, width, height };
+};
+
+/**
+ * Creates a measurement gate at position (x, y).
+ *
+ * @param x  x coord of measurement gate.
+ * @param y  y coord of measurement gate.
+ * @param wireYs y coords of wires connected to the measurement gate.
+ *
+ * @returns SVG representation of measurement gate.
+ */
+const _measure = (x: number, y: number, wireYs: number[]): SVGElement => {
+  x -= minGateWidth / 2;
+  const width: number = minGateWidth,
+    height = gateHeight;
+  // Draw measurement box
+  const mBox: SVGElement = box(
+    x,
+    y - height / 2,
+    width,
+    height,
+    "gate-measure",
+  );
+  const mArc: SVGElement = arc(x + 5, y + 2, width / 2 - 5, height / 2 - 8);
+  mArc.style.pointerEvents = "none";
+  const meter: SVGElement = line(
+    x + width / 2,
+    y + 8,
+    x + width - 8,
+    y - height / 2 + 8,
+    "qs-line-measure",
+  );
+  meter.style.pointerEvents = "none";
+  mBox.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  mBox.setAttribute("data-width", `${width}`);
+  return group([mBox, mArc, meter]);
+};
+
+const use_katex = true;
+
+function createLinkElement(href: string, title: string) {
+  const linkElem = createSvgElement("a", {
+    href: href,
+    class: "qs-circuit-source-link",
+  });
+
+  // Add title as a child <title> element for accessibility and hover tooltip
+  const titleElem = createSvgElement("title");
+  titleElem.textContent = title;
+  linkElem.appendChild(titleElem);
+  return linkElem;
+}
+
+function _style_gate_text(gate: SVGTextElement) {
+  if (!use_katex) return;
+  let label = gate.textContent || "";
+
+  // In general, use the regular math font
+  gate.classList.add("qs-maintext");
+
+  // Wrap any latin or greek letters in tspan with KaTeX_Math font
+  // Style the entire Greek + Coptic block (https://unicodeplus.com/block/0370)
+  // Note this deliberately leaves ASCII digits [0-9] non-italic
+  const italicChars = /[a-zA-Z\u{0370}-\u{03ff}]+/gu;
+
+  label = label.replace(italicChars, `<tspan class='qs-mathtext'>$&</tspan>`);
+
+  // Subscript any `_0`, `_1`, etc. in the label
+  label = label.replace(
+    /_(\d+)/g,
+    `<tspan baseline-shift="sub" font-size="65%">$1</tspan>`,
+  );
+
+  // Replace a trailing ' with the proper unicode dagger symbol
+  label = label.replace(
+    /'$/,
+    `<tspan dx="2" dy="-3" style="font-size: 0.8em;">${mathChars.dagger}</tspan>`,
+  );
+
+  gate.innerHTML = label;
+}
+
+/**
+ * Creates the SVG for a unitary gate on an arbitrary number of qubits.
+ *
+ * @param label            Gate label.
+ * @param x                x coord of gate.
+ * @param y                Array of y coords of registers acted upon by gate.
+ * @param width            Width of gate.
+ * @param displayArgs           Arguments passed in to gate.
+ * @param params  Non-Qubit required parameters for the unitary gate.
+ * @param renderDashedLine If true, draw dashed lines between non-adjacent unitaries.
+ * @param cssClass         Optional CSS class to apply to the unitary gate for styling.
+ *
+ * @returns SVG representation of unitary gate.
+ */
+const _unitary = (
+  label: string,
+  x: number,
+  y: number[][],
+  width: number,
+  displayArgs?: string,
+  renderDashedLine = true,
+  cssClass?: string,
+): SVGElement => {
+  if (y.length === 0)
+    throw new Error(
+      `Failed to render unitary gate (${label}): has no y-values`,
+    );
+
+  // Render each group as a separate unitary boxes
+  const unitaryBoxes: SVGElement[] = y.map((wireYs: number[]) => {
+    const maxY: number = wireYs[wireYs.length - 1];
+    const minY: number = wireYs[0];
+    const height: number = maxY - minY + gateHeight;
+    return _unitaryBox(
+      label,
+      x,
+      minY,
+      width,
+      height,
+      wireYs,
+      displayArgs,
+      cssClass,
+    );
+  });
+
+  // Draw dashed line between disconnected unitaries
+  if (renderDashedLine && unitaryBoxes.length > 1) {
+    const lastBox: number[] = y[y.length - 1];
+    const firstBox: number[] = y[0];
+    const maxY: number = lastBox[lastBox.length - 1],
+      minY: number = firstBox[0];
+    const vertLine: SVGElement = dashedLine(x, minY, x, maxY);
+    return group([vertLine, ...unitaryBoxes]);
+  }
+
+  return group(unitaryBoxes);
+};
+
+/**
+ * Generates SVG representation of the boxed unitary gate symbol.
+ *
+ * @param label  Label for unitary operation.
+ * @param x      x coord of gate.
+ * @param y      y coord of gate.
+ * @param width  Width of gate.
+ * @param height Height of gate.
+ * @param wireYs y coords of wires connected to the gate.
+ * @param displayArgs Arguments passed in to gate.
+ * @param cssClass Optional CSS class to apply to the unitary gate for styling.
+ *
+ * @returns SVG representation of unitary box.
+ */
+const _unitaryBox = (
+  label: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  wireYs: number[],
+  displayArgs?: string,
+  cssClass?: string,
+): SVGElement => {
+  y -= gateHeight / 2;
+  const uBox: SVGElement = box(
+    x - width / 2,
+    y,
+    width,
+    height,
+    cssClass || "gate-unitary",
+  );
+  if (cssClass != null) {
+    uBox.setAttribute("class", cssClass);
+  }
+  uBox.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  uBox.setAttribute("data-width", `${width}`);
+
+  const labelText = _labelText(
+    label,
+    x,
+    y + height / 2 - (displayArgs == null ? 0 : 7),
+  );
+
+  const elems = [uBox, labelText];
+  if (displayArgs != null) {
+    const argStrY = y + height / 2 + 8;
+
+    const argButton = text(displayArgs, x, argStrY, argsFontSize);
+    _style_gate_text(argButton);
+    argButton.setAttribute("class", "arg-button");
+    elems.push(argButton);
+  }
+
+  return group(elems);
+};
+
+/**
+ * Creates the SVG for a SWAP gate on y coords given by `renderData`.
+ *
+ * @param renderData - The render data containing information about the gate, including position and targets.
+ *
+ * @returns SVG representation of SWAP gate.
+ */
+const _swap = (renderData: GateRenderData): SVGElement => {
+  const { x: centerX, targetsY } = renderData;
+
+  // Get SVGs of crosses
+  const {
+    x: boundingBoxX,
+    y: boundingBoxY,
+    width,
+    height,
+  } = _gateBoundingBox(renderData);
+  const ys = targetsY?.flatMap((y) => y as number[]) || [];
+  const bg: SVGElement = box(
+    boundingBoxX,
+    boundingBoxY,
+    width,
+    height,
+    "gate-swap",
+  );
+  const crosses: SVGElement[] = ys.map((y) => _cross(centerX, y));
+  const vertLine: SVGElement = line(centerX, ys[0], centerX, ys[1]);
+  vertLine.style.pointerEvents = "none";
+  return group([bg, ...crosses, vertLine]);
+};
+
+/**
+ * Creates the SVG for an X gate
+ *
+ * @param renderData - The render data containing information about the gate, including position and targets.
+ *
+ * @returns SVG representation of X gate.
+ */
+const _x = (renderData: GateRenderData): SVGElement => {
+  const { x, targetsY } = renderData;
+  const ys = targetsY.flatMap((y) => y as number[]);
+  return _oplus(x, ys[0], ys);
+};
+
+/**
+ * Creates the SVG for a ket notation (e.g "|0⟩" or "|1⟩") gate.
+ *
+ * @param label    The label for the ket notation (e.g., "0" or "1").
+ * @param renderData The render data containing information about the gate's position and appearance.
+ *
+ * @returns SVG representation of the ket notation gate.
+ */
+const _ket = (label: string, renderData: GateRenderData): SVGElement => {
+  const { x, targetsY, width } = renderData;
+  const gate = _unitary(
+    `|${label}${mathChars.rangle}`,
+    x,
+    targetsY as number[][],
+    width,
+    undefined,
+    false,
+    "gate-ket",
+  );
+  gate.querySelector("text")!.classList.add("ket-text");
+  return gate;
+};
+
+/**
+ * Generates cross for display in SWAP gate.
+ *
+ * @param x x coord of gate.
+ * @param y y coord of gate.
+ *
+ * @returns SVG representation for cross.
+ */
+const _cross = (x: number, y: number): SVGElement => {
+  const radius = 8;
+  const line1: SVGElement = line(
+    x - radius,
+    y - radius,
+    x + radius,
+    y + radius,
+  );
+  const line2: SVGElement = line(
+    x - radius,
+    y + radius,
+    x + radius,
+    y - radius,
+  );
+  return group([line1, line2]);
+};
+
+/**
+ * Produces the SVG representation of a controlled gate on multiple qubits.
+ *
+ * @param renderData Render data of controlled gate.
+ *
+ * @returns SVG representation of controlled gate.
+ */
+const _controlledGate = (renderData: GateRenderData): SVGElement => {
+  const targetGateSvgs: SVGElement[] = [];
+  const { type, x, controlsY, label, displayArgs, width } = renderData;
+  let { targetsY } = renderData;
+
+  // Get SVG for target gates
+  switch (type) {
+    case GateType.Cnot:
+      (targetsY as number[]).forEach((y) =>
+        targetGateSvgs.push(_oplus(x, y, [y])),
+      );
+      break;
+    case GateType.Swap:
+      (targetsY as number[]).forEach((y) => targetGateSvgs.push(_cross(x, y)));
+      break;
+    case GateType.ControlledUnitary:
+      {
+        const groupedTargetsY: number[][] = targetsY as number[][];
+        targetGateSvgs.push(
+          _unitary(label, x, groupedTargetsY, width, displayArgs, false),
+        );
+        targetsY = targetsY.flat();
+      }
+      break;
+    default:
+      throw new Error(`ERROR: Unrecognized gate: ${label} of type ${type}`);
+  }
+  // Get SVGs for control dots
+  const controlledDotsSvg: SVGElement[] = controlsY.map((y) =>
+    controlDot(x, y, [y]),
+  );
+  // Create control lines
+  const maxY: number = Math.max(...controlsY, ...(targetsY as number[]));
+  const minY: number = Math.min(...controlsY, ...(targetsY as number[]));
+  const vertLine: SVGElement = line(x, minY, x, maxY, "control-line");
+  vertLine.style.pointerEvents = "none";
+  const svg: SVGElement = _createGate(
+    [vertLine, ...controlledDotsSvg, ...targetGateSvgs],
+    renderData,
+  );
+  return svg;
+};
+
+/**
+ * Generates $\oplus$ symbol for display in CNOT gate.
+ *
+ * @param x x coordinate of gate.
+ * @param y y coordinate of gate.
+ * @param wireYs y coords of wires connected to the gate.
+ *
+ * @returns SVG representation of $\oplus$ symbol.
+ */
+const _oplus = (x: number, y: number, wireYs: number[]): SVGElement => {
+  const r = 15;
+  const circleBorder: SVGElement = circle(x, y, r);
+  const vertLine: SVGElement = line(x, y - r, x, y + r);
+  const horLine: SVGElement = line(x - r, y, x + r, y);
+  const oplus = group([circleBorder, vertLine, horLine], { class: "oplus" });
+  oplus.setAttribute("data-wire-ys", JSON.stringify(wireYs));
+  oplus.setAttribute("data-width", `${2 * r}`);
+  return oplus;
+};
+
+/**
+ * Generates the SVG for a group of nested operations.
+ *
+ * @param renderData Render data of gate.
+ * @param nestedDepth Depth of nested operations (used in classically controlled and grouped operations).
+ *
+ * @returns SVG representation of gate.
+ */
+const _groupedOperations = (renderData: GateRenderData): SVGElement => {
+  const { children, label, displayArgs, x, targetsY, width } = renderData;
+  const expanded = renderData.isExpanded;
+
+  // Groups support classical controls only (rendered via
+  // `_classicalControls` in `_createGate`). Quantum controls on
+  // groups are rejected at the authoring layer (see
+  // `_isMultiTargetOrGroup` in `circuitActions.ts`); if such an op
+  // arrives from an external source we let it fall through
+  // unrendered rather than carry special-case logic for an
+  // unsupported scenario.
+  const hasClassicalControls = renderData.classicalControlIds != null;
+
+  // Collapsed composite: render as a single summary gate (unitary-style), but keep
+  // the GateType as Group so the UI can still offer an expand button.
+  if (!expanded) {
+    // `targetsY` for groups is typically a flat `number[]` (not split into groups).
+    // `_unitary` expects a `number[][]` where each entry is a contiguous set of wires.
+    const normalizedTargetsY: number[][] = Array.isArray(targetsY[0])
+      ? (targetsY as number[][])
+      : [targetsY as number[]];
+
+    let bodyWidth = width;
+    let bodyX = x;
+    if (renderData.classicalControlIds != null) {
+      bodyWidth = width - controlCircleOffset;
+      bodyX = x + controlCircleOffset / 2;
+    }
+
+    const summary = _unitary(
+      label,
+      bodyX,
+      normalizedTargetsY,
+      bodyWidth,
+      displayArgs,
+    );
+
+    return _createGate([summary], renderData);
+  }
+
+  const boundingBox = _gateBoundingBox(renderData);
+
+  const elems: SVGElement[] = [];
+
+  let boxX = boundingBox.x;
+  let boxWidth = boundingBox.width;
+
+  if (hasClassicalControls) {
+    boxX += controlCircleOffset;
+    boxWidth -= controlCircleOffset;
+  }
+
+  // The dashed box surrounds the CHILDREN + any classical control
+  // wires (the classical refs need to be inside / touching the box
+  // so `_classicalControls` can attach its dashed connector). Both
+  // are already merged into `targetsY` by `_opToRenderData`'s
+  // classical-control patch, so deriving box geometry from
+  // `targetsY` alone gives the right span for pure-quantum and
+  // mixed-classical cases.
+  const flatTargets = (targetsY as (number | number[])[]).flat();
+  const minTargetY = Math.min(...flatTargets);
+  const maxTargetY = Math.max(...flatTargets);
+  const boxY = minTargetY - gateHeight / 2 - renderData.topPadding;
+  const boxHeight =
+    maxTargetY -
+    minTargetY +
+    gateHeight +
+    renderData.bottomPadding +
+    renderData.topPadding;
+
+  // Draw dashed box around children gates
+  const boxElem: SVGElement = dashedBox(
+    boxX,
+    boxY,
+    boxWidth,
+    boxHeight,
+    hasClassicalControls ? "classical-container" : "gate-unitary",
+  );
+  elems.push(boxElem);
+  if (children != null) elems.push(formatGates(children as GateRenderData[][]));
+
+  const labelText = _labelText(
+    label,
+    boxX + labelPaddingX,
+    boxY + groupTopPadding / 2 + groupLabelPaddingY,
+  );
+  labelText.classList.add("qs-group-label");
+
+  if (renderData.link) {
+    const link = createLinkElement(renderData.link.href, renderData.link.title);
+    // Make the text element clickable
+    labelText.style.pointerEvents = "all";
+    link.appendChild(labelText);
+    elems.push(link);
+  } else {
+    elems.push(labelText);
+  }
+
+  return _createGate(elems, renderData);
+};
+
+/**
+ * Pick out the y-coords of QUANTUM controls from `controlsY`,
+ * filtering out classical-ref entries. Classical refs are marked by a
+ * non-undefined entry in the parallel `classicalControlIds` array
+ * (numeric id, or `null` when the id couldn't be resolved). When
+ * `classicalControlIds` is absent, the op has no classical refs and
+ * every control in `controlsY` is quantum.
+ */
+const _getQuantumControlYs = (renderData: GateRenderData): number[] => {
+  const { controlsY, classicalControlIds } = renderData;
+  if (classicalControlIds == null) return [...controlsY];
+  return controlsY.filter((_, i) => classicalControlIds[i] === undefined);
+};
+
+/**
+ * Emit control dots and connector lines for each quantum control on a
+ * single-target unitary body that also carries classical refs (the
+ * mixed-control case in `formatGate`'s `GateType.Unitary` branch).
+ * The dot sits on the control wire at the body's center x; the
+ * connector runs from the dot to the nearest body edge (top edge if
+ * the control is above the body, bottom if below). A control wire
+ * inside the body's y range gets just the dot with no connector.
+ *
+ * Centerline x matches what `_controlledGate` uses for normal
+ * `ControlledUnitary` gates so dots line up consistently.
+ *
+ * Groups (ops with `children`) do NOT use this path — quantum controls
+ * on groups are rejected by the authoring layer (see
+ * `_isMultiTargetOrGroup` in `circuitActions.ts`).
+ */
+const _renderQuantumGroupControls = (
+  controlsY: number[],
+  centerX: number,
+  boxYTop: number,
+  boxYBottom: number,
+): SVGElement[] => {
+  const elems: SVGElement[] = [];
+  for (const y of controlsY) {
+    elems.push(controlDot(centerX, y, [y]));
+    if (y < boxYTop) {
+      const ln = line(centerX, y, centerX, boxYTop, "control-line");
+      ln.style.pointerEvents = "none";
+      elems.push(ln);
+    } else if (y > boxYBottom) {
+      const ln = line(centerX, boxYBottom, centerX, y, "control-line");
+      ln.style.pointerEvents = "none";
+      elems.push(ln);
+    }
+    // y inside [boxYTop, boxYBottom]: no extra connector — the wire
+    // already crosses the box, so the dot reads as attached.
+  }
+  return elems;
+};
+
+const _classicalControls = (
+  leftX: number,
+  renderData: GateRenderData,
+): SVGElement[] => {
+  const { controlsY, classicalControlIds } = renderData;
+  const elems: SVGElement[] = [];
+
+  for (let i = 0; i < controlsY.length; i++) {
+    // `undefined` marks a QUANTUM control entry (a mix of quantum +
+    // classical refs on the same op). Those render via the standard
+    // control-dot path elsewhere — skip here so we don't draw a stray
+    // classical circle on a qubit wire.
+    const idEntry = classicalControlIds?.[i];
+    if (idEntry === undefined) continue;
+
+    const controlY = controlsY[i];
+    const label: number | null = idEntry;
+
+    // Draw control button and attached dashed line to the gate body.
+    const controlCircleX: number = leftX + controlCircleRadius;
+    const controlCircle: SVGElement = _controlCircle(
+      controlCircleX,
+      controlY,
+      label,
+    );
+
+    const lineY1: number = controlY + controlCircleRadius;
+    const lineY2: number =
+      controlY + controlCircleRadius + groupBottomPadding / 2;
+
+    const vertLine: SVGElement = dashedLine(
+      controlCircleX,
+      lineY1,
+      controlCircleX,
+      lineY2,
+      "classical-line",
+    );
+
+    const lineEndX = leftX + controlCircleOffset;
+    const horLine: SVGElement = dashedLine(
+      controlCircleX,
+      lineY2,
+      lineEndX,
+      lineY2,
+      "classical-line",
+    );
+
+    elems.push(horLine, vertLine, controlCircle);
+  }
+
+  return elems;
+};
+
+/**
+ * Generates the SVG representation of the control circle on a classical register with interactivity support
+ * for toggling between bit values (unknown, 1, and 0).
+ *
+ * @param x          Center x coord.
+ * @param y          Center y coord.
+ * @param controlId  ID label to display inside control circle
+ *
+ * @returns SVG representation of control circle.
+ */
+const _controlCircle = (
+  x: number,
+  y: number,
+  controlId: number | null,
+): SVGElement =>
+  group([circle(x, y, controlCircleRadius), controlLabel(x, y, controlId)], {
+    class: "classically-controlled-btn",
+  });
+
+/**
+ * Generates the text element label inside a classical control circle.
+ *
+ * @param x          Center x coord.
+ * @param y          Center y coord.
+ * @param label      ID label to display inside control circle
+ *
+ * @returns          SVG representation of control label
+ */
+function controlLabel(x: number, y: number, label: number | null): SVGElement {
+  const el: SVGElement = text("", x, y, labelFontSize);
+
+  // Create text content "c"
+  el.appendChild(document.createTextNode("c"));
+
+  // Create tspan with subscript label
+  const tspan = createSvgElement("tspan", {
+    "baseline-shift": "sub",
+    "font-size": "65%",
+  });
+  tspan.appendChild(document.createTextNode(String(label)));
+  el.appendChild(tspan);
+
+  el.setAttribute("text-anchor", "start");
+  el.setAttribute("dominant-baseline", "middle");
+  el.classList.add("qs-maintext");
+
+  return el;
+}
+
+/**
+ * Generates the SVG representation of the label text for a gate or grouped operation.
+ *
+ * @param label Label text.
+ * @param x     x coord.
+ * @param y     y coord.
+ *
+ * @returns SVG representation of label text.
+ */
+function _labelText(label: string, x: number, y: number): SVGTextElement {
+  const labelText = text(label, x, y, labelFontSize);
+  _style_gate_text(labelText);
+  return labelText;
+}
+
+export {
+  formatGates,
+  formatGate,
+  // Internal helpers exposed for direct unit testing. The leading
+  // underscore signals "test-only export"; matches the
+  // `_isMultiTargetOrGroup` convention in `actions/circuitActions.ts`.
+  _createGate,
+  _gateBoundingBox,
+  _zoomButton,
+  _classicalControls,
+  _getQuantumControlYs,
+};

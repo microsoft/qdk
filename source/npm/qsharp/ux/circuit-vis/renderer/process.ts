@@ -1,0 +1,809 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT license.
+
+import {
+  minGateWidth,
+  startX,
+  gatePadding,
+  controlCircleOffset,
+  groupPaddingX,
+  groupTopPadding,
+  groupBottomPadding,
+} from "./constants.js";
+import { ComponentGrid, Operation, SourceLocation } from "../data/circuit.js";
+import { GateRenderData, GateType } from "./gateRenderData.js";
+import { LayoutScope } from "./layoutMap.js";
+import { Register, RegisterMap } from "../data/register.js";
+import { getMinGateWidth } from "../utils.js";
+
+/**
+ * Takes in a component grid and maps the operations to `GateRenderData` objects which
+ * contains information for formatting the corresponding SVG.
+ *
+ * Also returns layout info for this scope (column x-offsets and
+ * widths) and a map of all *child* scopes encountered while recursing
+ * into expanded groups, keyed by the parent op's location string. The
+ * caller decides whether `localScope` merges into a wider `LayoutMap`
+ * under `""` (top level) or under a parent op's location after
+ * shifting by that op's `offset` (nested).
+ *
+ * @param componentGrid Grid of circuit components.
+ * @param registers  Mapping from qubit IDs to register render data.
+ * @param topY y-coordinate of the topmost register involved in the operation.
+ * @param bottomY y-coordinate of the bottommost register involved in the operation.
+ * @param renderLocations Optional function to map source locations to link hrefs and titles.
+ *
+ * @returns An object containing `renderDataArray` (2D Array of GateRenderData objects),
+ *          `svgWidth` (width of the entire SVG), and layout info
+ *          (`localScope`, `childScopes`) for the LayoutMap.
+ */
+const processOperations = (
+  componentGrid: ComponentGrid,
+  topY: number,
+  bottomY: number,
+  registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
+): {
+  renderDataArray: GateRenderData[][];
+  svgWidth: number;
+  maxTopPadding: number;
+  maxBottomPadding: number;
+  /**
+   * The local layout scope for this `processOperations` call.
+   * Coordinates are anchored at `startX` — absolute for the top-level
+   * call, and shifted by the caller's `offset` for nested calls (see
+   * `_fillRenderDataX`'s `GateType.Group` branch).
+   */
+  localScope: LayoutScope;
+  /**
+   * Already-absolute scopes for any expanded groups encountered during
+   * this call (and recursively beneath them). Keyed by the parent op's
+   * `dataAttributes["location"]`. Does NOT include `localScope` itself.
+   */
+  childScopes: Map<string, LayoutScope>;
+} => {
+  if (componentGrid.length === 0) {
+    return {
+      renderDataArray: [],
+      svgWidth: startX + gatePadding * 2,
+      maxTopPadding: 0,
+      maxBottomPadding: 0,
+      localScope: { columnXOffsets: [], columnWidths: [] },
+      childScopes: new Map(),
+    };
+  }
+
+  let maxTopPadding = 0;
+  let maxBottomPadding = 0;
+
+  // Track the width of each column as we process it.
+  const columnsWidths: number[] = componentGrid.map(() => minGateWidth);
+
+  // Get classical registers and their starting column index
+  const classicalRegs: [number, Register][] =
+    _getClassicalRegStarts(componentGrid);
+
+  // Map operation index to gate render data for formatting later
+  const renderDataArray: GateRenderData[][] = componentGrid.map(
+    (col, colIndex) =>
+      col.components.map((op) => {
+        const renderData: GateRenderData = _opToRenderData(
+          op,
+          registers,
+          renderLocations,
+        );
+
+        let targets: Register[];
+        switch (op.kind) {
+          case "unitary":
+            targets = op.targets;
+            break;
+          case "measurement":
+            targets = op.qubits;
+            break;
+          case "ket":
+            targets = op.targets;
+            break;
+        }
+
+        // For ops with own classical controls, include those control
+        // wires in the body-geometry input. `_classicalControls` draws
+        // a short L-connector from each control circle to the body
+        // box; for that connector to land on the box (rather than in
+        // empty space below the body), the body must extend down to
+        // include the classical control wire's y.
+        if (op.kind === "unitary" && op.controls) {
+          const ownClassicalControls = op.controls.filter(
+            (r) => r.result != null,
+          );
+          if (ownClassicalControls.length > 0) {
+            targets = [...targets, ...ownClassicalControls];
+          }
+        }
+
+        const minTargetY = Math.min(...(renderData.targetsY as number[]));
+        const maxTargetY = Math.max(...(renderData.targetsY as number[]));
+
+        if (topY === minTargetY) {
+          maxTopPadding = Math.max(maxTopPadding, renderData.topPadding);
+        }
+        if (bottomY === maxTargetY) {
+          maxBottomPadding = Math.max(
+            maxBottomPadding,
+            renderData.bottomPadding,
+          );
+        }
+
+        const isCollapsedGroup =
+          renderData.type === GateType.Group && !renderData.isExpanded;
+
+        if (
+          op != null &&
+          ([
+            GateType.Unitary,
+            GateType.Ket,
+            GateType.ControlledUnitary,
+          ].includes(renderData.type) ||
+            isCollapsedGroup)
+        ) {
+          // Split multi-wire gate bodies into segments if there is a classical
+          // register wire between them. This prevents classical wires from
+          // visually intersecting/entering gate bodies.
+
+          // Get y coordinates of classical registers in the same column as this operation
+          const classicalRegY: number[] = classicalRegs
+            .filter(([regCol]) => regCol <= colIndex)
+            .map(([, reg]) => {
+              if (reg.result == null)
+                throw new Error("Could not find cId for classical register.");
+              const { children } = registers[reg.qubit];
+              if (children == null)
+                throw new Error(
+                  `Failed to find classical registers for qubit ID ${reg.qubit}.`,
+                );
+              return children[reg.result].y;
+            });
+
+          const allowedThroughY = (renderData.classicalControlRegs ?? []).map(
+            (reg) => _getRegY(reg, registers),
+          );
+          const splitAroundY = classicalRegY.filter(
+            (y) => !allowedThroughY.includes(y),
+          );
+
+          renderData.targetsY = _splitTargetsY(
+            targets,
+            splitAroundY,
+            registers,
+          );
+        }
+
+        // Expand column size, if needed
+        if (renderData.width > columnsWidths[colIndex]) {
+          columnsWidths[colIndex] = renderData.width;
+        }
+
+        return renderData;
+      }),
+  );
+
+  // Filter out invalid gates and remove empty columns.
+  // Keep column widths in sync with the filtered columns.
+  const filteredColumns = renderDataArray
+    .map((col, colIndex) => ({
+      colIndex,
+      gates: col.filter(({ type }) => type != GateType.Invalid),
+    }))
+    .filter(({ gates }) => gates.length > 0);
+  const filteredArray: GateRenderData[][] = filteredColumns.map(
+    ({ gates }) => gates,
+  );
+  const filteredColumnWidths: number[] = filteredColumns.map(
+    ({ colIndex }) => columnsWidths[colIndex],
+  );
+
+  // Fill in x coord of each gate. `_fillRenderDataX` also returns the
+  // local column x-offsets it computed, plus the merged absolute child
+  // scopes harvested from any expanded groups in this grid (their
+  // `_childLayout` field, populated by `_processChildren`).
+  const { endX, colStartX, childScopes } = _fillRenderDataX(
+    filteredArray,
+    filteredColumnWidths,
+  );
+
+  return {
+    renderDataArray: filteredArray,
+    svgWidth: endX,
+    maxTopPadding,
+    maxBottomPadding,
+    localScope: {
+      columnXOffsets: colStartX,
+      columnWidths: filteredColumnWidths,
+    },
+    childScopes,
+  };
+};
+
+/**
+ * Retrieves the starting index of each classical register.
+ *
+ * @param componentGrid Grid of circuit components.
+ *
+ * @returns Array of classical register and their starting column indices in the form [[column, register]].
+ */
+const _getClassicalRegStarts = (
+  componentGrid: ComponentGrid,
+): [number, Register][] => {
+  const clsRegs: [number, Register][] = [];
+  componentGrid.forEach((col, colIndex) => {
+    col.components.forEach((op) => {
+      if (op.kind === "measurement") {
+        const resultRegs: Register[] = op.results.filter(
+          ({ result }) => result !== undefined,
+        );
+        resultRegs.forEach((reg) => clsRegs.push([colIndex, reg]));
+      } else if (op.children != null) {
+        const componentGrid = op.children;
+        const childClsRegs = _getClassicalRegStarts(componentGrid);
+        childClsRegs.forEach(([, reg]) => {
+          clsRegs.push([colIndex, reg]);
+        });
+      }
+    });
+  });
+  return clsRegs;
+};
+
+/**
+ * Recursively collects classical control registers from source circuit children.
+ * Used inside _opToRenderData for collapsed groups whose children have not been rendered.
+ */
+function _collectClassicalControlsFromSourceChildren(
+  children: ComponentGrid,
+): Register[] {
+  const regs: Register[] = [];
+  for (const col of children) {
+    for (const op of col.components) {
+      if (op.kind === "unitary") {
+        for (const reg of op.controls ?? []) {
+          if (reg.result != null) regs.push(reg);
+        }
+      }
+      if (op.children != null) {
+        regs.push(..._collectClassicalControlsFromSourceChildren(op.children));
+      }
+    }
+  }
+  return regs;
+}
+
+/**
+ * Maps operation to render data (e.g. gate type, position, dimensions, text)
+ * required to render the image.
+ *
+ * @param op        Operation to be mapped into render data.
+ * @param registers Array of registers.
+ *
+ * @returns GateRenderData representation of given operation.
+ */
+const _opToRenderData = (
+  op: Operation | null,
+  registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
+): GateRenderData => {
+  const renderData: GateRenderData = {
+    type: GateType.Invalid,
+    isExpanded: false,
+    x: 0,
+    controlsY: [],
+    targetsY: [],
+    label: "",
+    width: -1,
+    topPadding: 0,
+    bottomPadding: 0,
+  };
+
+  if (op == null) return renderData;
+
+  let isAdjoint: boolean;
+  let controls: Register[] | undefined;
+  let targets: Register[];
+  switch (op.kind) {
+    case "measurement":
+      isAdjoint = false;
+      controls = op.qubits;
+      targets = op.results;
+      break;
+    case "unitary":
+      isAdjoint = op.isAdjoint ?? false;
+      controls = op.controls;
+      targets = op.targets;
+      break;
+    case "ket":
+      isAdjoint = false;
+      controls = [];
+      targets = op.targets;
+      break;
+  }
+
+  const { gate, args, children, dataAttributes } = op;
+
+  // Classically-controlled operations are encoded as operations whose `controls` are
+  // classical registers (i.e. `Register.result` is set), with IDs provided via
+  // `metadata.controlResultIds`.
+  const hasClassicalControls =
+    op.kind === "unitary" &&
+    ((controls?.some((reg) => reg.result != null) ?? false) ||
+      (op.metadata?.controlResultIds?.length ?? 0) > 0);
+
+  const hasChildren = children != null && children.length > 0;
+  const expandedAttr = dataAttributes?.["expanded"];
+  const defaultExpanded = hasClassicalControls && hasChildren;
+  const isExpanded =
+    expandedAttr === undefined ? defaultExpanded : expandedAttr === "true";
+  renderData.isExpanded = isExpanded;
+
+  // Set y coords
+  renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
+  renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
+
+  // For classically-controlled ops, include the classical-control
+  // sub-wires in `targetsY` so the wire span this op claims for layout
+  // matches the bounding-box span drawn by `_gateBoundingBox` (which
+  // merges `targetsY` with `controlsY` for its min/max). Without it, a
+  // parent group's `_processChildren` `topY === minTargetY` check
+  // fails for nested classically-controlled children and their
+  // `topPadding` doesn't propagate up, causing stacked nested
+  // conditionals to render box tops and labels at the same y.
+  if (op.kind === "unitary" && op.controls) {
+    const ownClassicalControlYs = op.controls
+      .filter((r) => r.result != null)
+      .map((reg) => _getRegY(reg, registers));
+    if (ownClassicalControlYs.length > 0) {
+      renderData.targetsY = [
+        ...(renderData.targetsY as number[]),
+        ...ownClassicalControlYs,
+      ];
+    }
+  }
+
+  if (hasClassicalControls) {
+    // Classically-controlled operations.
+    // These are treated as composite/group operations when they have children.
+    // Expanded vs. collapsed rendering is controlled via the `expanded` state.
+
+    renderData.label = gate;
+
+    // Fill in the ID to be displayed in each control wire's circle.
+    // Prefer the global id from `metadata.controlResultIds` (the
+    // trace-builder populates these so two M's on different qubits
+    // get distinct labels like `c_0` and `c_1`). When the metadata
+    // is missing (hand-authored `.qsc` files, programmatically
+    // built circuits), fall back to the control register's local
+    // `result` index.
+    //
+    // Quantum controls mixed in alongside classical refs get
+    // `undefined` so the formatter routes them through the standard
+    // control-dot path instead of drawing classical circles. `null`
+    // is reserved for classical refs whose id couldn't be resolved.
+    renderData.classicalControlIds =
+      controls?.map((reg) => {
+        if (reg.result == null) return undefined;
+        const globalId = op.metadata?.controlResultIds?.find(
+          (e) => e[0].qubit === reg.qubit && e[0].result === reg.result,
+        )?.[1];
+        return globalId ?? reg.result ?? null;
+      }) || [];
+
+    if (hasChildren) {
+      renderData.type = GateType.Group;
+      if (isExpanded) {
+        _processChildren(renderData, children!, registers, renderLocations);
+
+        // Add additional width for classical control circle.
+        // (The group width comes from children layout; it doesn't account for controls.)
+        renderData.width += controlCircleOffset;
+      }
+    } else {
+      // Defensive fallback: a conditional without children is rendered as a unitary.
+      renderData.type = GateType.Unitary;
+    }
+  } else if (hasChildren) {
+    // Composite/grouped operations.
+    // Always represented as `GateType.Group` so the UI can determine expandability
+    // solely from gate type.
+
+    renderData.type = GateType.Group;
+    renderData.label = gate;
+
+    if (isExpanded) {
+      _processChildren(renderData, children!, registers, renderLocations);
+    }
+  } else if (op.kind === "measurement") {
+    renderData.type = GateType.Measure;
+  } else if (op.kind === "ket") {
+    renderData.type = GateType.Ket;
+    renderData.label = gate;
+  } else if (gate === "SWAP") {
+    renderData.type = GateType.Swap;
+  } else if (controls && controls.length > 0) {
+    renderData.type = gate === "X" ? GateType.Cnot : GateType.ControlledUnitary;
+    renderData.label = gate;
+  } else if (gate === "X") {
+    renderData.type = GateType.X;
+    renderData.label = gate;
+  } else {
+    // Any other gate treated as a simple unitary gate
+    renderData.type = GateType.Unitary;
+    renderData.label = gate;
+  }
+
+  // Collect classical control registers for this op and all descendants.
+  // For expanded groups, aggregate from already-rendered children to avoid re-walking source data.
+  // For collapsed groups with children, walk source data directly.
+  {
+    const ownControls =
+      op.kind === "unitary"
+        ? (controls ?? []).filter((r) => r.result != null)
+        : [];
+    const descendantControls: Register[] =
+      renderData.children != null
+        ? renderData.children
+            .flat()
+            .flatMap((c) => c.classicalControlRegs ?? [])
+        : hasChildren
+          ? _collectClassicalControlsFromSourceChildren(children!)
+          : [];
+    const seen = new Set<string>();
+    renderData.classicalControlRegs = [
+      ...ownControls,
+      ...descendantControls,
+    ].filter((r) => {
+      const key = `${r.qubit}:${r.result}`;
+      return seen.has(key) ? false : (seen.add(key), true);
+    });
+  }
+
+  // If adjoint, add ' to the end of gate label
+  if (isAdjoint && renderData.label.length > 0) renderData.label += "'";
+
+  // If gate has extra arguments, display them
+  // For now, we only display the first argument
+  if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
+
+  // Minimum width is calculated based on the label and args.
+  // If this is a collapsed composite (GateType.Group with no children render data),
+  // its width should be based on the summary gate rather than the full expanded layout.
+  const minWidth = getMinGateWidth(renderData);
+
+  const isCollapsedComposite =
+    renderData.type === GateType.Group && !isExpanded;
+
+  if (isCollapsedComposite) {
+    renderData.width = minWidth;
+  } else {
+    renderData.width = Math.max(minWidth, renderData.width);
+  }
+
+  if (op.metadata?.source && renderLocations) {
+    renderData.link = renderLocations([op.metadata.source]);
+  }
+
+  // Extend existing data attributes with user-provided data attributes
+  if (dataAttributes != null)
+    renderData.dataAttributes = {
+      ...renderData.dataAttributes,
+      ...dataAttributes,
+    };
+
+  // By default, classically controlled groups are expanded unless explicitly overridden.
+  if (defaultExpanded && expandedAttr === undefined) {
+    renderData.dataAttributes = {
+      ...renderData.dataAttributes,
+      expanded: "true",
+    };
+  }
+
+  return renderData;
+};
+
+/**
+ * Compute the y coord of a given register.
+ *
+ * @param reg       Register to compute y coord of.
+ * @param registers Map of qubit IDs to RegisterRenderData.
+ *
+ * @returns The y coord of give register.
+ */
+const _getRegY = (reg: Register, registers: RegisterMap): number => {
+  const { qubit: qId, result } = reg;
+  if (!Object.prototype.hasOwnProperty.call(registers, qId))
+    throw new Error(`ERROR: Qubit register with ID ${qId} not found.`);
+  const { y, children } = registers[qId];
+  if (result == null) {
+    return y;
+  } else {
+    if (children == null)
+      throw new Error(
+        `ERROR: No classical registers found for qubit ID ${qId}.`,
+      );
+    if (children.length <= result)
+      throw new Error(
+        `ERROR: Classical register ID ${result} invalid for qubit ID ${qId} with ${children.length} classical register(s).`,
+      );
+    return children[result].y;
+  }
+};
+
+/**
+ * Splits `targets` if non-adjacent or intersected by classical registers.
+ *
+ * @param targets       Target registers (can be qubit or classical).
+ * @param classicalRegY y coords of classical registers overlapping current column.
+ * @param registers     Mapping from register qubit IDs to register render data.
+ *
+ * @returns Groups of target qubit y coords.
+ */
+const _splitTargetsY = (
+  targets: Register[],
+  classicalRegY: number[],
+  registers: RegisterMap,
+): number[][] => {
+  if (targets.length === 0) return [];
+
+  // Get qIds sorted by ascending y value
+  const orderedQIds: number[] = Object.keys(registers).map(Number);
+  orderedQIds.sort((a, b) => registers[a].y - registers[b].y);
+  const qIdPosition: { [qId: number]: number } = {};
+  orderedQIds.forEach((qId, i) => (qIdPosition[qId] = i));
+
+  // Sort targets by ascending y: qubit position, then qubit-only
+  // refs before their classical results, then by `result` index.
+  targets = targets.slice();
+  targets.sort((a, b) => {
+    const posDiff: number = qIdPosition[a.qubit] - qIdPosition[b.qubit];
+    if (posDiff !== 0) return posDiff;
+    if (a.result == null && b.result == null) return 0;
+    if (a.result == null) return -1;
+    if (b.result == null) return 1;
+    return a.result - b.result;
+  });
+  classicalRegY = classicalRegY.slice();
+  classicalRegY.sort((a, b) => a - b);
+
+  // Qubit positions whose QUANTUM wire is itself a target — i.e.
+  // a `{qubit: Q}` entry with `result == null`. The body legitimately
+  // covers these wires; any other qubit position whose wire falls
+  // strictly between two consecutive target Ys forces a split (rule 4
+  // below). Built from the original targets list since membership is
+  // order-independent.
+  const quantumTargetPositions = new Set<number>();
+  for (const t of targets) {
+    if (t.result == null) {
+      quantumTargetPositions.add(qIdPosition[t.qubit]);
+    }
+  }
+
+  let prevPos = 0;
+  let prevY = 0;
+
+  return targets.reduce((groups: number[][], target: Register) => {
+    const y = _getRegY(target, registers);
+    const pos = qIdPosition[target.qubit];
+
+    // A target on a classical sub-wire (`{qubit: Q, result: N}`)
+    // sits BELOW its parent qubit's quantum wire, so moving from a
+    // target at position P to a classical sub-wire at position P+1
+    // visually crosses qubit P+1's quantum wire. If that wire isn't
+    // itself a quantum target, split so it passes through the gap.
+    // Generalized: split if any quantum-wire position strictly
+    // between `prevPos` and `pos` (inclusive of `pos` when
+    // `target.result != null`) isn't a quantum target. This subsumes
+    // rule 2, but rule 2's explicit check is kept above for clarity.
+    const upperPos = target.result == null ? pos - 1 : pos;
+    let crossesUntargetedQubit = false;
+    if (groups.length > 0) {
+      for (let p = prevPos + 1; p <= upperPos; p++) {
+        if (!quantumTargetPositions.has(p)) {
+          crossesUntargetedQubit = true;
+          break;
+        }
+      }
+    }
+
+    // Split into new group if one of the following holds:
+    //      1. First target register
+    //      2. Non-adjacent qubit registers
+    //      3. There is a classical register between current and previous register
+    //      4. The body would visually cross an intermediate quantum
+    //         wire that isn't itself a target (covers the
+    //         classical-sub-wire-skips-a-quantum-row case)
+    if (
+      groups.length === 0 ||
+      pos > prevPos + 1 ||
+      (classicalRegY[0] > prevY && classicalRegY[0] < y) ||
+      crossesUntargetedQubit
+    )
+      groups.push([y]);
+    else groups[groups.length - 1].push(y);
+
+    prevPos = pos;
+    prevY = y;
+
+    // Remove classical registers that are higher than current y
+    while (classicalRegY.length > 0 && classicalRegY[0] <= y)
+      classicalRegY.shift();
+
+    return groups;
+  }, []);
+};
+
+/**
+ * Updates the x coord of each render data object in the given 2D
+ * array and returns layout info needed by `processOperations` to build
+ * the `LayoutMap`.
+ *
+ * In addition to setting each gate's center x, this function:
+ *  - Returns `colStartX` (the per-column left-edge x in this scope's
+ *    local coordinate system, anchored at `startX`).
+ *  - For each expanded group encountered, shifts the group's
+ *    `_childLayout` (set by `_processChildren`) from the child's local
+ *    coords to absolute coords by applying the group's `offset`, then
+ *    merges those absolute child scopes into a single `childScopes`
+ *    map keyed by the child's parent op's location string.
+ *
+ * @param renderDataArray  2D array of render data.
+ * @param columnWidths Array of column widths.
+ *
+ * @returns `endX` (rightmost x coord), `colStartX` (per-column
+ *          left-edge x), and `childScopes` (absolute scopes from
+ *          expanded groups in this grid).
+ */
+const _fillRenderDataX = (
+  renderDataArray: GateRenderData[][],
+  columnWidths: number[],
+): {
+  endX: number;
+  colStartX: number[];
+  childScopes: Map<string, LayoutScope>;
+} => {
+  let endX: number = startX;
+
+  const colStartX: number[] = columnWidths.map((width) => {
+    const x: number = endX;
+    endX += width + gatePadding * 2;
+    return x;
+  });
+
+  // Absolute scopes harvested from any expanded groups in this grid,
+  // including their own (already-shifted) descendant scopes.
+  const childScopes = new Map<string, LayoutScope>();
+
+  renderDataArray.forEach((col, colIndex) =>
+    col.forEach((renderData) => {
+      const x = colStartX[colIndex];
+      const columnWidth = columnWidths[colIndex];
+      const columnCenterX = x + columnWidth / 2;
+      switch (renderData.type) {
+        case GateType.Group:
+          {
+            // Center the group within the column, and offset nested child gates
+            // relative to the group's left edge (plus internal padding).
+            const groupLeftX = columnCenterX - renderData.width / 2;
+
+            // Subtract startX offset from nested gates and add offset and padding
+            let offset: number = groupLeftX - startX + groupPaddingX;
+            if (renderData.classicalControlIds != null) {
+              offset += controlCircleOffset;
+            }
+
+            // Offset each x coord in children gates
+            _offsetChildrenX(renderData.children, offset);
+
+            // LayoutMap accumulation: shift the child layout info
+            // (computed in the child's local coords) by `offset`,
+            // making it absolute. Key the child's `localScope` under
+            // *this* group's location — the scope key the editor looks
+            // up when emitting dropzones inside this group's body.
+            // Deeper scopes are in the same child-local system, so
+            // they get shifted by `offset` too.
+            const childLayout = renderData._childLayout;
+            if (childLayout != null) {
+              const myLocation = renderData.dataAttributes?.["location"];
+              if (myLocation != null) {
+                childScopes.set(myLocation, {
+                  columnXOffsets: childLayout.localScope.columnXOffsets.map(
+                    (v) => v + offset,
+                  ),
+                  columnWidths: childLayout.localScope.columnWidths,
+                });
+                for (const [key, scope] of childLayout.childScopes) {
+                  childScopes.set(key, {
+                    columnXOffsets: scope.columnXOffsets.map((v) => v + offset),
+                    columnWidths: scope.columnWidths,
+                  });
+                }
+              }
+              // Clear the temp side-channel; nothing else reads it.
+              renderData._childLayout = undefined;
+            }
+
+            // Center gate in column
+            renderData.x = columnCenterX;
+          }
+          break;
+
+        default:
+          // Center gate in column
+          renderData.x = columnCenterX;
+          break;
+      }
+    }),
+  );
+
+  return { endX: endX + gatePadding, colStartX, childScopes };
+};
+
+/**
+ * Offset x coords of nested children operations.
+ *
+ * @param children 2D or 3D array of children GateRenderData.
+ * @param offset   x coord offset.
+ */
+const _offsetChildrenX = (
+  children: GateRenderData[][] | GateRenderData[][][] | undefined,
+  offset: number,
+): void => {
+  if (children == null) return;
+  children.forEach((col) => {
+    col.flat().forEach((child) => {
+      child.x += offset;
+      _offsetChildrenX(child.children, offset);
+    });
+  });
+};
+
+/**
+ * Processes the children operations and updates the render data accordingly.
+ *
+ * @param renderData        Render data of the parent operation, to be updated with children data.
+ * @param children          Nested operations to be processed.
+ * @param registers         Mapping from qubit IDs to register render data.
+ * @param renderLocations   Optional function to map source locations to link hrefs and titles
+ */
+function _processChildren(
+  renderData: GateRenderData,
+  children: ComponentGrid,
+  registers: RegisterMap,
+  renderLocations?: (s: SourceLocation[]) => { title: string; href: string },
+) {
+  const topY = Math.min(...(renderData.targetsY as number[]));
+  const bottomY = Math.max(...(renderData.targetsY as number[]));
+
+  const childrenInstrs = processOperations(
+    children,
+    topY,
+    bottomY,
+    registers,
+    renderLocations,
+  );
+
+  renderData.children = childrenInstrs.renderDataArray;
+  renderData.width =
+    childrenInstrs.svgWidth - startX - gatePadding * 3 + groupPaddingX * 2; // (svgWidth includes 3 extra gate paddings)
+  renderData.topPadding = childrenInstrs.maxTopPadding + groupTopPadding;
+  renderData.bottomPadding =
+    childrenInstrs.maxBottomPadding + groupBottomPadding;
+
+  // Stash the child layout info on the parent's render data so that
+  // when the parent's `_fillRenderDataX` runs later, it can shift the
+  // child's local coords to absolute (using the group's `offset`) and
+  // merge them into the parent call's `childScopes` accumulator.
+  // See `_fillRenderDataX` for where this is consumed.
+  renderData._childLayout = {
+    localScope: childrenInstrs.localScope,
+    childScopes: childrenInstrs.childScopes,
+  };
+}
+
+export { processOperations };
