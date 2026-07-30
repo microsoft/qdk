@@ -102,7 +102,7 @@ export async function instantiateWasm() {
     // Only the target is included to distinguish errors; message
     // content (including stack) is omitted for privacy.
     if (level === 1) {
-      log.logTelemetry({ id: "wasm-error", data: { target } });
+      log.logTelemetry({ id: "wasm-error", data: { panicTarget: target } });
     }
     log.logWithLevel(level, target, ...args);
   }, log.getLogLevel());
