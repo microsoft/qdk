@@ -102,3 +102,12 @@ operation MyTest() : Unit {
 
 run_tests()
 ```
+
+
+### New arithmetic library
+
+We added a new Q# library containing advanced arithmetic algorithms,
+such as modular addition, multiplication, division, and exponentiation. These
+algorithms are based on the latest research in quantum arithmetic. See the
+[Arithmetic library README](https://github.com/microsoft/qdk/tree/main/library/arithmetic)
+for more details.
