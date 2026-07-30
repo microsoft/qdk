@@ -11,6 +11,12 @@ import { PythonEnvironments } from "@vscode/python-environments";
 import * as vscode from "vscode";
 
 /**
+ * Dotted Python module name. Import checks come from author-supplied
+ * `course.json`, and reach a `python -c` command line.
+ */
+const MODULE_NAME = /^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$/;
+
+/**
  * Manages per-course Python environments for `python-notebook` courses.
  *
  * All environment lifecycle operations (creation, package installation,
@@ -146,6 +152,11 @@ export class EnvironmentManager {
 
     const results: { module: string; ok: boolean }[] = [];
     for (const module of modules) {
+      if (!MODULE_NAME.test(module)) {
+        log.warn(`Not a valid Python module name, skipping: ${module}`);
+        results.push({ module, ok: false });
+        continue;
+      }
       const code = await runPython(api, env, ["-c", `import ${module}`]);
       results.push({ module, ok: code === 0 });
     }
@@ -196,7 +207,9 @@ export class EnvironmentManager {
         return envs[0];
       default:
         log.warn(
-          `Found multiple virtual environments, using first: ${envs.join(", ")}`,
+          `Found multiple virtual environments, using first: ${envs
+            .map((e) => e.name)
+            .join(", ")}`,
         );
         return envs[0];
     }
