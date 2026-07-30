@@ -212,7 +212,7 @@ impl LanguageService {
         &self,
         uri: &str,
         version: u32,
-    ) -> impl std::future::Future<Output = VersionWait> + 'static + use<> {
+    ) -> impl std::future::Future<Output = VersionWait> + 'static {
         let state = self.state.clone();
         let waiters = self.version_waiters.clone();
         let uri = uri.to_string();
@@ -444,6 +444,9 @@ impl UpdateHandler<'_> {
 
             self.apply(updates).await;
         }
+
+        // Drop any waiters so `wait_for_document_version` callers can observe shutdown.
+        self.version_waiters.borrow_mut().clear();
     }
 
     /// Convenience method to apply *only* the pending updates
