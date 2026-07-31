@@ -3,34 +3,36 @@
 
 from __future__ import annotations
 
-from typing import cast, Optional, Any
+from typing import Any, cast
 
 from .. import telemetry_events
 from ._application import Application
 from ._architecture import Architecture
+from ._dollar_cost import compute_dollar_cost
+from ._isa_enumeration import ISAQuery
 from ._qre import (
-    _estimate_parallel,
-    _estimate_with_graph,
-    _EstimationCollection,
     ErrorComposition,
     Trace,
+    _EstimationCollection,
+    _estimate_parallel,
+    _estimate_with_graph,
 )
-from ._trace import TraceQuery, PSSPC, LatticeSurgery
-from ._isa_enumeration import ISAQuery
 from ._results import EstimationTable, EstimationTableEntry
+from ._trace import LatticeSurgery, PSSPC, TraceQuery
 
 
 def estimate(
     application: Application,
     architecture: Architecture,
     isa_query: ISAQuery,
-    trace_query: Optional[TraceQuery] = None,
+    trace_query: TraceQuery | None = None,
     *,
     max_error: float = 1.0,
     post_process: bool = False,
     use_graph: bool = True,
     composition: ErrorComposition = ErrorComposition.UnionBound,
-    name: Optional[str] = None,
+    name: str | None = None,
+    json_spec_path: str | None = None,
 ) -> EstimationTable:
     """
     Estimate the resource requirements for a given application instance and
@@ -82,6 +84,8 @@ def estimate(
             ``1 - prod(1 - p_i)``.
         name (Optional[str]): An optional name for the estimation.  If given, this
             will be added as a first column to the results table for all entries.
+        json_spec_path (Optional[str]): Path to the system specification in
+            JSON format. If provided, a ``$ cost`` column is added to the results.
 
     Returns:
         EstimationTable: A table containing the optimal estimation results.
@@ -222,6 +226,12 @@ def estimate(
     table.extend(
         EstimationTableEntry.from_result(result, arch_ctx) for result in collection
     )
+
+    if json_spec_path is not None:
+        table.add_column(
+            "$ cost",
+            lambda entry: compute_dollar_cost(json_spec_path, entry),
+        )
 
     # Fill in the stats for this estimation run
     table.stats.num_traces = num_traces
