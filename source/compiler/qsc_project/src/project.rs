@@ -750,18 +750,6 @@ fn apply_dependency_override(package_ref: PackageRef) -> PackageRef {
     match &package_ref {
         PackageRef::GitHub { github } => {
             if let Some(local_path) = local_override_for_github_dependency(github) {
-                println!(
-                    "using local override for GitHub dependency {}/{}@{}{}: {}",
-                    github.owner,
-                    github.repo,
-                    github.r#ref,
-                    github
-                        .path
-                        .as_deref()
-                        .map(|path| format!("/{path}"))
-                        .unwrap_or_default(),
-                    local_path.display()
-                );
                 PackageRef::Path {
                     path: local_path.to_string_lossy().into_owned(),
                 }
