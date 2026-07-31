@@ -444,7 +444,7 @@ def run_python_integration_tests(cwd, interpreter):
         cwd,
         os.path.join(root_dir, "library", "arithmetic", "test"),
     ]
-    command_args = [interpreter, "-m", "pytest", *paths, "-s"]
+    command_args = [interpreter, "-m", "pytest", *paths]
     subprocess.run(command_args, check=True, text=True, cwd=cwd)
 
 

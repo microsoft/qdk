@@ -38,7 +38,6 @@ def patch_dependencies(manifest_path: Path) -> None:
             dependency.clear()
             dependency["path"] = str(_LIB_PATH / library_name)
             updated = True
-            print(f"AAAA patched dep {library_name} in {manifest_path}")
 
     if updated:
         manifest_path.write_text(
