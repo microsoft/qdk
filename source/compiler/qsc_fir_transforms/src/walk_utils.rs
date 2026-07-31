@@ -113,12 +113,9 @@ where
     F: FnMut(ExprId, &Expr),
 {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             for_each_expr_in_spec_impl(pkg, spec_impl, visit);
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            for_each_expr_in_spec_decl(pkg, spec_decl, visit);
         }
     }
 }
@@ -265,8 +262,7 @@ pub enum CallableNode {
 /// Coverage is complete for the callable's reachable tree:
 /// - **Patterns.** The callable input ([`CallableDecl::input`]), each present
 ///   specialization input ([`SpecDecl::input`], including the control-register
-///   inputs carried by the `ctl` / `ctl_adj` specs and the single
-///   [`CallableImpl::SimulatableIntrinsic`] spec), and every
+///   inputs carried by the `ctl` / `ctl_adj` specs), and every
 ///   [`StmtKind::Local`] binding — each walked recursively through
 ///   [`PatKind::Tuple`] elements.
 /// - **Blocks / statements / expressions.** Every specialization body block,

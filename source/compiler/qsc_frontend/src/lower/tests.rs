@@ -2369,6 +2369,109 @@ fn test_reset_attr_on_function_issues_error() {
 }
 
 #[test]
+fn test_simulatable_intrinsic_attr_on_generic_operation_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation Foo<'T>(value : 'T) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicOnGenericCallable(
+                    Span {
+                        lo: 63,
+                        hi: 65,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_generic_function_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                function Foo<'T>(value : 'T) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicOnGenericCallable(
+                    Span {
+                        lo: 62,
+                        hi: 64,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_arrow_param_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation Foo(op : Qubit => Unit) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicArrowParam(
+                    Span {
+                        lo: 63,
+                        hi: 81,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_nested_arrow_param_issues_one_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation Foo(value : Int, (op : Qubit => Unit, flag : Bool)) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicArrowParam(
+                    Span {
+                        lo: 77,
+                        hi: 95,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_dump_operation_arrow_param_is_allowed() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation DumpOperation(count : Int, op : Qubit[] => Unit) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
 fn item_docs() {
     check_hir(
         "/// This is a namespace.

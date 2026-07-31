@@ -5,6 +5,7 @@ pub mod attrs;
 pub mod display;
 pub mod error;
 pub mod functors;
+pub mod intrinsic_names;
 pub mod language_features;
 pub mod line_column;
 pub mod namespaces;

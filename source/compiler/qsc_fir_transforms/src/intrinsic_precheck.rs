@@ -6,9 +6,7 @@
 //! Rejects reachable intrinsic callables whose parameter or return types
 //! contain non-empty tuples or user-defined types, which cannot survive UDT
 //! erasure and tuple-decompose (an intrinsic has no body to rewrite). A failure
-//! is fatal and short-circuits the pipeline with
-//! [`Error::UnsupportedParamType`] / [`Error::UnsupportedReturnType`] before any
-//! other pass runs.
+//! is fatal and short-circuits the pipeline before any other pass runs.
 
 #[cfg(test)]
 mod tests;
