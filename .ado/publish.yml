@@ -52,6 +52,8 @@ parameters:
         imageName: "azurelinux-3.0-gen2-arm64"
         os: linux
         arch: aarch64
+        envVars:
+          CARGO_PROFILE_RELEASE_LTO: "thin"
       - name: mac_x86_64
         poolName: "Azure Pipelines"
         imageName: "macOS-latest" # MacOS-specific Py (Mac is usually quite limited).

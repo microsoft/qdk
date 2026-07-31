@@ -112,7 +112,7 @@ enum_glob_use = "allow"
 [profile.release]
 debug = "limited"
 strip = "symbols"
-lto = "thin"
+lto = "fat"
 codegen-units = 1
 
 [profile.release.package.fuzz]
@@ -121,5 +121,5 @@ codegen-units = 16
 [profile.bench]
 debug = true
 strip = false
-lto = "thin"
+lto = "fat"
 codegen-units = 1
