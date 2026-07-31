@@ -15,19 +15,30 @@ fn panic_message(panic: Box<dyn Any + Send>) -> String {
     }
 }
 
+/// The error-returning runner must still surface fatal backstops after
+/// convergence failures are deferred.
 #[test]
 fn staged_runner_with_errors_returns_defunctionalization_diagnostics() {
     let source = r#"
-        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps { op(q); }
+            for op in secondOps { op(q); }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
         operation Main() : Unit {
             use q = Qubit();
-            mutable op = H;
-            mutable n = 3;
-            while n > 0 {
-                op = X;
-                n -= 1;
-            }
-            ApplyOp(op, q);
+            ForwardTwoArrays([X, Y], [Z, H], q);
         }
     "#;
 
@@ -45,24 +56,37 @@ fn staged_runner_with_errors_returns_defunctionalization_diagnostics() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        messages.contains("callable argument could not be resolved statically"),
+        messages.contains(
+            "higher-order function forwards more than one callable array, which is not supported"
+        ),
         "unexpected diagnostics: {messages}"
     );
 }
 
+/// The checked runner must still panic for fatal backstops after convergence
+/// failures are deferred.
 #[test]
 fn checked_staged_runner_panics_on_unexpected_defunctionalization_diagnostics() {
     let source = r#"
-        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps { op(q); }
+            for op in secondOps { op(q); }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
         operation Main() : Unit {
             use q = Qubit();
-            mutable op = H;
-            mutable n = 3;
-            while n > 0 {
-                op = X;
-                n -= 1;
-            }
-            ApplyOp(op, q);
+            ForwardTwoArrays([X, Y], [Z, H], q);
         }
     "#;
 
@@ -76,7 +100,9 @@ fn checked_staged_runner_panics_on_unexpected_defunctionalization_diagnostics() 
         "unexpected panic: {message}"
     );
     assert!(
-        message.contains("callable argument could not be resolved statically"),
+        message.contains(
+            "higher-order function forwards more than one callable array, which is not supported"
+        ),
         "unexpected panic: {message}"
     );
 }

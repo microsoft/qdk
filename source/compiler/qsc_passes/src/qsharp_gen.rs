@@ -33,10 +33,9 @@ use qsc_hir::hir::{
     Pauli, PrimField, QubitInit, QubitInitKind, QubitSource, Res, Result as HirResult, SpecBody,
     SpecDecl, Stmt, StmtKind, StringComponent, UnOp,
 };
-use qsc_hir::ty::{FunctorSetValue, Ty, Udt, UdtDefKind};
+use qsc_hir::ty::{FunctorSetValue, Ty, Udt};
 use qsc_hir::visit::{Visitor, walk_pat};
 use rustc_hash::FxHashMap;
-use std::fmt::Write as _;
 use std::rc::Rc;
 
 /// Renders a transformed HIR package as Q# source.
@@ -381,9 +380,13 @@ impl<'a> HirQSharpGen<'a> {
                 self.emit_expr(e);
             }
             ExprKind::Field(record, field) => {
-                let field = self.field_display(&record.ty, field);
-                self.emit_expr(record);
-                self.write(&field);
+                if let (Ty::Tuple(items), Field::Path(path)) = (&record.ty, field) {
+                    self.emit_tuple_field(record, items, path);
+                } else {
+                    let field = self.field_display(&record.ty, field);
+                    self.emit_expr(record);
+                    self.write(&field);
+                }
             }
             ExprKind::If(cond, body, otherwise) => {
                 self.write("if ");
@@ -673,24 +676,55 @@ impl<'a> HirQSharpGen<'a> {
             Field::Prim(PrimField::Start) => ".Start".to_string(),
             Field::Prim(PrimField::Step) => ".Step".to_string(),
             Field::Prim(PrimField::End) => ".End".to_string(),
+
             Field::Path(path) => self.resolve_field_path(record_ty, path),
         }
     }
 
-    /// Resolves a tuple-index `FieldPath` to its declared `::Name` when the
-    /// record's UDT definition is available, falling back to the raw index
-    /// chain `::Item<i0>::Item<i1>` otherwise.
+    /// Resolves a tuple-index `FieldPath` to its declared `::Name`.
+    ///
+    /// Field paths in HIR preserve the owning UDT on the record expression, so
+    /// failing to resolve one indicates malformed HIR rather than a renderable
+    /// alternate form: Q# has no surface syntax for tuple-index field paths.
     fn resolve_field_path(&self, record_ty: &Ty, path: &FieldPath) -> String {
-        if let Some(udt) = self.lookup_udt(record_ty)
-            && let Some(name) = udt_field_name(udt, path)
-        {
-            return format!("::{name}");
-        }
-        let mut out = String::new();
-        for idx in &path.indices {
-            let _ = write!(out, "::Item<{idx}>");
-        }
-        out
+        let udt = self
+            .lookup_udt(record_ty)
+            .unwrap_or_else(|| panic!("field path {path:?} has no resolved UDT type: {record_ty}"));
+        let field = udt
+            .find_field(path)
+            .unwrap_or_else(|| panic!("field path {path:?} is invalid for UDT {}", udt.name));
+        let name = field.name.as_deref().unwrap_or_else(|| {
+            panic!(
+                "field path {path:?} in UDT {} does not name a field",
+                udt.name
+            )
+        });
+        format!("::{name}")
+    }
+
+    /// Renders a field path over a plain tuple as a scoped destructuring
+    /// expression. Q# has no tuple-index projection syntax, so binding the
+    /// selected item is the only surface representation that evaluates the
+    /// record exactly once.
+    fn emit_tuple_field(&mut self, record: &'a Expr, items: &[Ty], path: &FieldPath) {
+        assert!(
+            !path.indices.is_empty(),
+            "tuple field path must not be empty"
+        );
+        let binding = format!("_field_{}", record.id);
+        let pattern = tuple_field_pattern(items, &path.indices, &binding).unwrap_or_else(|| {
+            panic!(
+                "field path {path:?} is invalid for tuple type {}",
+                record.ty
+            )
+        });
+        self.write("{ let ");
+        self.write(&pattern);
+        self.write(" = ");
+        self.emit_expr(record);
+        self.write("; ");
+        self.write(&binding);
+        self.write(" }");
     }
 
     /// Looks up the [`Udt`] definition backing `ty` when it is a resolved
@@ -785,21 +819,32 @@ impl<'a> HirQSharpGen<'a> {
     }
 }
 
-/// Walks `udt`'s definition following `path`'s tuple indices and returns the
-/// declared field name at the destination, or `None` when the path lands on a
-/// tuple rather than a named field. Mirrors the FIR emitter's `udt_field_name`.
-fn udt_field_name(udt: &Udt, path: &FieldPath) -> Option<Rc<str>> {
-    let mut def = &udt.definition;
-    for &index in &path.indices {
-        match &def.kind {
-            UdtDefKind::Tuple(items) => def = items.get(index)?,
-            UdtDefKind::Field(_) => return None,
+/// Builds a tuple binding pattern that selects `path` into `binding`, using
+/// discards for every unselected item.
+fn tuple_field_pattern(items: &[Ty], path: &[usize], binding: &str) -> Option<String> {
+    let (&index, rest) = path.split_first()?;
+    let selected_ty = items.get(index)?;
+    let selected = if rest.is_empty() {
+        binding.to_string()
+    } else {
+        let Ty::Tuple(nested) = selected_ty else {
+            return None;
+        };
+        tuple_field_pattern(nested, rest, binding)?
+    };
+
+    let mut pattern = String::from("(");
+    for item_index in 0..items.len() {
+        if item_index > 0 {
+            pattern.push_str(", ");
         }
+        pattern.push_str(if item_index == index { &selected } else { "_" });
     }
-    match &def.kind {
-        UdtDefKind::Field(field) => field.name.clone(),
-        UdtDefKind::Tuple(_) => None,
+    if items.len() == 1 {
+        pattern.push(',');
     }
+    pattern.push(')');
+    Some(pattern)
 }
 
 /// Returns `true` when emitting `kind` ends with a block's closing `}`, which

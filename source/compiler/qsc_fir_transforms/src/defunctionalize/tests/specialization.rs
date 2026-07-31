@@ -1612,7 +1612,7 @@ fn capture_local_ids_are_reasonable() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -1673,7 +1673,7 @@ fn multiple_captures_sequential_ids() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -2189,7 +2189,7 @@ fn branch_split_nested_callable_in_tuple_args_consistency() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -2638,7 +2638,7 @@ fn branch_split_nested_callable_adj_ctl_args_consistency() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let package = fir_store.get(fir_pkg_id);
 
@@ -3408,7 +3408,7 @@ fn recursive_unused_param_identity_lambda_converges_clean() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert!(
         errors.is_empty(),
         "expected clean convergence with no diagnostics, got:\n{}",
@@ -3892,7 +3892,7 @@ fn excessive_specializations_warning_does_not_block_compilation() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     // Should have exactly one warning, no fatal errors.
     let warnings: Vec<_> = errors
@@ -3939,7 +3939,7 @@ fn cumulative_specialization_cap_fails_closed_with_fatal_error() {
     // The loop must terminate (fail closed); if the guard were absent this
     // could otherwise run to the iteration cap. Reaching this assertion at all
     // proves there was no panic or hang.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     let recursive: Vec<_> = errors
         .iter()
@@ -3994,7 +3994,7 @@ fn primary_fix_regressions_stay_under_cumulative_cap() {
     for source in [used_param, unused_param] {
         let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
         let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-        let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+        let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
         assert!(
             !errors
                 .iter()
@@ -4169,7 +4169,7 @@ fn cross_function_closure_capture_threads_correct_value() {
             function MakeRotation(base : Int) : (Qubit => Unit) {
                 return {
                     let arg : Int = base;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -4546,7 +4546,7 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
                 }
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-                ()
+                / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -4584,9 +4584,9 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
                 __quantum__rt__qubit_release(control);
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
-                / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
+                / * closure item = 14 captures = [__capture_0, numSystemQubits, power] * / _lambda_7
             }
-            operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            operation _lambda_7(__capture_0 : __UDT_Item_1__Package_2_, numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
                     let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
@@ -5199,7 +5199,7 @@ fn single_element_producer_tuple_param_drops_slot_and_threads_capture() {
             function Make(angle : Double) : (Qubit => Unit) {
                 return {
                     let arg : Double = angle;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation ApplyTup(ops : ((Qubit => Unit), )) : Unit {
@@ -5305,10 +5305,13 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
                     mutable _index_id_60 : Int = 0;
                     while _index_id_60 < _len_id_55 {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_60];
-                        if _index_id_60 == 0 {
-                            ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
-                        } else {
-                            ApplyTwo_AdjCtl__AdjCtl__X__Y_(q)
+                        {
+                            [(), ()][_index_id_60];
+                            if (_index_id_60 == 0) or (_index_id_60 == -2) {
+                                ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
+                            } else {
+                                ApplyTwo_AdjCtl__AdjCtl__X__Y_(q)
+                            }
                         };
                         _index_id_60 += 1;
                     }
@@ -5369,7 +5372,7 @@ fn indexed_callable_array_param_hoists_side_effecting_index_once() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
@@ -5422,6 +5425,7 @@ fn indexed_callable_array_param_hoists_side_effecting_index_once() {
             operation RunAt_AdjCtl__I__X__Y_(q : Qubit) : Unit {
                 {
                     let index : Int = ChooseIndex(q);
+                    [(), (), ()][index];
                     if index == 0 {
                         I(q)
                     } else if index == 1 {
@@ -5555,10 +5559,13 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     mutable _index_id_64 : Int = 0;
                     while _index_id_64 < _len_id_59 {
                         let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
-                        if _index_id_64 == 0 {
-                            Run_Empty__H_(q)
-                        } else {
-                            Run_Empty__X_(q)
+                        {
+                            [(), ()][_index_id_64];
+                            if (_index_id_64 == 0) or (_index_id_64 == -2) {
+                                Run_Empty__H_(q)
+                            } else {
+                                Run_Empty__X_(q)
+                            }
                         };
                         _index_id_64 += 1;
                     }

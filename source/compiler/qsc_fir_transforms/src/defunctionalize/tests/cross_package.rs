@@ -14,7 +14,7 @@ use miette::Diagnostic;
 
 use super::super::build_spec_key;
 use super::super::types::CallSite;
-use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId};
+use qsc_fir::fir::{ExprId, ItemId, LocalItemId, PackageId, StoreItemId};
 
 /// Regression guard: two call sites that differ only in the package owning the
 /// closure body (`call_pkg_id`) must produce distinct `SpecKey`s. The closure
@@ -103,7 +103,7 @@ fn cross_package_hof_body_with_nested_lambda_clones_into_target() {
 
     // Specialization succeeds because the closure target is extracted and
     // relocated rather than left dangling.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_hof_body_with_nested_lambda_clones_into_target",
         &errors,
@@ -182,7 +182,7 @@ fn cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized()
         "precondition: the entry package starts with no lifted lambda items"
     );
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_nested_lambda_relocated_with_remapped_id_and_defunctionalized",
         &errors,
@@ -305,7 +305,7 @@ fn cross_package_foreign_hof_without_nested_lambda_specializes_into_entry() {
 
     let entry_items_before = callable_item_ids(fir_store.get(fir_pkg_id));
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_foreign_hof_without_nested_lambda_specializes_into_entry",
         &errors,
@@ -380,7 +380,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
         crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
-    let cross_package_errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let cross_package_errors =
+        defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     // The identical mutual recursion declared entirely in the entry package.
     let same_package_source = r#"
@@ -405,7 +406,8 @@ fn cross_package_recursive_hof_forwarding_callable_rejected_like_same_package() 
     let (mut same_store, same_pkg_id) =
         crate::test_utils::compile_to_monomorphized_fir(same_package_source);
     let mut same_assigners = PackageAssigners::new(&same_store, same_pkg_id);
-    let same_package_errors = defunctionalize(&mut same_store, same_pkg_id, &mut same_assigners);
+    let same_package_errors =
+        defunctionalize(&mut same_store, same_pkg_id, &mut same_assigners).diagnostics;
 
     // Both reject the forwarded callable parameter.
     assert!(
@@ -473,7 +475,7 @@ fn cross_package_function_typed_return_flows_across_packages() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "cross_package_function_typed_return_flows_across_packages",
         &errors,
@@ -535,7 +537,7 @@ fn foreign_factory_capturing_callable_field_is_defunctionalized() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors(
         "foreign_factory_capturing_callable_field_is_defunctionalized",
         &errors,
@@ -594,7 +596,7 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
     crate::monomorphize::monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
 
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_eq!(
         errors.len(),
         1,
@@ -629,6 +631,401 @@ fn unresolved_foreign_projected_callee_emits_dynamic_callable() {
         &lib_source[span.lo as usize..span.hi as usize],
         "config.Apply(q)",
         "the foreign diagnostic label should retain the unresolved call expression"
+    );
+
+    let _ = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        lib_source,
+        user_source,
+        crate::PipelineStage::Full,
+    );
+
+    let producer_lib_source = r#"
+        namespace ProducerLib {
+            operation MakeInner(q : Qubit) : Qubit => Unit {
+                X(q);
+                Rx(0.0, _)
+            }
+
+            operation MakeOuter(q : Qubit) : Qubit => Unit {
+                MakeInner(q)
+            }
+
+            export MakeOuter;
+        }
+    "#;
+    let producer_user_source = r#"
+        import ProducerLib.*;
+
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOuter(q);
+            ApplyOp(op, q);
+        }
+    "#;
+    let (mut producer_store, producer_entry_package) =
+        crate::test_utils::compile_to_fir_with_library(producer_lib_source, producer_user_source);
+    let mut producer_assigners = PackageAssigners::new(&producer_store, producer_entry_package);
+    crate::monomorphize::monomorphize(
+        &mut producer_store,
+        producer_entry_package,
+        &mut producer_assigners,
+    );
+    let nested_producer = (&producer_store)
+        .into_iter()
+        .find_map(|(package_id, package)| {
+            package.items.iter().find_map(|(item_id, item)| {
+                matches!(
+                    &item.kind,
+                    ItemKind::Callable(decl) if decl.name.name.starts_with("MakeInner")
+                )
+                .then_some(StoreItemId::from((package_id, item_id)))
+            })
+        })
+        .expect("nested foreign producer MakeInner should exist");
+    assert_ne!(
+        nested_producer.package, producer_entry_package,
+        "the nested producer should retain its library package"
+    );
+
+    let producer_outcome = defunctionalize(
+        &mut producer_store,
+        producer_entry_package,
+        &mut producer_assigners,
+    );
+    assert!(
+        producer_outcome
+            .diagnostics
+            .iter()
+            .any(crate::defunctionalize::Error::is_deferrable),
+        "the foreign producer chain should produce a deferrable diagnostic"
+    );
+    assert!(
+        producer_outcome.residue_items.contains(&nested_producer),
+        "a nested producer reached across a package boundary must remain authorized"
+    );
+
+    let _ = crate::test_utils::compile_and_run_pipeline_to_with_library(
+        producer_lib_source,
+        producer_user_source,
+        crate::PipelineStage::Full,
+    );
+}
+
+#[test]
+fn foreign_hof_parameter_origin_uses_caller_package() {
+    let lib_source = r#"
+        namespace ForwardLib {
+            operation Forward(op : Qubit => Unit, q : Qubit) : Qubit => Unit {
+                X(q);
+                op
+            }
+
+            export Forward;
+        }
+    "#;
+    let user_source = r#"
+        import ForwardLib.*;
+
+        operation MakeUser(q : Qubit) : Qubit => Unit {
+            X(q);
+            Rx(0.0, _)
+        }
+        operation Replacement(q : Qubit) : Unit {
+            H(q);
+        }
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            mutable source = Forward(MakeUser(q), q);
+            let alias = source;
+            source = Replacement;
+            ApplyOp(alias, q);
+        }
+    "#;
+    let (mut store, entry_package) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+    let mut assigners = PackageAssigners::new(&store, entry_package);
+    crate::monomorphize::monomorphize(&mut store, entry_package, &mut assigners);
+    let user_producer = store
+        .get(entry_package)
+        .items
+        .iter()
+        .find_map(|(item_id, item)| {
+            matches!(
+                &item.kind,
+                ItemKind::Callable(decl) if decl.name.name.as_ref() == "MakeUser"
+            )
+            .then_some(StoreItemId::from((entry_package, item_id)))
+        })
+        .expect("MakeUser should exist in the caller package");
+    let analysis = super::run_prepass_and_analysis(&mut store, entry_package);
+    assert!(
+        analysis.deferrable_residue_items.contains(&user_producer),
+        "the forwarded producer must retain its caller-package identity"
+    );
+}
+
+#[test]
+fn producer_summary_cross_package_udt_selects_returned_field() {
+    let lib_source = r#"
+        namespace ProducerLib {
+            struct Pair {
+                Selected : Qubit => Unit,
+                Sibling : Qubit => Unit,
+            }
+
+            operation MakeSelected(q : Qubit) : Qubit => Unit {
+                X(q);
+                Rx(0.5, _)
+            }
+
+            operation MakeCandidates(q : Qubit) : (Qubit => Unit)[] {
+                Z(q);
+                [H, X]
+            }
+
+            operation ForwardPair(
+                selected : Qubit => Unit,
+                q : Qubit
+            ) : Pair {
+                let index = if MResetZ(q) == Zero { 0 } else { 1 };
+                new Pair {
+                    Selected = selected,
+                    Sibling = MakeCandidates(q)[index],
+                }
+            }
+
+            export ForwardPair;
+        }
+    "#;
+    let user_source = r#"
+        import ProducerLib.*;
+
+        operation MakeSelected(q : Qubit) : Qubit => Unit {
+            Y(q);
+            Ry(0.0, _)
+        }
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let pair = ForwardPair(MakeSelected(q), q);
+            ApplyOp(pair.Selected, q);
+        }
+    "#;
+    let (mut store, entry_package) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+    let mut assigners = PackageAssigners::new(&store, entry_package);
+    crate::monomorphize::monomorphize(&mut store, entry_package, &mut assigners);
+    let (selected, candidates, foreign_forward, foreign_namesake) = {
+        let selected = store
+            .get(entry_package)
+            .items
+            .iter()
+            .find_map(|(item_id, item)| {
+                matches!(
+                    &item.kind,
+                    ItemKind::Callable(decl) if decl.name.name.as_ref() == "MakeSelected"
+                )
+                .then_some(StoreItemId::from((entry_package, item_id)))
+            })
+            .expect("caller MakeSelected should exist");
+        let find_foreign = |name: &str| {
+            let items: Vec<_> = (&store)
+                .into_iter()
+                .filter(|(package_id, _)| *package_id != entry_package)
+                .flat_map(|(package_id, package)| {
+                    package.items.iter().filter_map(move |(item_id, item)| {
+                        matches!(
+                            &item.kind,
+                            ItemKind::Callable(decl) if decl.name.name.starts_with(name)
+                        )
+                        .then_some(StoreItemId::from((package_id, item_id)))
+                    })
+                })
+                .collect();
+            assert!(!items.is_empty(), "foreign {name} should exist");
+            items
+        };
+        (
+            selected,
+            find_foreign("MakeCandidates"),
+            find_foreign("ForwardPair"),
+            find_foreign("MakeSelected"),
+        )
+    };
+    let analysis = super::run_prepass_and_analysis(&mut store, entry_package);
+    assert!(
+        analysis.deferrable_residue_items.contains(&selected),
+        "the selected field must retain the caller-package producer"
+    );
+    assert!(
+        foreign_forward
+            .iter()
+            .any(|item| analysis.deferrable_residue_items.contains(item)),
+        "the selected lineage must retain the foreign aggregate forwarder"
+    );
+    assert!(
+        candidates
+            .iter()
+            .all(|item| !analysis.deferrable_residue_items.contains(item)),
+        "an unsupported unselected sibling must not authorize its producer"
+    );
+    assert!(
+        foreign_namesake
+            .iter()
+            .all(|item| !analysis.deferrable_residue_items.contains(item)),
+        "same-named producers in another package must not collide"
+    );
+
+    let outcome = defunctionalize(&mut store, entry_package, &mut assigners);
+    assert!(
+        outcome.diagnostics.iter().all(|error| {
+            error.code().is_none_or(|code| {
+                code.to_string() != "Qdk.Qsc.Defunctionalize.UnsupportedProducerLineage"
+            })
+        }),
+        "an unsupported unselected sibling must remain non-fatal: {:?}",
+        outcome.diagnostics
+    );
+}
+
+#[test]
+fn producer_summary_direct_site_causality_survives_foreign_hof_owner() {
+    let lib_source = r#"
+        namespace ProducerLib {
+            operation MakeDirect(q : Qubit) : Qubit => Unit {
+                Y(q);
+                Ry(0.0, _)
+            }
+
+            operation Host(op : Qubit => Unit, target : Qubit) : Unit {
+                let independent = MakeDirect(target);
+                independent(target);
+                let subordinate = op;
+                subordinate(target);
+            }
+
+            export Host;
+        }
+    "#;
+    let user_source = r#"
+        import ProducerLib.*;
+
+        operation MakeHof(q : Qubit) : Qubit => Unit {
+            X(q);
+            Rx(0.0, _)
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let hof = MakeHof(q);
+            Host(hof, q);
+        }
+    "#;
+    let (mut store, entry_package) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+    let mut assigners = PackageAssigners::new(&store, entry_package);
+    crate::monomorphize::monomorphize(&mut store, entry_package, &mut assigners);
+    let outcome = defunctionalize(&mut store, entry_package, &mut assigners);
+    let dynamic_count = outcome
+        .diagnostics
+        .iter()
+        .filter(|error| {
+            error
+                .code()
+                .is_some_and(|code| code.to_string() == "Qdk.Qsc.Defunctionalize.DynamicCallable")
+        })
+        .count();
+    assert_eq!(
+        dynamic_count, 2,
+        "the foreign HOF root and its independent direct site must remain diagnosed while the formal-derived direct site is suppressed: {:?}",
+        outcome.diagnostics
+    );
+}
+
+#[test]
+fn producer_summary_multi_parameter_rows_survive_foreign_hof_owner() {
+    let lib_source = r#"
+        namespace ProducerLib {
+            operation PairApply(
+                first : Qubit => Unit,
+                second : Qubit => Unit,
+                target : Qubit
+            ) : Unit {
+                first(target);
+                second(target);
+            }
+
+            operation Host(
+                first : Qubit => Unit,
+                second : Qubit => Unit,
+                target : Qubit
+            ) : Unit {
+                PairApply(first, second, target);
+            }
+
+            export Host;
+        }
+    "#;
+    let user_source = r#"
+        import ProducerLib.*;
+
+        operation MakeCandidates(q : Qubit) : (Qubit => Unit)[] {
+            X(q);
+            [H, X]
+        }
+
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let candidates = MakeCandidates(q);
+            let first = if MResetZ(q) == Zero { 0 } else { 1 };
+            let second = if MResetZ(q) == Zero { 0 } else { 1 };
+            Host(candidates[first], candidates[second], q);
+        }
+    "#;
+    let (mut store, entry_package) =
+        crate::test_utils::compile_to_fir_with_library(lib_source, user_source);
+    let mut assigners = PackageAssigners::new(&store, entry_package);
+    crate::monomorphize::monomorphize(&mut store, entry_package, &mut assigners);
+    let outcome = defunctionalize(&mut store, entry_package, &mut assigners);
+    let unsupported_count = outcome
+        .diagnostics
+        .iter()
+        .filter(|error| {
+            error.code().is_some_and(|code| {
+                code.to_string() == "Qdk.Qsc.Defunctionalize.UnsupportedProducerLineage"
+            })
+        })
+        .count();
+    let dynamic_count = outcome
+        .diagnostics
+        .iter()
+        .filter(|error| {
+            error
+                .code()
+                .is_some_and(|code| code.to_string() == "Qdk.Qsc.Defunctionalize.DynamicCallable")
+        })
+        .count();
+    assert_eq!(
+        (dynamic_count, unsupported_count),
+        (0, 2),
+        "the two foreign-root rows must retain exact incomplete multiplicity while child formal rows are suppressed: {:?}",
+        outcome.diagnostics
     );
 }
 
@@ -1095,7 +1492,7 @@ fn analysis_bernstein_vazirani_sample_shape() {
             function EncodeIntegerAsParityOperation(bitStringAsInt : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = bitStringAsInt;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation _lambda_5(arg : Int, (hole : Qubit[], hole_1 : Qubit)) : Unit {
@@ -1307,7 +1704,7 @@ fn analysis_deutsch_jozsa_sample_shape() {
               site: callee=H:Adj, default
             lattice states:
               callable Main:
-                5: Multi([SimpleConstantBoolF:Body, SimpleBalancedBoolF:Body, ConstantBoolF:Body, BalancedBoolF:Body])"#]],
+                5: Dynamic"#]],
     );
     check_rewrite_with_capabilities(
         source,
@@ -1517,14 +1914,17 @@ fn analysis_deutsch_jozsa_sample_shape() {
                     mutable _index_id_253 : Int = 0;
                     while _index_id_253 < _len_id_248 {
                         let fn : ((Qubit[], Qubit) => Unit) = _array_id_244[_index_id_253];
-                        let _ : Bool = if _index_id_253 == 0 {
-                            DeutschJozsa_Empty__SimpleConstantBoolF_(5)
-                        } else if _index_id_253 == 1 {
-                            DeutschJozsa_Empty__SimpleBalancedBoolF_(5)
-                        } else if _index_id_253 == 2 {
-                            DeutschJozsa_Empty__ConstantBoolF_(5)
-                        } else {
-                            DeutschJozsa_Empty__BalancedBoolF_(5)
+                        let _ : Bool = {
+                            [(), (), (), ()][_index_id_253];
+                            if (_index_id_253 == 0) or (_index_id_253 == -4) {
+                                DeutschJozsa_Empty__SimpleConstantBoolF_(5)
+                            } else if (_index_id_253 == 1) or (_index_id_253 == -3) {
+                                DeutschJozsa_Empty__SimpleBalancedBoolF_(5)
+                            } else if (_index_id_253 == 2) or (_index_id_253 == -2) {
+                                DeutschJozsa_Empty__ConstantBoolF_(5)
+                            } else {
+                                DeutschJozsa_Empty__BalancedBoolF_(5)
+                            }
                         };
                         _index_id_253 += 1;
                     }

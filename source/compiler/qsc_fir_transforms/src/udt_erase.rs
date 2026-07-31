@@ -50,7 +50,7 @@ mod semantic_equivalence_tests;
 use crate::EMPTY_EXEC_RANGE;
 use crate::cloner::FirCloner;
 use crate::package_assigners::PackageAssigners;
-use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
+use crate::reachability::{collect_reachable_package_closure, collect_reachable_with_seeds};
 use qsc_fir::fir::{
     BlockId, Expr, ExprId, ExprKind, Field, FieldAssign, FieldPath, ItemKind, LocalItemId, Package,
     PackageId, PackageStore, PatId, Res, StoreItemId,
@@ -98,14 +98,24 @@ type UdtCache = FxHashMap<StoreItemId, Ty>;
 /// Panics if the package has no entry expression. The reachability scans
 /// in this pass go through [`collect_reachable_from_entry`], which asserts
 /// `package.entry.is_some()`.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn erase_udts(
     store: &mut PackageStore,
     package_id: PackageId,
     assigners: &mut PackageAssigners,
 ) {
+    erase_udts_with_seeds(store, package_id, assigners, &[]);
+}
+
+pub fn erase_udts_with_seeds(
+    store: &mut PackageStore,
+    package_id: PackageId,
+    assigners: &mut PackageAssigners,
+    seeds: &[StoreItemId],
+) {
     // Build a resolution cache from all UDT items across all packages.
     let udt_cache = build_udt_cache(store);
-    let reachable = collect_reachable_from_entry(store, package_id);
+    let reachable = collect_reachable_with_seeds(store, package_id, seeds);
 
     // Erase UDTs in the target package and in any package that contains an
     // entry-reachable callable. UDT definition lookup still spans the whole
