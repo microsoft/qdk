@@ -723,7 +723,12 @@ pub fn package_ref_from_key(key: &PackageKey) -> PackageRef {
 /// every character other than an ASCII letter or digit is replaced with an underscore. For example,
 /// to override dependency on repository `{"owner": "Microsoft", "repo": "qdk"`, use
 /// environment variable `QDK_LIB_OVERRIDE_MICROSOFT_QDK`.
-/// 
+///
+/// The value of the environment variable must be the path to a local checkout of the GitHub
+/// repository, not necessarily the path to the library itself. If the library is not located at
+/// the repository root (that is, the GitHub dependency has a non-empty `path`), its path relative
+/// to the repository root must be the same locally as it is on GitHub.
+///
 /// If the repository has multiple libraries, all of them are overridden.
 pub(crate) fn local_override_env_var_name(github: &GitHubRef) -> String {
     let mut name = format!("QDK_LIB_OVERRIDE_{}_{}", github.owner, github.repo);
@@ -731,8 +736,7 @@ pub(crate) fn local_override_env_var_name(github: &GitHubRef) -> String {
     name.replace(|character: char| !character.is_ascii_alphanumeric(), "_")
 }
 
-/// Returns the configured local path for a GitHub dependency, if present.
-/// This will be a path to directory corresponding to repository root. 
+/// Returns the local override for a GitHub dependency, if configured in environment variables.
 fn local_override_for_github_dependency(github: &GitHubRef) -> Option<PathBuf> {
     let mut path = PathBuf::from(std::env::var_os(local_override_env_var_name(github))?);
     if let Some(github_path) = &github.path {
