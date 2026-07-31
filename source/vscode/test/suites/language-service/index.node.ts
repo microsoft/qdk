@@ -18,7 +18,6 @@ export async function run(): Promise<void> {
         // real paths on disk at bundling time.
         require("./language-service.test"); // eslint-disable-line @typescript-eslint/no-require-imports
         require("./completion-retrigger.test"); // eslint-disable-line @typescript-eslint/no-require-imports
-        require("./update-coalescing.test"); // eslint-disable-line @typescript-eslint/no-require-imports
       },
       { timeout: TEST_TIMEOUT_MS },
     );

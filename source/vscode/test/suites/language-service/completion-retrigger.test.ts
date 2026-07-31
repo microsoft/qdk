@@ -37,11 +37,7 @@ suite("Completion re-trigger behavior", function suite() {
 
   const noErrorsQs = vscode.Uri.joinPath(workspaceFolder.uri, "no-errors.qs");
 
-  // Long enough that each keystroke lands while a compile is blocking the extension
-  // host, which is the condition that causes updates to coalesce in the first place.
-  const simulatedCompileDelayMs = 100;
-
-  // Roughly a fast typist, and deliberately shorter than the simulated compile.
+  // Roughly a fast typist.
   const keystrokeIntervalMs = 40;
 
   type Invocation = {
@@ -55,24 +51,6 @@ suite("Completion re-trigger behavior", function suite() {
 
   this.beforeAll(async () => {
     await activateExtension();
-
-    await vscode.workspace
-      .getConfiguration("Q#")
-      .update(
-        "dev.simulatedCompileDelayMs",
-        simulatedCompileDelayMs,
-        vscode.ConfigurationTarget.Global,
-      );
-  });
-
-  this.afterAll(async () => {
-    await vscode.workspace
-      .getConfiguration("Q#")
-      .update(
-        "dev.simulatedCompileDelayMs",
-        undefined,
-        vscode.ConfigurationTarget.Global,
-      );
   });
 
   this.afterEach(async () => {

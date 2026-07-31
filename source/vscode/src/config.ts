@@ -47,12 +47,6 @@ export function getShowDevDiagnostics(): boolean {
     .get<boolean>("dev.showDevDiagnostics", false);
 }
 
-export function getSimulatedCompileDelayMs(): number {
-  return vscode.workspace
-    .getConfiguration("Q#")
-    .get<number>("dev.simulatedCompileDelayMs", 0);
-}
-
 export function getUploadSupplementalData(): boolean {
   return vscode.workspace
     .getConfiguration("Q#")

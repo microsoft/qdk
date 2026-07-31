@@ -14,10 +14,7 @@ import {
   openqasmLanguageId,
   qsharpLanguageId,
 } from "../common.js";
-import {
-  getShowDevDiagnostics,
-  getSimulatedCompileDelayMs,
-} from "../config.js";
+import { getShowDevDiagnostics } from "../config.js";
 import {
   fetchGithubRaw,
   findManifestDirectory,
@@ -312,10 +309,7 @@ function registerConfigurationChangeHandlers(
   languageService: ILanguageService,
 ) {
   return vscode.workspace.onDidChangeConfiguration((event) => {
-    if (
-      event.affectsConfiguration("Q#.dev.showDevDiagnostics") ||
-      event.affectsConfiguration("Q#.dev.simulatedCompileDelayMs")
-    ) {
+    if (event.affectsConfiguration("Q#.dev.showDevDiagnostics")) {
       updateLanguageServiceConfiguration(languageService);
     }
   });
@@ -325,14 +319,12 @@ async function updateLanguageServiceConfiguration(
   languageService: ILanguageService,
 ) {
   const showDevDiagnostics = getShowDevDiagnostics();
-  const simulatedCompileDelayMs = getSimulatedCompileDelayMs();
 
   log.debug("Show dev diagnostics set to: " + showDevDiagnostics);
 
   // Update all configuration settings
   languageService.updateConfiguration({
     devDiagnostics: showDevDiagnostics,
-    simulatedCompileDelayMs,
     lints: [{ lint: "needlessOperation", level: "warn" }],
   });
 }

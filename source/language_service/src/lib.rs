@@ -20,7 +20,6 @@ mod state;
 mod test_utils;
 #[cfg(test)]
 mod tests;
-pub mod typing_simulation;
 
 use compilation::Compilation;
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};

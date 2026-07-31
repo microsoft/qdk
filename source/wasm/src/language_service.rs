@@ -35,13 +35,6 @@ impl LanguageService {
     #[wasm_bindgen(constructor)]
     #[allow(clippy::new_without_default)] // wasm-bindgen requires constructor to be explicitly defined
     pub fn new() -> Self {
-        // Only ever does anything when a test opts in via `simulatedCompileDelayMs`.
-        qsls::typing_simulation::set_busy_wait_callback(Box::new(|ms: u32| {
-            let end = js_sys::Date::now() + f64::from(ms);
-            while js_sys::Date::now() < end {
-                std::hint::spin_loop();
-            }
-        }));
         LanguageService(qsls::LanguageService::new(Encoding::Utf16))
     }
 
@@ -154,7 +147,6 @@ impl LanguageService {
                     .map(|features| features.iter().collect::<LanguageFeatures>()),
                 lints_config: config.lints,
                 dev_diagnostics: config.devDiagnostics,
-                simulated_compile_delay_ms: config.simulatedCompileDelayMs,
             });
     }
 
@@ -450,7 +442,6 @@ serializable_type! {
         pub languageFeatures: Option<Vec<String>>,
         pub lints: Option<Vec<LintOrGroupConfig>>,
         pub devDiagnostics: Option<bool>,
-        pub simulatedCompileDelayMs: Option<u32>,
     },
     r#"export interface IWorkspaceConfiguration {
         targetProfile?: TargetProfile;
@@ -458,7 +449,6 @@ serializable_type! {
         languageFeatures?: LanguageFeatures[];
         lints?: ({ lint: string; level: string } | { group: string; level: string })[];
         devDiagnostics?: boolean;
-        simulatedCompileDelayMs?: number;
     }"#,
     IWorkspaceConfiguration
 }
