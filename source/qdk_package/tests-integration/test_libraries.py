@@ -11,10 +11,8 @@ _LIB_PATH = Path(__file__).resolve().parents[3] / "library"
 
 
 def patch_dependencies(manifest_path: Path) -> None:
-    """Patches dependencies in given Q# manifest to depend on local version of QDK 
+    """Patches dependencies in given Q# manifest to depend on local version of QDK
     libraries instead of the ones on GitHub.
-
-    Applies only to libraries in microsoft/qdk/library.
     """
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     updated = False
