@@ -167,7 +167,7 @@ def _build_public_types(
         if all_symbols is None:
             continue
         for sym_name in all_symbols:
-            obj = getattr(mod, sym_name, None)
+            obj = _lazy_getattr(mod, mod_name, sym_name)
             if obj is None:
                 continue
             if isinstance(obj, type):
@@ -175,6 +175,27 @@ def _build_public_types(
                 public_type_names.add(sym_name)
 
     return public_type_ids, public_type_names
+
+
+_UNRESOLVED_WARNED: set[str] = set()
+
+
+def _lazy_getattr(mod: types.ModuleType, mod_name: str, sym_name: str):
+    """``getattr`` that tolerates a lazy module attribute failing to resolve.
+
+    Modules with a lazy ``__getattr__`` (e.g. ``qdk.ec.targets``) import an
+    optional backend on first attribute access. When that backend is not
+    installed the access raises rather than returning ``None``; such a symbol
+    simply cannot be scanned, so it is reported once and skipped.
+    """
+    try:
+        return getattr(mod, sym_name, None)
+    except Exception as exc:  # noqa: BLE001 - any import-time failure
+        qualified = f"{mod_name}.{sym_name}"
+        if qualified not in _UNRESOLVED_WARNED:
+            _UNRESOLVED_WARNED.add(qualified)
+            print(f"WARNING: could not resolve {qualified}: {exc}", file=sys.stderr)
+        return None
 
 
 def _check_annotation(
@@ -373,7 +394,7 @@ def scan() -> list[Violation]:
             continue  # only check modules that declare __all__
 
         for sym_name in all_symbols:
-            obj = getattr(mod, sym_name, None)
+            obj = _lazy_getattr(mod, mod_name, sym_name)
             if obj is None:
                 continue
 

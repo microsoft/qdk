@@ -1,0 +1,437 @@
+---
+qodec.yaml:
+  name: c4
+  layers:
+  - isa: C4.isa.yaml
+    codes:
+      c4: C4.code.yaml
+    gadgets:
+      idle: idle.gadget.yaml
+      measure_xx: measure_xx.gadget.yaml
+      measure_zz: measure_zz.gadget.yaml
+      prepare_xx: prepare_xx.gadget.yaml
+      prepare_zz: prepare_zz.gadget.yaml
+      transversal_cx: transversal_cx.gadget.yaml
+      x0: x0.gadget.yaml
+      x1: x1.gadget.yaml
+      z0: z0.gadget.yaml
+      z1: z1.gadget.yaml
+  - isa: stim.isa.yaml
+---
+C4.isa.yaml:
+  name: C4
+  blocks:
+    c4: 2
+  instructions:
+  - mnemonic: prepare_zz
+    description: ''
+    out:
+    - c4
+    action:
+    - stabilize:
+      - Z_0
+      - Z_1
+    flags:
+    - reject
+  - mnemonic: idle
+    description: ''
+    in:
+    - c4
+    out:
+    - c4
+  - mnemonic: measure_zz
+    description: ''
+    in:
+    - c4
+    action:
+    - observe:
+      - Z_0
+      - Z_1
+  - mnemonic: prepare_xx
+    description: ''
+    out:
+    - c4
+    action:
+    - stabilize:
+      - X_0
+      - X_1
+    flags:
+    - reject
+  - mnemonic: measure_xx
+    description: ''
+    in:
+    - c4
+    action:
+    - observe:
+      - X_0
+      - X_1
+  - mnemonic: transversal_cx
+    description: ''
+    in:
+    - c4
+    - c4
+    out:
+    - c4
+    - c4
+    action:
+    - clifford:
+        X_0: X_0 X_2
+        X_1: X_1 X_3
+        Z_2: Z_0 Z_2
+        Z_3: Z_1 Z_3
+  - mnemonic: x0
+    description: ''
+    in:
+    - c4
+    out:
+    - c4
+    action:
+    - pauli: X_0
+  - mnemonic: x1
+    description: ''
+    in:
+    - c4
+    out:
+    - c4
+    action:
+    - pauli: X_1
+  - mnemonic: z0
+    description: ''
+    in:
+    - c4
+    out:
+    - c4
+    action:
+    - pauli: Z_0
+  - mnemonic: z1
+    description: ''
+    in:
+    - c4
+    out:
+    - c4
+    action:
+    - pauli: Z_1
+---
+stim.isa.yaml:
+  name: stim
+  blocks:
+    qubit: 1
+  instructions:
+  - mnemonic: R
+    description: ''
+    out:
+    - qubit
+    action:
+    - stabilize:
+      - Z_0
+  - mnemonic: H
+    description: ''
+    in:
+    - qubit
+    out:
+    - qubit
+    action:
+    - clifford:
+        X_0: Z_0
+        Z_0: X_0
+  - mnemonic: CX
+    description: ''
+    in:
+    - qubit
+    - qubit
+    out:
+    - qubit
+    - qubit
+    action:
+    - clifford:
+        X_0: X_0 X_1
+        Z_1: Z_0 Z_1
+  - mnemonic: M
+    description: ''
+    in:
+    - qubit
+    action:
+    - observe: Z_0
+  - mnemonic: X
+    description: ''
+    in:
+    - qubit
+    out:
+    - qubit
+    action:
+    - pauli: X_0
+  - mnemonic: Z
+    description: ''
+    in:
+    - qubit
+    out:
+    - qubit
+    action:
+    - pauli: Z_0
+---
+C4.code.yaml:
+  name: C4
+  stabilizers:
+  - X_0 X_1 X_2 X_3
+  - Z_0 Z_1 Z_2 Z_3
+  x:
+  - X_0 X_1
+  - X_0 X_2
+  z:
+  - Z_0 Z_2
+  - Z_0 Z_1
+---
+idle.gadget.yaml:
+  implements: ./C4.isa.yaml#idle
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      # Data qubits: 0-3; X-stabilizer ancilla: 4; Z-stabilizer ancilla: 5
+      R 4 5
+      H 4
+      CX 4 0 4 1 4 2 4 3
+      H 4
+      CX 0 5 1 5 2 5 3 5
+      M 4 5
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  checks:
+  - - circuit.readouts[0]
+    - in[0].stabilizers[0]
+  - - circuit.readouts[1]
+    - in[0].stabilizers[1]
+  - - circuit.readouts[0]
+    - out[0].stabilizers[0]
+  - - circuit.readouts[1]
+    - out[0].stabilizers[1]
+---
+measure_xx.gadget.yaml:
+  implements: ./C4.isa.yaml#measure_xx
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      H 0 1 2 3
+      M 0 1 2 3
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  checks:
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - circuit.readouts[2]
+    - circuit.readouts[3]
+    - in[0].stabilizers[0]
+  readouts:
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+  - - circuit.readouts[0]
+    - circuit.readouts[2]
+---
+measure_zz.gadget.yaml:
+  implements: ./C4.isa.yaml#measure_zz
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      M 0 1 2 3
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  checks:
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+    - circuit.readouts[2]
+    - circuit.readouts[3]
+    - in[0].stabilizers[1]
+  readouts:
+  - - circuit.readouts[0]
+    - circuit.readouts[2]
+  - - circuit.readouts[0]
+    - circuit.readouts[1]
+---
+prepare_xx.gadget.yaml:
+  implements: ./C4.isa.yaml#prepare_xx
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      # Fault-tolerant preparation of |++>_L in XX basis
+      R 0 1 2 3
+      H 0
+      CX 0 4
+      CX 0 1
+      CX 0 2
+      CX 0 3
+      CX 0 4
+      H 0 1 2 3
+      # Flag = reject bit
+      M 4
+    format: stim
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  checks:
+  - - out[0].stabilizers[0]
+  - - out[0].stabilizers[1]
+  readouts:
+  - reject:
+    - circuit.readouts[0]
+---
+prepare_zz.gadget.yaml:
+  implements: ./C4.isa.yaml#prepare_zz
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      # Fault-tolerant preparation of |00>_L in ZZ basis
+      R 0 1 2 3
+      H 0
+      CX 0 4
+      CX 0 1
+      CX 0 2
+      CX 0 3
+      CX 0 4
+      # Flag = reject bit
+      M 4
+    format: stim
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  checks:
+  - - out[0].stabilizers[0]
+  - - out[0].stabilizers[1]
+  readouts:
+  - reject:
+    - circuit.readouts[0]
+---
+transversal_cx.gadget.yaml:
+  implements: ./C4.isa.yaml#transversal_cx
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      CX 0 4 1 5 2 6 3 7
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  - c4:
+    - 4
+    - 5
+    - 6
+    - 7
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  - c4:
+    - 4
+    - 5
+    - 6
+    - 7
+---
+x0.gadget.yaml:
+  implements: ./C4.isa.yaml#x0
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      X 0 1
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+---
+x1.gadget.yaml:
+  implements: ./C4.isa.yaml#x1
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      X 0 2
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+---
+z0.gadget.yaml:
+  implements: ./C4.isa.yaml#z0
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      Z 0 2
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+---
+z1.gadget.yaml:
+  implements: ./C4.isa.yaml#z1
+  circuit:
+    isa: ./stim.isa.yaml
+    source: |
+      Z 0 1
+    format: stim
+  in:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3
+  out:
+  - c4:
+    - 0
+    - 1
+    - 2
+    - 3

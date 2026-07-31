@@ -33,6 +33,19 @@ qiskit = ["qiskit>=1.2.2,<3.0.0"]
 cirq = ["cirq-core>=1.6.1,<1.7", "cirq-ionq>=1.6.1,<1.7", "ply>=3.11"]
 qre = ["pandas>=2.1"]
 applications = ["cirq-core==1.6.1,<1.7"]
+# Tooling to develop, test, and deploy quantum error correction schemes (qodecs).
+# `qodec` is the declarative qodec file format and object model; `paulimer` and
+# `binar` provide the Clifford/binary-algebra kernels the analyses run on.
+ec = [
+  "qodec>=0.0.0a1",
+  "paulimer>=0.2.2",
+  "binar>=0.1.2",
+  "more-itertools>=10.0",
+  "numpy>=1.24",
+]
+# Optional backends for `qdk.ec.targets`. Kept out of `ec` so the analysis and
+# authoring tooling installs without a simulator/decoder toolchain.
+ec-backends = ["stim>=1.13", "mwpf>=0.2.2"]
 all = [
   "qsharp-widgets==0.0.0",
   "azure-quantum>=3.8.0",
