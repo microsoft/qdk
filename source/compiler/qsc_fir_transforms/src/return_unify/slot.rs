@@ -4,17 +4,16 @@
 //! Return-slot and defaultability policy for return unification.
 
 use crate::fir_builder::{
-    alloc_assign_expr, alloc_block, alloc_discard_pat, alloc_expr, alloc_expr_stmt, alloc_if_expr,
-    alloc_local_var, alloc_local_var_expr,
+    alloc_assign_expr, alloc_expr, alloc_fail_callable, alloc_if_expr, alloc_local_var,
+    alloc_local_var_expr,
 };
 use num_bigint::BigInt;
 use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        CallableDecl, CallableImpl, ExprId, ExprKind, Ident, ItemId, ItemKind, Lit, LocalItemId,
-        LocalVarId, Mutability, Package, PackageId, Res, Result, StmtId, StoreItemId,
-        StringComponent,
+        ExprId, ExprKind, ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package,
+        PackageId, Res, Result, StmtId, StoreItemId, StringComponent,
     },
     ty::{Prim, Ty},
 };
@@ -675,89 +674,19 @@ impl ArrowDefaultCache {
         if let Some(&id) = self.items.get(&key) {
             return id;
         }
-        let new_id =
-            synthesize_fail_callable(package, assigner, kind, input_ty, output_ty, functors);
+        let new_id = alloc_fail_callable(
+            package,
+            assigner,
+            "__return_unify_fail",
+            "callable init expr",
+            kind,
+            input_ty,
+            output_ty,
+            functors,
+        );
         self.items.insert(key, new_id);
         new_id
     }
-}
-
-fn synthesize_fail_callable(
-    package: &mut Package,
-    assigner: &mut Assigner,
-    kind: qsc_fir::fir::CallableKind,
-    input_ty: &Ty,
-    output_ty: &Ty,
-    functors: qsc_fir::ty::FunctorSetValue,
-) -> LocalItemId {
-    let msg_expr_id = alloc_expr(
-        package,
-        assigner,
-        Ty::Prim(Prim::String),
-        ExprKind::String(vec![StringComponent::Lit("callable init expr".into())]),
-        Span::default(),
-    );
-    let fail_expr_id = alloc_expr(
-        package,
-        assigner,
-        output_ty.clone(),
-        ExprKind::Fail(msg_expr_id),
-        Span::default(),
-    );
-    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, Span::default());
-    let body_block = alloc_block(
-        package,
-        assigner,
-        vec![trailing_stmt],
-        output_ty.clone(),
-        Span::default(),
-    );
-
-    let input_pat_id = alloc_discard_pat(package, assigner, input_ty.clone(), Span::default());
-
-    let body_spec = qsc_fir::fir::SpecDecl {
-        span: Span::default(),
-        block: body_block,
-        input: None,
-        exec_graph: qsc_fir::fir::ExecGraph::default(),
-    };
-    let body_impl = qsc_fir::fir::SpecImpl {
-        body: body_spec,
-        adj: None,
-        ctl: None,
-        ctl_adj: None,
-    };
-
-    let new_item_id = assigner.next_item();
-    let callable_name: Rc<str> = Rc::from(format!("__return_unify_fail_{new_item_id}"));
-    let decl = CallableDecl {
-        span: Span::default(),
-        kind,
-        name: Ident {
-            id: LocalVarId::from(0_u32),
-            span: Span::default(),
-            name: callable_name,
-        },
-        generics: Vec::new(),
-        input: input_pat_id,
-        output: output_ty.clone(),
-        functors,
-        implementation: CallableImpl::Spec(body_impl),
-        attrs: Vec::new(),
-    };
-
-    let item = qsc_fir::fir::Item {
-        id: new_item_id,
-        span: Span::default(),
-        parent: None,
-        doc: Rc::from(""),
-        attrs: Vec::new(),
-        visibility: qsc_fir::fir::Visibility::Internal,
-        kind: ItemKind::Callable(Box::new(decl)),
-    };
-    package.items.insert(new_item_id, item);
-
-    new_item_id
 }
 
 fn create_assign_expr(

@@ -4,7 +4,7 @@
 use expect_test::expect;
 use qsc_data_structures::target::{Profile, TargetCapabilityFlags};
 
-use super::{compile_source_to_qir, compile_source_to_qir_result};
+use super::compile_source_to_qir;
 static CAPABILITIES: std::sync::LazyLock<TargetCapabilityFlags> =
     std::sync::LazyLock::new(|| TargetCapabilityFlags::from(Profile::Base));
 
@@ -1041,13 +1041,10 @@ fn var_bound_tuple_global_callables_reduces_args() {
     );
 }
 
-/// Out of scope for the non-inline combined rewrite is a
-/// function-returning-tuple argument such as `ApplyTwoTup(MakePair())`. The
-/// analysis cannot project the arrow fields out of a `Call` result, so the
-/// callable stays dynamic and defunctionalization rejects it cleanly rather
-/// than miscompiling.
+/// Partial evaluation resolves function-returned callable tuples that
+/// defunctionalization cannot project.
 #[test]
-fn function_returning_tuple_argument_stays_dynamic() {
+fn function_returning_tuple_argument_resolves_via_partial_eval() {
     let source = "namespace Test {
             import Std.Intrinsic.*;
             import Std.Measurement.*;
@@ -1063,11 +1060,12 @@ fn function_returning_tuple_argument_stays_dynamic() {
             operation Main() : Result { return ApplyTwoTup(MakePair()); }
         }";
 
-    let result = compile_source_to_qir_result(source, *CAPABILITIES);
-    assert!(
-        result.is_err(),
-        "expected a clean rejection for a function-returning-tuple argument; got Ok:\n{}",
-        result.unwrap_or_default()
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    let seq = unitary_gate_sequence(&qir);
+    assert_eq!(
+        seq,
+        vec!["h", "x"],
+        "expected h,x from a function-returning-tuple argument resolved by partial evaluation; got {seq:?}\n{qir}"
     );
 }
 

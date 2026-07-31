@@ -1265,11 +1265,8 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
 
 /// A closure callable-array forwarded across two higher-order levels and fully
 /// consumed by the innermost indexed dispatch leaves the source-array local
-/// dead in the reachable caller. Because closure cleanup blanks each element to
-/// unit, the surviving array binding would be an arrow-typed block with a unit
-/// tail that trips the `PostDefunc` non-unit block-tail invariant. The dead
-/// binding must be removed; this runs the invariant walk and full pipeline over
-/// the same shape as
+/// dead in the reachable caller. The dead binding must be removed; this runs
+/// the invariant walk and full pipeline over the same shape as
 /// `two_level_cross_hof_closure_array_forwarding_threads_all_captures`.
 #[test]
 fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
@@ -1313,11 +1310,13 @@ fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
     check_pipeline(source);
 }
 
-/// Regression test for producer-body closure cleanup: a producer function
-/// that returns a partial-application closure causes convergence failure
-/// when the closure node survives in the producer body after HOF
-/// specialization. The closure cleanup pass must replace consumed closures
-/// with Unit so that `remaining_callable_value_info` no longer counts them.
+/// Regression test for producer-body closure convergence: a producer function
+/// that returns a partial-application closure caused convergence failure when
+/// the closure node survived in the producer body after HOF specialization.
+/// `remaining_callable_value_info` resolves that from the consumed-target side
+/// set, so the loop converges with the producer body left intact. `MakeOp`
+/// loses its only caller in the same iteration, so cleanup never visits it and
+/// its closure stays well-formed until item DCE removes the whole callable.
 #[test]
 fn producer_body_closure_cleanup_converges() {
     let source = r#"
@@ -1378,7 +1377,7 @@ fn producer_body_closure_cleanup_converges() {
             function MakeOp(extra : Bool) : (Qubit => Unit) {
                 return {
                     let arg : Bool = extra;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -2979,7 +2978,8 @@ fn defunc_20_level_hof_completes_without_error() {
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors =
+        super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     assert!(
         errors.is_empty(),
@@ -2997,7 +2997,8 @@ fn defunc_21_level_hof_returns_static_resolution_error() {
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors =
+        super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     assert!(
         !errors.is_empty(),
@@ -3052,7 +3053,7 @@ fn multiple_forwarded_callable_arrays_return_unsupported_error() {
 
     let (mut store, package_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
 
     assert!(
         matches!(

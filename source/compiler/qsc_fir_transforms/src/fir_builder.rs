@@ -33,13 +33,14 @@ use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident,
-    ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
-    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    BinOp, Block, BlockId, CallableDecl, CallableImpl, CallableKind, ExecGraph, Expr, ExprId,
+    ExprKind, Field, FieldPath, Functor, Ident, Item, ItemId, ItemKind, Lit, LocalItemId,
+    LocalVarId, Mutability, Package, PackageId, PackageLookup, Pat, PatId, PatKind, Res, SpecDecl,
+    SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, StringComponent, UnOp, Visibility,
 };
 use rustc_hash::FxHashSet;
 
-use qsc_fir::ty::{Arrow, Prim, Ty};
+use qsc_fir::ty::{Arrow, FunctorSetValue, Prim, Ty};
 use std::rc::Rc;
 
 /// Allocates an `Expr` with the given kind and inserts it into the package.
@@ -566,6 +567,99 @@ pub(crate) fn alloc_local_var(
         Span::default(),
     );
     (local_id, stmt_id)
+}
+
+/// Allocates a callable whose body is a single `fail` expression and inserts it
+/// into the package, returning its new [`LocalItemId`].
+///
+/// A `Fail` body type-checks against any output type, so this is the universal
+/// stand-in for an arrow-typed value a pass must materialize but that is
+/// provably never invoked. Two passes need one: return unification, for the
+/// initial value of an arrow-typed return slot, and defunctionalization, for
+/// the neutralized remains of a consumed capturing closure.
+///
+/// `name_prefix` and `fail_message` identify the synthesizing pass in the FIR
+/// it emits; the item name is `{name_prefix}_{item_id}`, which is collision-free
+/// because the id comes from `assigner`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn alloc_fail_callable(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    name_prefix: &str,
+    fail_message: &str,
+    kind: CallableKind,
+    input_ty: &Ty,
+    output_ty: &Ty,
+    functors: FunctorSetValue,
+) -> LocalItemId {
+    let msg_expr_id = alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from(fail_message))]),
+        Span::default(),
+    );
+    let fail_expr_id = alloc_expr(
+        package,
+        assigner,
+        output_ty.clone(),
+        ExprKind::Fail(msg_expr_id),
+        Span::default(),
+    );
+    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, Span::default());
+    let body_block = alloc_block(
+        package,
+        assigner,
+        vec![trailing_stmt],
+        output_ty.clone(),
+        Span::default(),
+    );
+
+    let input_pat_id = alloc_discard_pat(package, assigner, input_ty.clone(), Span::default());
+
+    let body_impl = SpecImpl {
+        body: SpecDecl {
+            span: Span::default(),
+            block: body_block,
+            input: None,
+            exec_graph: ExecGraph::default(),
+        },
+        adj: None,
+        ctl: None,
+        ctl_adj: None,
+    };
+
+    let new_item_id = assigner.next_item();
+    let decl = CallableDecl {
+        span: Span::default(),
+        kind,
+        name: Ident {
+            id: LocalVarId::from(0_u32),
+            span: Span::default(),
+            name: Rc::from(format!("{name_prefix}_{new_item_id}")),
+        },
+        generics: Vec::new(),
+        input: input_pat_id,
+        output: output_ty.clone(),
+        functors,
+        implementation: CallableImpl::Spec(body_impl),
+        attrs: Vec::new(),
+    };
+
+    package.items.insert(
+        new_item_id,
+        Item {
+            id: new_item_id,
+            span: Span::default(),
+            parent: None,
+            doc: Rc::from(""),
+            attrs: Vec::new(),
+            visibility: Visibility::Internal,
+            kind: ItemKind::Callable(Box::new(decl)),
+        },
+    );
+
+    new_item_id
 }
 
 /// Decomposes a `PatKind::Bind` pattern into a `PatKind::Tuple` of per-element

@@ -117,6 +117,12 @@ pub struct DirectCallSite {
     pub call_pkg_id: PackageId,
     /// Resolved concrete callee.
     pub callable: ConcreteCallable,
+    /// Materialized operands captured by a same-package lifted lambda.
+    ///
+    /// These values belong to this call occurrence rather than the global
+    /// callable target: separate factory invocations share the lifted item but
+    /// can retain different partial-application operands.
+    pub captures: Vec<CapturedVar>,
     /// Branch-split guard list: a left-associated conjunction stored
     /// outermost-first. Selected when every guard is true; an empty list is the
     /// default (else) branch.
@@ -558,6 +564,28 @@ impl Error {
     #[must_use]
     pub fn is_warning(&self) -> bool {
         matches!(self, Self::ExcessiveSpecializations(..))
+    }
+
+    /// Returns `true` when the diagnostic reports a defunctionalization
+    /// convergence failure that may be safely deferred to downstream analysis.
+    ///
+    /// `FixpointNotReached` and `DynamicCallable` are static over-approximations
+    /// of unresolvable dispatch: the residue they leave is always well-typed
+    /// arrow FIR that resource counting and partial evaluation can either
+    /// resolve or authoritatively reject. They are therefore suppressed rather
+    /// than treated as fatal — distinct from `is_warning`, which still surfaces
+    /// its diagnostic on the standing-warning channel.
+    ///
+    /// The resource/unsupported backstops (`RecursiveSpecialization`,
+    /// `UnsupportedMultipleCallableArrays`, `ExcessiveSpecializations`) are not
+    /// deferrable: they signal a shape the transform cannot lower and must stay
+    /// on their existing fatal or warning paths.
+    #[must_use]
+    pub fn is_deferrable(&self) -> bool {
+        matches!(
+            self,
+            Self::FixpointNotReached(..) | Self::DynamicCallable(..)
+        )
     }
 }
 

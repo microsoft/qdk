@@ -102,8 +102,8 @@ pub(super) fn rewrite(
     // array element type keeps `remove_dead_callable_local_from_callable` from
     // pruning it. Tracing the forwarded value back to its source-array local
     // lets the closure-bearing cleanup remove the now-dead binding instead of
-    // leaving an array of blanked (unit) closure elements — an arrow-typed
-    // block with a unit tail — stranded in a reachable caller.
+    // leaving an array of neutralized closure elements stranded in a reachable
+    // caller.
     let mut hof_consumed_source_arrays = FxHashSet::default();
 
     // Lowest-index lookup serves the per-row and branch-split paths, where
@@ -608,6 +608,15 @@ fn rewrite_direct_call(
     }
     let (_, outer_functor) = peel_body_functors(package, callee_id);
     let controlled_layers = usize::from(outer_functor.controlled);
+    let captures = match &direct_call_site.callable {
+        ConcreteCallable::Closure { captures, .. } => {
+            resolve_rewrite_captures(package, callee_id, captures)
+        }
+        ConcreteCallable::Global { .. } => {
+            resolve_rewrite_captures(package, callee_id, direct_call_site.captures.as_slice())
+        }
+        ConcreteCallable::Dynamic => Vec::new(),
+    };
     let package_direct_lambda = match &direct_call_site.callable {
         ConcreteCallable::Global { item_id, .. } if item_id.package == package_id => {
             direct_lambda_packaged_input(package, item_id.item).is_some_and(|target_input| {
@@ -628,13 +637,6 @@ fn rewrite_direct_call(
         callee_id,
         rewritten_callable_arg_locals,
     );
-
-    let captures = match &direct_call_site.callable {
-        ConcreteCallable::Closure { captures, .. } => {
-            resolve_rewrite_captures(package, callee_id, captures)
-        }
-        _ => Vec::new(),
-    };
 
     rewrite_direct_callee(
         package,
@@ -657,11 +659,19 @@ fn rewrite_direct_call(
         ConcreteCallable::Global { item_id, .. } if item_id.package == package_id => {
             direct_lambda_packaged_input(package, item_id.item)
         }
+        ConcreteCallable::Global { .. } if !captures.is_empty() => Some(Ty::Tuple(
+            captures
+                .iter()
+                .map(|capture| capture.ty.clone())
+                .chain(std::iter::once(package.get_expr(args_id).ty.clone()))
+                .collect(),
+        )),
         _ => None,
     };
     if let Some(target_input) = target_input
         && (matches!(direct_call_site.callable, ConcreteCallable::Closure { .. })
-            || package_direct_lambda)
+            || package_direct_lambda
+            || !captures.is_empty())
     {
         rewrite_direct_closure_args(
             package,
@@ -808,8 +818,8 @@ fn collect_rewritten_callable_arg_local(
 /// chain of `let` aliases (`let a = ops; f(a)`). In every case the underlying
 /// value is the same `Var(Res::Local)` source-array local. Recording it lets
 /// the closure-bearing cleanup remove the now-dead binding after the call is
-/// rewritten, instead of leaving an array of blanked (unit) closure elements —
-/// an arrow-typed block with a unit tail — in a reachable caller.
+/// rewritten, instead of leaving an array of neutralized closure elements in a
+/// reachable caller.
 fn collect_hof_consumed_source_array(
     package: &Package,
     expr_owner_lookup: &FxHashMap<ExprId, LocalItemId>,
@@ -1470,7 +1480,7 @@ fn prune_dead_callable_arg_locals(
     // Closure callable-arrays forwarded and fully consumed by a higher-order
     // call are dead source arrays that the direct-path index-read tracer never
     // sees. Seed them here so the same closure-bearing removal below prunes the
-    // now-dead binding rather than leaving blanked closure elements behind.
+    // now-dead binding rather than leaving neutralized closure elements behind.
     source_arrays.extend(hof_consumed_source_arrays.iter().copied());
 
     for &(callable_id, local_var) in rewritten_callable_arg_locals {
@@ -1478,13 +1488,15 @@ fn prune_dead_callable_arg_locals(
             // Every use was consumed by the call-site rewrite, so only the
             // initializer's own evaluation is still observable. Deleting the
             // binding is allowed only when that evaluation is not observable.
-            if !rewritten_arg_local_is_removable(
+            if !consumed_callable_local_disposition(
                 package,
                 package_id,
                 callable_id,
                 local_var,
                 total_foreign,
-            ) {
+            )
+            .allows_removal()
+            {
                 continue;
             }
             // A direct-dispatch callee bound from an indexed read
@@ -1503,9 +1515,9 @@ fn prune_dead_callable_arg_locals(
             // direct dispatch. When such a write-only local is initialized from
             // a partial application (`mutable op = Rx(0.0, _)`), its binding
             // holds a closure-tailed block. Left in place, closure cleanup
-            // blanks that tail and strands an arrow-typed block with no
-            // producing value. Removing the dead binding and its assignments
-            // avoids that. Locals bound only to plain callable references
+            // neutralizes that tail into a reference no one produces a value
+            // for. Removing the dead binding and its assignments avoids that.
+            // Locals bound only to plain callable references
             // (`op = H`) carry no closure tail, so they are left untouched to
             // preserve existing dead-code behavior.
             remove_write_only_callable_local_from_callable(package, callable_id, local_var);
@@ -1514,9 +1526,8 @@ fn prune_dead_callable_arg_locals(
 
     // Prune callable-array locals that only fed removed direct-dispatch index
     // reads. Restricting removal to a closure-bearing array (`[X, Rx(0.0, _)]`)
-    // avoids stranding a blanked closure element as an arrow-typed block with
-    // no producing tail, while plain callable-reference arrays are left in
-    // place.
+    // avoids stranding a neutralized closure element in a dead binding, while
+    // plain callable-reference arrays are left in place.
     for (callable_id, src_var) in source_arrays {
         if !local_var_is_read_in_callable(package, callable_id, src_var)
             && local_var_has_closure_valued_binding(package, callable_id, src_var)
@@ -1967,35 +1978,191 @@ fn expr_is_assign_to_local(package: &Package, expr_id: ExprId, local_var: LocalV
     }
 }
 
-/// Returns whether a callable argument local consumed by a call-site rewrite
-/// may be deleted along with its initializer.
+/// Where a consumed callable expression's evaluation lives once rewriting has
+/// finished.
 ///
-/// The local itself is already unused, so the only remaining question is
-/// whether evaluating its initializer is observable. Three things make it
-/// unobservable: the evaluation is safe to discard outright, it is a static
-/// callable selection whose conditions the generated dispatch already replays,
-/// or it is an indexed read of a closure-bearing callable array, whose
-/// selection that dispatch likewise replays.
+/// Defunctionalization repeatedly faces the same question in two places: a
+/// `let` binding whose callable value was consumed by a call-site rewrite, and
+/// the callable argument expression that same rewrite removes from the call.
+/// Both ask whether *deleting the expression* also *drops its evaluation*.
+/// Those are different questions. A binding whose captures have already been
+/// relocated into the specialized call can still look observable; retaining it
+/// would evaluate the capture initializer twice and apply a gate twice.
+///
+/// Naming the four outcomes keeps that distinction visible. Only
+/// [`Self::Retained`] forbids removal; the other three each describe a
+/// *different reason* removal is sound, and each is separately testable.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum EvaluationDisposition {
+    /// The evaluation is genuinely dropped, and dropping it is provably
+    /// unobservable: the expression is side-effect free and total, so no
+    /// effect, failure, or state change disappears with it.
+    ///
+    /// The vacuous case lands here too — when there is no binding at all there
+    /// is no evaluation to drop.
+    Discarded,
+
+    /// The evaluation moved into the rewritten call rather than disappearing.
+    ///
+    /// Partial application lowers to a block that binds each capture and yields
+    /// a closure. When that closure is consumed, `allocate_capture_exprs`
+    /// splices the capture initializers into the rewritten call's arguments, so
+    /// deleting the original site *moves* their evaluation and they still run
+    /// exactly once. Retaining it is what would be wrong.
+    Relocated,
+
+    /// The evaluation is reproduced by the dispatch the rewrite generated.
+    ///
+    /// A static callable selection is re-emitted as the same `if` tree at the
+    /// replaced call site, and an indexed read of a callable array has its
+    /// selection enumerated by the generated index dispatch. In both cases the
+    /// conditions still run; only a bounds check the dispatch already elides is
+    /// dropped.
+    Replayed,
+
+    /// The evaluation is observable and nothing above reproduces it, so the
+    /// expression must survive.
+    Retained,
+}
+
+impl EvaluationDisposition {
+    /// Returns whether the expression may be deleted.
+    ///
+    /// Every disposition except [`Self::Retained`] carries a reason the
+    /// evaluation still happens (or provably never mattered).
+    fn allows_removal(self) -> bool {
+        !matches!(self, Self::Retained)
+    }
+}
+
+/// Which of the two consumption sites is asking for a disposition.
+///
+/// Both sites delete an expression, but the rewrite gives them different
+/// guarantees, and one rule depends on which is asking. See
+/// [`consumed_callable_expr_disposition`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ConsumptionSite {
+    /// A `let` binding whose callable value every use consumed.
+    Binding,
+
+    /// The callable argument expression that the rewrite removes from the call
+    /// it is specializing.
+    Argument,
+}
+
+/// Classifies where a consumed callable *expression's* evaluation lives after
+/// rewriting.
+///
+/// This is the single decision that both consumption sites share. It replaces
+/// the four predicates that used to be OR'd together at the binding gate, and
+/// it is applied to the argument expression itself by
+/// [`super::analysis`] before a call site is accepted for specialization, so
+/// the argument-removal family (`remove_element_at_path`,
+/// `rewrite_args_remove_tuple_element`, `rewrite_single_arg_root`,
+/// `remove_top_level_field_from_expr_data`, and the branch-dispatch arg
+/// builders) never has to re-derive it. Those sites delete the expression
+/// outright with no purity guard of their own; the guarantee they rely on is
+/// established here.
+///
+/// One rule is positional. At [`ConsumptionSite::Argument`] the expression
+/// being deleted *is* the selection the analysis statically resolved, and the
+/// specialized call re-expresses that selection directly, so a statically
+/// resolved indexed read is [`EvaluationDisposition::Replayed`] and only its
+/// bounds check is elided — the same trade
+/// [`reads_closure_bearing_callable_array`] already makes at the binding site,
+/// and the behavior the argument-removal family has always had. At
+/// [`ConsumptionSite::Binding`] the array may still be read elsewhere, so that
+/// rule does not apply and the narrower closure-bearing test governs instead.
 ///
 /// `total_foreign` lets the discard proof see through calls into other
-/// packages, such as the `Length` intrinsic that a producer function commonly
-/// uses to compute a captured value.
-fn rewritten_arg_local_is_removable(
+/// packages, both the named total intrinsics and the factories
+/// [`crate::walk_utils::extend_with_discardable_foreign_callables`] proved pure
+/// on their home ground.
+pub(super) fn consumed_callable_expr_disposition(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+    site: ConsumptionSite,
+    total_foreign: &FxHashSet<ItemId>,
+) -> EvaluationDisposition {
+    if expr_is_safe_to_discard_with_total_foreign(package, package_id, expr_id, total_foreign) {
+        EvaluationDisposition::Discarded
+    } else if is_replayed_callable_selection(package, expr_id)
+        || (site == ConsumptionSite::Argument
+            && is_replayed_index_selection(package, package_id, expr_id, total_foreign))
+    {
+        EvaluationDisposition::Replayed
+    } else if captures_relocated_into_call(package, expr_id) {
+        EvaluationDisposition::Relocated
+    } else {
+        EvaluationDisposition::Retained
+    }
+}
+
+/// Returns whether the expression is an indexed read whose operands are
+/// themselves safe to discard.
+///
+/// The rewrite resolves the selection statically and calls the selected
+/// callable directly, so nothing about the selection disappears except the
+/// bounds check. Restricting both operands to discard-safe expressions keeps an
+/// effectful array or index expression out; only the failure mode is traded
+/// away, and only at [`ConsumptionSite::Argument`].
+///
+/// Evidence for [`EvaluationDisposition::Replayed`]; see
+/// [`consumed_callable_expr_disposition`].
+fn is_replayed_index_selection(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+    total_foreign: &FxHashSet<ItemId>,
+) -> bool {
+    let ExprKind::Index(array_id, index_id) = package.get_expr(expr_id).kind else {
+        return false;
+    };
+    expr_is_safe_to_discard_with_total_foreign(package, package_id, array_id, total_foreign)
+        && expr_is_safe_to_discard_with_total_foreign(package, package_id, index_id, total_foreign)
+}
+
+/// Classifies where a consumed callable *local's* initializer evaluation lives
+/// after rewriting.
+///
+/// The local itself is already unused, so the only remaining question is what
+/// happened to its initializer's evaluation. That is
+/// [`consumed_callable_expr_disposition`], plus one binding-shaped case the
+/// expression alone cannot see: a local bound from an indexed read of a
+/// closure-bearing callable array, whose selection the generated index dispatch
+/// replays. That case mirrors the closure-bearing gate in
+/// [`prune_dead_callable_arg_locals`] — an array of plain callable references
+/// carries no closure to strand, so it stays protected by discard safety.
+fn consumed_callable_local_disposition(
     package: &Package,
     package_id: PackageId,
     callable_id: LocalItemId,
     local_var: LocalVarId,
     total_foreign: &FxHashSet<ItemId>,
-) -> bool {
+) -> EvaluationDisposition {
     let Some(init_expr_id) = find_local_init_expr_in_callable(package, callable_id, local_var)
     else {
-        // No `let` binding to delete, so there is no initializer to preserve.
-        return true;
+        // No `let` binding to delete, so there is no evaluation to preserve.
+        return EvaluationDisposition::Discarded;
     };
-    expr_is_safe_to_discard_with_total_foreign(package, package_id, init_expr_id, total_foreign)
-        || is_replayed_callable_selection(package, init_expr_id)
-        || captures_relocated_into_call(package, init_expr_id)
-        || reads_closure_bearing_callable_array(package, callable_id, local_var)
+
+    let disposition = consumed_callable_expr_disposition(
+        package,
+        package_id,
+        init_expr_id,
+        ConsumptionSite::Binding,
+        total_foreign,
+    );
+    if disposition.allows_removal() {
+        return disposition;
+    }
+
+    if reads_closure_bearing_callable_array(package, callable_id, local_var) {
+        return EvaluationDisposition::Replayed;
+    }
+
+    EvaluationDisposition::Retained
 }
 
 /// Returns whether the local is bound from an indexed read of a callable array
@@ -2004,12 +2171,11 @@ fn rewritten_arg_local_is_removable(
 /// The index dispatch that replaced this local's use enumerates the array's
 /// elements, so the selection is replayed and only the bounds check is dropped —
 /// a check the generated dispatch already elides. Retaining the binding instead
-/// keeps the array live, and closure cleanup then blanks its consumed element,
-/// stranding an arrow-typed block with a unit tail.
+/// keeps the array live, and closure cleanup then neutralizes its consumed
+/// element, leaving a dead binding over a stand-in reference.
 ///
-/// This mirrors the closure-bearing gate in [`prune_dead_callable_arg_locals`]:
-/// an array of plain callable references carries no closure to strand, so it
-/// stays protected by discard safety.
+/// Evidence for [`EvaluationDisposition::Replayed`]; see
+/// [`consumed_callable_local_disposition`].
 fn reads_closure_bearing_callable_array(
     package: &Package,
     callable_id: LocalItemId,
@@ -2024,7 +2190,7 @@ fn reads_closure_bearing_callable_array(
 /// into nested blocks via [`remove_dead_callable_local_from_block`].
 ///
 /// The caller decides whether removal is allowed; see
-/// [`rewritten_arg_local_is_removable`].
+/// [`consumed_callable_local_disposition`].
 fn remove_dead_callable_local_from_callable(
     package: &mut Package,
     callable_id: LocalItemId,
@@ -2064,6 +2230,9 @@ fn remove_dead_callable_local_from_callable(
 /// Only the closure-yielding shape qualifies. A binding whose initializer
 /// merely produces a callable some other way, such as a call to an effectful
 /// producer, relocates nothing and stays protected by discard safety.
+///
+/// Evidence for [`EvaluationDisposition::Relocated`]; see
+/// [`consumed_callable_expr_disposition`].
 fn captures_relocated_into_call(package: &Package, expr_id: ExprId) -> bool {
     match package.get_expr(expr_id).kind {
         ExprKind::Closure(_, _) => true,
@@ -2085,8 +2254,15 @@ fn captures_relocated_into_call(package: &Package, expr_id: ExprId) -> bool {
 }
 
 /// Removes top-level callable-typed locals whose only uses were direct
-/// dispatch rewrites, scoped to the package-level entry expression. Filters
-/// `Block.stmts` across all callable bodies in the package.
+/// dispatch rewrites. Filters `Block.stmts` across all callable bodies in the
+/// package and across the package-level entry expression.
+///
+/// The entry expression needs the same treatment as a callable body, and for a
+/// stronger reason: it is the reachability root, so a dead callable binding
+/// left there can never be removed by item DCE. The synthetic entry that
+/// `qsc::codegen` builds for callable-argument code generation binds each
+/// concrete callable argument to a `let` before the target call, and those
+/// bindings are exactly what direct-dispatch rewriting makes dead.
 fn prune_dead_top_level_callable_locals(package: &mut Package, package_id: PackageId) {
     let callable_items: Vec<(LocalItemId, qsc_fir::fir::CallableImpl)> = package
         .items
@@ -2111,6 +2287,10 @@ fn prune_dead_top_level_callable_locals(package: &mut Package, package_id: Packa
                 }
             }
         }
+    }
+
+    if let Some(entry_id) = package.entry {
+        prune_dead_callable_locals_in_expr(package, package_id, entry_id);
     }
 }
 
@@ -2227,6 +2407,9 @@ fn remove_dead_callable_local_from_block(
 /// call site. Leaves are restricted to item references, while branch blocks
 /// must be transparent value wrappers, so arbitrary producers remain protected
 /// by discard safety.
+///
+/// Evidence for [`EvaluationDisposition::Replayed`]; see
+/// [`consumed_callable_expr_disposition`].
 fn is_replayed_callable_selection(package: &Package, expr_id: ExprId) -> bool {
     match package.get_expr(expr_id).kind {
         ExprKind::If(_, then_expr_id, Some(else_expr_id)) => {
@@ -2649,7 +2832,10 @@ fn rewrite_direct_closure_args(
     if controlled_layers > 0 {
         let inner_id = match package.get_expr(args_id).kind {
             ExprKind::Tuple(ref elements) if elements.len() > 1 => elements[1],
-            _ => return,
+            _ => {
+                rewrite_direct_closure_args(package, args_id, captures, target_input, 0, assigner);
+                return;
+            }
         };
         rewrite_direct_closure_args(
             package,
@@ -2804,12 +2990,12 @@ fn create_direct_branch_call(
     direct_call_site: &DirectCallSite,
     assigner: &mut Assigner,
 ) -> ExprId {
-    let captures = match &direct_call_site.callable {
-        ConcreteCallable::Closure { captures, .. } => {
-            resolve_rewrite_captures(package, orig_callee.id, captures)
-        }
-        _ => Vec::new(),
+    let capture_source = match &direct_call_site.callable {
+        ConcreteCallable::Closure { captures, .. } => captures.as_slice(),
+        ConcreteCallable::Global { .. } => direct_call_site.captures.as_slice(),
+        ConcreteCallable::Dynamic => &[],
     };
+    let captures = resolve_rewrite_captures(package, orig_callee.id, capture_source);
     let (_, outer_functor) = peel_body_functors(package, orig_callee.id);
     let controlled_layers = usize::from(outer_functor.controlled);
     let package_direct_lambda_input = match &direct_call_site.callable {
@@ -3455,13 +3641,24 @@ fn rewrite_args_remove_tuple_elements(
         return;
     }
 
+    // A direct struct aggregate can be projected immediately. The helper also
+    // appends captures, keeping this argument synchronized with the retargeted
+    // callee input.
+    if let Some((kind, ty)) =
+        remove_top_level_field_from_expr_data(package, args_id, &remove, captures, assigner)
+    {
+        let args_mut = package.exprs.get_mut(args_id).expect("args expr not found");
+        args_mut.kind = kind;
+        args_mut.ty = ty;
+        return;
+    }
+
     // Non-inline argument: a local bound to a tuple or struct literal of
     // callables. The callee was already retargeted to the reduced combined
     // spec, so the arguments must be reduced to match. Resolve the local's
     // initializer and project the surviving slots through the same removal
-    // helper the per-row nested path uses, then overwrite the argument
-    // expression in place with the rebuilt aggregate. The now-dead initializer
-    // binding is pruned later by the dead-callable-local cleanup.
+    // helper the direct aggregate path uses. The now-dead initializer binding
+    // is pruned later by the dead-callable-local cleanup.
     if let ExprKind::Var(Res::Local(local_var), _) = args_expr.kind
         && let Some(owner_callable) = owner_callable
         && let Some(init_expr_id) =
@@ -4605,6 +4802,20 @@ fn rewrite_single_arg_root(
 /// higher-order callable input. After, the selected element is removed, empty
 /// tuples become unit, and one-element tuples collapse so the remaining shape
 /// matches the specialized callee's input.
+///
+/// # Discarded evaluation
+///
+/// The selected element is deleted outright, with no purity guard here. That
+/// is sound only because [`super::analysis`] already classified this call
+/// site's callable argument through
+/// [`consumed_callable_expr_disposition`] and declined the call site when the
+/// disposition was [`EvaluationDisposition::Retained`]. This function is one
+/// member of a family that shares that single guarantee —
+/// [`rewrite_args_remove_tuple_element`], [`rewrite_single_arg_root`],
+/// [`remove_top_level_field_from_expr_data`], and the branch-dispatch argument
+/// builders drop the same expression by other routes. Adding a guard here
+/// alone would leave the rest of the family unprotected, so the decision stays
+/// at the one point that covers all of them.
 fn remove_element_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     if path.is_empty() {
         return;

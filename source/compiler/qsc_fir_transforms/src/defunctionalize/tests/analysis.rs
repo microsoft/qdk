@@ -1333,16 +1333,7 @@ fn constructor_and_factory_return_field_projection_resolve_distinctly() {
         "#;
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
-    let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
-    let package = fir_store.get(fir_pkg_id);
-    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
-        .map(|(id, _)| id)
-        .collect();
-    let reachable_expr_ids =
-        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
-    let collapsed_spans =
-        super::super::prepass::run(&mut fir_store, fir_pkg_id, &reachable_expr_ids);
-    let result = defunc_analysis::analyze(&mut fir_store, fir_pkg_id, &reachable, &collapsed_spans);
+    let result = super::run_prepass_and_analysis(&mut fir_store, fir_pkg_id);
 
     assert_eq!(
         result.direct_call_sites.len(),
@@ -2108,6 +2099,84 @@ fn reaching_def_conditional_callable_reassigned_guard_dynamic() {
     );
 }
 
+/// Specializing a call site deletes the callable argument expression from the
+/// call, and the argument-removal family that performs the deletion carries no
+/// purity guard of its own. An inline producer call is therefore classified by
+/// `consumed_callable_expr_disposition` before the call site is accepted: here
+/// `GetOp` applies `X` before returning the callable it produces, nothing
+/// relocates or replays that `X`, and no binding exists to retain it, so the
+/// disposition is `Retained` and the call site is declined.
+///
+/// Before that gate existed the argument was dropped outright and the `X`
+/// silently disappeared, changing the program's measured result. Declining
+/// converts a wrong answer into an actionable diagnostic.
+#[test]
+fn inline_effectful_producer_callable_argument_is_declined() {
+    check_errors(
+        r#"
+        operation GetOp(q : Qubit) : (Qubit => Unit) {
+            X(q);
+            X
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(GetOp(q), q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
+/// The same gate for a producer that is pure but *fallible*. `GetOp` is a
+/// `function` with no effects, so it passes side-effect freedom, but `1 /
+/// divisor` can fail and the discard proof requires totality. Dropping the
+/// argument turned a program that failed with a division error into one that
+/// succeeded.
+#[test]
+fn inline_fallible_factory_callable_argument_is_declined() {
+    check_errors(
+        r#"
+        function GetOp(divisor : Int) : Qubit => Unit {
+            let ignored = 1 / divisor;
+            X
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(GetOp(0), q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
+/// The gate must not decline a producer it can prove pure and total. `MakeOp`
+/// has no effects and cannot fail, so its evaluation is `Discarded` and the
+/// call site specializes exactly as before, with the inline argument removed.
+#[test]
+fn inline_total_factory_callable_argument_still_specializes() {
+    check_errors(
+        r#"
+        function MakeOp() : Qubit => Unit {
+            X
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(MakeOp(), q);
+        }
+        "#,
+        &expect!["(no error)"],
+    );
+}
+
 #[test]
 fn analysis_closure_through_multiple_levels() {
     let source = r#"
@@ -2388,7 +2457,7 @@ fn callable_returning_partial_application_resolves_statically() {
             operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Bool[] = bits;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -2497,7 +2566,7 @@ fn analysis_callable_returning_partial_application_with_explicit_return() {
             operation MakeParity(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Bool[] = bits;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -2615,7 +2684,7 @@ fn callable_returning_partial_application_from_local_arg_preserves_capture_expr(
             operation Encode(bits : Bool[]) : ((Qubit[], Qubit) => Unit) {
                 {
                     let arg : Bool[] = bits;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 }
 
             }
@@ -2778,7 +2847,7 @@ fn callable_returning_partial_application_from_function_resolves_statically() {
             function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = value;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -3052,10 +3121,9 @@ fn indexed_closure_callable_array_loop_dispatches_closures() {
 
 /// A closure callable-array forwarded through a struct-literal field and fully
 /// consumed by an indexed dispatch inside the callee leaves the source-array
-/// local dead in the reachable caller. Closure cleanup blanks each element to
-/// unit, so the surviving array binding would be an arrow-typed block with a
-/// unit tail. The dead binding must be removed before the `PostDefunc`
-/// invariant walk observes it; this exercises that walk over the same shape as
+/// local dead in the reachable caller. The dead binding must be removed before
+/// the `PostDefunc` invariant walk observes it; this exercises that walk over
+/// the same shape as
 /// `indexed_closure_callable_array_loop_dispatches_closures`.
 #[test]
 fn indexed_closure_callable_array_loop_passes_invariants() {
@@ -3911,7 +3979,7 @@ fn analysis_callable_returning_partial_application_from_function_in_loop() {
             function Encode(value : Int) : ((Qubit[], Qubit) => Unit) {
                 return {
                     let arg : Int = value;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -5481,7 +5549,7 @@ fn loop_operand_block_set_forces_dynamic() {
     fn assert_forces_dynamic(context: &str, source: &str) {
         let (mut store, package_id) = compile_to_monomorphized_fir(source);
         let mut assigners = PackageAssigners::new(&store, package_id);
-        let errors = defunctionalize(&mut store, package_id, &mut assigners);
+        let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
         assert_eq!(
             errors.len(),
             1,
@@ -6208,7 +6276,7 @@ fn pure_array_index_dispatch_reuses_index_expression() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
@@ -6300,7 +6368,7 @@ fn impure_array_index_dispatch_hoists_index_expression() {
 
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
 
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);

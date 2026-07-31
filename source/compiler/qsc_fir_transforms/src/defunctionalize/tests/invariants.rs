@@ -13,7 +13,7 @@ use expect_test::expect;
 // A partial application whose captured argument is computed by an effectful
 // call. The binding cannot be deleted, because `GetAngle` measures its qubit,
 // but its callable value is consumed by the rewrite. Cleanup must drop that
-// dead value instead of blanking a closure that is still the result of an
+// dead value instead of leaving a closure that is still the result of an
 // arrow-typed block.
 #[test]
 fn retained_effectful_partial_application_binding_passes_invariants() {
@@ -32,6 +32,85 @@ fn retained_effectful_partial_application_binding_passes_invariants() {
         }
         "#;
     check_invariants(source);
+}
+
+// An effectful producer whose value is a consumed closure cannot be deleted.
+// `MakeOp` cannot be deleted because `X(q)` is observable, so consuming the
+// closure it returns would leave the producer returning a stand-in to code the
+// rewrite never redirected. Declining the specialization keeps the call site's
+// dynamic dispatch and reports `DynamicCallable` instead of emitting a call
+// that would fail at run time.
+#[test]
+fn effectful_producer_returning_consumed_closure_declines_to_dynamic() {
+    let source = r#"
+        operation MakeOp(q : Qubit) : Qubit => Unit {
+            X(q);
+            Rx(0.0, _)
+        }
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOp(q);
+            ApplyOp(op, q);
+        }
+        "#;
+    // An actionable diagnostic, not an internal assert. The diagnostic must
+    // survive the fixpoint loop's per-iteration `DynamicCallable` retain; a
+    // decline raised on one iteration and not re-derived on the last would be
+    // dropped silently.
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
+// The decline is a property of the producer's observability, not of producers
+// in general. Removing the effect from `MakeOp` makes the producing call
+// deletable, so the closure is consumed and the call site specializes with no
+// diagnostic. Without this pair the test above would also pass if the gate
+// declined every producer-returned closure.
+#[test]
+fn pure_producer_returning_consumed_closure_still_specializes() {
+    let source = r#"
+        function MakeOp() : Qubit => Unit is Adj + Ctl {
+            Rx(0.0, _)
+        }
+        operation ApplyOp(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let op = MakeOp();
+            ApplyOp(op, q);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    check_invariants(source);
+}
+
+#[test]
+fn branch_local_capture_applied_outside_scope_declines_to_dynamic() {
+    let source = r#"
+        operation ApplyOp(op : Qubit => Unit, target : Qubit) : Unit {
+            op(target);
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            let flag = MResetZ(q) == One;
+            mutable op = H;
+            if flag {
+                let angle = 0.5;
+                op = Rx(angle, _);
+            }
+            ApplyOp(op, q);
+        }
+        "#;
+    check_errors(
+        source,
+        &expect!["callable argument could not be resolved statically"],
+    );
 }
 
 #[test]
@@ -282,7 +361,7 @@ fn error_returned_not_panicked() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert!(
         !errors.is_empty(),
         "expected errors to be returned, not a panic"
@@ -307,7 +386,7 @@ fn error_multiple_dynamic_sites_collected() {
         "#,
     );
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     assert_eq!(
         errors.len(),
         2,
@@ -1164,6 +1243,13 @@ fn newtype_ctor_callable_field_cleanup() {
     // `cleanup_consumed_closures` lets these closures be replaced after
     // their specialized callable is produced, ensuring convergence.
     //
+    // This is the aggregate-slot position: `Choice`'s first field keeps its
+    // `Int -> Int` type whatever replaces the closure, and no invariant walks
+    // that slot. The snapshot therefore pins the *well-typed* replacement —
+    // `Choice(_lambda_4, 100)`, a reference to the closure's own capture-free
+    // target — rather than the `Choice((), 100)` this used to produce, which
+    // put a `Unit` under an arrow-typed slot.
+    //
     // Uses both `Choose(true)` and `Choose(false)` so each conditional
     // branch is specialized at least once; otherwise a literal-conditioned
     // projection leaves the unused branch's closure as dead-code and
@@ -1224,9 +1310,9 @@ fn newtype_ctor_callable_field_cleanup() {
             newtype Choice = ((Int -> Int), Int);
             function Choose(flag : Bool) : __UDT_Item_1__Package_2_ {
                 if flag {
-                    Choice((), 100)
+                    Choice(_lambda_4, 100)
                 } else {
-                    Choice((), 7)
+                    Choice(_lambda_5, 7)
                 }
 
             }
@@ -1544,7 +1630,7 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                 }
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-                ()
+                / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
             }
             operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
@@ -1582,9 +1668,9 @@ fn struct_capture_select_op_threads_through_controlled_dispatch_pipeline() {
                 __quantum__rt__qubit_release(control);
             }
             function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__ApplyPrepare__closure_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
-                / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
+                / * closure item = 14 captures = [__capture_0, numSystemQubits, power] * / _lambda_7
             }
-            operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
+            operation _lambda_7(__capture_0 : __UDT_Item_1__Package_2_, numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
                     let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
                     let ancilla : Qubit[] = allQubits[numSystemQubits...];
@@ -1727,8 +1813,7 @@ fn width2_mixed_direct_dispatch_removes_dead_partial_app_binding() {
 // mixing an intrinsic with a partial application is indexed inside a loop and
 // dispatched directly. Once the indexed read is rewritten into a branch
 // dispatch, both the indexed local and the now-dead source array (whose element
-// holds a closure) are removed, so no arrow-typed block with a blanked tail
-// remains.
+// holds a closure) are removed, so no dead arrow-typed binding remains.
 #[test]
 fn indexed_callable_array_mixed_direct_dispatch_passes_invariants() {
     let source = r#"

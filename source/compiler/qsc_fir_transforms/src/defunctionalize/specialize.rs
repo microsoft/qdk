@@ -47,11 +47,14 @@ use qsc_fir::fir::{
     Ident, Item, ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
     PackageLookup, PackageStore, Pat, PatId, PatKind, Res, Stmt, StmtId, StoreItemId, Visibility,
 };
-use qsc_fir::ty::{Arrow, Prim, Ty};
+use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty};
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write as _;
 use std::rc::Rc;
+
+#[cfg(test)]
+mod tests;
 
 /// Maximum number of specializations a single HOF may generate before a
 /// warning diagnostic is emitted. Mirrors the LLVM `FuncSpec` `MaxClones`
@@ -1663,8 +1666,27 @@ fn rewrite_recursive_self_call_arg_expr(
 /// argument becomes `Unit`. Non-empty paths expect tuple-structured arguments;
 /// when a nested tuple element changes shape, the enclosing tuple type is
 /// refreshed to keep the expression tree internally consistent.
+///
+/// # Discarded evaluation
+///
+/// This deletes the slot expression outright, so it needs the same disposition
+/// answer as every other removal site (see
+/// [`super::rewrite::consumed_callable_expr_disposition`]). Here the answer is
+/// decidable from the caller's precondition rather than by purity analysis.
+/// [`rewrite_recursive_self_call_arg_expr`] runs only when
+/// `targets_this_specialization` held, which requires
+/// [`super::resolve_self_call_arg_key`] to have resolved *every* callable slot,
+/// and that resolver accepts only a global item reference or a closure,
+/// optionally wrapped in `Adj`/`Ctl` body functors. Both forms are pure to
+/// evaluate — a FIR `Closure` node names already-bound locals rather than
+/// evaluating initializers — so the disposition is always
+/// `Discarded` and an effectful expression cannot reach this position.
+///
+/// [`assert_discarded_slot_is_pure`] states that rather than leaving it
+/// implicit, so a later change to argument shaping cannot silently open it.
 fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     let Some((&index, rest)) = path.split_first() else {
+        assert_discarded_slot_is_pure(package, expr_id);
         let expr = package.get_expr(expr_id).clone();
         let expr_mut = package.exprs.get_mut(expr_id).expect("expr not found");
         expr_mut.kind = ExprKind::Tuple(Vec::new());
@@ -1682,6 +1704,7 @@ fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     }
 
     if rest.is_empty() {
+        assert_discarded_slot_is_pure(package, elements[index]);
         let new_elements = elements
             .into_iter()
             .enumerate()
@@ -1697,6 +1720,28 @@ fn remove_arg_at_path(package: &mut Package, expr_id: ExprId, path: &[usize]) {
     let nested_id = elements[index];
     remove_arg_at_path(package, nested_id, rest);
     update_tuple_element_type(package, expr_id, index, nested_id);
+}
+
+/// Asserts that a recursive self-call argument slot about to be deleted is a
+/// pure expression, so removing it discards no observable evaluation.
+///
+/// See [`remove_arg_at_path`] for why only these two forms can appear. A
+/// failure here means argument shaping changed and the removal site now needs
+/// the full disposition decision rather than this structural proof.
+fn assert_discarded_slot_is_pure(package: &Package, expr_id: ExprId) {
+    let (base_id, _) = peel_body_functors(package, expr_id);
+    let kind = &package.get_expr(base_id).kind;
+    assert!(
+        matches!(
+            kind,
+            ExprKind::Var(Res::Item(_), _) | ExprKind::Closure(_, _)
+        ),
+        "recursive self-call slot removal would discard the evaluation of a \
+         non-reference expression ({kind:?}); \
+         `resolve_self_call_arg_key` admits only a global item reference or a \
+         closure, so this slot must be classified by \
+         `consumed_callable_expr_disposition` before it is deleted"
+    );
 }
 
 /// Refreshes one tuple element type after its nested argument was rewritten.
@@ -3314,8 +3359,8 @@ fn build_closure_dispatch_branch_args_data(
 /// Builds a flattened capture-plus-argument tuple, where the captures and the
 /// original tuple's fields become sibling elements.
 ///
-/// Returns `Some` only when `[capture_tys..., arg_tys...]` matches the target
-/// input tuple exactly; otherwise `None`, so the caller can try another layout.
+/// Returns `Some` only when `[capture_tys..., arg_tys...]` can populate the
+/// target input tuple; otherwise `None`, so the caller can try another layout.
 fn flattened_capture_arg_data(
     package: &Package,
     original_args: &Expr,
@@ -3338,7 +3383,12 @@ fn flattened_capture_arg_data(
         .cloned()
         .chain(arg_tys.iter().cloned())
         .collect();
-    if expected_tys != *target_items {
+    if expected_tys.len() != target_items.len()
+        || !expected_tys
+            .iter()
+            .zip(target_items)
+            .all(|(actual, expected)| dispatch_layout_types_compatible(actual, expected))
+    {
         return None;
     }
 
@@ -3347,15 +3397,16 @@ fn flattened_capture_arg_data(
         .copied()
         .chain(arg_items.iter().copied())
         .collect();
-    Some(build_expr_data_from_elements(package, elements))
+    let (kind, _) = build_expr_data_from_elements(package, elements);
+    Some((kind, target_input.clone()))
 }
 
 /// Builds a grouped capture-plus-argument tuple, where the captures are
 /// followed by the original argument tuple as one trailing element.
 ///
-/// Returns `Some` only when `(capture_tys..., original_arg_ty)` matches the
-/// target input; otherwise `None`. The original argument expression is copied
-/// into a fresh node so it can be reused as the trailing element.
+/// Returns `Some` only when `(capture_tys..., original_arg_ty)` can populate
+/// the target input; otherwise `None`. The original argument expression is
+/// copied into a fresh node so it can be reused as the trailing element.
 fn grouped_capture_arg_data(
     package: &mut Package,
     original_args: &Expr,
@@ -3371,7 +3422,7 @@ fn grouped_capture_arg_data(
         tys.push(original_args.ty.clone());
         Ty::Tuple(tys)
     };
-    if &expected_ty != target_input {
+    if !dispatch_layout_types_compatible(&expected_ty, target_input) {
         return None;
     }
 
@@ -3389,7 +3440,83 @@ fn grouped_capture_arg_data(
 
     let mut elements = capture_ids.to_vec();
     elements.push(preserved_args_id);
-    Some(build_expr_data_from_elements(package, elements))
+    let (kind, _) = build_expr_data_from_elements(package, elements);
+    Some((kind, target_input.clone()))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only control over the callable-functor capability relation applied
+    /// by [`dispatch_layout_types_compatible`].
+    ///
+    /// Regressions flip this off to prove that capability matching — and not
+    /// some other part of the dispatch-argument builder — is what lets a
+    /// `CtlAdj` capture populate a target slot declaring only `Empty`. The
+    /// control is compiled out of non-test builds, which always use capability
+    /// matching. It is thread-local so parallel test threads cannot observe
+    /// each other's setting.
+    static DISPATCH_LAYOUT_CAPABILITY_MATCHING: std::cell::Cell<bool> =
+        const { std::cell::Cell::new(true) };
+}
+
+/// Returns whether callable functor sets are compared as capability
+/// requirements. Always `true` outside tests.
+#[cfg(not(test))]
+fn dispatch_layout_capability_matching_enabled() -> bool {
+    true
+}
+
+/// Returns whether callable functor sets are compared as capability
+/// requirements, honoring the test-only
+/// [`DISPATCH_LAYOUT_CAPABILITY_MATCHING`] control.
+#[cfg(test)]
+fn dispatch_layout_capability_matching_enabled() -> bool {
+    DISPATCH_LAYOUT_CAPABILITY_MATCHING.with(std::cell::Cell::get)
+}
+
+/// Returns whether an actual capture layout can populate an expected dispatch
+/// input. Only callable functor sets use capability matching; all other type
+/// structure must match exactly.
+fn dispatch_layout_types_compatible(actual: &Ty, expected: &Ty) -> bool {
+    match (actual, expected) {
+        (Ty::Array(actual_item), Ty::Array(expected_item)) => {
+            dispatch_layout_types_compatible(actual_item, expected_item)
+        }
+        (Ty::Arrow(actual_arrow), Ty::Arrow(expected_arrow)) => {
+            actual_arrow.kind == expected_arrow.kind
+                && dispatch_layout_types_compatible(&actual_arrow.input, &expected_arrow.input)
+                && dispatch_layout_types_compatible(&actual_arrow.output, &expected_arrow.output)
+                && if dispatch_layout_capability_matching_enabled() {
+                    dispatch_functors_compatible(actual_arrow.functors, expected_arrow.functors)
+                } else {
+                    actual_arrow.functors == expected_arrow.functors
+                }
+        }
+        (Ty::Tuple(actual_items), Ty::Tuple(expected_items)) => {
+            actual_items.len() == expected_items.len()
+                && actual_items
+                    .iter()
+                    .zip(expected_items)
+                    .all(|(actual_item, expected_item)| {
+                        dispatch_layout_types_compatible(actual_item, expected_item)
+                    })
+        }
+        _ => actual == expected,
+    }
+}
+
+/// Returns whether an actual callable's functors satisfy an expected callable
+/// requirement, matching the frontend's functor capability relation.
+fn dispatch_functors_compatible(actual: FunctorSet, expected: FunctorSet) -> bool {
+    match (actual, expected) {
+        (_, FunctorSet::Value(FunctorSetValue::Empty))
+        | (FunctorSet::Value(FunctorSetValue::CtlAdj), FunctorSet::Value(_))
+        | (FunctorSet::Value(FunctorSetValue::Adj), FunctorSet::Value(FunctorSetValue::Adj))
+        | (FunctorSet::Value(FunctorSetValue::Ctl), FunctorSet::Value(FunctorSetValue::Ctl)) => {
+            true
+        }
+        _ => actual == expected,
+    }
 }
 
 /// Allocates one expression per captured variable, to be passed as leading
@@ -3695,7 +3822,7 @@ fn transform_closure_param_capture(
     // re-run that mutation against the already-rewritten lambda. Each closure
     // still drops the capture from its own capture list independently.
     let capture_key = (closure_target, param.param_var);
-    if specialized_capture_targets.insert(capture_key) {
+    let threaded_operands = if specialized_capture_targets.insert(capture_key) {
         specialize_closure_target_for_captured_param(
             package,
             package_id,
@@ -3704,10 +3831,14 @@ fn transform_closure_param_capture(
             &param.param_ty,
             concrete,
             assigner,
-        );
-    }
+        )
+    } else {
+        concrete_capture_operands(concrete)
+    };
 
-    // Remove the capture from this Closure expression.
+    // Retarget this Closure expression's capture list. A concrete that carried
+    // its own captures now expects them as target parameters, so its operands
+    // take the removed slot; otherwise the slot simply disappears.
     let closure_expr = package
         .exprs
         .get_mut(closure_expr_id)
@@ -3715,13 +3846,34 @@ fn transform_closure_param_capture(
     if let ExprKind::Closure(ref mut captures, _) = closure_expr.kind
         && capture_idx < captures.len()
     {
-        captures.remove(capture_idx);
+        captures.splice(
+            capture_idx..=capture_idx,
+            threaded_operands.iter().map(|(var, _)| *var),
+        );
+    }
+}
+
+/// Returns the capture operands a concrete callable expects to be passed
+/// positionally once its captures have been threaded onto its target.
+fn concrete_capture_operands(concrete: &ConcreteCallable) -> Vec<(LocalVarId, Ty)> {
+    match concrete {
+        ConcreteCallable::Closure { captures, .. } => captures
+            .iter()
+            .map(|capture| (capture.var, capture.ty.clone()))
+            .collect(),
+        ConcreteCallable::Global { .. } | ConcreteCallable::Dynamic => Vec::new(),
     }
 }
 
 /// Specializes the shared closure-target lambda once: replaces uses of the
 /// captured callable parameter inside the lambda body with the concrete callee
-/// and removes the capture from the lambda's input pattern.
+/// and retires the capture from the lambda's input pattern.
+///
+/// A concrete callable that is itself a capturing closure cannot be copied into
+/// the target body as-is: its capture operands name locals of the scope that
+/// built it, which the target body does not bind. Those captures are rebound to
+/// fresh parameters of the target, and the returned bindings tell the caller
+/// which operands the enclosing `Closure` expression must now carry.
 fn specialize_closure_target_for_captured_param(
     package: &mut Package,
     package_id: PackageId,
@@ -3730,7 +3882,7 @@ fn specialize_closure_target_for_captured_param(
     capture_ty: &Ty,
     concrete: &ConcreteCallable,
     assigner: &mut Assigner,
-) {
+) -> Vec<(LocalVarId, Ty)> {
     // Step 1: Find the corresponding binding in the closure target's input pattern.
     let target_item = package.items.get(closure_target);
     let Some(Item {
@@ -3738,7 +3890,7 @@ fn specialize_closure_target_for_captured_param(
         ..
     }) = target_item
     else {
-        return;
+        return Vec::new();
     };
     let target_decl = target_decl.as_ref().clone();
 
@@ -3752,16 +3904,16 @@ fn specialize_closure_target_for_captured_param(
     let capture_param_var = match &target_input_pat.kind {
         PatKind::Tuple(pats) => {
             if capture_idx >= pats.len() {
-                return;
+                return Vec::new();
             }
             let capture_pat = package.pats.get(pats[capture_idx]).expect("pat not found");
             match &capture_pat.kind {
                 PatKind::Bind(ident) => ident.id,
-                _ => return,
+                _ => return Vec::new(),
             }
         }
         PatKind::Bind(ident) if capture_idx == 0 => ident.id,
-        _ => return,
+        _ => return Vec::new(),
     };
 
     // Step 2: Create a synthetic CallableParam for the closure target's captured param.
@@ -3775,7 +3927,20 @@ fn specialize_closure_target_for_captured_param(
         matches!(package.get_pat(target_decl.input).kind, PatKind::Tuple(_)),
     );
 
-    // Step 3: Transform the target callable's body to replace uses of the
+    // Step 3: Rebind the concrete's own captures, if any, to fresh parameters of
+    // this target so the substituted value names only locals the target binds.
+    let rebound = rebind_concrete_captures_to_target_params(
+        package,
+        closure_target,
+        capture_idx,
+        concrete,
+        assigner,
+    );
+    let local_concrete = rebound
+        .as_ref()
+        .map_or_else(|| concrete.clone(), |rebound| rebound.concrete.clone());
+
+    // Step 4: Transform the target callable's body to replace uses of the
     // captured param with the concrete callable. This rewrites a distinct
     // callable, the closure target, so it uses its own fresh dedup set.
     let mut specialized_capture_targets: FxHashSet<SpecializedCaptureKey> = FxHashSet::default();
@@ -3784,15 +3949,187 @@ fn specialize_closure_target_for_captured_param(
         package_id,
         &target_decl.implementation,
         &closure_param,
-        concrete,
+        &local_concrete,
         &[],
         &mut specialized_capture_targets,
         assigner,
     );
 
-    // Step 4: Remove the capture binding from the target callable's input.
-    remove_capture_from_closure_target(package, closure_target, capture_idx);
+    // Step 5: Retire the capture binding. A rebound concrete already replaced
+    // the slot with its own capture parameters, so only the plain case removes.
+    let operands = if let Some(rebound) = rebound {
+        rebound.operands
+    } else {
+        remove_capture_from_closure_target(package, closure_target, capture_idx);
+        Vec::new()
+    };
     refresh_callable_types(package, closure_target);
+
+    #[cfg(debug_assertions)]
+    if let Some(Item {
+        kind: ItemKind::Callable(decl),
+        ..
+    }) = package.items.get(closure_target)
+    {
+        crate::invariants::check_local_var_consistency(package, decl);
+    }
+
+    operands
+}
+
+/// The result of rebinding a capturing concrete closure onto a target's input.
+struct ReboundConcreteCaptures {
+    /// The concrete callable with its capture operands renamed to the target's
+    /// fresh parameters.
+    concrete: ConcreteCallable,
+    /// The original caller-scope operands, in the order the target now expects
+    /// them, for the enclosing `Closure` expression to carry.
+    operands: Vec<(LocalVarId, Ty)>,
+}
+
+/// Replaces the capture parameter at `capture_idx` of `closure_target` with one
+/// fresh parameter per capture of a concrete capturing closure.
+///
+/// Returns `None` when the concrete carries no captures, which is the case that
+/// needs no rebinding because the substituted value names no locals at all.
+fn rebind_concrete_captures_to_target_params(
+    package: &mut Package,
+    closure_target: LocalItemId,
+    capture_idx: usize,
+    concrete: &ConcreteCallable,
+    assigner: &mut Assigner,
+) -> Option<ReboundConcreteCaptures> {
+    let ConcreteCallable::Closure {
+        target,
+        captures,
+        functor,
+    } = concrete
+    else {
+        return None;
+    };
+    if captures.is_empty() {
+        return None;
+    }
+    if !closure_target_capture_slot_is_replaceable(package, closure_target, capture_idx) {
+        return None;
+    }
+
+    let mut fresh_pat_ids = Vec::with_capacity(captures.len());
+    let mut fresh_captures = Vec::with_capacity(captures.len());
+    let mut operands = Vec::with_capacity(captures.len());
+    for (index, capture) in captures.iter().enumerate() {
+        let pat_id = assigner.next_pat();
+        let local_var = assigner.next_local();
+        package.pats.insert(
+            pat_id,
+            Pat {
+                id: pat_id,
+                span: Span::default(),
+                ty: capture.ty.clone(),
+                kind: PatKind::Bind(Ident {
+                    id: local_var,
+                    span: Span::default(),
+                    name: Rc::from(format!("{CAPTURE_NAME_PREFIX}_{index}")),
+                }),
+            },
+        );
+        fresh_pat_ids.push(pat_id);
+        fresh_captures.push(CapturedVar {
+            var: local_var,
+            ty: capture.ty.clone(),
+            expr: None,
+            caller_substitutions: Vec::new(),
+        });
+        operands.push((capture.var, capture.ty.clone()));
+    }
+
+    replace_capture_in_closure_target(package, closure_target, capture_idx, &fresh_pat_ids)?;
+
+    Some(ReboundConcreteCaptures {
+        concrete: ConcreteCallable::Closure {
+            target: *target,
+            captures: fresh_captures,
+            functor: *functor,
+        },
+        operands,
+    })
+}
+
+/// Returns whether the capture slot at `capture_idx` can be replaced by a list
+/// of parameters, which is what [`replace_capture_in_closure_target`] requires.
+///
+/// Checked before any allocation so a target this cannot reshape never leaves
+/// orphaned patterns behind.
+fn closure_target_capture_slot_is_replaceable(
+    package: &Package,
+    target_item_id: LocalItemId,
+    capture_idx: usize,
+) -> bool {
+    let Some(ItemKind::Callable(decl)) = package.items.get(target_item_id).map(|item| &item.kind)
+    else {
+        return false;
+    };
+    match &package.get_pat(decl.input).kind {
+        PatKind::Tuple(pats) => capture_idx < pats.len(),
+        PatKind::Bind(_) => capture_idx == 0,
+        PatKind::Discard => false,
+    }
+}
+
+/// Substitutes the capture binding at `capture_idx` of a closure target's input
+/// with `replacements`, keeping the surrounding parameters in place.
+///
+/// Returns `None` when the input is not a shape this can splice, leaving the
+/// callable untouched so the caller can fall back to the plain removal path.
+fn replace_capture_in_closure_target(
+    package: &mut Package,
+    target_item_id: LocalItemId,
+    capture_idx: usize,
+    replacements: &[PatId],
+) -> Option<()> {
+    let Some(Item {
+        kind: ItemKind::Callable(decl),
+        ..
+    }) = package.items.get(target_item_id)
+    else {
+        return None;
+    };
+    let input_pat_id = decl.input;
+    let input_pat = package.pats.get(input_pat_id)?.clone();
+
+    let replacement_tys: Vec<Ty> = replacements
+        .iter()
+        .map(|pat_id| package.get_pat(*pat_id).ty.clone())
+        .collect();
+
+    // A sole capture parameter carries no siblings to preserve, so the whole
+    // input becomes the replacement list.
+    let PatKind::Tuple(pats) = &input_pat.kind else {
+        if capture_idx != 0 {
+            return None;
+        }
+        let pat_mut = package.pats.get_mut(input_pat_id)?;
+        pat_mut.kind = PatKind::Tuple(replacements.to_vec());
+        pat_mut.ty = Ty::Tuple(replacement_tys);
+        return Some(());
+    };
+    if capture_idx >= pats.len() {
+        return None;
+    }
+
+    let mut new_pats = pats.clone();
+    new_pats.splice(capture_idx..=capture_idx, replacements.iter().copied());
+
+    let mut tys = match &input_pat.ty {
+        Ty::Tuple(tys) => tys.clone(),
+        _ => vec![input_pat.ty.clone(); pats.len()],
+    };
+    tys.splice(capture_idx..=capture_idx, replacement_tys);
+
+    let pat_mut = package.pats.get_mut(input_pat_id)?;
+    pat_mut.kind = PatKind::Tuple(new_pats);
+    pat_mut.ty = Ty::Tuple(tys);
+    Some(())
 }
 
 /// Re-runs the post-transform type-refresh cascade over a callable item's
