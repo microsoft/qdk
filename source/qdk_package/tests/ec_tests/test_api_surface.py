@@ -21,7 +21,9 @@ _SURFACE: dict[str, tuple[str, ...]] = {
         "complete_qodec",
         "from_yaml",
         "load",
+        "qodec_from_code",
         "save",
+        "synthesis_notes",
         "to_yaml",
     ),
     "qdk.ec.profile.action": (

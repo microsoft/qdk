@@ -46,6 +46,30 @@ develop.save(completed, "out/")
 preserves authored flag bindings, and returns a new `qodec.Gadget` without mutating
 the draft. `complete_qodec` does the same for every gadget of every layer.
 
+If you are starting from a bare stabilizer code rather than a draft qodec,
+`qodec_from_code` synthesizes the whole artifact — a logical instruction set and a
+verified circuit behind each of its instructions:
+
+```python
+import qodec
+from qdk.ec.develop import qodec_from_code, synthesis_notes
+
+code = qodec.Code(
+    "steane",
+    stabilizers=["X_0 X_3 X_4 X_6", ...],
+    x=["X_0 X_1 X_3"],
+    z=["Z_1 Z_2 Z_5"],
+)
+codec = qodec_from_code(code)
+print(sorted(codec.layers[0].gadgets))    # idle, measure_x, measure_z, prepare_x, ...
+print(synthesis_notes(codec)["omitted"])  # anything that could not be synthesized
+```
+
+Every synthesized gadget is completed *and* verified against the action it declares,
+so an instruction ships only if its circuit provably implements it. The circuits are
+textbook rather than fault-tolerant — see `qdk.ec.develop.synthesis` for what that
+costs and why.
+
 ### Test
 
 `qdk.ec.profile` computes typed facts about a qodec. `qdk.ec.audit` applies
@@ -142,7 +166,11 @@ solver dependencies are isolated:
 `qdk.ec` passes decoder configuration through to `deq`. It does not define a
 decoder protocol or wrap individual decoder implementations.
 
-## Example
+## Examples
 
 [`samples/notebooks/qdk_ec/qdk_ec_walkthrough.ipynb`](../../../../samples/notebooks/qdk_ec/qdk_ec_walkthrough.ipynb)
 walks the whole lifecycle on the [[4,2,2]] error-detecting code.
+
+[`samples/notebooks/qdk_ec/qodec_from_code.ipynb`](../../../../samples/notebooks/qdk_ec/qodec_from_code.ipynb)
+takes the Steane code from a list of stabilizers to a sampled memory experiment
+with `qodec_from_code`, without writing a circuit by hand.
