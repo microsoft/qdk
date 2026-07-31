@@ -665,6 +665,7 @@ pub trait FileSystemAsync {
                 errors.push(Error::GitHubToLocal(key.to_string(), alias.to_string()));
                 continue;
             }
+            let dependency = apply_dependency_override(dependency);
 
             let dep_result = self
                 .read_manifest_and_sources(global_cache, dep_key.clone(), &dependency, errors)
@@ -714,6 +715,62 @@ pub fn key_for_package_ref(dep: &PackageRef) -> PackageKey {
 #[must_use]
 pub fn package_ref_from_key(key: &PackageKey) -> PackageRef {
     serde_json::from_str(key).expect("dependency should be deserializable")
+}
+
+/// Returns the environment variable name for overriding a GitHub dependency.
+///
+/// Names use the form `QDK_LIB_OVERRIDE_<OWNER>_<REPO>[_<PATH>]`. Leading and trailing slashes are
+/// removed from the optional package path, the complete name is converted to ASCII uppercase, and
+/// every character other than an ASCII letter or digit is replaced with an underscore. For example,
+/// to override dependency `{"owner": "Microsoft", "repo": "qdk", "path": "library/qtest"}`, use
+/// environment variable `QDK_LIB_OVERRIDE_MICROSOFT_QDK_LIBRARY_QTEST`.
+pub(crate) fn local_override_env_var_name(github: &GitHubRef) -> String {
+    let mut name = format!("QDK_LIB_OVERRIDE_{}_{}", github.owner, github.repo);
+    if let Some(path) = github
+        .path
+        .as_deref()
+        .map(|path| path.trim_matches('/'))
+        .filter(|path| !path.is_empty())
+    {
+        name.push('_');
+        name.push_str(path);
+    }
+
+    name.make_ascii_uppercase();
+    name.replace(|character: char| !character.is_ascii_alphanumeric(), "_")
+}
+
+/// Returns the configured local path for a GitHub dependency, if present.
+fn local_override_for_github_dependency(github: &GitHubRef) -> Option<PathBuf> {
+    std::env::var_os(local_override_env_var_name(github)).map(PathBuf::from)
+}
+
+/// Replaces a GitHub dependency with its configured local override.
+fn apply_dependency_override(package_ref: PackageRef) -> PackageRef {
+    match &package_ref {
+        PackageRef::GitHub { github } => {
+            if let Some(local_path) = local_override_for_github_dependency(github) {
+                println!(
+                    "using local override for GitHub dependency {}/{}@{}{}: {}",
+                    github.owner,
+                    github.repo,
+                    github.r#ref,
+                    github
+                        .path
+                        .as_deref()
+                        .map(|path| format!("/{path}"))
+                        .unwrap_or_default(),
+                    local_path.display()
+                );
+                PackageRef::Path {
+                    path: local_path.to_string_lossy().into_owned(),
+                }
+            } else {
+                package_ref
+            }
+        }
+        PackageRef::Path { .. } => package_ref,
+    }
 }
 
 /// A `PackageKey` is a global unique identifier for a package, and it's

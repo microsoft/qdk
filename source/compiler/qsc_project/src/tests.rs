@@ -7,7 +7,7 @@
 
 mod harness;
 
-use crate::Project;
+use crate::{Project, manifest::GitHubRef, project::local_override_env_var_name};
 use expect_test::expect;
 use harness::{check, check_files_in_project};
 
@@ -623,5 +623,35 @@ fn single_file_sets_has_manifest_false() {
     assert!(
         !project.has_manifest(),
         "Expected has_manifest to be false for single-file scenario"
+    );
+}
+
+#[test]
+fn override_name_includes_normalized_github_path() {
+    let github = GitHubRef {
+        owner: "Microsoft".into(),
+        repo: "qdk".into(),
+        r#ref: "v1.31.0".into(),
+        path: Some("/library/qtest/".into()),
+    };
+
+    assert_eq!(
+        local_override_env_var_name(&github),
+        "QDK_LIB_OVERRIDE_MICROSOFT_QDK_LIBRARY_QTEST"
+    );
+}
+
+#[test]
+fn override_name_supports_repository_root() {
+    let github = GitHubRef {
+        owner: "microsoft".into(),
+        repo: "qdk".into(),
+        r#ref: "main".into(),
+        path: None,
+    };
+
+    assert_eq!(
+        local_override_env_var_name(&github),
+        "QDK_LIB_OVERRIDE_MICROSOFT_QDK"
     );
 }
