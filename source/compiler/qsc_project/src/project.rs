@@ -719,30 +719,26 @@ pub fn package_ref_from_key(key: &PackageKey) -> PackageRef {
 
 /// Returns the environment variable name for overriding a GitHub dependency.
 ///
-/// Names use the form `QDK_LIB_OVERRIDE_<OWNER>_<REPO>[_<PATH>]`. Leading and trailing slashes are
-/// removed from the optional package path, the complete name is converted to ASCII uppercase, and
+/// Names use the form `QDK_LIB_OVERRIDE_<OWNER>_<REPO>`, converted to ASCII uppercase, and
 /// every character other than an ASCII letter or digit is replaced with an underscore. For example,
-/// to override dependency `{"owner": "Microsoft", "repo": "qdk", "path": "library/qtest"}`, use
-/// environment variable `QDK_LIB_OVERRIDE_MICROSOFT_QDK_LIBRARY_QTEST`.
+/// to override dependency on repository `{"owner": "Microsoft", "repo": "qdk"`, use
+/// environment variable `QDK_LIB_OVERRIDE_MICROSOFT_QDK`.
+/// 
+/// If the repository has multiple libraries, all of them are overridden.
 pub(crate) fn local_override_env_var_name(github: &GitHubRef) -> String {
     let mut name = format!("QDK_LIB_OVERRIDE_{}_{}", github.owner, github.repo);
-    if let Some(path) = github
-        .path
-        .as_deref()
-        .map(|path| path.trim_matches('/'))
-        .filter(|path| !path.is_empty())
-    {
-        name.push('_');
-        name.push_str(path);
-    }
-
     name.make_ascii_uppercase();
     name.replace(|character: char| !character.is_ascii_alphanumeric(), "_")
 }
 
 /// Returns the configured local path for a GitHub dependency, if present.
+/// This will be a path to directory corresponding to repository root. 
 fn local_override_for_github_dependency(github: &GitHubRef) -> Option<PathBuf> {
-    std::env::var_os(local_override_env_var_name(github)).map(PathBuf::from)
+    let mut path = PathBuf::from(std::env::var_os(local_override_env_var_name(github))?);
+    if let Some(github_path) = &github.path {
+        path.push(github_path.trim_matches('/'));
+    }
+    Some(path)
 }
 
 /// Replaces a GitHub dependency with its configured local override.

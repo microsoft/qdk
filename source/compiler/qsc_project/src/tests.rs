@@ -627,27 +627,12 @@ fn single_file_sets_has_manifest_false() {
 }
 
 #[test]
-fn override_name_includes_normalized_github_path() {
+fn test_local_override_env_var_name() {
     let github = GitHubRef {
         owner: "Microsoft".into(),
         repo: "qdk".into(),
         r#ref: "v1.31.0".into(),
         path: Some("/library/qtest/".into()),
-    };
-
-    assert_eq!(
-        local_override_env_var_name(&github),
-        "QDK_LIB_OVERRIDE_MICROSOFT_QDK_LIBRARY_QTEST"
-    );
-}
-
-#[test]
-fn override_name_supports_repository_root() {
-    let github = GitHubRef {
-        owner: "microsoft".into(),
-        repo: "qdk".into(),
-        r#ref: "main".into(),
-        path: None,
     };
 
     assert_eq!(
