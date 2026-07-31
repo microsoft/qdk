@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Encoding, LanguageService, Update, UpdateHandler,
+    Encoding, LanguageService, Update, UpdateHandler, VersionWait,
     protocol::{DiagnosticUpdate, ErrorKind, TestCallables, WorkspaceConfigurationUpdate},
     push_update,
 };
@@ -459,6 +459,43 @@ async fn run_applies_updates_to_distinct_documents() {
     applied.dedup();
 
     assert_eq!(applied, ["bar.qs", "foo.qs"]);
+}
+
+/// A caller parked on a version that can no longer arrive has to be released when the
+/// update handler stops, rather than waiting forever.
+#[tokio::test]
+async fn wait_for_document_version_released_when_handler_stops() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    // The wait doesn't borrow `ls`, so updates can still be stopped while it's alive.
+    let wait = ls.wait_for_document_version("foo.qs", 1);
+    ls.stop_updates();
+
+    // `join` polls the wait first, so it is parked by the time the handler shuts down.
+    let (result, ()) = futures::future::join(wait, worker.run(|| std::future::ready(()))).await;
+
+    assert_eq!(result, VersionWait::Superseded);
+}
+
+/// Once the handler has stopped there is nothing left to wake a new caller, so parking
+/// one would hang it until its timeout.
+#[tokio::test]
+async fn wait_for_document_version_returns_immediately_after_handler_stops() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    ls.stop_updates();
+    worker.run(|| std::future::ready(())).await;
+
+    assert_eq!(
+        ls.wait_for_document_version("foo.qs", 1).await,
+        VersionWait::Superseded
+    );
 }
 
 #[test]

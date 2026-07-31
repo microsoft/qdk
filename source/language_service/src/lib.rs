@@ -37,7 +37,11 @@ use qsc::{
 };
 use qsc_project::JSProjectHost;
 use state::{CompilationState, CompilationStateUpdater};
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    fmt::Debug,
+    rc::Rc,
+};
 
 pub struct LanguageService {
     /// All [`Position`]s and [`Range`]s will be mapped using this encoding.
@@ -50,9 +54,8 @@ pub struct LanguageService {
     state: Rc<RefCell<CompilationState>>,
     /// Channel for compilation state update messages coming from the client.
     state_updater: Option<UnboundedSender<Update>>,
-    /// Callers parked in [`LanguageService::wait_for_document_version`]. Woken after
-    /// every applied batch of updates, at which point they re-inspect the state.
-    version_waiters: Rc<RefCell<Vec<oneshot::Sender<()>>>>,
+    /// Callers parked in [`LanguageService::wait_for_document_version`].
+    version_waiters: Rc<VersionWaiters>,
 }
 
 /// The outcome of waiting for a specific version of a document to be compiled.
@@ -63,6 +66,44 @@ pub enum VersionWait {
     /// The document has already moved past the requested version. That version was
     /// coalesced away and will never be compiled, so it can no longer be answered for.
     Superseded,
+}
+
+/// Callers parked in [`LanguageService::wait_for_document_version`], waiting for the
+/// next batch of updates to be applied so they can re-inspect the compilation state.
+#[derive(Default)]
+struct VersionWaiters {
+    parked: RefCell<Vec<oneshot::Sender<()>>>,
+    is_shut_down: Cell<bool>,
+}
+
+impl VersionWaiters {
+    /// Returns `None` once the update handler has stopped, since no further version
+    /// will ever be compiled and nothing would arrive to wake the caller.
+    fn park(&self) -> Option<oneshot::Receiver<()>> {
+        if self.is_shut_down.get() {
+            return None;
+        }
+        let (send, recv) = oneshot::channel();
+        self.parked.borrow_mut().push(send);
+        Some(recv)
+    }
+
+    fn wake_all(&self) {
+        // Taken rather than drained in place: a woken caller may immediately re-park,
+        // and that would re-enter the borrow if it were still held here.
+        let parked = std::mem::take(&mut *self.parked.borrow_mut());
+        for waiter in parked {
+            let _ = waiter.send(());
+        }
+    }
+
+    /// Releases everyone currently parked and rejects any that arrive later. Dropping
+    /// the senders is what lets parked callers observe the shutdown.
+    fn shut_down(&self) {
+        self.is_shut_down.set(true);
+        let parked = std::mem::take(&mut *self.parked.borrow_mut());
+        drop(parked);
+    }
 }
 
 impl LanguageService {
@@ -207,12 +248,13 @@ impl LanguageService {
     /// point somewhere else entirely, or not exist at all.
     ///
     /// The returned future is independent of `&self` so that callers can hold it across
-    /// await points without keeping the language service borrowed.
+    /// await points without keeping the language service borrowed. The `use<>` bound is
+    /// precise capturing, which is what keeps the input lifetimes out of the future.
     pub fn wait_for_document_version(
         &self,
         uri: &str,
         version: u32,
-    ) -> impl std::future::Future<Output = VersionWait> + 'static {
+    ) -> impl std::future::Future<Output = VersionWait> + 'static + use<> {
         let state = self.state.clone();
         let waiters = self.version_waiters.clone();
         let uri = uri.to_string();
@@ -227,16 +269,16 @@ impl LanguageService {
                         Some(current) if current == version => return VersionWait::Ready,
                         Some(current) if current > version => return VersionWait::Superseded,
                         // Either behind, or the document hasn't been processed at all yet.
-                        _ => {
-                            let (send, recv) = oneshot::channel();
-                            waiters.borrow_mut().push(send);
-                            recv
-                        }
+                        _ => match waiters.park() {
+                            Some(receiver) => receiver,
+                            // The update handler is gone, so the version will never arrive.
+                            None => return VersionWait::Superseded,
+                        },
                     }
                 };
 
                 if receiver.await.is_err() {
-                    // The update handler is gone, so the version will never arrive.
+                    // The update handler shut down while we were parked.
                     return VersionWait::Superseded;
                 }
             }
@@ -396,7 +438,7 @@ impl LanguageService {
 pub struct UpdateHandler<'a> {
     updater: CompilationStateUpdater<'a>,
     recv: UnboundedReceiver<Update>,
-    version_waiters: Rc<RefCell<Vec<oneshot::Sender<()>>>>,
+    version_waiters: Rc<VersionWaiters>,
 }
 
 /// Caps how many times [`UpdateHandler::run`] will give the host a turn to deliver more
@@ -445,8 +487,7 @@ impl UpdateHandler<'_> {
             self.apply(updates).await;
         }
 
-        // Drop any waiters so `wait_for_document_version` callers can observe shutdown.
-        self.version_waiters.borrow_mut().clear();
+        self.version_waiters.shut_down();
     }
 
     /// Convenience method to apply *only* the pending updates
@@ -500,9 +541,7 @@ impl UpdateHandler<'_> {
         trace!("end applying updates");
 
         // Let anyone waiting on a particular version re-check where the state landed.
-        for waiter in self.version_waiters.borrow_mut().drain(..) {
-            let _ = waiter.send(());
-        }
+        self.version_waiters.wake_all();
     }
 }
 
