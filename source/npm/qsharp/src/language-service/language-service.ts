@@ -60,10 +60,9 @@ export type CompletionListResult = ICompletionList & {
 /**
  * How long to wait for a completion request's document version to be compiled.
  *
- * This is a liveness backstop, not a tuning knob. A version that gets coalesced away is
- * reported as superseded immediately, so hitting this timeout means the update is
- * genuinely stuck, such as behind a slow project load. Expiring returns an incomplete
- * list, so VS Code asks again rather than showing a stale one.
+ * This is a liveness backstop, not a tuning knob. Expiring doesn't fail the request: the
+ * list is computed against whatever version is current and flagged incomplete, so the
+ * cost of waiting too little is a provisional answer rather than no answer.
  */
 const completionWaitTimeoutMs = 2000;
 
@@ -249,10 +248,10 @@ export class QSharpLanguageService implements ILanguageService {
     version: number,
     position: IPosition,
   ): Promise<CompletionListResult> {
-    // The position was computed against this exact version of the document, so a later
-    // one is not an acceptable substitute: it may put the position somewhere else
-    // entirely. This matters most when the last character typed is significant to the
-    // completion, as in `Foo.`.
+    // The position was computed against this version, so answering against an older one
+    // gets the wrong list: the last character typed is often what determines the answer,
+    // as in `Foo.`. Waiting avoids that. A newer version is a lesser problem, since the
+    // position only drifts if the intervening edits moved it, so it's tolerated below.
     const status = await this.languageService.wait_for_document_version(
       documentUri,
       version,
@@ -262,9 +261,9 @@ export class QSharpLanguageService implements ILanguageService {
     const completions: CompletionListResult =
       this.languageService.get_completions(documentUri, position);
 
-    if (status != "ready") {
+    if (status !== "ready") {
       log.info(
-        `Providing completions for ${documentUri} from a different version than requested`,
+        `Providing completions for ${documentUri} from a ${status === "timeout" ? "older" : "newer"} version than requested`,
       );
       // Attempt to signal to the editor that the list is provisional and a fresh request should
       // be made on the next keystroke (vs just filtering).

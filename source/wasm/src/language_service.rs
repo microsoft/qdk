@@ -21,10 +21,18 @@ use std::str::FromStr;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 
+#[wasm_bindgen(typescript_custom_section)]
+const VERSION_WAIT_STATUS: &'static str = r#"
+export type VersionWaitStatus = "ready" | "superseded" | "timeout";
+"#;
+
 #[wasm_bindgen]
 extern "C" {
     #[wasm_bindgen(js_name = setTimeout)]
     fn set_timeout(closure: &js_sys::Function, ms: i32);
+
+    #[wasm_bindgen(typescript_type = "Promise<VersionWaitStatus>")]
+    pub type PromiseVersionWaitStatus;
 }
 
 #[wasm_bindgen]
@@ -208,18 +216,17 @@ impl LanguageService {
     }
 
     /// Resolves once the compilation state reflects exactly `version` of `uri`, or the
-    /// document moves past it, or `timeout_ms` elapses. Resolves to `"ready"`,
-    /// `"superseded"` or `"timeout"`.
+    /// document moves past it, or `timeout_ms` elapses.
     ///
-    /// The timeout is a liveness backstop rather than a tuning knob. A version that gets
-    /// coalesced away reports `"superseded"` immediately, so reaching the timeout means
-    /// the update is genuinely stuck, for instance behind a slow project load.
+    /// The timeout is a liveness backstop rather than a tuning knob. Supersession is
+    /// reported as soon as the next batch of updates lands, so reaching the timeout
+    /// means the update is genuinely stuck, for instance behind a slow project load.
     pub fn wait_for_document_version(
         &self,
         uri: &str,
         version: u32,
         timeout_ms: i32,
-    ) -> js_sys::Promise {
+    ) -> PromiseVersionWaitStatus {
         let wait = self.0.wait_for_document_version(uri, version);
         let uri = uri.to_string();
 
@@ -242,6 +249,7 @@ impl LanguageService {
             };
             Ok(JsValue::from_str(result))
         })
+        .unchecked_into()
     }
 
     pub fn get_completions(&self, uri: &str, position: IPosition) -> ICompletionList {

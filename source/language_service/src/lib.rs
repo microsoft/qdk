@@ -83,7 +83,10 @@ impl VersionWaiters {
             return None;
         }
         let (send, recv) = oneshot::channel();
-        self.parked.borrow_mut().push(send);
+        let mut parked = self.parked.borrow_mut();
+        // Backstop for callers that gave up; `wake_all` collects the rest on the next update.
+        parked.retain(|sender| !sender.is_canceled());
+        parked.push(send);
         Some(recv)
     }
 
@@ -240,11 +243,9 @@ impl LanguageService {
         });
     }
 
-    /// Waits until the compilation state reflects exactly `version` of `uri`.
-    ///
-    /// The match has to be exact. A later version is not an acceptable substitute: the
-    /// caller's `position` was computed against `version`, so against newer text it may
-    /// point somewhere else entirely, or not exist at all.
+    /// Waits until the compilation state reflects exactly `version` of `uri`, reporting
+    /// [`VersionWait::Superseded`] if the document moves past it first. Whether a
+    /// superseded version is still usable is left to the caller.
     ///
     /// The returned future is independent of `&self` so that callers can hold it across
     /// await points without keeping the language service borrowed. The `use<>` bound is
@@ -486,6 +487,8 @@ impl UpdateHandler<'_> {
             self.apply(updates).await;
         }
 
+        // Not just left to `drop`, so waiters are released as soon as the loop ends even
+        // if the handler itself is kept alive.
         self.version_waiters.shut_down();
     }
 
@@ -541,6 +544,14 @@ impl UpdateHandler<'_> {
 
         // Let anyone waiting on a particular version re-check where the state landed.
         self.version_waiters.wake_all();
+    }
+}
+
+impl Drop for UpdateHandler<'_> {
+    /// Covers every way the handler can go away, including `run` never being called or
+    /// its future being cancelled, not just the loop exiting normally.
+    fn drop(&mut self) {
+        self.version_waiters.shut_down();
     }
 }
 
