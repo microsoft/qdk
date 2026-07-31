@@ -461,6 +461,83 @@ async fn run_applies_updates_to_distinct_documents() {
     assert_eq!(applied, ["bar.qs", "foo.qs"]);
 }
 
+#[tokio::test]
+async fn wait_for_document_version_ready_when_already_current() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    ls.update_document("foo.qs", 1, "namespace Foo { }", "qsharp");
+    worker.apply_pending().await;
+
+    assert_eq!(
+        ls.wait_for_document_version("foo.qs", 1).await,
+        VersionWait::Ready
+    );
+}
+
+/// A caller that parks while its version is still queued is woken once it lands.
+#[tokio::test]
+async fn wait_for_document_version_resolves_once_applied() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    ls.update_document("foo.qs", 1, "namespace Foo { }", "qsharp");
+
+    let wait = ls.wait_for_document_version("foo.qs", 1);
+    futures_util::pin_mut!(wait);
+    assert!(
+        futures::poll!(wait.as_mut()).is_pending(),
+        "expected the caller to park until the update is applied"
+    );
+
+    worker.apply_pending().await;
+
+    assert_eq!(wait.await, VersionWait::Ready);
+}
+
+/// The case the completion path is built around: the requested version gets merged away
+/// before it is ever compiled, so it can never be answered for.
+#[tokio::test]
+async fn wait_for_document_version_superseded_when_coalesced_away() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    ls.update_document("foo.qs", 1, "namespace Foo { ", "qsharp");
+
+    let wait = ls.wait_for_document_version("foo.qs", 1);
+    futures_util::pin_mut!(wait);
+    assert!(futures::poll!(wait.as_mut()).is_pending());
+
+    // Version 1 is still queued, so this merges over it and only version 2 is compiled.
+    ls.update_document("foo.qs", 2, "namespace Foo { a", "qsharp");
+    worker.apply_pending().await;
+
+    assert_eq!(wait.await, VersionWait::Superseded);
+}
+
+/// A version the state has already moved past is reported without parking at all.
+#[tokio::test]
+async fn wait_for_document_version_superseded_without_parking() {
+    let received_errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
+
+    ls.update_document("foo.qs", 2, "namespace Foo { }", "qsharp");
+    worker.apply_pending().await;
+
+    assert_eq!(
+        ls.wait_for_document_version("foo.qs", 1).await,
+        VersionWait::Superseded
+    );
+}
+
 /// A caller parked on a version that can no longer arrive has to be released when the
 /// update handler stops, rather than waiting forever.
 #[tokio::test]

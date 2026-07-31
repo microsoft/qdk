@@ -6,6 +6,7 @@ import * as vscode from "vscode";
 import {
   activateExtension,
   openDocumentAndWaitForProcessing,
+  waitForCondition,
 } from "../extensionUtils";
 
 /**
@@ -39,6 +40,10 @@ suite("Completion re-trigger behavior", function suite() {
 
   // Roughly a fast typist.
   const keystrokeIntervalMs = 40;
+
+  // Generous, but short enough to fail with a useful message rather than hitting the
+  // suite-wide timeout.
+  const activeEditorTimeoutMs = 10_000;
 
   type Invocation = {
     version: number;
@@ -91,70 +96,94 @@ suite("Completion re-trigger behavior", function suite() {
     const doc = await openDocumentAndWaitForProcessing(noErrorsQs);
     const editor = await vscode.window.showTextDocument(doc);
 
+    // `type` goes to whichever editor is active, so typing before this settles sends
+    // the keystrokes nowhere and no suggest session is ever opened.
+    await waitForCondition(
+      () =>
+        vscode.window.activeTextEditor?.document.uri.toString() ===
+        doc.uri.toString(),
+      vscode.window.onDidChangeActiveTextEditor,
+      activeEditorTimeoutMs,
+      "the document never became the active editor",
+    );
+
     // Land the cursor at the end of the `let foo = "hello!";` line so typed text
     // forms a fresh expression rather than editing existing code.
     const insertAt = new vscode.Position(3, 26);
     editor.selection = new vscode.Selection(insertAt, insertAt);
 
-    let versionAtDot = 0;
+    const startVersion = doc.version;
+
     for (const ch of ["S", "t", "d", ".", "D", "i"]) {
       await vscode.commands.executeCommand("type", { text: ch });
-      if (ch === ".") {
-        versionAtDot = doc.version;
-      }
       await new Promise((resolve) => setTimeout(resolve, keystrokeIntervalMs));
     }
 
     // Give any trailing re-triggers a chance to land.
     await new Promise((resolve) => setTimeout(resolve, 1500));
 
-    // Keyed on the document version rather than the trigger kind: when a suggest
-    // session is already open, VS Code may re-query an incomplete provider instead of
-    // starting a fresh trigger-character session, so the kind isn't dependable.
-    const afterDot = invocations.filter((i) => i.version > versionAtDot);
+    // Keyed on the trigger kind, which is the only signal specific to the behavior
+    // under test. The editor also opens unrelated `Invoke` sessions, sometimes many of
+    // them against an unchanging document, and counting those is just machine-speed
+    // noise. `TriggerForIncompleteCompletions` means VS Code came back *because* the
+    // provider reported the list incomplete.
+    const retriggers = invocations.filter(
+      (i) =>
+        i.triggerKind ===
+        vscode.CompletionTriggerKind.TriggerForIncompleteCompletions,
+    );
 
     console.log(
-      `qsharp-tests: isIncomplete=${isIncomplete} versionAtDot=${versionAtDot} finalDocVersion=${doc.version}\n` +
+      `qsharp-tests: isIncomplete=${isIncomplete} finalDocVersion=${doc.version}\n` +
         `qsharp-tests:   all invocations: ${invocations
           .map(
             (i) =>
               `v${i.version}/${vscode.CompletionTriggerKind[i.triggerKind]}${i.triggerCharacter ? `('${i.triggerCharacter}')` : ""}`,
           )
           .join(", ")}\n` +
-        `qsharp-tests:   invocations after dot: ${afterDot.length}`,
+        `qsharp-tests:   incomplete re-triggers: ${retriggers.length}`,
     );
 
+    // Checked before the invocation count so that a failure distinguishes "the
+    // keystrokes never arrived" from "they arrived but suggest didn't run".
+    assert.isAbove(
+      doc.version,
+      startVersion,
+      "the typed characters never reached the document",
+    );
     assert.isNotEmpty(
       invocations,
       "expected the completion provider to be invoked while typing",
     );
-    assert.isAbove(
-      doc.version,
-      versionAtDot,
-      "expected more edits after the `.` keystroke",
-    );
 
-    return { versionAtDot, afterDot, doc };
+    return { retriggers, doc };
   }
 
   test("a complete list is NOT re-requested on later keystrokes", async () => {
-    const { afterDot } = await typeAndRecord(false);
+    const { retriggers } = await typeAndRecord(false);
 
     assert.isEmpty(
-      afterDot,
+      retriggers,
       "expected VS Code to filter a complete list client-side rather than re-requesting",
     );
   });
 
   test("an incomplete list IS re-requested on later keystrokes", async () => {
-    const { afterDot } = await typeAndRecord(true);
+    const { retriggers, doc } = await typeAndRecord(true);
 
     assert.isNotEmpty(
-      afterDot,
+      retriggers,
       "VS Code did not re-invoke the provider after an incomplete list. Returning an " +
         "empty incomplete list is therefore NOT a sufficient mitigation for a " +
         "coalesced-away completion request, and the update loop must avoid coalescing " +
         "past a version a completion request is waiting on.",
+    );
+
+    // The point of the mitigation: the request that eventually gets answered is for
+    // the version the update loop settles on, not the one that was coalesced away.
+    assert.isTrue(
+      retriggers.some((i) => i.version === doc.version),
+      `expected a re-trigger for the final document version ${doc.version}`,
     );
   });
 });
