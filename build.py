@@ -762,6 +762,8 @@ if build_pip and build_widgets and build_qdk and args.integration_tests:
         "qiskit_submission_to_azure",
         "pennylane_submission_to_azure.",
         "benzene.",
+        # Needs the `qdk[ec]` extra, whose `qodec` dependency is not on PyPI yet.
+        "qdk_ec_walkthrough.",
     )
     notebook_files = [
         os.path.join(dp, f)

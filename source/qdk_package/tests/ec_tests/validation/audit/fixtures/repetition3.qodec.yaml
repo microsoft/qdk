@@ -1,0 +1,106 @@
+# repetition3 — single-file qodec bundle (vendored audit fixture).
+#
+# A small, current-model qodec used by the audit tests. It is authored with
+# only the stim gates qodec's parser supports (R / M / CX), so the semantic
+# audit rules (action-mismatch, readout-mismatch) actually run rather than
+# skipping. Copied from the qodec repo's examples/repetition3; if that example
+# changes shape, refresh this copy.
+---
+qodec.yaml:
+  name: repetition3
+  description: Z-basis bit-flip repetition code (distance 3) — the simplest non-trivial QEC example in qodec.
+  layers:
+    - isa: repetition3.isa.yaml
+      codes:
+        repetition3: repetition3.code.yaml
+      gadgets:
+        prepare_z: prepare_z.gadget.yaml
+        idle: idle.gadget.yaml
+        measure_z: measure_z.gadget.yaml
+        rotate_z: rotate_z.gadget.yaml
+    - isa: stim+rz.isa.yaml
+---
+repetition3.isa.yaml:
+  name: repetition3
+  description: Logical instruction set for the 3-qubit bit-flip repetition code.
+  blocks: {repetition3: 1}
+  instructions:
+    - mnemonic: prepare_z
+      description: Prepare the logical |0> state.
+      out: [repetition3]
+      action: [stabilize: Z_0]
+    - mnemonic: idle
+      description: One syndrome-extraction round (identity logical action).
+      in: [repetition3]
+      out: [repetition3]
+    - mnemonic: measure_z
+      description: Destructive Z-basis measurement of the logical Z observable.
+      in: [repetition3]
+      action: [observe: Z_0]
+    - mnemonic: rotate_z
+      description: Logical Z-axis rotation by theta radians (non-Clifford for generic theta).
+      in: [repetition3]
+      out: [repetition3]
+      parameters: {theta: number}
+      action: [rotate: {pauli: Z_0, angle: theta}]
+---
+stim+rz.isa.yaml:
+  name: stim+rz
+  description: Compact stim-like physical ISA plus a parameterized rotate_z(theta).
+  blocks: {qubit: 1}
+  instructions:
+    - mnemonic: R
+      description: Reset qubit to |0>.
+      out: [qubit]
+      action: [stabilize: Z_0]
+    - mnemonic: M
+      description: Destructive Z-basis measurement.
+      in: [qubit]
+      action: [observe: Z_0]
+    - mnemonic: CX
+      description: Controlled-X (CNOT).
+      in: [qubit, qubit]
+      out: [qubit, qubit]
+      action: [clifford: {X_0: X_0 X_1, Z_1: Z_0 Z_1}]
+    - mnemonic: rotate_z
+      description: Rotation by exp(-i theta/2 Z).
+      in: [qubit]
+      out: [qubit]
+      parameters: {theta: number}
+      action: [rotate: {pauli: Z_0, angle: theta}]
+---
+repetition3.code.yaml:
+  name: repetition3
+  description: 3-qubit bit-flip repetition code (Z-basis).
+  stabilizers: [Z_0 Z_1, Z_1 Z_2]
+  x: [X_0 X_1 X_2]
+  z: [Z_0]
+---
+prepare_z.gadget.yaml:
+  circuit: {format: stim, source: "R 0 1 2"}
+---
+idle.gadget.yaml:
+  circuit:
+    format: stim
+    source: |-
+      R 3 4
+      CX 0 3 1 3
+      CX 1 4 2 4
+      M 3 4
+  checks:
+    - ["circuit.readouts[0]", "in[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "in[0].stabilizers[1]"]
+    - ["circuit.readouts[0]", "out[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "out[0].stabilizers[1]"]
+---
+measure_z.gadget.yaml:
+  circuit: {format: stim, source: "M 0 1 2"}
+  checks:
+    - ["circuit.readouts[0]", "circuit.readouts[1]", "in[0].stabilizers[0]"]
+    - ["circuit.readouts[1]", "circuit.readouts[2]", "in[0].stabilizers[1]"]
+  readouts: [["circuit.readouts[0]", "in[0].z[0]"]]
+---
+rotate_z.gadget.yaml:
+  circuit:
+    source: [rotate_z: {target: 0, theta: theta}]
+  parameters: {theta: circuit.source.theta}

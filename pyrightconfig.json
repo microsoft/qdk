@@ -1,6 +1,11 @@
 {
   "pythonVersion": "3.10",
   "include": ["source/qdk_package/qdk"],
+  // `qdk.ec` is an optional extra (`pip install "qdk[ec]"`). Its dependencies
+  // (qodec, paulimer, binar) are not installed in the static-check environment,
+  // so pyright cannot resolve them. The subpackage is type-checked separately
+  // against a full `qdk[ec]` install.
+  "exclude": ["source/qdk_package/qdk/ec"],
   "reportMissingModuleSource": "none", // Allow .pyi without .py
   "typeCheckingMode": "standard",
   "reportMissingParameterType": "error"
