@@ -646,8 +646,10 @@ fn excessive_specializations_warning_reaches_full_pipeline() {
     invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
 }
 
+/// The pipeline defers convergence failures so downstream analysis can resolve
+/// the callable or issue the authoritative error.
 #[test]
-fn run_pipeline_with_diagnostics_returns_dynamic_callable_as_fatal_error() {
+fn run_pipeline_with_diagnostics_defers_dynamic_callable_residue() {
     let (mut fir_store, fir_pkg_id, _) = compile_and_lower(
         r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
@@ -669,19 +671,14 @@ fn run_pipeline_with_diagnostics_returns_dynamic_callable_as_fatal_error() {
     let result = run_pipeline_with_diagnostics(&mut fir_store, fir_pkg_id);
 
     assert!(
-        result.warnings.is_empty(),
-        "expected no warnings, got:\n{}",
-        format_pipeline_errors(&result.warnings)
+        result.errors.is_empty(),
+        "expected the deferred dynamic callable to produce no fatal pipeline error, got:\n{}",
+        format_pipeline_errors(&result.errors)
     );
     assert!(
-        matches!(
-            result.errors.as_slice(),
-            [PipelineError::Defunctionalize(
-                qsc_fir_transforms::defunctionalize::Error::DynamicCallable(_)
-            )]
-        ),
-        "expected DynamicCallable fatal error, got:\n{}",
-        format_pipeline_errors(&result.errors)
+        result.warnings.is_empty(),
+        "expected no standing warnings for the deferred dynamic callable, got:\n{}",
+        format_pipeline_errors(&result.warnings)
     );
 }
 
@@ -783,6 +780,49 @@ fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
         format_pipeline_errors(&result.errors)
     );
     assert_eq!(result.errors[0].owner(), pinned_store_id.package);
+}
+
+#[test]
+fn foreign_pinned_udt_is_erased_before_dce_and_exec_graph_rebuild() {
+    let lib_source = r#"
+        namespace TestLib {
+            struct Payload { Value : Int }
+
+            operation Pinned() : Int {
+                let payload = new Payload { Value = 42 };
+                payload.Value
+            }
+        }
+    "#;
+    let user_source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {}
+        }
+    "#;
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let pinned_store_id = store
+        .iter()
+        .find_map(|(package_id, package)| {
+            if package_id == pkg_id {
+                return None;
+            }
+            package.items.iter().find_map(|(item_id, item)| {
+                matches!(&item.kind, ItemKind::Callable(decl) if decl.name.name.as_ref() == "Pinned")
+                    .then_some(StoreItemId::from((package_id, item_id)))
+            })
+        })
+        .expect("foreign Pinned callable should exist");
+
+    let result = run_pipeline_to_with_diagnostics(
+        &mut store,
+        pkg_id,
+        PipelineStage::Full,
+        &[pinned_store_id],
+    );
+
+    assert_no_pipeline_errors("foreign pinned UDT pipeline", &result.errors);
+    validate(store.get(pinned_store_id.package), &store);
 }
 
 #[test]
@@ -1245,6 +1285,138 @@ fn direct_lambda_calls_preserve_nested_tuple_packaging() {
 }
 
 #[test]
+fn factory_returned_partial_application_preserves_direct_lambda_operands() {
+    let source = r#"
+        namespace Test {
+            operation Compose(
+                op : Qubit[] => Unit,
+                map : Int[],
+                binary : Int[],
+                gaussian : Int[],
+                pool : Int[],
+                qs : Qubit[]
+            ) : Unit {
+                op(qs);
+            }
+
+            function MakeCompose(
+                op : Qubit[] => Unit,
+                map : Int[],
+                binary : Int[],
+                gaussian : Int[],
+                pool : Int[]
+            ) : Qubit[] => Unit {
+                Compose(op, map, binary, gaussian, pool, _)
+            }
+
+            operation Invoke(op : Qubit[] => Unit, qs : Qubit[]) : Unit {
+                op(qs);
+            }
+
+            operation Prepare(qs : Qubit[]) : Unit {
+                H(qs[0]);
+            }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use qs = Qubit[1];
+                Invoke(MakeCompose(Prepare, [0], [1], [2], [3]), qs);
+            }
+        }
+    "#;
+
+    let (mut arg_promote_store, arg_promote_pkg_id, _) = compile_and_lower(source);
+    run_pipeline_to_successfully(
+        &mut arg_promote_store,
+        arg_promote_pkg_id,
+        PipelineStage::ArgPromote,
+    );
+    invariants::check(
+        &arg_promote_store,
+        arg_promote_pkg_id,
+        invariants::InvariantLevel::PostArgPromote,
+    );
+
+    let package = arg_promote_store.get(arg_promote_pkg_id);
+    let args_id = package
+        .exprs
+        .values()
+        .find_map(|expr| match &expr.kind {
+            ExprKind::Call(callee_id, args_id)
+                if expr_targets_callable(package, arg_promote_pkg_id, *callee_id, ".lambda") =>
+            {
+                Some(*args_id)
+            }
+            _ => None,
+        })
+        .expect("factory-returned partial application should call its lifted lambda directly");
+    let args_expr = package.get_expr(args_id);
+    assert_eq!(
+        args_expr.ty.to_string(),
+        "(((Qubit)[] => Unit), (Int)[], (Int)[], (Int)[], (Int)[], (Qubit)[])",
+        "the lifted lambda call should receive its five partial-application operands before qs"
+    );
+
+    let (mut full_store, full_pkg_id, _) = compile_and_lower(source);
+    run_pipeline_successfully(&mut full_store, full_pkg_id);
+    validate(full_store.get(full_pkg_id), &full_store);
+    invariants::check(
+        &full_store,
+        full_pkg_id,
+        invariants::InvariantLevel::PostAll,
+    );
+}
+
+#[test]
+fn branch_dispatched_factory_closures_preserve_distinct_lambda_operands() {
+    let source = r#"
+        namespace Test {
+            operation ApplyBit(bit : Int, q : Qubit) : Unit {
+                if bit == 1 {
+                    X(q);
+                }
+            }
+
+            function MakeBit(bit : Int) : Qubit => Unit {
+                ApplyBit(bit, _)
+            }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use qubits = Qubit[2];
+                let flag = M(qubits[0]);
+                let op = if flag == One { MakeBit(1) } else { MakeBit(0) };
+                op(qubits[1]);
+                ResetAll(qubits);
+            }
+        }
+    "#;
+
+    let (mut store, pkg_id, _) = compile_and_lower(source);
+    run_pipeline_successfully(&mut store, pkg_id);
+    validate(store.get(pkg_id), &store);
+    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+
+    let package = store.get(pkg_id);
+    let direct_lambda_calls = package
+        .exprs
+        .values()
+        .filter(|expr| {
+            matches!(
+                &expr.kind,
+                ExprKind::Call(callee_id, args_id)
+                    if expr_targets_callable(package, pkg_id, *callee_id, ".lambda")
+                        && package.get_expr(*args_id).ty.to_string() == "(Int, Qubit)"
+            )
+        })
+        .count();
+    assert!(
+        direct_lambda_calls >= 2,
+        "both branch arms should call the shared lifted lambda with their own bit capture"
+    );
+}
+
+#[test]
 fn entry_expression_with_callable_arg_passes_pipeline() {
     let source = r#"
         namespace Test {
@@ -1389,6 +1561,47 @@ fn local_multi_field_udt_callable_field_invoked() {
     run_pipeline_successfully(&mut store, pkg_id);
     let package = store.get(pkg_id);
     validate(package, &store);
+}
+
+#[test]
+fn captured_callable_struct_field_calls_preserve_post_arg_promote() {
+    let source = r#"
+        namespace Test {
+            struct CallableFields {
+                StatePrep : Qubit[] => Unit,
+                ControlledOp : (Qubit, Qubit[]) => Unit,
+            }
+
+            operation Run(params : CallableFields) : Unit {
+                use qubits = Qubit[2];
+                let phase = qubits[0];
+                let systems = qubits[1..1];
+                params.StatePrep(systems);
+                params.ControlledOp(phase, systems);
+                ResetAll(qubits);
+            }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                let enabled = true;
+                let rotation = 0.125;
+                let prep = register => { if enabled { H(register[0]); } };
+                let controlled_op = (control, register) => {
+                    Controlled Rx([control], (rotation, register[0]));
+                };
+                Run(new CallableFields { StatePrep = prep, ControlledOp = controlled_op });
+            }
+        }
+    "#;
+
+    let (mut store, pkg_id, _) = compile_and_lower(source);
+    run_pipeline_to_successfully(&mut store, pkg_id, PipelineStage::ArgPromote);
+    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostArgPromote);
+
+    let (mut store, pkg_id, _) = compile_and_lower(source);
+    run_pipeline_successfully(&mut store, pkg_id);
+    validate(store.get(pkg_id), &store);
+    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
 }
 
 /// Local multi-field UDT with a callable field passed to a higher-order

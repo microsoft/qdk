@@ -91,7 +91,7 @@ fn check(source: &str, expect: &Expect) {
 fn compile_and_defunctionalize(source: &str) -> (fir::PackageStore, fir::PackageId) {
     let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     (fir_store, fir_pkg_id)
 }
@@ -115,7 +115,7 @@ fn check_rewrite_with_capabilities(
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let before = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     let after = crate::pretty::write_package_qsharp_parseable(&fir_store, fir_pkg_id);
     expect.assert_eq(&format!("BEFORE:\n{before}\nAFTER:\n{after}"));
@@ -308,6 +308,38 @@ fn check_analysis(source: &str, expect: &Expect) {
     check_analysis_with_capabilities(source, TargetCapabilityFlags::empty(), expect);
 }
 
+/// Runs the defunctionalization pre-pass and analysis over an already-compiled
+/// store, mirroring how the driver assembles the analysis inputs.
+///
+/// The `total_foreign` set is built the same way the driver builds it, because
+/// the argument-position disposition check consults it when deciding whether a
+/// call site can be specialized at all.
+fn run_prepass_and_analysis(
+    fir_store: &mut qsc_fir::fir::PackageStore,
+    fir_pkg_id: fir::PackageId,
+) -> super::types::AnalysisResult {
+    let reachable = collect_reachable_from_entry(fir_store, fir_pkg_id);
+    let package = fir_store.get(fir_pkg_id);
+    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
+        .map(|(id, _)| id)
+        .collect();
+    let reachable_expr_ids =
+        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
+    let collapsed_spans = super::prepass::run(fir_store, fir_pkg_id, &reachable_expr_ids);
+    let mut total_foreign = crate::walk_utils::collect_total_foreign_callables(fir_store);
+    crate::walk_utils::extend_with_discardable_foreign_callables(fir_store, &mut total_foreign);
+    defunc_analysis::analyze(
+        fir_store,
+        fir_pkg_id,
+        &reachable,
+        &Default::default(),
+        &collapsed_spans,
+        &[],
+        &total_foreign,
+    )
+}
+
+#[allow(clippy::too_many_lines)]
 fn check_analysis_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
@@ -315,15 +347,7 @@ fn check_analysis_with_capabilities(
 ) {
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
-    let reachable = collect_reachable_from_entry(&fir_store, fir_pkg_id);
-    let package = fir_store.get(fir_pkg_id);
-    let local_item_ids: Vec<_> = reachable_local_callables(package, fir_pkg_id, &reachable)
-        .map(|(id, _)| id)
-        .collect();
-    let reachable_expr_ids =
-        collect_expr_ids_in_entry_and_local_callables(package, &local_item_ids);
-    let collapsed_spans = super::prepass::run(&mut fir_store, fir_pkg_id, &reachable_expr_ids);
-    let result = defunc_analysis::analyze(&mut fir_store, fir_pkg_id, &reachable, &collapsed_spans);
+    let result = run_prepass_and_analysis(&mut fir_store, fir_pkg_id);
 
     let mut lines: Vec<String> = Vec::new();
     lines.push(format!("callable_params: {}", result.callable_params.len()));
@@ -429,7 +453,7 @@ fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabili
     let (mut fir_store, fir_pkg_id) =
         compile_to_monomorphized_fir_with_capabilities(source, capabilities);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("defunctionalization", &errors);
     fir_invariants::check(&fir_store, fir_pkg_id, InvariantLevel::PostDefunc);
 }
@@ -439,7 +463,7 @@ fn check_invariants_with_capabilities(source: &str, capabilities: TargetCapabili
 fn check_errors(source: &str, expect: &Expect) {
     let (mut store, package_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
     expect.assert_eq(&format_defunctionalization_errors(&errors));
 }
 
@@ -496,7 +520,7 @@ namespace Test {
     // The callable stored in the field originates from a dynamic array index,
     // so defunctionalize cannot fully resolve it (non-convergence is expected
     // and orthogonal to this regression). We only assert binding survival.
-    let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let _ = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     let package = fir_store.get(fir_pkg_id);
     assert!(
         body_binds_local(package, "Pick", "f"),
@@ -542,6 +566,8 @@ fn empty_entrypoint_remains_unchanged() {
     );
 }
 
+/// The raw pass reports convergence failures; the full pipeline defers them
+/// and still reports fatal backstops.
 #[test]
 fn closure_inside_parallel_defunctionalizes() {
     // A closure passed to a HOF inside a parallel block should be defunctionalized
@@ -709,7 +735,8 @@ fn closure_inside_parallel_within_limit_expr_defunctionalizes() {
 
 #[test]
 fn test_helpers_surface_defunctionalization_errors() {
-    let source = r#"
+    // The raw pass retains this convergence diagnostic for its callers.
+    let deferrable_source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit { op(q); }
         operation Main() : Unit {
             use q = Qubit();
@@ -724,7 +751,10 @@ fn test_helpers_surface_defunctionalization_errors() {
         "#;
 
     let check_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        check(source, &expect![[r#"should not reach snapshot assertion"#]]);
+        check(
+            deferrable_source,
+            &expect![[r#"should not reach snapshot assertion"#]],
+        );
     }))
     .expect_err("check should panic when defunctionalization returns errors");
     let check_message = panic_message(check_panic);
@@ -737,17 +767,48 @@ fn test_helpers_surface_defunctionalization_errors() {
         "unexpected check panic: {check_message}"
     );
 
+    // The pipeline defers the same convergence failure, so `check_pipeline` must
+    // not panic on the deferrable residue
+    check_pipeline(deferrable_source);
+
+    // A still-fatal backstop (two forwarded callable arrays through one call) is
+    // surfaced by `check_pipeline` as a pipeline error, so it still panics.
+    let fatal_source = r#"
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps { op(q); }
+            for op in secondOps { op(q); }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            ForwardTwoArrays([X, Y], [Z, H], q);
+        }
+        "#;
+
     let pipeline_panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        check_pipeline(source);
+        check_pipeline(fatal_source);
     }))
-    .expect_err("check_pipeline should panic when run_pipeline returns defunctionalization errors");
+    .expect_err("check_pipeline should panic when run_pipeline returns a fatal backstop error");
     let pipeline_message = panic_message(pipeline_panic);
     assert!(
         pipeline_message.contains("produced FIR transform pipeline errors"),
         "unexpected check_pipeline panic: {pipeline_message}"
     );
     assert!(
-        pipeline_message.contains("callable argument could not be resolved statically"),
+        pipeline_message.contains(
+            "higher-order function forwards more than one callable array, which is not supported"
+        ),
         "unexpected check_pipeline panic: {pipeline_message}"
     );
 }
@@ -836,7 +897,7 @@ fn unreachable_closure_structure_preserved() {
         }
     "});
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("unreachable_closure_structure_preserved", &errors);
 
     // Structure preserved: defunctionalize only rewrites *reachable* call
@@ -960,6 +1021,252 @@ fn cross_package_return_stmt_is_analyzed() {
 
     // Defunctionalize analysis traverses the `Semi(Return)` arm to resolve the
     // returned callable; success (no errors) proves the arm is live.
-    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
     assert_no_defunctionalization_errors("cross_package_return_stmt_is_analyzed", &errors);
+}
+
+/// Q# lets an operation with extra functors bind to a slot that requires fewer,
+/// so `[X, Y]` (`Adj + Ctl`) is legal for a `(Qubit => Unit)[]` parameter. When
+/// the array stays dynamic and is forwarded through a second higher-order
+/// callable, the parameter survives defunctionalization and reaches the
+/// post-`arg_promote` call-shape check. That check compared `Ty` with `==`,
+/// which includes the functor set, so it aborted the compiler on a legal
+/// program -- and it is ungated, so release builds aborted too.
+#[test]
+fn forwarded_dynamic_callable_array_may_carry_extra_functors() {
+    let source = r#"
+        operation Apply(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            for op in ops { op(q); }
+        }
+        operation Forward(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+            Apply(ops, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let ops = if MResetZ(q) == One { [X, Y] } else { [Z, H] };
+            Forward(ops, q);
+        }
+    "#;
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full)
+    }));
+    if let Err(payload) = outcome {
+        let message = payload
+            .downcast_ref::<String>()
+            .map(String::as_str)
+            .or_else(|| payload.downcast_ref::<&str>().copied())
+            .unwrap_or_default();
+        panic!(
+            "supplying an operation with more functors than the slot requires must not abort \
+             the compiler: {message}"
+        );
+    }
+}
+
+/// An array of callables indexed by a dynamic value has two supported outcomes.
+/// Used directly at a call site, the index is resolved into a guarded dispatch
+/// over every candidate. Routed through a conditional first, the selection is no
+/// longer traceable to the array, so the pass declines and leaves a first-class
+/// callable for later stages.
+///
+/// Both assertions inspect the emitted code rather than checking that the
+/// pipeline merely completed. The failure they guard against is a silent
+/// miscompile -- dropping a candidate, or collapsing the selection into one
+/// unconditional call -- and a completion check would pass in exactly those cases.
+///
+/// Scope, established by mutation: disabling the indexed-dispatch bail in
+/// `partition_branch_split_targets` does not make this test fail, so the
+/// conservative outcome below is decided earlier in the analysis and this test
+/// does **not** cover that bail. That bail still has no regression coverage.
+#[test]
+fn dynamic_index_into_callable_array_preserves_every_candidate() {
+    let direct = r#"
+        operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let ops = [X, Y];
+            let idx = MResetZ(q) == One ? 0 | 1;
+            Run(ops[idx], q);
+        }
+    "#;
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(direct, crate::PipelineStage::Full);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    assert!(
+        rendered.contains("idx == 0"),
+        "a directly indexed callable array should dispatch on the index:\n{rendered}"
+    );
+    for candidate in ["X(q)", "Y(q)"] {
+        assert!(
+            rendered.contains(candidate),
+            "index dispatch dropped the {candidate} candidate:\n{rendered}"
+        );
+    }
+
+    let through_conditional = r#"
+        operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let ops = [X, Y];
+            let idx = MResetZ(q) == One ? 0 | 1;
+            let cond2 = MResetZ(q) == One;
+            Run(cond2 ? ops[idx] | H, q);
+        }
+    "#;
+    let (store, package_id) = crate::test_utils::compile_and_run_pipeline_to(
+        through_conditional,
+        crate::PipelineStage::Full,
+    );
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    // Declining to specialize is correct here; silently choosing one arm is not.
+    assert!(
+        rendered.contains("ops[idx]"),
+        "the indexed arm was dropped instead of being left for a later stage:\n{rendered}"
+    );
+    assert!(
+        rendered.contains("cond2"),
+        "the selection between the indexed arm and the global arm was collapsed:\n{rendered}"
+    );
+}
+
+/// A tuple parameter can mix a dynamically selected callable with a static one.
+/// When the dynamic field comes first and a non-callable field sits between the
+/// two, per-row rewriting used to emit a call whose argument shape the callee
+/// could not accept, aborting the compiler in the post-`arg_promote` invariant.
+/// Declining to specialize that shape is the correct outcome: the callable stays
+/// first-class and a later stage resolves it.
+///
+/// The three orderings that always worked are kept as controls. They share every
+/// ingredient with the first case except the one that triggers it, so they fail
+/// if the decline is written too broadly and starts refusing valid shapes.
+#[test]
+fn dispatched_callable_before_static_sibling_declines_instead_of_aborting() {
+    fn run(params: &str, binds: &str, argument: &str) -> Result<(), String> {
+        let source = format!(
+            r#"
+            operation Apply(data : {params}, q : Qubit) : Unit {{
+                {binds}
+                f(q); g(q);
+            }}
+            @EntryPoint()
+            operation Main() : Unit {{
+                use q = Qubit();
+                let first = if MResetZ(q) == One {{ X }} else {{ Y }};
+                let second = if MResetZ(q) == One {{ H }} else {{ Z }};
+                Apply({argument}, q);
+            }}
+        "#
+        );
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Full);
+        }))
+        .map_err(|payload| {
+            payload
+                .downcast_ref::<String>()
+                .cloned()
+                .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_string()))
+                .unwrap_or_else(|| "<non-string panic>".to_string())
+        })
+    }
+
+    let three_field = "(Qubit => Unit, Int, Qubit => Unit)";
+    let three_binds = "let (f, n, g) = data;";
+    let two_field = "(Qubit => Unit, Qubit => Unit)";
+    let two_binds = "let (f, g) = data;";
+
+    if let Err(message) = run(three_field, three_binds, "(first, 5, Z)") {
+        panic!(
+            "a dispatched callable ahead of a static sibling must decline, not abort: {message}"
+        );
+    }
+
+    // A second static sibling after the first is a distinct crashing shape, not a
+    // rewording of the one above: it aborts on its own if the decline is removed.
+    if let Err(message) = run(
+        "(Qubit => Unit, Int, Qubit => Unit, Qubit => Unit)",
+        "let (f, n, g, h) = data;",
+        "(first, 5, Z, H)",
+    ) {
+        panic!("two static siblings after a dispatched callable must decline: {message}");
+    }
+
+    for (label, params, binds, argument) in [
+        (
+            "static sibling first",
+            three_field,
+            three_binds,
+            "(Z, 5, first)",
+        ),
+        ("adjacent fields", two_field, two_binds, "(first, Z)"),
+        ("both dispatched", two_field, two_binds, "(first, second)"),
+    ] {
+        if let Err(message) = run(params, binds, argument) {
+            panic!("control `{label}` regressed: {message}");
+        }
+    }
+}
+
+/// Selecting from a callable array through a conditional whose arms are identical
+/// leaves the value still indexed, but the index tracing does not follow the
+/// conditional, so the candidate set arrives with no discriminator. Choosing one
+/// candidate then emits a program that ignores the index entirely.
+///
+/// This is a silent miscompile rather than a crash: the pipeline completed and
+/// produced a specialization calling `X` unconditionally, dropping `Y`, so the
+/// program applied the wrong operation whenever the index selected `Y`. The
+/// assertion is on emitted code because nothing else would have caught it.
+///
+/// A tuple destructure and a mutable reassignment defeat the same tracing and
+/// were measured to miscompile identically, so all three are asserted here.
+#[test]
+fn identical_conditional_arms_over_indexed_array_keep_both_candidates() {
+    fn emitted(body: &str) -> String {
+        let source = format!(
+            r#"
+            operation Run(f : Qubit => Unit, q : Qubit) : Unit {{ f(q); }}
+            @EntryPoint()
+            operation Main() : Unit {{
+                use q = Qubit();
+                let ops = [X, Y];
+                let idx = MResetZ(q) == One ? 0 | 1;
+                let cond2 = MResetZ(q) == One;
+                {body}
+            }}
+        "#
+        );
+        let (store, package_id) =
+            crate::test_utils::compile_and_run_pipeline_to(&source, crate::PipelineStage::Full);
+        crate::pretty::write_package_qsharp_parseable(&store, package_id)
+    }
+
+    for (label, body) in [
+        (
+            "identical conditional arms",
+            "let f = cond2 ? ops[idx] | ops[idx]; Run(f, q);",
+        ),
+        (
+            "tuple destructure",
+            "let (a, _b) = (ops[idx], 1); Run(a, q);",
+        ),
+        (
+            "mutable reassignment",
+            "mutable f = X; set f = ops[idx]; Run(f, q);",
+        ),
+    ] {
+        let rendered = emitted(body);
+        assert!(
+            !rendered.contains("X(q)") || rendered.contains("Y(q)"),
+            "`{label}` collapsed onto one candidate and dropped the other, so the emitted \
+             program ignores the index:\n{rendered}"
+        );
+        assert!(
+            rendered.contains("ops[idx]"),
+            "`{label}` discarded the indexed selection rather than leaving it for a later \
+             stage:\n{rendered}"
+        );
+    }
 }

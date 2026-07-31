@@ -121,6 +121,34 @@ pub enum Error {
     #[error("value is not a global callable")]
     #[diagnostic(code("Qdk.Qsc.Interpret.NotACallable"))]
     NotACallable,
+    #[error("runtime callable {0} does not exist or is not callable")]
+    #[diagnostic(code("Qdk.Qsc.Interpret.InvalidRuntimeCallable"))]
+    InvalidRuntimeCallable(qsc_fir::fir::StoreItemId),
+    #[error("runtime callable argument has type {actual}, but the parameter expects {expected}")]
+    #[diagnostic(code("Qdk.Qsc.Interpret.RuntimeCallableTypeMismatch"))]
+    RuntimeCallableTypeMismatch {
+        expected: Box<qsc_fir::ty::Ty>,
+        actual: Box<qsc_fir::ty::Ty>,
+    },
+    #[error(
+        "runtime callable arguments have {actual_len} element(s), but the parameter shape {expected} requires {expected_len}"
+    )]
+    #[diagnostic(code("Qdk.Qsc.Interpret.RuntimeCallableArgumentShapeMismatch"))]
+    #[diagnostic(help("supply one argument value for each parameter of the target callable"))]
+    RuntimeCallableArgumentShapeMismatch {
+        expected: Box<qsc_fir::ty::Ty>,
+        actual_len: usize,
+        expected_len: usize,
+    },
+    #[error("runtime closure for callable {callable} has an invalid capture shape")]
+    #[diagnostic(code("Qdk.Qsc.Interpret.InvalidRuntimeClosure"))]
+    InvalidRuntimeClosure { callable: qsc_fir::fir::StoreItemId },
+    #[error("runtime functor application {functor} is not supported by callable {callable}")]
+    #[diagnostic(code("Qdk.Qsc.Interpret.InvalidRuntimeCallableFunctor"))]
+    InvalidRuntimeCallableFunctor {
+        callable: qsc_fir::fir::StoreItemId,
+        functor: FunctorApp,
+    },
     #[error("partial evaluation error")]
     #[diagnostic(transparent)]
     PartialEvaluation(#[from] WithSource<qsc_partial_eval::Error>),

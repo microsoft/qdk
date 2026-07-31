@@ -24,38 +24,54 @@
 //! The defunctionalization pre-pass runs before this phase and owns callable
 //! local promotion plus identity-closure peephole rewrites.
 
+use super::rewrite::{ConsumptionSite, EvaluationDisposition, consumed_callable_expr_disposition};
 use super::types::{
-    AnalysisResult, CallSite, CallableParam, CalleeLattice, CapturedVar, ConcreteCallable,
-    DirectCallSite, LatticeStates, compose_functors, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, CalleeLattice, CaptureScope, CapturedVar,
+    ConcreteCallable, DirectCallSite, DynamicSiteEvidence, LatticeStates, ScopedLocal,
+    compose_functors, peel_body_functors,
 };
 use crate::fir_builder::functored_specs;
+use crate::walk_utils::{
+    collect_total_foreign_callables, expr_is_safe_to_discard,
+    expr_is_safe_to_discard_with_total_foreign,
+};
 use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field, FieldAssign,
-    FieldPath, ItemId, ItemKind, Lit, LocalVarId, Mutability, Package, PackageId, PackageLookup,
-    PackageStore, Pat, PatId, PatKind, Res, SpecImpl, Stmt, StmtId, StmtKind, StoreExprId,
-    StoreItemId, StringComponent, UnOp,
+    FieldPath, Functor, Global, ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability,
+    Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res, SpecImpl, Stmt,
+    StmtId, StmtKind, StoreExprId, StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::rc::Rc;
 
 /// Combined local variable state for the analysis phase.
 ///
 /// `callable` holds flow-sensitive reaching-definitions for callable-typed
-/// locals (both mutable and immutable). `exprs` holds raw `ExprId` bindings
-/// for all immutable locals, supporting struct field resolution and type
-/// look-ups. `condition_substitutions` maps each higher-order-function
-/// parameter local to the caller-scope argument expression bound at the call
-/// site, so an `if` guard that reads a forwarded parameter can be folded to a
-/// literal or remapped to its caller-scope value when reconstructing branch
-/// dispatch.
-#[derive(Default)]
+/// locals (both mutable and immutable). `callable_origins` tracks the
+/// package-qualified producer items reaching the same program point without
+/// changing the callable lattice itself. `exprs` holds raw `ExprId` bindings for all immutable locals,
+/// supporting struct field resolution and type look-ups.
+/// `condition_substitutions` maps each higher-order-function parameter local to
+/// the caller-scope argument expression bound at the call site, so an `if` guard
+/// that reads a forwarded parameter can be folded to a literal or remapped to
+/// its caller-scope value when reconstructing branch dispatch.
+#[derive(Clone, Default)]
 pub(super) struct LocalState {
+    owner: CaptureScope,
+    clone_items: Rc<FxHashSet<StoreItemId>>,
     callable: FxHashMap<LocalVarId, CalleeLattice>,
+    callable_origins: FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
+    /// Bindings visible at the current program point. Unlike `exprs`, this is
+    /// restored when analysis leaves a lexical block.
+    visible_bindings: FxHashSet<LocalVarId>,
+    /// Mutable bindings visible at the current program point.
+    mutable_bindings: FxHashSet<LocalVarId>,
     /// Types of the enclosing callable's capturable variable bindings
     /// (parameters and immutable `let` bindings), keyed by `LocalVarId`.
     /// `LocalVarId`s are scoped per callable and collide freely across
@@ -68,25 +84,1480 @@ pub(super) struct LocalState {
     closure_capturable_var_types: FxHashMap<LocalVarId, Ty>,
 }
 
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+struct ProducerSummaryKey {
+    item: StoreItemId,
+    output_path: Vec<usize>,
+}
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+enum ProducerLineageAtom {
+    Owner(StoreItemId),
+    Formal(Vec<usize>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum SymbolicCallable {
+    Global {
+        item: StoreItemId,
+        functor: FunctorApp,
+    },
+    Other,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct CallableCausality {
+    formal: bool,
+    independent: bool,
+}
+
+impl CallableCausality {
+    fn formal() -> Self {
+        Self {
+            formal: true,
+            independent: false,
+        }
+    }
+
+    fn independent() -> Self {
+        Self {
+            formal: false,
+            independent: true,
+        }
+    }
+
+    fn join(&mut self, other: Self) {
+        self.formal |= other.formal;
+        self.independent |= other.independent;
+    }
+
+    fn is_formal_only(self) -> bool {
+        self.formal && !self.independent
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SymbolicLeaf {
+    atoms: FxHashSet<ProducerLineageAtom>,
+    callables: FxHashSet<SymbolicCallable>,
+    causality: CallableCausality,
+    incomplete: bool,
+}
+
+impl SymbolicLeaf {
+    fn join(&mut self, other: &Self) {
+        self.atoms.extend(other.atoms.iter().cloned());
+        self.callables.extend(other.callables.iter().copied());
+        self.causality.join(other.causality);
+        self.incomplete |= other.incomplete;
+    }
+
+    fn instantiated(&self, arguments: &SymbolicValue) -> Self {
+        let mut result = Self {
+            callables: self.callables.clone(),
+            causality: CallableCausality {
+                formal: false,
+                independent: self.causality.independent,
+            },
+            incomplete: self.incomplete,
+            ..Self::default()
+        };
+        for atom in &self.atoms {
+            match atom {
+                ProducerLineageAtom::Owner(item) => {
+                    result.atoms.insert(ProducerLineageAtom::Owner(*item));
+                }
+                ProducerLineageAtom::Formal(path) => {
+                    result.join(&arguments.project(path).collapsed_leaf());
+                }
+            }
+        }
+        result
+    }
+
+    fn is_formal_only(&self) -> bool {
+        self.causality.is_formal_only()
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum SymbolicSelector {
+    Field(usize),
+    ArrayElement { index: usize, length: usize },
+    ArrayRepeat(Option<usize>),
+}
+
+fn normalize_symbolic_index(length: usize, index: i64) -> Option<usize> {
+    if index >= 0 {
+        usize::try_from(index).ok().filter(|&index| index < length)
+    } else {
+        let from_end = usize::try_from(index.unsigned_abs()).ok()?;
+        length.checked_sub(from_end)
+    }
+}
+
+fn symbolic_static_int(package: &Package, expression: ExprId) -> Option<i64> {
+    match package.get_expr(expression).kind {
+        ExprKind::Lit(Lit::Int(value)) => Some(value),
+        ExprKind::UnOp(UnOp::Neg, value) => symbolic_static_int(package, value)?.checked_neg(),
+        ExprKind::UnOp(UnOp::Pos, value) => symbolic_static_int(package, value),
+        _ => None,
+    }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SymbolicValue {
+    leaves: FxHashMap<Vec<SymbolicSelector>, SymbolicLeaf>,
+}
+
+impl SymbolicValue {
+    fn leaf(leaf: SymbolicLeaf) -> Self {
+        Self {
+            leaves: FxHashMap::from_iter([(Vec::new(), leaf)]),
+        }
+    }
+
+    fn global(item: StoreItemId) -> Self {
+        Self::leaf(SymbolicLeaf {
+            callables: FxHashSet::from_iter([SymbolicCallable::Global {
+                item,
+                functor: FunctorApp::default(),
+            }]),
+            causality: CallableCausality::independent(),
+            ..SymbolicLeaf::default()
+        })
+    }
+
+    fn opaque_callable() -> Self {
+        Self::leaf(SymbolicLeaf {
+            callables: FxHashSet::from_iter([SymbolicCallable::Other]),
+            causality: CallableCausality::independent(),
+            ..SymbolicLeaf::default()
+        })
+    }
+
+    fn opaque_callable_from(source: &SymbolicLeaf) -> Self {
+        Self::leaf(SymbolicLeaf {
+            atoms: source.atoms.clone(),
+            callables: FxHashSet::from_iter([SymbolicCallable::Other]),
+            causality: source.causality,
+            incomplete: source.incomplete,
+        })
+    }
+
+    fn for_type(store: &PackageStore, ty: &Ty, incomplete: bool) -> Self {
+        let mut value = Self::default();
+        collect_symbolic_arrow_leaves(store, ty, &mut Vec::new(), incomplete, &mut value);
+        value
+    }
+
+    fn unknown_callable_result(store: &PackageStore, ty: &Ty, source: &SymbolicLeaf) -> Self {
+        let mut value = Self::for_type(store, ty, true);
+        for leaf in value.leaves.values_mut() {
+            leaf.atoms.extend(source.atoms.iter().cloned());
+            leaf.callables.insert(SymbolicCallable::Other);
+            leaf.causality = if source.causality == CallableCausality::default() {
+                CallableCausality::independent()
+            } else {
+                source.causality
+            };
+            leaf.incomplete |= source.incomplete;
+        }
+        value
+    }
+
+    fn join(&mut self, other: &Self) {
+        for (path, leaf) in &other.leaves {
+            self.leaves.entry(path.clone()).or_default().join(leaf);
+        }
+    }
+
+    fn prefixed(&self, prefix: &[usize]) -> Self {
+        let mut result = Self::default();
+        for (path, leaf) in &self.leaves {
+            let mut prefixed: Vec<_> = prefix
+                .iter()
+                .copied()
+                .map(SymbolicSelector::Field)
+                .collect();
+            prefixed.extend_from_slice(path);
+            result.leaves.insert(prefixed, leaf.clone());
+        }
+        result
+    }
+
+    fn prefixed_array_element(&self, index: usize, length: usize) -> Self {
+        self.prefixed_selector(SymbolicSelector::ArrayElement { index, length })
+    }
+
+    fn prefixed_array_repeat(&self, extent: Option<usize>) -> Self {
+        self.prefixed_selector(SymbolicSelector::ArrayRepeat(extent))
+    }
+
+    fn prefixed_selector(&self, selector: SymbolicSelector) -> Self {
+        let mut result = Self::default();
+        for (path, leaf) in &self.leaves {
+            let mut prefixed = Vec::with_capacity(path.len() + 1);
+            prefixed.push(selector);
+            prefixed.extend_from_slice(path);
+            result.leaves.insert(prefixed, leaf.clone());
+        }
+        result
+    }
+
+    fn project(&self, prefix: &[usize]) -> Self {
+        if prefix.is_empty() {
+            return self.clone();
+        }
+        let mut result = Self::default();
+        for (path, leaf) in &self.leaves {
+            if path.len() < prefix.len() {
+                continue;
+            }
+            let matches = path
+                .iter()
+                .zip(prefix)
+                .all(|(selector, expected)| *selector == SymbolicSelector::Field(*expected));
+            if matches {
+                result
+                    .leaves
+                    .insert(path[prefix.len()..].to_vec(), leaf.clone());
+            }
+        }
+        result
+    }
+
+    fn indexed(&self, index: Option<i64>) -> Self {
+        let mut result = Self::default();
+        for (path, leaf) in &self.leaves {
+            let Some((&selector, remainder)) = path.split_first() else {
+                let mut incomplete = leaf.clone();
+                incomplete.incomplete = true;
+                result
+                    .leaves
+                    .entry(Vec::new())
+                    .or_default()
+                    .join(&incomplete);
+                continue;
+            };
+            match selector {
+                SymbolicSelector::ArrayElement {
+                    index: element,
+                    length,
+                } if index.is_none_or(|selected| {
+                    normalize_symbolic_index(length, selected) == Some(element)
+                }) =>
+                {
+                    result
+                        .leaves
+                        .entry(remainder.to_vec())
+                        .or_default()
+                        .join(leaf);
+                }
+                SymbolicSelector::ArrayRepeat(extent)
+                    if !extent.is_some_and(|extent| {
+                        extent == 0
+                            || index.is_some_and(|selected| {
+                                normalize_symbolic_index(extent, selected).is_none()
+                            })
+                    }) =>
+                {
+                    let mut repeated = leaf.clone();
+                    if extent.is_none() {
+                        repeated.incomplete = true;
+                    }
+                    result
+                        .leaves
+                        .entry(remainder.to_vec())
+                        .or_default()
+                        .join(&repeated);
+                }
+                SymbolicSelector::Field(_) => {
+                    let mut incomplete = leaf.clone();
+                    incomplete.incomplete = true;
+                    result
+                        .leaves
+                        .entry(path.clone())
+                        .or_default()
+                        .join(&incomplete);
+                }
+                SymbolicSelector::ArrayElement { .. } | SymbolicSelector::ArrayRepeat(_) => {}
+            }
+        }
+        result
+    }
+
+    fn replace_path(&mut self, path: &[usize], replacement: &Self) {
+        self.leaves.retain(|existing, _| {
+            existing.len() < path.len()
+                || !existing
+                    .iter()
+                    .zip(path)
+                    .all(|(selector, expected)| *selector == SymbolicSelector::Field(*expected))
+        });
+        self.join(&replacement.prefixed(path));
+    }
+
+    fn mark_path_incomplete(&mut self, path: &[usize]) {
+        let mut matched = false;
+        for (existing, leaf) in &mut self.leaves {
+            if existing.len() >= path.len()
+                && existing
+                    .iter()
+                    .zip(path)
+                    .all(|(selector, expected)| *selector == SymbolicSelector::Field(*expected))
+            {
+                leaf.incomplete = true;
+                matched = true;
+            }
+        }
+        if !matched {
+            self.leaves
+                .entry(path.iter().copied().map(SymbolicSelector::Field).collect())
+                .or_default()
+                .incomplete = true;
+        }
+    }
+
+    fn mark_all_incomplete(&mut self) {
+        if self.leaves.is_empty() {
+            self.leaves.entry(Vec::new()).or_default().incomplete = true;
+        } else {
+            for leaf in self.leaves.values_mut() {
+                leaf.incomplete = true;
+            }
+        }
+    }
+
+    fn add_owner(&mut self, owner: StoreItemId) {
+        for leaf in self.leaves.values_mut() {
+            leaf.atoms.insert(ProducerLineageAtom::Owner(owner));
+            leaf.causality.independent = true;
+        }
+    }
+
+    fn collapsed_leaf(&self) -> SymbolicLeaf {
+        let mut result = SymbolicLeaf::default();
+        for leaf in self.leaves.values() {
+            result.join(leaf);
+        }
+        result
+    }
+}
+
+type ProducerSummaries = FxHashMap<ProducerSummaryKey, SymbolicLeaf>;
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SymbolicState {
+    locals: FxHashMap<LocalVarId, SymbolicValue>,
+}
+
+impl SymbolicState {
+    fn join(&mut self, other: &Self) {
+        for (&local, value) in &other.locals {
+            self.locals.entry(local).or_default().join(value);
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct SymbolicEvalResult {
+    live: Option<SymbolicState>,
+    value: SymbolicValue,
+    returned: SymbolicValue,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+struct SymbolicCallSnapshot {
+    callee: SymbolicValue,
+    arguments: SymbolicValue,
+}
+
+impl SymbolicCallSnapshot {
+    fn join(&mut self, other: &Self) {
+        self.callee.join(&other.callee);
+        self.arguments.join(&other.arguments);
+    }
+}
+
+fn collect_symbolic_arrow_leaves(
+    store: &PackageStore,
+    ty: &Ty,
+    path: &mut Vec<usize>,
+    incomplete: bool,
+    value: &mut SymbolicValue,
+) {
+    match ty {
+        Ty::Arrow(_) => {
+            value.leaves.insert(
+                path.iter().copied().map(SymbolicSelector::Field).collect(),
+                SymbolicLeaf {
+                    causality: if incomplete {
+                        CallableCausality::independent()
+                    } else {
+                        CallableCausality::default()
+                    },
+                    incomplete,
+                    ..SymbolicLeaf::default()
+                },
+            );
+        }
+        Ty::Array(element) => {
+            if symbolic_type_contains_arrow(store, element) {
+                value.leaves.insert(
+                    path.iter().copied().map(SymbolicSelector::Field).collect(),
+                    SymbolicLeaf {
+                        causality: CallableCausality::independent(),
+                        incomplete: true,
+                        ..SymbolicLeaf::default()
+                    },
+                );
+            }
+        }
+        Ty::Tuple(items) => {
+            for (index, item) in items.iter().enumerate() {
+                path.push(index);
+                collect_symbolic_arrow_leaves(store, item, path, incomplete, value);
+                path.pop();
+            }
+        }
+        Ty::Udt(Res::Item(item_id)) => {
+            let package = store.get(item_id.package);
+            if let ItemKind::Ty(_, udt) = &package.get_item(item_id.item).kind {
+                collect_symbolic_arrow_leaves(store, &udt.get_pure_ty(), path, incomplete, value);
+            }
+        }
+        Ty::Err | Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Udt(_) => {}
+    }
+}
+
+fn symbolic_type_contains_arrow(store: &PackageStore, ty: &Ty) -> bool {
+    match ty {
+        Ty::Array(element) => symbolic_type_contains_arrow(store, element),
+        Ty::Arrow(_) => true,
+        Ty::Tuple(items) => items
+            .iter()
+            .any(|item| symbolic_type_contains_arrow(store, item)),
+        Ty::Udt(Res::Item(item_id)) => {
+            let package = store.get(item_id.package);
+            matches!(
+                &package.get_item(item_id.item).kind,
+                ItemKind::Ty(_, udt) if symbolic_type_contains_arrow(store, &udt.get_pure_ty())
+            )
+        }
+        Ty::Err | Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Udt(_) => false,
+    }
+}
+
+fn collect_producer_output_paths(
+    store: &PackageStore,
+    ty: &Ty,
+    path: &mut Vec<usize>,
+    paths: &mut Vec<Vec<usize>>,
+) {
+    match ty {
+        Ty::Arrow(_) => paths.push(path.clone()),
+        Ty::Tuple(items) => {
+            for (index, item) in items.iter().enumerate() {
+                path.push(index);
+                collect_producer_output_paths(store, item, path, paths);
+                path.pop();
+            }
+        }
+        Ty::Udt(Res::Item(item_id)) => {
+            let package = store.get(item_id.package);
+            if let ItemKind::Ty(_, udt) = &package.get_item(item_id.item).kind {
+                collect_producer_output_paths(store, &udt.get_pure_ty(), path, paths);
+            }
+        }
+        Ty::Array(_) | Ty::Err | Ty::Infer(_) | Ty::Param(_) | Ty::Prim(_) | Ty::Udt(_) => {}
+    }
+}
+
+fn seed_symbolic_pattern(
+    store: &PackageStore,
+    package: &Package,
+    pattern: PatId,
+    input_path: &mut Vec<usize>,
+    formal: bool,
+    state: &mut SymbolicState,
+) {
+    let pattern = package.get_pat(pattern);
+    match &pattern.kind {
+        PatKind::Bind(identifier) => {
+            let mut value = SymbolicValue::for_type(store, &pattern.ty, false);
+            if formal {
+                for (path, leaf) in &mut value.leaves {
+                    let mut formal_path = input_path.clone();
+                    formal_path.extend(path.iter().filter_map(|selector| match selector {
+                        SymbolicSelector::Field(index) => Some(*index),
+                        SymbolicSelector::ArrayElement { .. }
+                        | SymbolicSelector::ArrayRepeat(_) => None,
+                    }));
+                    leaf.atoms.insert(ProducerLineageAtom::Formal(formal_path));
+                    leaf.causality = CallableCausality::formal();
+                }
+            }
+            state.locals.insert(identifier.id, value);
+        }
+        PatKind::Tuple(items) => {
+            for (index, &item) in items.iter().enumerate() {
+                input_path.push(index);
+                seed_symbolic_pattern(store, package, item, input_path, formal, state);
+                input_path.pop();
+            }
+        }
+        PatKind::Discard => {}
+    }
+}
+
+fn bind_symbolic_pattern(
+    package: &Package,
+    pattern: PatId,
+    value: &SymbolicValue,
+    state: &mut SymbolicState,
+) {
+    let pattern = package.get_pat(pattern);
+    match &pattern.kind {
+        PatKind::Bind(identifier) => {
+            state.locals.insert(identifier.id, value.clone());
+        }
+        PatKind::Tuple(items) => {
+            for (index, &item) in items.iter().enumerate() {
+                bind_symbolic_pattern(package, item, &value.project(&[index]), state);
+            }
+        }
+        PatKind::Discard => {}
+    }
+}
+
+fn join_symbolic_live_states(
+    first: Option<SymbolicState>,
+    second: Option<SymbolicState>,
+) -> Option<SymbolicState> {
+    match (first, second) {
+        (Some(mut first), Some(second)) => {
+            first.join(&second);
+            Some(first)
+        }
+        (Some(state), None) | (None, Some(state)) => Some(state),
+        (None, None) => None,
+    }
+}
+
+struct SymbolicEvaluator<'store, 'snapshots> {
+    store: &'store PackageStore,
+    summaries: &'store ProducerSummaries,
+    snapshots: Option<&'snapshots mut FxHashMap<ExprId, SymbolicCallSnapshot>>,
+}
+
+impl SymbolicEvaluator<'_, '_> {
+    fn record_snapshot(&mut self, expression: ExprId, snapshot: &SymbolicCallSnapshot) {
+        if let Some(snapshots) = self.snapshots.as_deref_mut() {
+            snapshots.entry(expression).or_default().join(snapshot);
+        }
+    }
+
+    fn without_snapshots<T>(&mut self, action: impl FnOnce(&mut Self) -> T) -> T {
+        let snapshots = self.snapshots.take();
+        let result = action(self);
+        self.snapshots = snapshots;
+        result
+    }
+
+    fn eval_block(
+        &mut self,
+        package: &Package,
+        block: BlockId,
+        state: SymbolicState,
+    ) -> SymbolicEvalResult {
+        let mut live = Some(state);
+        let mut value = SymbolicValue::default();
+        let mut returned = SymbolicValue::default();
+        for &statement in &package.get_block(block).stmts {
+            let Some(current) = live.take() else {
+                break;
+            };
+            match &package.get_stmt(statement).kind {
+                StmtKind::Local(_, pattern, initializer) => {
+                    let mut result = self.eval_expr(package, *initializer, current);
+                    returned.join(&result.returned);
+                    live = result.live.take();
+                    if let Some(state) = &mut live {
+                        bind_symbolic_pattern(package, *pattern, &result.value, state);
+                    }
+                    value = SymbolicValue::default();
+                }
+                StmtKind::Expr(expression) => {
+                    let mut result = self.eval_expr(package, *expression, current);
+                    returned.join(&result.returned);
+                    live = result.live.take();
+                    value = result.value;
+                }
+                StmtKind::Semi(expression) => {
+                    let mut result = self.eval_expr(package, *expression, current);
+                    returned.join(&result.returned);
+                    live = result.live.take();
+                    value = SymbolicValue::default();
+                }
+                StmtKind::Item(_) => {
+                    live = Some(current);
+                    value = SymbolicValue::default();
+                }
+            }
+        }
+        SymbolicEvalResult {
+            live,
+            value,
+            returned,
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn eval_expr(
+        &mut self,
+        package: &Package,
+        expression: ExprId,
+        state: SymbolicState,
+    ) -> SymbolicEvalResult {
+        let expr = package.get_expr(expression);
+        match &expr.kind {
+            ExprKind::Array(items) | ExprKind::ArrayLit(items) => {
+                let mut live = Some(state);
+                let mut value = SymbolicValue::default();
+                let mut returned = SymbolicValue::default();
+                for (index, &item) in items.iter().enumerate() {
+                    let Some(current) = live.take() else {
+                        break;
+                    };
+                    let mut result = self.eval_expr(package, item, current);
+                    returned.join(&result.returned);
+                    value.join(&result.value.prefixed_array_element(index, items.len()));
+                    live = result.live.take();
+                }
+                SymbolicEvalResult {
+                    live,
+                    value,
+                    returned,
+                }
+            }
+            ExprKind::Tuple(items) => {
+                let mut live = Some(state);
+                let mut value = SymbolicValue::default();
+                let mut returned = SymbolicValue::default();
+                for (index, &item) in items.iter().enumerate() {
+                    let Some(current) = live.take() else {
+                        break;
+                    };
+                    let mut result = self.eval_expr(package, item, current);
+                    returned.join(&result.returned);
+                    value.join(&result.value.prefixed(&[index]));
+                    live = result.live.take();
+                }
+                SymbolicEvalResult {
+                    live,
+                    value,
+                    returned,
+                }
+            }
+            ExprKind::ArrayRepeat(value, size) => {
+                let mut value_result = self.eval_expr(package, *value, state);
+                let Some(live) = value_result.live.take() else {
+                    return value_result;
+                };
+                let mut size_result = self.eval_expr(package, *size, live);
+                value_result.returned.join(&size_result.returned);
+                let extent = match package.get_expr(*size).kind {
+                    ExprKind::Lit(Lit::Int(size)) => usize::try_from(size).ok(),
+                    _ => None,
+                };
+                SymbolicEvalResult {
+                    live: size_result.live.take(),
+                    value: value_result.value.prefixed_array_repeat(extent),
+                    returned: value_result.returned,
+                }
+            }
+            ExprKind::Assign(lhs, rhs) => {
+                let mut result = self.eval_expr(package, *rhs, state);
+                if let Some(state) = &mut result.live
+                    && let ExprKind::Var(Res::Local(local), _) = package.get_expr(*lhs).kind
+                {
+                    state.locals.insert(local, result.value.clone());
+                }
+                result.value = SymbolicValue::default();
+                result
+            }
+            ExprKind::AssignOp(_, lhs, rhs) => {
+                let mut lhs_result = self.eval_expr(package, *lhs, state);
+                let Some(live) = lhs_result.live.take() else {
+                    return lhs_result;
+                };
+                let mut rhs_result = self.eval_expr(package, *rhs, live);
+                lhs_result.returned.join(&rhs_result.returned);
+                if let Some(state) = &mut rhs_result.live
+                    && let Some(local) = assignment_written_local(package, expr)
+                    && let Some(value) = state.locals.get_mut(&local)
+                {
+                    value.mark_all_incomplete();
+                }
+                SymbolicEvalResult {
+                    live: rhs_result.live.take(),
+                    value: SymbolicValue::default(),
+                    returned: lhs_result.returned,
+                }
+            }
+            ExprKind::AssignField(record, field, replacement) => {
+                let mut replacement_result = self.eval_expr(package, *replacement, state);
+                let Some(live) = replacement_result.live.take() else {
+                    return replacement_result;
+                };
+                let mut record_result = self.eval_expr(package, *record, live);
+                replacement_result.returned.join(&record_result.returned);
+                if let Some(state) = &mut record_result.live
+                    && let Some(local) = assign_lhs_base_local(package, *record)
+                    && let Some(value) = state.locals.get_mut(&local)
+                {
+                    if let Field::Path(path) = field {
+                        value.replace_path(&path.indices, &replacement_result.value);
+                        value.mark_path_incomplete(&path.indices);
+                    } else {
+                        value.mark_all_incomplete();
+                    }
+                }
+                SymbolicEvalResult {
+                    live: record_result.live.take(),
+                    value: SymbolicValue::default(),
+                    returned: replacement_result.returned,
+                }
+            }
+            ExprKind::AssignIndex(container, index, replacement) => {
+                let mut index_result = self.eval_expr(package, *index, state);
+                let Some(live) = index_result.live.take() else {
+                    return index_result;
+                };
+                let mut replacement_result = self.eval_expr(package, *replacement, live);
+                index_result.returned.join(&replacement_result.returned);
+                let Some(live) = replacement_result.live.take() else {
+                    return SymbolicEvalResult {
+                        returned: index_result.returned,
+                        ..replacement_result
+                    };
+                };
+                let mut container_result = self.eval_expr(package, *container, live);
+                index_result.returned.join(&container_result.returned);
+                if let Some(state) = &mut container_result.live
+                    && let Some(local) = assign_lhs_base_local(package, *container)
+                    && let Some(value) = state.locals.get_mut(&local)
+                {
+                    value.mark_all_incomplete();
+                }
+                SymbolicEvalResult {
+                    live: container_result.live.take(),
+                    value: SymbolicValue::default(),
+                    returned: index_result.returned,
+                }
+            }
+            ExprKind::BinOp(operator @ (BinOp::AndL | BinOp::OrL), lhs, rhs) => {
+                let mut lhs_result = self.eval_expr(package, *lhs, state);
+                let Some(live) = lhs_result.live.take() else {
+                    return lhs_result;
+                };
+                if let ExprKind::Lit(Lit::Bool(value)) = package.get_expr(*lhs).kind {
+                    let evaluates_rhs = match operator {
+                        BinOp::AndL => value,
+                        BinOp::OrL => !value,
+                        _ => unreachable!("matched only short-circuit operators"),
+                    };
+                    if !evaluates_rhs {
+                        return SymbolicEvalResult {
+                            live: Some(live),
+                            value: SymbolicValue::default(),
+                            returned: lhs_result.returned,
+                        };
+                    }
+                    let mut rhs_result = self.eval_expr(package, *rhs, live);
+                    lhs_result.returned.join(&rhs_result.returned);
+                    return SymbolicEvalResult {
+                        live: rhs_result.live.take(),
+                        value: SymbolicValue::default(),
+                        returned: lhs_result.returned,
+                    };
+                }
+                let mut rhs_result = self.eval_expr(package, *rhs, live.clone());
+                lhs_result.returned.join(&rhs_result.returned);
+                SymbolicEvalResult {
+                    live: join_symbolic_live_states(Some(live), rhs_result.live.take()),
+                    value: SymbolicValue::default(),
+                    returned: lhs_result.returned,
+                }
+            }
+            ExprKind::BinOp(_, lhs, rhs) => {
+                let mut lhs_result = self.eval_expr(package, *lhs, state);
+                let Some(live) = lhs_result.live.take() else {
+                    return lhs_result;
+                };
+                let mut rhs_result = self.eval_expr(package, *rhs, live);
+                lhs_result.returned.join(&rhs_result.returned);
+                SymbolicEvalResult {
+                    live: rhs_result.live.take(),
+                    value: SymbolicValue::for_type(self.store, &expr.ty, true),
+                    returned: lhs_result.returned,
+                }
+            }
+            ExprKind::Block(block) => self.eval_block(package, *block, state),
+            ExprKind::Call(callee, arguments) => {
+                let mut callee_result = self.eval_expr(package, *callee, state);
+                let Some(live) = callee_result.live.take() else {
+                    return callee_result;
+                };
+                let callee_value = callee_result.value.clone();
+                let mut argument_result = self.eval_expr(package, *arguments, live);
+                callee_result.returned.join(&argument_result.returned);
+                let Some(live) = argument_result.live.take() else {
+                    return SymbolicEvalResult {
+                        returned: callee_result.returned,
+                        ..argument_result
+                    };
+                };
+                let snapshot = SymbolicCallSnapshot {
+                    callee: callee_value.clone(),
+                    arguments: argument_result.value.clone(),
+                };
+                self.record_snapshot(expression, &snapshot);
+                let value = if expr_contains_hole(package, *arguments) {
+                    SymbolicValue::opaque_callable_from(&callee_value.collapsed_leaf())
+                } else {
+                    self.eval_call_result(&expr.ty, &callee_value, &argument_result.value)
+                };
+                SymbolicEvalResult {
+                    live: Some(live),
+                    value,
+                    returned: callee_result.returned,
+                }
+            }
+            ExprKind::Closure(_, _) => SymbolicEvalResult {
+                live: Some(state),
+                value: SymbolicValue::opaque_callable(),
+                returned: SymbolicValue::default(),
+            },
+            ExprKind::Fail(message) => {
+                let mut result = self.eval_expr(package, *message, state);
+                result.live = None;
+                result.value = SymbolicValue::default();
+                result
+            }
+            ExprKind::Field(value, field) => {
+                let mut result = self.eval_expr(package, *value, state);
+                result.value = match field {
+                    Field::Path(path) => result.value.project(&path.indices),
+                    Field::Err | Field::Prim(_) => {
+                        SymbolicValue::for_type(self.store, &expr.ty, true)
+                    }
+                };
+                result
+            }
+            ExprKind::If(condition, body, otherwise) => {
+                let mut condition_result = self.eval_expr(package, *condition, state);
+                let Some(live) = condition_result.live.take() else {
+                    return condition_result;
+                };
+                if let ExprKind::Lit(Lit::Bool(selected)) = package.get_expr(*condition).kind {
+                    let branch = if selected { Some(*body) } else { *otherwise };
+                    if let Some(branch) = branch {
+                        let mut result = self.eval_expr(package, branch, live);
+                        condition_result.returned.join(&result.returned);
+                        result.returned = condition_result.returned;
+                        return result;
+                    }
+                    return SymbolicEvalResult {
+                        live: Some(live),
+                        value: SymbolicValue::default(),
+                        returned: condition_result.returned,
+                    };
+                }
+                let mut true_result = self.eval_expr(package, *body, live.clone());
+                let mut false_result = if let Some(otherwise) = otherwise {
+                    self.eval_expr(package, *otherwise, live)
+                } else {
+                    SymbolicEvalResult {
+                        live: Some(live),
+                        value: SymbolicValue::default(),
+                        returned: SymbolicValue::default(),
+                    }
+                };
+                condition_result.returned.join(&true_result.returned);
+                condition_result.returned.join(&false_result.returned);
+                true_result.value.join(&false_result.value);
+                SymbolicEvalResult {
+                    live: join_symbolic_live_states(
+                        true_result.live.take(),
+                        false_result.live.take(),
+                    ),
+                    value: true_result.value,
+                    returned: condition_result.returned,
+                }
+            }
+            ExprKind::Index(container, index) => {
+                let mut container_result = self.eval_expr(package, *container, state);
+                let Some(live) = container_result.live.take() else {
+                    return container_result;
+                };
+                let mut index_result = self.eval_expr(package, *index, live);
+                container_result.returned.join(&index_result.returned);
+                let index = symbolic_static_int(package, *index);
+                SymbolicEvalResult {
+                    live: index_result.live.take(),
+                    value: container_result.value.indexed(index),
+                    returned: container_result.returned,
+                }
+            }
+            ExprKind::Parallel(limit, value) => {
+                let mut limit_returned = SymbolicValue::default();
+                let live = if let Some(limit) = limit {
+                    let mut result = self.eval_expr(package, *limit, state);
+                    limit_returned.join(&result.returned);
+                    result.live.take()
+                } else {
+                    Some(state)
+                };
+                let Some(live) = live else {
+                    return SymbolicEvalResult {
+                        live: None,
+                        value: SymbolicValue::default(),
+                        returned: limit_returned,
+                    };
+                };
+                let mut result = self.eval_expr(package, *value, live);
+                limit_returned.join(&result.returned);
+                result.returned = limit_returned;
+                result
+            }
+            ExprKind::Range(start, step, end) => {
+                let mut live = Some(state);
+                let mut returned = SymbolicValue::default();
+                for child in [start, step, end].into_iter().flatten() {
+                    let Some(current) = live.take() else {
+                        break;
+                    };
+                    let mut result = self.eval_expr(package, *child, current);
+                    returned.join(&result.returned);
+                    live = result.live.take();
+                }
+                SymbolicEvalResult {
+                    live,
+                    value: SymbolicValue::default(),
+                    returned,
+                }
+            }
+            ExprKind::Return(value) => {
+                let mut result = self.eval_expr(package, *value, state);
+                result.returned.join(&result.value);
+                result.live = None;
+                result.value = SymbolicValue::default();
+                result
+            }
+            ExprKind::Struct(_, copy, fields) => {
+                let mut live = Some(state);
+                let mut value = SymbolicValue::default();
+                let mut returned = SymbolicValue::default();
+                if let Some(copy) = copy {
+                    let mut result = self.eval_expr(
+                        package,
+                        *copy,
+                        live.take().expect("struct copy should have live state"),
+                    );
+                    returned.join(&result.returned);
+                    value = result.value;
+                    live = result.live.take();
+                }
+                for field in fields {
+                    let Some(current) = live.take() else {
+                        break;
+                    };
+                    let mut result = self.eval_expr(package, field.value, current);
+                    returned.join(&result.returned);
+                    if let Field::Path(path) = &field.field {
+                        value.replace_path(&path.indices, &result.value);
+                    } else {
+                        value.mark_all_incomplete();
+                    }
+                    live = result.live.take();
+                }
+                SymbolicEvalResult {
+                    live,
+                    value,
+                    returned,
+                }
+            }
+            ExprKind::String(components) => {
+                let mut live = Some(state);
+                let mut returned = SymbolicValue::default();
+                for component in components {
+                    let StringComponent::Expr(child) = component else {
+                        continue;
+                    };
+                    let Some(current) = live.take() else {
+                        break;
+                    };
+                    let mut result = self.eval_expr(package, *child, current);
+                    returned.join(&result.returned);
+                    live = result.live.take();
+                }
+                SymbolicEvalResult {
+                    live,
+                    value: SymbolicValue::default(),
+                    returned,
+                }
+            }
+            ExprKind::UnOp(operator, value) => {
+                let mut result = self.eval_expr(package, *value, state);
+                match operator {
+                    UnOp::Functor(functor) => {
+                        for leaf in result.value.leaves.values_mut() {
+                            let mut callables = FxHashSet::default();
+                            for callable in &leaf.callables {
+                                callables.insert(match callable {
+                                    SymbolicCallable::Global { item, functor: app } => {
+                                        let applied = match functor {
+                                            Functor::Adj => FunctorApp {
+                                                adjoint: true,
+                                                controlled: 0,
+                                            },
+                                            Functor::Ctl => FunctorApp {
+                                                adjoint: false,
+                                                controlled: 1,
+                                            },
+                                        };
+                                        SymbolicCallable::Global {
+                                            item: *item,
+                                            functor: compose_functors(app, &applied),
+                                        }
+                                    }
+                                    SymbolicCallable::Other => SymbolicCallable::Other,
+                                });
+                            }
+                            leaf.callables = callables;
+                        }
+                    }
+                    UnOp::Unwrap => {}
+                    UnOp::Neg | UnOp::NotB | UnOp::NotL | UnOp::Pos => {
+                        result.value = SymbolicValue::for_type(self.store, &expr.ty, true);
+                    }
+                }
+                result
+            }
+            ExprKind::UpdateField(record, field, replacement) => {
+                let mut replacement_result = self.eval_expr(package, *replacement, state);
+                let Some(live) = replacement_result.live.take() else {
+                    return replacement_result;
+                };
+                let mut record_result = self.eval_expr(package, *record, live);
+                replacement_result.returned.join(&record_result.returned);
+                if let Field::Path(path) = field {
+                    record_result
+                        .value
+                        .replace_path(&path.indices, &replacement_result.value);
+                } else {
+                    record_result.value.mark_all_incomplete();
+                }
+                record_result.returned = replacement_result.returned;
+                record_result
+            }
+            ExprKind::UpdateIndex(container, index, replacement) => {
+                let mut index_result = self.eval_expr(package, *index, state);
+                let Some(live) = index_result.live.take() else {
+                    return index_result;
+                };
+                let mut replacement_result = self.eval_expr(package, *replacement, live);
+                index_result.returned.join(&replacement_result.returned);
+                let Some(live) = replacement_result.live.take() else {
+                    return SymbolicEvalResult {
+                        returned: index_result.returned,
+                        ..replacement_result
+                    };
+                };
+                let mut container_result = self.eval_expr(package, *container, live);
+                index_result.returned.join(&container_result.returned);
+                container_result.value.mark_all_incomplete();
+                SymbolicEvalResult {
+                    live: container_result.live.take(),
+                    value: container_result.value,
+                    returned: index_result.returned,
+                }
+            }
+            ExprKind::Var(Res::Item(item), _) => SymbolicEvalResult {
+                live: Some(state),
+                value: SymbolicValue::global(StoreItemId::from((item.package, item.item))),
+                returned: SymbolicValue::default(),
+            },
+            ExprKind::Var(Res::Local(local), _) => SymbolicEvalResult {
+                live: Some(state.clone()),
+                value: state
+                    .locals
+                    .get(local)
+                    .cloned()
+                    .unwrap_or_else(|| SymbolicValue::for_type(self.store, &expr.ty, false)),
+                returned: SymbolicValue::default(),
+            },
+            ExprKind::Hole | ExprKind::Var(_, _) | ExprKind::Lit(_) => SymbolicEvalResult {
+                live: Some(state),
+                value: SymbolicValue::for_type(self.store, &expr.ty, true),
+                returned: SymbolicValue::default(),
+            },
+            ExprKind::While(condition, body) => {
+                if matches!(
+                    package.get_expr(*condition).kind,
+                    ExprKind::Lit(Lit::Bool(false))
+                ) {
+                    let mut condition_result = self.eval_expr(package, *condition, state);
+                    condition_result.value = SymbolicValue::default();
+                    return condition_result;
+                }
+                let entry = state;
+                let mut head = entry.clone();
+                loop {
+                    let next = self.without_snapshots(|evaluator| {
+                        let condition_result =
+                            evaluator.eval_expr(package, *condition, head.clone());
+                        let body_live = condition_result
+                            .live
+                            .and_then(|live| evaluator.eval_block(package, *body, live).live);
+                        let mut next = entry.clone();
+                        if let Some(body_live) = body_live {
+                            next.join(&body_live);
+                        }
+                        next
+                    });
+                    if next == head {
+                        break;
+                    }
+                    head = next;
+                }
+                let mut condition_result = self.eval_expr(package, *condition, head);
+                let Some(condition_live) = condition_result.live.take() else {
+                    return condition_result;
+                };
+                let body_result = self.eval_block(package, *body, condition_live.clone());
+                condition_result.returned.join(&body_result.returned);
+                SymbolicEvalResult {
+                    live: if matches!(
+                        package.get_expr(*condition).kind,
+                        ExprKind::Lit(Lit::Bool(true))
+                    ) {
+                        None
+                    } else {
+                        Some(condition_live)
+                    },
+                    value: SymbolicValue::default(),
+                    returned: condition_result.returned,
+                }
+            }
+        }
+    }
+
+    fn eval_call_result(
+        &self,
+        output_type: &Ty,
+        callee: &SymbolicValue,
+        arguments: &SymbolicValue,
+    ) -> SymbolicValue {
+        let callee = callee.collapsed_leaf();
+        let mut result = SymbolicValue::default();
+        let mut saw_supported = false;
+        for callable in &callee.callables {
+            let SymbolicCallable::Global { item, functor } = callable else {
+                if symbolic_type_contains_arrow(self.store, output_type) {
+                    result.join(&SymbolicValue::unknown_callable_result(
+                        self.store,
+                        output_type,
+                        &callee,
+                    ));
+                }
+                continue;
+            };
+            let package = self.store.get(item.package);
+            match package.get_global(item.item) {
+                None => {
+                    if symbolic_type_contains_arrow(self.store, output_type) {
+                        result.join(&SymbolicValue::unknown_callable_result(
+                            self.store,
+                            output_type,
+                            &callee,
+                        ));
+                    }
+                }
+                Some(Global::Udt) => {
+                    result.join(arguments);
+                    saw_supported = true;
+                }
+                Some(Global::Callable(declaration)) => {
+                    if !symbolic_type_contains_arrow(self.store, &declaration.output) {
+                        saw_supported = true;
+                        continue;
+                    }
+                    let mut output_shape = SymbolicValue::for_type(self.store, output_type, false);
+                    output_shape.add_owner(*item);
+                    result.join(&output_shape);
+                    let mut paths = Vec::new();
+                    collect_producer_output_paths(
+                        self.store,
+                        &declaration.output,
+                        &mut Vec::new(),
+                        &mut paths,
+                    );
+                    if *functor != FunctorApp::default() {
+                        let mut value = SymbolicValue::for_type(self.store, output_type, true);
+                        value.add_owner(*item);
+                        result.join(&value);
+                        saw_supported = true;
+                        continue;
+                    }
+                    if paths.is_empty() {
+                        saw_supported = true;
+                        continue;
+                    }
+                    for path in paths {
+                        let key = ProducerSummaryKey {
+                            item: *item,
+                            output_path: path.clone(),
+                        };
+                        let mut leaf = if let Some(summary) = self.summaries.get(&key) {
+                            summary.instantiated(arguments)
+                        } else {
+                            SymbolicLeaf {
+                                causality: CallableCausality::independent(),
+                                incomplete: true,
+                                ..SymbolicLeaf::default()
+                            }
+                        };
+                        leaf.atoms.insert(ProducerLineageAtom::Owner(*item));
+                        leaf.causality.independent = true;
+                        result
+                            .leaves
+                            .entry(path.into_iter().map(SymbolicSelector::Field).collect())
+                            .or_default()
+                            .join(&leaf);
+                    }
+                    saw_supported = true;
+                }
+            }
+        }
+        if callee.incomplete {
+            result.join(&SymbolicValue::unknown_callable_result(
+                self.store,
+                output_type,
+                &callee,
+            ));
+        }
+        if !saw_supported && symbolic_type_contains_arrow(self.store, output_type) {
+            result.join(&SymbolicValue::unknown_callable_result(
+                self.store,
+                output_type,
+                &callee,
+            ));
+        }
+        result
+    }
+}
+
+fn evaluate_symbolic_body(
+    store: &PackageStore,
+    package: &Package,
+    input: PatId,
+    block: BlockId,
+    formal: bool,
+    summaries: &ProducerSummaries,
+    snapshots: Option<&mut FxHashMap<ExprId, SymbolicCallSnapshot>>,
+) -> SymbolicEvalResult {
+    let mut state = SymbolicState::default();
+    seed_symbolic_pattern(store, package, input, &mut Vec::new(), formal, &mut state);
+    SymbolicEvaluator {
+        store,
+        summaries,
+        snapshots,
+    }
+    .eval_block(package, block, state)
+}
+
+fn compute_producer_summaries(
+    store: &PackageStore,
+    reachable: &FxHashSet<StoreItemId>,
+) -> ProducerSummaries {
+    let mut work = Vec::new();
+    let mut summaries = ProducerSummaries::default();
+    for &item in reachable {
+        let package = store.get(item.package);
+        let ItemKind::Callable(declaration) = &package.get_item(item.item).kind else {
+            continue;
+        };
+        let CallableImpl::Spec(implementation) = &declaration.implementation else {
+            continue;
+        };
+        let mut paths = Vec::new();
+        collect_producer_output_paths(store, &declaration.output, &mut Vec::new(), &mut paths);
+        if paths.is_empty() {
+            continue;
+        }
+        for path in &paths {
+            summaries
+                .entry(ProducerSummaryKey {
+                    item,
+                    output_path: path.clone(),
+                })
+                .or_default();
+        }
+        work.push((
+            item,
+            implementation.body.block,
+            implementation.body.input,
+            declaration.input,
+            paths,
+        ));
+    }
+
+    loop {
+        let prior = summaries.clone();
+        let mut next = prior.clone();
+        for (item, body_block, body_input, declaration_input, paths) in &work {
+            let package = store.get(item.package);
+            let result = evaluate_symbolic_body(
+                store,
+                package,
+                body_input.unwrap_or(*declaration_input),
+                *body_block,
+                true,
+                &prior,
+                None,
+            );
+            let mut returned = result.returned;
+            if result.live.is_some() {
+                returned.join(&result.value);
+            }
+            for path in paths {
+                next.entry(ProducerSummaryKey {
+                    item: *item,
+                    output_path: path.clone(),
+                })
+                .or_default()
+                .join(&returned.project(path).collapsed_leaf());
+            }
+        }
+        if next == summaries {
+            return summaries;
+        }
+        summaries = next;
+    }
+}
+
+fn collect_symbolic_call_snapshots(
+    store: &PackageStore,
+    package: &Package,
+    declaration: &qsc_fir::fir::CallableDecl,
+    summaries: &ProducerSummaries,
+) -> FxHashMap<ExprId, SymbolicCallSnapshot> {
+    let mut snapshots = FxHashMap::default();
+    let CallableImpl::Spec(implementation) = &declaration.implementation else {
+        return snapshots;
+    };
+    evaluate_symbolic_body(
+        store,
+        package,
+        implementation.body.input.unwrap_or(declaration.input),
+        implementation.body.block,
+        true,
+        summaries,
+        Some(&mut snapshots),
+    );
+    for specialization in functored_specs(implementation) {
+        evaluate_symbolic_body(
+            store,
+            package,
+            specialization.input.unwrap_or(declaration.input),
+            specialization.block,
+            true,
+            summaries,
+            Some(&mut snapshots),
+        );
+    }
+    snapshots
+}
+
+fn collect_entry_symbolic_call_snapshots(
+    store: &PackageStore,
+    package: &Package,
+    entry: ExprId,
+    summaries: &ProducerSummaries,
+) -> FxHashMap<ExprId, SymbolicCallSnapshot> {
+    let mut snapshots = FxHashMap::default();
+    SymbolicEvaluator {
+        store,
+        summaries,
+        snapshots: Some(&mut snapshots),
+    }
+    .eval_expr(package, entry, SymbolicState::default());
+    snapshots
+}
+
 /// Maximum recursion depth when resolving callee expressions to prevent
 /// infinite loops from unexpected circular references.
 const MAX_RESOLVE_DEPTH: usize = 32;
 
 /// Runs the analysis phase: finds callable parameters and collects call sites.
+///
+/// `preserved_direct_lambda_calls` carries the prior iteration's occurrence-local
+/// operands, which survive a closure callee having been rewritten to its lifted
+/// lambda item.
+///
+/// `total_foreign` names the callables outside `package_id` that are known
+/// side-effect free and total. It reaches the argument-position disposition
+/// check in [`record_hof_call_sites`], where it keeps a pure cross-package
+/// factory from being mistaken for an observable producer.
 pub(super) fn analyze(
     store: &mut PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
+    specialized_items: &FxHashSet<StoreItemId>,
     collapsed_spans: &FxHashMap<ExprId, Span>,
+    preserved_direct_lambda_calls: &[DirectCallSite],
+    total_foreign: &FxHashSet<ItemId>,
 ) -> AnalysisResult {
     let hof_params = find_callable_params(store, reachable);
-    let (call_sites, direct_call_sites, unresolved_direct_call_sites, lattice_states) =
-        collect_call_sites(store, package_id, reachable, &hof_params, collapsed_spans);
+    let producer_summaries = compute_producer_summaries(store, reachable);
+    let CollectedCallSites {
+        call_sites,
+        direct_call_sites,
+        unresolved_direct_call_sites,
+        dynamic_site_owners,
+        formal_only_dynamic_site_ids,
+        dynamic_site_evidence,
+        dynamic_site_ids,
+        incomplete_site_ids,
+        deferrable_residue_items,
+        deferrable_entry_residue,
+        lattice_states,
+    } = collect_call_sites(
+        store,
+        package_id,
+        reachable,
+        specialized_items,
+        &hof_params,
+        collapsed_spans,
+        preserved_direct_lambda_calls,
+        total_foreign,
+        &producer_summaries,
+    );
     AnalysisResult {
         callable_params: hof_params.into_values().flatten().collect(),
         call_sites,
         direct_call_sites,
         unresolved_direct_call_sites,
+        dynamic_site_owners,
+        formal_only_dynamic_site_ids,
+        dynamic_site_evidence,
+        dynamic_site_ids,
+        incomplete_site_ids,
+        deferrable_residue_items,
+        deferrable_entry_residue,
         lattice_states,
     }
 }
@@ -251,16 +1722,47 @@ struct CallRecorder<'a> {
     /// `Dynamic`, recorded so the driver can emit a `DynamicCallable`
     /// diagnostic instead of only `FixpointNotReached`.
     unresolved_direct_call_sites: &'a mut Vec<StoreExprId>,
+    dynamic_site_owners: &'a mut FxHashMap<(PackageId, ExprId), StoreItemId>,
+    formal_only_dynamic_site_ids: &'a mut FxHashSet<(PackageId, ExprId)>,
+    dynamic_site_evidence: &'a mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
+    dynamic_site_ids: &'a mut FxHashSet<(PackageId, ExprId)>,
+    incomplete_site_ids: &'a mut FxHashSet<(PackageId, ExprId)>,
+    symbolic_snapshots: &'a FxHashMap<ExprId, SymbolicCallSnapshot>,
+    /// Item owners causally associated with dynamic sites in this iteration.
+    deferrable_residue_items: &'a mut FxHashSet<StoreItemId>,
+    /// Whether this iteration has a dynamic site in the package entry.
+    deferrable_entry_residue: &'a mut bool,
     /// Spans of lambda bodies discarded by the identity-closure peephole,
     /// keyed by the collapsed init-expr node, stamped onto surviving direct
     /// calls so circuit instructions point at the original lambda body.
     collapsed_spans: &'a FxHashMap<ExprId, Span>,
+    /// Occurrence-local operands retained from the prior fixpoint iteration
+    /// after rewrite replaced a closure callee with its lifted lambda item.
+    preserved_direct_lambda_calls: &'a [DirectCallSite],
     /// Whether already-direct concrete calls in the body being walked should be
     /// recorded. `true` for the entry package; `false` for foreign bodies,
     /// where only closure, local, or field-projection callees are recorded.
     /// Recording ordinary foreign item calls would re-introduce the standard
     /// library's entire call graph as spurious direct call sites.
     record_direct_calls: bool,
+    /// Callables outside the package being rewritten that are known
+    /// side-effect free and total, used by the argument-position disposition
+    /// check in [`record_hof_call_sites`].
+    total_foreign: &'a FxHashSet<ItemId>,
+}
+
+struct CollectedCallSites {
+    call_sites: Vec<CallSite>,
+    direct_call_sites: Vec<DirectCallSite>,
+    unresolved_direct_call_sites: Vec<StoreExprId>,
+    dynamic_site_owners: FxHashMap<(PackageId, ExprId), StoreItemId>,
+    formal_only_dynamic_site_ids: FxHashSet<(PackageId, ExprId)>,
+    dynamic_site_evidence: FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
+    dynamic_site_ids: FxHashSet<(PackageId, ExprId)>,
+    incomplete_site_ids: FxHashSet<(PackageId, ExprId)>,
+    deferrable_residue_items: FxHashSet<StoreItemId>,
+    deferrable_entry_residue: bool,
+    lattice_states: LatticeStates,
 }
 
 /// Walks the bodies of all reachable callables across every reachable package
@@ -269,29 +1771,39 @@ struct CallRecorder<'a> {
 /// call sites; foreign bodies (e.g. generic HOFs relocated into their owning
 /// package by monomorphization) record only HOF call sites and closure, local,
 /// or field-projection callees that require defunctionalization.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn collect_call_sites(
     store: &PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
+    specialized_items: &FxHashSet<StoreItemId>,
     hof_params: &FxHashMap<StoreItemId, Vec<CallableParam>>,
     collapsed_spans: &FxHashMap<ExprId, Span>,
-) -> (
-    Vec<CallSite>,
-    Vec<DirectCallSite>,
-    Vec<StoreExprId>,
-    LatticeStates,
-) {
+    preserved_direct_lambda_calls: &[DirectCallSite],
+    total_foreign: &FxHashSet<ItemId>,
+    producer_summaries: &ProducerSummaries,
+) -> CollectedCallSites {
     let package = store.get(package_id);
     let mut call_sites = Vec::new();
     let mut direct_call_sites = Vec::new();
     let mut unresolved_direct_call_sites = Vec::new();
+    let mut dynamic_site_owners = FxHashMap::default();
+    let mut formal_only_dynamic_site_ids = FxHashSet::default();
+    let mut dynamic_site_evidence = FxHashMap::default();
+    let mut dynamic_site_ids = FxHashSet::default();
+    let mut incomplete_site_ids = FxHashSet::default();
+    let mut deferrable_residue_items = FxHashSet::default();
+    let mut deferrable_entry_residue = false;
     let mut lattice_states: LatticeStates = FxHashMap::default();
+    let clone_items = Rc::new(specialized_items.clone());
 
     for &store_id in reachable {
         let body_pkg_id = store_id.package;
         let body_pkg = store.get(body_pkg_id);
         let item = body_pkg.get_item(store_id.item);
         if let ItemKind::Callable(decl) = &item.kind {
+            let symbolic_snapshots =
+                collect_symbolic_call_snapshots(store, body_pkg, decl, producer_summaries);
             // Foreign bodies record only HOF call sites and closure callees;
             // the entry package records every already-direct concrete call.
             let record_direct_calls = body_pkg_id == package_id;
@@ -303,14 +1815,30 @@ fn collect_call_sites(
                 call_sites: &mut call_sites,
                 direct_call_sites: &mut direct_call_sites,
                 unresolved_direct_call_sites: &mut unresolved_direct_call_sites,
+                dynamic_site_owners: &mut dynamic_site_owners,
+                formal_only_dynamic_site_ids: &mut formal_only_dynamic_site_ids,
+                dynamic_site_evidence: &mut dynamic_site_evidence,
+                dynamic_site_ids: &mut dynamic_site_ids,
+                incomplete_site_ids: &mut incomplete_site_ids,
+                symbolic_snapshots: &symbolic_snapshots,
+                deferrable_residue_items: &mut deferrable_residue_items,
+                deferrable_entry_residue: &mut deferrable_entry_residue,
                 collapsed_spans,
+                preserved_direct_lambda_calls,
                 record_direct_calls,
+                total_foreign,
             };
             let locals = build_callable_flow_state(
                 body_pkg,
                 store,
                 &decl.implementation,
                 decl.input,
+                if specialized_items.contains(&store_id) {
+                    CaptureScope::CloneScope(store_id.item)
+                } else {
+                    CaptureScope::Callable(store_id.item)
+                },
+                Rc::clone(&clone_items),
                 body_pkg_id,
                 Some(&mut recorder),
             );
@@ -334,10 +1862,21 @@ fn collect_call_sites(
     }
 
     if let Some(entry_expr_id) = package.entry {
+        let symbolic_snapshots = collect_entry_symbolic_call_snapshots(
+            store,
+            package,
+            entry_expr_id,
+            producer_summaries,
+        );
         let mut locals = LocalState {
+            owner: CaptureScope::Entry,
+            clone_items,
             callable: FxHashMap::default(),
+            callable_origins: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
+            visible_bindings: FxHashSet::default(),
+            mutable_bindings: FxHashSet::default(),
             closure_capturable_var_types: FxHashMap::default(),
         };
         let mut recorder = CallRecorder {
@@ -345,8 +1884,18 @@ fn collect_call_sites(
             call_sites: &mut call_sites,
             direct_call_sites: &mut direct_call_sites,
             unresolved_direct_call_sites: &mut unresolved_direct_call_sites,
+            dynamic_site_owners: &mut dynamic_site_owners,
+            formal_only_dynamic_site_ids: &mut formal_only_dynamic_site_ids,
+            dynamic_site_evidence: &mut dynamic_site_evidence,
+            dynamic_site_ids: &mut dynamic_site_ids,
+            incomplete_site_ids: &mut incomplete_site_ids,
+            symbolic_snapshots: &symbolic_snapshots,
+            deferrable_residue_items: &mut deferrable_residue_items,
+            deferrable_entry_residue: &mut deferrable_entry_residue,
             collapsed_spans,
+            preserved_direct_lambda_calls,
             record_direct_calls: true,
+            total_foreign,
         };
         analyze_expr_flow(
             package,
@@ -358,12 +1907,144 @@ fn collect_call_sites(
         );
     }
 
-    (
+    CollectedCallSites {
         call_sites,
         direct_call_sites,
         unresolved_direct_call_sites,
+        dynamic_site_owners,
+        formal_only_dynamic_site_ids,
+        dynamic_site_evidence,
+        dynamic_site_ids,
+        incomplete_site_ids,
+        deferrable_residue_items,
+        deferrable_entry_residue,
         lattice_states,
-    )
+    }
+}
+
+/// Returns whether every capture operand a rewrite would splice for `callable`
+/// can be named where the call site sits.
+///
+/// A capture that carries its own initializer expression is materialized from
+/// that expression, so only a bare capture variable has to be in scope. The
+/// value of a closure can be known interprocedurally, through a parameter of
+/// the enclosing callable, while its captured locals stay behind in the caller;
+/// splicing them here would emit references no scope binds.
+fn closure_captures_are_in_scope(
+    pkg: &Package,
+    callable: &ConcreteCallable,
+    destination: CaptureScope,
+    visible_bindings: &FxHashSet<LocalVarId>,
+) -> bool {
+    let ConcreteCallable::Closure { captures, .. } = callable else {
+        return true;
+    };
+    captures_are_in_scope(pkg, captures, destination, visible_bindings)
+}
+
+fn captures_are_in_scope(
+    pkg: &Package,
+    captures: &[CapturedVar],
+    destination: CaptureScope,
+    visible_bindings: &FxHashSet<LocalVarId>,
+) -> bool {
+    captures.iter().all(|capture| {
+        if capture.local.scope != destination {
+            return false;
+        }
+        capture.expr.map_or_else(
+            || visible_bindings.contains(&capture.local.var),
+            |expr| {
+                capture_expr_is_in_scope(pkg, expr, visible_bindings, &capture.caller_substitutions)
+            },
+        )
+    })
+}
+
+fn capture_expr_is_in_scope(
+    pkg: &Package,
+    expr_id: ExprId,
+    visible_bindings: &FxHashSet<LocalVarId>,
+    substitutions: &[(LocalVarId, ExprId)],
+) -> bool {
+    if substitutions
+        .iter()
+        .any(|(_, expr)| !expr_is_in_scope(pkg, *expr, visible_bindings))
+    {
+        return false;
+    }
+    let mut bound = visible_bindings.clone();
+    bound.extend(substitutions.iter().map(|(var, _)| *var));
+    expr_is_in_scope(pkg, expr_id, &bound)
+}
+
+fn expr_is_in_scope(pkg: &Package, expr_id: ExprId, bound: &FxHashSet<LocalVarId>) -> bool {
+    let mut checker = CaptureExprScopeChecker {
+        package: pkg,
+        bound: bound.clone(),
+        valid: true,
+    };
+    checker.visit_expr(expr_id);
+    checker.valid
+}
+
+struct CaptureExprScopeChecker<'a> {
+    package: &'a Package,
+    bound: FxHashSet<LocalVarId>,
+    valid: bool,
+}
+
+impl<'a> Visitor<'a> for CaptureExprScopeChecker<'a> {
+    fn visit_block(&mut self, id: BlockId) {
+        let outer_bound = self.bound.clone();
+        visit::walk_block(self, id);
+        self.bound = outer_bound;
+    }
+
+    fn visit_stmt(&mut self, id: StmtId) {
+        if let StmtKind::Local(_, pat, expr) = self.package.get_stmt(id).kind {
+            self.visit_expr(expr);
+            collect_pat_local_bindings(self.package, pat, &mut self.bound);
+        } else {
+            visit::walk_stmt(self, id);
+        }
+    }
+
+    fn visit_expr(&mut self, id: ExprId) {
+        if !self.valid {
+            return;
+        }
+        match &self.package.get_expr(id).kind {
+            ExprKind::Var(Res::Local(var), _) if !self.bound.contains(var) => {
+                self.valid = false;
+                return;
+            }
+            ExprKind::Closure(captures, _)
+                if captures.iter().any(|var| !self.bound.contains(var)) =>
+            {
+                self.valid = false;
+                return;
+            }
+            _ => {}
+        }
+        visit::walk_expr(self, id);
+    }
+
+    fn get_block(&self, id: BlockId) -> &'a Block {
+        self.package.get_block(id)
+    }
+
+    fn get_expr(&self, id: ExprId) -> &'a Expr {
+        self.package.get_expr(id)
+    }
+
+    fn get_pat(&self, id: PatId) -> &'a Pat {
+        self.package.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: StmtId) -> &'a Stmt {
+        self.package.get_stmt(id)
+    }
 }
 
 /// Inspects a single expression for HOF call-site patterns.
@@ -378,9 +2059,19 @@ fn inspect_call_expr(
     call_sites: &mut Vec<CallSite>,
     direct_call_sites: &mut Vec<DirectCallSite>,
     unresolved_direct_call_sites: &mut Vec<StoreExprId>,
+    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
+    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
+    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    symbolic_snapshots: &FxHashMap<ExprId, SymbolicCallSnapshot>,
+    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
+    deferrable_entry_residue: &mut bool,
     package_id: PackageId,
     collapsed_spans: &FxHashMap<ExprId, Span>,
+    preserved_direct_lambda_calls: &[DirectCallSite],
     record_direct_calls: bool,
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let ExprKind::Call(callee_expr_id, args_expr_id) = &expr.kind else {
         return;
@@ -389,6 +2080,10 @@ fn inspect_call_expr(
     if expr_contains_hole(pkg, *args_expr_id) {
         return;
     }
+
+    let Some(symbolic_snapshot) = symbolic_snapshots.get(&expr_id) else {
+        return;
+    };
 
     if let Some((hof_store_id, hof_functor, hof_callable_params)) =
         resolve_hof_callee(pkg, *callee_expr_id, hof_params)
@@ -403,7 +2098,16 @@ fn inspect_call_expr(
             hof_functor,
             hof_callable_params,
             call_sites,
+            dynamic_site_owners,
+            formal_only_dynamic_site_ids,
+            dynamic_site_evidence,
+            dynamic_site_ids,
+            incomplete_site_ids,
+            Some(symbolic_snapshot),
+            deferrable_residue_items,
+            deferrable_entry_residue,
             package_id,
+            total_foreign,
         );
 
         return;
@@ -447,6 +2151,13 @@ fn inspect_call_expr(
         if !matches!(
             pkg.get_expr(base_id).kind,
             ExprKind::Closure(_, _) | ExprKind::Var(Res::Local(_), _) | ExprKind::Field(_, _)
+        ) && !is_preserved_direct_lifted_lambda_call(
+            store,
+            pkg,
+            expr_id,
+            package_id,
+            base_id,
+            preserved_direct_lambda_calls,
         ) {
             return;
         }
@@ -461,9 +2172,60 @@ fn inspect_call_expr(
         hof_params,
         direct_call_sites,
         unresolved_direct_call_sites,
+        dynamic_site_owners,
+        formal_only_dynamic_site_ids,
+        dynamic_site_evidence,
+        dynamic_site_ids,
+        incomplete_site_ids,
+        Some(symbolic_snapshot),
+        deferrable_residue_items,
+        deferrable_entry_residue,
         package_id,
         collapsed_spans,
+        preserved_direct_lambda_calls,
     );
+}
+
+/// Returns whether `item_id` names a lifted lambda callable.
+///
+/// An interpreter line that failed validation leaves its callees resolving to
+/// items the store never received, so a missing item answers `false` instead of
+/// panicking on lookup.
+fn is_lifted_lambda_item(store: &PackageStore, item_id: ItemId) -> bool {
+    matches!(
+        store.get(item_id.package).get_global(item_id.item),
+        Some(Global::Callable(decl)) if decl.name.name.starts_with(".lambda")
+    )
+}
+
+/// Returns whether a previously rewritten closure call is now a literal lifted
+/// lambda item. Foreign bodies otherwise skip direct item calls, but this
+/// occurrence needs its retained operands reattached.
+fn is_preserved_direct_lifted_lambda_call(
+    store: &PackageStore,
+    pkg: &Package,
+    call_expr_id: ExprId,
+    package_id: PackageId,
+    callee_expr_id: ExprId,
+    preserved_direct_lambda_calls: &[DirectCallSite],
+) -> bool {
+    let ExprKind::Var(Res::Item(item_id), _) = pkg.get_expr(callee_expr_id).kind else {
+        return false;
+    };
+    is_lifted_lambda_item(store, item_id)
+        && preserved_direct_lambda_calls.iter().any(|site| {
+            if site.call_expr_id != call_expr_id || site.call_pkg_id != package_id {
+                return false;
+            }
+            match &site.callable {
+                ConcreteCallable::Closure { target, .. } => *target == item_id.item,
+                ConcreteCallable::Global {
+                    item_id: prior_item_id,
+                    ..
+                } => *prior_item_id == item_id,
+                ConcreteCallable::Dynamic => false,
+            }
+        })
 }
 
 /// Records a [`CallSite`] for every arrow parameter of a resolved HOF callee.
@@ -474,7 +2236,20 @@ fn inspect_call_expr(
 /// yields one conditioned call site per candidate (the branch-split set), and a
 /// dynamic or bottom lattice yields a single dynamic call site so the pass
 /// surfaces an honest diagnostic later.
-#[allow(clippy::too_many_arguments)]
+///
+/// Specializing a call site deletes the callable argument expression from the
+/// call. The argument-removal family that performs that deletion —
+/// `remove_element_at_path`, `rewrite_args_remove_tuple_element`,
+/// `rewrite_single_arg_root`, `remove_top_level_field_from_expr_data`, and the
+/// branch-dispatch argument builders — carries no purity guard of its own, so
+/// an argument whose evaluation is observable would be dropped silently. The
+/// disposition decision in [`super::rewrite::consumed_callable_expr_disposition`]
+/// is therefore applied here, once, before the call site is accepted: an
+/// argument classified [`EvaluationDisposition::Retained`] is declined to
+/// `ConcreteCallable::Dynamic`, the pass's established "cannot specialize"
+/// signal, which keeps the original dynamic dispatch and reports an actionable
+/// `DynamicCallable` diagnostic instead of miscompiling.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn record_hof_call_sites(
     store: &PackageStore,
     pkg: &Package,
@@ -485,29 +2260,102 @@ fn record_hof_call_sites(
     hof_functor: FunctorApp,
     hof_callable_params: &[CallableParam],
     call_sites: &mut Vec<CallSite>,
+    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
+    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
+    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    symbolic_snapshot: Option<&SymbolicCallSnapshot>,
+    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
+    deferrable_entry_residue: &mut bool,
     package_id: PackageId,
+    total_foreign: &FxHashSet<ItemId>,
 ) {
     let uses_tuple_input = hof_uses_tuple_input_pattern(store, hof_store_id);
     for cp in hof_callable_params {
         let input_path = super::build_param_input_path(uses_tuple_input, cp, hof_functor);
         let resolved_arg_id = extract_arg_at_path(pkg, args_expr_id, &input_path);
+        let symbolic_argument = symbolic_snapshot.map_or_else(
+            || SymbolicValue::for_type(store, &pkg.get_expr(resolved_arg_id).ty, true),
+            |snapshot| snapshot.arguments.project(&input_path),
+        );
         let allow_scoped_capture_exprs = matches!(
             pkg.get_expr(resolved_arg_id).kind,
             ExprKind::Block(_) | ExprKind::If(_, _, _)
         );
-        let resolved = resolve_callee_at_path(
+        let resolved = if consumed_callable_expr_disposition(
             pkg,
-            store,
-            locals,
-            args_expr_id,
-            &input_path,
-            0,
-            allow_scoped_capture_exprs,
-            &FxHashSet::default(),
             package_id,
-        );
+            resolved_arg_id,
+            ConsumptionSite::Argument,
+            total_foreign,
+        ) == EvaluationDisposition::Retained
+        {
+            // Rewriting would delete this expression outright, and its
+            // evaluation is observable with nothing to reproduce it. Decline.
+            CalleeLattice::Dynamic
+        } else {
+            resolve_callee_at_path(
+                pkg,
+                store,
+                locals,
+                args_expr_id,
+                &input_path,
+                0,
+                allow_scoped_capture_exprs,
+                &FxHashSet::default(),
+                package_id,
+            )
+        };
+        let mut record_dynamic_call_site = || {
+            let site = (package_id, expr_id);
+            dynamic_site_ids.insert(site);
+            record_dynamic_site_causality(
+                locals.owner,
+                package_id,
+                site,
+                &symbolic_argument,
+                dynamic_site_owners,
+                formal_only_dynamic_site_ids,
+                dynamic_site_evidence,
+            );
+            record_deferrable_residue_owner(
+                locals.owner,
+                package_id,
+                deferrable_residue_items,
+                deferrable_entry_residue,
+            );
+            deferrable_residue_items.insert(hof_store_id);
+            record_dynamic_producer_value(
+                &symbolic_argument,
+                site,
+                deferrable_residue_items,
+                incomplete_site_ids,
+            );
+            call_sites.push(CallSite {
+                call_expr_id: expr_id,
+                call_pkg_id: package_id,
+                hof_item_id: ItemId {
+                    package: hof_store_id.package,
+                    item: hof_store_id.item,
+                },
+                top_level_param: cp.top_level_param,
+                field_path: cp.field_path.clone(),
+                hof_input_is_tuple: cp.hof_input_is_tuple,
+                callable_arg: ConcreteCallable::Dynamic,
+                arg_expr_id: resolved_arg_id,
+                condition: vec![],
+            });
+        };
         match resolved {
-            CalleeLattice::Single(cc) => {
+            CalleeLattice::Single(cc)
+                if closure_captures_are_in_scope(
+                    pkg,
+                    &cc,
+                    locals.owner,
+                    &locals.visible_bindings,
+                ) =>
+            {
                 call_sites.push(CallSite {
                     call_expr_id: expr_id,
                     call_pkg_id: package_id,
@@ -524,39 +2372,314 @@ fn record_hof_call_sites(
                 });
             }
             CalleeLattice::Multi(candidates) => {
-                for (cc, cond) in candidates {
-                    call_sites.push(CallSite {
-                        call_expr_id: expr_id,
-                        call_pkg_id: package_id,
-                        hof_item_id: ItemId {
-                            package: hof_store_id.package,
-                            item: hof_store_id.item,
-                        },
-                        top_level_param: cp.top_level_param,
-                        field_path: cp.field_path.clone(),
-                        hof_input_is_tuple: cp.hof_input_is_tuple,
-                        callable_arg: cc,
-                        arg_expr_id: resolved_arg_id,
-                        condition: cond,
-                    });
+                if candidates.iter().any(|(cc, _)| {
+                    !closure_captures_are_in_scope(pkg, cc, locals.owner, &locals.visible_bindings)
+                }) {
+                    record_dynamic_call_site();
+                } else {
+                    for (cc, cond) in candidates {
+                        call_sites.push(CallSite {
+                            call_expr_id: expr_id,
+                            call_pkg_id: package_id,
+                            hof_item_id: ItemId {
+                                package: hof_store_id.package,
+                                item: hof_store_id.item,
+                            },
+                            top_level_param: cp.top_level_param,
+                            field_path: cp.field_path.clone(),
+                            hof_input_is_tuple: cp.hof_input_is_tuple,
+                            callable_arg: cc,
+                            arg_expr_id: resolved_arg_id,
+                            condition: cond,
+                        });
+                    }
                 }
             }
-            CalleeLattice::Dynamic | CalleeLattice::Bottom => {
-                call_sites.push(CallSite {
-                    call_expr_id: expr_id,
-                    call_pkg_id: package_id,
-                    hof_item_id: ItemId {
-                        package: hof_store_id.package,
-                        item: hof_store_id.item,
-                    },
-                    top_level_param: cp.top_level_param,
-                    field_path: cp.field_path.clone(),
-                    hof_input_is_tuple: cp.hof_input_is_tuple,
-                    callable_arg: ConcreteCallable::Dynamic,
-                    arg_expr_id: resolved_arg_id,
-                    condition: vec![],
-                });
+            CalleeLattice::Dynamic | CalleeLattice::Bottom | CalleeLattice::Single(_) => {
+                record_dynamic_call_site();
             }
+        }
+    }
+}
+
+fn record_deferrable_residue_owner(
+    owner: CaptureScope,
+    package_id: PackageId,
+    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
+    deferrable_entry_residue: &mut bool,
+) {
+    match owner {
+        CaptureScope::Callable(item) | CaptureScope::CloneScope(item) => {
+            deferrable_residue_items.insert(StoreItemId::from((package_id, item)));
+        }
+        CaptureScope::Entry => *deferrable_entry_residue = true,
+    }
+}
+
+fn record_dynamic_site_causality(
+    owner: CaptureScope,
+    package_id: PackageId,
+    site: (PackageId, ExprId),
+    value: &SymbolicValue,
+    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
+    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
+) {
+    if let CaptureScope::Callable(item) | CaptureScope::CloneScope(item) = owner {
+        dynamic_site_owners.insert(site, StoreItemId::from((package_id, item)));
+    }
+    let leaf = value.collapsed_leaf();
+    let evidence = dynamic_site_evidence.entry(site).or_default();
+    evidence.rows += 1;
+    if leaf.is_formal_only() {
+        evidence.formal_only_rows += 1;
+    }
+    if leaf.incomplete {
+        evidence.incomplete_rows += 1;
+    }
+    if evidence.is_formal_only() {
+        formal_only_dynamic_site_ids.insert(site);
+    } else {
+        formal_only_dynamic_site_ids.remove(&site);
+    }
+}
+
+fn record_dynamic_producer_value(
+    value: &SymbolicValue,
+    site: (PackageId, ExprId),
+    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
+    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+) {
+    let leaf = value.collapsed_leaf();
+    for atom in leaf.atoms {
+        if let ProducerLineageAtom::Owner(owner) = atom {
+            deferrable_residue_items.insert(owner);
+        }
+    }
+    if leaf.incomplete {
+        incomplete_site_ids.insert(site);
+    }
+}
+
+fn global_callee_item(package: &Package, callee_id: ExprId) -> Option<ItemId> {
+    let (base_id, _) = peel_body_functors(package, callee_id);
+    let ExprKind::Var(Res::Item(item_id), _) = package.get_expr(base_id).kind else {
+        return None;
+    };
+    Some(item_id)
+}
+
+fn callable_output_contains_arrow(store: &PackageStore, item_id: ItemId) -> bool {
+    let package = store.get(item_id.package);
+    let item = package.get_item(item_id.item);
+    matches!(
+        &item.kind,
+        ItemKind::Callable(decl) if super::ty_contains_arrow_through_udts(store, &decl.output)
+    )
+}
+
+fn callable_origins_from_expr(
+    pkg: &Package,
+    store: &PackageStore,
+    locals: &LocalState,
+    expr_id: ExprId,
+    package_id: PackageId,
+) -> FxHashSet<StoreItemId> {
+    callable_origins_from_expr_at_path(pkg, store, locals, expr_id, &[], package_id, 0)
+}
+
+#[allow(clippy::too_many_lines)]
+fn callable_origins_from_expr_at_path(
+    pkg: &Package,
+    store: &PackageStore,
+    locals: &LocalState,
+    expr_id: ExprId,
+    path: &[usize],
+    package_id: PackageId,
+    depth: usize,
+) -> FxHashSet<StoreItemId> {
+    if depth > MAX_RESOLVE_DEPTH {
+        return FxHashSet::default();
+    }
+
+    if !path.is_empty() {
+        if let ExprKind::Index(array_expr_id, index_expr_id) = pkg.get_expr(expr_id).kind {
+            let element_ids = resolve_indexed_array_element(
+                pkg,
+                store,
+                locals,
+                array_expr_id,
+                index_expr_id,
+                depth + 1,
+            )
+            .map_or_else(
+                || resolve_array_elements(pkg, store, locals, array_expr_id, depth + 1),
+                |element_id| Some(vec![element_id]),
+            )
+            .unwrap_or_default();
+            let mut origins = FxHashSet::default();
+            for element_id in element_ids {
+                origins.extend(callable_origins_from_expr_at_path(
+                    pkg,
+                    store,
+                    locals,
+                    element_id,
+                    path,
+                    package_id,
+                    depth + 1,
+                ));
+            }
+            return origins;
+        }
+
+        let field_path = FieldPath {
+            indices: path.to_vec(),
+        };
+        return resolve_struct_field(pkg, store, locals, expr_id, &field_path, depth + 1)
+            .map(|field_expr_id| {
+                callable_origins_from_expr_at_path(
+                    pkg,
+                    store,
+                    locals,
+                    field_expr_id,
+                    &[],
+                    package_id,
+                    depth + 1,
+                )
+            })
+            .unwrap_or_default();
+    }
+
+    match &pkg.get_expr(expr_id).kind {
+        ExprKind::Var(Res::Local(var), _) => locals
+            .callable_origins
+            .get(var)
+            .cloned()
+            .unwrap_or_default(),
+        ExprKind::Var(Res::Item(item_id), _) => {
+            let mut origins = FxHashSet::default();
+            if callable_output_contains_arrow(store, *item_id) {
+                origins.insert(StoreItemId::from((item_id.package, item_id.item)));
+            }
+            origins
+        }
+        ExprKind::Return(inner_expr_id) | ExprKind::UnOp(_, inner_expr_id) => {
+            callable_origins_from_expr_at_path(
+                pkg,
+                store,
+                locals,
+                *inner_expr_id,
+                &[],
+                package_id,
+                depth + 1,
+            )
+        }
+        ExprKind::Field(inner_expr_id, Field::Path(field_path)) => {
+            resolve_struct_field(pkg, store, locals, *inner_expr_id, field_path, depth + 1)
+                .map(|field_expr_id| {
+                    callable_origins_from_expr_at_path(
+                        pkg,
+                        store,
+                        locals,
+                        field_expr_id,
+                        &[],
+                        package_id,
+                        depth + 1,
+                    )
+                })
+                .unwrap_or_default()
+        }
+        ExprKind::Index(array_expr_id, index_expr_id) => {
+            let element_ids = resolve_indexed_array_element(
+                pkg,
+                store,
+                locals,
+                *array_expr_id,
+                *index_expr_id,
+                depth + 1,
+            )
+            .map_or_else(
+                || resolve_array_elements(pkg, store, locals, *array_expr_id, depth + 1),
+                |element_id| Some(vec![element_id]),
+            )
+            .unwrap_or_default();
+            let mut origins = FxHashSet::default();
+            for element_id in element_ids {
+                origins.extend(callable_origins_from_expr_at_path(
+                    pkg,
+                    store,
+                    locals,
+                    element_id,
+                    &[],
+                    package_id,
+                    depth + 1,
+                ));
+            }
+            origins
+        }
+        ExprKind::Block(block_id) => {
+            let block = pkg.get_block(*block_id);
+            let mut block_state = locals.clone();
+            analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
+            block
+                .stmts
+                .last()
+                .and_then(|stmt_id| match pkg.get_stmt(*stmt_id).kind {
+                    StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => Some(expr_id),
+                    StmtKind::Item(_) | StmtKind::Local(..) => None,
+                })
+                .map(|tail_expr_id| {
+                    callable_origins_from_expr_at_path(
+                        pkg,
+                        store,
+                        &block_state,
+                        tail_expr_id,
+                        &[],
+                        package_id,
+                        depth + 1,
+                    )
+                })
+                .unwrap_or_default()
+        }
+        ExprKind::If(_, body, otherwise) => {
+            let mut origins = callable_origins_from_expr_at_path(
+                pkg,
+                store,
+                locals,
+                *body,
+                &[],
+                package_id,
+                depth + 1,
+            );
+            if let Some(otherwise) = otherwise {
+                origins.extend(callable_origins_from_expr_at_path(
+                    pkg,
+                    store,
+                    locals,
+                    *otherwise,
+                    &[],
+                    package_id,
+                    depth + 1,
+                ));
+            }
+            origins
+        }
+        _ => {
+            let mut origins = FxHashSet::default();
+            crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_expr_id, expr| {
+                if let ExprKind::Var(Res::Local(var), _) = expr.kind
+                    && let Some(local_origins) = locals.callable_origins.get(&var)
+                {
+                    origins.extend(local_origins);
+                }
+                if let ExprKind::Call(callee_id, _) = expr.kind
+                    && let Some(item_id) = global_callee_item(pkg, callee_id)
+                    && callable_output_contains_arrow(store, item_id)
+                {
+                    origins.insert(StoreItemId::from((item_id.package, item_id.item)));
+                }
+            });
+            origins
         }
     }
 }
@@ -577,7 +2700,7 @@ fn expr_contains_hole(pkg: &Package, expr_id: ExprId) -> bool {
 /// Inspects a direct `Call(callee, args)` expression whose callee resolves
 /// to a concrete callable value (global, closure, or functor-applied
 /// callable) and, when resolution succeeds, records a [`DirectCallSite`].
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn inspect_direct_call_expr(
     store: &PackageStore,
     pkg: &Package,
@@ -587,11 +2710,28 @@ fn inspect_direct_call_expr(
     hof_params: &FxHashMap<StoreItemId, Vec<CallableParam>>,
     direct_call_sites: &mut Vec<DirectCallSite>,
     unresolved_direct_call_sites: &mut Vec<StoreExprId>,
+    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
+    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
+    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    symbolic_snapshot: Option<&SymbolicCallSnapshot>,
+    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
+    deferrable_entry_residue: &mut bool,
     package_id: PackageId,
     collapsed_spans: &FxHashMap<ExprId, Span>,
+    preserved_direct_lambda_calls: &[DirectCallSite],
 ) {
     let callee_expr = pkg.get_expr(callee_expr_id);
-    if matches!(callee_expr.kind, ExprKind::Var(Res::Item(_), _)) {
+    if let ExprKind::Var(Res::Item(item_id), _) = callee_expr.kind {
+        record_preserved_direct_lifted_lambda_calls(
+            store,
+            expr_id,
+            package_id,
+            item_id,
+            preserved_direct_lambda_calls,
+            direct_call_sites,
+        );
         return;
     }
 
@@ -604,16 +2744,18 @@ fn inspect_direct_call_expr(
     let (resolved, def_span) = if let ExprKind::Var(Res::Local(var), _) = callee_expr.kind {
         if let Some(&init_expr_id) = locals.exprs.get(&var) {
             (
-                resolve_callee(
-                    pkg,
-                    store,
-                    locals,
-                    init_expr_id,
-                    0,
-                    true,
-                    &FxHashSet::default(),
-                    package_id,
-                ),
+                locals.callable.get(&var).cloned().unwrap_or_else(|| {
+                    resolve_callee(
+                        pkg,
+                        store,
+                        locals,
+                        init_expr_id,
+                        0,
+                        true,
+                        &FxHashSet::default(),
+                        package_id,
+                    )
+                }),
                 collapsed_spans.get(&init_expr_id).copied(),
             )
         } else {
@@ -653,20 +2795,74 @@ fn inspect_direct_call_expr(
 
     match resolved {
         CalleeLattice::Single(callable) => {
+            let Some(captures) = resolve_direct_call_captures(
+                pkg,
+                store,
+                locals,
+                callee_expr_id,
+                &callable,
+                package_id,
+            ) else {
+                record_unresolved_direct_site(
+                    expr_id,
+                    locals,
+                    unresolved_direct_call_sites,
+                    dynamic_site_owners,
+                    formal_only_dynamic_site_ids,
+                    dynamic_site_evidence,
+                    dynamic_site_ids,
+                    incomplete_site_ids,
+                    symbolic_snapshot,
+                    deferrable_residue_items,
+                    deferrable_entry_residue,
+                    package_id,
+                );
+                return;
+            };
             direct_call_sites.push(DirectCallSite {
                 call_expr_id: expr_id,
                 call_pkg_id: package_id,
                 callable,
+                captures,
                 condition: vec![],
                 def_span,
             });
         }
         CalleeLattice::Multi(candidates) => {
+            let mut resolved_candidates = Vec::with_capacity(candidates.len());
             for (callable, condition) in candidates {
+                let Some(captures) = resolve_direct_call_captures(
+                    pkg,
+                    store,
+                    locals,
+                    callee_expr_id,
+                    &callable,
+                    package_id,
+                ) else {
+                    record_unresolved_direct_site(
+                        expr_id,
+                        locals,
+                        unresolved_direct_call_sites,
+                        dynamic_site_owners,
+                        formal_only_dynamic_site_ids,
+                        dynamic_site_evidence,
+                        dynamic_site_ids,
+                        incomplete_site_ids,
+                        symbolic_snapshot,
+                        deferrable_residue_items,
+                        deferrable_entry_residue,
+                        package_id,
+                    );
+                    return;
+                };
+                resolved_candidates.push((callable, captures, condition));
+            }
+            for (callable, captures, condition) in resolved_candidates {
                 direct_call_sites.push(DirectCallSite {
                     call_expr_id: expr_id,
                     call_pkg_id: package_id,
                     callable,
+                    captures,
                     condition,
                     def_span,
                 });
@@ -677,24 +2873,251 @@ fn inspect_direct_call_expr(
             // `op(q)` in an un-specialized HOF body) is `Dynamic` only until
             // specialization substitutes the concrete callable. The HOF path
             // never diagnoses these forwarding calls, so neither do we.
-            let callee_is_hof_param = callee_local_var.is_some_and(|var| {
-                hof_params
-                    .values()
-                    .flatten()
-                    .any(|param| param.param_var == var)
-            });
+            let owner = match locals.owner {
+                CaptureScope::Callable(item) | CaptureScope::CloneScope(item) => {
+                    Some(StoreItemId::from((package_id, item)))
+                }
+                CaptureScope::Entry => None,
+            };
+            let callee_is_hof_param =
+                owner
+                    .and_then(|owner| hof_params.get(&owner))
+                    .is_some_and(|params| {
+                        callee_local_var
+                            .is_some_and(|var| params.iter().any(|param| param.param_var == var))
+                    });
             if !callee_is_hof_param {
                 // An over-defined callee the pass cannot lower to direct
                 // dispatch. Record the site so the driver emits an actionable
                 // `DynamicCallable` (cleared per-pass by the driver's `retain`,
                 // so only the converged state surfaces).
-                unresolved_direct_call_sites.push((package_id, expr_id).into());
+                record_unresolved_direct_site(
+                    expr_id,
+                    locals,
+                    unresolved_direct_call_sites,
+                    dynamic_site_owners,
+                    formal_only_dynamic_site_ids,
+                    dynamic_site_evidence,
+                    dynamic_site_ids,
+                    incomplete_site_ids,
+                    symbolic_snapshot,
+                    deferrable_residue_items,
+                    deferrable_entry_residue,
+                    package_id,
+                );
             }
         }
         // `Bottom`: the callee has not yet been observed reaching this point
         // (an intermediate fixpoint iteration). Emitting here would be
         // spurious, so it is a no-op.
         CalleeLattice::Bottom => {}
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn record_unresolved_direct_site(
+    expr_id: ExprId,
+    locals: &LocalState,
+    unresolved_direct_call_sites: &mut Vec<StoreExprId>,
+    dynamic_site_owners: &mut FxHashMap<(PackageId, ExprId), StoreItemId>,
+    formal_only_dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    dynamic_site_evidence: &mut FxHashMap<(PackageId, ExprId), DynamicSiteEvidence>,
+    dynamic_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    incomplete_site_ids: &mut FxHashSet<(PackageId, ExprId)>,
+    symbolic_snapshot: Option<&SymbolicCallSnapshot>,
+    deferrable_residue_items: &mut FxHashSet<StoreItemId>,
+    deferrable_entry_residue: &mut bool,
+    package_id: PackageId,
+) {
+    let site = (package_id, expr_id);
+    unresolved_direct_call_sites.push((package_id, expr_id).into());
+    let symbolic_callee = symbolic_snapshot.map_or_else(
+        || {
+            SymbolicValue::leaf(SymbolicLeaf {
+                causality: CallableCausality::independent(),
+                incomplete: true,
+                ..SymbolicLeaf::default()
+            })
+        },
+        |snapshot| snapshot.callee.clone(),
+    );
+    record_dynamic_site_causality(
+        locals.owner,
+        package_id,
+        site,
+        &symbolic_callee,
+        dynamic_site_owners,
+        formal_only_dynamic_site_ids,
+        dynamic_site_evidence,
+    );
+    dynamic_site_ids.insert(site);
+    record_deferrable_residue_owner(
+        locals.owner,
+        package_id,
+        deferrable_residue_items,
+        deferrable_entry_residue,
+    );
+    record_dynamic_producer_value(
+        &symbolic_callee,
+        site,
+        deferrable_residue_items,
+        incomplete_site_ids,
+    );
+}
+
+fn resolve_direct_call_captures(
+    pkg: &Package,
+    store: &PackageStore,
+    locals: &LocalState,
+    callee_expr_id: ExprId,
+    callable: &ConcreteCallable,
+    package_id: PackageId,
+) -> Option<Vec<CapturedVar>> {
+    if !closure_captures_are_in_scope(pkg, callable, locals.owner, &locals.visible_bindings) {
+        return None;
+    }
+    let captures = resolve_direct_lifted_lambda_captures(
+        pkg,
+        store,
+        locals,
+        callee_expr_id,
+        callable,
+        package_id,
+    )?;
+    captures_are_in_scope(pkg, &captures, locals.owner, &locals.visible_bindings)
+        .then_some(captures)
+}
+
+/// Recovers a lifted lambda's partial-application operands before
+/// rewrite destroys the local factory-result occurrence.
+pub(super) fn resolve_direct_lifted_lambda_captures(
+    pkg: &Package,
+    store: &PackageStore,
+    locals: &LocalState,
+    callee_expr_id: ExprId,
+    callable: &ConcreteCallable,
+    package_id: PackageId,
+) -> Option<Vec<CapturedVar>> {
+    let ConcreteCallable::Global { item_id, .. } = callable else {
+        return Some(Vec::new());
+    };
+    if !is_lifted_lambda_item(store, *item_id) {
+        return Some(Vec::new());
+    }
+
+    resolve_lifted_lambda_captures_from_expr(
+        pkg,
+        store,
+        locals,
+        callee_expr_id,
+        item_id.item,
+        package_id,
+        0,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn resolve_lifted_lambda_captures_from_expr(
+    pkg: &Package,
+    store: &PackageStore,
+    locals: &LocalState,
+    expr_id: ExprId,
+    target: LocalItemId,
+    package_id: PackageId,
+    depth: usize,
+) -> Option<Vec<CapturedVar>> {
+    if depth > MAX_RESOLVE_DEPTH {
+        return None;
+    }
+
+    match pkg.get_expr(expr_id).kind {
+        ExprKind::Var(Res::Local(var), _) => locals.exprs.get(&var).and_then(|init_expr_id| {
+            resolve_lifted_lambda_captures_from_expr(
+                pkg,
+                store,
+                locals,
+                *init_expr_id,
+                target,
+                package_id,
+                depth + 1,
+            )
+        }),
+        ExprKind::Call(..) => match resolve_callee(
+            pkg,
+            store,
+            locals,
+            expr_id,
+            0,
+            true,
+            &FxHashSet::default(),
+            package_id,
+        ) {
+            CalleeLattice::Single(ConcreteCallable::Closure {
+                target: closure_target,
+                captures,
+                ..
+            }) if closure_target == target => Some(captures),
+            _ => None,
+        },
+        ExprKind::Return(inner) | ExprKind::UnOp(_, inner) => {
+            resolve_lifted_lambda_captures_from_expr(
+                pkg,
+                store,
+                locals,
+                inner,
+                target,
+                package_id,
+                depth + 1,
+            )
+        }
+        _ => None,
+    }
+}
+
+/// Rehydrates operands from the previous iteration after rewrite replaced a
+/// closure callee occurrence with its lifted lambda item.
+fn record_preserved_direct_lifted_lambda_calls(
+    store: &PackageStore,
+    call_expr_id: ExprId,
+    package_id: PackageId,
+    item_id: ItemId,
+    preserved_direct_lambda_calls: &[DirectCallSite],
+    direct_call_sites: &mut Vec<DirectCallSite>,
+) {
+    if !is_lifted_lambda_item(store, item_id) {
+        return;
+    }
+
+    for prior_site in preserved_direct_lambda_calls {
+        let (target, captures, functor) = match &prior_site.callable {
+            ConcreteCallable::Closure {
+                target,
+                captures,
+                functor,
+            } => (*target, captures, *functor),
+            ConcreteCallable::Global {
+                item_id: prior_item_id,
+                functor,
+            } if *prior_item_id == item_id => (prior_item_id.item, &prior_site.captures, *functor),
+            ConcreteCallable::Global { .. } | ConcreteCallable::Dynamic => continue,
+        };
+        if prior_site.call_expr_id == call_expr_id
+            && prior_site.call_pkg_id == package_id
+            && (target == item_id.item
+                || matches!(
+                    &prior_site.callable,
+                    ConcreteCallable::Global { item_id: prior_item_id, .. } if *prior_item_id == item_id
+                ))
+        {
+            direct_call_sites.push(DirectCallSite {
+                call_expr_id,
+                call_pkg_id: package_id,
+                callable: ConcreteCallable::Global { item_id, functor },
+                captures: captures.clone(),
+                condition: prior_site.condition.clone(),
+                def_span: prior_site.def_span,
+            });
+        }
     }
 }
 
@@ -972,6 +3395,7 @@ fn resolve_callee(
                         store,
                         locals,
                         item_id,
+                        expr_id,
                         *args_expr_id,
                         &[],
                         depth + 1,
@@ -1084,9 +3508,14 @@ fn resolve_callee(
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
             let mut block_state = LocalState {
+                owner: locals.owner,
+                clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
+                callable_origins: locals.callable_origins.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
+                visible_bindings: locals.visible_bindings.clone(),
+                mutable_bindings: locals.mutable_bindings.clone(),
                 closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
             };
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
@@ -1274,9 +3703,14 @@ fn resolve_callee_projection(
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
             let mut block_state = LocalState {
+                owner: locals.owner,
+                clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
+                callable_origins: locals.callable_origins.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
+                visible_bindings: locals.visible_bindings.clone(),
+                mutable_bindings: locals.mutable_bindings.clone(),
                 closure_capturable_var_types: locals.closure_capturable_var_types.clone(),
             };
             analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
@@ -1370,6 +3804,7 @@ fn resolve_callee_projection(
                             store,
                             locals,
                             item_id,
+                            expr_id,
                             *args_expr_id,
                             path,
                             depth + 1,
@@ -1488,12 +3923,41 @@ fn output_path_resolves_to_arrow(store: &PackageStore, ty: &Ty, path: &[usize]) 
 /// the call arguments and caller lattice come from the caller's package
 /// (`pkg` / `package_id`). The returned closure's capture expressions therefore
 /// remain caller-package nodes, which is what the call site rewrite consumes.
+///
+/// # The effectful-producer decline
+///
+/// A `Closure` resolved through this function is a node that physically lives
+/// in the *producer's* body, not at the call site. Consuming it makes
+/// `cleanup_consumed_closures` replace that node with a stand-in that is
+/// well-typed but must never be invoked, which holds only when the producer
+/// stops being entry-reachable — that is, when the producing call itself is
+/// deleted. `call_expr_id` is that call, so [`expr_is_safe_to_discard`] on it
+/// decides the question directly: a discardable call is removed with its
+/// binding and takes the producer's reachability with it, while a call whose
+/// evaluation is observable survives and keeps returning the stand-in to code
+/// the rewrite never redirected.
+///
+/// The observable case is therefore declined to `CalleeLattice::Dynamic`, the
+/// pass's established "cannot specialize" signal: the original dynamic dispatch
+/// is kept and `specialize` reports an actionable `DynamicCallable` at the call
+/// site instead of the pass emitting a call that would fail at run time. This
+/// conservative choice does not affect `katas/`, `library/`, or `samples/`:
+/// every arrow-returning callable there is a `function`, which cannot perform
+/// an effect.
+///
+/// The discard proof sees through the named total intrinsics
+/// ([`collect_total_foreign_callables`]) but not through arbitrary foreign
+/// bodies, so a producing call that reaches a cross-package non-intrinsic
+/// callable is declined rather than proven. That is conservative in the safe
+/// direction, and a cross-package producer cannot yield a threadable closure
+/// anyway (see [`downgrade_closures_to_dynamic`]).
 #[allow(clippy::too_many_arguments)]
 fn resolve_callable_return(
     pkg: &Package,
     store: &PackageStore,
     caller_locals: &LocalState,
     item_id: ItemId,
+    call_expr_id: ExprId,
     args_expr_id: ExprId,
     output_path: &[usize],
     depth: usize,
@@ -1523,9 +3987,25 @@ fn resolve_callable_return(
     };
 
     let mut state = LocalState {
+        owner: if caller_locals
+            .clone_items
+            .contains(&StoreItemId::from((item_id.package, item_id.item)))
+        {
+            CaptureScope::CloneScope(item_id.item)
+        } else {
+            CaptureScope::Callable(item_id.item)
+        },
+        clone_items: Rc::clone(&caller_locals.clone_items),
         callable: FxHashMap::default(),
+        callable_origins: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
+        visible_bindings: {
+            let mut bindings = FxHashSet::default();
+            collect_pat_local_bindings(callee_pkg, body_input, &mut bindings);
+            bindings
+        },
+        mutable_bindings: FxHashSet::default(),
         closure_capturable_var_types: collect_binding_types_from_pat(callee_pkg, body_input),
     };
     seed_param_bindings_from_call(
@@ -1576,6 +4056,8 @@ fn resolve_callable_return(
         callee_pkg,
         &state,
         &param_substitutions,
+        caller_locals.owner,
+        &caller_locals.mutable_bindings,
         resolve_callee_projection(
             callee_pkg,
             store,
@@ -1590,7 +4072,7 @@ fn resolve_callable_return(
     );
 
     if callee_pkg_id == package_id {
-        return result;
+        return decline_effectful_producer_closure(pkg, store, package_id, call_expr_id, result);
     }
 
     // A callable returned from a foreign body is consumed at the caller's call
@@ -1600,6 +4082,49 @@ fn resolve_callable_return(
     // the caller's call site. Downgrade any such cross-package closure to
     // `Dynamic` (a clean diagnostic) rather than emitting a dangling target.
     downgrade_closures_to_dynamic(result)
+}
+
+/// Declines a producer-returned closure whose producing call cannot be deleted.
+///
+/// See the "effectful-producer decline" section on [`resolve_callable_return`]
+/// for why this is the deciding question. Lattices carrying no `Closure` pass
+/// through untouched: a `Global` entry names an item that already exists
+/// independently of the producer, so consuming it neutralizes nothing.
+///
+/// The total-intrinsic set is collected here rather than threaded in from the
+/// pass driver because every function between `analyze` and this point would
+/// otherwise gain a parameter it does not use. The collection walks item
+/// headers only — [`extend_with_discardable_foreign_callables`], which walks
+/// foreign bodies, is deliberately not run — and it runs only for a lattice
+/// that actually carries a producer-returned closure, which is a rare shape.
+fn decline_effectful_producer_closure(
+    pkg: &Package,
+    store: &PackageStore,
+    package_id: PackageId,
+    call_expr_id: ExprId,
+    resolved: CalleeLattice,
+) -> CalleeLattice {
+    if !lattice_has_closure(&resolved) {
+        return resolved;
+    }
+    if expr_is_safe_to_discard(pkg, package_id, call_expr_id) {
+        return resolved;
+    }
+    let total_foreign = collect_total_foreign_callables(store);
+    if expr_is_safe_to_discard_with_total_foreign(pkg, package_id, call_expr_id, &total_foreign) {
+        return resolved;
+    }
+    CalleeLattice::Dynamic
+}
+
+/// Reports whether a lattice element carries at least one closure candidate.
+fn lattice_has_closure(lattice: &CalleeLattice) -> bool {
+    let is_closure = |cc: &ConcreteCallable| matches!(cc, ConcreteCallable::Closure { .. });
+    match lattice {
+        CalleeLattice::Single(cc) => is_closure(cc),
+        CalleeLattice::Multi(entries) => entries.iter().any(|(cc, _)| is_closure(cc)),
+        CalleeLattice::Dynamic | CalleeLattice::Bottom => false,
+    }
 }
 
 /// Maps any `Closure` entries in a lattice element to `Dynamic`, leaving
@@ -1691,30 +4216,74 @@ fn materialize_capture_exprs_from_state(
     pkg: &Package,
     state: &LocalState,
     param_substitutions: &FxHashMap<LocalVarId, ExprId>,
+    caller_owner: CaptureScope,
+    caller_mutable_bindings: &FxHashSet<LocalVarId>,
     resolved: CalleeLattice,
 ) -> CalleeLattice {
     match resolved {
-        CalleeLattice::Single(concrete) => CalleeLattice::Single(
-            materialize_capture_exprs_in_callable(pkg, state, param_substitutions, concrete),
-        ),
-        CalleeLattice::Multi(entries) => CalleeLattice::Multi(
-            entries
-                .into_iter()
-                .map(|(concrete, condition)| {
-                    (
-                        materialize_capture_exprs_in_callable(
-                            pkg,
-                            state,
-                            param_substitutions,
-                            concrete,
-                        ),
-                        condition,
-                    )
-                })
-                .collect(),
-        ),
+        CalleeLattice::Single(concrete) => {
+            CalleeLattice::Single(materialize_capture_exprs_in_callable(
+                pkg,
+                state,
+                param_substitutions,
+                caller_owner,
+                caller_mutable_bindings,
+                concrete,
+            ))
+        }
+        CalleeLattice::Multi(entries) => {
+            let mut materialized = Vec::with_capacity(entries.len());
+            for (concrete, condition) in entries {
+                let mut remapped_condition = Vec::with_capacity(condition.len());
+                for condition in condition {
+                    let condition = remap_condition_expr(pkg, state, condition);
+                    if expr_contains_local_reference(pkg, condition) {
+                        return CalleeLattice::Dynamic;
+                    }
+                    remapped_condition.push(condition);
+                }
+                materialized.push((
+                    materialize_capture_exprs_in_callable(
+                        pkg,
+                        state,
+                        param_substitutions,
+                        caller_owner,
+                        caller_mutable_bindings,
+                        concrete,
+                    ),
+                    remapped_condition,
+                ));
+            }
+            CalleeLattice::Multi(materialized)
+        }
         other => other,
     }
+}
+
+fn expr_contains_local_reference(pkg: &Package, expr_id: ExprId) -> bool {
+    let mut contains_local = false;
+    crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_expr_id, expr| {
+        if matches!(expr.kind, ExprKind::Var(Res::Local(_), _)) {
+            contains_local = true;
+        }
+    });
+    contains_local
+}
+
+fn expr_reads_mutable_local(
+    pkg: &Package,
+    expr_id: ExprId,
+    caller_mutable_bindings: &FxHashSet<LocalVarId>,
+) -> bool {
+    let mut reads_mutable = false;
+    crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_expr_id, expr| {
+        if let ExprKind::Var(Res::Local(local), _) = expr.kind
+            && caller_mutable_bindings.contains(&local)
+        {
+            reads_mutable = true;
+        }
+    });
+    reads_mutable
 }
 
 /// Resolves each closure capture to a caller-scope expression. For a
@@ -1726,6 +4295,8 @@ fn materialize_capture_exprs_in_callable(
     pkg: &Package,
     state: &LocalState,
     param_substitutions: &FxHashMap<LocalVarId, ExprId>,
+    caller_owner: CaptureScope,
+    caller_mutable_bindings: &FxHashSet<LocalVarId>,
     concrete: ConcreteCallable,
 ) -> ConcreteCallable {
     match concrete {
@@ -1736,9 +4307,13 @@ fn materialize_capture_exprs_in_callable(
         } => {
             for capture in &mut captures {
                 if let Some(expr) =
-                    resolve_capture_to_caller(pkg, state, param_substitutions, capture.var)
+                    resolve_capture_to_caller(pkg, state, param_substitutions, capture.local.var)
                 {
+                    if expr_reads_mutable_local(pkg, expr, caller_mutable_bindings) {
+                        return ConcreteCallable::Dynamic;
+                    }
                     capture.expr = Some(expr);
+                    capture.local.scope = caller_owner;
                     // A resolved capture whose terminal is a producer-scope
                     // compound literal (struct/tuple/array constructor) still
                     // references the producing function's parameters through its
@@ -1775,6 +4350,11 @@ fn materialize_capture_exprs_in_callable(
                             return ConcreteCallable::Dynamic;
                         }
                         capture.caller_substitutions = substitutions;
+                        if capture.caller_substitutions.iter().any(|(_, expr)| {
+                            expr_reads_mutable_local(pkg, *expr, caller_mutable_bindings)
+                        }) {
+                            return ConcreteCallable::Dynamic;
+                        }
                     }
                 }
             }
@@ -2292,6 +4872,14 @@ fn seed_param_bindings_from_call(
             state.exprs.insert(ident.id, arg_expr_id);
             state.condition_substitutions.insert(ident.id, arg_expr_id);
             if matches!(pat.ty, Ty::Arrow(_)) {
+                let origins = callable_origins_from_expr(
+                    caller_package,
+                    store,
+                    caller_locals,
+                    arg_expr_id,
+                    caller_package_id,
+                );
+                state.callable_origins.insert(ident.id, origins);
                 let lattice = resolve_callee(
                     caller_package,
                     store,
@@ -2443,13 +5031,9 @@ fn resolve_indexed_array_element(
         return None;
     }
 
-    let index = usize::try_from(resolve_static_int_expr(
-        pkg,
-        locals,
-        index_expr_id,
-        depth + 1,
-    )?)
-    .ok()?;
+    let index = resolve_static_int_expr(pkg, locals, index_expr_id, depth + 1)?;
+    let length = resolve_array_elements(pkg, store, locals, array_expr_id, depth + 1)?.len();
+    let index = normalize_symbolic_index(length, index)?;
     resolve_array_element_at_index(pkg, store, locals, array_expr_id, index, depth + 1)
 }
 
@@ -2664,7 +5248,7 @@ pub(super) fn resolve_captures(
             let expr = resolve_known_callable_capture_expr(pkg, locals, var)
                 .or_else(|| resolve_scoped_capture_expr(pkg, locals, var, scoped_capture_vars));
             Some(CapturedVar {
-                var,
+                local: ScopedLocal::new(var, locals.owner),
                 ty,
                 expr,
                 caller_substitutions: Vec::new(),
@@ -2781,23 +5365,17 @@ fn collect_pat_local_bindings(pkg: &Package, pat_id: PatId, bound: &mut FxHashSe
 ///
 /// Resolution order: the immutable-locals initialiser map (`exprs`), then the
 /// per-callable variable-type map (`var_types`, covering parameters and
-/// immutable `let` bindings), then a package-wide pattern scan as a last
-/// resort. The scoped lookups are preferred because `LocalVarId`s collide
-/// across callables, so the global scan can return an unrelated binding.
+/// immutable `let` bindings). Missing scoped evidence returns `None` because
+/// `LocalVarId`s collide across callables.
 fn find_local_var_type(pkg: &Package, locals: &LocalState, var: LocalVarId) -> Option<Ty> {
     if let Some(&init_expr_id) = locals.exprs.get(&var) {
         Some(pkg.get_expr(init_expr_id).ty.clone())
-    } else if let Some(ty) = locals.closure_capturable_var_types.get(&var) {
+    } else {
         // Enclosing-callable parameter or immutable `let` binding. Resolve
         // against the per-callable variable map; `LocalVarId`s collide across
         // callables, so a package-wide pattern scan would return an unrelated
         // binding.
-        Some(ty.clone())
-    } else {
-        // The variable may come from an outer scope not tracked above. Scan
-        // all patterns as a last resort. This is unreliable when `LocalVarId`s
-        // collide across callables, so the scoped lookups above are preferred.
-        find_var_type_in_pats(pkg, var)
+        locals.closure_capturable_var_types.get(&var).cloned()
     }
 }
 
@@ -2863,23 +5441,6 @@ fn collect_binding_types_from_pat_into(
     }
 }
 
-/// Scans all patterns in a package to find the type of a given `LocalVarId`.
-///
-/// Returns `None` if no binding pattern is found. Valid FIR gives every
-/// `LocalVarId` a corresponding binding pattern, but returning `None` lets
-/// callers degrade analysis for malformed or partially transformed input
-/// instead of panicking.
-fn find_var_type_in_pats(pkg: &Package, var: LocalVarId) -> Option<Ty> {
-    for pat in pkg.pats.values() {
-        if let PatKind::Bind(ident) = &pat.kind
-            && ident.id == var
-        {
-            return Some(pat.ty.clone());
-        }
-    }
-    None
-}
-
 /// Builds flow-sensitive local variable state by performing a single forward
 /// pass over the callable's body.
 ///
@@ -2889,24 +5450,34 @@ fn find_var_type_in_pats(pkg: &Package, var: LocalVarId) -> Option<Ty> {
 ///
 /// For all immutable locals, the raw `ExprId` binding is also recorded for
 /// struct field resolution and type look-ups.
+#[allow(clippy::too_many_arguments)]
 fn build_callable_flow_state(
     pkg: &Package,
     store: &PackageStore,
     callable_impl: &CallableImpl,
     input_pat: qsc_fir::fir::PatId,
+    owner: CaptureScope,
+    clone_items: Rc<FxHashSet<StoreItemId>>,
     package_id: PackageId,
     recorder: Option<&mut CallRecorder>,
 ) -> LocalState {
     let mut state = LocalState {
+        owner,
+        clone_items,
         callable: FxHashMap::default(),
+        callable_origins: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
+        visible_bindings: FxHashSet::default(),
+        mutable_bindings: FxHashSet::default(),
         closure_capturable_var_types: collect_callable_param_types(pkg, callable_impl, input_pat),
     };
     match callable_impl {
         CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
-            analyze_spec_flow(pkg, store, spec_impl, &mut state, package_id, recorder);
+            analyze_spec_flow(
+                pkg, store, spec_impl, input_pat, &mut state, package_id, recorder,
+            );
         }
     }
     state
@@ -2918,10 +5489,17 @@ fn analyze_spec_flow(
     pkg: &Package,
     store: &PackageStore,
     spec_impl: &SpecImpl,
+    input_pat: PatId,
     state: &mut LocalState,
     package_id: PackageId,
     mut recorder: Option<&mut CallRecorder>,
 ) {
+    set_visible_spec_input_bindings(
+        pkg,
+        input_pat,
+        spec_impl.body.input,
+        &mut state.visible_bindings,
+    );
     analyze_block_flow(
         pkg,
         store,
@@ -2931,6 +5509,7 @@ fn analyze_spec_flow(
         recorder.as_deref_mut(),
     );
     for spec in functored_specs(spec_impl) {
+        set_visible_spec_input_bindings(pkg, input_pat, spec.input, &mut state.visible_bindings);
         analyze_block_flow(
             pkg,
             store,
@@ -2939,6 +5518,21 @@ fn analyze_spec_flow(
             package_id,
             recorder.as_deref_mut(),
         );
+    }
+}
+
+fn set_visible_spec_input_bindings(
+    pkg: &Package,
+    callable_input: PatId,
+    spec_input: Option<PatId>,
+    visible_bindings: &mut FxHashSet<LocalVarId>,
+) {
+    visible_bindings.clear();
+    collect_pat_local_bindings(pkg, callable_input, visible_bindings);
+    if let Some(spec_input) = spec_input
+        && spec_input != callable_input
+    {
+        collect_pat_local_bindings(pkg, spec_input, visible_bindings);
     }
 }
 
@@ -2952,6 +5546,8 @@ fn analyze_block_flow(
     package_id: PackageId,
     mut recorder: Option<&mut CallRecorder>,
 ) {
+    let outer_visible_bindings = state.visible_bindings.clone();
+    let outer_mutable_bindings = state.mutable_bindings.clone();
     let block = pkg.get_block(block_id);
     for &stmt_id in &block.stmts {
         let stmt = pkg.get_stmt(stmt_id);
@@ -2964,6 +5560,8 @@ fn analyze_block_flow(
             recorder.as_deref_mut(),
         );
     }
+    state.visible_bindings = outer_visible_bindings;
+    state.mutable_bindings = outer_mutable_bindings;
 }
 
 /// Updates the callable-flow lattice for a single statement (local
@@ -2994,10 +5592,13 @@ fn analyze_stmt_flow(
             // For callable-typed bindings, resolve and store in lattice.
             bind_callable_pat(pkg, store, state, *pat_id, *init_expr_id, package_id);
             analyze_expr_flow(pkg, store, *init_expr_id, state, package_id, recorder);
+            collect_pat_local_bindings(pkg, *pat_id, &mut state.visible_bindings);
         }
         StmtKind::Local(Mutability::Mutable, pat_id, init_expr_id) => {
             bind_callable_pat(pkg, store, state, *pat_id, *init_expr_id, package_id);
             analyze_expr_flow(pkg, store, *init_expr_id, state, package_id, recorder);
+            collect_pat_local_bindings(pkg, *pat_id, &mut state.visible_bindings);
+            collect_pat_local_bindings(pkg, *pat_id, &mut state.mutable_bindings);
         }
         StmtKind::Expr(e) | StmtKind::Semi(e) => {
             analyze_expr_flow(pkg, store, *e, state, package_id, recorder);
@@ -3020,6 +5621,14 @@ fn bind_callable_pat(
     match &pat.kind {
         PatKind::Bind(ident) => {
             if matches!(pat.ty, Ty::Arrow(_)) {
+                replace_callable_origins_from_expr(
+                    pkg,
+                    store,
+                    state,
+                    ident.id,
+                    init_expr_id,
+                    package_id,
+                );
                 let lattice = resolve_callee(
                     pkg,
                     store,
@@ -3099,6 +5708,16 @@ fn bind_callable_pat_projections(
     match &pat.kind {
         PatKind::Bind(ident) => {
             if matches!(pat.ty, Ty::Arrow(_)) {
+                let origins = callable_origins_from_expr_at_path(
+                    pkg,
+                    store,
+                    state,
+                    init_expr_id,
+                    path,
+                    package_id,
+                    0,
+                );
+                state.callable_origins.insert(ident.id, origins);
                 let lattice = resolve_callee_projection(
                     pkg,
                     store,
@@ -3171,6 +5790,19 @@ fn bind_callable_pats_from_indexed_array(
         if !matches!(sub_pat.ty, Ty::Arrow(_)) {
             continue; // Only bind arrow-typed locals.
         }
+        let mut origins = FxHashSet::default();
+        for &elem_expr_id in &array_elem_ids {
+            origins.extend(callable_origins_from_expr_at_path(
+                pkg,
+                store,
+                state,
+                elem_expr_id,
+                &[field_idx],
+                package_id,
+                0,
+            ));
+        }
+        state.callable_origins.insert(ident.id, origins);
 
         // Collect the callable at field_idx from each array element tuple.
         let mut lattice = CalleeLattice::Bottom;
@@ -3211,16 +5843,6 @@ fn analyze_expr_flow(
     mut recorder: Option<&mut CallRecorder>,
 ) {
     let expr = pkg.get_expr(expr_id);
-    // Any write to a local invalidates conditional callables whose dispatch
-    // guard reads that local. Rewrite re-evaluates guards at the apply site, so
-    // reassigning a guard variable after a conditional callable's guarded value
-    // was formed would make the apply-site read observe the new value and
-    // dispatch to the wrong branch. Degrade those callables to `Dynamic` before
-    // processing the write so the stale dispatch is rejected with a clear
-    // diagnostic rather than silently miscompiled.
-    if let Some(written) = assignment_written_local(pkg, expr) {
-        invalidate_guard_dependents(pkg, state, written);
-    }
     match &expr.kind {
         ExprKind::Assign(lhs_id, rhs_id) => {
             // Recurse into the RHS first (in evaluation order) so any nested
@@ -3234,10 +5856,14 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
+            if let Some(written) = assign_lhs_base_local(pkg, *lhs_id) {
+                invalidate_replayed_expression_dependents(pkg, state, written);
+            }
             let lhs = pkg.get_expr(*lhs_id);
             if let ExprKind::Var(Res::Local(var), _) = &lhs.kind
                 && state.callable.contains_key(var)
             {
+                replace_callable_origins_from_expr(pkg, store, state, *var, *rhs_id, package_id);
                 let lattice = resolve_callee(
                     pkg,
                     store,
@@ -3270,8 +5896,9 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
-            // Fork: save callable state before branches.
+            // Fork: save callable and reaching-source state before branches.
             let pre_if = state.callable.clone();
+            let pre_if_origins = state.callable_origins.clone();
             analyze_expr_flow(
                 pkg,
                 store,
@@ -3281,8 +5908,10 @@ fn analyze_expr_flow(
                 recorder.as_deref_mut(),
             );
             let true_state = state.callable.clone();
+            let true_origins = state.callable_origins.clone();
             // Restore pre-if state and analyze false branch.
             state.callable = pre_if;
+            state.callable_origins = pre_if_origins;
             if let Some(else_expr) = otherwise {
                 analyze_expr_flow(
                     pkg,
@@ -3299,11 +5928,26 @@ fn analyze_expr_flow(
             // HOF-parameter-substituted boolean survives cleanup; a no-op for
             // ordinary runtime conditions.
             let false_state = std::mem::take(&mut state.callable);
+            let false_origins = std::mem::take(&mut state.callable_origins);
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&true_state, &false_state, remapped_cond);
+            state.callable_origins = join_callable_origin_states(&true_origins, &false_origins);
         }
         ExprKind::While(cond, block_id) => {
+            let (loop_head_origins, loop_exit_origins) =
+                converge_loop_callable_origins(pkg, store, *cond, *block_id, state, package_id);
+            state.callable_origins = loop_head_origins;
+
+            let mut written = collect_written_vars_in_block(pkg, *block_id);
+            collect_written_vars_expr(pkg, *cond, &mut written);
+            for &var in &written {
+                invalidate_replayed_expression_dependents(pkg, state, var);
+                if state.callable.contains_key(&var) {
+                    state.callable.insert(var, CalleeLattice::Dynamic);
+                }
+            }
+
             analyze_expr_flow(
                 pkg,
                 store,
@@ -3312,18 +5956,12 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
-            // Conservative: mark all mutable callable vars assigned inside
-            // the loop body as Dynamic.
-            let assigned = collect_assigned_vars_in_block(pkg, *block_id);
-            for var in &assigned {
-                if state.callable.contains_key(var) {
-                    state.callable.insert(*var, CalleeLattice::Dynamic);
-                }
-            }
+            state.callable_origins = loop_exit_origins.clone();
+
             // Analyze the body for nested let bindings. Restore pre-existing
             // callable entries to their pre-loop values, but keep new entries
             // added by loop-body analysis (loop-local immutable bindings).
-            let pre_loop_callable = state.callable.clone();
+            let loop_summary = state.callable.clone();
             analyze_block_flow(
                 pkg,
                 store,
@@ -3332,9 +5970,10 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
-            for (var, lattice) in pre_loop_callable {
+            for (var, lattice) in loop_summary {
                 state.callable.insert(var, lattice);
             }
+            state.callable_origins = loop_exit_origins;
         }
         // Operand-position variants: recurse into every nested expression in
         // evaluation order (mirroring `walk_utils::walk_children`) so that a
@@ -3361,13 +6000,25 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
+            let written = assignment_written_local(pkg, expr);
+            let guard_dependents = written
+                .map(|written| guard_dependent_callables(pkg, state, written))
+                .unwrap_or_default();
             let pre_rhs = state.callable.clone();
+            let pre_rhs_origins = state.callable_origins.clone();
             analyze_expr_flow(pkg, store, *rhs, state, package_id, recorder.as_deref_mut());
             let after_rhs = std::mem::take(&mut state.callable);
+            let after_rhs_origins = std::mem::take(&mut state.callable_origins);
             // `and`: RHS runs when the condition is true.
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&after_rhs, &pre_rhs, remapped_cond);
+            state.callable_origins =
+                join_callable_origin_states(&after_rhs_origins, &pre_rhs_origins);
+            if let Some(written) = written {
+                invalidate_callable_value_dependents(pkg, state, written);
+                invalidate_named_callables(state, &guard_dependents);
+            }
         }
         ExprKind::BinOp(BinOp::OrL, cond, rhs) | ExprKind::AssignOp(BinOp::OrL, cond, rhs) => {
             analyze_expr_flow(
@@ -3378,14 +6029,26 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
+            let written = assignment_written_local(pkg, expr);
+            let guard_dependents = written
+                .map(|written| guard_dependent_callables(pkg, state, written))
+                .unwrap_or_default();
             let pre_rhs = state.callable.clone();
+            let pre_rhs_origins = state.callable_origins.clone();
             analyze_expr_flow(pkg, store, *rhs, state, package_id, recorder.as_deref_mut());
             let after_rhs = std::mem::take(&mut state.callable);
+            let after_rhs_origins = std::mem::take(&mut state.callable_origins);
             // `or`: RHS runs when the condition is false. Swap branches so the
             // reused condition `ExprId` dispatches as `if cond { orig } else { rhs }`.
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&pre_rhs, &after_rhs, remapped_cond);
+            state.callable_origins =
+                join_callable_origin_states(&pre_rhs_origins, &after_rhs_origins);
+            if let Some(written) = written {
+                invalidate_callable_value_dependents(pkg, state, written);
+                invalidate_named_callables(state, &guard_dependents);
+            }
         }
         // Replace-then-record variants: runtime evaluates the replace operand
         // before the record/container operand (mirroring `rebuild_expr`'s
@@ -3407,6 +6070,11 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
+            if matches!(expr.kind, ExprKind::AssignField(..))
+                && let Some(written) = assignment_written_local(pkg, expr)
+            {
+                invalidate_replayed_expression_dependents(pkg, state, written);
+            }
         }
         // Indexed assignment variants: runtime evaluates index, then replace,
         // then the container last (mirroring `rebuild_expr`'s
@@ -3439,14 +6107,25 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
+            if matches!(expr.kind, ExprKind::AssignIndex(..))
+                && let Some(written) = assignment_written_local(pkg, expr)
+            {
+                invalidate_replayed_expression_dependents(pkg, state, written);
+            }
         }
         ExprKind::ArrayRepeat(a, b)
-        | ExprKind::AssignOp(_, a, b)
         | ExprKind::BinOp(_, a, b)
         | ExprKind::Call(a, b)
         | ExprKind::Index(a, b) => {
             analyze_expr_flow(pkg, store, *a, state, package_id, recorder.as_deref_mut());
             analyze_expr_flow(pkg, store, *b, state, package_id, recorder.as_deref_mut());
+        }
+        ExprKind::AssignOp(_, lhs, rhs) => {
+            analyze_expr_flow(pkg, store, *lhs, state, package_id, recorder.as_deref_mut());
+            analyze_expr_flow(pkg, store, *rhs, state, package_id, recorder.as_deref_mut());
+            if let Some(written) = assignment_written_local(pkg, expr) {
+                invalidate_replayed_expression_dependents(pkg, state, written);
+            }
         }
         ExprKind::Fail(e) | ExprKind::Field(e, _) | ExprKind::Return(e) | ExprKind::UnOp(_, e) => {
             analyze_expr_flow(pkg, store, *e, state, package_id, recorder.as_deref_mut());
@@ -3510,9 +6189,19 @@ fn analyze_expr_flow(
             rec.call_sites,
             rec.direct_call_sites,
             rec.unresolved_direct_call_sites,
+            rec.dynamic_site_owners,
+            rec.formal_only_dynamic_site_ids,
+            rec.dynamic_site_evidence,
+            rec.dynamic_site_ids,
+            rec.incomplete_site_ids,
+            rec.symbolic_snapshots,
+            rec.deferrable_residue_items,
+            rec.deferrable_entry_residue,
             package_id,
             rec.collapsed_spans,
+            rec.preserved_direct_lambda_calls,
             rec.record_direct_calls,
+            rec.total_foreign,
         );
     }
 }
@@ -3544,24 +6233,84 @@ fn join_callable_states_with_condition(
     result
 }
 
+fn replace_callable_origins_from_expr(
+    pkg: &Package,
+    store: &PackageStore,
+    state: &mut LocalState,
+    var: LocalVarId,
+    source: ExprId,
+    package_id: PackageId,
+) {
+    let origins = callable_origins_from_expr(pkg, store, state, source, package_id);
+    state.callable_origins.insert(var, origins);
+}
+
+fn join_callable_origin_states(
+    first: &FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
+    second: &FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
+) -> FxHashMap<LocalVarId, FxHashSet<StoreItemId>> {
+    let mut result = first.clone();
+    for (&var, sources) in second {
+        result.entry(var).or_default().extend(sources);
+    }
+    result
+}
+
+fn converge_loop_callable_origins(
+    pkg: &Package,
+    store: &PackageStore,
+    condition: ExprId,
+    body: BlockId,
+    state: &LocalState,
+    package_id: PackageId,
+) -> (
+    FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
+    FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
+) {
+    let entry_origins = state.callable_origins.clone();
+    let mut head_origins = entry_origins.clone();
+
+    loop {
+        let mut iteration_state = state.clone();
+        iteration_state.callable_origins.clone_from(&head_origins);
+        analyze_expr_flow(
+            pkg,
+            store,
+            condition,
+            &mut iteration_state,
+            package_id,
+            None,
+        );
+        let post_condition_origins = iteration_state.callable_origins.clone();
+        analyze_block_flow(pkg, store, body, &mut iteration_state, package_id, None);
+        let next_head_origins =
+            join_callable_origin_states(&entry_origins, &iteration_state.callable_origins);
+
+        if next_head_origins == head_origins {
+            return (head_origins, post_condition_origins);
+        }
+        head_origins = next_head_origins;
+    }
+}
+
 /// Collects all `LocalVarId`s that are targets of `Assign` expressions
 /// within a block (recursively including nested blocks and control flow).
-fn collect_assigned_vars_in_block(pkg: &Package, block_id: BlockId) -> Vec<LocalVarId> {
+fn collect_written_vars_in_block(pkg: &Package, block_id: BlockId) -> Vec<LocalVarId> {
     let mut vars = Vec::new();
-    collect_assigned_vars_block(pkg, block_id, &mut vars);
+    collect_written_vars_block(pkg, block_id, &mut vars);
     vars
 }
 
 /// Collects every `LocalVarId` assigned within a block (mutable update or
 /// `Assign`), accumulating into `vars` so branch joins can invalidate
 /// stale lattice entries.
-fn collect_assigned_vars_block(pkg: &Package, block_id: BlockId, vars: &mut Vec<LocalVarId>) {
+fn collect_written_vars_block(pkg: &Package, block_id: BlockId, vars: &mut Vec<LocalVarId>) {
     let block = pkg.get_block(block_id);
     for &stmt_id in &block.stmts {
         let stmt = pkg.get_stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Expr(e) | StmtKind::Semi(e) | StmtKind::Local(_, _, e) => {
-                collect_assigned_vars_expr(pkg, *e, vars);
+                collect_written_vars_expr(pkg, *e, vars);
             }
             StmtKind::Item(_) => {}
         }
@@ -3572,13 +6321,10 @@ fn collect_assigned_vars_block(pkg: &Package, block_id: BlockId, vars: &mut Vec<
 /// recursing through every nested expression via the exhaustive
 /// [`crate::walk_utils::for_each_expr`] walker so that `set` statements
 /// hidden in operand-position blocks are observed.
-fn collect_assigned_vars_expr(pkg: &Package, expr_id: ExprId, vars: &mut Vec<LocalVarId>) {
+fn collect_written_vars_expr(pkg: &Package, expr_id: ExprId, vars: &mut Vec<LocalVarId>) {
     crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_id, expr| {
-        if let ExprKind::Assign(lhs_id, _) = &expr.kind {
-            let lhs = pkg.get_expr(*lhs_id);
-            if let ExprKind::Var(Res::Local(var), _) = &lhs.kind {
-                vars.push(*var);
-            }
+        if let Some(var) = assignment_written_local(pkg, expr) {
+            vars.push(var);
         }
     });
 }
@@ -3622,19 +6368,91 @@ fn expr_reads_local(pkg: &Package, expr_id: ExprId, var: LocalVarId) -> bool {
 /// *after* this write are unaffected, so a normalization accumulator assigned
 /// before the branch decision (e.g. `cond_normalize`'s `__cond`) stays
 /// resolvable.
-fn invalidate_guard_dependents(pkg: &Package, state: &mut LocalState, written: LocalVarId) {
-    for lattice in state.callable.values_mut() {
-        if let CalleeLattice::Multi(entries) = lattice {
-            let depends = entries.iter().any(|(_, guards)| {
-                guards
-                    .iter()
-                    .any(|&guard| expr_reads_local(pkg, guard, written))
-            });
-            if depends {
-                *lattice = CalleeLattice::Dynamic;
+fn invalidate_replayed_expression_dependents(
+    pkg: &Package,
+    state: &mut LocalState,
+    written: LocalVarId,
+) {
+    let guard_dependents = guard_dependent_callables(pkg, state, written);
+    invalidate_callable_value_dependents(pkg, state, written);
+    invalidate_named_callables(state, &guard_dependents);
+}
+
+fn invalidate_callable_value_dependents(
+    pkg: &Package,
+    state: &mut LocalState,
+    written: LocalVarId,
+) {
+    for (callable_var, lattice) in &mut state.callable {
+        let initializer_depends = state
+            .exprs
+            .get(callable_var)
+            .is_some_and(|&expr| expr_reads_local(pkg, expr, written));
+        let capture_depends = match lattice {
+            CalleeLattice::Single(callable) => {
+                concrete_callable_reads_local(pkg, callable, written)
             }
+            CalleeLattice::Multi(entries) => entries
+                .iter()
+                .any(|(callable, _)| concrete_callable_reads_local(pkg, callable, written)),
+            CalleeLattice::Bottom | CalleeLattice::Dynamic => false,
+        };
+        if initializer_depends || capture_depends {
+            *lattice = CalleeLattice::Dynamic;
         }
     }
+}
+
+fn guard_dependent_callables(
+    pkg: &Package,
+    state: &LocalState,
+    written: LocalVarId,
+) -> FxHashSet<LocalVarId> {
+    state
+        .callable
+        .iter()
+        .filter_map(|(callable_var, lattice)| {
+            let CalleeLattice::Multi(entries) = lattice else {
+                return None;
+            };
+            entries
+                .iter()
+                .any(|(_, guards)| {
+                    guards
+                        .iter()
+                        .any(|&guard| expr_reads_local(pkg, guard, written))
+                })
+                .then_some(*callable_var)
+        })
+        .collect()
+}
+
+fn invalidate_named_callables(state: &mut LocalState, callables: &FxHashSet<LocalVarId>) {
+    for callable in callables {
+        if let Some(lattice) = state.callable.get_mut(callable) {
+            *lattice = CalleeLattice::Dynamic;
+        }
+    }
+}
+
+fn concrete_callable_reads_local(
+    pkg: &Package,
+    callable: &ConcreteCallable,
+    local: LocalVarId,
+) -> bool {
+    let ConcreteCallable::Closure { captures, .. } = callable else {
+        return false;
+    };
+    captures.iter().any(|capture| {
+        capture.local.var == local
+            || capture
+                .expr
+                .is_some_and(|expr| expr_reads_local(pkg, expr, local))
+            || capture
+                .caller_substitutions
+                .iter()
+                .any(|(_, expr)| expr_reads_local(pkg, *expr, local))
+    })
 }
 
 /// Resolves the base local written by an assignment expression, descending

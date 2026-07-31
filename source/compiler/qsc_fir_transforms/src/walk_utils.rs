@@ -1202,6 +1202,56 @@ pub(crate) fn collect_total_foreign_callables(store: &PackageStore) -> FxHashSet
     total
 }
 
+/// Extends `total_foreign` with every callable in `store` whose own body is
+/// provably side-effect free and total *within its owning package*.
+///
+/// [`collect_total_foreign_callables`] answers only for the named total
+/// intrinsics, because [`expr_has_purity`] holds a single [`Package`] and
+/// cannot open a body that lives elsewhere. This walks each package with that
+/// package as the analysis root, so a cross-package factory such as
+/// `function MakeStep(...) : (Int -> Int) { return LibStep; }` is proved pure
+/// on its home ground and can then be seen through from any caller.
+///
+/// A callable whose body itself calls into a third package stays rejected, so
+/// this is one level of cross-package reach rather than a full store-wide
+/// fixpoint. That is deliberate: the result must stay a set the reader can
+/// audit, and one level covers the factory shapes the defunctionalization pass
+/// actually meets.
+pub(crate) fn extend_with_discardable_foreign_callables(
+    store: &PackageStore,
+    total_foreign: &mut FxHashSet<ItemId>,
+) {
+    let mut discovered = Vec::new();
+    for (package_id, package) in store {
+        for (item_id, item) in &package.items {
+            let ItemKind::Callable(decl) = &item.kind else {
+                continue;
+            };
+            let candidate = ItemId {
+                package: package_id,
+                item: item_id,
+            };
+            if total_foreign.contains(&candidate) {
+                continue;
+            }
+            if callable_has_purity(
+                package,
+                package_id,
+                item_id,
+                decl,
+                PurityMode {
+                    totality: Totality::RequireTotal,
+                    total_foreign,
+                },
+                &mut FxHashSet::default(),
+            ) {
+                discovered.push(candidate);
+            }
+        }
+    }
+    total_foreign.extend(discovered);
+}
+
 /// Checks the operator-level portion of binary-expression purity.
 ///
 /// Operand purity is checked by the caller. This helper decides only whether

@@ -2,6 +2,7 @@
 # Licensed under the MIT License.
 
 import pytest
+import qdk
 from qdk import qsharp
 from qdk._native import QSharpError
 from expecttest import assert_expected_inline
@@ -261,6 +262,57 @@ attributes #1 = { "irreversible" }
 !3 = !{i32 1, !"dynamic_result_management", i1 false}
 """,
     )
+
+
+def test_functor_capable_returned_wrapper_with_struct_capture_generates_qir() -> None:
+    # Arrange
+    context = qdk.Context(target_profile=qdk.TargetProfile.Base)
+    context.eval("""
+        struct OpParams {
+            enabled : Bool,
+        }
+
+        operation ApplyCaptured(params : OpParams, target : Qubit) : Unit is Adj + Ctl {
+            if params.enabled {
+                X(target);
+            }
+        }
+
+        operation ApplyOne(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(target);
+            }
+            adjoint auto;
+            controlled (controls, ...) {
+                Controlled op(controls, target);
+            }
+            controlled adjoint auto;
+        }
+
+        function MakeControlledOp(op : Qubit => Unit is Adj + Ctl) : (Qubit, Qubit[]) => Unit is Adj + Ctl {
+            (control, targets) => {
+                Controlled ApplyOne([control], (op, targets[0]));
+            }
+        }
+
+        operation Run(op : Qubit => Unit is Adj + Ctl) : Result {
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            let controlledOp = MakeControlledOp(op);
+            controlledOp(control, [target]);
+            Reset(control);
+            MResetZ(target)
+        }
+    """)
+    run = context.code.Run
+    captured_op = context.eval("ApplyCaptured(new OpParams { enabled = true }, _)")
+
+    # Act
+    qir = str(context.compile(run, captured_op))
+
+    # Assert
+    assert qir.count("call void @__quantum__qis__cx__body") == 1
 
 
 def test_same_target_multi_closure_args_generate_qir() -> None:

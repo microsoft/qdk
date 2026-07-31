@@ -1246,10 +1246,13 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
                     let _end_id_196 : Int = _range_id_183.End;
                     while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
                         let idx : Int = _index_id_186;
-                        if idx == 0 {
-                            _lambda_5(__capture_0, (controls[idx], targets))
-                        } else {
-                            _lambda_6(__capture_1, (controls[idx], targets))
+                        {
+                            [(), ()][idx];
+                            if idx == 0 {
+                                _lambda_5(__capture_0, (controls[idx], targets))
+                            } else {
+                                _lambda_6(__capture_1, (controls[idx], targets))
+                            }
                         };
                         _index_id_186 += _step_id_191;
                     }
@@ -1265,11 +1268,8 @@ fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
 
 /// A closure callable-array forwarded across two higher-order levels and fully
 /// consumed by the innermost indexed dispatch leaves the source-array local
-/// dead in the reachable caller. Because closure cleanup blanks each element to
-/// unit, the surviving array binding would be an arrow-typed block with a unit
-/// tail that trips the `PostDefunc` non-unit block-tail invariant. The dead
-/// binding must be removed; this runs the invariant walk and full pipeline over
-/// the same shape as
+/// dead in the reachable caller. The dead binding must be removed; this runs
+/// the invariant walk and full pipeline over the same shape as
 /// `two_level_cross_hof_closure_array_forwarding_threads_all_captures`.
 #[test]
 fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
@@ -1313,11 +1313,197 @@ fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
     check_pipeline(source);
 }
 
-/// Regression test for producer-body closure cleanup: a producer function
-/// that returns a partial-application closure causes convergence failure
-/// when the closure node survives in the producer body after HOF
-/// specialization. The closure cleanup pass must replace consumed closures
-/// with Unit so that `remaining_callable_value_info` no longer counts them.
+#[test]
+fn direct_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let first = 0.1;
+            let second = 0.2;
+            let ops = [target => Rx(first, target), target => Ry(second, target)];
+            ops[idx](q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn aliased_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let first = 0.1;
+            let second = 0.2;
+            let ops = [target => Rx(first, target), target => Ry(second, target)];
+            let forwarded = ops;
+            forwarded[idx](q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn hof_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let firstAngle = 0.1;
+            let secondAngle = 0.2;
+            let ops = [
+                target => Rx(firstAngle, target),
+                target => Ry(secondAngle, target)
+            ];
+            Apply(ops[idx], q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn branch_split_inside_specialized_clone_preserves_capture_scope() {
+    let source = r#"
+        operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, chooseFirst : Bool, q : Qubit) : Unit {
+            seed(q);
+            let firstAngle = 0.1;
+            let secondAngle = 0.2;
+            let selected = if chooseFirst {
+                target => Rx(firstAngle, target)
+            } else {
+                target => Ry(secondAngle, target)
+            };
+            Apply(selected, q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, true, q);
+        }
+        "#;
+
+    check_pipeline(source);
+}
+
+#[test]
+fn aggregate_capture_inside_specialized_clone_preserves_capture_scope() {
+    let source = r#"
+        operation ApplyPair(pair : (Qubit => Unit, Int), q : Qubit) : Unit {
+            let (op, _) = pair;
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, q : Qubit) : Unit {
+            seed(q);
+            let angle = 0.25;
+            ApplyPair((target => Rz(angle, target), 42), q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, q);
+        }
+        "#;
+
+    check_pipeline(source);
+}
+
+#[test]
+fn combined_capturing_aggregates_inside_specialized_clone_preserve_semantics() {
+    let sources = [
+        r#"
+            operation RunOps(ops : (Qubit => Unit, Qubit => Unit)) : Unit {
+                use q = Qubit();
+                let (first, second) = ops;
+                first(q);
+                second(q);
+                Reset(q);
+            }
+
+            operation Outer(seed : Unit => Unit) : Unit {
+                seed();
+                let firstAngle = 0.1;
+                let secondAngle = 0.2;
+                let ops = (
+                    target => Rx(firstAngle, target),
+                    target => Ry(secondAngle, target)
+                );
+                RunOps(ops);
+            }
+
+            operation Seed() : Unit {}
+
+            operation Main() : Unit {
+                Outer(Seed);
+            }
+        "#,
+        r#"
+            struct Ops {
+                First : Qubit => Unit,
+                Second : Qubit => Unit
+            }
+
+            operation RunOps(ops : Ops) : Unit {
+                use q = Qubit();
+                ops.First(q);
+                ops.Second(q);
+                Reset(q);
+            }
+
+            operation Outer(seed : Unit => Unit) : Unit {
+                seed();
+                let firstAngle = 0.1;
+                let secondAngle = 0.2;
+                RunOps(new Ops {
+                    First = target => Rx(firstAngle, target),
+                    Second = target => Ry(secondAngle, target)
+                });
+            }
+
+            operation Seed() : Unit {}
+
+            operation Main() : Unit {
+                Outer(Seed);
+            }
+        "#,
+    ];
+
+    for source in sources {
+        crate::test_utils::check_semantic_equivalence(source);
+    }
+}
+
+/// Regression test for producer-body closure convergence: a producer function
+/// that returns a partial-application closure caused convergence failure when
+/// the closure node survived in the producer body after HOF specialization.
+/// `remaining_callable_value_info` resolves that from the consumed-target side
+/// set, so the loop converges with the producer body left intact. `MakeOp`
+/// loses its only caller in the same iteration, so cleanup never visits it and
+/// its closure stays well-formed until item DCE removes the whole callable.
 #[test]
 fn producer_body_closure_cleanup_converges() {
     let source = r#"
@@ -1378,7 +1564,7 @@ fn producer_body_closure_cleanup_converges() {
             function MakeOp(extra : Bool) : (Qubit => Unit) {
                 return {
                     let arg : Bool = extra;
-                    ()
+                    / * closure item = 5 captures = [arg] * / _lambda_5
                 };
             }
             operation Main() : Unit {
@@ -1455,6 +1641,92 @@ fn callable_returning_closure_with_controlled_callable_captures() {
         }
         "#;
     check_invariants(source);
+}
+
+#[test]
+fn functor_capable_returned_wrapper_with_struct_capture_passes_pipeline() {
+    let captured_wrapper_source = r#"
+        struct OpParams {
+            enabled : Bool,
+        }
+
+        operation ApplyCaptured(params : OpParams, target : Qubit) : Unit is Adj + Ctl {
+            if params.enabled {
+                X(target);
+            }
+        }
+
+        operation ApplyOne(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(target);
+            }
+            adjoint auto;
+            controlled (controls, ...) {
+                Controlled op(controls, target);
+            }
+            controlled adjoint auto;
+        }
+
+        function MakeControlledOp(op : Qubit => Unit is Adj + Ctl) : (Qubit, Qubit[]) => Unit is Adj + Ctl {
+            (control, targets) => {
+                Controlled ApplyOne([control], (op, targets[0]));
+            }
+        }
+
+        operation Run(op : Qubit => Unit is Adj + Ctl) : Result {
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            let controlledOp = MakeControlledOp(op);
+            controlledOp(control, [target]);
+            Reset(control);
+            MResetZ(target)
+        }
+
+        operation Main() : Result {
+            Run(ApplyCaptured(new OpParams { enabled = true }, _))
+        }
+        "#;
+    check_pipeline(captured_wrapper_source);
+
+    let sibling_source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(X, n - 1, q);
+            }
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_pipeline(sibling_source);
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(sibling_source);
+    let package = fir_store.get(fir_pkg_id);
+    let h_specialization = package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(decl)
+                if decl.name.name.starts_with("Repeat") && decl.name.name.contains("{H}") =>
+            {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .expect("expected an H-specialized Repeat callable");
+    let h_targets = callable_call_targets_after_defunc(sibling_source, &h_specialization);
+    assert!(
+        h_targets.iter().any(|target| target.contains("{X}")),
+        "H specialization {h_specialization} should call an X sibling specialization, got {h_targets:?}"
+    );
+    assert!(
+        !h_targets.contains(&h_specialization),
+        "H specialization {h_specialization} must not self-loop, got {h_targets:?}"
+    );
 }
 
 /// Two callable arguments passed to a multi-parameter HOF: one partial
@@ -2374,10 +2646,13 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                     while _index_id_45 < _len_id_40 {
                         let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_45 == 0 {
-                            S(q)
-                        } else {
-                            T(q)
+                        {
+                            [(), ()][_index_id_45];
+                            if (_index_id_45 == 0) or (_index_id_45 == -2) {
+                                S(q)
+                            } else {
+                                T(q)
+                            }
                         };
                         _index_id_45 += 1;
                         __quantum__rt__qubit_release(q);
@@ -2518,14 +2793,17 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                     while _index_id_165 < _len_id_160 {
                         let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_156[_index_id_165];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_165 == 0 {
-                            I(q)
-                        } else if _index_id_165 == 1 {
-                            X(q)
-                        } else if _index_id_165 == 2 {
-                            SetToPlus(q)
-                        } else {
-                            SetToMinus(q)
+                        {
+                            [(), (), (), ()][_index_id_165];
+                            if (_index_id_165 == 0) or (_index_id_165 == -4) {
+                                I(q)
+                            } else if (_index_id_165 == 1) or (_index_id_165 == -3) {
+                                X(q)
+                            } else if (_index_id_165 == 2) or (_index_id_165 == -2) {
+                                SetToPlus(q)
+                            } else {
+                                SetToMinus(q)
+                            }
                         };
                         _index_id_165 += 1;
                         __quantum__rt__qubit_release(q);
@@ -2666,14 +2944,17 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                     while _index_id_171 < _len_id_166 {
                         let (_basis : Pauli, initializer : (Qubit => Unit is Adj + Ctl), _flag : Bool) = _array_id_162[_index_id_171];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_171 == 0 {
-                            I(q)
-                        } else if _index_id_171 == 1 {
-                            X(q)
-                        } else if _index_id_171 == 2 {
-                            SetToPlus(q)
-                        } else {
-                            SetToMinus(q)
+                        {
+                            [(), (), (), ()][_index_id_171];
+                            if (_index_id_171 == 0) or (_index_id_171 == -4) {
+                                I(q)
+                            } else if (_index_id_171 == 1) or (_index_id_171 == -3) {
+                                X(q)
+                            } else if (_index_id_171 == 2) or (_index_id_171 == -2) {
+                                SetToPlus(q)
+                            } else {
+                                SetToMinus(q)
+                            }
                         };
                         _index_id_171 += 1;
                         __quantum__rt__qubit_release(q);
@@ -2818,14 +3099,17 @@ fn pipeline_teleportation_like_callable_from_string_tagged_triple_array() {
                     while _index_id_178 < _len_id_173 {
                         let (initializer : (Qubit => Unit is Adj + Ctl), basis : Pauli) = _array_id_169[_index_id_178];
                         let q : Qubit = __quantum__rt__qubit_allocate();
-                        if _index_id_178 == 0 {
-                            I(q)
-                        } else if _index_id_178 == 1 {
-                            X(q)
-                        } else if _index_id_178 == 2 {
-                            SetToPlus(q)
-                        } else {
-                            SetToMinus(q)
+                        {
+                            [(), (), (), ()][_index_id_178];
+                            if (_index_id_178 == 0) or (_index_id_178 == -4) {
+                                I(q)
+                            } else if (_index_id_178 == 1) or (_index_id_178 == -3) {
+                                X(q)
+                            } else if (_index_id_178 == 2) or (_index_id_178 == -2) {
+                                SetToPlus(q)
+                            } else {
+                                SetToMinus(q)
+                            }
                         };
                         let _ : Result = Measure([basis], [q]);
                         Reset(q);
@@ -2923,20 +3207,23 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
                     mutable _index_id_113 : Int = 0;
                     while _index_id_113 < _len_id_108 {
                         let gate : (Qubit => Unit is Adj + Ctl) = _array_id_104[_index_id_113];
-                        if _index_id_113 == 0 {
-                            H(q)
-                        } else if _index_id_113 == 1 {
-                            X(q)
-                        } else if _index_id_113 == 2 {
-                            Y(q)
-                        } else if _index_id_113 == 3 {
-                            Z(q)
-                        } else if _index_id_113 == 4 {
-                            S(q)
-                        } else if _index_id_113 == 5 {
-                            Adjoint S(q)
-                        } else {
-                            SX(q)
+                        {
+                            [(), (), (), (), (), (), ()][_index_id_113];
+                            if (_index_id_113 == 0) or (_index_id_113 == -7) {
+                                H(q)
+                            } else if (_index_id_113 == 1) or (_index_id_113 == -6) {
+                                X(q)
+                            } else if (_index_id_113 == 2) or (_index_id_113 == -5) {
+                                Y(q)
+                            } else if (_index_id_113 == 3) or (_index_id_113 == -4) {
+                                Z(q)
+                            } else if (_index_id_113 == 4) or (_index_id_113 == -3) {
+                                S(q)
+                            } else if (_index_id_113 == 5) or (_index_id_113 == -2) {
+                                Adjoint S(q)
+                            } else {
+                                SX(q)
+                            }
                         };
                         _index_id_113 += 1;
                     }
@@ -2979,7 +3266,8 @@ fn defunc_20_level_hof_completes_without_error() {
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors =
+        super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     assert!(
         errors.is_empty(),
@@ -2997,7 +3285,8 @@ fn defunc_21_level_hof_returns_static_resolution_error() {
 
     let (mut fir_store, fir_pkg_id) = crate::test_utils::compile_to_monomorphized_fir(&source);
     let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
-    let errors = super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    let errors =
+        super::super::defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners).diagnostics;
 
     assert!(
         !errors.is_empty(),
@@ -3052,7 +3341,7 @@ fn multiple_forwarded_callable_arrays_return_unsupported_error() {
 
     let (mut store, package_id) = compile_to_monomorphized_fir(source);
     let mut assigners = PackageAssigners::new(&store, package_id);
-    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners).diagnostics;
 
     assert!(
         matches!(

@@ -138,7 +138,67 @@ pub(crate) fn write_reachable_qsharp_parseable(
         output.push_str(&emitter.output);
     }
 
-    format_str(&output)
+    format_str(&normalize_generated_ids(&output))
+}
+
+/// Renumbers pass-generated local identifiers sequentially by first appearance.
+///
+/// Names like `_index_id_49091` and `_generated_ident_54247` carry a suffix from
+/// a process-wide id counter, so any unrelated upstream change that allocates a
+/// different number of ids shifts every suffix at once. Snapshots then churn by
+/// hundreds of lines with no semantic difference. Renumbering keeps each name
+/// distinct, so the output stays parseable and unambiguous, while making it
+/// stable against id drift.
+///
+/// Only names built from the process-wide id counter are rewritten. Stable
+/// names such as `_lambda_5`, `hole_1`, `q_1`, and `__cond_0` come from an
+/// item id or a per-scope counter and must survive verbatim, or a real change
+/// could be normalized away. Note `__cond_` is stable while `_continue_cond_`
+/// is not, so the match is exact rather than a shared `_cond` suffix.
+#[cfg(test)]
+fn normalize_generated_ids(input: &str) -> String {
+    /// Trailing segments that mark a name as drawn from the global id counter.
+    const GENERATED: [&str; 3] = ["_id", "_ident", "_continue_cond"];
+
+    fn is_ident_byte(b: u8) -> bool {
+        b.is_ascii_alphanumeric() || b == b'_'
+    }
+
+    fn generated_prefix(token: &str) -> Option<&str> {
+        let (head, digits) = token.rsplit_once('_')?;
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        GENERATED
+            .iter()
+            .any(|infix| head.ends_with(infix))
+            .then_some(head)
+    }
+
+    let mut assigned: FxHashMap<&str, usize> = FxHashMap::default();
+    let mut output = String::with_capacity(input.len());
+    let bytes = input.as_bytes();
+    let mut cursor = 0;
+    while cursor < bytes.len() {
+        if !is_ident_byte(bytes[cursor]) {
+            output.push(bytes[cursor] as char);
+            cursor += 1;
+            continue;
+        }
+        let start = cursor;
+        while cursor < bytes.len() && is_ident_byte(bytes[cursor]) {
+            cursor += 1;
+        }
+        let token = &input[start..cursor];
+        if let Some(head) = generated_prefix(token) {
+            let next = assigned.len();
+            let index = *assigned.entry(token).or_insert(next);
+            let _ = write!(output, "{head}_{index}");
+        } else {
+            output.push_str(token);
+        }
+    }
+    output
 }
 
 /// Renders a single expression as Q# source.
