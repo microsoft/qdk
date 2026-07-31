@@ -259,14 +259,19 @@ export class QSharpLanguageService implements ILanguageService {
       completionWaitTimeoutMs,
     );
 
-    if (status !== "ready") {
-      // Can't answer for this version, and answering for another would be wrong.
-      // Reporting the list as incomplete makes VS Code ask again on the next keystroke,
-      // and that request will be for a version that does get compiled.
-      return { items: [], isIncomplete: true };
+    const completions: CompletionListResult =
+      this.languageService.get_completions(documentUri, position);
+
+    if (status != "ready") {
+      log.info(
+        `Providing completions for ${documentUri} from a different version than requested`,
+      );
+      // Attempt to signal to the editor that the list is provisional and a fresh request should
+      // be made on the next keystroke (vs just filtering).
+      completions.isIncomplete = true;
     }
 
-    return this.languageService.get_completions(documentUri, position);
+    return completions;
   }
 
   async getFormatChanges(documentUri: string): Promise<ITextEdit[]> {
