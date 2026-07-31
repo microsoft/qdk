@@ -176,7 +176,7 @@ suite("Completion re-trigger behavior", function suite() {
       "VS Code did not re-invoke the provider after an incomplete list. Returning an " +
         "empty incomplete list is therefore NOT a sufficient mitigation for a " +
         "coalesced-away completion request, and the update loop must avoid coalescing " +
-        "past a version a completion request is waiting on (plan Phase 3b).",
+        "past a version a completion request is waiting on.",
     );
   });
 });
