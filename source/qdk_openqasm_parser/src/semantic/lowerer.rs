@@ -3058,19 +3058,16 @@ impl Lowerer {
     }
 
     fn lower_while_stmt(&mut self, stmt: &syntax::WhileLoop) -> semantic::StmtKind {
-        // Push scope where the while loop lives. The while loop needs its own scope
-        // so that break and continue know if they are inside a valid scope.
-        self.symbols.push_scope(ScopeKind::Loop);
-
         let condition = self.lower_expr(&stmt.while_condition);
-        let body = self.lower_stmt_or_block_body(&stmt.body);
-
         // The semantics of a while statement is that the condition must be
         // of type bool, so we try to cast it, inserting a cast if necessary.
         let cond_ty = Type::Bool(condition.ty.is_const());
         let while_condition = self.cast_expr_to_type(&cond_ty, &condition);
 
-        // Pop scope where the while loop lives.
+        // Only the body is inside the loop scope. The condition is evaluated
+        // before entering the body, so break and continue are invalid there.
+        self.symbols.push_scope(ScopeKind::Loop);
+        let body = self.lower_stmt_or_block_body(&stmt.body);
         self.symbols.pop_scope();
 
         semantic::StmtKind::WhileLoop(semantic::WhileLoop {

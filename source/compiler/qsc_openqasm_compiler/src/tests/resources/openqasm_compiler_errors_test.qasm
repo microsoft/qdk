@@ -36,23 +36,15 @@ box [2ns] { // NotSupported box duration
     x [2ns] q; // NotSupported duration on gate call
 }
 
-for int i in [0:2] {
-    break; // NotSupported break
-}
-
-for int i in [0:2] {
-    continue; // NotSupported continue
-}
-
 
 // NotSupported mutable array reference
 def mut_subroutine_dyn(mutable array[int[8], #dim = 1] arr_arg) {
-
+   // body
 }
 
 // NotSupported mutable static sized array reference
 def mut_subroutine_static(mutable array[int[8], 2, 3] arr_arg) {
-
+   // body
 }
 
 // currently blocked by type checker
@@ -76,6 +68,6 @@ def mut_subroutine_static(mutable array[int[8], 2, 3] arr_arg) {
 
 // Unimplemented
 extern extern_func(int);
-
+// End unimplemented statements.
 // NotSupported hardware qubit
 x $0;

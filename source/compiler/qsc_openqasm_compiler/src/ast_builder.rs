@@ -1351,6 +1351,26 @@ pub(crate) fn build_end_stmt(span: Span) -> Stmt {
     build_stmt_semi_from_expr_with_span(expr, span)
 }
 
+pub(crate) fn build_break_stmt(span: Span) -> Stmt {
+    let expr = Expr {
+        kind: Box::new(ExprKind::Break),
+        span,
+        ..Default::default()
+    };
+
+    build_stmt_semi_from_expr_with_span(expr, span)
+}
+
+pub(crate) fn build_continue_stmt(span: Span) -> Stmt {
+    let expr = Expr {
+        kind: Box::new(ExprKind::Continue),
+        span,
+        ..Default::default()
+    };
+
+    build_stmt_semi_from_expr_with_span(expr, span)
+}
+
 pub(crate) fn build_index_expr(expr: Expr, index_expr: Expr, span: Span) -> Expr {
     let kind = ExprKind::Index(Box::new(expr), Box::new(index_expr));
     Expr {

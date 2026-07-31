@@ -690,6 +690,141 @@ fn return_expr() {
 }
 
 #[test]
+fn break_expr() {
+    check(expr, "break", &expect!["Expr _id_ [0-5]: Break"]);
+}
+
+#[test]
+fn continue_expr() {
+    check(expr, "continue", &expect!["Expr _id_ [0-8]: Continue"]);
+}
+
+#[test]
+fn break_in_block() {
+    check(
+        expr,
+        "{ break; }",
+        &expect![[r#"
+        Expr _id_ [0-10]: Expr Block: Block _id_ [0-10]:
+            Stmt _id_ [2-8]: Semi: Expr _id_ [2-7]: Break"#]],
+    );
+}
+
+#[test]
+fn continue_in_block() {
+    check(
+        expr,
+        "{ continue; }",
+        &expect![[r#"
+        Expr _id_ [0-13]: Expr Block: Block _id_ [0-13]:
+            Stmt _id_ [2-11]: Semi: Expr _id_ [2-10]: Continue"#]],
+    );
+}
+
+#[test]
+fn break_in_for() {
+    check(
+        expr,
+        "for i in xs { break; }",
+        &expect![[r#"
+        Expr _id_ [0-22]: For:
+            Pat _id_ [4-5]: Bind:
+                Ident _id_ [4-5] "i"
+            Expr _id_ [9-11]: Path: Path _id_ [9-11] (Ident _id_ [9-11] "xs")
+            Block _id_ [12-22]:
+                Stmt _id_ [14-20]: Semi: Expr _id_ [14-19]: Break"#]],
+    );
+}
+
+#[test]
+fn continue_in_while() {
+    check(
+        expr,
+        "while c { continue; }",
+        &expect![[r#"
+        Expr _id_ [0-21]: While:
+            Expr _id_ [6-7]: Path: Path _id_ [6-7] (Ident _id_ [6-7] "c")
+            Block _id_ [8-21]:
+                Stmt _id_ [10-19]: Semi: Expr _id_ [10-18]: Continue"#]],
+    );
+}
+
+#[test]
+fn break_in_if() {
+    check(
+        expr,
+        "if c { break; }",
+        &expect![[r#"
+        Expr _id_ [0-15]: If:
+            Expr _id_ [3-4]: Path: Path _id_ [3-4] (Ident _id_ [3-4] "c")
+            Block _id_ [5-15]:
+                Stmt _id_ [7-13]: Semi: Expr _id_ [7-12]: Break"#]],
+    );
+}
+
+// `break`/`continue` parse in operand position; whether the placement is legal
+// is validated in a later compilation stage, not by the parser.
+#[test]
+fn break_in_operand_position() {
+    check(
+        expr,
+        "{ let x = break; }",
+        &expect![[r#"
+        Expr _id_ [0-18]: Expr Block: Block _id_ [0-18]:
+            Stmt _id_ [2-16]: Local (Immutable):
+                Pat _id_ [6-7]: Bind:
+                    Ident _id_ [6-7] "x"
+                Expr _id_ [10-15]: Break"#]],
+    );
+}
+
+#[test]
+fn break_missing_semi() {
+    check(
+        expr,
+        "{ break x }",
+        &expect![[r#"
+        Expr _id_ [0-11]: Expr Block: Block _id_ [0-11]:
+            Stmt _id_ [2-7]: Expr: Expr _id_ [2-7]: Break
+            Stmt _id_ [8-9]: Expr: Expr _id_ [8-9]: Path: Path _id_ [8-9] (Ident _id_ [8-9] "x")
+
+        [
+            Error(
+                MissingSemi(
+                    Span {
+                        lo: 7,
+                        hi: 7,
+                    },
+                ),
+            ),
+        ]"#]],
+    );
+}
+
+#[test]
+fn continue_missing_semi() {
+    check(
+        expr,
+        "{ continue x }",
+        &expect![[r#"
+        Expr _id_ [0-14]: Expr Block: Block _id_ [0-14]:
+            Stmt _id_ [2-10]: Expr: Expr _id_ [2-10]: Continue
+            Stmt _id_ [11-12]: Expr: Expr _id_ [11-12]: Path: Path _id_ [11-12] (Ident _id_ [11-12] "x")
+
+        [
+            Error(
+                MissingSemi(
+                    Span {
+                        lo: 10,
+                        hi: 10,
+                    },
+                ),
+            ),
+        ]"#]],
+    );
+}
+
+#[test]
 fn set() {
     check(
         expr,
