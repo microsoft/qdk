@@ -312,6 +312,7 @@ function registerMonacoLanguageServiceProviders(
         monacoPositionToLsPosition(position),
       );
       return {
+        incomplete: completions.isIncomplete,
         suggestions: completions.items.map((i) => {
           let kind;
           switch (i.kind) {
