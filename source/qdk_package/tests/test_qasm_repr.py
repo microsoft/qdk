@@ -43,7 +43,7 @@ _CORPUS = (
     'const bit[4] b = "1011"; const bool t = true; const int n = -5;',
     "OPENQASM 3.0; array[int[32], 2, 2] grid = {{1, 2}, {3, 4}}; "
     "def f(int[32] a) -> int[32] { return a + 1; }",
-    'OPENQASM 3.0;\n@my.note text\n#pragma qdk.box.open\nqubit q;\ncal { raw; }\n',
+    "OPENQASM 3.0;\n@my.note text\n#pragma qdk.box.open\nqubit q;\ncal { raw; }\n",
     "OPENQASM 3.0; qubit ;",
     "OPENQASM 3.0; int x = missing;",
     'OPENQASM 3.0; "a string literal"; bool eq = "x" == "y";',
@@ -88,7 +88,7 @@ def test_no_rust_spellings_leak_into_any_repr() -> None:
     assert not leaks, "Rust spellings leaked into repr:\n" + "\n".join(leaks)
 
 
-def test_sweep_detects_an_injected_regression() -> None:
+def test_sweep_detects_injected_rust_repr_spellings() -> None:
     """The sweep is only useful if it actually fails on a real leak."""
     for rendered in (
         'Program(statements=[1 items], version=Some("3.0"))',
@@ -109,14 +109,16 @@ def test_sweep_does_not_trip_on_legitimate_string_content() -> None:
         "Pragma(command='Span { lo: 1 }')",
         'Include(filename="Some(stdgates.inc)")',
     ):
-        matched = [label for label, pattern in _LEAK_PATTERNS if pattern.search(rendered)]
+        matched = [
+            label for label, pattern in _LEAK_PATTERNS if pattern.search(rendered)
+        ]
         assert not matched, f"{rendered!r} falsely matched {matched}"
 
 
 @pytest.mark.parametrize(
     ("source", "expected"),
     [
-        ('OPENQASM 3.0; qubit q;', 'Program(statements=[1 items], version="3.0")'),
+        ("OPENQASM 3.0; qubit q;", 'Program(statements=[1 items], version="3.0")'),
         ("qubit q;", "Program(statements=[1 items], version=None)"),
     ],
 )
@@ -210,11 +212,19 @@ def test_quantum_gate_repr_names_the_gate() -> None:
         # @sexpr
         ("OPENQASM 3.0; int n = 1;", "IntegerLiteral(value=1)", "syntax"),
         # @stype
-        ("OPENQASM 3.0; int[32] n = 1;", "IntType(size=IntegerLiteral(value=32))", "syntax"),
+        (
+            "OPENQASM 3.0; int[32] n = 1;",
+            "IntType(size=IntegerLiteral(value=32))",
+            "syntax",
+        ),
         # @saux
         ("OPENQASM 3.0; qubit[4] q; let a = q[0:1];", "RangeDefinition(", "syntax"),
         # @sstmt
-        ("OPENQASM 3.0; qubit q;", "QubitDeclaration(qubit=Identifier(name='q')", "syntax"),
+        (
+            "OPENQASM 3.0; qubit q;",
+            "QubitDeclaration(qubit=Identifier(name='q')",
+            "syntax",
+        ),
         # @expr
         ("OPENQASM 3.0; int n = 1;", "LiteralExpression(value=1", "semantic"),
         # @stmt
@@ -241,7 +251,9 @@ def test_each_generated_category_reports_its_fields(
 
 def test_repr_never_expands_a_child_list() -> None:
     """A repr over a large tree must stay constant-size."""
-    source = 'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[4] q;\n' + "h q[0];\n" * 5000
+    source = (
+        'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[4] q;\n' + "h q[0];\n" * 5000
+    )
     program = parser.parse(source).program
     rendered = repr(program)
     assert len(program.statements) > 5000

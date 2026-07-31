@@ -138,7 +138,60 @@ pub(crate) fn write_reachable_qsharp_parseable(
         output.push_str(&emitter.output);
     }
 
-    format_str(&output)
+    format_str(&normalize_generated_ids(&output))
+}
+
+/// Renumbers pass-generated local identifiers sequentially by first appearance.
+///
+/// Names like `_index_id_49091` and `_generated_ident_54247` carry a suffix from
+/// a process-wide id counter, so any unrelated upstream change that allocates a
+/// different number of ids shifts every suffix at once. Snapshots then churn by
+/// hundreds of lines with no semantic difference. Renumbering keeps each name
+/// distinct, so the output stays parseable and unambiguous, while making it
+/// stable against id drift.
+///
+/// Only names built from the process-wide id counter are rewritten. Stable
+/// names such as `_lambda_5`, `hole_1`, `q_1`, and `__cond_0` come from an
+/// item id or a per-scope counter and must survive verbatim, or a real change
+/// could be normalized away. Note `__cond_` is stable while `_continue_cond_`
+/// is not, so the match is exact rather than a shared `_cond` suffix.
+#[cfg(test)]
+fn normalize_generated_ids(input: &str) -> String {
+    use qsc_parse::lex::raw::{Lexer, TokenKind};
+
+    /// Trailing segments that mark a name as drawn from the global id counter.
+    const GENERATED: [&str; 3] = ["_id", "_ident", "_continue_cond"];
+
+    fn generated_prefix(token: &str) -> Option<&str> {
+        let (head, digits) = token.rsplit_once('_')?;
+        if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        GENERATED
+            .iter()
+            .any(|infix| head.ends_with(infix))
+            .then_some(head)
+    }
+
+    let mut assigned: FxHashMap<&str, usize> = FxHashMap::default();
+    let mut output = String::with_capacity(input.len());
+    let mut tokens = Lexer::new(input).peekable();
+    while let Some(token) = tokens.next() {
+        let end = tokens
+            .peek()
+            .map_or(input.len(), |next| next.offset as usize);
+        let text = &input[token.offset as usize..end];
+        if token.kind == TokenKind::Ident
+            && let Some(head) = generated_prefix(text)
+        {
+            let next = assigned.len();
+            let index = *assigned.entry(text).or_insert(next);
+            let _ = write!(output, "{head}_{index}");
+        } else {
+            output.push_str(text);
+        }
+    }
+    output
 }
 
 /// Renders a single expression as Q# source.

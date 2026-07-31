@@ -1,11 +1,149 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-#[cfg(feature = "slow-proptest-tests")]
 use indoc::formatdoc;
 use indoc::indoc;
 #[cfg(feature = "slow-proptest-tests")]
 use proptest::prelude::*;
+
+#[test]
+fn struct_initializers_preserve_source_order_before_field_reordering() {
+    let source = indoc! {r#"
+        namespace Test {
+            struct Pair { First : Int, Second : Int }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable order = 0;
+                let pair = new Pair {
+                    Second = { set order = order * 10 + 2; 20 },
+                    First = { set order = order * 10 + 1; 10 }
+                };
+                order * 1000 + pair.First * 10 + pair.Second
+            }
+        }
+    "#};
+    let (store, package_id) = crate::test_utils::compile_to_fir(source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(21_120)));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn fir_value_preservation_copy_source_snapshot() {
+    for body in [
+        "mutable original = new Data { First = 13, Second = 2 }; let copied = new Data { ...original, First = { set original = new Data { First = 13, Second = 5 }; 6 } }; copied.Second * 100 + copied.First * 10 + original.Second",
+        "mutable original = new Choice { Callable = Add11, Weight = 2 }; let copied = new Choice { ...original, Callable = { set original = new Choice { Callable = Add11, Weight = 5 }; Times3 } }; copied.Weight * 100 + copied.Callable(2) * 10 + original.Weight",
+        "mutable original = new Choice { Callable = Add11, Weight = 2 }; let snapshot = original; let copied = new Choice { ...snapshot, Callable = { set original = new Choice { Callable = Add11, Weight = 5 }; Times3 } }; copied.Weight * 100 + copied.Callable(2) * 10 + original.Weight",
+    ] {
+        let source = formatdoc! {r#"
+            namespace Test {{
+                struct Data {{ First : Int, Second : Int }}
+                struct Choice {{ Callable : Int -> Int, Weight : Int }}
+                function Add11(value : Int) : Int {{ value + 11 }}
+                function Times3(value : Int) : Int {{ value * 3 }}
+                @EntryPoint()
+                operation Main() : Int {{ {body} }}
+            }}
+        "#};
+        let (store, package_id) = crate::test_utils::compile_to_fir(&source);
+        let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+        assert_eq!(result, Ok(qsc_eval::val::Value::Int(265)));
+        crate::test_utils::check_semantic_equivalence(&source);
+    }
+}
+
+#[test]
+fn fir_value_preservation_copy_nested_callable_source() {
+    let source = indoc! {r#"
+        namespace Test {
+            struct Choice { Callable : Int -> Int, Weight : Int }
+            struct Envelope { Inner : Choice, Tag : Int }
+            function Make(offset : Int) : Int -> Int { value -> value + offset }
+            function UseEnvelope(envelope : Envelope) : Int {
+                envelope.Inner.Callable(2) * 1000 + envelope.Inner.Weight * 10 + envelope.Tag
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                mutable original = new Envelope {
+                    Inner = new Choice { Callable = Make(3), Weight = 7 }, Tag = 2
+                };
+                let copied = new Envelope {
+                    ...original,
+                    Inner = new Choice {
+                        ...original.Inner,
+                        Weight = {
+                            set original = new Envelope {
+                                Inner = new Choice { Callable = Make(17), Weight = 19 }, Tag = 5
+                            };
+                            11
+                        }
+                    }
+                };
+                UseEnvelope(copied) * 100000 + UseEnvelope(original)
+            }
+        }
+    "#};
+    let (store, package_id) = crate::test_utils::compile_to_fir(source);
+    let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+    assert_eq!(result, Ok(qsc_eval::val::Value::Int(511_219_195)));
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn fir_value_preservation_copy_source_and_failure_order() {
+    for (declaration, initial, replacements, access) in [
+        (
+            "struct Data { First : Int, Second : Int, Third : Int }",
+            "new Data { First = 7, Second = 2, Third = 3 }",
+            "First = replacement",
+            "copied.First",
+        ),
+        (
+            "struct Data { First : Int }",
+            "new Data { First = 7 }",
+            "First = replacement",
+            "copied.First",
+        ),
+    ] {
+        for (source_tail, replacement_tail, expected) in [
+            (initial, "6", Ok(1206)),
+            (
+                "fail $\"source-{order}\"",
+                "fail $\"replacement-{order}\"",
+                Err("source-1"),
+            ),
+            (
+                initial,
+                "fail $\"replacement-{order}\"",
+                Err("replacement-12"),
+            ),
+        ] {
+            let replacement = format!("{{ set order = order * 10 + 2; {replacement_tail} }}");
+            let fields = replacements.replace("replacement", &replacement);
+            let source = formatdoc! {r#"
+                namespace Test {{
+                    {declaration}
+                    @EntryPoint()
+                    operation Main() : Int {{
+                        mutable order = 0;
+                        let copied = new Data {{
+                            ...{{ set order = order * 10 + 1; {source_tail} }},
+                            {fields}
+                        }};
+                        order * 100 + {access}
+                    }}
+                }}
+            "#};
+            let (store, package_id) = crate::test_utils::compile_to_fir(&source);
+            let (result, _) = crate::test_utils::try_eval_fir_entry_with_trace(&store, package_id);
+            match expected {
+                Ok(value) => assert_eq!(result, Ok(qsc_eval::val::Value::Int(value))),
+                Err(marker) => assert!(result.expect_err("original must fail").contains(marker)),
+            }
+            crate::test_utils::check_semantic_equivalence(&source);
+        }
+    }
+}
 
 #[test]
 fn udt_construction_and_field_access_preserves_semantics() {
