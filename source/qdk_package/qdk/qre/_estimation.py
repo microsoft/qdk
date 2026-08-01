@@ -32,7 +32,7 @@ def estimate(
     use_graph: bool = True,
     composition: ErrorComposition = ErrorComposition.UnionBound,
     name: str | None = None,
-    json_spec_path: str | None = None,
+    cost_spec_path: str | None = None,
 ) -> EstimationTable:
     """
     Estimate the resource requirements for a given application instance and
