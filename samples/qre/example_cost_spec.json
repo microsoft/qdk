@@ -1,5 +1,5 @@
 {
-    "system" : {
+    "system": {
         "name": "example_cost_spec",
         "qubits_per_node": 16000,
         "cnot_time": 10000,
@@ -17,7 +17,7 @@
         "fixed_readout_lines": 0,
         "magical_speedup_factor": 1
     },
-    "fixed_units" : [
+    "fixed_units": [
         {
             "name": "Fixed cost of constructing the system",
             "cost": 10000000.0,
@@ -29,12 +29,15 @@
         {
             "name": "Black box cost per qubit",
             "cost": 1000000.00,
-            "units_per_control_line" : 1,
-            "units_per_readout_line" : 0,
+            "units_per_control_line": 1,
+            "units_per_readout_line": 0,
             "eos_factor": 1.0
         }
     ],
-    "opex": {
-        "FTE_Costs": 10000000
-    }
+    "opex": [
+        {
+            "name": "FTE costs",
+            "cost": 10000000
+        }
+    ]
 }
