@@ -227,10 +227,10 @@ def estimate(
         EstimationTableEntry.from_result(result, arch_ctx) for result in collection
     )
 
-    if json_spec_path is not None:
+    if cost_spec_path is not None:
         table.add_column(
             "$ cost",
-            lambda entry: compute_dollar_cost(json_spec_path, entry),
+            lambda entry: compute_dollar_cost(cost_spec_path, entry),
         )
 
     # Fill in the stats for this estimation run
