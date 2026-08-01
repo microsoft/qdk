@@ -7,7 +7,7 @@ export interface DiagnosticsPublisherOptions {
   publish: (uri: string, diagnostics: VSDiagnostic[]) => void;
   /** Returns a function that cancels the scheduled callback. */
   schedule: (callback: () => void, delayMs: number) => () => void;
-  /** How long after the last keystroke to wait before publishing. */
+  /** How long after the last edit to wait before publishing. */
   delayMs: number;
   /** Upper bound on how long sustained typing can withhold a publish. */
   maxDelayMs: number;
@@ -22,10 +22,13 @@ interface Pending {
  * Withholds diagnostics for the document the user is currently typing in, so squiggles
  * don't churn on every character of a half-written token.
  *
- * Only that one document is ever held, so there is at most one pending entry. Everything
- * else - bulk reloads, background opens, other files in the same project - publishes as it
- * arrives. The caller decides which document is "hot"; this type has no opinion on how
- * that's determined, and takes its timer from the caller so it can be tested without one.
+ * The wait runs from the last edit rather than the last result, so a pause the user has
+ * already taken counts against it and a slow compilation adds no delay of its own.
+ *
+ * Only the document being edited is ever held, so there is at most one pending entry.
+ * Everything else - bulk reloads, background opens, other files in the same project -
+ * publishes as it arrives. The caller reports the edits; this type has no opinion on how
+ * they're detected, and takes its timer from the caller so it can be tested without one.
  */
 export class DiagnosticsPublisher {
   private hotUri: string | undefined;
@@ -35,42 +38,28 @@ export class DiagnosticsPublisher {
 
   constructor(private readonly options: DiagnosticsPublisherOptions) {}
 
-  /** Identifies the document being typed in. Anything else publishes immediately. */
-  setHotUri(uri: string | undefined) {
-    if (this.hotUri === uri) {
-      return;
-    }
-    this.hotUri = uri;
-
-    // A pending entry belongs to the document the user just left, which will get no further
-    // keystrokes to end its burst.
-    if (this.pending && this.pending.uri !== uri) {
-      this.flush();
-    }
-  }
-
-  receive(uri: string, diagnostics: VSDiagnostic[]) {
+  /** Reports an edit. `uri` is undefined for documents we don't publish diagnostics for. */
+  noteEdit(uri: string | undefined) {
     if (uri !== this.hotUri) {
-      this.options.publish(uri, diagnostics);
-      return;
+      // A pending entry belongs to the document the user just left, which will get no
+      // further edits to end its burst.
+      this.flush();
+      this.endBurst();
+      this.hotUri = uri;
     }
 
-    // Clearing the last error is the one result worth showing mid-token.
-    if (diagnostics.length === 0) {
-      this.reset();
-      this.options.publish(uri, diagnostics);
+    if (uri === undefined) {
       return;
     }
-
-    this.pending = { uri, diagnostics };
 
     this.cancelIdle?.();
     this.cancelIdle = this.options.schedule(() => {
       this.cancelIdle = undefined;
+      this.endBurst();
       this.flush();
     }, this.options.delayMs);
 
-    // Deliberately not restarted per keystroke - that is what makes it a cap rather than a
+    // Deliberately not restarted per edit - that is what makes it a cap rather than a
     // second debounce, so a long typing run still refreshes.
     if (!this.cancelCap) {
       this.cancelCap = this.options.schedule(() => {
@@ -80,20 +69,42 @@ export class DiagnosticsPublisher {
     }
   }
 
+  receive(uri: string, diagnostics: VSDiagnostic[]) {
+    // A result that arrives once the typing has stopped is the one being waited on.
+    if (uri !== this.hotUri || !this.isBursting) {
+      this.options.publish(uri, diagnostics);
+      return;
+    }
+
+    // Clearing the last error is the one result worth showing mid-token.
+    if (diagnostics.length === 0) {
+      this.pending = undefined;
+      this.options.publish(uri, diagnostics);
+      return;
+    }
+
+    this.pending = { uri, diagnostics };
+  }
+
   flush() {
     const pending = this.pending;
-    this.reset();
+    this.pending = undefined;
     if (pending) {
       this.options.publish(pending.uri, pending.diagnostics);
     }
   }
 
   dispose() {
-    this.reset();
+    this.pending = undefined;
+    this.endBurst();
   }
 
-  private reset() {
-    this.pending = undefined;
+  /** A burst runs from an edit until `delayMs` of quiet. */
+  private get isBursting() {
+    return this.cancelIdle !== undefined;
+  }
+
+  private endBurst() {
     this.cancelIdle?.();
     this.cancelIdle = undefined;
     this.cancelCap?.();

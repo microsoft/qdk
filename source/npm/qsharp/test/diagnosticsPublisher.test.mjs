@@ -76,17 +76,16 @@ function createHarness() {
   return { publisher, published, timers, live, fire };
 }
 
-test("non-hot document publishes immediately", () => {
-  const { publisher, published, timers } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+test("a document that is not being edited publishes immediately", () => {
+  const { publisher, published } = createHarness();
+  publisher.noteEdit("file:///a.qs");
 
   publisher.receive("file:///b.qs", anError);
 
   assert.deepEqual(published, [{ uri: "file:///b.qs", diagnostics: anError }]);
-  assert.equal(timers.length, 0);
 });
 
-test("a burst with no hot document publishes every uri immediately", () => {
+test("a burst with no edits publishes every uri immediately", () => {
   const { publisher, published, timers } = createHarness();
 
   publisher.receive("file:///a.qs", anError);
@@ -100,9 +99,9 @@ test("a burst with no hot document publishes every uri immediately", () => {
   assert.equal(timers.length, 0);
 });
 
-test("hot document with errors is withheld", () => {
+test("errors for the document being edited are withheld", () => {
   const { publisher, published, live } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
 
   publisher.receive("file:///a.qs", anError);
 
@@ -111,9 +110,41 @@ test("hot document with errors is withheld", () => {
   assert.equal(live(maxDelayMs).length, 1);
 });
 
-test("only the latest diagnostics for the hot document are published", () => {
+test("a result that arrives after the typing stopped publishes immediately", () => {
   const { publisher, published, fire } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
+
+  // Stands in for a compilation slower than the wait: the burst ends before it finishes.
+  fire(idleDelayMs);
+  publisher.receive("file:///a.qs", anError);
+
+  assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
+});
+
+test("the wait restarts on each edit", () => {
+  const { publisher, timers, live } = createHarness();
+
+  publisher.noteEdit("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
+
+  assert.equal(timers.filter((t) => t.delayMs === idleDelayMs).length, 3);
+  assert.equal(live(idleDelayMs).length, 1);
+});
+
+test("the cap is scheduled once per burst, not per edit", () => {
+  const { publisher, timers } = createHarness();
+
+  publisher.noteEdit("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
+
+  assert.equal(timers.filter((t) => t.delayMs === maxDelayMs).length, 1);
+});
+
+test("only the latest diagnostics for the edited document are published", () => {
+  const { publisher, published, fire } = createHarness();
+  publisher.noteEdit("file:///a.qs");
 
   publisher.receive("file:///a.qs", errors("first"));
   publisher.receive("file:///a.qs", errors("second"));
@@ -127,37 +158,47 @@ test("only the latest diagnostics for the hot document are published", () => {
 });
 
 test("clearing all errors publishes immediately and drops the pending entry", () => {
-  const { publisher, published, live, timers } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+  const { publisher, published, live, fire } = createHarness();
+  publisher.noteEdit("file:///a.qs");
   publisher.receive("file:///a.qs", anError);
 
   publisher.receive("file:///a.qs", []);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: [] }]);
-  assert.equal(live(idleDelayMs).length, 0);
-  assert.equal(live(maxDelayMs).length, 0);
-  assert.ok(timers.every((t) => t.cancelled));
+
+  // The burst belongs to the typing, not to the pending entry, so it keeps running.
+  assert.equal(live(idleDelayMs).length, 1);
+  assert.equal(live(maxDelayMs).length, 1);
+
+  fire(idleDelayMs);
+
+  assert.equal(published.length, 1);
 });
 
-test("switching hot document flushes the pending entry", () => {
-  const { publisher, published, live } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+test("editing another document flushes the pending entry", () => {
+  const { publisher, published } = createHarness();
+  publisher.noteEdit("file:///a.qs");
   publisher.receive("file:///a.qs", anError);
 
-  publisher.setHotUri("file:///b.qs");
+  publisher.noteEdit("file:///b.qs");
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
-  assert.equal(live(idleDelayMs).length, 0);
-  assert.equal(live(maxDelayMs).length, 0);
+
+  // The first document is no longer the one being edited.
+  publisher.receive("file:///a.qs", errors("later"));
+
+  assert.deepEqual(published, [
+    { uri: "file:///a.qs", diagnostics: anError },
+    { uri: "file:///a.qs", diagnostics: errors("later") },
+  ]);
 });
 
-test("clearing the hot document flushes and stops debouncing", () => {
-  const { publisher, published, live, timers } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+test("editing a document we don't publish for flushes and stops debouncing", () => {
+  const { publisher, published, live } = createHarness();
+  publisher.noteEdit("file:///a.qs");
   publisher.receive("file:///a.qs", anError);
 
-  // Stands in for the user moving to a document the language service never publishes for.
-  publisher.setHotUri(undefined);
+  publisher.noteEdit(undefined);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
   assert.equal(live(idleDelayMs).length, 0);
@@ -169,38 +210,49 @@ test("clearing the hot document flushes and stops debouncing", () => {
     { uri: "file:///a.qs", diagnostics: anError },
     { uri: "file:///a.qs", diagnostics: anError },
   ]);
-  assert.equal(timers.length, 2);
 });
 
-test("the cap is scheduled once per burst, not per keystroke", () => {
-  const { publisher, timers } = createHarness();
-  publisher.setHotUri("file:///a.qs");
-
-  publisher.receive("file:///a.qs", anError);
-  publisher.receive("file:///a.qs", anError);
-  publisher.receive("file:///a.qs", anError);
-
-  assert.equal(timers.filter((t) => t.delayMs === maxDelayMs).length, 1);
-  assert.equal(timers.filter((t) => t.delayMs === idleDelayMs).length, 3);
-});
-
-test("the cap publishes and cancels the idle timer", () => {
+test("the idle timer ends the burst", () => {
   const { publisher, published, live, fire } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
+  publisher.receive("file:///a.qs", anError);
+
+  fire(idleDelayMs);
+
+  assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
+  assert.equal(live(maxDelayMs).length, 0);
+
+  publisher.receive("file:///a.qs", errors("later"));
+
+  assert.deepEqual(published, [
+    { uri: "file:///a.qs", diagnostics: anError },
+    { uri: "file:///a.qs", diagnostics: errors("later") },
+  ]);
+});
+
+test("the cap publishes without ending the burst", () => {
+  const { publisher, published, live, fire } = createHarness();
+  publisher.noteEdit("file:///a.qs");
   publisher.receive("file:///a.qs", anError);
 
   fire(maxDelayMs);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
-  assert.equal(live(idleDelayMs).length, 0);
+
+  // Typing hasn't stopped, so the next result is still withheld.
+  assert.equal(live(idleDelayMs).length, 1);
+  publisher.receive("file:///a.qs", errors("later"));
+
+  assert.equal(published.length, 1);
 });
 
-test("a cap-driven publish starts a fresh cap for the next burst", () => {
+test("a cap-driven publish starts a fresh cap on the next edit", () => {
   const { publisher, published, timers, fire } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
   publisher.receive("file:///a.qs", anError);
   fire(maxDelayMs);
 
+  publisher.noteEdit("file:///a.qs");
   publisher.receive("file:///a.qs", errors("later"));
 
   assert.equal(timers.filter((t) => t.delayMs === maxDelayMs).length, 2);
@@ -215,7 +267,7 @@ test("a cap-driven publish starts a fresh cap for the next burst", () => {
 
 test("dispose cancels without publishing", () => {
   const { publisher, published, timers } = createHarness();
-  publisher.setHotUri("file:///a.qs");
+  publisher.noteEdit("file:///a.qs");
   publisher.receive("file:///a.qs", anError);
 
   publisher.dispose();

@@ -10,7 +10,7 @@ import {
 import * as vscode from "vscode";
 import { isQdkDocument, qsharpLanguageId, toVsCodeDiagnostic } from "../common";
 
-/** How long after the last keystroke to wait before refreshing squiggles. */
+/** How long after the last edit to wait before refreshing squiggles. */
 const idleDelayMs = 300;
 
 /** Upper bound on how long sustained typing can withhold a refresh. */
@@ -64,7 +64,7 @@ export function startLanguageServiceDiagnostics(
       return;
     }
 
-    publisher.setHotUri(
+    publisher.noteEdit(
       isQdkDocument(evt.document) ? evt.document.uri.toString() : undefined,
     );
   });
