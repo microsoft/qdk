@@ -151,6 +151,27 @@ test("switching hot document flushes the pending entry", () => {
   assert.equal(live(maxDelayMs).length, 0);
 });
 
+test("clearing the hot document flushes and stops debouncing", () => {
+  const { publisher, published, live, timers } = createHarness();
+  publisher.setHotUri("file:///a.qs");
+  publisher.receive("file:///a.qs", anError);
+
+  // Stands in for the user moving to a document the language service never publishes for.
+  publisher.setHotUri(undefined);
+
+  assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
+  assert.equal(live(idleDelayMs).length, 0);
+  assert.equal(live(maxDelayMs).length, 0);
+
+  publisher.receive("file:///a.qs", anError);
+
+  assert.deepEqual(published, [
+    { uri: "file:///a.qs", diagnostics: anError },
+    { uri: "file:///a.qs", diagnostics: anError },
+  ]);
+  assert.equal(timers.length, 2);
+});
+
 test("the cap is scheduled once per burst, not per keystroke", () => {
   const { publisher, timers } = createHarness();
   publisher.setHotUri("file:///a.qs");

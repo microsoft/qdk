@@ -57,13 +57,16 @@ export function startLanguageServiceDiagnostics(
   languageService.addEventListener("diagnostics", onDiagnostics);
 
   // A change event, rather than the active editor, is what marks a document as being typed in.
-  // Documents the language service never publishes for are ignored rather than clearing the hot
-  // document, since adopting one would silently disable the debounce until the user typed in a
-  // QDK file again.
+  // Editing anything else clears the hot document, so only the file under the cursor is ever held.
   const hotDocumentTracker = vscode.workspace.onDidChangeTextDocument((evt) => {
-    if (isQdkDocument(evt.document)) {
-      publisher.setHotUri(evt.document.uri.toString());
+    // Dirty-state and encoding changes raise this event too, with no edit behind them.
+    if (evt.contentChanges.length === 0) {
+      return;
     }
+
+    publisher.setHotUri(
+      isQdkDocument(evt.document) ? evt.document.uri.toString() : undefined,
+    );
   });
 
   return [
