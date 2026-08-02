@@ -3,9 +3,14 @@
 
 import type { VSDiagnostic } from "../../lib/web/qsc_wasm.js";
 
-export interface DiagnosticsPublisherOptions {
+/**
+ * Both configuration for DiagnosticsPublisher and hooks so that different editors
+ * (and tests) can implement key operations differently.
+ */
+export interface DiagnosticsPublisherImpl {
+  /** Called when diagnostics are ready to be displayed to the user. */
   publish: (uri: string, diagnostics: VSDiagnostic[]) => void;
-  /** Returns a function that cancels the scheduled callback. */
+  /** Called to schedule deferred work. */
   schedule: (callback: () => void, delayMs: number) => () => void;
   /** How long after the last edit to wait before publishing. */
   delayMs: number;
@@ -13,7 +18,7 @@ export interface DiagnosticsPublisherOptions {
   maxDelayMs: number;
 }
 
-interface Pending {
+interface PendingDiagnostics {
   uri: string;
   diagnostics: VSDiagnostic[];
 }
@@ -22,75 +27,77 @@ interface Pending {
  * Withholds diagnostics for the document the user is currently typing in, so squiggles
  * don't churn on every character of a half-written token.
  *
- * The wait runs from the last edit rather than the last result, so a pause the user has
- * already taken counts against it and a slow compilation adds no delay of its own.
+ * The goal is to have a small delay when the user is idle but a cap on the maximum delay
+ * before squiggles are drawn.
  *
- * Only the document being edited is ever held, so there is at most one pending entry.
- * Everything else - bulk reloads, background opens, other files in the same project -
- * publishes as it arrives. The caller reports the edits; this type has no opinion on how
- * they're detected, and takes its timer from the caller so it can be tested without one.
+ * Only the active file is affected - everything else (e.g. closed files) still publishes
+ * ASAP.
  */
 export class DiagnosticsPublisher {
-  private hotUri: string | undefined;
-  private pending: Pending | undefined;
+  // Active file (i.e. subject to delays)
+  private activeUri: string | undefined;
+  // Deferred diagnostics for `activeUri`
+  private pending: PendingDiagnostics | undefined;
   private cancelIdle: (() => void) | undefined;
   private cancelCap: (() => void) | undefined;
 
-  constructor(private readonly options: DiagnosticsPublisherOptions) {}
+  constructor(private readonly impl: DiagnosticsPublisherImpl) {}
 
-  /** Reports an edit. `uri` is undefined for documents we don't publish diagnostics for. */
-  noteEdit(uri: string | undefined) {
-    if (uri !== this.hotUri) {
+  /// Callback for when a document is edited
+  onEdit(uri: string | undefined) {
+    if (uri !== this.activeUri) {
       // A pending entry belongs to the document the user just left, which will get no
       // further edits to end its burst.
-      this.flush();
+      this.publishPending();
       this.endBurst();
-      this.hotUri = uri;
+      this.activeUri = uri;
     }
 
+    // Indicates a non-QDK document (which is still interesting, since it changes the activeUri)
     if (uri === undefined) {
       return;
     }
 
     this.cancelIdle?.();
-    this.cancelIdle = this.options.schedule(() => {
+    this.cancelIdle = this.impl.schedule(() => {
       this.cancelIdle = undefined;
       this.endBurst();
-      this.flush();
-    }, this.options.delayMs);
+      this.publishPending();
+    }, this.impl.delayMs);
 
     // Deliberately not restarted per edit - that is what makes it a cap rather than a
     // second debounce, so a long typing run still refreshes.
     if (!this.cancelCap) {
-      this.cancelCap = this.options.schedule(() => {
+      this.cancelCap = this.impl.schedule(() => {
         this.cancelCap = undefined;
-        this.flush();
-      }, this.options.maxDelayMs);
+        this.publishPending();
+      }, this.impl.maxDelayMs);
     }
   }
 
-  receive(uri: string, diagnostics: VSDiagnostic[]) {
-    // A result that arrives once the typing has stopped is the one being waited on.
-    if (uri !== this.hotUri || !this.isBursting) {
-      this.options.publish(uri, diagnostics);
+  onDiagnosticsUpdate(uri: string, diagnostics: VSDiagnostic[]) {
+    // Nothing is waiting on this result: either it's for another document, or the
+    // typing already stopped and the burst ended.
+    if (uri !== this.activeUri || !this.isBursting) {
+      this.impl.publish(uri, diagnostics);
       return;
     }
 
     // Clearing the last error is the one result worth showing mid-token.
     if (diagnostics.length === 0) {
       this.pending = undefined;
-      this.options.publish(uri, diagnostics);
+      this.impl.publish(uri, diagnostics);
       return;
     }
 
     this.pending = { uri, diagnostics };
   }
 
-  flush() {
+  publishPending() {
     const pending = this.pending;
     this.pending = undefined;
     if (pending) {
-      this.options.publish(pending.uri, pending.diagnostics);
+      this.impl.publish(pending.uri, pending.diagnostics);
     }
   }
 

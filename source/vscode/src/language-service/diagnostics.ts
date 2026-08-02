@@ -51,23 +51,23 @@ export function startLanguageServiceDiagnostics(
       return;
     }
 
-    publisher.receive(diagnostics.uri, diagnostics.diagnostics);
+    publisher.onDiagnosticsUpdate(diagnostics.uri, diagnostics.diagnostics);
   }
 
   languageService.addEventListener("diagnostics", onDiagnostics);
 
-  // A change event, rather than the active editor, is what marks a document as being typed in.
-  // Editing anything else clears the hot document, so only the file under the cursor is ever held.
-  const hotDocumentTracker = vscode.workspace.onDidChangeTextDocument((evt) => {
-    // Dirty-state and encoding changes raise this event too, with no edit behind them.
-    if (evt.contentChanges.length === 0) {
-      return;
-    }
+  // Feed edit events to the DiagnosticsPublisher
+  const diagnosticsPublisherEditTracker =
+    vscode.workspace.onDidChangeTextDocument((evt) => {
+      // Dirty-state and encoding changes raise this event too, with no edit behind them.
+      if (evt.contentChanges.length === 0) {
+        return;
+      }
 
-    publisher.noteEdit(
-      isQdkDocument(evt.document) ? evt.document.uri.toString() : undefined,
-    );
-  });
+      publisher.onEdit(
+        isQdkDocument(evt.document) ? evt.document.uri.toString() : undefined,
+      );
+    });
 
   return [
     {
@@ -76,7 +76,7 @@ export function startLanguageServiceDiagnostics(
         publisher.dispose();
       },
     },
-    hotDocumentTracker,
+    diagnosticsPublisherEditTracker,
     diagCollection,
   ];
 }

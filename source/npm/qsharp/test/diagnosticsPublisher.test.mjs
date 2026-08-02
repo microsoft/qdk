@@ -59,7 +59,7 @@ function createHarness() {
   });
 
   /** @param {number} delayMs */
-  function live(delayMs) {
+  function getLiveTimersWithDelay(delayMs) {
     return timers.filter(
       (t) => t.delayMs === delayMs && !t.cancelled && !t.fired,
     );
@@ -67,20 +67,20 @@ function createHarness() {
 
   /** @param {number} delayMs */
   function fire(delayMs) {
-    const pending = live(delayMs);
+    const pending = getLiveTimersWithDelay(delayMs);
     assert.equal(pending.length, 1, `expected one live ${delayMs}ms timer`);
     pending[0].fired = true;
     pending[0].callback();
   }
 
-  return { publisher, published, timers, live, fire };
+  return { publisher, published, timers, getLiveTimersWithDelay, fire };
 }
 
 test("a document that is not being edited publishes immediately", () => {
   const { publisher, published } = createHarness();
-  publisher.noteEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
 
-  publisher.receive("file:///b.qs", anError);
+  publisher.onDiagnosticsUpdate("file:///b.qs", anError);
 
   assert.deepEqual(published, [{ uri: "file:///b.qs", diagnostics: anError }]);
 });
@@ -88,9 +88,9 @@ test("a document that is not being edited publishes immediately", () => {
 test("a burst with no edits publishes every uri immediately", () => {
   const { publisher, published, timers } = createHarness();
 
-  publisher.receive("file:///a.qs", anError);
-  publisher.receive("file:///b.qs", anError);
-  publisher.receive("file:///c.qs", []);
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
+  publisher.onDiagnosticsUpdate("file:///b.qs", anError);
+  publisher.onDiagnosticsUpdate("file:///c.qs", []);
 
   assert.deepEqual(
     published.map((p) => p.uri),
@@ -100,55 +100,55 @@ test("a burst with no edits publishes every uri immediately", () => {
 });
 
 test("errors for the document being edited are withheld", () => {
-  const { publisher, published, live } = createHarness();
-  publisher.noteEdit("file:///a.qs");
+  const { publisher, published, getLiveTimersWithDelay } = createHarness();
+  publisher.onEdit("file:///a.qs");
 
-  publisher.receive("file:///a.qs", anError);
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
   assert.deepEqual(published, []);
-  assert.equal(live(idleDelayMs).length, 1);
-  assert.equal(live(maxDelayMs).length, 1);
+  assert.equal(getLiveTimersWithDelay(idleDelayMs).length, 1);
+  assert.equal(getLiveTimersWithDelay(maxDelayMs).length, 1);
 });
 
 test("a result that arrives after the typing stopped publishes immediately", () => {
   const { publisher, published, fire } = createHarness();
-  publisher.noteEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
 
   // Stands in for a compilation slower than the wait: the burst ends before it finishes.
   fire(idleDelayMs);
-  publisher.receive("file:///a.qs", anError);
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
 });
 
 test("the wait restarts on each edit", () => {
-  const { publisher, timers, live } = createHarness();
+  const { publisher, timers, getLiveTimersWithDelay } = createHarness();
 
-  publisher.noteEdit("file:///a.qs");
-  publisher.noteEdit("file:///a.qs");
-  publisher.noteEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
 
   assert.equal(timers.filter((t) => t.delayMs === idleDelayMs).length, 3);
-  assert.equal(live(idleDelayMs).length, 1);
+  assert.equal(getLiveTimersWithDelay(idleDelayMs).length, 1);
 });
 
 test("the cap is scheduled once per burst, not per edit", () => {
   const { publisher, timers } = createHarness();
 
-  publisher.noteEdit("file:///a.qs");
-  publisher.noteEdit("file:///a.qs");
-  publisher.noteEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
 
   assert.equal(timers.filter((t) => t.delayMs === maxDelayMs).length, 1);
 });
 
 test("only the latest diagnostics for the edited document are published", () => {
   const { publisher, published, fire } = createHarness();
-  publisher.noteEdit("file:///a.qs");
+  publisher.onEdit("file:///a.qs");
 
-  publisher.receive("file:///a.qs", errors("first"));
-  publisher.receive("file:///a.qs", errors("second"));
-  publisher.receive("file:///a.qs", errors("third"));
+  publisher.onDiagnosticsUpdate("file:///a.qs", errors("first"));
+  publisher.onDiagnosticsUpdate("file:///a.qs", errors("second"));
+  publisher.onDiagnosticsUpdate("file:///a.qs", errors("third"));
 
   fire(idleDelayMs);
 
@@ -158,17 +158,18 @@ test("only the latest diagnostics for the edited document are published", () => 
 });
 
 test("clearing all errors publishes immediately and drops the pending entry", () => {
-  const { publisher, published, live, fire } = createHarness();
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", anError);
+  const { publisher, published, getLiveTimersWithDelay, fire } =
+    createHarness();
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
-  publisher.receive("file:///a.qs", []);
+  publisher.onDiagnosticsUpdate("file:///a.qs", []);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: [] }]);
 
   // The burst belongs to the typing, not to the pending entry, so it keeps running.
-  assert.equal(live(idleDelayMs).length, 1);
-  assert.equal(live(maxDelayMs).length, 1);
+  assert.equal(getLiveTimersWithDelay(idleDelayMs).length, 1);
+  assert.equal(getLiveTimersWithDelay(maxDelayMs).length, 1);
 
   fire(idleDelayMs);
 
@@ -177,15 +178,15 @@ test("clearing all errors publishes immediately and drops the pending entry", ()
 
 test("editing another document flushes the pending entry", () => {
   const { publisher, published } = createHarness();
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", anError);
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
-  publisher.noteEdit("file:///b.qs");
+  publisher.onEdit("file:///b.qs");
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
 
   // The first document is no longer the one being edited.
-  publisher.receive("file:///a.qs", errors("later"));
+  publisher.onDiagnosticsUpdate("file:///a.qs", errors("later"));
 
   assert.deepEqual(published, [
     { uri: "file:///a.qs", diagnostics: anError },
@@ -194,17 +195,17 @@ test("editing another document flushes the pending entry", () => {
 });
 
 test("editing a document we don't publish for flushes and stops debouncing", () => {
-  const { publisher, published, live } = createHarness();
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", anError);
+  const { publisher, published, getLiveTimersWithDelay } = createHarness();
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
-  publisher.noteEdit(undefined);
+  publisher.onEdit(undefined);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
-  assert.equal(live(idleDelayMs).length, 0);
-  assert.equal(live(maxDelayMs).length, 0);
+  assert.equal(getLiveTimersWithDelay(idleDelayMs).length, 0);
+  assert.equal(getLiveTimersWithDelay(maxDelayMs).length, 0);
 
-  publisher.receive("file:///a.qs", anError);
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
   assert.deepEqual(published, [
     { uri: "file:///a.qs", diagnostics: anError },
@@ -213,16 +214,17 @@ test("editing a document we don't publish for flushes and stops debouncing", () 
 });
 
 test("the idle timer ends the burst", () => {
-  const { publisher, published, live, fire } = createHarness();
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", anError);
+  const { publisher, published, getLiveTimersWithDelay, fire } =
+    createHarness();
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
   fire(idleDelayMs);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
-  assert.equal(live(maxDelayMs).length, 0);
+  assert.equal(getLiveTimersWithDelay(maxDelayMs).length, 0);
 
-  publisher.receive("file:///a.qs", errors("later"));
+  publisher.onDiagnosticsUpdate("file:///a.qs", errors("later"));
 
   assert.deepEqual(published, [
     { uri: "file:///a.qs", diagnostics: anError },
@@ -231,29 +233,30 @@ test("the idle timer ends the burst", () => {
 });
 
 test("the cap publishes without ending the burst", () => {
-  const { publisher, published, live, fire } = createHarness();
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", anError);
+  const { publisher, published, getLiveTimersWithDelay, fire } =
+    createHarness();
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
   fire(maxDelayMs);
 
   assert.deepEqual(published, [{ uri: "file:///a.qs", diagnostics: anError }]);
 
   // Typing hasn't stopped, so the next result is still withheld.
-  assert.equal(live(idleDelayMs).length, 1);
-  publisher.receive("file:///a.qs", errors("later"));
+  assert.equal(getLiveTimersWithDelay(idleDelayMs).length, 1);
+  publisher.onDiagnosticsUpdate("file:///a.qs", errors("later"));
 
   assert.equal(published.length, 1);
 });
 
 test("a cap-driven publish starts a fresh cap on the next edit", () => {
   const { publisher, published, timers, fire } = createHarness();
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", anError);
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
   fire(maxDelayMs);
 
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", errors("later"));
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", errors("later"));
 
   assert.equal(timers.filter((t) => t.delayMs === maxDelayMs).length, 2);
 
@@ -267,8 +270,8 @@ test("a cap-driven publish starts a fresh cap on the next edit", () => {
 
 test("dispose cancels without publishing", () => {
   const { publisher, published, timers } = createHarness();
-  publisher.noteEdit("file:///a.qs");
-  publisher.receive("file:///a.qs", anError);
+  publisher.onEdit("file:///a.qs");
+  publisher.onDiagnosticsUpdate("file:///a.qs", anError);
 
   publisher.dispose();
 

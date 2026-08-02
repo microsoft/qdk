@@ -234,7 +234,7 @@ export type {
   LanguageServiceEvent,
   LanguageServiceTestCallablesEvent,
 } from "./language-service/language-service.js";
-export type { DiagnosticsPublisherOptions } from "./language-service/diagnosticsPublisher.js";
+export type { DiagnosticsPublisherImpl } from "./language-service/diagnosticsPublisher.js";
 export type { ProjectLoader } from "./project.js";
 export type { CircuitGroup as CircuitData } from "./data-structures/circuit.js";
 export type { LogLevel } from "./log.js";
