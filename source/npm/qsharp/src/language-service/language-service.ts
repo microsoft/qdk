@@ -290,7 +290,7 @@ export class QSharpLanguageService implements ILanguageService {
         Event;
       event.detail = {
         uri,
-        version: version ?? 0,
+        version: version ?? 0, // No version if not open
         diagnostics,
       };
       this.eventHandler.dispatchEvent(event);
