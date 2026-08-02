@@ -59,13 +59,21 @@ export function startLanguageServiceDiagnostics(
   // Feed edit events to the DiagnosticsPublisher
   const diagnosticsPublisherEditTracker =
     vscode.workspace.onDidChangeTextDocument((evt) => {
+      const uri = evt.document.uri;
+
+      if (uri.scheme === "output") {
+        // NB: this fires for output window changes, so it's very important not to cause
+        // output window changes in response (i.e. to avoid a cycle).
+        return;
+      }
+
       // Dirty-state and encoding changes raise this event too, with no edit behind them.
       if (evt.contentChanges.length === 0) {
         return;
       }
 
       publisher.onEdit(
-        isQdkDocument(evt.document) ? evt.document.uri.toString() : undefined,
+        isQdkDocument(evt.document) ? uri.toString() : undefined,
       );
     });
 
