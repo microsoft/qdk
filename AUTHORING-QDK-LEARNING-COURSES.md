@@ -93,7 +93,7 @@ Once the cell runs successfully, the exercise will be considered to be complete.
 Setting up a Python environment can be tricky for new users and we want the focus to be on the course content, so we've added some helper functionality to both prepare and validate the environment.
 
 - `requirements.txt` lists course dependencies and will be installed in a per-course virtual environment
-- `courses.json` lets you list imports you expect to work so they can be checked before the student starts the unit (e.g. in case they've selected the wrong notebook kernel)
+- `course.json` lets you list imports you expect to work so they can be checked before the student starts the unit (e.g. in case they've selected the wrong notebook kernel)
 - The course infrastructure depends on the Python and Jupyter VS Code extensions, so they'll be prompted if those are absent
 
 ## Trying it out
@@ -104,6 +104,7 @@ The Microsoft Quantum Katas are the default course, so you'll need to explicitly
 
 When you switch to your course, temporary working copies of all the notebooks will be created (indicated by the `.workbook.ipynb` file extension).
 These copies omit all the exercise hints, solutions, and explanations and give the learner a notebook they can edit freely without worrying about overwriting anything important.
+An existing working copy is never overwritten, so if you based your course on a sample you'd previously run, `git clean` it first to clear out any working copies left behind.
 
 There are buttons and context menu items throughout the UI that connect the experience to the Copilot chat.
 Exercises, in particular, offer hints and explanations.
