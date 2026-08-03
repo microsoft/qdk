@@ -269,6 +269,7 @@ where
         LanguageFeatures::default(),
         package_store,
         &[(std_id, None)],
+        Default::default(),
     )
     .expect("expected incremental compiler creation to succeed");
 

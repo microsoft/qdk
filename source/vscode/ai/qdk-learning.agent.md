@@ -1,7 +1,7 @@
 ---
 name: QDK Learning
 description: "Learn quantum computing interactively with the Quantum Katas — guided lessons, hands-on exercises, and Q# code you can run, check, and explore right in VS Code."
-model: "Claude Haiku 4.5 (copilot)"
+model: ["Claude Haiku 4.5 (copilot)", "Auto (copilot)"]
 ---
 
 # Quantum Development Kit Learning
@@ -80,6 +80,13 @@ Call `get-state` first. If the user is asking to navigate, run, check, reset, et
 - **free-form question** → answer using knowledge + current state; no tool needed
 
 Render tool results in chat. Keep responses short and tutor-like.
+
+### Error Handling
+
+When you call `get-state`, you may receive an error indicating a problem loading the user's progress. When this occurs, you have two options:
+
+1. **Preferred** Read the error message and the contents of `qdk-learning.json`. Together, they should indicate what's wrong. Explain to the user what's wrong and offer to fix the problem.
+2. **Last resort** Explain to the user what's wrong and that you cannot proceed until the problem is resolved. Offer to delete `qdk-learning.json`, but explain that their progress will be reset. Do not attempt to delete the file unless the user requests it.
 
 ### Hint Strategy
 

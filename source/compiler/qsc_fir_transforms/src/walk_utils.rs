@@ -66,8 +66,8 @@ mod tests;
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
     BinOp, BlockId, CallableDecl, CallableImpl, CallableKind, Expr, ExprId, ExprKind, Field,
-    Global, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PatId, PatKind,
-    Res, SpecDecl, SpecImpl, StmtId, StmtKind, StringComponent, UnOp,
+    Global, ItemId, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup,
+    PackageStore, PatId, PatKind, Res, SpecDecl, SpecImpl, StmtId, StmtKind, StringComponent, UnOp,
 };
 use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
@@ -720,11 +720,12 @@ pub(crate) fn extend_expr_ids_in_local_callables(
 ///
 /// Calls are accepted only when the callee resolves to a callable in
 /// `package_id`, the callable is a function with a non-intrinsic body, and that
-/// body is side-effect-free under the same rules. Opaque intrinsics,
-/// operations, dynamic callees, and foreign-package callees remain rejected.
-/// `Return`, `Fail`, `While`, assignments, and else-less `If` in the current
-/// expression are rejected because they can change caller control flow or
-/// program state. The match is exhaustive with no wildcard arm, so a new
+/// body is side-effect-free under the same rules. The exception is the total
+/// intrinsic functions listed by [`is_total_intrinsic_function`]. Other
+/// intrinsics, operations, dynamic callees, and foreign-package callees remain
+/// rejected. `Return`, `Fail`, `While`, assignments, and else-less `If` in the
+/// current expression are rejected because they can change caller control flow
+/// or program state. The match is exhaustive with no wildcard arm, so a new
 /// [`ExprKind`] variant breaks the build here and must have both purity
 /// properties decided explicitly.
 pub(crate) fn expr_is_side_effect_free(
@@ -736,7 +737,10 @@ pub(crate) fn expr_is_side_effect_free(
         package,
         package_id,
         expr_id,
-        PurityMode::AllowFallible,
+        PurityMode {
+            totality: Totality::AllowFallible,
+            total_foreign: &FxHashSet::default(),
+        },
         PurityScope::Expression,
         &mut FxHashSet::default(),
     )
@@ -751,18 +755,38 @@ pub(crate) fn expr_is_side_effect_free(
 /// `Index`, `UpdateIndex`, `ArrayRepeat`, division, modulus, exponentiation,
 /// shifts, and result equality are rejected unless a future value-sensitive
 /// analysis proves the specific instance total. Calls must additionally
-/// resolve to a known function body that is itself safe to discard; intrinsic,
-/// dynamic, foreign, and recursive callees are rejected.
+/// resolve to a known function body that is itself safe to discard, or to one
+/// of the total intrinsic functions listed by [`is_total_intrinsic_function`];
+/// other intrinsic, dynamic, foreign, and recursive callees are rejected.
 pub(crate) fn expr_is_safe_to_discard(
     package: &Package,
     package_id: PackageId,
     expr_id: ExprId,
 ) -> bool {
+    expr_is_safe_to_discard_with_total_foreign(package, package_id, expr_id, &FxHashSet::default())
+}
+
+/// [`expr_is_safe_to_discard`] with an explicit set of foreign callables that
+/// are known to be side-effect free and total.
+///
+/// A call into another package is otherwise rejected outright, because this
+/// walker holds a single [`Package`] and cannot inspect a foreign body. Callers
+/// that resolved those callables from the package store can pass them here so a
+/// dead binding whose initializer only uses them becomes removable.
+pub(crate) fn expr_is_safe_to_discard_with_total_foreign(
+    package: &Package,
+    package_id: PackageId,
+    expr_id: ExprId,
+    total_foreign: &FxHashSet<ItemId>,
+) -> bool {
     expr_has_purity(
         package,
         package_id,
         expr_id,
-        PurityMode::RequireTotal,
+        PurityMode {
+            totality: Totality::RequireTotal,
+            total_foreign,
+        },
         PurityScope::Expression,
         &mut FxHashSet::default(),
     )
@@ -770,14 +794,34 @@ pub(crate) fn expr_is_safe_to_discard(
 
 /// Controls whether purity analysis accepts expressions that can fail at
 /// runtime.
-#[derive(Clone, Copy)]
-enum PurityMode {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Totality {
     /// Accepts fallible expressions as long as they do not mutate state or
     /// perform externally observable effects.
     AllowFallible,
     /// Requires expressions to be both side-effect-free and total for all
     /// values described by their FIR shape.
     RequireTotal,
+}
+
+/// Purity analysis configuration threaded through the expression walker.
+///
+/// `total_foreign` names callables outside the analyzed package that are known
+/// to be side-effect free and total for every well-typed argument. The walker
+/// only holds one [`Package`], so it cannot open a foreign body; a caller that
+/// can resolve the [`qsc_fir::fir::PackageStore`] supplies them, and callers
+/// that cannot pass an empty set and keep the conservative foreign rejection.
+#[derive(Clone, Copy)]
+struct PurityMode<'a> {
+    totality: Totality,
+    total_foreign: &'a FxHashSet<ItemId>,
+}
+
+impl PurityMode<'_> {
+    /// Returns whether the current mode tolerates expressions that can fail.
+    fn allows_fallible(self) -> bool {
+        self.totality == Totality::AllowFallible
+    }
 }
 
 /// Selects the statement and expression rules for the current analysis root.
@@ -800,7 +844,7 @@ fn expr_has_purity(
     package: &Package,
     package_id: PackageId,
     expr_id: ExprId,
-    mode: PurityMode,
+    mode: PurityMode<'_>,
     scope: PurityScope,
     active_callables: &mut FxHashSet<LocalItemId>,
 ) -> bool {
@@ -818,7 +862,7 @@ fn expr_has_purity(
             .iter()
             .all(|&id| expr_has_purity(package, package_id, id, mode, scope, active_callables)),
         ExprKind::ArrayRepeat(value, count) | ExprKind::Index(value, count) => {
-            matches!(mode, PurityMode::AllowFallible)
+            mode.allows_fallible()
                 && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
                 && expr_has_purity(package, package_id, *count, mode, scope, active_callables)
         }
@@ -830,7 +874,7 @@ fn expr_has_purity(
                 && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
         }
         ExprKind::UpdateIndex(arr, idx, value) => {
-            matches!(mode, PurityMode::AllowFallible)
+            mode.allows_fallible()
                 && expr_has_purity(package, package_id, *arr, mode, scope, active_callables)
                 && expr_has_purity(package, package_id, *idx, mode, scope, active_callables)
                 && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
@@ -897,18 +941,25 @@ fn expr_has_purity(
 
 /// Checks the block expression rules for the requested scope.
 ///
-/// Expression-position blocks are accepted only when they are transparent
-/// value wrappers. Callable-body blocks are checked statement-by-statement so
-/// local mutation and return-like body forms can participate in call purity.
+/// A callable body, and any block being judged for deletion, is checked
+/// statement by statement, so a block that binds pure locals before its result
+/// stays pure. Partial application lowers to exactly that shape
+/// (`{ let arg = ...; closure }`), and treating it as opaque would report a
+/// trivially pure value as observable.
+///
+/// An expression-position block judged for duplication or reordering keeps the
+/// stricter transparent-wrapper rule. Deleting such a block discards its local
+/// bindings harmlessly, but moving or copying one relocates those bindings, so
+/// the two questions do not share an answer.
 fn block_expr_has_purity(
     package: &Package,
     package_id: PackageId,
     block_id: BlockId,
-    mode: PurityMode,
+    mode: PurityMode<'_>,
     scope: PurityScope,
     active_callables: &mut FxHashSet<LocalItemId>,
 ) -> bool {
-    if matches!(scope, PurityScope::CallableBody) {
+    if matches!(scope, PurityScope::CallableBody) || !mode.allows_fallible() {
         return block_has_purity(package, package_id, block_id, mode, scope, active_callables);
     }
 
@@ -934,7 +985,7 @@ fn callable_body_expr_has_purity(
     package: &Package,
     package_id: PackageId,
     kind: &ExprKind,
-    mode: PurityMode,
+    mode: PurityMode<'_>,
     active_callables: &mut FxHashSet<LocalItemId>,
 ) -> Option<bool> {
     let scope = PurityScope::CallableBody;
@@ -953,13 +1004,13 @@ fn callable_body_expr_has_purity(
                 && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
         }
         ExprKind::AssignIndex(arr, idx, value) => {
-            matches!(mode, PurityMode::AllowFallible)
+            mode.allows_fallible()
                 && expr_has_purity(package, package_id, *arr, mode, scope, active_callables)
                 && expr_has_purity(package, package_id, *idx, mode, scope, active_callables)
                 && expr_has_purity(package, package_id, *value, mode, scope, active_callables)
         }
         ExprKind::Fail(msg) => {
-            matches!(mode, PurityMode::AllowFallible)
+            mode.allows_fallible()
                 && expr_has_purity(package, package_id, *msg, mode, scope, active_callables)
         }
         ExprKind::Return(value) => {
@@ -975,7 +1026,7 @@ fn block_has_purity(
     package: &Package,
     package_id: PackageId,
     block_id: BlockId,
-    mode: PurityMode,
+    mode: PurityMode<'_>,
     scope: PurityScope,
     active_callables: &mut FxHashSet<LocalItemId>,
 ) -> bool {
@@ -1001,7 +1052,7 @@ fn call_has_purity(
     package_id: PackageId,
     callee: ExprId,
     args: ExprId,
-    mode: PurityMode,
+    mode: PurityMode<'_>,
     scope: PurityScope,
     active_callables: &mut FxHashSet<LocalItemId>,
 ) -> bool {
@@ -1026,6 +1077,10 @@ fn call_has_purity(
                 None => false,
             }
         }
+        // A callee in another package cannot be opened from here, so it is
+        // accepted only when the caller resolved it as total and side-effect
+        // free from the package store.
+        ExprKind::Var(Res::Item(item_id), _) => mode.total_foreign.contains(item_id),
         ExprKind::Closure(_, item_id) => match package.get_global(*item_id) {
             Some(Global::Callable(decl)) => {
                 callable_has_purity(package, package_id, *item_id, decl, mode, active_callables)
@@ -1039,18 +1094,36 @@ fn call_has_purity(
 /// Checks whether a callable declaration can be treated as pure under the
 /// requested mode.
 ///
-/// Only functions with explicit bodies are analyzed. Intrinsics, operations,
-/// and opaque implementations are rejected. Recursive functions are accepted
-/// only for side-effect freedom, not for discard safety.
+/// Only callables with an explicit, analyzable body are considered, plus the
+/// total intrinsic functions listed by [`is_total_intrinsic_function`]. Opaque
+/// implementations, including simulatable intrinsics, are rejected. Recursive
+/// callables are accepted only for side-effect freedom, not for discard safety.
+///
+/// When proving a call safe to delete, an operation earns purity from its body
+/// on the same terms as a function. Being an operation is not itself an effect:
+/// every effect one can perform — gate application, measurement, qubit
+/// allocation — bottoms out in an intrinsic call that this analysis rejects.
+/// A factory that only builds a partial application is the common case.
+///
+/// When proving a call safe to duplicate or reorder, operations stay rejected
+/// outright, preserving the conservative answer those callers already rely on.
+///
+/// A functor-applied callee never reaches here, because [`call_has_purity`]
+/// resolves only a bare item reference. That matters for operations, where just
+/// the `body` specialization is analyzed.
 fn callable_has_purity(
     package: &Package,
     package_id: PackageId,
     item_id: LocalItemId,
     decl: &CallableDecl,
-    mode: PurityMode,
+    mode: PurityMode<'_>,
     active_callables: &mut FxHashSet<LocalItemId>,
 ) -> bool {
-    if decl.kind != CallableKind::Function {
+    if is_total_intrinsic_function(decl) {
+        return true;
+    }
+
+    if decl.kind != CallableKind::Function && mode.allows_fallible() {
         return false;
     }
 
@@ -1059,7 +1132,7 @@ fn callable_has_purity(
     };
 
     if !active_callables.insert(item_id) {
-        return matches!(mode, PurityMode::AllowFallible);
+        return mode.allows_fallible();
     }
 
     let is_pure = block_has_purity(
@@ -1074,14 +1147,53 @@ fn callable_has_purity(
     is_pure
 }
 
+/// Returns whether an intrinsic function is side-effect free and total for
+/// every well-typed argument, so a call to it may be duplicated or discarded.
+///
+/// Intrinsics have no analyzable body, so each entry is an explicit semantic
+/// commitment rather than something the walker can derive. `Length` reads an
+/// array's element count and cannot fail. Other intrinsics stay rejected:
+/// arithmetic intrinsics can trap, and the rest may perform observable work.
+///
+/// Monomorphization deliberately preserves the `Length` name (see
+/// `mono_name`), so matching on it stays valid after generic instantiation.
+fn is_total_intrinsic_function(decl: &CallableDecl) -> bool {
+    matches!(decl.implementation, CallableImpl::Intrinsic) && decl.name.name.as_ref() == "Length"
+}
+
+/// Collects every callable in `store` that is side-effect free and total for
+/// all well-typed arguments, keyed for cross-package lookup.
+///
+/// Pass the result to [`expr_is_safe_to_discard_with_total_foreign`] so a
+/// discard proof can see through calls that leave the analyzed package. Only
+/// the intrinsics accepted by [`is_total_intrinsic_function`] qualify, so this
+/// stays a small, explicitly reviewed set rather than a general cross-package
+/// purity analysis.
+pub(crate) fn collect_total_foreign_callables(store: &PackageStore) -> FxHashSet<ItemId> {
+    let mut total = FxHashSet::default();
+    for (package_id, package) in store {
+        for (item_id, item) in &package.items {
+            if let ItemKind::Callable(decl) = &item.kind
+                && is_total_intrinsic_function(decl)
+            {
+                total.insert(ItemId {
+                    package: package_id,
+                    item: item_id,
+                });
+            }
+        }
+    }
+    total
+}
+
 /// Checks the operator-level portion of binary-expression purity.
 ///
 /// Operand purity is checked by the caller. This helper decides only whether
 /// the operator itself can be considered total in `RequireTotal` mode.
-fn binop_has_purity(package: &Package, op: BinOp, lhs: ExprId, mode: PurityMode) -> bool {
-    match mode {
-        PurityMode::AllowFallible => true,
-        PurityMode::RequireTotal => match op {
+fn binop_has_purity(package: &Package, op: BinOp, lhs: ExprId, mode: PurityMode<'_>) -> bool {
+    match mode.totality {
+        Totality::AllowFallible => true,
+        Totality::RequireTotal => match op {
             BinOp::Add
             | BinOp::AndB
             | BinOp::AndL

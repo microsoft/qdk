@@ -107,9 +107,14 @@ export class LearningTools {
    * so the caller can decide whether to prompt for initialization.
    */
   async getState(): Promise<
-    { initialized: false } | ({ initialized: true } & StateSnapshot)
+    | { initialized: false; error?: string }
+    | ({ initialized: true } & StateSnapshot)
   > {
     if (!this.service.initialized) {
+      const progressError = this.service.progressLoadingError;
+      if (progressError) {
+        return { initialized: false, error: progressError };
+      }
       const detected = await detectLearningWorkspace();
       if (!detected) {
         return { initialized: false };

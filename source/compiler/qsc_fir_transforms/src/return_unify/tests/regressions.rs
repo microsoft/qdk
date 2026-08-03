@@ -73,7 +73,7 @@ fn triple_nested_if_return_with_else_return() {
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             {
                                 __ret_val = 0;
                                 __has_returned = true;
@@ -233,7 +233,7 @@ fn if_both_return_release_suffix_before_after_qsharp() {
                         };
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val

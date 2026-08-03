@@ -293,7 +293,7 @@ fn missing_return_in_omitted_else_fails() {
 }
 
 #[test]
-fn return_from_for_loop() {
+fn return_only_from_for_loop_missing_fallback_return() {
     let source = r#"
         def square(int a) -> bit {
             for int i in {1, 2} {
@@ -305,11 +305,39 @@ fn return_from_for_loop() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+
+              x non-void def should always return
+               ,-[Test.qasm:2:30]
+             1 | 
+             2 |         def square(int a) -> bit {
+               :                              ^^^
+             3 |             for int i in {1, 2} {
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn return_from_for_loop_with_fallback_return() {
+    let source = r#"
+        def square(int a) -> bit {
+            for int i in {1, 2} {
+                return 1;
+            }
+            return 0;
+        }
+    "#;
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             function square(a : Int) : Result {
                 for i : Int in [1, 2] {
                     return Std.OpenQASM.Convert.IntAsResult(1);
                 }
+                return Std.OpenQASM.Convert.IntAsResult(0);
             }
         "#]],
     );
@@ -340,7 +368,7 @@ fn missing_return_in_for_loop_fails() {
 }
 
 #[test]
-fn return_from_while_loop() {
+fn return_only_from_while_loop_missing_fallback_return() {
     let source = r#"
         def square(int a) -> bit {
             while (true) {
@@ -352,11 +380,39 @@ fn return_from_while_loop() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
+            Qdk.Qasm.Lowerer.NonVoidDefShouldAlwaysReturn
+
+              x non-void def should always return
+               ,-[Test.qasm:2:30]
+             1 | 
+             2 |         def square(int a) -> bit {
+               :                              ^^^
+             3 |             while (true) {
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn return_from_while_loop_with_fallback_return() {
+    let source = r#"
+        def square(int a) -> bit {
+            while (true) {
+                return 1;
+            }
+            return 0;
+        }
+    "#;
+
+    check_qasm_to_qsharp(
+        source,
+        &expect![[r#"
             import Std.OpenQASM.Intrinsic.*;
             function square(a : Int) : Result {
                 while true {
                     return Std.OpenQASM.Convert.IntAsResult(1);
                 }
+                return Std.OpenQASM.Convert.IntAsResult(0);
             }
         "#]],
     );

@@ -76,7 +76,7 @@ def compile(
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)  # type: ignore
         ll_str = get_interpreter().qir(
-            entry_expr=None, callable=source.__global_callable, args=args
+            entry_expr=None, callable=getattr(source, "__global_callable"), args=args
         )
     elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value

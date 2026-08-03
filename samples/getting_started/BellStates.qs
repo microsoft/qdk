@@ -1,15 +1,15 @@
-/// # Summary
-/// Bell States sample
-///
-/// # Description
-/// This Q# sample shows how to prepare the four different Bell states.
-///
-/// # Remarks
-/// Bell states or EPR pairs are specific quantum states of two qubits
-/// that represent the simplest (and maximal) examples of quantum entanglement.
-///
-/// # References
-/// - [Bell state](https://en.wikipedia.org/wiki/Bell_state)
+// # Summary
+// Bell States sample
+//
+// # Description
+// This Q# sample shows how to prepare the four different Bell states.
+//
+// # Remarks
+// Bell states or EPR pairs are specific quantum states of two qubits
+// that represent the simplest (and maximal) examples of quantum entanglement.
+//
+// # References
+// - [Bell state](https://en.wikipedia.org/wiki/Bell_state)
 operation Main() : (Result, Result)[] {
     // Prepare and measure each pair. Return an array of these results.
     [

@@ -219,7 +219,7 @@ fn assert_while_condition_return_flag_shape(source: &str, expected_ret_val: i64)
     );
     assert!(
         saw_flag_assignment,
-        "expected rewritten while-condition return path to set __has_returned = true"
+        "expected rewritten while-condition return path to __has_returned = true"
     );
 }
 
@@ -453,8 +453,47 @@ fn hoist_return_in_update_index_value() {
     "#},
         &expect![[r#"
             function Main() : Int[] {
-                let arr : Int[] = [0, 0, 0];
-                let _ : Int[] = arr;
+                let _ : Int = 0;
+                []
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn hoist_return_in_assign_index_value_discards_only_the_index() {
+    // `arr w/= 0 <- (return [])` — Return as the replacement of an
+    // AssignIndex. The exec graph evaluates the index, then the replacement,
+    // and truncates the container, so only the index is discarded ahead of
+    // the hoisted Return — the container place produces no `let _ = arr;`.
+    let source = indoc! {r#"
+        namespace Test {
+            function Main() : Int[] {
+                mutable arr = [0, 0, 0];
+                arr w/= 0 <- (return []);
+                arr
+            }
+        }
+    "#};
+
+    // Assert the container-place discard's absence directly rather than relying
+    // on the snapshot alone. This suite is regenerated with `UPDATE_EXPECT=1`,
+    // which would absorb a reintroduced `let _ : Int[] = arr;` into the
+    // expectation and leave the test green while it stopped testing its name.
+    let (store, pkg_id) = crate::return_unify::tests::compile_return_unified(source);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, pkg_id);
+    assert!(
+        !rendered.contains("= arr;"),
+        "the AssignIndex container place must not be enumerated as an operand, \
+         so no discard binding reads it:\n{rendered}"
+    );
+
+    check_no_returns_q(
+        source,
+        &expect![[r#"
+            function Main() : Int[] {
                 let _ : Int = 0;
                 []
             }
@@ -517,23 +556,23 @@ fn hoist_return_in_range_endpoint() {
                         __ret_val = 5;
                         __has_returned = true;
                     };
-                    mutable _index_id_31 : Int = if not __has_returned {
-                        _range_id_28::Start
+                    mutable _index_id_31 : Int = if (not __has_returned) {
+                        _range_id_28.Start
                     } else {
                         0
                     };
-                    let _step_id_36 : Int = if not __has_returned {
-                        _range_id_28::Step
+                    let _step_id_36 : Int = if (not __has_returned) {
+                        _range_id_28.Step
                     } else {
                         0
                     };
-                    let _end_id_41 : Int = if not __has_returned {
-                        _range_id_28::End
+                    let _end_id_41 : Int = if (not __has_returned) {
+                        _range_id_28.End
                     } else {
                         0
                     };
-                    if not __has_returned {
-                        while _step_id_36 > 0 and _index_id_31 <= _end_id_41 or _step_id_36 < 0 and _index_id_31 >= _end_id_41 {
+                    if (not __has_returned) {
+                        while ((_step_id_36 > 0) and (_index_id_31 <= _end_id_41)) or ((_step_id_36 < 0) and (_index_id_31 >= _end_id_41)) {
                             let i : Int = _index_id_31;
                             sum += i;
                             _index_id_31 += _step_id_36;
@@ -545,7 +584,7 @@ fn hoist_return_in_range_endpoint() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         sum
                     } else {
                         __ret_val
@@ -629,23 +668,23 @@ fn hoist_return_in_local_init_preserves_binding() {
                         __ret_val = 5;
                         __has_returned = true;
                     };
-                    mutable _index_id_95 : Int = if not __has_returned {
-                        _range_id_92::Start
+                    mutable _index_id_95 : Int = if (not __has_returned) {
+                        _range_id_92.Start
                     } else {
                         0
                     };
-                    let _step_id_100 : Int = if not __has_returned {
-                        _range_id_92::Step
+                    let _step_id_100 : Int = if (not __has_returned) {
+                        _range_id_92.Step
                     } else {
                         0
                     };
-                    let _end_id_105 : Int = if not __has_returned {
-                        _range_id_92::End
+                    let _end_id_105 : Int = if (not __has_returned) {
+                        _range_id_92.End
                     } else {
                         0
                     };
-                    if not __has_returned {
-                        while _step_id_100 > 0 and _index_id_95 <= _end_id_105 or _step_id_100 < 0 and _index_id_95 >= _end_id_105 {
+                    if (not __has_returned) {
+                        while ((_step_id_100 > 0) and (_index_id_95 <= _end_id_105)) or ((_step_id_100 < 0) and (_index_id_95 >= _end_id_105)) {
                             let i : Int = _index_id_95;
                             sum += i;
                             _index_id_95 += _step_id_100;
@@ -657,7 +696,7 @@ fn hoist_return_in_local_init_preserves_binding() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         sum
                     } else {
                         __ret_val
@@ -675,7 +714,7 @@ fn hoist_return_in_local_init_preserves_binding() {
                 7
             }
             function Main() : Int {
-                RangeShape() + TupleShape() + CallShape()
+                (RangeShape() + TupleShape()) + CallShape()
             }
             // entry
             Main()

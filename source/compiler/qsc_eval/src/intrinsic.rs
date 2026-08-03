@@ -7,10 +7,9 @@ mod utils;
 mod tests;
 
 use crate::{
-    Error, Rc,
+    Error, PackageSpan, Rc,
     backend::{Backend, TracingBackend},
     debug::Frame,
-    error::PackageSpan,
     output::Receiver,
     val::{self, Value, unwrap_tuple},
 };

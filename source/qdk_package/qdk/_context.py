@@ -64,12 +64,12 @@ from ._types import (
 from .estimator._estimator import LogicalCounts
 
 # Check if we are running in a Jupyter notebook to use the IPython display function
-_in_jupyter = False
+_jupyter_display = None
 try:
     from IPython.display import display  # type: ignore[import-not-found]
 
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
-        _in_jupyter = True  # Jupyter notebook or qtconsole
+        _jupyter_display = display  # Jupyter notebook or qtconsole
 except:
     pass
 
@@ -186,6 +186,7 @@ class Context:
         language_features: Optional[List[str]] = None,
         _trace_circuit: Optional[bool] = None,
         _is_global_context: bool = False,
+        qdk_config: dict[str, int | float | str | bool] = {},
     ):
         """
         Initializes a new isolated Q# context.
@@ -207,6 +208,10 @@ class Context:
             the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
             the statement form instead (``use q = Qubit();``). It also removes the requirement
             to use the ``set`` keyword for mutable variable assignments.
+
+        :keyword qdk_config: configuration parameters that will be accessible in Q#
+            code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of 
+            type `int`, `float`, `str`, or `bool`.
         """
         self._disposed = False
         self._is_global_context = _is_global_context
@@ -281,6 +286,7 @@ class Context:
             make_callable_weak,
             make_class_weak,
             _trace_circuit,
+            qdk_config,
         )
 
         self._config = Config(
@@ -398,9 +404,9 @@ class Context:
 
     def _display(self, output: Output) -> None:
         """Displays output in Jupyter (if available), otherwise prints."""
-        if _in_jupyter:
+        if _jupyter_display is not None:
             try:
-                display(output)
+                _jupyter_display(output)
                 return
             except Exception:
                 # If IPython is not available, fall back to printing the output.

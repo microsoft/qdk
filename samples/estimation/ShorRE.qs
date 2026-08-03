@@ -1,11 +1,11 @@
-/// # Sample
-/// Estimating Frequency for Shor's algorithm
-///
-/// # Description
-/// In this sample we concentrate on costing the `EstimateFrequency`
-/// operation, which is the core quantum operation in Shor's algorithm, and
-/// we omit the classical pre- and post-processing. This makes it ideal for
-/// use with the Microsoft Quantum Resource Estimator.
+// # Sample
+// Estimating Frequency for Shor's algorithm
+//
+// # Description
+// In this sample we concentrate on costing the `EstimateFrequency`
+// operation, which is the core quantum operation in Shor's algorithm, and
+// we omit the classical pre- and post-processing. This makes it ideal for
+// use with the Microsoft Quantum Resource Estimator.
 import Std.Arrays.*;
 import Std.Canon.*;
 import Std.Convert.*;

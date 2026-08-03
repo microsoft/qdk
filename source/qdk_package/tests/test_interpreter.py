@@ -442,9 +442,7 @@ def test_estimate_from_udt_returning_callable_matches_logical_counts_on_base_pro
             counted = callable_value
 
     e = Interpreter(TargetProfile.Base, make_callable=make_callable)
-    e.interpret(
-        dedent(
-            """
+    e.interpret(dedent("""
             struct Data { tally: Int }
 
             // The UDT output makes this a useful regression for callable
@@ -455,9 +453,7 @@ def test_estimate_from_udt_returning_callable_matches_logical_counts_on_base_pro
                 MResetZ(q);
                 new Data { tally = 0 }
             }
-            """
-        )
-    )
+            """))
 
     assert counted is not None
 

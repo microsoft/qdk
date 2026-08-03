@@ -512,8 +512,8 @@ fn block_qubit_use_array_invalid_count_expr() {
                         0,
                     ),
                     span: Span {
-                        lo: 2749,
-                        hi: 2806,
+                        lo: 3661,
+                        hi: 3718,
                     },
                 },
             )
@@ -3354,6 +3354,34 @@ fn nested_interpolated_string_with_exprs() {
             $"foo {x + $"bar {y}"} baz"
         }"#},
         &expect!["foo hello!bar 1.5 baz"],
+    );
+}
+
+#[test]
+fn interpolated_string_block() {
+    check_expr("", r#"$"{ { 2 + 3 } }""#, &expect!["5"]);
+}
+
+#[test]
+fn interpolated_string_for_loop() {
+    check_expr("", r#"$"{for _ in 1..3 {}}""#, &expect!["()"]);
+}
+
+#[test]
+fn interpolated_string_block_with_loop() {
+    check_expr(
+        "",
+        r#"$"result is { { mutable r = 0; for _ in 1..3 { set r += 1; } r } }""#,
+        &expect!["result is 3"],
+    );
+}
+
+#[test]
+fn nested_interpolated_string_with_block() {
+    check_expr(
+        "",
+        r#"$"A={ { let b = $"B={ {2 + 3} }"; b } }""#,
+        &expect!["A=B=5"],
     );
 }
 

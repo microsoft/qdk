@@ -1,12 +1,12 @@
-/// # Sample
-/// Deutsch–Jozsa Algorithm
-///
-/// # Description
-/// Deutsch–Jozsa is a quantum algorithm that determines whether a given Boolean
-/// function 𝑓 is constant (0 on all inputs or 1 on all inputs) or balanced
-/// (1 for exactly half of the input domain and 0 for the other half).
-///
-/// This Q# program implements the Deutsch–Jozsa algorithm.
+// # Sample
+// Deutsch–Jozsa Algorithm
+//
+// # Description
+// Deutsch–Jozsa is a quantum algorithm that determines whether a given Boolean
+// function 𝑓 is constant (0 on all inputs or 1 on all inputs) or balanced
+// (1 for exactly half of the input domain and 0 for the other half).
+//
+// This Q# program implements the Deutsch–Jozsa algorithm.
 import Std.Measurement.*;
 
 operation Main() : (Result[], Result[]) {

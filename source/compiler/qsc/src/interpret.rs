@@ -41,7 +41,7 @@ use qsc_data_structures::{
     error::WithSource,
     functors::FunctorApp,
     language_features::LanguageFeatures,
-    line_column::{Encoding, Range},
+    line_column::{Encoding, Position, Range},
     source::{Source, SourceMap},
     span::Span,
     target::{Profile, TargetCapabilityFlags},
@@ -219,6 +219,7 @@ impl Interpreter {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::NoDebug,
@@ -229,9 +230,11 @@ impl Interpreter {
             store,
             dependencies,
             None,
+            qdk_config,
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn with_circuit_trace(
         sources: SourceMap,
         package_type: PackageType,
@@ -240,6 +243,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         circuit_tracer_config: TracerConfig,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::NoDebug,
@@ -250,12 +254,14 @@ impl Interpreter {
             store,
             dependencies,
             Some(circuit_tracer_config),
+            qdk_config,
         )
     }
 
     /// Creates a new incremental compiler with debugging stmts enabled, compiling the passed in sources.
     /// # Errors
     /// If compiling the sources fails, compiler errors are returned.
+    #[allow(clippy::too_many_arguments)]
     pub fn with_debug(
         sources: SourceMap,
         package_type: PackageType,
@@ -264,6 +270,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         trace_circuit_config: TracerConfig,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         Self::with_sources(
             ExecGraphConfig::Debug,
@@ -274,6 +281,7 @@ impl Interpreter {
             store,
             dependencies,
             Some(trace_circuit_config),
+            qdk_config,
         )
     }
 
@@ -287,6 +295,7 @@ impl Interpreter {
         store: PackageStore,
         dependencies: &Dependencies,
         circuit_tracer_config: Option<TracerConfig>,
+        qdk_config: FxHashMap<Rc<str>, Value>,
     ) -> std::result::Result<Self, Vec<Error>> {
         let compiler = Compiler::new(
             sources,
@@ -295,6 +304,7 @@ impl Interpreter {
             language_features,
             store,
             dependencies,
+            qdk_config,
         )
         .map_err(into_errors)?;
 
@@ -387,8 +397,11 @@ impl Interpreter {
                     return Err(transform_result
                         .errors
                         .into_iter()
-                        .map(|e| {
-                            Error::FirTransform(WithSource::from_map(&source_package.sources, e))
+                        .map(|error| {
+                            Error::FirTransform(crate::compile::attach_fir_transform_source(
+                                compiler.package_store(),
+                                error,
+                            ))
                         })
                         .collect());
                 }
@@ -1728,6 +1741,7 @@ impl Interpreter {
             // and revert the update to the lowerer/FIR store.
             let fir_package = self.fir_store.get_mut(self.package);
             self.lowerer.revert_last_increment(fir_package);
+            let _ = self.lowerer.take_exec_graph();
 
             let source_package = self
                 .compiler
@@ -1848,6 +1862,7 @@ impl Debugger {
             store,
             dependencies,
             Debugger::circuit_config(),
+            FxHashMap::default(),
         )?;
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
@@ -1985,7 +2000,7 @@ impl Debugger {
             .env
             .get_variables_in_frame(frame_id)
             .into_iter()
-            .filter(|v| !v.name.starts_with('@'))
+            .filter(|v| !v.name.starts_with(['@', '.']))
             .collect()
     }
 
@@ -2053,7 +2068,7 @@ pub struct BreakpointSpan {
 }
 
 struct BreakpointCollector<'a> {
-    statements: FxHashMap<Range, BreakpointSpan>,
+    statements: FxHashMap<Position, BreakpointSpan>,
     sources: &'a SourceMap,
     offset: u32,
     package: &'a Package,
@@ -2092,13 +2107,17 @@ impl<'a> BreakpointCollector<'a> {
                     id: stmt.id.into(),
                     range,
                 };
-                // Keep the first statement seen for a source range so UI clients get
-                // one stable, hittable breakpoint per visual location.
-                // Multiple HIR passes (ReplaceQubitAllocation, LoopUni,
-                // conjugate_invert, spec_gen) generate statements sharing the same
-                // source span. The lowerer maps these 1:1 into FIR, so deduplication
-                // is needed here.
-                self.statements.entry(range).or_insert(bps);
+                // Keep the first statement seen for a given start position so UI
+                // clients get one stable, hittable breakpoint per visual location.
+                // Multiple HIR passes, including ReplaceQubitAllocation, LoopUni,
+                // conjugate_invert, and spec_gen, generate statements that share a
+                // start position but differ in span. For example, the qubit-release
+                // desugar wraps `return e;` in a block whose inner `return e` keeps
+                // the return-expression span, one column shorter than the outer
+                // statement's `return e;` span. Keying on the start position
+                // collapses such overlapping locations onto the outer statement
+                // seen first, so a single source line maps to a single breakpoint.
+                self.statements.entry(range.start).or_insert(bps);
             }
         }
     }
@@ -2108,11 +2127,16 @@ impl<'a> Visitor<'a> for BreakpointCollector<'a> {
     fn visit_stmt(&mut self, stmt: StmtId) {
         let stmt_res = self.get_stmt(stmt);
         match stmt_res.kind {
-            fir::StmtKind::Expr(expr) | fir::StmtKind::Local(_, _, expr) => {
+            // Walk the expression-bearing statement kinds so nested statements
+            // become individually breakpointable. `Item` only references an item
+            // and package traversal visits item bodies separately.
+            fir::StmtKind::Expr(expr)
+            | fir::StmtKind::Local(_, _, expr)
+            | fir::StmtKind::Semi(expr) => {
                 self.add_stmt(stmt_res);
                 visit::walk_expr(self, expr);
             }
-            fir::StmtKind::Item(_) | fir::StmtKind::Semi(_) => {
+            fir::StmtKind::Item(_) => {
                 self.add_stmt(stmt_res);
             }
         }

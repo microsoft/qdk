@@ -287,6 +287,27 @@ impl AstLintPass for DiscourageChainAssignment {
     }
 }
 
+fn is_pure_expr(expr: &Expr) -> bool {
+    match expr.kind.as_ref() {
+        ExprKind::Lit(_) | ExprKind::Path(_) | ExprKind::Hole => true,
+        ExprKind::Paren(inner) | ExprKind::UnOp(_, inner) | ExprKind::Field(inner, _) => {
+            is_pure_expr(inner)
+        }
+        ExprKind::BinOp(_, lhs, rhs)
+        | ExprKind::Index(lhs, rhs)
+        | ExprKind::ArrayRepeat(lhs, rhs) => is_pure_expr(lhs) && is_pure_expr(rhs),
+        ExprKind::TernOp(_, first, second, third) => {
+            is_pure_expr(first) && is_pure_expr(second) && is_pure_expr(third)
+        }
+        ExprKind::Array(exprs) | ExprKind::Tuple(exprs) => exprs.iter().all(|e| is_pure_expr(e)),
+        ExprKind::Range(start, step, end) => [start, step, end]
+            .into_iter()
+            .flatten()
+            .all(|e| is_pure_expr(e)),
+        _ => false,
+    }
+}
+
 #[derive(Default)]
 struct DeprecatedAssignUpdateExpr {
     level: LintLevel,
@@ -297,13 +318,38 @@ impl AstLintPass for DeprecatedAssignUpdateExpr {
         if let ExprKind::AssignUpdate(record, index, value) = expr.kind.as_ref()
             && let Some(Ty::Array(_)) = compilation.compile_unit.ast.tys.terms.get(record.id)
         {
-            let record_src = compilation.get_source_code(record.span);
-            let index_src = compilation.get_source_code(index.span);
+            let mut lhs = format!(
+                "{}[{}]",
+                compilation.get_source_code(record.span),
+                compilation.get_source_code(index.span)
+            );
+
+            let mut prefix_is_pure = is_pure_expr(record) && is_pure_expr(index);
+            let mut value = value;
+            loop {
+                while let ExprKind::Paren(inner) = value.kind.as_ref() {
+                    value = inner;
+                }
+
+                let ExprKind::TernOp(TernOp::Update, inner_record, inner_index, inner_value) =
+                    value.kind.as_ref()
+                else {
+                    break;
+                };
+                if compilation.get_source_code(inner_record.span) != lhs {
+                    break;
+                }
+                if !prefix_is_pure {
+                    break;
+                }
+
+                lhs = format!("{lhs}[{}]", compilation.get_source_code(inner_index.span));
+                prefix_is_pure = prefix_is_pure && is_pure_expr(inner_index);
+                value = inner_value;
+            }
+
             let value_src = compilation.get_source_code(value.span);
-            let edits = vec![(
-                format!("{record_src}[{index_src}] = {value_src}"),
-                expr.span,
-            )];
+            let edits = vec![(format!("{lhs} = {value_src}"), expr.span)];
             buffer.push(lint!(
                 self,
                 expr.span,

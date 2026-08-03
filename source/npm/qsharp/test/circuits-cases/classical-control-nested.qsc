@@ -1,0 +1,68 @@
+{
+  "_comment": "Two nested classically-controlled groups sharing the same producer (q0). Both groups' box tops live in the same gap (between q0's wire and q0's classical sub-wire), so labels and top dashed borders must STACK rather than overlap. Exercises: (a) `heightAboveFirstClassical` accumulating per-producer (running max of current depth); (b) the `targetsY`-extension fix in process.ts so the inner group's `topPadding` propagates up to the outer's `maxTopPadding` (otherwise both groups render with identical `topPadding` and their box tops merge).",
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 1 },
+        { "id": 1, "numResults": 0 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [{ "qubit": 0 }],
+              "results": [{ "qubit": 0, "result": 0 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "if outer",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 1 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "if inner",
+                      "children": [
+                        {
+                          "components": [
+                            {
+                              "kind": "unitary",
+                              "gate": "X",
+                              "targets": [{ "qubit": 1 }]
+                            }
+                          ]
+                        }
+                      ],
+                      "targets": [{ "qubit": 1 }],
+                      "controls": [{ "qubit": 0, "result": 0 }],
+                      "isConditional": true
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 1 }],
+              "controls": [{ "qubit": 0, "result": 0 }],
+              "isConditional": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

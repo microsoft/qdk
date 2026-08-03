@@ -1,13 +1,13 @@
-/// # Sample
-/// Superdense Coding
-///
-/// # Description
-/// Superdense coding is a quantum communication protocol to communicate a
-/// number of classical bits of information by only transmitting a smaller
-/// number of qubits.
-///
-/// This Q# program implements superdense coding to send two classical bits of
-/// information.
+// # Sample
+// Superdense Coding
+//
+// # Description
+// Superdense coding is a quantum communication protocol to communicate a
+// number of classical bits of information by only transmitting a smaller
+// number of qubits.
+//
+// This Q# program implements superdense coding to send two classical bits of
+// information.
 operation Main() : ((Bool, Bool), (Bool, Bool)) {
     use (aliceQubit, bobQubit) = (Qubit(), Qubit());
 

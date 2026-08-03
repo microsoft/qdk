@@ -1,11 +1,11 @@
-/// # Sample
-/// Shor's Algorithm
-///
-/// # Description
-/// Shor's algorithm is a quantum algorithm for finding the prime factors of an
-/// integer.
-///
-/// This Q# program implements Shor's algorithm.
+// # Sample
+// Shor's Algorithm
+//
+// # Description
+// Shor's algorithm is a quantum algorithm for finding the prime factors of an
+// integer.
+//
+// This Q# program implements Shor's algorithm.
 import Std.Convert.*;
 import Std.Diagnostics.*;
 import Std.Random.*;

@@ -1,11 +1,11 @@
-/// # Sample
-/// Bernstein-Vazirani Algorithm
-///
-/// # Description
-/// The Bernstein-Vazirani algorithm determines the value of a bit string
-/// encoded in a function.
-///
-/// This Q# program implements the Bernstein-Vazirani algorithm.
+// # Sample
+// Bernstein-Vazirani Algorithm
+//
+// # Description
+// The Bernstein-Vazirani algorithm determines the value of a bit string
+// encoded in a function.
+//
+// This Q# program implements the Bernstein-Vazirani algorithm.
 import Std.Arrays.*;
 import Std.Convert.*;
 import Std.Diagnostics.*;

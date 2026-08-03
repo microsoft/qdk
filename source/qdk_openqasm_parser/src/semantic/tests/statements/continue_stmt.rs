@@ -53,6 +53,43 @@ fn while_loop() {
 }
 
 #[test]
+fn while_condition_fails() {
+    check_stmt_kinds(
+        "while (durationof({ continue; }) == 0ns) {}",
+        &expect![[r#"
+            Program:
+                version: <none>
+                pragmas: <empty>
+                statements:
+                    Stmt [0-43]:
+                        annotations: <empty>
+                        kind: WhileLoop [0-43]:
+                            condition: Expr [7-39]:
+                                ty: unknown
+                                kind: Err
+                            body: Stmt [41-43]:
+                                annotations: <empty>
+                                kind: Block [41-43]: <empty>
+
+            [Qdk.Qasm.Lowerer.InvalidScope
+
+              x continue can only appear in loop scopes
+               ,-[test:1:21]
+             1 | while (durationof({ continue; }) == 0ns) {}
+               :                     ^^^^^^^^^
+               `----
+            , Qdk.Qasm.Lowerer.CannotApplyOperatorToTypes
+
+              x cannot apply operator Eq to types const duration and const duration
+               ,-[test:1:8]
+             1 | while (durationof({ continue; }) == 0ns) {}
+               :        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+            ]"#]],
+    );
+}
+
+#[test]
 fn nested_scopes() {
     check_stmt_kinds(
         "while (true) { { continue; } }",
