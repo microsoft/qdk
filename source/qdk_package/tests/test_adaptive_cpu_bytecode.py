@@ -619,6 +619,57 @@ def test_read_loss(sim_type):
 
 
 # =========================================================================
+# OP_PEEK_LOSS — read whether a qubit is lost without collapsing
+# =========================================================================
+
+PEEK_LOSS_QIR = """
+entry:
+  ; Apply s to qubit 0 purely for its noise side effect. With
+  ; ``noise.s.loss = 1.0`` the simulator faults qubit 0 as lost on every shot.
+  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  ; Peek the loss state of qubit 0. Unlike read_loss, this reads the qubit
+  ; directly and doesn't collapse the qubit.
+  %lost = call i1 @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br i1 %lost, label %then, label %end
+
+then:
+  ; Witness: if peek_loss reported true, flip qubit 1 to |1⟩.
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  br label %end
+
+end:
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+PEEK_LOSS_DECLS = """
+declare i1 @__quantum__qis__peek_loss__body(%Qubit*)
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_peek_loss(sim_type):
+    """s (with 100% loss) → peek_loss → branch on loss → mz witness.
+
+    Result 0 should always be ``Loss`` ('L'), and result 1 should always be ``One`` ('1') because
+    peek_loss observed the loss and the conditional X was applied to qubit 1.
+    """
+    qir = format_qir(
+        PEEK_LOSS_QIR,
+        extra_decls=PEEK_LOSS_DECLS,
+        num_qubits=2,
+        num_results=2,
+    )
+    noise = NoiseConfig()
+    noise.s.loss = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type=sim_type)
+    counts = Counter(map_result_list_to_str(r) for r in results)
+    assert counts == {
+        "L1": SHOTS
+    }, f"Expected all {SHOTS} shots to be 'L1', got {counts}"
+
+
+# =========================================================================
 # move (OpID 28) — qubit move with associated noise
 # =========================================================================
 
