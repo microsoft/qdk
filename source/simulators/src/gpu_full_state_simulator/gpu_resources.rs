@@ -399,7 +399,7 @@ impl GpuResources {
 
     /// Creates the compute pipelines from the unified shader source.
     ///
-    /// The same `unified.wgsl` source powers both the base (linear op-list) and
+    /// The same `gpu_statevector_shaders.wgsl` source powers both the base (linear op-list) and
     /// adaptive (QIR bytecode interpreter) simulators; `is_adaptive` selects
     /// which code paths are compiled in via the `IS_ADAPTIVE` constant.
     pub(crate) fn create_shaders(
@@ -459,7 +459,8 @@ impl GpuResources {
             ("IS_ADAPTIVE", is_adaptive.to_string()),
         ];
 
-        let mut shader_src = stamp_shader_consts(include_str!("unified.wgsl"), &replacements);
+        let mut shader_src =
+            stamp_shader_consts(include_str!("gpu_statevector_shaders.wgsl"), &replacements);
 
         // Strip out DX12-incompatible code sections if needed
         if adapter.get_info().backend == wgpu::Backend::Dx12 {
@@ -857,7 +858,7 @@ impl GpuResources {
 
 /// Stamps compile-time constant values into the shader source.
 ///
-/// `unified.wgsl` declares its host-substituted constants with a literal
+/// `gpu_statevector_shaders.wgsl` declares its host-substituted constants with a literal
 /// default followed by a `// REPLACE` marker, e.g.
 /// `const QUBIT_COUNT: i32 = 8; // REPLACE`. Keeping a valid literal default
 /// (rather than a `{{PLACEHOLDER}}` token) lets editor tooling parse the file.
