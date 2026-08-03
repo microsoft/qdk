@@ -261,6 +261,31 @@ pub fn compile_to_fir(source: &str) -> (fir::PackageStore, fir::PackageId) {
     compile_to_fir_with_capabilities(source, TargetCapabilityFlags::empty())
 }
 
+/// Compiles Q# source and returns the frontend diagnostic codes instead of
+/// asserting that compilation succeeded.
+///
+/// Use this to pin source that the frontend is expected to reject, which the
+/// asserting `compile_to_fir*` helpers cannot express.
+#[cfg(test)]
+pub(crate) fn frontend_error_codes(source: &str) -> Vec<String> {
+    use miette::Diagnostic;
+
+    with_cached_stdlib_store(TargetCapabilityFlags::empty(), |store, std_id| {
+        let sources = SourceMap::new(vec![("test.qs".into(), source.into())], None);
+        let unit = frontend_compile::compile(
+            store,
+            &[(PackageId::CORE, None), (std_id, None)],
+            sources,
+            TargetCapabilityFlags::empty(),
+            LanguageFeatures::default(),
+        );
+        unit.errors
+            .iter()
+            .filter_map(|error| error.code().map(|code| code.to_string()))
+            .collect()
+    })
+}
+
 /// Compiles Q# source through core+std → HIR passes → FIR lowering using the
 /// given target capabilities.
 ///

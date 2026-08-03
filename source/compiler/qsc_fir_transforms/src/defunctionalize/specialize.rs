@@ -1921,6 +1921,8 @@ fn callable_input_contains_arrow(package: &Package, callable: LocalItemId) -> bo
 /// A residual `Ty::Udt` (one [`resolve_udt_ty`] could not expand, e.g. a
 /// foreign or non-`Ty` item) conservatively counts as containing an arrow so an
 /// unknown shape is never misclassified as arrow-free.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
     match resolve_udt_ty(package, ty) {
         Ty::Arrow(_) | Ty::Udt(_) => true,
@@ -5341,6 +5343,8 @@ fn remove_ty_at_nested_path(package: &Package, ty: &Ty, path: &[usize]) -> Ty {
 /// structural view that analysis used so a path like `cfg::Inner::Op` can remove the arrow
 /// field from the specialized callable's input type. Non-UDT leaves are preserved, and nested
 /// tuples, arrays, and arrows are rebuilt with any UDTs inside them expanded as well.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
     match ty {
         Ty::Udt(Res::Item(item_id)) => {
