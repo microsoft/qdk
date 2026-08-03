@@ -45,6 +45,7 @@ OP_RESET = 0x12
 OP_READ_RESULT = 0x13
 OP_RECORD_OUTPUT = 0x14
 OP_READ_LOSS = 0x15
+OP_PEEK_LOSS = 0x16
 
 # ── Integer Arithmetic ───────────────────────────────────────────────────────
 OP_ADD = 0x20

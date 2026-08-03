@@ -411,6 +411,10 @@ impl Simulator for NoiselessSimulator {
     fn state_dump(&self) -> &Self::StateDumpData {
         self.state.state().expect("state should be valid")
     }
+
+    fn is_qubit_lost(&self, _qubit: QubitID) -> bool {
+        false
+    }
 }
 
 /// A noisy state-vector simulator.
@@ -1034,5 +1038,9 @@ impl Simulator for NoisySimulator {
 
     fn state_dump(&self) -> &Self::StateDumpData {
         self.state.state().expect("state should be valid")
+    }
+
+    fn is_qubit_lost(&self, qubit: QubitID) -> bool {
+        self.loss[qubit]
     }
 }

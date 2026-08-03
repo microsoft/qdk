@@ -15,7 +15,7 @@
 )]
 
 use crate::{
-    MeasurementResult, OutputRecord, Simulator,
+    MeasurementResult, OutputRecord, QubitID, Simulator,
     bytecode::{AdaptiveProgram, Instruction},
 };
 
@@ -49,6 +49,7 @@ const OP_RESET: u8 = 0x12;
 const OP_READ_RESULT: u8 = 0x13;
 const OP_RECORD_OUTPUT: u8 = 0x14;
 const OP_READ_LOSS: u8 = 0x15;
+const OP_PEEK_LOSS: u8 = 0x16;
 
 // Integer arithmetic
 const OP_ADD: u8 = 0x20;
@@ -470,6 +471,13 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
                     result_id < measurements.len()
                         && matches!(measurements[result_id], MeasurementResult::Loss),
                 );
+                rt.write_reg(instr.dst, val);
+                rt.pc += 1;
+            }
+
+            OP_PEEK_LOSS => {
+                let qubit = rt.resolve_u64(instr.src0, flags, 0) as QubitID;
+                let val = u64::from(sim.is_qubit_lost(qubit));
                 rt.write_reg(instr.dst, val);
                 rt.pc += 1;
             }

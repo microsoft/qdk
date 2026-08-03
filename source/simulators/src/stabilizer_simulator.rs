@@ -709,6 +709,10 @@ impl Simulator for StabilizerSimulator {
     fn state_dump(&self) -> &Self::StateDumpData {
         self.state.clifford()
     }
+
+    fn is_qubit_lost(&self, qubit: QubitID) -> bool {
+        self.loss[qubit]
+    }
 }
 
 fn unitary_from_normalized_angle(
