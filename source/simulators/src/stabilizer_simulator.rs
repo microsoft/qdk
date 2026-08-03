@@ -784,6 +784,10 @@ impl Simulator for StabilizerSimulator {
         };
         self.measurements[result_id] = new_measurement;
     }
+
+    fn is_qubit_lost(&self, qubit: QubitID) -> bool {
+        self.loss[qubit]
+    }
 }
 
 fn unitary_from_normalized_angle(

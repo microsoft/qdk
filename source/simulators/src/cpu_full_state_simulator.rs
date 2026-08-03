@@ -816,6 +816,10 @@ impl Simulator for FullStateSimulator {
         self.state.state().expect("state should be valid")
     }
 
+    fn is_qubit_lost(&self, qubit: QubitID) -> bool {
+        self.loss[qubit]
+    }
+
     fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: QubitID) {
         let measurement = self.measurements[result_id];
         let sample = self.rng.random_range(0.0..1.0);
