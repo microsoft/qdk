@@ -6253,6 +6253,36 @@ fn recursive_udt_through_array() {
 }
 
 #[test]
+fn recursive_udt_through_nested_array() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { Children : Foo[][] }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 49 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_through_tuple_only() {
+    check(
+        indoc! {"
+            namespace A {
+                newtype Foo = (Int, Foo);
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 32, hi: 42 } })))
+        "#]],
+    );
+}
+
+#[test]
 fn recursive_udt_through_arrow() {
     check(
         indoc! {"
@@ -6285,6 +6315,45 @@ fn recursive_udt_mutual() {
 }
 
 #[test]
+fn recursive_udt_mutual_across_namespaces() {
+    // The cycle is closed by resolved item identity, not by shared namespace or bare name.
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { B : B.Bar }
+            }
+            namespace B {
+                struct Bar { F : A.Foo }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 40 } })))
+            Error(Type(Error(RecursiveUdt { name: "Bar", span: Span { lo: 76, hi: 85 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_mutual_through_arrow_and_tuple() {
+    // Neither field names the other type directly; the edge only exists inside a callable
+    // output tuple.
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { F : Int -> (Bool, Bar) }
+                struct Bar { F : Int -> (Bool, Foo) }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 53 } })))
+            Error(Type(Error(RecursiveUdt { name: "Bar", span: Span { lo: 73, hi: 95 } })))
+        "#]],
+    );
+}
+
+#[test]
 fn recursive_udt_chain() {
     check(
         indoc! {"
@@ -6299,6 +6368,28 @@ fn recursive_udt_chain() {
             Error(Type(Error(RecursiveUdt { name: "Leaf", span: Span { lo: 32, hi: 39 } })))
             Error(Type(Error(RecursiveUdt { name: "Mid", span: Span { lo: 59, hi: 66 } })))
             Error(Type(Error(RecursiveUdt { name: "Top", span: Span { lo: 86, hi: 94 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_independent_cycles_all_reported() {
+    // Two disjoint cycles in one compilation: the check does not stop at the first component.
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { B : Bar }
+                struct Bar { F : Foo }
+                struct Baz { Q : Qux }
+                struct Qux { Z : Baz }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 38 } })))
+            Error(Type(Error(RecursiveUdt { name: "Bar", span: Span { lo: 58, hi: 65 } })))
+            Error(Type(Error(RecursiveUdt { name: "Baz", span: Span { lo: 85, hi: 92 } })))
+            Error(Type(Error(RecursiveUdt { name: "Qux", span: Span { lo: 112, hi: 119 } })))
         "#]],
     );
 }
