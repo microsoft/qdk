@@ -554,7 +554,7 @@ async fn wait_for_document_version_released_when_handler_stops() {
     // `join` polls the wait first, so it is parked by the time the handler shuts down.
     let (result, ()) = futures::future::join(wait, worker.run(|| std::future::ready(()))).await;
 
-    assert_eq!(result, VersionWaitResult::Superseded);
+    assert_eq!(result, VersionWaitResult::Never);
 }
 
 /// Once the handler has stopped there is nothing left to wake a new caller, so parking
@@ -571,7 +571,7 @@ async fn wait_for_document_version_returns_immediately_after_handler_stops() {
 
     assert_eq!(
         ls.wait_for_document_version("foo.qs", 1).await,
-        VersionWaitResult::Superseded
+        VersionWaitResult::Never
     );
 }
 

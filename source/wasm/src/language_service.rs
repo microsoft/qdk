@@ -242,6 +242,8 @@ impl LanguageService {
                 futures_util::future::Either::Left((VersionWaitResult::Superseded, _)) => {
                     "superseded"
                 }
+                // Treat LS shutdown as a timeout - the distinction isn't important
+                futures_util::future::Either::Left((VersionWaitResult::Never, _)) => "timeout",
                 futures_util::future::Either::Right(_) => {
                     log::debug!(
                         "timed out after {timeout_ms}ms waiting for {uri} version {version}"

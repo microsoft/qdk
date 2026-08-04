@@ -65,6 +65,9 @@ pub enum VersionWaitResult {
     /// The document has already moved past the requested version. That version was
     /// coalesced away and will never be compiled, so it can no longer be answered for.
     Superseded,
+    /// Indicates that the language service has been shutdown and the awaited version
+    /// will never be compiled.
+    Never,
 }
 
 /// Callers parked in [`LanguageService::wait_for_document_version`], waiting for the
@@ -244,8 +247,9 @@ impl LanguageService {
     }
 
     /// Waits until the compilation state reflects exactly `version` of `uri`, reporting
-    /// [`VersionWaitResult::Superseded`] if the document moves past it first. Whether a
-    /// superseded version is still usable is left to the caller.
+    /// [`VersionWaitResult::Superseded`] if the document moves past it first, or
+    /// [`VersionWaitResult::Never`] if the language service stops updating before the
+    /// version can arrive. Whether a superseded version is still usable is left to the caller.
     ///
     /// The returned future is independent of `&self` so that callers can hold it across
     /// await points without keeping the language service borrowed. The `use<>` bound is
@@ -272,14 +276,14 @@ impl LanguageService {
                         _ => match waiters.park() {
                             Some(receiver) => receiver,
                             // The update handler is gone, so the version will never arrive.
-                            None => return VersionWaitResult::Superseded,
+                            None => return VersionWaitResult::Never,
                         },
                     }
                 };
 
                 if receiver.await.is_err() {
                     // The update handler shut down while we were parked.
-                    return VersionWaitResult::Superseded;
+                    return VersionWaitResult::Never;
                 }
             }
         }
