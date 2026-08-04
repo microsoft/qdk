@@ -59,7 +59,7 @@ pub struct LanguageService {
 
 /// The outcome of waiting for a specific version of a document to be compiled.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum VersionWait {
+pub enum VersionWaitResult {
     /// The compilation state reflects exactly the requested version.
     Ready,
     /// The document has already moved past the requested version. That version was
@@ -244,7 +244,7 @@ impl LanguageService {
     }
 
     /// Waits until the compilation state reflects exactly `version` of `uri`, reporting
-    /// [`VersionWait::Superseded`] if the document moves past it first. Whether a
+    /// [`VersionWaitResult::Superseded`] if the document moves past it first. Whether a
     /// superseded version is still usable is left to the caller.
     ///
     /// The returned future is independent of `&self` so that callers can hold it across
@@ -254,7 +254,7 @@ impl LanguageService {
         &self,
         uri: &str,
         version: u32,
-    ) -> impl std::future::Future<Output = VersionWait> + 'static + use<> {
+    ) -> impl std::future::Future<Output = VersionWaitResult> + 'static + use<> {
         let state = self.state.clone();
         let waiters = self.version_waiters.clone();
         let uri = uri.to_string();
@@ -266,20 +266,20 @@ impl LanguageService {
                 let receiver = {
                     let state = state.borrow();
                     match state.get_open_document_version(&uri) {
-                        Some(current) if current == version => return VersionWait::Ready,
-                        Some(current) if current > version => return VersionWait::Superseded,
+                        Some(current) if current == version => return VersionWaitResult::Ready,
+                        Some(current) if current > version => return VersionWaitResult::Superseded,
                         // Either behind, or the document hasn't been processed at all yet.
                         _ => match waiters.park() {
                             Some(receiver) => receiver,
                             // The update handler is gone, so the version will never arrive.
-                            None => return VersionWait::Superseded,
+                            None => return VersionWaitResult::Superseded,
                         },
                     }
                 };
 
                 if receiver.await.is_err() {
                     // The update handler shut down while we were parked.
-                    return VersionWait::Superseded;
+                    return VersionWaitResult::Superseded;
                 }
             }
         }

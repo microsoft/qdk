@@ -13,7 +13,7 @@ use qsc::{
     target::Profile,
 };
 use qsc_project::Manifest;
-use qsls::VersionWait;
+use qsls::VersionWaitResult;
 use qsls::protocol::{DiagnosticUpdate, TestCallable, TestCallables};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
@@ -238,8 +238,10 @@ impl LanguageService {
             futures_util::pin_mut!(wait, timeout);
 
             let result = match futures_util::future::select(wait, timeout).await {
-                futures_util::future::Either::Left((VersionWait::Ready, _)) => "ready",
-                futures_util::future::Either::Left((VersionWait::Superseded, _)) => "superseded",
+                futures_util::future::Either::Left((VersionWaitResult::Ready, _)) => "ready",
+                futures_util::future::Either::Left((VersionWaitResult::Superseded, _)) => {
+                    "superseded"
+                }
                 futures_util::future::Either::Right(_) => {
                     log::debug!(
                         "timed out after {timeout_ms}ms waiting for {uri} version {version}"

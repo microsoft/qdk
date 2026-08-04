@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Encoding, LanguageService, Update, UpdateHandler, VersionWait,
+    Encoding, LanguageService, Update, UpdateHandler, VersionWaitResult,
     protocol::{DiagnosticUpdate, ErrorKind, TestCallables, WorkspaceConfigurationUpdate},
     push_update,
 };
@@ -473,7 +473,7 @@ async fn wait_for_document_version_ready_when_already_current() {
 
     assert_eq!(
         ls.wait_for_document_version("foo.qs", 1).await,
-        VersionWait::Ready
+        VersionWaitResult::Ready
     );
 }
 
@@ -496,7 +496,7 @@ async fn wait_for_document_version_resolves_once_applied() {
 
     worker.apply_pending().await;
 
-    assert_eq!(wait.await, VersionWait::Ready);
+    assert_eq!(wait.await, VersionWaitResult::Ready);
 }
 
 /// The case the completion path is built around: the requested version gets merged away
@@ -518,7 +518,7 @@ async fn wait_for_document_version_superseded_when_coalesced_away() {
     ls.update_document("foo.qs", 2, "namespace Foo { a", "qsharp");
     worker.apply_pending().await;
 
-    assert_eq!(wait.await, VersionWait::Superseded);
+    assert_eq!(wait.await, VersionWaitResult::Superseded);
 }
 
 /// A version the state has already moved past is reported without parking at all.
@@ -534,7 +534,7 @@ async fn wait_for_document_version_superseded_without_parking() {
 
     assert_eq!(
         ls.wait_for_document_version("foo.qs", 1).await,
-        VersionWait::Superseded
+        VersionWaitResult::Superseded
     );
 }
 
@@ -554,7 +554,7 @@ async fn wait_for_document_version_released_when_handler_stops() {
     // `join` polls the wait first, so it is parked by the time the handler shuts down.
     let (result, ()) = futures::future::join(wait, worker.run(|| std::future::ready(()))).await;
 
-    assert_eq!(result, VersionWait::Superseded);
+    assert_eq!(result, VersionWaitResult::Superseded);
 }
 
 /// Once the handler has stopped there is nothing left to wake a new caller, so parking
@@ -571,7 +571,7 @@ async fn wait_for_document_version_returns_immediately_after_handler_stops() {
 
     assert_eq!(
         ls.wait_for_document_version("foo.qs", 1).await,
-        VersionWait::Superseded
+        VersionWaitResult::Superseded
     );
 }
 
