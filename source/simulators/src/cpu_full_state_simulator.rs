@@ -816,8 +816,13 @@ impl Simulator for FullStateSimulator {
         self.state.state().expect("state should be valid")
     }
 
-    fn is_qubit_lost(&self, qubit: QubitID) -> bool {
-        self.loss[qubit]
+    fn peek_loss(&mut self, target: QubitID, result_id: QubitID) {
+        let is_lost = self.loss[target];
+        self.measurements[result_id] = if is_lost {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
+        };
     }
 
     fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: QubitID) {
