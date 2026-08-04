@@ -259,7 +259,7 @@ impl LanguageService {
     pub fn get_completions(&self, uri: &str, position: IPosition) -> ICompletionList {
         let position: Position = position.into();
         let completion_list = self.0.get_completions(uri, position.into());
-        let result: ICompletionList = CompletionList {
+        CompletionList {
             items: completion_list
                 .items
                 .into_iter()
@@ -291,8 +291,7 @@ impl LanguageService {
                 })
                 .collect(),
         }
-        .into();
-        result
+        .into()
     }
 
     pub fn get_definition(&self, uri: &str, position: IPosition) -> Option<ILocation> {
