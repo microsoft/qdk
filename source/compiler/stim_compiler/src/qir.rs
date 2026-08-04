@@ -11,7 +11,7 @@ use qdk_simulators::noise_config::{
 use crate::parser::*;
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::fmt::Write;
 use std::slice::Chunks;
 use thiserror::Error;
@@ -356,6 +356,12 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("NOTLEAKED cannot reference a record produced by PEEK_LOSS")]
+    #[diagnostic(code("Qdk.Stim.Compiler.NotLeakedOnPeekLoss"))]
+    NotLeakedOnPeekLoss {
+        #[label]
+        span: Span,
+    },
     #[error(
         "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
     )]
@@ -476,6 +482,7 @@ struct IdMap {
     qubit_map: FxHashMap<u32, u32>,
     name_counters: FxHashMap<&'static str, u32>, // prefix -> next index
     record_count: u32,                           // number of allocated measurement records
+    peek_loss_record_ids: FxHashSet<u32>,        // record ids produced by PEEK_LOSS
     scope_stack: Vec<Scope>, // active nested scopes; last() = current, empty = top level
     next_scope_id: u32,      // used to generate unique ids for scopes
 }
@@ -486,6 +493,7 @@ impl IdMap {
             qubit_map: FxHashMap::default(),
             name_counters: FxHashMap::default(),
             record_count: 0,
+            peek_loss_record_ids: FxHashSet::default(),
             scope_stack: Vec::new(),
             next_scope_id: 0,
         }
@@ -1297,6 +1305,11 @@ impl<'noise> Compiler<'noise> {
             "REQUIRE" => self.compile_require(instruction),
             "NOTLEAKED" => self.compile_notleaked(instruction),
 
+            // Miscellaneous
+            "PEEK_LOSS" => self.broadcast(instruction, |s, q| {
+                s.op_peek_loss(q);
+            }),
+
             // Annotations
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
             | "TICK" => (),
@@ -1575,6 +1588,13 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q, r]);
     }
 
+    fn op_peek_loss(&mut self, qubit: u32) {
+        let q = self.id_map.allocate_qubit(qubit);
+        let r = self.id_map.allocate_record();
+        self.id_map.peek_loss_record_ids.insert(r);
+        self.writer.write_qis_call("peek_loss", &[q, r]);
+    }
+
     fn op_2(&mut self, intrinsic: &str, q0: u32, q1: u32) {
         let q0 = self.id_map.allocate_qubit(q0);
         let q1 = self.id_map.allocate_qubit(q1);
@@ -1644,17 +1664,21 @@ impl<'noise> Compiler<'noise> {
             return;
         };
 
-        let mut has_negated_target = false;
-        for (&(_, negated), target) in record_metadata.iter().zip(&instruction.targets) {
+        let mut has_error = false;
+        for (&(result_id, negated), target) in record_metadata.iter().zip(&instruction.targets) {
             if negated {
                 self.push_error(Error::NegatedTarget {
                     instruction: instruction.name.clone(),
                     span: target.span,
                 });
-                has_negated_target = true;
+                has_error = true;
+            }
+            if self.id_map.peek_loss_record_ids.contains(&result_id) {
+                self.push_error(Error::NotLeakedOnPeekLoss { span: target.span });
+                has_error = true;
             }
         }
-        if has_negated_target {
+        if has_error {
             return;
         }
 
