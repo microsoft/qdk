@@ -945,9 +945,9 @@ class AdaptiveProfilePass:
                 result_reg = self._resolve_result_operand(call.args[0])
                 self._emit(OP_READ_LOSS, dst=dst, src0=result_reg)
             case "__quantum__qis__peek_loss__body":
-                dst = self._alloc_reg(call, REG_TYPE_BOOL)
                 q = self._resolve_qubit_operand(call.args[0])
-                self._emit(OP_PEEK_LOSS, dst=dst, src0=q)
+                r = self._resolve_result_operand(call.args[1])
+                self._emit(OP_PEEK_LOSS, aux0=q, aux1=r)
             case _ if callee.startswith("__quantum__qis__"):
                 self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:

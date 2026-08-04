@@ -476,9 +476,9 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
             }
 
             OP_PEEK_LOSS => {
-                let qubit = rt.resolve_u64(instr.src0, flags, 0) as QubitID;
-                let val = u64::from(sim.is_qubit_lost(qubit));
-                rt.write_reg(instr.dst, val);
+                let target = rt.resolve_u64(instr.aux0, flags, 3) as QubitID;
+                let result_id = rt.resolve_u64(instr.aux1, flags, 4) as QubitID;
+                sim.peek_loss(target, result_id);
                 rt.pc += 1;
             }
 

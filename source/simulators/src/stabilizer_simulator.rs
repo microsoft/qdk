@@ -710,8 +710,13 @@ impl Simulator for StabilizerSimulator {
         self.state.clifford()
     }
 
-    fn is_qubit_lost(&self, qubit: QubitID) -> bool {
-        self.loss[qubit]
+    fn peek_loss(&mut self, qubit: QubitID, result_id: QubitID) {
+        let is_lost = self.loss[qubit];
+        self.measurements[result_id] = if is_lost {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
+        };
     }
 }
 

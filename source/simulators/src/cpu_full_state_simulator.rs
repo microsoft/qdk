@@ -412,8 +412,8 @@ impl Simulator for NoiselessSimulator {
         self.state.state().expect("state should be valid")
     }
 
-    fn is_qubit_lost(&self, _qubit: QubitID) -> bool {
-        false
+    fn peek_loss(&mut self, _target: QubitID, result_id: QubitID) {
+        self.measurements[result_id] = MeasurementResult::Zero; // Peek loss always returns zero for the noiseless simulator.
     }
 }
 
@@ -1040,7 +1040,12 @@ impl Simulator for NoisySimulator {
         self.state.state().expect("state should be valid")
     }
 
-    fn is_qubit_lost(&self, qubit: QubitID) -> bool {
-        self.loss[qubit]
+    fn peek_loss(&mut self, target: QubitID, result_id: QubitID) {
+        let is_lost = self.loss[target];
+        self.measurements[result_id] = if is_lost {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
+        };
     }
 }
