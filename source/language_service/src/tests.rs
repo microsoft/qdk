@@ -391,17 +391,14 @@ async fn run_coalesces_updates_delivered_while_yielding() {
     let ls = RefCell::new(ls);
     let yields = Cell::new(0);
     let yield_to_host = || {
-        match yields.replace(yields.get() + 1) {
-            0 => {
-                // Two more keystrokes land while the first update is being handled.
-                ls.borrow_mut()
-                    .update_document("foo.qs", 2, "namespace Foo { a", "qsharp");
-                ls.borrow_mut()
-                    .update_document("foo.qs", 3, "namespace Foo { ab", "qsharp");
-            }
-            // Nothing further arrives, so the loop should stop yielding. Closing the
-            // channel is what lets `run()` return instead of waiting forever.
-            _ => ls.borrow_mut().stop_updates(),
+        if yields.replace(yields.get() + 1) == 0 {
+            let mut ls = ls.borrow_mut();
+            // Two more keystrokes land while the first update is being handled.
+            ls.update_document("foo.qs", 2, "namespace Foo { a", "qsharp");
+            ls.update_document("foo.qs", 3, "namespace Foo { ab", "qsharp");
+            // Nothing further arrives. Closing the channel is what lets `run()` return
+            // instead of waiting forever once this batch has been applied.
+            ls.stop_updates();
         }
         std::future::ready(())
     };
@@ -420,8 +417,8 @@ async fn run_coalesces_updates_delivered_while_yielding() {
     // the document as it actually stands.
     assert_eq!(applied, vec![Some(3)]);
 
-    // One yield to pick up the backlog, one to discover there is nothing left.
-    assert_eq!(yields.get(), 2);
+    // The handler yields exactly once per batch, and everything landed in one batch.
+    assert_eq!(yields.get(), 1);
 }
 
 /// Coalescing must not drop updates that aren't redundant with each other.
@@ -437,11 +434,10 @@ async fn run_applies_updates_to_distinct_documents() {
     let ls = RefCell::new(ls);
     let yields = Cell::new(0);
     let yield_to_host = || {
-        match yields.replace(yields.get() + 1) {
-            0 => ls
-                .borrow_mut()
-                .update_document("bar.qs", 1, "namespace Bar { ", "qsharp"),
-            _ => ls.borrow_mut().stop_updates(),
+        if yields.replace(yields.get() + 1) == 0 {
+            let mut ls = ls.borrow_mut();
+            ls.update_document("bar.qs", 1, "namespace Bar { ", "qsharp");
+            ls.stop_updates();
         }
         std::future::ready(())
     };

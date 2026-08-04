@@ -445,11 +445,6 @@ pub struct UpdateHandler<'a> {
     version_waiters: Rc<VersionWaiters>,
 }
 
-/// Caps how many times [`UpdateHandler::run`] will give the host a turn to deliver more
-/// input before processing what it has. Only bounds the worst case: the loop normally
-/// exits earlier, as soon as a yield produces nothing new.
-const MAX_YIELDS_PER_BATCH: usize = 4;
-
 impl UpdateHandler<'_> {
     /// Runs the update handler. This method is expected to run
     /// for the entire lifetime of the language service.
@@ -470,21 +465,17 @@ impl UpdateHandler<'_> {
         while let Some(update) = self.recv.next().await {
             let mut updates = vec![update];
 
-            // Keep giving the host a turn for as long as it has more to deliver. When the
-            // user pauses, the first yield comes back with nothing and this exits after a
-            // single tick. While they're typing, the backlog arrives over a few passes.
-            for _ in 0..MAX_YIELDS_PER_BATCH {
-                yield_to_host().await;
+            // We could consider yielding more than once, but empirically, that doesn't
+            // obviously result in more batching.
+            yield_to_host().await;
 
-                let batch_before = updates.len();
-                let drained = self.drain_pending(&mut updates);
-                if drained == 0 {
-                    break;
-                }
+            let batch_before = updates.len();
+            let drained = self.drain_pending(&mut updates);
 
-                // Every drained update either claims a new slot in the batch or merges
-                // into an existing one, and each merge discards one update.
-                let dropped = drained - (updates.len() - batch_before);
+            // Every drained update either claims a new slot in the batch or merges
+            // into an existing one, and each merge discards one update.
+            let dropped = drained - (updates.len() - batch_before);
+            if dropped > 0 {
                 trace!("drained {drained} update(s), merging dropped {dropped} as redundant");
             }
 
