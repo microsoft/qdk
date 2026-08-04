@@ -624,40 +624,33 @@ def test_read_loss(sim_type):
 
 PEEK_LOSS_QIR = """
 entry:
-  ; Apply s to qubit 0 purely for its noise side effect. With
-  ; ``noise.s.loss = 1.0`` the simulator faults qubit 0 as lost on every shot.
+  ; Apply s to qubit 0 for its noise side effect. With ``noise.s.loss = 1.0``
+  ; the simulator faults qubit 0 as lost on every shot.
   call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  ; Peek the loss state of qubit 0. Unlike read_loss, this reads the qubit
-  ; directly and doesn't collapse the qubit.
-  %lost = call i1 @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*))
-  br i1 %lost, label %then, label %end
-
-then:
-  ; Witness: if peek_loss reported true, flip qubit 1 to |1⟩.
-  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
-  br label %end
-
-end:
-  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
-  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  ; peek_loss behaves like a measurement: it records the loss status of qubit 0
+  ; into result 0 (One when lost) but does not collapse the qubit.
+  call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  ; Because peek_loss did not clear the loss, a later mz on qubit 0 still records Loss.
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
 """
 
 PEEK_LOSS_DECLS = """
-declare i1 @__quantum__qis__peek_loss__body(%Qubit*)
+declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)
 """
 
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_peek_loss(sim_type):
-    """s (with 100% loss) → peek_loss → branch on loss → mz witness.
+    """s (with 100% loss) → peek_loss records loss into a result without collapsing.
 
-    Result 0 should always be ``Loss`` ('L'), and result 1 should always be ``One`` ('1') because
-    peek_loss observed the loss and the conditional X was applied to qubit 1.
+    Result 0 is the peek: ``One`` ('1') because qubit 0 is lost. Result 1 is a
+    later mz on the same qubit: ``Loss`` ('L'), showing peek_loss did not clear
+    the loss — it behaves like a measurement but does not collapse state.
     """
     qir = format_qir(
         PEEK_LOSS_QIR,
         extra_decls=PEEK_LOSS_DECLS,
-        num_qubits=2,
+        num_qubits=1,
         num_results=2,
     )
     noise = NoiseConfig()
@@ -665,8 +658,8 @@ def test_peek_loss(sim_type):
     results = run_qir(qir, SHOTS, noise, seed=42, type=sim_type)
     counts = Counter(map_result_list_to_str(r) for r in results)
     assert counts == {
-        "L1": SHOTS
-    }, f"Expected all {SHOTS} shots to be 'L1', got {counts}"
+        "1L": SHOTS
+    }, f"Expected all {SHOTS} shots to be '1L', got {counts}"
 
 
 # =========================================================================
