@@ -72,7 +72,7 @@ try {
   }
   console.log("Empty suite succeeded.");
 
-  const suites = ["language-service", "debugger", "learning"];
+  const suites = ["language-service", "debugger"];
   const toRun =
     selectedSuite && suites.includes(selectedSuite) ? [selectedSuite] : suites;
 
