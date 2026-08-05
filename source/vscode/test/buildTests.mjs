@@ -27,7 +27,6 @@ const platformBuildOptions = {
       join(thisDir, "suites", "empty", "index.browser.ts"),
       join(thisDir, "suites", "language-service", "index.browser.ts"),
       join(thisDir, "suites", "debugger", "index.browser.ts"),
-      join(thisDir, "suites", "learning", "index.browser.ts"),
     ],
     platform: "browser",
     outdir: join(thisDir, "out", "browser"),
@@ -38,7 +37,6 @@ const platformBuildOptions = {
     entryPoints: [
       join(thisDir, "suites", "language-service", "index.node.ts"),
       join(thisDir, "suites", "debugger", "index.node.ts"),
-      join(thisDir, "suites", "learning", "index.node.ts"),
     ],
     platform: "node",
     outdir: join(thisDir, "out", "node"),
