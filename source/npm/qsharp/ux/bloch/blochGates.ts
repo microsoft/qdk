@@ -401,7 +401,7 @@ export function decodeGatesUrl(input: string | undefined | null): {
       const angle = Number.parseFloat(m[2]);
       if (Number.isFinite(angle)) {
         gates.push({
-          kind: ("R" + m[1].toUpperCase()) as RotationGateKind,
+          kind: ("R" + m[1].toLowerCase()) as RotationGateKind,
           angle,
         });
       }
