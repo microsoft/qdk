@@ -7,8 +7,9 @@
 //
 //   - `makeDropzoneBox`: inter-column vs on-column geometry, the trailing-append column past the
 //     rightmost real column, and the `data-dropzone-*` attribute set used by `findParentArray`.
-//   - `makeShiftExtendGhost`: vertical span extension above/below the group, horizontal extension
-//     onto the trailing-append column, and the `shift-extend-ghost` CSS hook.
+//   - `makeShiftExtendGhost`: clones the group's rendered box and slides one edge — vertical span
+//     extension above/below the group, right-edge growth when inserting a new column (with
+//     label-slack absorption), and the `shift-extend-ghost` CSS hook.
 //   - `createWireDropzone`: full-width wire-spanning dropzone Y math, the `isBetween` cases that
 //     target the gaps before the first / after the last wire.
 //   - `removeAllWireDropzones`: targets `.dropzone-full-wire` only and leaves other overlay
@@ -79,6 +80,21 @@ const INTER_COLUMN_HALF_WIDTH = GATE_PADDING * 2; // 12
 const INTER_COLUMN_FULL_WIDTH = INTER_COLUMN_HALF_WIDTH * 2; // 24
 const DROPZONE_PADDING_Y = 20;
 const REGISTER_HEIGHT = GATE_HEIGHT + GATE_PADDING * 2; // 52
+
+// Group-box padding constants — mirror `groupPaddingX` / `groupBottomPadding` / `groupTopPadding`
+// in `ux/circuit-vis/renderer/constants.ts`. `groupTopPadding` is DERIVED there as
+// `groupBottomPadding + labelFontSize + groupLabelPaddingY`, so it's derived here too. The ghost's
+// moved edge lands `TOP_PAD` above / `BOTTOM_PAD` below the hovered wire — the same
+// half-gate-plus-group-padding offsets the renderer leaves between a group's edge and its nearest
+// wire.
+const GROUP_PADDING_X = 10;
+const GROUP_BOTTOM_PADDING = 10;
+const LABEL_FONT_SIZE = 14;
+const GROUP_LABEL_PADDING_Y = 2;
+const GROUP_TOP_PADDING =
+  GROUP_BOTTOM_PADDING + LABEL_FONT_SIZE + GROUP_LABEL_PADDING_Y; // 26
+const TOP_PAD = GATE_HEIGHT / 2 + GROUP_TOP_PADDING; // 46
+const BOTTOM_PAD = GATE_HEIGHT / 2 + GROUP_BOTTOM_PADDING; // 30
 
 /**
  * Build a `LayoutScope` with the given column starts/widths. Mirrors the shape
@@ -195,111 +211,114 @@ test("makeDropzoneBox: nested pathPrefix produces hierarchical location string",
 
 // ─── makeShiftExtendGhost ───────────────────────────────────────────
 
-test("makeShiftExtendGhost: hover above the group's span extends the rect upward", () => {
-  // Group spans wires [1, 2]; hover wire 0 (above the group).
-  // Vertical bounds: min(top wire Y, hover Y) - padding ... max(bottom wire Y, hover Y) + padding.
-  const scope = makeScope([100], [60]);
-  const wireData = [50, 150, 250, 350];
+/**
+ * Build a group-box `<rect>` with the given bounds — the "real" rendered dashed box that
+ * `makeShiftExtendGhost` clones. Only x/y/width/height are read; the class mirrors a plain
+ * (non-classical) group's box.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @param {number} width
+ * @param {number} height
+ */
+function makeGroupBox(x, y, width, height) {
+  const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  rect.setAttribute("x", String(x));
+  rect.setAttribute("y", String(y));
+  rect.setAttribute("width", String(width));
+  rect.setAttribute("height", String(height));
+  rect.setAttribute("class", "gate-unitary");
+  return /** @type {SVGGraphicsElement} */ (rect);
+}
 
-  const ghost = makeShiftExtendGhost(
-    scope,
-    wireData,
-    /* groupMinWire */ 1,
-    /* groupMaxWire */ 2,
-    /* hoverWireIndex */ 0,
-    /* hoverColIndex */ 0,
-  );
+test("makeShiftExtendGhost: hover above the box top slides the top edge up, bottom fixed", () => {
+  // Box spans y ∈ [200, 320]; hover a wire at y=150 (above the box).
+  // The top edge drops to hoverY - TOP_PAD; the bottom edge (which may
+  // carry a classical-control reach) stays put.
+  const box = makeGroupBox(100, 200, 80, 120);
+  const scope = makeScope([100], [60]);
+
+  const ghost = makeShiftExtendGhost(box, /* hoverWireY */ 150, false, scope);
 
   assert.equal(ghost.getAttribute("class"), "shift-extend-ghost");
-  // Top = min(150, 50) - 20 = 30
-  assert.equal(attrNum(ghost, "y"), 50 - DROPZONE_PADDING_Y);
-  // Bottom = max(250, 50) + 20 = 270; height = 270 - 30 = 240
-  assert.equal(
-    attrNum(ghost, "height"),
-    250 + DROPZONE_PADDING_Y - (50 - DROPZONE_PADDING_Y),
-  );
+  // Top = 150 - 46 = 104; bottom fixed at 320; height = 320 - 104 = 216.
+  assert.equal(attrNum(ghost, "y"), 150 - TOP_PAD);
+  assert.equal(attrNum(ghost, "height"), 320 - (150 - TOP_PAD));
+  // Horizontal untouched (not a column insert).
+  assert.equal(attrNum(ghost, "x"), 100);
+  assert.equal(attrNum(ghost, "width"), 80);
 });
 
-test("makeShiftExtendGhost: hover below the group's span extends the rect downward", () => {
-  // Group spans wires [0, 1]; hover wire 3 (below).
+test("makeShiftExtendGhost: hover below the box bottom slides the bottom edge down, top fixed", () => {
+  // Box spans y ∈ [200, 320]; hover a wire at y=400 (below the box).
+  const box = makeGroupBox(100, 200, 80, 120);
   const scope = makeScope([100], [60]);
-  const wireData = [50, 150, 250, 350];
 
-  const ghost = makeShiftExtendGhost(
-    scope,
-    wireData,
-    /* groupMinWire */ 0,
-    /* groupMaxWire */ 1,
-    /* hoverWireIndex */ 3,
-    /* hoverColIndex */ 0,
-  );
+  const ghost = makeShiftExtendGhost(box, /* hoverWireY */ 400, false, scope);
 
-  // Top = min(50, 350) - 20 = 30
-  assert.equal(attrNum(ghost, "y"), 50 - DROPZONE_PADDING_Y);
-  // Bottom = max(150, 350) + 20 = 370; height = 370 - 30 = 340
-  assert.equal(
-    attrNum(ghost, "height"),
-    350 + DROPZONE_PADDING_Y - (50 - DROPZONE_PADDING_Y),
-  );
+  // Top fixed at 200; bottom = 400 + 30 = 430; height = 430 - 200 = 230.
+  assert.equal(attrNum(ghost, "y"), 200);
+  assert.equal(attrNum(ghost, "height"), 400 + BOTTOM_PAD - 200);
 });
 
-test("makeShiftExtendGhost: hover on the trailing-append column extends horizontally to include it", () => {
-  // Two real columns; hover on colIndex 2 (the trailing slot). The
-  // ghost rect should extend right to cover the synthesized column,
-  // not just the rightmost real column.
-  const scope = makeScope([100, 200], [60, 90]);
-  const wireData = [50, 150];
+test("makeShiftExtendGhost: hover inside the box span leaves the vertical bounds untouched", () => {
+  // Hover wire at y=260, inside the box's [200, 320] span. Defensive
+  // case (callers only paint for outside wires) — no edge should move.
+  const box = makeGroupBox(100, 200, 80, 120);
+  const scope = makeScope([100], [60]);
 
-  const ghostOnReal = makeShiftExtendGhost(
-    scope,
-    wireData,
-    0,
-    1,
-    0,
-    /* hoverColIndex */ 1,
-  );
-  const ghostOnTrailing = makeShiftExtendGhost(
-    scope,
-    wireData,
-    0,
-    1,
-    0,
-    /* hoverColIndex */ 2,
-  );
+  const ghost = makeShiftExtendGhost(box, /* hoverWireY */ 260, false, scope);
 
-  // Hover on real rightmost: rightEdge = 200 + 90 = 290
-  // Hover on trailing: rightEdge = (200 + 90 + 12) + 40 = 342
-  // Left edge for both = colStartX(0) - gatePadding = 100 - 6 = 94
-  // Width = rightEdge - colStartX(0) + 2*gatePadding
-  //       = real:     290 - 100 + 12 = 202
-  //       = trailing: 342 - 100 + 12 = 254
-  assert.equal(attrNum(ghostOnReal, "x"), 100 - GATE_PADDING);
-  assert.equal(attrNum(ghostOnReal, "width"), 290 - 100 + GATE_PADDING * 2);
-  assert.equal(attrNum(ghostOnTrailing, "x"), 100 - GATE_PADDING);
-  assert.equal(
-    attrNum(ghostOnTrailing, "width"),
-    200 + 90 + GATE_PADDING * 2 + MIN_GATE_WIDTH - 100 + GATE_PADDING * 2,
-  );
-  // Sanity: trailing footprint is strictly wider than the real one.
+  assert.equal(attrNum(ghost, "y"), 200);
+  assert.equal(attrNum(ghost, "height"), 120);
+  assert.equal(attrNum(ghost, "x"), 100);
+  assert.equal(attrNum(ghost, "width"), 80);
+});
+
+test("makeShiftExtendGhost: inserting a column grows the right edge only, left edge fixed", () => {
+  // A narrow box whose right edge sits left of where the new trailing
+  // column needs the box to reach. `extendColumn=true` grows the RIGHT
+  // edge to enclose the synthesized column + group side padding; the
+  // left edge never moves. (A leading-column insert shifts existing
+  // columns right, so its new space also lands on the right — same
+  // logic as a trailing insert.)
+  const box = makeGroupBox(100, 200, 80, 120); // right edge = 180
+  const scope = makeScope([100], [60]);
+
+  // Trailing column geometry: colStartX = 100 + 60 + 2*GATE_PADDING = 172,
+  // colWidth = MIN_GATE_WIDTH = 40. neededRight = 172 + 40 + GROUP_PADDING_X = 222.
+  const neededRight =
+    100 + 60 + GATE_PADDING * 2 + MIN_GATE_WIDTH + GROUP_PADDING_X;
+  assert.equal(neededRight, 222);
+
+  const ghostNoGrow = makeShiftExtendGhost(box, 260, false, scope);
+  const ghostGrow = makeShiftExtendGhost(box, 260, true, scope);
+
+  // No-insert ghost keeps the box width.
+  assert.equal(attrNum(ghostNoGrow, "width"), 80);
+
+  // Insert ghost: left edge fixed at 100, right edge pushed to 222.
+  assert.equal(attrNum(ghostGrow, "x"), 100);
+  assert.equal(attrNum(ghostGrow, "width"), neededRight - 100);
   assert.ok(
-    attrNum(ghostOnTrailing, "width") > attrNum(ghostOnReal, "width"),
-    "trailing-column ghost should be wider than the real-column ghost",
+    attrNum(ghostGrow, "width") > attrNum(ghostNoGrow, "width"),
+    "column-insert ghost should be wider than the no-insert ghost",
   );
 });
 
-test("makeShiftExtendGhost: hover within the group span leaves vertical bounds at the group's wires", () => {
-  // Hover wire is inside the group's existing wire span — vertical
-  // bounds should land exactly on the group's wires (the min/max
-  // doesn't pull them anywhere new), only padded.
+test("makeShiftExtendGhost: a label-widened box absorbs the new column instead of overshooting", () => {
+  // Box already wider than the trailing column needs (e.g. stretched by
+  // a long group label): its right edge (300) already exceeds
+  // neededRight (222), so a column insert adds NO width — the ghost
+  // never overshoots the committed box width.
+  const box = makeGroupBox(100, 200, 200, 120); // right edge = 300
   const scope = makeScope([100], [60]);
-  const wireData = [50, 150, 250, 350];
 
-  const ghost = makeShiftExtendGhost(scope, wireData, 1, 2, /* hover */ 2, 0);
+  const ghost = makeShiftExtendGhost(box, 260, true, scope);
 
-  // Top = min(150, 250) - 20 = 130
-  assert.equal(attrNum(ghost, "y"), 150 - DROPZONE_PADDING_Y);
-  // Bottom = max(250, 250) + 20 = 270; height = 140
-  assert.equal(attrNum(ghost, "height"), 250 - 150 + DROPZONE_PADDING_Y * 2);
+  // Width unchanged — the new column is absorbed by the existing slack.
+  assert.equal(attrNum(ghost, "x"), 100);
+  assert.equal(attrNum(ghost, "width"), 200);
 });
 
 // ─── createWireDropzone ─────────────────────────────────────────────

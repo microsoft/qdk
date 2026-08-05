@@ -32,7 +32,7 @@ import { promptForArguments } from "../prompts.js";
 import { QubitController } from "./qubitController.js";
 import { enableAutoScroll } from "./scrollController.js";
 import { toolboxGateDictionary } from "../toolboxGates.js";
-import { getGateElems, getToolboxElems } from "../domUtils.js";
+import { getGateElems, getGroupBoxElem, getToolboxElems } from "../domUtils.js";
 import {
   deepEqual,
   findOperation,
@@ -55,27 +55,21 @@ import {
  */
 export class DragController {
   /**
-   * Shift-extend context, populated by `onGateMouseDown` when the
-   * dragged source is internal to an expanded group, cleared by
-   * `tearDownShiftExtend` on container mouseup. Drives the extra
-   * "extend vertically" dropzones and the ghost-border overlay.
-   * `null` whenever the current drag can't extend a group.
+   * Shift-extend context: populated by `onGateMouseDown` when the drag source is inside an expanded
+   * group, cleared by `tearDownShiftExtend` on mouseup. Drives the extend dropzones and ghost
+   * border. `null` when the drag can't extend a group.
    */
   private _shiftExtendCtx: {
     /** Hierarchical location of the immediate parent group G. */
     parentLoc: string;
-    /** `[minWire, maxWire]` of G's current target span. */
+    /** `[minWire, maxWire]` of G's current quantum target span. */
     parentMinWire: number;
     parentMaxWire: number;
     /** Geometry of G's children scope, from `LayoutMap.scopes`. */
     parentScope: LayoutScope;
   } | null = null;
 
-  /**
-   * Dropzones spawned by `spawnShiftExtendDropzones`, tracked
-   * separately so shift-release can clear them ahead of the
-   * container-mouseup cleanup.
-   */
+  /** Dropzones from `spawnShiftExtendDropzones`, tracked so shift-release can clear them early. */
   private _shiftExtendDropzones: SVGElement[] = [];
 
   /** Ghost-border rect currently painted in the overlay, if any. */
@@ -680,14 +674,9 @@ export class DragController {
    ******************************/
 
   /**
-   * Arm the shift-extend pathway for a new internal-source drag.
-   * No-op if `selectedAddr` is top-level (no parent group to extend)
-   * or if the immediate parent's children scope isn't tracked by the
-   * LayoutMap (defensive).
-   *
-   * On the happy path: captures the parent group's wire span +
-   * scope, installs document shift keydown/keyup listeners, and
-   * spawns initial dropzones if shift is already held at drag start.
+   * Arm the shift-extend pathway for a new internal-source drag. No-op if `selectedAddr` is
+   * top-level or the parent's children scope isn't in the LayoutMap. On the happy path: captures
+   * the parent group's wire span + scope and installs document shift keydown/keyup listeners.
    */
   private setupShiftExtend(selectedAddr: Location): void {
     if (selectedAddr.depth < 2) return; // top-level source
@@ -698,9 +687,8 @@ export class DragController {
 
     const parentOp = findOperation(this.ctx.model.componentGrid, parentLoc);
     if (parentOp == null) return;
-    // Quantum-only span: shift-extend reach mirrors the group's
-    // editable wire scope, not its visual span including any
-    // classical-control back-references.
+    // Quantum-only span: shift-extend reach mirrors the group's editable wire scope, not its
+    // visual span.
     const [parentMinWire, parentMaxWire] = getQuantumWireRange(parentOp);
 
     this._shiftExtendCtx = {
@@ -710,9 +698,8 @@ export class DragController {
       parentScope,
     };
 
-    // Install live shift tracking. Document-level because the user
-    // may shift+drag with the cursor outside the SVG (e.g. hovering
-    // the editor chrome on the way to the target wire).
+    // Live shift tracking. Document-level because the user may shift+drag with the cursor outside
+    // the SVG.
     this._onShiftDown = (ev) => {
       if (ev.key !== "Shift") return;
       this.spawnShiftExtendDropzones();
@@ -726,10 +713,7 @@ export class DragController {
     document.addEventListener("keyup", this._onShiftUp);
   }
 
-  /**
-   * Tear down shift-extend state for the current (or just-ended)
-   * drag. Idempotent — safe to call when nothing was armed.
-   */
+  /** Tear down shift-extend state for the current (or just-ended) drag. Idempotent. */
   private tearDownShiftExtend(): void {
     this.clearShiftExtendDropzones();
     this.clearGhostBorder();
@@ -745,24 +729,13 @@ export class DragController {
   }
 
   /**
-   * Spawn the temporary "extend group vertically" dropzones for the
-   * currently-armed shift-extend context. Re-spawn-safe (clears
-   * existing first), idempotent for the same context.
+   * Spawn the temporary "extend group" dropzones for the armed shift-extend context. Re-spawn-safe.
    *
-   * Emitted at every `(column, wire)` pair where:
-   *   - `column` is one of the parent group's existing inner columns
-   *     OR the trailing-append column past its rightmost child;
-   *   - `wire` is in `[0, wireData.length)` but NOT in the parent
-   *     group's `[minTarget, maxTarget]` span.
-   *
-   * Each dropzone is tagged `data-shift-extend="true"` so the
-   * mouseup handler can recognize a shift-extend release for
-   * visual cleanup (the ghost border). The action layer
-   * (`moveOperation`) always re-derives ancestor `.targets` from
-   * post-move children, so no special routing on the action call
-   * is needed \u2014 the location string of the dropzone is enough.
-   * Hover-enter paints the ghost border for that wire; hover-leave
-   * clears it.
+   * Emitted at every `(column, wire)` where `column` is one of the group's inner columns or the
+   * trailing-append column, and `wire` is outside the group's span. Each is tagged
+   * `data-shift-extend="true"` so mouseup can recognize the release; the dropzone's location string
+   * is enough for `moveOperation` to re-derive ancestor `.targets`. Hover paints/clears the ghost
+   * border.
    */
   private spawnShiftExtendDropzones(): void {
     if (this._shiftExtendCtx == null) return;
@@ -774,21 +747,30 @@ export class DragController {
     // +1 for the trailing-append column past the rightmost.
     const totalCols = realColCount + 1;
 
-    // Wires the group can't directly extend onto because a sibling
-    // at some level of the ancestor chain already occupies them in
-    // that level's outer column — dropping there would land the new
-    // op directly on an existing one. We walk the full ancestor
-    // chain since shift-extend widens every ancestor whose span
-    // doesn't already enclose the drop wire.
-    //
-    // The cross-over case (extending past an in-between sibling to a
-    // clear wire) is intentionally not filtered: `moveOperation`'s
-    // dest-side cascade splits the outer column so the in-between
-    // sibling slides one column right of the widened ancestor.
+    // Wires an ancestor-chain sibling already occupies in its outer column — dropping there would
+    // land the new op on an existing one. The cross-over case (past an in-between sibling to a clear
+    // wire) is intentionally not filtered: `moveOperation`'s cascade splits the outer column.
     const blockedWires = getAncestorColumnSiblingWires(
       this.ctx.model.componentGrid,
       parentLoc,
     );
+
+    // "Inside" is decided by the box's pixel span, not the quantum-target range: a classically-
+    // controlled group's box reaches to the producing M's classical wire, so intermediate wires
+    // under that reach are visually inside. Falls back to the quantum span if the box is missing.
+    const groupBox = getGroupBoxElem(this.ctx.container, parentLoc);
+    const boxTop = groupBox != null ? Number(groupBox.getAttribute("y")) : null;
+    const boxBottom =
+      groupBox != null && boxTop != null
+        ? boxTop + Number(groupBox.getAttribute("height"))
+        : null;
+    const isInsideGroup = (wire: number): boolean => {
+      if (boxTop != null && boxBottom != null) {
+        const wireY = this.ctx.wireData[wire];
+        return wireY >= boxTop && wireY <= boxBottom;
+      }
+      return wire >= parentMinWire && wire <= parentMaxWire;
+    };
 
     const dropzoneCtx = {
       scope: parentScope,
@@ -796,36 +778,40 @@ export class DragController {
       pathPrefix: parentLoc,
     };
     for (let colIndex = 0; colIndex < totalCols; colIndex++) {
+      const isTrailingCol = colIndex >= realColCount;
       for (let wire = 0; wire < this.ctx.wireData.length; wire++) {
-        // Only emit for wires outside the group's current span; wires
-        // inside already have regular inner dropzones.
-        if (wire >= parentMinWire && wire <= parentMaxWire) continue;
+        // Only wires outside the group's span; inside wires already have regular dropzones.
+        if (isInsideGroup(wire)) continue;
 
         // Skip wires a sibling already occupies (see `blockedWires`).
         if (blockedWires.has(wire)) continue;
 
-        // opIndex = 0: the wire is outside the group's span so no op
-        // in this column shares it; the op slots in without splicing
-        // a new column.
-        const dropzone = makeDropzoneBox(dropzoneCtx, {
-          colIndex,
-          opIndex: 0,
-          wireIndex: wire,
-          interColumn: false,
-        });
-        dropzone.setAttribute("data-shift-extend", "true");
-        // Force a normal drop (no new outer column), not an
-        // insert-between gesture.
-        dropzone.setAttribute("data-dropzone-inter-column", "false");
-        dropzone.addEventListener("mouseup", this.onDropzoneMouseUp);
-        dropzone.addEventListener("mouseenter", () => {
-          this.paintGhostBorder(wire, colIndex);
-        });
-        dropzone.addEventListener("mouseleave", () => {
-          this.clearGhostBorder();
-        });
-        this.ctx.dropzoneLayer.appendChild(dropzone);
-        this._shiftExtendDropzones.push(dropzone);
+        // Mirror the regular inner-dropzone shapes: the narrow band (`true`) inserts a new column,
+        // the full box (`false`) drops into the existing column. The trailing-append column gets
+        // only the band (no column body to drop onto). `opIndex = 0`: the wire is outside the
+        // group's span, so nothing else in this column shares it.
+        const shapes: boolean[] = isTrailingCol ? [true] : [true, false];
+        for (const interColumn of shapes) {
+          const dropzone = makeDropzoneBox(dropzoneCtx, {
+            colIndex,
+            opIndex: 0,
+            wireIndex: wire,
+            interColumn,
+          });
+          dropzone.setAttribute("data-shift-extend", "true");
+          // Keep the shape-derived `data-dropzone-inter-column`: the band inserts a new inner column
+          // at `colIndex`, the full box drops into the existing one. Both target this group's
+          // children scope, so neither inserts an outer column.
+          dropzone.addEventListener("mouseup", this.onDropzoneMouseUp);
+          dropzone.addEventListener("mouseenter", () => {
+            this.paintGhostBorder(wire, colIndex, interColumn);
+          });
+          dropzone.addEventListener("mouseleave", () => {
+            this.clearGhostBorder();
+          });
+          this.ctx.dropzoneLayer.appendChild(dropzone);
+          this._shiftExtendDropzones.push(dropzone);
+        }
       }
     }
   }
@@ -843,21 +829,35 @@ export class DragController {
   }
 
   /**
-   * Paint the ghost-border overlay for the given hover wire and
-   * column. Replaces any existing ghost border (so moving between
-   * shift-extend dropzones updates the preview).
+   * Paint the ghost-border overlay for the hover wire/column, replacing any existing one. `isBand`
+   * marks the narrow inter-column band (inserts a column, so the ghost grows) vs the full-column
+   * box (no horizontal change); only the outer bands grow, always on the right edge.
    */
-  private paintGhostBorder(hoverWire: number, hoverCol: number): void {
+  private paintGhostBorder(
+    hoverWire: number,
+    hoverCol: number,
+    isBand: boolean,
+  ): void {
     if (this._shiftExtendCtx == null) return;
     this.clearGhostBorder();
-    const { parentScope, parentMinWire, parentMaxWire } = this._shiftExtendCtx;
+    const { parentLoc, parentScope } = this._shiftExtendCtx;
+
+    // Clone the group's rendered box so the ghost matches it exactly, then slide the one edge the
+    // hovered wire extends. Direction/offset come from the box's pixel bounds.
+    const groupBox = getGroupBoxElem(this.ctx.container, parentLoc);
+    const hoverWireY = this.ctx.wireData[hoverWire];
+    if (groupBox == null || hoverWireY == null) return;
+
+    // Only the outer inserting bands widen the box — the trailing band past the last child and the
+    // leading band before column 0. Inner bands and full boxes leave the width unchanged.
+    const extendColumn =
+      isBand &&
+      (hoverCol >= parentScope.columnXOffsets.length || hoverCol === 0);
     this._ghostBorder = makeShiftExtendGhost(
+      groupBox,
+      hoverWireY,
+      extendColumn,
       parentScope,
-      this.ctx.wireData,
-      parentMinWire,
-      parentMaxWire,
-      hoverWire,
-      hoverCol,
     );
     this.ctx.overlayLayer.appendChild(this._ghostBorder);
   }

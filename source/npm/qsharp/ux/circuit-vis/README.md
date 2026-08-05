@@ -373,6 +373,10 @@ Out of scope for this PR.
 - **`LayoutMap` is the single source of geometry.** Dropzones and the editor's ghost positioning
   read from `LayoutMap`, not from rendered SVG attributes. Keeps the editor accurate for nested
   scopes too.
+  - **One documented exception:** the shift-extend ghost. `makeShiftExtendGhost`
+    ([draggable.ts](editor/draggable.ts)) clones the group's rendered box `<rect>` and slides one
+    edge, because `LayoutMap` records per-column geometry but not the box's outer rectangle (its
+    label-inclusive top, classical-control reach, or label-stretched width). Used only to draw the hover preview. The actual circuit-edit still comes from the location string.
 
 ---
 
@@ -450,4 +454,5 @@ node --test "test/circuit-editor/**/*.test.mjs"
 - **`null` means "not found".** `findOperation` & friends return `null` for both "no input" and "out
   of bounds" — callers stay defensive, no throws to catch.
 - **One overlay group, one source of geometry.** Don't append to `svg.qviz` directly; use
-  `ctx.overlayLayer`. Don't measure rendered SVG; ask the `LayoutMap`.
+  `ctx.overlayLayer`. Don't measure rendered SVG; ask the `LayoutMap`. (Exception: the shift-extend
+  ghost — see Notable invariants.)

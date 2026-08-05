@@ -5,6 +5,9 @@ import { ComponentGrid, Operation } from "../data/circuit.js";
 import {
   gateHeight,
   gatePadding,
+  groupBottomPadding,
+  groupPaddingX,
+  groupTopPadding,
   minGateWidth,
   regLineStart,
   startX,
@@ -17,7 +20,7 @@ import { Location } from "../data/location.js";
 import { toRenderData } from "./standaloneRenderData.js";
 import { Sqore } from "../sqore.js";
 import { getHostElems, getToolboxElems, getWireData } from "./domUtils.js";
-import { getQuantumWireRange } from "../utils.js";
+import { getMinMaxRegIdx, getQuantumWireRange } from "../utils.js";
 
 /** Register height is the height of a single gate including the padding on the top and bottom. */
 const registerHeight: number = gateHeight + gatePadding * 2;
@@ -396,23 +399,12 @@ const _dropzoneLayer = (context: Context) => {
 };
 
 /**
- * Append a trailing-column band of dropzones (one per wire in `[minWire, maxWire)`) just past the
- * rightmost column of a single scope — either the top-level grid or an expanded group's children
- * grid.
- *
- * Each emitted dropzone is shaped like the existing left-edge inter-column band (so it visually
- * reads as "I'm extending this scope to the right"), but tagged
- * `data-dropzone-inter-column="false"` so the drop handler treats it as a normal drop. The `_addOp`
- * action takes care of synthesizing the new column when the target column index is one past the
- * rightmost.
- *
- * Together with the leading-column band that already falls out of the `_populateDropzonesForGrid`
- * loop at `colIndex=0`, this gives every expanded group a one-column-of-reach extend-sideways
- * gesture on both edges, no modifier required.
- *
- * Idempotent w.r.t. wire extent: at the top level, `[minWire, maxWire)` is `[0, wireData.length)`.
- * For nested scopes it's the parent group's own wire span, so the trailing column can't escape the
- * group's vertical bounds.
+ * Append a trailing-column band of dropzones (one per wire in `[minWire, maxWire)`) just past a
+ * scope's rightmost column. Shaped like the left-edge inter-column band but tagged
+ * `data-dropzone-inter-column="false"` so the drop handler treats it as a normal drop; `_addOp`
+ * synthesizes the new column. With the leading band emitted at `colIndex=0`, every expanded group
+ * gets an extend-sideways gesture on both edges. `[minWire, maxWire)` bounds the band to the scope's
+ * wire span so a nested column can't escape its group.
  */
 const _appendTrailingColumnForScope = (
   dropzoneLayer: SVGElement,
@@ -453,9 +445,8 @@ const _appendTrailingColumnForScope = (
  *   Doubles as the `LayoutMap.scopes` key.
  * @param wireData       Full circuit wire-Y array (wires don't get reindexed inside groups; child
  *   operations still reference circuit-wide qubit IDs).
- * @param minWire        Inclusive lower bound on wire indices this scope is allowed to produce
- *   dropzones for. At top level this is `0`; for nested scopes it's the parent group's top wire so
- *   a drop inside `Foo` (which spans wires 0-1) can never land on wire 2.
+ * @param minWire        Inclusive lower bound on wire indices this scope may emit dropzones for
+ *   (`0` at top level; the parent group's top wire when nested).
  * @param maxWire        Exclusive upper bound, mirror of `minWire`.
  */
 const _populateDropzonesForGrid = (
@@ -483,28 +474,14 @@ const _populateDropzonesForGrid = (
     const columnOps = grid[colIndex];
     if (columnOps == null) continue;
 
-    // Precompute which wires this column's ops actually occupy. A central dropzone at an occupied
-    // wire would visually sit on top of a gate (or its connecting lines), even if the gate belongs
-    // to a different op than the one being iterated — so the "is this wire safe for a central
-    // drop?" question can't be answered from a single op in isolation.
+    // Precompute which wires this column's ops occupy, plus a per-wire `opIndex` for the location
+    // string. A central dropzone on an occupied wire would sit on top of a gate, so occupancy must
+    // be answered across the whole column, not one op in isolation. `opIndex` is the array position
+    // to insert at: an owned wire uses the owning op's index (drop "onto" the gate); an unowned wire
+    // uses `components.length` (drop in a gap appends). First claimant of a wire wins.
     //
-    // We also need a per-wire `opIndex` for the dropzone's location string. The action layer treats
-    // `opIndex` as the array position to insert at (`Array.splice(opIndex, 0, op)`); the renderer
-    // doesn't depend on array order for layout. So:
-    //
-    //   - Owned wire → use the owning op's opIndex. Drops "onto" the gate insert at the gate's
-    //     array position.
-    //   - Unowned wire → use `components.length`. Drops in a gap append to the column's array.
-    //
-    // Walk ops in declared order; first claimant of a wire wins (overlapping ops in one column
-    // shouldn't occur — the action layer's `_addOp` splits them into separate columns — but
-    // defensive anyway).
-    //
-    // Quantum-only span: a classically-controlled op back-references the producing measurement's
-    // qubit via `.controls`, but doesn't render any body on that wire (only a small
-    // classical-control circle sits on the row). Treating that wire as occupied would suppress the
-    // central dropzone there, leaving the visually-empty area at the group's column un-droppable
-    // for top-level inserts.
+    // Uses the quantum-only span: a classically-controlled op back-references the producing M's
+    // qubit but renders no body there, so that wire must stay droppable.
     const occupiedWires = new Set<number>();
     const wireOwnerOpIndex = new Map<number, number>();
     columnOps.components.forEach((op, opIndex) => {
@@ -517,17 +494,14 @@ const _populateDropzonesForGrid = (
       }
     });
 
-    // Wire-by-wire pass. The previous algorithm accumulated a monotonically-increasing `wireIndex`
-    // across ops; that assumed ops were sorted by `minTarget`, which the compiler often violates
-    // (it tends to emit ops in execution order rather than wire order). Iterating wires directly
-    // removes that assumption and emits the same boxes for the sorted-by-wire common case.
+    // Wire-by-wire pass — iterating wires directly (rather than accumulating across ops) avoids
+    // assuming ops are sorted by `minTarget`, which the compiler often violates.
     for (let wireIndex = minWire; wireIndex < maxWire; wireIndex++) {
       const opIndex =
         wireOwnerOpIndex.get(wireIndex) ?? columnOps.components.length;
 
-      // Inter-column band: always emit. It's a narrow vertical strip on the left edge of the column
-      // ("insert a new column before this one"); even when it slightly overlaps a gate's body it
-      // doesn't visually conflict with the gate icon.
+      // Inter-column band: always emit — a narrow strip on the column's left edge ("insert a new
+      // column before this one"), harmless even when it overlaps a gate body.
       dropzoneLayer.appendChild(
         makeDropzoneBox(ctx, {
           colIndex,
@@ -537,10 +511,8 @@ const _populateDropzonesForGrid = (
         }),
       );
 
-      // Central full-width box: emit only at wires NOT occupied by any op in this column. This is
-      // the fix for the phantom dropzone bug — without the column-wide occupancy check, an op's own
-      // "above-me" wires (`wireIndex < minTarget`) could be occupied by a different op later in the
-      // column, and the central box would sit on top of that op's gate.
+      // Central full-width box: emit only at wires no op in this column occupies, so it never sits
+      // on top of another op's gate.
       if (!occupiedWires.has(wireIndex)) {
         dropzoneLayer.appendChild(
           makeDropzoneBox(ctx, {
@@ -553,24 +525,20 @@ const _populateDropzonesForGrid = (
       }
     }
 
-    // Recurse into expanded children. Decoupled from the wire loop above because recursion depends
-    // only on the op's identity and wire extent, not on `wireIndex`.
-    //
-    // The recursion's wire extent matches the group's own [minTarget, maxTarget] (inclusive),
-    // ensuring nested dropzones can never escape the parent group. Drive the is-this-expanded
-    // decision off the LayoutMap rather than `isExpandedGroup(op)`: `op` here belongs to
-    // `sqore.circuit.componentGrid` (the original), while expand flags from
-    // `expandOperationsToDepth`, `expandIfSingleOperation`, and the user's expand-chevron clicks
-    // are applied to the per-render deep copy only — never to the original. The LayoutMap, built
-    // from that deep copy, is the authoritative record of which groups were rendered expanded.
+    // Recurse into expanded children. Drive the is-expanded decision off the LayoutMap, not
+    // `isExpandedGroup(op)`: `op` is from the original grid, but expand flags live only on the
+    // per-render deep copy the LayoutMap was built from.
     columnOps.components.forEach((op, opIndex) => {
       const childKey = composeLocation(pathPrefix, colIndex, opIndex);
       if (op.children != null && layoutMap.scopes.has(childKey)) {
-        // Quantum-only span: a classically-controlled group's `.controls` carries the producing
-        // measurement's qubit as a back-reference, but that qubit isn't a member wire of the group.
-        // Including it here would make drops onto that qubit (and adds from the toolbox) silently
-        // land inside the group; the user has to shift-drag to extend the group to a new wire.
-        const [minTarget, maxTarget] = getQuantumWireRange(op);
+        // Inner dropzones must cover every qubit wire the box visually encloses, including
+        // intermediate wires between a classical-control row and the quantum targets.
+        // `getMinMaxRegIdx` gives fractional bounds (classical rows at `q + 0.5`); rounding inward
+        // (`ceil`/`floor`) yields the enclosed integer wire range and excludes the control's own
+        // qubit wire (row `0.5` → wire 1, so q0's quantum wire above the row stays outside).
+        const [minRow, maxRow] = getMinMaxRegIdx(op);
+        const minTarget = Math.ceil(minRow);
+        const maxTarget = Math.floor(maxRow);
         _populateDropzonesForGrid(
           dropzoneLayer,
           layoutMap,
@@ -584,11 +552,8 @@ const _populateDropzonesForGrid = (
     });
   }
 
-  // Trailing-append column for this scope. At the top level this is the "add a brand-new column
-  // past the rightmost" affordance; for an expanded group it's the right-edge extend-sideways band
-  // that mirrors the leading-column band emitted at `colIndex=0` of the column loop above. Runs
-  // once per scope, after the column loop, so it sits at the same recursion depth as the children
-  // walk.
+  // Trailing-append column for this scope: the "add a new column past the rightmost" band,
+  // mirroring the leading band at `colIndex=0`. Once per scope, after the column loop.
   _appendTrailingColumnForScope(
     dropzoneLayer,
     scope,
@@ -626,8 +591,7 @@ const columnGeometry = (
       colWidth: scope.columnWidths[colIndex] ?? minGateWidth,
     };
   }
-  // Synthesize a column past the rightmost. Spacing matches the historical accumulator
-  // (`gatePadding * 2` between columns).
+  // Synthesize a column past the rightmost, `gatePadding * 2` beyond the last column.
   const lastIndex = scope.columnXOffsets.length - 1;
   if (lastIndex >= 0) {
     const lastStart = scope.columnXOffsets[lastIndex];
@@ -737,70 +701,68 @@ const makeDropzoneBox = (
 };
 
 /**
- * Build the ghost-border `<rect>` that previews a group's extended
- * bounding box during a D4 Stage B shift+drag.
+ * Build the ghost-border `<rect>` previewing a group's extended box during a shift+drag.
  *
- * The rect covers:
+ * Clones the group's actual rendered dashed box and moves only the one edge the hover extends, so
+ * the resting edges (label room, classical-control reach, side padding) match the real box exactly.
+ * Edge movement uses the clone's pixel bounds, not the model's wire span, so a classically-
+ * controlled group whose box is driven by a classical wire still extends correctly:
  *
- * - Horizontally: from the group's leftmost column's start x to its
- *   rightmost column's right edge. If `hoverColIndex` lies past the
- *   last column (the trailing-append column), the rect extends right
- *   to include that synthesized column too — so the user sees the
- *   group's new horizontal footprint along with the new vertical
- *   one when the drop is on the trailing column.
- * - Vertically: from `min(top wire Y, hover wire Y)` to
- *   `max(bottom wire Y, hover wire Y)`, padded by `DROPZONE_PADDING_Y`
- *   on each side so the ghost reads as a generous halo around the
- *   group's body rather than a tight stripe over the wires.
+ * - `hoverWireY` above the box top → top edge drops to `hoverWireY - (gateHeight/2 +
+ *   groupTopPadding)`; bottom edge stays put.
+ * - `hoverWireY` below the box bottom → symmetric with `groupBottomPadding`; top edge stays put.
+ * - `hoverWireY` inside the box → no vertical change (defensive; caller only paints outside wires).
  *
- * Coordinates come entirely from `LayoutScope` + `wireData`, the
- * same sources Stage A's dropzones use. No DOM lookup of the
- * group's rendered `<rect>` — that would couple the overlay to
- * `gateFormatter`'s internal structure.
+ * When `extendColumn` is set (a band inserting a new column), the box grows rightward just enough to
+ * enclose the added min-width column plus side padding — clamped at 0, so a box already widened by a
+ * long label absorbs the new column instead of overshooting. Growth is always on the right edge:
+ * the circuit only grows rightward, so even a leading-column insert shows the space on the right.
  *
- * Caller appends the returned element to `overlayLayer` and removes
- * it on hover-off / shift-release / mouseup.
+ * The clone is re-tagged `shift-extend-ghost` for the translucent-preview CSS.
  */
 const makeShiftExtendGhost = (
+  groupBox: SVGGraphicsElement,
+  hoverWireY: number,
+  extendColumn: boolean,
   scope: LayoutScope,
-  wireData: number[],
-  groupMinWire: number,
-  groupMaxWire: number,
-  hoverWireIndex: number,
-  hoverColIndex: number,
 ): SVGElement => {
-  // Horizontal: leftmost column start → rightmost column right edge.
-  // The trailing-append case (hoverColIndex past the last real
-  // column) extends right via `columnGeometry`'s synthesized position
-  // so the hover column gets covered too.
-  const leftGeom = columnGeometry(scope, 0);
-  const lastRealColIndex = Math.max(scope.columnXOffsets.length - 1, 0);
-  const rightRealGeom = columnGeometry(scope, lastRealColIndex);
-  const rightRealEdge = rightRealGeom.colStartX + rightRealGeom.colWidth;
-  const rightTrailGeom = columnGeometry(scope, scope.columnXOffsets.length);
-  const rightEdge =
-    hoverColIndex >= scope.columnXOffsets.length
-      ? rightTrailGeom.colStartX + rightTrailGeom.colWidth
-      : rightRealEdge;
+  const boxLeft = Number(groupBox.getAttribute("x"));
+  const boxTop = Number(groupBox.getAttribute("y"));
+  const width = Number(groupBox.getAttribute("width"));
+  const height = Number(groupBox.getAttribute("height"));
+  const boxBottom = boxTop + height;
 
-  // Vertical: pull in the existing wire span plus the hovered wire,
-  // and pad. We index `wireData` defensively in case `hoverWireIndex`
-  // is the trailing ghost-qubit row (length == wireData.length); fall
-  // back to the last real wire if so, since extending onto the ghost
-  // row isn't a supported action.
-  const topWireY = wireData[groupMinWire] ?? wireData[0];
-  const bottomWireY = wireData[groupMaxWire] ?? wireData[wireData.length - 1];
-  const hoverWireY = wireData[hoverWireIndex] ?? wireData[wireData.length - 1];
-  const topY = Math.min(topWireY, hoverWireY) - DROPZONE_PADDING_Y;
-  const bottomY = Math.max(bottomWireY, hoverWireY) + DROPZONE_PADDING_Y;
+  // Label-inclusive pads the renderer leaves between a group's edge and its nearest wire. The moved
+  // edge lands this far from the hovered wire; the opposite edge keeps the clone's value.
+  const topPad = gateHeight / 2 + groupTopPadding;
+  const bottomPad = gateHeight / 2 + groupBottomPadding;
 
-  return box(
-    leftGeom.colStartX - gatePadding,
-    topY,
-    rightEdge - leftGeom.colStartX + gatePadding * 2,
-    bottomY - topY,
-    "shift-extend-ghost",
-  );
+  let newTop = boxTop;
+  let newBottom = boxBottom;
+  if (hoverWireY < boxTop) {
+    newTop = hoverWireY - topPad;
+  } else if (hoverWireY > boxBottom) {
+    newBottom = hoverWireY + bottomPad;
+  }
+
+  // Grow rightward to enclose the synthesized trailing column plus side padding. Clamp at 0 so a
+  // box already widened by a long label absorbs the new column instead of overshooting.
+  let newRight = boxLeft + width;
+  if (extendColumn) {
+    const trailingIndex = scope.columnXOffsets.length;
+    const { colStartX, colWidth } = columnGeometry(scope, trailingIndex);
+    const neededRight = colStartX + colWidth + groupPaddingX;
+    const growth = Math.max(0, neededRight - newRight);
+    newRight += growth;
+  }
+
+  const ghost = groupBox.cloneNode(false) as SVGGraphicsElement;
+  ghost.setAttribute("x", `${boxLeft}`);
+  ghost.setAttribute("y", `${newTop}`);
+  ghost.setAttribute("height", `${newBottom - newTop}`);
+  ghost.setAttribute("width", `${newRight - boxLeft}`);
+  ghost.setAttribute("class", "shift-extend-ghost");
+  return ghost;
 };
 
 export {
