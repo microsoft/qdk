@@ -6,6 +6,7 @@ use miette::Report;
 
 mod instruction_name;
 mod number;
+mod pauli_and_loss_targets;
 mod rec_sweep_tag;
 mod single_char_token;
 mod unrecognized_character;

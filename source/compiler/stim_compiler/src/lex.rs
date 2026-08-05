@@ -65,6 +65,8 @@ pub enum TokenKind {
     Uint,            // unsigned integers
     Double,          // floating-point numbers
     InstructionName, // H, X, CNOT, etc.
+    PauliTarget,     // X1, Y2, Z3, etc.
+    LossTarget,      // L1, L2, L3, etc.
     Rec,             // rec[- ...]
     Sweep,           // sweep[...]
     Tag,             // "[...]"
@@ -82,6 +84,8 @@ impl Display for TokenKind {
             TokenKind::Uint => f.write_str("uint"),
             TokenKind::Double => f.write_str("double"),
             TokenKind::InstructionName => f.write_str("instruction_name"),
+            TokenKind::PauliTarget => f.write_str("pauli_target"),
+            TokenKind::LossTarget => f.write_str("loss_target"),
             TokenKind::Rec => f.write_str("rec"),
             TokenKind::Sweep => f.write_str("sweep"),
             TokenKind::Tag => f.write_str("tag"),
@@ -214,14 +218,15 @@ impl<'a> Lexer<'a> {
         })
     }
 
+    fn is_ascii_uint(bytes: &[u8]) -> bool {
+        !bytes.is_empty() && bytes.iter().all(u8::is_ascii_digit)
+    }
+
     fn scan_identifier(&mut self, lo: usize) -> TokenKind {
         self.eat_while(|c| c.is_alphanumeric() || c == '_');
-        let hi: usize = self
-            .chars
-            .peek()
-            .map_or(self.input_len as usize, |(i, _)| *i);
-        // TODO: What if some identifier starts with "rec" but is not a rec token?
-        match &self.input[lo..hi] {
+        let hi: usize = self.pos() as usize;
+        let identifier = &self.input[lo..hi];
+        match identifier {
             "rec" => {
                 self.eat_while(|c| c != ']');
                 self.chars.next_if(|(_, c)| *c == ']');
@@ -232,7 +237,13 @@ impl<'a> Lexer<'a> {
                 self.chars.next_if(|(_, c)| *c == ']');
                 TokenKind::Sweep
             }
-            _ => TokenKind::InstructionName,
+            _ => match identifier.as_bytes() {
+                [b'X' | b'Y' | b'Z', digits @ ..] if Self::is_ascii_uint(digits) => {
+                    TokenKind::PauliTarget
+                }
+                [b'L', digits @ ..] if Self::is_ascii_uint(digits) => TokenKind::LossTarget,
+                _ => TokenKind::InstructionName,
+            },
         }
     }
 }
