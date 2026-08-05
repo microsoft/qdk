@@ -3,7 +3,6 @@
 
 import Types.FixedPoint;
 import Init.PrepareFxP;
-import Operations.AddFxP;
 import Signed.Operations.Invert2sSI, Signed.Operations.MultiplySI, Signed.Operations.SquareSI;
 import Facts.AssertPointPositionsIdenticalFxP;
 import Std.Arrays.Zipped;

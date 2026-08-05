@@ -18,6 +18,7 @@
     "src/Std/Range.qs",
     "src/Std/ResourceEstimation.qs",
     "src/Std/Arithmetic.qs",
+    "src/Std/ArithmeticTestUtils.qs",
     "src/Std/ArithmeticUtils.qs",
     "src/Std/StatePreparation.qs",
     "src/Std/TableLookup.qs",

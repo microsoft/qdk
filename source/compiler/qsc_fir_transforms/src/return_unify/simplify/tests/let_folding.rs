@@ -583,7 +583,7 @@ mod q_driven {
             "#},
             "Main",
             "let_folding",
-            let_folding::apply,
+            |p, a, _pkg_id, b, s| let_folding::apply(p, a, b, s),
             &expect![[r#"
                 // before let_folding (fired=true)
                 function Main() : Int {
@@ -596,7 +596,7 @@ mod q_driven {
                         };
                     }
 
-                    let __trailing_result : Int = if not __has_returned {
+                    let __trailing_result : Int = if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -624,7 +624,7 @@ mod q_driven {
                     if __has_returned {
                         __ret_val
                     } else {
-                        if not __has_returned {
+                        if (not __has_returned) {
                             0
                         } else {
                             __ret_val
@@ -659,7 +659,7 @@ mod q_driven {
             "#},
             "Main",
             "let_folding",
-            let_folding::apply,
+            |p, a, _pkg_id, b, s| let_folding::apply(p, a, b, s),
             &expect![[r#"
                 // before let_folding (fired=false)
                 function Main() : Int {
@@ -730,7 +730,7 @@ mod q_driven {
             "#},
             "Main",
             "let_folding",
-            let_folding::apply,
+            |p, a, _pkg_id, b, s| let_folding::apply(p, a, b, s),
             &expect![[r#"
                 // before let_folding (fired=false)
                 function Main() : Int {

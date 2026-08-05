@@ -143,13 +143,11 @@ pub mod qir {
     /// to produce codegen-ready FIR satisfying full invariants.
     pub fn run_codegen_pipeline(
         package_store: &PackageStore,
-        package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
     ) -> Result<Vec<Error>, Vec<Error>> {
         run_codegen_pipeline_to(
             package_store,
-            package_id,
             fir_store,
             fir_package_id,
             qsc_fir_transforms::PipelineStage::Full,
@@ -169,7 +167,6 @@ pub mod qir {
     /// removed during dead-code elimination. Pinning preserves these for specialization.
     pub fn run_codegen_pipeline_to(
         package_store: &PackageStore,
-        package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         stage: qsc_fir_transforms::PipelineStage,
@@ -195,14 +192,16 @@ pub mod qir {
             stage,
             pinned_items,
         );
-        let source_package = package_store
-            .get(package_id)
-            .expect("package should be in store");
         if !pipeline_result.errors.is_empty() {
             return Err(pipeline_result
                 .errors
                 .into_iter()
-                .map(|e| Error::FirTransform(WithSource::from_map(&source_package.sources, e)))
+                .map(|error| {
+                    Error::FirTransform(crate::compile::attach_fir_transform_source(
+                        package_store,
+                        error,
+                    ))
+                })
                 .collect());
         }
 
@@ -211,7 +210,12 @@ pub mod qir {
         Ok(pipeline_result
             .warnings
             .into_iter()
-            .map(|w| Error::FirTransform(WithSource::from_map(&source_package.sources, w)))
+            .map(|warning| {
+                Error::FirTransform(crate::compile::attach_fir_transform_source(
+                    package_store,
+                    warning,
+                ))
+            })
             .collect())
     }
 
@@ -228,7 +232,7 @@ pub mod qir {
     /// contract as [`run_codegen_pipeline_to`].
     fn run_codegen_signature_preserving_subpipeline(
         package_store: &PackageStore,
-        package_id: qsc_hir::hir::PackageId,
+        _package_id: qsc_hir::hir::PackageId,
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         seeds: &[qsc_fir::fir::StoreItemId],
@@ -239,13 +243,15 @@ pub mod qir {
             seeds,
         );
         if !pipeline_result.errors.is_empty() {
-            let source_package = package_store
-                .get(package_id)
-                .expect("package should be in store");
             return Err(pipeline_result
                 .errors
                 .into_iter()
-                .map(|e| Error::FirTransform(WithSource::from_map(&source_package.sources, e)))
+                .map(|error| {
+                    Error::FirTransform(crate::compile::attach_fir_transform_source(
+                        package_store,
+                        error,
+                    ))
+                })
                 .collect());
         }
 
@@ -342,7 +348,6 @@ pub mod qir {
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         callable: qsc_hir::hir::ItemId,
-        assigner: &mut qsc_fir::assigner::Assigner,
     ) {
         let callable_store_id = qsc_fir::fir::StoreItemId {
             package: qsc_lowerer::map_hir_package_to_fir(callable.package),
@@ -369,7 +374,8 @@ pub mod qir {
             (callable_decl.span, ty)
         };
 
-        let entry_expr_id = assigner.next_expr();
+        let entry_expr_id =
+            qsc_fir::assigner::Assigner::from_package(fir_store.get(fir_package_id)).next_expr();
         let package = fir_store.get_mut(fir_package_id);
         package.exprs.insert(
             entry_expr_id,
@@ -2011,7 +2017,6 @@ pub mod qir {
         let pinned_items: &[qsc_fir::fir::StoreItemId] = &[];
         let warnings = run_codegen_pipeline_to(
             package_store,
-            callable.package,
             &mut fir_store,
             fir_package_id,
             qsc_fir_transforms::PipelineStage::Full,
@@ -2072,7 +2077,6 @@ pub mod qir {
         pinned_callables.push(target_callable);
         let warnings = run_codegen_pipeline_to(
             package_store,
-            callable.package,
             &mut fir_store,
             fir_package_id,
             qsc_fir_transforms::PipelineStage::Full,
@@ -2157,8 +2161,7 @@ pub mod qir {
         fir_package_id: qsc_fir::fir::PackageId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
-        let warnings =
-            run_codegen_pipeline(package_store, package_id, &mut fir_store, fir_package_id)?;
+        let warnings = run_codegen_pipeline(package_store, &mut fir_store, fir_package_id)?;
 
         let compute_properties =
             PassContext::run_fir_passes_on_fir(&fir_store, fir_package_id, capabilities)
@@ -2206,7 +2209,7 @@ pub mod qir {
         callable: qsc_hir::hir::ItemId,
         capabilities: TargetCapabilityFlags,
     ) -> Result<CodegenFir, Vec<Error>> {
-        let (mut fir_store, fir_package_id, mut assigner) =
+        let (mut fir_store, fir_package_id, _assigner) =
             lower_to_fir(package_store, callable.package, None);
 
         if callable_has_arrow_input(&fir_store, callable) {
@@ -2222,13 +2225,8 @@ pub mod qir {
             });
         }
 
-        seed_entry_with_callable(&mut fir_store, fir_package_id, callable, &mut assigner);
-        let warnings = run_codegen_pipeline(
-            package_store,
-            callable.package,
-            &mut fir_store,
-            fir_package_id,
-        )?;
+        seed_entry_with_callable(&mut fir_store, fir_package_id, callable);
+        let warnings = run_codegen_pipeline(package_store, &mut fir_store, fir_package_id)?;
 
         let compute_properties = qsc_rca::Analyzer::init(&fir_store, capabilities).analyze_all();
         validate_callable_capabilities(

@@ -66,8 +66,8 @@ from qiskit import QuantumCircuit
 
 def estimate(
     circuit: QuantumCircuit,
-    params: Optional[Union[Dict[str, Any], List, EstimatorParams]] = None,
-    **options,
+    params: Optional[Union[Dict[str, Any], List[Any], EstimatorParams]] = None,
+    **options: Any,
 ) -> EstimatorResult:
     """
     Estimates resources for Qiskit QuantumCircuit.
@@ -90,7 +90,9 @@ def estimate(
 
     ipython_helper()
     backend = ResourceEstimatorBackend()
-    job = backend.run(circuit, params=params, **options)
+    if params is not None:
+        options["params"] = params
+    job = backend.run(circuit, **options)
     return job.result()
 
 

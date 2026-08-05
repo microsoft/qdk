@@ -1,14 +1,14 @@
-/// # Sample
-/// Quantum Teleportation
-///
-/// # Description
-/// Quantum teleportation provides a way of moving a quantum state from one
-/// location to another without having to move physical particle(s) along with
-/// it. This is done with the help of previously shared quantum entanglement
-/// between the sending and the receiving locations, and classical
-/// communication.
-///
-/// This Q# program implements quantum teleportation.
+// # Sample
+// Quantum Teleportation
+//
+// # Description
+// Quantum teleportation provides a way of moving a quantum state from one
+// location to another without having to move physical particle(s) along with
+// it. This is done with the help of previously shared quantum entanglement
+// between the sending and the receiving locations, and classical
+// communication.
+//
+// This Q# program implements quantum teleportation.
 import Std.Diagnostics.*;
 import Std.Intrinsic.*;
 import Std.Measurement.*;

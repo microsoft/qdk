@@ -332,7 +332,7 @@ operation JordanWignerUCCDTermPQRSTest() : Unit {
 }
 
 @Config(Unrestricted)
-// @Test()
+@Test()
 operation JordanWignerUCCDTermPRQSTest() : Unit {
     let term0 = [NewJordanWignerInputState(2.0, 0.0, [2, 0, 4, 1])];
     let state0 = [0., 0., 0., 0., 0.,-0.416147, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.909297, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.];

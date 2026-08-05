@@ -33,6 +33,7 @@ pub fn deep_nested_callable_generics(c: &mut Criterion) {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .is_err(), "code should fail with type error");
         });

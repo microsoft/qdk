@@ -575,7 +575,7 @@ mod q_driven {
             "#},
             "Main",
             "dead_flag",
-            dead_flag::apply,
+            |p, a, _pkg_id, b, s| dead_flag::apply(p, a, b, s),
             &expect![[r#"
                 // before dead_flag (fired=false)
                 function Main() : Int {
@@ -588,7 +588,7 @@ mod q_driven {
                         };
                     }
 
-                    let __trailing_result : Int = if not __has_returned {
+                    let __trailing_result : Int = if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -613,7 +613,7 @@ mod q_driven {
                         };
                     }
 
-                    let __trailing_result : Int = if not __has_returned {
+                    let __trailing_result : Int = if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -650,7 +650,7 @@ mod q_driven {
             "#},
             "Main",
             "dead_flag",
-            dead_flag::apply,
+            |p, a, _pkg_id, b, s| dead_flag::apply(p, a, b, s),
             &expect![[r#"
                 // before dead_flag (fired=false)
                 function Main() : Int {
@@ -721,7 +721,7 @@ mod q_driven {
             "#},
             "Main",
             "dead_flag",
-            dead_flag::apply,
+            |p, a, _pkg_id, b, s| dead_flag::apply(p, a, b, s),
             &expect![[r#"
                 // before dead_flag (fired=false)
                 function Main() : Int {

@@ -9,7 +9,7 @@ from pyqir import (
     Value,
     ptr_id,
 )
-from typing import Dict
+from typing import Dict, Iterable
 
 TOLERANCE: float = 1.1920929e-7  # Machine epsilon for 32-bit IEEE FP numbers.
 
@@ -82,7 +82,7 @@ def get_used_values(instr: Instruction) -> tuple[list[Value], list[Value]]:
 
 # Returns true if any of the used values are in the existing values.
 # Useful for determining if an instruction depends on any instructions in a set.
-def uses_any_value(used_values, existing_values) -> bool:
+def uses_any_value(used_values: Iterable[Value], existing_values: Iterable[Value]) -> bool:
     return any(
         [
             val in existing_values

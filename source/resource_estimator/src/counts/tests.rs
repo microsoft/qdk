@@ -9,7 +9,7 @@ use indoc::indoc;
 use miette::Report;
 use qsc::{
     LanguageFeatures, PackageType, SourceMap, TargetCapabilityFlags,
-    interpret::{GenericReceiver, Interpreter, Value},
+    interpret::{GenericReceiver, Interpreter, PackageGlobal, Value},
     target::Profile,
 };
 
@@ -31,6 +31,7 @@ fn run_logical_counts_result(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         Ok(interpreter) => interpreter,
         Err(err) => {
@@ -73,7 +74,13 @@ fn source_global(interpreter: &Interpreter, name: &str) -> Value {
     interpreter
         .source_globals()
         .into_iter()
-        .find_map(|(_, global_name, value)| (global_name.as_ref() == name).then_some(value))
+        .find_map(
+            |PackageGlobal {
+                 name: global_name,
+                 value,
+                 ..
+             }| (global_name.as_ref() == name).then_some(value),
+        )
         .unwrap_or_else(|| panic!("{name} should be present in source globals"))
 }
 
@@ -293,6 +300,7 @@ fn logical_counts_call_counts_callable_with_udt_output() {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     )
     .expect("compilation should succeed");
 
@@ -650,4 +658,22 @@ fn manual_memory_rejects_load_on_compute_qubit() {
         err.contains("cannot perform Load on compute qubit"),
         "unexpected error: {err}"
     );
+}
+
+#[test]
+fn is_resource_estimating_is_true() {
+    let counts = run_logical_counts(indoc! {r#"
+            namespace Test {
+                import Std.ResourceEstimation.*;
+
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    if IsResourceEstimating() {
+                        T(q);
+                    }
+                }
+            }
+        "#});
+    assert_eq!(counts.t_count, 1);
 }

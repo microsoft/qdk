@@ -114,7 +114,7 @@ def qubit(
             CNOT = {"arity": 2, "time": 100, "error_rate": 1e-6}
     """
 
-    def decorator(cls):
+    def decorator(cls: type) -> Any:
         nonlocal base_class, name
 
         actual_base = base_class if base_class is not None else Architecture
@@ -145,7 +145,11 @@ def qubit(
                     instruction_attrs[attr_name] = attrs.pop(attr_name)
                     annotations.pop(attr_name, None)
 
-            def _provided_isa(self, ctx: ISAContext, _instr=instruction_attrs) -> ISA:
+            def _provided_isa(
+                self: Architecture,
+                ctx: ISAContext,
+                _instr: dict[str, dict] = instruction_attrs,
+            ) -> ISA:
                 sources = []
                 for instr_name, kwargs in _instr.items():
                     instr_id = INSTRUCTION_ID_MAP[instr_name]

@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Iterable, List, Optional, Union
 from dataclasses import dataclass, field
 from .._native import physical_estimates
 
@@ -17,6 +17,13 @@ try:
     has_markdown = True
 except ImportError:
     has_markdown = False
+
+
+def _get_markdown() -> Optional[Any]:
+    """Returns new Markdown object if markdown is available, None otherwise."""
+    if has_markdown:
+        return markdown.Markdown(extensions=["mdx_math"])  # pyright: ignore
+    return None
 
 
 class EstimatorError(BaseException):
@@ -44,8 +51,8 @@ class AutoValidatingParams:
     function, the field is validated beforehand.
     """
 
-    def as_dict(self, validate=True):
-        result = {}
+    def as_dict(self, validate: bool = True) -> Dict[str, Any]:
+        result: Dict[str, Any] = {}
 
         for name, field in self.__dataclass_fields__.items():
             field_value = self.__getattribute__(name)
@@ -68,7 +75,7 @@ class AutoValidatingParams:
 
         return result
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         """
         A function that is called after all individual fields have been
         validated, but before the result is returned.
@@ -78,7 +85,7 @@ class AutoValidatingParams:
         pass
 
 
-def validating_field(validation_func, default=None):
+def validating_field(validation_func: Any, default: Any = None) -> Any:
     """
     A helper method to declare field for an AutoValidatingParams data class.
     """
@@ -114,12 +121,14 @@ class QECScheme:
     FLOQUET_CODE = "floquet_code"
 
 
-def _check_error_rate(name, value):
+def _check_error_rate(name: str, value: float) -> None:
     if value <= 0.0 or value >= 1.0:
         raise ValueError(f"{name} must be between 0 and 1")
 
 
-def _check_error_rate_or_process_and_readout(name, value):
+def _check_error_rate_or_process_and_readout(
+    name: str, value: Optional[Union[float, "MeasurementErrorRate"]]
+) -> None:
     if value is None:
         return
 
@@ -134,7 +143,7 @@ def _check_error_rate_or_process_and_readout(name, value):
         )
 
 
-def check_time(name, value):
+def check_time(name: str, value: str) -> None:
     pat = r"^(\+?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?)\s*(s|ms|μs|µs|us|ns)$"
     if re.match(pat, value) is None:
         raise ValueError(
@@ -170,7 +179,7 @@ class EstimatorQubitParams(AutoValidatingParams):
     """
 
     @staticmethod
-    def check_instruction_set(name, value):
+    def check_instruction_set(name: str, value: str) -> None:
         if value not in [
             "gate-based",
             "gate_based",
@@ -210,7 +219,7 @@ class EstimatorQubitParams(AutoValidatingParams):
     _gate_based = ["gate-based", "gate_based", "GateBased", "gateBased"]
     _maj_based = ["Majorana", "majorana"]
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         # check whether all fields have been specified in case a custom qubit
         # model is specified
         custom = result != {} and (
@@ -237,7 +246,7 @@ class EstimatorQubitParams(AutoValidatingParams):
             if self.one_qubit_gate_time is None:
                 raise LookupError("one_qubit_gate_time must be set")
 
-    def as_dict(self, validate=True) -> Dict[str, Any]:
+    def as_dict(self, validate: bool = True) -> Dict[str, Any]:
         qubit_params = super().as_dict(validate)
         if len(qubit_params) != 0:
             if isinstance(self.one_qubit_measurement_error_rate, MeasurementErrorRate):
@@ -286,7 +295,7 @@ class ProtocolSpecificDistillationUnitSpecification(AutoValidatingParams):
     num_unit_qubits: Optional[int] = None
     duration_in_qubit_cycle_time: Optional[int] = None
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         if self.num_unit_qubits is None:
             raise LookupError("num_unit_qubits must be set")
 
@@ -336,7 +345,7 @@ class DistillationUnitSpecification(AutoValidatingParams):
     def has_predefined_name(self):
         return self.name is not None
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         if not self.has_custom_specification() and not self.has_predefined_name():
             raise LookupError(
                 "name must be set or custom specification must be provided"
@@ -376,7 +385,7 @@ class DistillationUnitSpecification(AutoValidatingParams):
                 result
             )
 
-    def as_dict(self, validate=True) -> Dict[str, Any]:
+    def as_dict(self, validate: bool = True) -> Dict[str, Any]:
         specification_dict = super().as_dict(validate)
         if len(specification_dict) != 0:
             if self.physical_qubit_specification is not None:
@@ -439,7 +448,7 @@ class EstimatorConstraints(AutoValidatingParams):
     """
 
     @staticmethod
-    def at_least_one(name, value):
+    def at_least_one(name: str, value: float | int) -> None:
         if value < 1:
             raise ValueError(f"{name} must be at least 1")
 
@@ -448,7 +457,7 @@ class EstimatorConstraints(AutoValidatingParams):
     max_duration: Optional[int] = validating_field(check_time)
     max_physical_qubits: Optional[int] = validating_field(at_least_one)
 
-    def post_validation(self, result):
+    def post_validation(self, result: Dict[str, Any]) -> None:
         if self.max_duration is not None and self.max_physical_qubits is not None:
             raise LookupError(
                 "Both duration and number of physical qubits constraints are provided, but only one is allowed at a time."
@@ -474,7 +483,11 @@ class EstimatorInputParamsItem:
         self.error_budget: Optional[Union[float, ErrorBudgetPartition]] = None
         self.estimate_type: Optional[str] = None
 
-    def as_dict(self, validate: bool = True, additional_params=None) -> Dict[str, Any]:
+    def as_dict(
+        self,
+        validate: bool = True,
+        additional_params: Optional["EstimatorInputParamsItem"] = None,
+    ) -> Dict[str, Any]:
         result: dict[str, Any] = {}
 
         qubit_params = self.qubit_params.as_dict(validate)
@@ -600,7 +613,11 @@ class EstimatorParams(EstimatorInputParamsItem):
                 "make_params with num_items parameter"
             )
 
-    def as_dict(self, validate: bool = True, additional_params=None) -> Dict[str, Any]:
+    def as_dict(
+        self,
+        validate: bool = True,
+        additional_params: Optional["EstimatorInputParamsItem"] = None,
+    ) -> Dict[str, Any]:
         """
         Constructs a dictionary from the input params.
 
@@ -689,7 +706,7 @@ class EstimatorResult(dict):
             self.summary_data_frame = self._summary_data_frame
 
     @staticmethod
-    def _is_succeeded(data):
+    def _is_succeeded(data: Dict[str, Any]) -> bool:
         return "status" in data and data["status"] == "success"
 
     def data(self, idx: Optional[int] = None) -> Any:
@@ -753,7 +770,7 @@ class EstimatorResult(dict):
             else:
                 raise KeyError(key)
 
-    def _plot(self, **kwargs) -> None:
+    def _plot(self, **kwargs: Any) -> None:
         """
         Plots all result items in a space time plot, where the x-axis shows
         total runtime, and the y-axis shows total number of physical qubits.
@@ -861,7 +878,7 @@ class EstimatorResult(dict):
 
         return self._json
 
-    def _summary_data_frame(self, **kwargs):
+    def _summary_data_frame(self, **kwargs: Any):
         try:
             import pandas as pd
         except ImportError:
@@ -876,7 +893,7 @@ class EstimatorResult(dict):
         labels.extend(range(len(labels), len(self)))
         labels = labels[: len(self)]
 
-        def get_row(result):
+        def get_row(result: Dict[str, Any]) -> Any:
             if EstimatorResult._is_succeeded(result):
                 formatted = result["physicalCountsFormatted"]
 
@@ -911,8 +928,7 @@ class EstimatorResult(dict):
     def _item_result_table(self):
         html = ""
 
-        if has_markdown:
-            md = markdown.Markdown(extensions=["mdx_math"])
+        md = _get_markdown()
         for group in self["reportData"]["groups"]:
             html += f"""
                 <details {"open" if group["alwaysVisible"] else ""}>
@@ -926,7 +942,7 @@ class EstimatorResult(dict):
                     if key not in val and "frontierEntries" in val:
                         val = val["frontierEntries"][0]
                     val = val[key]
-                if has_markdown:
+                if md is not None:
                     explanation = md.convert(entry["explanation"])
                 else:
                     explanation = entry["explanation"]
@@ -944,7 +960,7 @@ class EstimatorResult(dict):
             html += "</table></details>"
 
         html += f'<details><summary style="display:list-item"><strong>Assumptions</strong></summary><ul>'
-        if has_markdown:
+        if md is not None:
             for assumption in self["reportData"]["assumptions"]:
                 html += f"<li>{md.convert(assumption)}</li>"
         html += "</ul></details>"
@@ -992,8 +1008,7 @@ class EstimatorResult(dict):
                 }
             </style>"""
 
-        if has_markdown:
-            md = markdown.Markdown(extensions=["mdx_math"])
+        md = _get_markdown()
         for group in self["reportData"]["groups"]:
             html += f"""
                 <details {"open" if group["alwaysVisible"] else ""}>
@@ -1005,7 +1020,7 @@ class EstimatorResult(dict):
                 val = self
                 for key in entry["path"].split("/"):
                     val = val[key]
-                if has_markdown:
+                if md is not None:
                     explanation = md.convert(entry["explanation"])
                 else:
                     explanation = entry["explanation"]
@@ -1019,14 +1034,14 @@ class EstimatorResult(dict):
             html += "</table></details>"
 
         html += f"<details><summary style='display:list-item'><strong>Assumptions</strong></summary><ul>"
-        if has_markdown:
+        if md is not None:
             for assumption in self["reportData"]["assumptions"]:
                 html += f"<li>{md.convert(assumption)}</li>"
         html += "</ul></details>"
 
         return html
 
-    def _batch_result_table(self, indices):
+    def _batch_result_table(self, indices: Iterable[int]) -> str:
         succeeded_item_indices = [
             i for i in indices if EstimatorResult._is_succeeded(self[i])
         ]
@@ -1038,8 +1053,7 @@ class EstimatorResult(dict):
 
         html = ""
 
-        if has_markdown:
-            md = markdown.Markdown(extensions=["mdx_math"])
+        md = _get_markdown()
 
         item_headers = "".join(f"<th>{i}</th>" for i in indices)
 
@@ -1092,7 +1106,7 @@ class EstimatorResult(dict):
             html += "</table></details>"
 
         html += f'<details><summary style="display:list-item"><strong>Assumptions</strong></summary><ul>'
-        if has_markdown:
+        if md is not None:
             for assumption in self[0]["reportData"]["assumptions"]:
                 html += f"<li>{md.convert(assumption)}</li>"
         html += "</ul></details>"
@@ -1101,7 +1115,7 @@ class EstimatorResult(dict):
 
 
 class EstimatorResultDiagram:
-    def __init__(self, data):
+    def __init__(self, data: Dict[str, Any]):
         data.pop("reportData")
         self.data_json = json.dumps(data).replace(" ", "")
         self.vis_lib = "https://cdn-aquavisualization-prod.azureedge.net/resource-estimation/index.js"

@@ -1,13 +1,13 @@
-/// # Summary
-/// Bell Pair sample
-///
-/// # Description
-/// Bell pairs are specific quantum states of two qubits that represent
-/// the simplest (and maximal) examples of quantum entanglement. This sample
-/// prepares |Φ⁺⟩ = (|00⟩+|11⟩)/√2. For other Bell states see BellStates.qs
-///
-/// # References
-/// - [Bell state](https://en.wikipedia.org/wiki/Bell_state)
+// # Summary
+// Bell Pair sample
+//
+// # Description
+// Bell pairs are specific quantum states of two qubits that represent
+// the simplest (and maximal) examples of quantum entanglement. This sample
+// prepares |Φ⁺⟩ = (|00⟩+|11⟩)/√2. For other Bell states see BellStates.qs
+//
+// # References
+// - [Bell state](https://en.wikipedia.org/wiki/Bell_state)
 operation Main() : (Result, Result) {
     // Allocate the two qubits that will be used to create a Bell pair.
     use (q1, q2) = (Qubit(), Qubit());

@@ -42,6 +42,104 @@ fn controlled_capturing_closure_nonzero_param_slot_is_equivalent() {
     "#});
 }
 
+/// Regression for recorded direct-rewrite cleanup. `GetOp(q)` performs `X(q)`
+/// before returning the named callable `X`; direct dispatch consumes `op`, so
+/// the cleanup must retain the now-unused immutable binding and its effect.
+#[test]
+fn recorded_direct_rewrite_cleanup_retains_effectful_callable_initializer() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetOp(q : Qubit) : (Qubit => Unit) {
+                X(q);
+                X
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = GetOp(q);
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// Regression for the removal gate on a rewritten higher-order argument. The
+/// factory is a pure `function`, so its consumed result makes the binding a
+/// deletion candidate, but its body can still fail. Cleanup must keep the
+/// binding so the division failure stays observable.
+#[test]
+fn rewritten_hof_arg_cleanup_retains_fallible_function_factory() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            function GetOp(divisor : Int) : Qubit => Unit {
+                let ignored = 1 / divisor;
+                X
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = GetOp(0);
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// Regression for demoting a dead callable binding that must still run. The
+/// captured angle comes from `GetAngle`, which flips the qubit, so dropping the
+/// binding outright would lose that effect. Cleanup keeps the evaluation and
+/// discards only the consumed callable value.
+#[test]
+fn demoted_dead_callable_binding_retains_capture_effect() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetAngle(q : Qubit) : Double {
+                X(q);
+                0.0
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = Rx(GetAngle(q), _);
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// Regression for `prune_dead_callable_locals_in_block`. The initializer is
+/// intentionally unused and never passed to a higher-order operation, so it
+/// must be retained by the global dead-local pruner solely for its `X(q)`.
+#[test]
+fn global_dead_local_pruner_retains_effectful_callable_initializer() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetOp(q : Qubit) : (Qubit => Unit) {
+                X(q);
+                X
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let unused = GetOp(q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
 /// Generates syntactically valid Q# programs exercising defunctionalization's
 /// key code paths: lambda arguments, partial application, and direct callable
 /// references passed to higher-order functions.

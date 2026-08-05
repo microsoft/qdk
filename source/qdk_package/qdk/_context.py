@@ -64,12 +64,12 @@ from ._types import (
 from .estimator._estimator import LogicalCounts
 
 # Check if we are running in a Jupyter notebook to use the IPython display function
-_in_jupyter = False
+_jupyter_display = None
 try:
     from IPython.display import display  # type: ignore[import-not-found]
 
     if get_ipython().__class__.__name__ == "ZMQInteractiveShell":  # type: ignore
-        _in_jupyter = True  # Jupyter notebook or qtconsole
+        _jupyter_display = display  # Jupyter notebook or qtconsole
 except:
     pass
 
@@ -186,6 +186,7 @@ class Context:
         language_features: Optional[List[str]] = None,
         _trace_circuit: Optional[bool] = None,
         _is_global_context: bool = False,
+        qdk_config: dict[str, int | float | str | bool] = {},
     ):
         """
         Initializes a new isolated Q# context.
@@ -207,6 +208,10 @@ class Context:
             the scoped qubit allocation block form (``use q = Qubit() { ... }``), requiring
             the statement form instead (``use q = Qubit();``). It also removes the requirement
             to use the ``set`` keyword for mutable variable assignments.
+
+        :keyword qdk_config: configuration parameters that will be accessible in Q#
+            code using `Std.Core.ConfigValue`. Keys must be strings. Values must be of 
+            type `int`, `float`, `str`, or `bool`.
         """
         self._disposed = False
         self._is_global_context = _is_global_context
@@ -252,12 +257,15 @@ class Context:
         self_ref = weakref.ref(self)
 
         def make_callable_weak(
-            callable: GlobalCallable, namespace: List[str], callable_name: str
+            callable: GlobalCallable,
+            namespace: List[str],
+            callable_name: str,
+            is_test: bool,
         ) -> None:
             ctx = self_ref()
             if ctx is None or ctx._disposed:
                 return
-            ctx._make_callable(callable, namespace, callable_name)
+            ctx._make_callable(callable, namespace, callable_name, is_test)
 
         def make_class_weak(
             qsharp_type: TypeIR, namespace: List[str], class_name: str
@@ -278,13 +286,14 @@ class Context:
             make_callable_weak,
             make_class_weak,
             _trace_circuit,
+            qdk_config,
         )
 
         self._config = Config(
             target_profile, language_features, manifest_contents, project_root
         )
 
-    def _qsharp_value_to_python_value(self, obj):
+    def _qsharp_value_to_python_value(self, obj: Any) -> Any:
         """Converts Q# value to Python value."""
         # Base case: Primitive types
         if isinstance(obj, (bool, int, float, complex, str, Pauli, Result)):
@@ -395,9 +404,9 @@ class Context:
 
     def _display(self, output: Output) -> None:
         """Displays output in Jupyter (if available), otherwise prints."""
-        if _in_jupyter:
+        if _jupyter_display is not None:
             try:
-                display(output)
+                _jupyter_display(output)
                 return
             except Exception:
                 # If IPython is not available, fall back to printing the output.
@@ -433,12 +442,16 @@ class Context:
         return module
 
     def _make_callable(
-        self, callable: GlobalCallable, namespace: List[str], callable_name: str
+        self,
+        callable: GlobalCallable,
+        namespace: List[str],
+        callable_name: str,
+        is_test: bool,
     ):
         """Registers a Q# callable in this context's code module."""
         module = self._get_code_module(namespace)
 
-        def _callable_fn(*args):
+        def _callable_fn(*args: Any) -> Any:
             if self._disposed:
                 raise QSharpError(
                     "This callable belongs to a disposed Q# context. "
@@ -452,12 +465,14 @@ class Context:
 
         setattr(_callable_fn, "_qdk_context", self)
         setattr(_callable_fn, "__global_callable", callable)
+        setattr(_callable_fn, "__is_test__", is_test)
+        setattr(_callable_fn, "__name__", ".".join(namespace + [callable_name]))
 
         if module.__dict__.get(callable_name) is None:
             module.__setattr__(callable_name, _callable_fn)
         else:
             for key, val in module.__dict__.get(callable_name).__dict__.items():
-                if key != "__global_callable":
+                if key != "__global_callable" and key != "__is_test__":
                     _callable_fn.__dict__[key] = val
             module.__setattr__(callable_name, _callable_fn)
 
@@ -611,7 +626,7 @@ class Context:
         self,
         entry_expr: Union[str, Callable, GlobalCallable, Closure],
         shots: int,
-        *args,
+        *args: Any,
         on_result: Optional[Callable[[ShotResult], None]] = None,
         save_events: bool = False,
         noise: Optional[
@@ -751,7 +766,7 @@ class Context:
             return [shot["result"] for shot in results]
 
     def compile(
-        self, entry_expr: Union[str, Callable, GlobalCallable, Closure], *args
+        self, entry_expr: Union[str, Callable, GlobalCallable, Closure], *args: Any
     ) -> QirInputData:
         """
         Compiles the Q# source code into a program that can be submitted to a target.
@@ -799,7 +814,7 @@ class Context:
     def circuit(
         self,
         entry_expr: Optional[Union[str, Callable, GlobalCallable, Closure]] = None,
-        *args,
+        *args: Any,
         operation: Optional[str] = None,
         generation_method: Optional[CircuitGenerationMethod] = None,
         max_operations: Optional[int] = None,
@@ -890,7 +905,7 @@ class Context:
     def logical_counts(
         self,
         entry_expr: Union[str, Callable, GlobalCallable, Closure],
-        *args,
+        *args: Any,
     ) -> LogicalCounts:
         """
         Extracts logical resource counts from Q# source code.

@@ -19,7 +19,7 @@ mod tests;
 
 pub mod backend;
 pub mod debug;
-mod error;
+pub mod function_evaluator;
 pub mod intrinsic;
 pub mod noise;
 pub mod output;
@@ -32,7 +32,6 @@ use crate::val::{
 };
 use core::panic;
 use debug::{CallStack, Frame};
-pub use error::PackageSpan;
 use miette::Diagnostic;
 use num_bigint::BigInt;
 use output::Receiver;
@@ -44,6 +43,7 @@ use qsc_fir::fir::{
     StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
+pub use qsc_hir::hir::PackageSpan;
 use qsc_lowerer::map_fir_package_to_hir;
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
@@ -948,6 +948,16 @@ impl State {
     ) -> Option<(StepResult, Span)> {
         if step == StepAction::Next && current_frame >= self.current_frame_id() {
             let block = globals.get_block((self.package, block).into());
+            // A synthetic block introduced by a desugar (for example the guard
+            // blocks the loop `break`/`continue` desugar emits) carries
+            // `Span::default()`, marking generated code with no source location.
+            // Skip its exit as a step point, matching `check_for_break`'s handling
+            // of generated code. This also avoids underflowing the `u32` offset in
+            // `block.span.hi - 1` below, which would otherwise surface a bogus
+            // end-of-file location when stepping.
+            if block.span == Span::default() {
+                return None;
+            }
             let span = Span {
                 lo: block.span.hi - 1,
                 hi: block.span.hi,
@@ -1264,6 +1274,7 @@ impl State {
                 functor,
                 callee,
                 sim,
+                globals,
                 callee_span,
                 arg,
                 arg_span,
@@ -1328,6 +1339,7 @@ impl State {
         functor: FunctorApp,
         callee: &fir::CallableDecl,
         sim: &mut TracingBackend<'_, B>,
+        globals: &impl PackageStoreLookup,
         callee_span: PackageSpan,
         arg: Value,
         arg_span: PackageSpan,
@@ -1379,6 +1391,7 @@ impl State {
                     sim,
                     &mut self.rng.borrow_mut(),
                     out,
+                    globals,
                 )?;
                 if val == Value::unit() && callee.output != Ty::UNIT {
                     return Err(Error::UnsupportedIntrinsicType(

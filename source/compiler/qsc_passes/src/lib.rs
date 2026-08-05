@@ -5,15 +5,20 @@ mod borrowck;
 mod callable_limits;
 mod capabilitiesck;
 mod common;
+mod config_inline;
 mod conjugate_invert;
 mod entry_point;
 mod id_update;
 mod index_assignment;
 mod invert_block;
 mod logic_sep;
+mod loop_control;
+mod loop_normalize;
 mod loop_unification;
 mod measurement;
 mod noise_intrinsic;
+#[cfg(test)]
+pub(crate) mod qsharp_gen;
 mod replace_qubit_allocation;
 mod reset;
 mod spec_gen;
@@ -26,9 +31,11 @@ use capabilitiesck::{
 };
 use entry_point::generate_entry_expr;
 use index_assignment::ConvertToWSlash;
+use loop_control::LoopControl;
 use loop_unification::LoopUni;
 use miette::Diagnostic;
 use qsc_data_structures::target::TargetCapabilityFlags;
+use qsc_eval::val::Value;
 use qsc_fir::fir;
 use qsc_frontend::compile::CompileUnit;
 use qsc_hir::{
@@ -42,6 +49,8 @@ use qsc_hir::{
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_rca::{PackageComputeProperties, PackageStoreComputeProperties};
 use replace_qubit_allocation::ReplaceQubitAllocation;
+use rustc_hash::FxHashMap;
+use std::rc::Rc;
 use thiserror::Error;
 
 pub(crate) static CORE_NAMESPACE: &[&str] = &["Std", "Core"];
@@ -54,8 +63,12 @@ pub enum Error {
     BorrowCk(borrowck::Error),
     CallableLimits(callable_limits::Error),
     CapabilitiesCk(qsc_rca::errors::Error),
+    ConfigInline(config_inline::Error),
     ConjInvert(conjugate_invert::Error),
     EntryPoint(entry_point::Error),
+    LoopControl(loop_control::Error),
+    LoopNormalize(loop_normalize::Error),
+    LoopUnification(loop_unification::Error),
     Measurement(measurement::Error),
     NoiseIntrinsic(noise_intrinsic::Error),
     Reset(reset::Error),
@@ -85,19 +98,22 @@ pub fn lower_hir_to_fir(
 
 pub struct PassContext {
     borrow_check: borrowck::Checker,
+    /// Read-only config values exposed to Q# via Std.Core.ConfigValue.
+    qdk_config: Rc<FxHashMap<Rc<str>, Value>>,
 }
 
 impl Default for PassContext {
     fn default() -> Self {
-        Self::new()
+        Self::new(Default::default())
     }
 }
 
 impl PassContext {
     #[must_use]
-    pub fn new() -> Self {
+    pub fn new(qdk_config: Rc<FxHashMap<Rc<str>, Value>>) -> Self {
         Self {
             borrow_check: borrowck::Checker::default(),
+            qdk_config,
         }
     }
 
@@ -113,6 +129,13 @@ impl PassContext {
         call_limits.visit_package(package);
         let callable_errors = call_limits.errors;
 
+        // Validate break/continue placement before loop_unification desugars them,
+        // while they are still first-class HIR nodes and before spec_gen duplicates
+        // any bodies into generated specializations.
+        let mut loop_control = LoopControl::default();
+        loop_control.visit_package(package);
+        let loop_control_errors = loop_control.errors;
+
         ConvertToWSlash { assigner }.visit_package(package);
         Validator::default().visit_package(package);
 
@@ -125,6 +148,9 @@ impl PassContext {
         let conjugate_errors = conjugate_invert::invert_conjugate_exprs(core, package, assigner);
         Validator::default().visit_package(package);
 
+        let config_inline_errors =
+            config_inline::replace_get_config_calls(core, package, &self.qdk_config);
+
         let measurement_decl_errors = measurement::validate_measurement_declarations(package);
         let reset_decl_errors = reset::validate_reset_declarations(package);
         let noise_intrinsic_decl_errors =
@@ -133,8 +159,38 @@ impl PassContext {
         let entry_point_errors = generate_entry_expr(package, assigner, package_type);
         Validator::default().visit_package(package);
 
-        LoopUni { core, assigner }.visit_package(package);
+        // Hoist operand-position break/continue to statement position so the
+        // loop_unification desugar can rewrite them in place.
+        let loop_normalize_errors = {
+            let mut normalize = loop_normalize::LoopNormalize::new(assigner);
+            normalize.visit_package(package);
+            normalize.errors
+        };
         Validator::default().visit_package(package);
+
+        let loop_uni_errors = {
+            let mut loop_uni = LoopUni {
+                core,
+                assigner,
+                errors: Vec::new(),
+            };
+            loop_uni.visit_package(package);
+            loop_uni.errors
+        };
+        Validator::default().visit_package(package);
+
+        // Defense-in-depth: after loop_unification, no raw `break`/`continue`
+        // node should remain. `ResidualBreakContinue` is an internal invariant
+        // check, so when `loop_control` already reported a misplaced
+        // `break`/`continue`, the surviving raw node is the expected consequence
+        // of that user error and `loop_control`'s diagnostic is the correct
+        // user-facing one — only surface the invariant when `loop_control` found
+        // no misplaced `break`/`continue`.
+        let residual_break_continue_errors = if loop_control_errors.is_empty() {
+            loop_unification::check_no_break_continue(package)
+        } else {
+            Vec::new()
+        };
 
         ReplaceQubitAllocation::new(core, assigner).visit_package(package);
         Validator::default().visit_package(package);
@@ -145,16 +201,25 @@ impl PassContext {
         callable_errors
             .into_iter()
             .map(Error::CallableLimits)
+            .chain(loop_control_errors.into_iter().map(Error::LoopControl))
             .chain(borrow_errors.drain(..).map(Error::BorrowCk))
             .chain(spec_errors.into_iter().map(Error::SpecGen))
             .chain(conjugate_errors.into_iter().map(Error::ConjInvert))
             .chain(entry_point_errors)
+            .chain(config_inline_errors.into_iter().map(Error::ConfigInline))
             .chain(measurement_decl_errors.into_iter().map(Error::Measurement))
             .chain(reset_decl_errors.into_iter().map(Error::Reset))
             .chain(
                 noise_intrinsic_decl_errors
                     .into_iter()
                     .map(Error::NoiseIntrinsic),
+            )
+            .chain(loop_normalize_errors.into_iter().map(Error::LoopNormalize))
+            .chain(loop_uni_errors.into_iter().map(Error::LoopUnification))
+            .chain(
+                residual_break_continue_errors
+                    .into_iter()
+                    .map(Error::LoopUnification),
             )
             .chain(test_attribute_errors.into_iter().map(Error::TestAttribute))
             .collect()
@@ -175,7 +240,12 @@ pub fn run_default_passes(
     unit: &mut CompileUnit,
     package_type: PackageType,
 ) -> Vec<Error> {
-    PassContext::new().run_default_passes(&mut unit.package, &mut unit.assigner, core, package_type)
+    PassContext::default().run_default_passes(
+        &mut unit.package,
+        &mut unit.assigner,
+        core,
+        package_type,
+    )
 }
 
 pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
@@ -184,17 +254,45 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     let borrow_errors = borrow_check.errors;
 
     let table = global::iter_package(PackageId::CORE, &core.package).collect();
-    LoopUni {
-        core: &table,
-        assigner: &mut core.assigner,
-    }
-    .visit_package(&mut core.package);
+
+    // Hoist operand-position break/continue to statement position before the
+    // loop_unification desugar, matching the default pass pipeline.
+    let loop_normalize_errors = {
+        let mut normalize = loop_normalize::LoopNormalize::new(&mut core.assigner);
+        normalize.visit_package(&mut core.package);
+        normalize.errors
+    };
     Validator::default().visit_package(&core.package);
+
+    let loop_uni_errors = {
+        let mut loop_uni = LoopUni {
+            core: &table,
+            assigner: &mut core.assigner,
+            errors: Vec::new(),
+        };
+        loop_uni.visit_package(&mut core.package);
+        loop_uni.errors
+    };
+    Validator::default().visit_package(&core.package);
+
+    // The core pipeline has no `loop_control` pass, so this residual-node check
+    // is the sole guard that no raw `break`/`continue` survived desugaring.
+    let residual_break_continue_errors = loop_unification::check_no_break_continue(&core.package);
 
     ReplaceQubitAllocation::new(&table, &mut core.assigner).visit_package(&mut core.package);
     Validator::default().visit_package(&core.package);
 
-    borrow_errors.into_iter().map(Error::BorrowCk).collect()
+    borrow_errors
+        .into_iter()
+        .map(Error::BorrowCk)
+        .chain(loop_normalize_errors.into_iter().map(Error::LoopNormalize))
+        .chain(loop_uni_errors.into_iter().map(Error::LoopUnification))
+        .chain(
+            residual_break_continue_errors
+                .into_iter()
+                .map(Error::LoopUnification),
+        )
+        .collect()
 }
 
 pub fn run_rca(

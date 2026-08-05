@@ -9,6 +9,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+binar = { workspace = true }
 bytemuck = { workspace = true }
 futures = { workspace = true }
 wgpu = { workspace = true }
@@ -21,14 +22,14 @@ num-traits = { workspace = true }
 qsc_data_structures = { path = "../compiler/qsc_data_structures" }
 regex-lite = { workspace = true }
 rustc-hash = { workspace = true }
-paulimer = { path = "../paulimer" }
+paulimer = { workspace = true }
+pauliverse = { workspace = true }
 index_map = { path = "../index_map" }
 noisy_simulator = { path = "../noisy_simulator" }
 
 [dev-dependencies]
 expect-test = { workspace = true }
 criterion = { workspace = true }
-
 
 [lints]
 workspace = true
@@ -37,7 +38,7 @@ workspace = true
 doctest = false
 
 [target.'cfg(target_os="linux")'.dev-dependencies]
-iai-callgrind = { workspace = true }
+gungraun = { workspace = true }
 
 [[bench]]
 name = "sim_time"

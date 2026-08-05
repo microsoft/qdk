@@ -4,6 +4,7 @@
 from ._utils import as_qis_gate, get_used_values, uses_any_value
 from .._device import Device
 from pyqir import (
+    BasicBlock,
     Call,
     Instruction,
     Function,
@@ -11,13 +12,13 @@ from pyqir import (
 )
 
 
-def is_output_recording(instr: Instruction):
+def is_output_recording(instr: Instruction) -> bool:
     if isinstance(instr, Call):
         return instr.callee.name.endswith("_record_output")
     return False
 
 
-def is_irreversible(instr: Instruction):
+def is_irreversible(instr: Instruction) -> bool:
     if isinstance(instr, Call) and isinstance(instr.callee, Function):
         return "irreversible" in instr.callee.attributes.func
     return False
@@ -33,14 +34,14 @@ class Reorder(QirModuleVisitor):
         super().__init__()
         self.device = device
 
-    def instr_key(self, instr: Instruction):
+    def instr_key(self, instr: Instruction) -> int:
         gate = as_qis_gate(instr)
         if gate != {} and gate["qubit_args"]:
             qubits = sorted(map(self.device.get_ordering, gate["qubit_args"]))
             return qubits[0]
         return 0
 
-    def _on_block(self, block):
+    def _on_block(self, block: BasicBlock) -> None:
         # The instructions are collected into an ordered list of steps, where each step
         # contains instructions of the same type that do not depend on each other.
         steps = []

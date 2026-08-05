@@ -17,7 +17,7 @@ from .. import telemetry_events
 
 def circuit(
     source: Optional[Union[str, Callable]] = None,
-    *args,
+    *args: Any,
     **kwargs: Any,
 ) -> Circuit:
     """
@@ -88,7 +88,7 @@ def circuit(
     if isinstance(source, Callable) and hasattr(source, "__global_callable"):
         args = python_args_to_interpreter_args(args)
         res = get_interpreter().circuit(
-            config, callable=source.__global_callable, args=args
+            config, callable=getattr(source, "__global_callable"), args=args
         )
     elif isinstance(source, str):
         # remove any entries from kwargs with a None key or None value

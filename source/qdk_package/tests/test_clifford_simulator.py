@@ -301,6 +301,46 @@ def test_clifford_run_no_noise():
     assert output == [[Result.Zero] * 16], "Expected result of 0s with pi/2 angles."
 
 
+QSHARP_SEEDED_MEASUREMENT = """
+operation SeededMeasurement() : Result {
+    use q = Qubit();
+    H(q);
+    return MResetZ(q);
+}
+"""
+
+
+def test_run_qir_clifford_with_seed_produces_deterministic_results():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(QSHARP_SEEDED_MEASUREMENT)
+    qir = str(qsharp.compile("SeededMeasurement()"))
+
+    results = run_qir_clifford(qir, shots=32, seed=42)
+    repeated_results = run_qir_clifford(qir, shots=32, seed=42)
+    different_seed_results = run_qir_clifford(qir, shots=32, seed=43)
+
+    assert set(results) == {Result.Zero, Result.One}
+    assert results == repeated_results
+    assert results != different_seed_results
+
+
+def test_qsharp_clifford_run_with_seed_produces_deterministic_results():
+    qsharp.init(target_profile=TargetProfile.Base)
+    qsharp.eval(QSHARP_SEEDED_MEASUREMENT)
+
+    results = qsharp.run("SeededMeasurement()", shots=32, seed=42, type="clifford")
+    repeated_results = qsharp.run(
+        "SeededMeasurement()", shots=32, seed=42, type="clifford"
+    )
+    different_seed_results = qsharp.run(
+        "SeededMeasurement()", shots=32, seed=43, type="clifford"
+    )
+
+    assert set(results) == {Result.Zero, Result.One}
+    assert results == repeated_results
+    assert results != different_seed_results
+
+
 QSHARP_OP_25_QUBITS = """
 operation Test() : Result[] {
   use qs = Qubit[25]; X(qs[0]); CZ(qs[23], qs[24]); MResetEachZ(qs)
@@ -323,7 +363,7 @@ def test_clifford_run_bitflip_noise():
         "0000000000000000000000011": p_noise**2,  # X & CZ bitflip
     }
 
-    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
+    output = qsharp.run("Test()", shots=1000, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
@@ -332,7 +372,7 @@ def test_clifford_run_bitflip_noise():
     )
 
     # Same execution should work with the operation itself.
-    output = qsharp.run(qdk.code.Test, 500, noise=noise, seed=17, type="clifford")
+    output = qsharp.run(qdk.code.Test, 1000, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,
@@ -351,7 +391,7 @@ def test_clifford_run_mixed_noise():
     noise.cz.XI = p_noise
     noise.cz.IL = p_noise
 
-    output = qsharp.run("Test()", shots=500, noise=noise, seed=17, type="clifford")
+    output = qsharp.run("Test()", shots=2000, noise=noise, seed=17, type="clifford")
     result = [result_array_to_string(cast(Sequence[Result], x)) for x in output]
     expect_distribution(
         result,

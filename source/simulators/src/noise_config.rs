@@ -59,6 +59,11 @@ impl CumulativeNoiseConfig {
     /// Returns true if an idle fault has triggered.
     #[must_use]
     pub fn gen_idle_fault(&self, rng: &mut impl rand::Rng, idle_steps: u32) -> bool {
+        // With no idle noise configured the fault probability is always 0, so avoid
+        // consuming a random sample from `rng`.
+        if self.idle.is_noiseless() {
+            return false;
+        }
         let sample: f32 = rng.random_range(0.0..1.0);
         sample < self.idle.s_probability(idle_steps)
     }
@@ -551,6 +556,11 @@ impl<T> Sampler<T> {
 
     #[must_use]
     pub fn sample(&self, rng: &mut impl rand::Rng) -> Option<&T> {
+        // A table with zero total probability (e.g. a noiseless gate) can never return a
+        // choice, so skip drawing from `rng` entirely.
+        if self.total_probability == 0 {
+            return None;
+        }
         let distr = rand::distr::Uniform::new(0, uq1_63::ONE).expect("valid range");
         let random_sample: u64 = rng.sample(distr);
         self.sample_with_value(random_sample)

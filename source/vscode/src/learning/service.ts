@@ -158,6 +158,7 @@ export class LearningService {
   private _initCreates = false;
   private readonly _disposables: vscode.Disposable[] = [];
   private _environment: EnvironmentManager | undefined;
+  private _progressLoadingError: string | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {
     // Navigating away from an activity leaves its file behind. Close those
@@ -172,6 +173,11 @@ export class LearningService {
 
   get initialized(): boolean {
     return this.workspace !== undefined;
+  }
+
+  /** Non-null when the progress file is corrupt and blocks initialization. */
+  get progressLoadingError(): string | undefined {
+    return this._progressLoadingError;
   }
 
   get learningContentRoot(): vscode.Uri {
@@ -272,7 +278,13 @@ export class LearningService {
 
   dispose(): void {
     if (this.workspace) {
-      this.saveProgress().catch(() => {});
+      this.saveProgress().catch((err) => {
+        vscode.window.showWarningMessage(
+          `Could not save learning progress: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      });
     }
     this._onDidChangeState.dispose();
     this._onDidChangeProgress.dispose();
@@ -1334,10 +1346,19 @@ export class LearningService {
     const detected = await detectLearningWorkspace();
 
     if (detected) {
-      await this.loadWorkspace(
-        detected.workspaceRoot,
-        detected.learningContentRoot,
-      );
+      try {
+        await this.loadWorkspace(
+          detected.workspaceRoot,
+          detected.learningContentRoot,
+        );
+      } catch (err) {
+        const progressError = this._progressLoadingError;
+        if (progressError) {
+          vscode.window.showErrorMessage(progressError);
+          return false;
+        }
+        throw err;
+      }
       this.startWatcher();
       // TODO (acasey): make sure we're firing this an appropriate number of times
       sendTelemetryEvent(
@@ -1755,52 +1776,66 @@ export class LearningService {
     );
   }
 
-  /**
-   * Overlay the saved `qdk-learning.json` onto `ws.progressData`.
-   *
-   * A missing, unreadable, or malformed file leaves `ws.progressData`
-   * untouched, so the caller's seed value stands. On a fresh workspace that
-   * seed is {@link defaultProgressData}; on {@link reloadProgress} it is the
-   * progress already in memory, which is preferable to discarding it because
-   * the file happens to be mid-write or corrupt.
-   */
   private async loadProgress(ws: WorkspaceState): Promise<void> {
-    let parsed;
+    let bytes: Uint8Array;
     try {
-      const bytes = await vscode.workspace.fs.readFile(ws.learningFile);
-      parsed = JSON.parse(new TextDecoder().decode(bytes));
+      bytes = await vscode.workspace.fs.readFile(ws.learningFile);
     } catch {
-      // Expected when the file is missing or unparseable.
       // In this case, leave ws (and, in particular, ws.ProgressData)
       // untouched, since it's either the last known state or the default.
       return;
     }
 
+    // File exists — parse and validate.
+    let parsed: any;
+    try {
+      parsed = JSON.parse(new TextDecoder().decode(bytes));
+    } catch {
+      this._progressLoadingError =
+        "The qdk-learning.json file contains invalid JSON. Fix or delete the file to continue.";
+      throw new Error(this._progressLoadingError);
+    }
+
+    if (!parsed || typeof parsed !== "object") {
+      this._progressLoadingError =
+        "The qdk-learning.json file is corrupt (not a JSON object). Fix or delete the file to continue.";
+      throw new Error(this._progressLoadingError);
+    }
+
+    if (parsed.version !== 1) {
+      this._progressLoadingError = `The qdk-learning.json file has an unsupported version (${JSON.stringify(parsed.version)}). Fix or delete the file to continue.`;
+      throw new Error(this._progressLoadingError);
+    }
+
     if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      parsed.version !== 1 ||
       typeof parsed.completions !== "object" ||
       parsed.completions === null ||
-      typeof parsed.position !== "object" ||
-      parsed.position === null
+      Array.isArray(parsed.completions)
     ) {
-      // As above, leave ws.ProgressData untouched if we can't load it
-      return;
+      this._progressLoadingError =
+        'The qdk-learning.json file is missing or has an invalid "completions" field. Fix or delete the file to continue.';
+      throw new Error(this._progressLoadingError);
+    }
+
+    if (
+      typeof parsed.position !== "object" ||
+      parsed.position === null ||
+      Array.isArray(parsed.position)
+    ) {
+      this._progressLoadingError =
+        'The qdk-learning.json file is missing or has an invalid "position" field. Fix or delete the file to continue.';
+      throw new Error(this._progressLoadingError);
     }
 
     ws.progressData = parsed as ProgressFileData;
-    // Resolve the course the saved position points at, falling back to
-    // the default loaded course if it references one not yet loaded.
-    const course =
-      ws.courses.get(ws.progressData.position.courseId) ??
-      this.defaultCourse(ws.courses);
-    // Validate saved position references a known unit and activity
+
+    // Validate saved position references a known course, unit, and activity.
+    // Accept the passed-in default if they're not valid.
+    const course = ws.courses.get(ws.progressData.position.courseId);
     if (course && course.units.length > 0) {
-      const unit =
-        ws.progressData.position.courseId === course.id
-          ? course.units.find((k) => k.id === ws.progressData.position.unitId)
-          : undefined;
+      const unit = course.units.find(
+        (k) => k.id === ws.progressData.position.unitId,
+      );
       const activityValid =
         unit &&
         unit.activities.some(
@@ -1859,6 +1894,13 @@ export class LearningService {
       await vscode.workspace.fs.writeFile(
         ws.learningFile,
         new TextEncoder().encode(json),
+      );
+    } catch (err) {
+      throw new Error(
+        `Failed to save learning progress: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+        { cause: err },
       );
     } finally {
       this._writingProgress = false;

@@ -38,7 +38,7 @@ class TraceTransform(ABC):
         ...
 
     @classmethod
-    def q(cls, **kwargs) -> TraceQuery:
+    def q(cls, **kwargs: Any) -> TraceQuery:
         """Create a trace query for this transform type.
 
         Args:
@@ -194,7 +194,9 @@ class _Node(ABC):
     """Abstract base class for trace enumeration nodes."""
 
     @abstractmethod
-    def enumerate(self, ctx: ApplicationContext) -> Generator[Trace, None, None]: ...
+    def enumerate(
+        self, ctx: ApplicationContext, track_parameters: bool = False
+    ) -> Generator[Trace | tuple[Any, Trace], None, None]: ...
 
 
 class TraceQuery(_Node):
@@ -208,7 +210,7 @@ class TraceQuery(_Node):
     # override their default domains.  The first element might be
     sequence: list[tuple[Type, dict[str, Any]]]
 
-    def __init__(self, t: Type, **kwargs):
+    def __init__(self, t: Type, **kwargs: Any):
         self.sequence = [(t, kwargs)]
 
     def enumerate(

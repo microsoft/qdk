@@ -13,7 +13,8 @@
         "${workspaceFolder}/source/vscode/test/suites/learning/test-workspace"
       ],
       "outFiles": [
-        "${workspaceFolder}/source/vscode/out/**/*.js"
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
       ]
     },
     {
@@ -27,6 +28,10 @@
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "--extensionDevelopmentKind=web",
         "${workspaceFolder}/samples/"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
       ]
     },
     {
@@ -43,6 +48,10 @@
         "--remote=wsl+${env:WSL_DISTRO_NAME}",
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "${workspaceFolder}/samples/"
+      ],
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
       ]
     },
     {
@@ -62,7 +71,8 @@
         "${workspaceFolder}/source/vscode/test/suites/learning/test-workspace"
       ],
       "outFiles": [
-        "${workspaceFolder}/source/vscode/out/**/*.js"
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
       ]
     }
   ]

@@ -358,7 +358,7 @@ type EventTypes = {
   };
   [EventType.WasmError]: {
     properties: {
-      target: string;
+      panicTarget: string;
     };
     measurements: Empty;
   };
@@ -413,7 +413,7 @@ export function initTelemetry(context: vscode.ExtensionContext) {
   log.setTelemetryCollector((event) => {
     if (event.id === "wasm-error") {
       sendTelemetryEvent(EventType.WasmError, {
-        target: event.data?.target ?? "unknown",
+        panicTarget: event.data?.panicTarget ?? "unknown",
       });
     }
   });

@@ -1,5 +1,5 @@
-/// # Sample
-/// Grover Search on hypercube
+// # Sample
+// Grover Search on hypercube
 
 // Import standard libraries
 import Std.Diagnostics.*;

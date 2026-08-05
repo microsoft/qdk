@@ -337,6 +337,9 @@
           "include": "#port-statement"
         },
         {
+          "include": "#conditional-correction"
+        },
+        {
           "include": "#gadget-application"
         },
         {
@@ -369,6 +372,9 @@
         },
         {
           "include": "#virtual-correction"
+        },
+        {
+          "include": "#conditional-correction"
         },
         {
           "include": "#gadget-application"
@@ -504,6 +510,10 @@
         {
           "match": "L[XYZ]\\d+",
           "name": "entity.name.tag.logical.deq"
+        },
+        {
+          "match": "IN\\d+\\.DS\\d+",
+          "name": "support.class.check.deq"
         },
         {
           "include": "#targets"
@@ -657,6 +667,10 @@
         {
           "match": "rec\\[-\\d+\\]",
           "name": "variable.other.deq"
+        },
+        {
+          "match": "R\\d+",
+          "name": "support.variable.readout.deq"
         }
       ]
     },
@@ -694,6 +708,10 @@
           "include": "#mako-expression"
         },
         {
+          "match": "(?:IN|OUT)\\d+\\.S\\d+",
+          "name": "invalid.illegal.virtual-stabilizer-in-preselect.deq"
+        },
+        {
           "match": "M\\d+",
           "name": "variable.other.deq"
         },
@@ -702,8 +720,12 @@
           "name": "variable.other.deq"
         },
         {
+          "match": "\\b[01]\\b",
+          "name": "constant.numeric.parity.deq"
+        },
+        {
           "match": "\\d+",
-          "name": "constant.numeric.deq"
+          "name": "invalid.illegal.preselect-parity-out-of-range.deq"
         }
       ]
     },
@@ -743,6 +765,23 @@
           "name": "support.type.pauli.deq"
         },
         "3": {
+          "name": "constant.numeric.deq"
+        }
+      }
+    },
+    "conditional-correction": {
+      "match": "\\b(CONDITIONAL)\\s+(rec\\[-\\d+\\])\\s+((?:[XYZ]\\d+)(?:\\*[XYZ]\\d+)*)\\s+(\\d+)",
+      "captures": {
+        "1": {
+          "name": "keyword.directive.deq"
+        },
+        "2": {
+          "name": "variable.other.deq"
+        },
+        "3": {
+          "name": "support.type.pauli.deq"
+        },
+        "4": {
           "name": "constant.numeric.deq"
         }
       }

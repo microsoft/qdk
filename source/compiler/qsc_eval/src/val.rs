@@ -10,7 +10,7 @@ use std::{
     rc::{Rc, Weak},
 };
 
-use crate::{AsIndex, Error, Range as EvalRange, error::PackageSpan};
+use crate::{AsIndex, Error, PackageSpan, Range as EvalRange};
 
 pub const DEFAULT_RANGE_STEP: i64 = 1;
 

@@ -10,7 +10,7 @@ use crate::{
         alloc_expr_stmt, alloc_if_expr, alloc_local_var, alloc_local_var_expr, alloc_not_expr,
         alloc_semi_stmt, alloc_unit_expr,
     },
-    walk_utils::{expr_is_side_effect_free, for_each_expr},
+    walk_utils::{expr_is_safe_to_discard, for_each_expr},
 };
 use qsc_data_structures::span::Span;
 use qsc_fir::{
@@ -598,7 +598,7 @@ fn create_lazy_flag_continuation_expr(
                 if let Some(&last_id) = continuation_stmts.last()
                     && let StmtKind::Expr(e) = package.get_stmt(last_id).kind
                     && package.get_expr(e).ty == Ty::UNIT
-                    && expr_is_side_effect_free(package, e)
+                    && expr_is_safe_to_discard(package, flag_context.package_id, e)
                 {
                     continuation_stmts.pop();
                 }

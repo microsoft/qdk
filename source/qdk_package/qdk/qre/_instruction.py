@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Generator, Iterable, Optional
+from typing import Any, Generator, Iterable, Optional
 from enum import IntEnum
 
 import pandas as pd
@@ -118,7 +118,7 @@ class ISATransform(ABC):
         cls,
         impl_isa: ISA | Iterable[ISA],
         ctx: ISAContext,
-        **kwargs,
+        **kwargs: Any,
     ) -> Generator[ISA, None, None]:
         """
         Enumerate all valid ISAs for this transform given implementation ISAs.
@@ -144,7 +144,7 @@ class ISATransform(ABC):
                 yield from component.provided_isa(isa, ctx)
 
     @classmethod
-    def q(cls, *, source: ISAQuery | None = None, **kwargs) -> ISAQuery:
+    def q(cls, *, source: ISAQuery | None = None, **kwargs: Any) -> ISAQuery:
         """
         Create an ISAQuery node for this transform.
 

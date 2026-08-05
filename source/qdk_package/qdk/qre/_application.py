@@ -9,6 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from inspect import signature
 from types import NoneType
 from typing import (
+    Any,
     ClassVar,
     Generic,
     Protocol,
@@ -27,7 +28,7 @@ class DataclassProtocol(Protocol):
     __dataclass_fields__: ClassVar[dict]
 
 
-TraceParameters = TypeVar("TraceParameters", DataclassProtocol, types.NoneType)
+TraceParameters = TypeVar("TraceParameters", bound=DataclassProtocol | types.NoneType)
 
 
 class Application(ABC, Generic[TraceParameters]):
@@ -60,7 +61,7 @@ class Application(ABC, Generic[TraceParameters]):
         """
 
     @staticmethod
-    def q(**kwargs) -> TraceQuery:
+    def q(**kwargs: Any) -> TraceQuery:
         """Create a trace query for this application.
 
         Args:
@@ -83,7 +84,7 @@ class Application(ABC, Generic[TraceParameters]):
 
     def enumerate_traces(
         self,
-        **kwargs,
+        **kwargs: Any,
     ) -> Generator[Trace, None, None]:
         """Yield all traces of an application given its dataclass parameters.
 
@@ -98,7 +99,11 @@ class Application(ABC, Generic[TraceParameters]):
         # ``get_trace`` (after ``self``), rather than a hard-coded name, so
         # subclasses are free to name the parameter however they like.
         type_hints = get_type_hints(self.__class__.get_trace)
-        param_names = [name for name in signature(self.__class__.get_trace).parameters if name != "self"]
+        param_names = [
+            name
+            for name in signature(self.__class__.get_trace).parameters
+            if name != "self"
+        ]
         param_type = type_hints.get(param_names[0]) if param_names else NoneType
         if param_type is types.NoneType:
             yield self.get_trace(None)  # type: ignore
@@ -121,7 +126,7 @@ class Application(ABC, Generic[TraceParameters]):
 
     def enumerate_traces_with_parameters(
         self,
-        **kwargs,
+        **kwargs: Any,
     ) -> Generator[tuple[TraceParameters, Trace], None, None]:
         """Yield (parameters, trace) pairs for an application.
 
@@ -168,7 +173,7 @@ class ApplicationContext:
 
     application: Application
 
-    def __init__(self, application: Application, **kwargs):
+    def __init__(self, application: Application, **kwargs: Any):
         """Initialize the context for the given application.
 
         Args:

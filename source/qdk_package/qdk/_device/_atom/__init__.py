@@ -8,7 +8,7 @@ from ..._native import try_create_gpu_adapter
 from ..._types import QirInputData
 from ... import telemetry_events
 
-from typing import List, Literal, Optional, TYPE_CHECKING
+from typing import Any, List, Literal, Optional, TYPE_CHECKING
 import time
 
 if TYPE_CHECKING:
@@ -232,11 +232,11 @@ class NeutralAtomDevice(Device):
     def simulate(
         self,
         qir: str | QirInputData,
-        shots=1,
+        shots: int = 1,
         noise: NoiseConfig | None = None,
         type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
         seed: Optional[int] = None,
-    ) -> List:
+    ) -> List[Any]:
         """
         Simulate a QIR program on the NeutralAtomDevice device. This includes approximate layout and scheduling of the program
         to model the parallelism of gates and movement of qubits during execution. The simulation can optionally

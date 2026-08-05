@@ -118,7 +118,7 @@ fn collect_source_files_and_update_offsets(
 /// Parse a QASM file and return the parse result.
 /// This function will resolve includes using the provided resolver.
 /// If an include file cannot be resolved, an error will be returned.
-/// If a file is included recursively, a stack overflow occurs.
+/// If a file is included recursively, a cyclic-include error will be returned.
 pub fn parse_source<R: SourceResolver, S: Into<Arc<str>>, P: Into<Arc<str>>>(
     source: S,
     path: P,

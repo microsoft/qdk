@@ -143,8 +143,11 @@ impl GpuDeviceResources {
             // Binding  7:    BatchData (noise tables + noise entries + program)
             // Interpreter state and registers are embedded in ShotData (binding 1).
             // The termination counter is stored in the diagnostics buffer (binding 5).
+            // Output record values reuse the Results buffer (binding 4) via an
+            // appended region, so no extra binding is needed.
             //
-            // This stays within the WebGPU minimum of 8 storage buffers per shader stage.
+            // This uses 7 storage buffers + 1 uniform, staying within the WebGPU
+            // minimum of 8 storage buffers per shader stage.
             // --------------------------------------------------------------
             bound_buffers: vec![
                 BufferBinding {
@@ -283,12 +286,15 @@ impl GpuResources {
         let adapter = Self::try_get_adapter().await?;
         let adapter_limits = adapter.limits();
 
-        // The gpu simulator uses 7 storage buffers in a single
-        // bind group, which is within the WebGPU minimum guarantee.
-        if adapter_limits.max_storage_buffers_per_shader_stage < 7 {
+        // The gpu simulator uses 7 storage buffers in a single bind group, which
+        // is within the WebGPU minimum guarantee of 8. The adaptive interpreter
+        // stays at 7 by reusing the results buffer for output records rather than
+        // adding a dedicated binding.
+        let required_storage_buffers = 7;
+        if adapter_limits.max_storage_buffers_per_shader_stage < required_storage_buffers {
             return Err(format!(
                 "GPU adapter supports only {} storage buffers per shader stage, \
-                 but the gpu simulator requires 7. \
+                 but the gpu simulator requires {required_storage_buffers}. \
                  Consider a discrete GPU or the CPU simulator.",
                 adapter_limits.max_storage_buffers_per_shader_stage,
             ));
@@ -508,6 +514,10 @@ impl GpuResources {
             )
             .replace("{{MAX_REGISTERS}}", &params.num_registers.to_string())
             .replace("{{MAX_MEMORY}}", &params.max_memory.to_string())
+            .replace(
+                "{{OUTPUT_RECORD_COUNT}}",
+                &params.num_output_records.to_string(),
+            )
             .replace(
                 "{{INSTRUCTIONS_SIZE}}",
                 &params.num_instructions.to_string(),

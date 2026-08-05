@@ -67,7 +67,7 @@ def resolve(base: str, path: str) -> str:
     return os.path.normpath(join(base, path))
 
 
-def exists(path) -> bool:
+def exists(path: str) -> bool:
     """
     Check if a file or directory exists at the given path.
 
@@ -78,7 +78,7 @@ def exists(path) -> bool:
     return os.path.exists(path)
 
 
-def join(path: str, *paths) -> str:
+def join(path: str, *paths: str) -> str:
     """
     Joins one or more path components intelligently.
 

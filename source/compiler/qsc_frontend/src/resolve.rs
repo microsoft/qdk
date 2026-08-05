@@ -1279,7 +1279,7 @@ impl GlobalTable {
 
         for global in global::iter_package(id, package).filter(|global| {
             global.visibility == hir::Visibility::Public
-                || matches!(&global.kind, global::Kind::Callable(t) if t.intrinsic)
+                || matches!(&global.kind, global::Kind::Callable(t) if t.is_intrinsic)
         }) {
             // If the namespace is `Main` and we have an alias, we treat it as the root of the package, so there's no
             // namespace prefix between the dependency alias and the defined items.
@@ -1323,7 +1323,7 @@ impl GlobalTable {
                             Res::Importable(Importable::Callable(term.id, global.status)),
                         );
                     }
-                    if term.intrinsic {
+                    if term.is_intrinsic {
                         self.scope.intrinsics.insert(global.name);
                     }
                 }

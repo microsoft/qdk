@@ -121,7 +121,7 @@ fn funcs_cannot_allocate_qubits() {
 }
 
 #[test]
-fn funcs_cannot_use_repeat() {
+fn funcs_can_use_repeat() {
     check(
         indoc! {"
             namespace Test {
@@ -131,14 +131,7 @@ fn funcs_cannot_use_repeat() {
             }
         "},
         &expect![[r#"
-            [
-                Repeat(
-                    Span {
-                        lo: 51,
-                        hi: 71,
-                    },
-                ),
-            ]
+            []
         "#]],
     );
 }

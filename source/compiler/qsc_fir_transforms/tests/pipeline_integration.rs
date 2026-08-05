@@ -9,6 +9,7 @@ use qsc_eval::val::Value;
 use qsc_fir::{
     fir::{ExecGraphConfig, ExprKind, ItemKind, PackageLookup, StoreItemId},
     validate::validate,
+    visit::Visitor,
 };
 use qsc_fir_transforms::{
     PipelineError, PipelineStage, invariants, reachability, run_pipeline_to_with_diagnostics,
@@ -158,6 +159,56 @@ fn callable_name_matches(actual: &str, requested: &str) -> bool {
         actual.starts_with(".lambda")
     } else {
         actual == requested
+    }
+}
+
+struct PostPipelineCallableValueVisitor<'a> {
+    package: &'a qsc_fir::fir::Package,
+    callable_name: &'a str,
+}
+
+impl<'a> Visitor<'a> for PostPipelineCallableValueVisitor<'a> {
+    fn visit_expr(&mut self, expr_id: qsc_fir::fir::ExprId) {
+        let expr = self.package.get_expr(expr_id);
+        assert!(
+            !matches!(expr.kind, ExprKind::Closure(..)),
+            "reachable callable `{}` still contains a closure after the full pipeline",
+            self.callable_name
+        );
+        if let ExprKind::Call(callee_id, _) = expr.kind {
+            let mut base_id = callee_id;
+            while let ExprKind::UnOp(qsc_fir::fir::UnOp::Functor(_), inner_id) =
+                self.package.get_expr(base_id).kind
+            {
+                base_id = inner_id;
+            }
+            let base = self.package.get_expr(base_id);
+            assert!(
+                !matches!(
+                    base.kind,
+                    qsc_fir::fir::ExprKind::Var(qsc_fir::fir::Res::Local(_), _)
+                ) || !matches!(base.ty, qsc_fir::ty::Ty::Arrow(_)),
+                "reachable callable `{}` still contains an indirect call through a callable local",
+                self.callable_name
+            );
+        }
+        qsc_fir::visit::walk_expr(self, expr_id);
+    }
+
+    fn get_block(&self, id: qsc_fir::fir::BlockId) -> &'a qsc_fir::fir::Block {
+        self.package.get_block(id)
+    }
+
+    fn get_expr(&self, id: qsc_fir::fir::ExprId) -> &'a qsc_fir::fir::Expr {
+        self.package.get_expr(id)
+    }
+
+    fn get_pat(&self, id: qsc_fir::fir::PatId) -> &'a qsc_fir::fir::Pat {
+        self.package.get_pat(id)
+    }
+
+    fn get_stmt(&self, id: qsc_fir::fir::StmtId) -> &'a qsc_fir::fir::Stmt {
+        self.package.get_stmt(id)
     }
 }
 
@@ -658,6 +709,7 @@ fn run_pipeline_to_missing_pinned_item_reports_diagnostic() {
         "expected MissingPinnedItem diagnostic, got:\n{}",
         format_pipeline_errors(&result.errors)
     );
+    assert_eq!(result.errors[0].owner(), pinned_store_id.package);
 }
 
 #[test]
@@ -730,6 +782,7 @@ fn run_pipeline_to_non_callable_pinned_item_reports_diagnostic() {
         "expected PinnedItemNotCallable diagnostic, got:\n{}",
         format_pipeline_errors(&result.errors)
     );
+    assert_eq!(result.errors[0].owner(), pinned_store_id.package);
 }
 
 #[test]
@@ -1298,10 +1351,10 @@ fn local_multi_field_udt_callable_passed_to_hof() {
 /// `Std.TableLookup.AndChain` which has `(NGarbageQubits: Int, Apply: Qubit[] => Unit is Adj)`.
 ///
 /// The library defines the UDT and a factory function that constructs it
-/// with a closure capturing the factory's arguments. User code calls the
-/// factory cross-package, exercises the callable field, and returns the
-/// integer field. This exercises defunctionalization, UDT erasure, and tuple-decompose
-/// on a callable value flowing through a cross-package struct boundary.
+/// with a closure capturing the factory's arguments. A reachable library body
+/// invokes the field, and user code calls that body across the package boundary.
+/// This exercises defunctionalization, UDT erasure, and tuple decomposition on
+/// the same foreign projected-callee shape as `Std.TableLookup.Select`.
 #[test]
 fn cross_package_multi_field_udt_with_callable_field() {
     let lib_source = r#"
@@ -1310,12 +1363,24 @@ fn cross_package_multi_field_udt_with_callable_field() {
                 Count: Int,
                 Apply: Qubit[] => Unit is Adj,
             }
-            export Config, MakeConfig;
+            export InvokeConfig;
 
-            operation NoOpImpl(qs : Qubit[]) : Unit is Adj {}
+            operation ApplyImpl(n : Int, qs : Qubit[]) : Unit is Adj {
+                if n > 0 {
+                    X(qs[0]);
+                }
+            }
 
             function MakeConfig(n : Int) : Config {
-                new Config { Count = n, Apply = NoOpImpl }
+                new Config {
+                    Count = n,
+                    Apply = qs => ApplyImpl(n, qs),
+                }
+            }
+
+            operation InvokeConfig(n : Int, qs : Qubit[]) : Unit {
+                let config = MakeConfig(n);
+                config.Apply(qs);
             }
         }
     "#;
@@ -1325,10 +1390,9 @@ fn cross_package_multi_field_udt_with_callable_field() {
 
         @EntryPoint()
         operation Main() : Int {
-            let cfg = MakeConfig(3);
-            use qs = Qubit[cfg.Count];
-            cfg.Apply(qs);
-            cfg.Count
+            use qs = Qubit[3];
+            InvokeConfig(3, qs);
+            3
         }
     "#;
 
@@ -1336,6 +1400,39 @@ fn cross_package_multi_field_udt_with_callable_field() {
     run_pipeline_successfully(&mut store, pkg_id);
     let package = store.get(pkg_id);
     validate(package, &store);
+}
+
+#[test]
+fn direct_std_table_lookup_select_eliminates_reachable_callable_values() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use address = Qubit[1];
+                use output = Qubit[1];
+                Std.TableLookup.Select([[false], [true]], address, output);
+                ResetAll(address + output);
+            }
+        }
+    "#;
+    let (mut store, pkg_id) = compile_to_fir(source);
+    run_pipeline_successfully(&mut store, pkg_id);
+
+    validate(store.get(pkg_id), &store);
+    invariants::check(&store, pkg_id, invariants::InvariantLevel::PostAll);
+
+    let reachable = reachability::collect_reachable_from_entry(&store, pkg_id);
+    for store_id in reachable {
+        let package = store.get(store_id.package);
+        let ItemKind::Callable(decl) = &package.get_item(store_id.item).kind else {
+            continue;
+        };
+        PostPipelineCallableValueVisitor {
+            package,
+            callable_name: decl.name.name.as_ref(),
+        }
+        .visit_callable_impl(&decl.implementation);
+    }
 }
 
 // ============================================================================

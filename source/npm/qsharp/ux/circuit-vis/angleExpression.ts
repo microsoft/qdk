@@ -1,14 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// Normalizes "pi" (any case) to "π" and trims whitespace for
-// consistent storage and display.
+// Normalizes "pi" (any case) to "π" and trims whitespace for consistent storage and display.
 export function normalizeAngleExpression(expr: string): string {
   return expr.trim().replace(/pi/gi, "π");
 }
 
-// Evaluate a simple arithmetic expression supporting numbers, + - * /, parentheses, and π.
-// Returns `undefined` for invalid inputs.
+// Evaluate a simple arithmetic expression supporting numbers, + - * /, parentheses, and π. Returns
+// `undefined` for invalid inputs.
 export function evaluateAngleExpression(expr: string): number | undefined {
   if (!expr) return undefined;
   const src = normalizeAngleExpression(expr);

@@ -6,6 +6,7 @@ use crate::{
     protocol::{DiagnosticUpdate, ErrorKind, TestCallables},
 };
 use expect_test::{Expect, expect};
+use miette::Diagnostic;
 use qsc::{compile, line_column::Position, project};
 use std::{cell::RefCell, rc::Rc};
 use test_fs::{FsNode, TestProjectHost, dir, file};
@@ -229,6 +230,108 @@ async fn completions_requested_after_document_load() {
         .iter()
         .any(|item| item.label == "DumpMachine")
     );
+}
+
+#[tokio::test]
+async fn package_aware_foreign_fir_transform_diagnostic() {
+    let foreign_source = r#"
+        namespace ForeignLib {
+            struct Config {
+                Count : Int,
+                Apply : Qubit => Unit,
+                Keep : Qubit => Unit,
+            }
+
+            operation InvokeDynamic(q : Qubit) : Unit {
+                mutable op = H;
+                for _ in 0..3 {
+                    op = X;
+                }
+                let config = new Config {
+                    Count = 1,
+                    Apply = op,
+                    Keep = q2 => {
+                        H(q2);
+                        S(q2);
+                    },
+                };
+                config.Apply(q);
+            }
+
+            export InvokeDynamic;
+        }
+    "#;
+    let user_source = r#"
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            Foreign.ForeignLib.InvokeDynamic(q);
+        }
+    "#;
+    let fs = Rc::new(RefCell::new(FsNode::Dir(
+        [
+            dir(
+                "project",
+                [
+                    file(
+                        "qsharp.json",
+                        r#"{ "targetProfile": "base", "dependencies": { "Foreign": { "path": "../foreign" } } }"#,
+                    ),
+                    dir("src", [file("main.qs", user_source)]),
+                ],
+            ),
+            dir(
+                "foreign",
+                [
+                    file("qsharp.json", "{}"),
+                    dir("src", [file("lib.qs", foreign_source)]),
+                ],
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    )));
+    let diagnostics = RefCell::new(Vec::<(String, compile::Error)>::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = ls.create_update_handler(
+        |update: DiagnosticUpdate| {
+            diagnostics
+                .borrow_mut()
+                .extend(update.errors.into_iter().filter_map(|error| match error {
+                    ErrorKind::Compile(error) => Some((update.uri.clone(), error)),
+                    ErrorKind::Project(_)
+                    | ErrorKind::DocumentStatus { .. }
+                    | ErrorKind::Unnecessary(_) => None,
+                }));
+        },
+        |_| {},
+        TestProjectHost { fs },
+    );
+
+    ls.update_document("project/src/main.qs", 1, user_source, "qsharp");
+    worker.apply_pending().await;
+
+    let diagnostics = diagnostics.borrow();
+    let [(uri, error)] = diagnostics.as_slice() else {
+        panic!("expected one compile diagnostic, got {diagnostics:?}");
+    };
+    let code = error.code().expect("diagnostic should have a code");
+    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
+
+    let label = error
+        .labels()
+        .into_iter()
+        .flatten()
+        .next()
+        .expect("diagnostic should have a source label");
+    let (source, relative_span) = error.resolve_span(label.inner());
+    let span_start = relative_span.offset();
+    let span_end = span_start + relative_span.len();
+
+    assert_eq!(uri, "foreign/src/lib.qs");
+    assert_eq!(source.name.as_ref(), "foreign/src/lib.qs");
+    assert_eq!(&source.contents[span_start..span_end], "config.Apply(q)");
+    assert_ne!(source.name.as_ref(), "OutOfBounds");
 }
 
 fn check_errors_and_compilation(
