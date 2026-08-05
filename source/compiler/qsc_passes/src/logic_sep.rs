@@ -18,21 +18,21 @@ use thiserror::Error;
 pub enum Error {
     #[error("cannot generate adjoint with this expression")]
     #[diagnostic(help(
-        "assignments, repeat-loops, while-loops, and returns cannot be used in blocks that require generated adjoint"
+        "assignments, repeat-loops, while-loops, returns, and break/continue expressions cannot be used in blocks that require generated adjoint"
     ))]
-    #[diagnostic(code("Qsc.LogicSeparation.ExprFobidden"))]
+    #[diagnostic(code("Qdk.Qsc.LogicSeparation.ExprFobidden"))]
     ExprForbidden(#[label] Span),
 
     #[error("cannot generate adjoint of block with {0} type")]
     #[diagnostic(help("adjoint generation can only be performed with blocks of type Unit"))]
-    #[diagnostic(code("Qsc.LogicSeparation.NonUnitBlock"))]
+    #[diagnostic(code("Qdk.Qsc.LogicSeparation.NonUnitBlock"))]
     NonUnitBlock(String, #[label] Span),
 
     #[error("cannot generate adjoint with operation call in this position")]
     #[diagnostic(help(
         "in blocks that require generated adjoint, operation calls can only appear as top-level statements or in a qubit allocation block, conjugate block, for-loop block, or conditional block"
     ))]
-    #[diagnostic(code("Qsc.LogicSeparation.OpCallForbidden"))]
+    #[diagnostic(code("Qdk.Qsc.LogicSeparation.OpCallForbidden"))]
     OpCallForbidden(#[label] Span),
 }
 
@@ -104,10 +104,21 @@ impl<'a> Visitor<'a> for SepCheck {
     }
 
     fn visit_expr(&mut self, expr: &'a Expr) {
-        if let ExprKind::Call(callee, _) = &expr.kind
-            && matches!(&callee.ty, Ty::Arrow(arrow) if arrow.kind == CallableKind::Operation)
-        {
-            self.errors.push(Error::OpCallForbidden(expr.span));
+        // `visit_expr` handles operand positions: conditions, call arguments,
+        // operator sides, array/tuple elements, and so on. `handle_expr` already
+        // rejects control flow in statement position, but a `break`/`continue`/
+        // `return` buried in an operand would otherwise slip past. Adjoint
+        // generation reverses a separable block and none of these can be
+        // reversed, so accepting one here could yield a wrong adjoint.
+        match &expr.kind {
+            ExprKind::Call(callee, _) if matches!(&callee.ty, Ty::Arrow(arrow) if arrow.kind == CallableKind::Operation) =>
+            {
+                self.errors.push(Error::OpCallForbidden(expr.span));
+            }
+            ExprKind::Break | ExprKind::Continue | ExprKind::Return(_) => {
+                self.errors.push(Error::ExprForbidden(expr.span));
+            }
+            _ => {}
         }
         walk_expr(self, expr);
     }
@@ -207,6 +218,8 @@ impl SepCheck {
             | ExprKind::AssignOp(..)
             | ExprKind::AssignField(..)
             | ExprKind::AssignIndex(..)
+            | ExprKind::Break
+            | ExprKind::Continue
             | ExprKind::Repeat(..)
             | ExprKind::Return(..)
             | ExprKind::While(..) => {

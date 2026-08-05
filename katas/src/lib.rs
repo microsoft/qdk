@@ -37,6 +37,7 @@ pub fn check_solution(
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     )?;
 
     interpreter.eval_entry(receiver).map(|value| {

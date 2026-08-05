@@ -28,14 +28,14 @@ fn qubit_index_too_large_is_error() {
     check(
         "H 4294967296",
         &expect![[r#"
-        Stim.Parser.IntegerTooLarge
+            Qdk.Stim.Parser.IntegerTooLarge
 
-          x integer literal is too large to fit in a 32-bit unsigned integer
-           ,----
-         1 | H 4294967296
-           :   ^^^^^^^^^^
-           `----
-    "#]],
+              x integer literal is too large to fit in a 32-bit unsigned integer
+               ,----
+             1 | H 4294967296
+               :   ^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -45,14 +45,14 @@ fn measurement_record_index_too_large_is_error() {
     check(
         "DETECTOR rec[-4294967296]",
         &expect![[r#"
-        Stim.Parser.IntegerTooLarge
+            Qdk.Stim.Parser.IntegerTooLarge
 
-          x integer literal is too large to fit in a 32-bit unsigned integer
-           ,----
-         1 | DETECTOR rec[-4294967296]
-           :               ^^^^^^^^^^
-           `----
-    "#]],
+              x integer literal is too large to fit in a 32-bit unsigned integer
+               ,----
+             1 | DETECTOR rec[-4294967296]
+               :               ^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -61,14 +61,14 @@ fn non_integer_qubit_index_is_error() {
     check(
         "H 0.5",
         &expect![[r#"
-        Stim.Parser.Expected
+            Qdk.Stim.Parser.Expected
 
-          x expected a target, found double
-           ,----
-         1 | H 0.5
-           :   ^^^
-           `----
-    "#]],
+              x expected a target, found double
+               ,----
+             1 | H 0.5
+               :   ^^^
+               `----
+        "#]],
     );
 }
 
@@ -95,14 +95,14 @@ fn sweep_index_too_large_is_error() {
     check(
         "CX sweep[4294967296] 0",
         &expect![[r#"
-        Stim.Parser.IntegerTooLarge
+            Qdk.Stim.Parser.IntegerTooLarge
 
-          x integer literal is too large to fit in a 32-bit unsigned integer
-           ,----
-         1 | CX sweep[4294967296] 0
-           :          ^^^^^^^^^^
-           `----
-    "#]],
+              x integer literal is too large to fit in a 32-bit unsigned integer
+               ,----
+             1 | CX sweep[4294967296] 0
+               :          ^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -112,14 +112,14 @@ fn pauli_value_too_large_is_error() {
     check(
         "MPP X4294967296",
         &expect![[r#"
-        Stim.Parser.IntegerTooLarge
+            Qdk.Stim.Parser.IntegerTooLarge
 
-          x integer literal is too large to fit in a 32-bit unsigned integer
-           ,----
-         1 | MPP X4294967296
-           :      ^^^^^^^^^^
-           `----
-    "#]],
+              x integer literal is too large to fit in a 32-bit unsigned integer
+               ,----
+             1 | MPP X4294967296
+               :      ^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -129,13 +129,13 @@ fn loss_value_too_large_is_error() {
     check(
         "E(0.01) L4294967296",
         &expect![[r#"
-        Stim.Parser.IntegerTooLarge
+            Qdk.Stim.Parser.IntegerTooLarge
 
-          x integer literal is too large to fit in a 32-bit unsigned integer
-           ,----
-         1 | E(0.01) L4294967296
-           :          ^^^^^^^^^^
-           `----
-    "#]],
+              x integer literal is too large to fit in a 32-bit unsigned integer
+               ,----
+             1 | E(0.01) L4294967296
+               :          ^^^^^^^^^^
+               `----
+        "#]],
     );
 }

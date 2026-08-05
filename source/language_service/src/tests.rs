@@ -2,10 +2,11 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Encoding, LanguageService, UpdateWorker,
+    Encoding, LanguageService, UpdateHandler,
     protocol::{DiagnosticUpdate, ErrorKind, TestCallables},
 };
 use expect_test::{Expect, expect};
+use miette::Diagnostic;
 use qsc::{compile, line_column::Position, project};
 use std::{cell::RefCell, rc::Rc};
 use test_fs::{FsNode, TestProjectHost, dir, file};
@@ -17,7 +18,7 @@ async fn single_document() {
     let received_errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &received_errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
 
     ls.update_document("foo.qs", 1, "namespace Foo { }", "qsharp");
 
@@ -52,7 +53,7 @@ async fn single_document_update() {
     let received_errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &received_errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
 
     ls.update_document("foo.qs", 1, "namespace Foo { }", "qsharp");
 
@@ -119,7 +120,7 @@ async fn document_in_project() {
     let received_errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &received_errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &received_errors, &test_cases);
 
     ls.update_document("project/src/this_file.qs", 1, "namespace Foo { }", "qsharp");
 
@@ -173,7 +174,7 @@ async fn completions_requested_before_document_load() {
     let errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let _worker = create_update_worker(&mut ls, &errors, &test_cases);
+    let _worker = create_update_handler(&mut ls, &errors, &test_cases);
 
     ls.update_document(
         "foo.qs",
@@ -204,7 +205,7 @@ async fn completions_requested_after_document_load() {
     let errors = RefCell::new(Vec::new());
     let test_cases = RefCell::new(Vec::new());
     let mut ls = LanguageService::new(Encoding::Utf8);
-    let mut worker = create_update_worker(&mut ls, &errors, &test_cases);
+    let mut worker = create_update_handler(&mut ls, &errors, &test_cases);
 
     // this test is a contrast to `completions_requested_before_document_load`
     // we want to ensure that completions load when the update_document call has been awaited
@@ -229,6 +230,108 @@ async fn completions_requested_after_document_load() {
         .iter()
         .any(|item| item.label == "DumpMachine")
     );
+}
+
+#[tokio::test]
+async fn package_aware_foreign_fir_transform_diagnostic() {
+    let foreign_source = r#"
+        namespace ForeignLib {
+            struct Config {
+                Count : Int,
+                Apply : Qubit => Unit,
+                Keep : Qubit => Unit,
+            }
+
+            operation InvokeDynamic(q : Qubit) : Unit {
+                mutable op = H;
+                for _ in 0..3 {
+                    op = X;
+                }
+                let config = new Config {
+                    Count = 1,
+                    Apply = op,
+                    Keep = q2 => {
+                        H(q2);
+                        S(q2);
+                    },
+                };
+                config.Apply(q);
+            }
+
+            export InvokeDynamic;
+        }
+    "#;
+    let user_source = r#"
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            Foreign.ForeignLib.InvokeDynamic(q);
+        }
+    "#;
+    let fs = Rc::new(RefCell::new(FsNode::Dir(
+        [
+            dir(
+                "project",
+                [
+                    file(
+                        "qsharp.json",
+                        r#"{ "targetProfile": "base", "dependencies": { "Foreign": { "path": "../foreign" } } }"#,
+                    ),
+                    dir("src", [file("main.qs", user_source)]),
+                ],
+            ),
+            dir(
+                "foreign",
+                [
+                    file("qsharp.json", "{}"),
+                    dir("src", [file("lib.qs", foreign_source)]),
+                ],
+            ),
+        ]
+        .into_iter()
+        .collect(),
+    )));
+    let diagnostics = RefCell::new(Vec::<(String, compile::Error)>::new());
+    let mut ls = LanguageService::new(Encoding::Utf8);
+    let mut worker = ls.create_update_handler(
+        |update: DiagnosticUpdate| {
+            diagnostics
+                .borrow_mut()
+                .extend(update.errors.into_iter().filter_map(|error| match error {
+                    ErrorKind::Compile(error) => Some((update.uri.clone(), error)),
+                    ErrorKind::Project(_)
+                    | ErrorKind::DocumentStatus { .. }
+                    | ErrorKind::Unnecessary(_) => None,
+                }));
+        },
+        |_| {},
+        TestProjectHost { fs },
+    );
+
+    ls.update_document("project/src/main.qs", 1, user_source, "qsharp");
+    worker.apply_pending().await;
+
+    let diagnostics = diagnostics.borrow();
+    let [(uri, error)] = diagnostics.as_slice() else {
+        panic!("expected one compile diagnostic, got {diagnostics:?}");
+    };
+    let code = error.code().expect("diagnostic should have a code");
+    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
+
+    let label = error
+        .labels()
+        .into_iter()
+        .flatten()
+        .next()
+        .expect("diagnostic should have a source label");
+    let (source, relative_span) = error.resolve_span(label.inner());
+    let span_start = relative_span.offset();
+    let span_end = span_start + relative_span.len();
+
+    assert_eq!(uri, "foreign/src/lib.qs");
+    assert_eq!(source.name.as_ref(), "foreign/src/lib.qs");
+    assert_eq!(&source.contents[span_start..span_end], "config.Apply(q)");
+    assert_ne!(source.name.as_ref(), "OutOfBounds");
 }
 
 fn check_errors_and_compilation(
@@ -271,12 +374,12 @@ type ErrorInfo = (
     Vec<project::Error>,
 );
 
-fn create_update_worker<'a>(
+fn create_update_handler<'a>(
     ls: &mut LanguageService,
     received_errors: &'a RefCell<Vec<ErrorInfo>>,
     received_test_cases: &'a RefCell<Vec<TestCallables>>,
-) -> UpdateWorker<'a> {
-    ls.create_update_worker(
+) -> UpdateHandler<'a> {
+    ls.create_update_handler(
         |update: DiagnosticUpdate| {
             let project_errors = update.errors.iter().filter_map(|error| match error {
                 ErrorKind::Project(error) => Some(error.clone()),

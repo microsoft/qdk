@@ -60,22 +60,12 @@ fn get_noise_op(op: &Op, noise_table: &NoiseTable<f32>) -> Op {
     noise_op
 }
 
-/// Builds the noise ops to insert after `op` for the given config, or `None`
-/// if the gate is noiseless.
-///
-/// `emit_loss_commits` controls whether loss-commit ops are appended after the
-/// categorical sampler op. The base (non-adaptive) path dispatches ops linearly
-/// and needs an explicit loss-commit op per qubit to perform the deferred
-/// measure + reset, so it passes `true`. The adaptive path instead drains
-/// `pending_loss_mask` inside the interpreter loop, so it passes `false` to
-/// avoid emitting loss-commit ops that would never be dispatched (which would
-/// otherwise roughly double the op pool for circuits with loss on every gate).
-#[must_use]
-pub fn get_noise_ops(
+/// Returns the [`NoiseTable`] in `noise_config` that applies to the given op,
+/// or `None` if the op has no associated noise table (e.g. a noise op itself).
+fn noise_table_for<'a>(
     op: &Op,
-    noise_config: &NoiseConfig<f32, f64>,
-    emit_loss_commits: bool,
-) -> Option<Vec<Op>> {
+    noise_config: &'a NoiseConfig<f32, f64>,
+) -> Option<&'a NoiseTable<f32>> {
     let noise_table = match op.id {
         ops::ID => &noise_config.i,
         ops::X => &noise_config.x,
@@ -103,6 +93,38 @@ pub fn get_noise_ops(
         ops::MRESETZ | ops::RESETZ => &noise_config.mresetz,
         _ => return None,
     };
+    Some(noise_table)
+}
+
+/// Returns the [`LossPolicy`] configured for the given op's gate, encoded as a
+/// `u32` for the GPU shader (see [`LossPolicy::as_u32`]). Returns `None` for
+/// ops that have no associated gate noise table.
+///
+/// The shader reads this from the gate op's `q3` field to decide how to handle
+/// the gate when one of its operands is lost.
+#[must_use]
+pub fn loss_policy_u32(op: &Op, noise_config: &NoiseConfig<f32, f64>) -> Option<u32> {
+    noise_table_for(op, noise_config).map(|table| table.on_loss.as_u32())
+}
+
+/// Builds the noise ops to insert after `op` for the given config, or `None`
+/// if the gate is noiseless.
+///
+/// `emit_loss_commits` controls whether loss-commit ops are appended after the
+/// categorical sampler op. The base (non-adaptive) path dispatches ops linearly
+/// and needs an explicit loss-commit op per qubit to perform the deferred
+/// measure + reset, so it passes `true`. The adaptive path instead drains
+/// `pending_loss_mask` inside the interpreter loop, so it passes `false` to
+/// avoid emitting loss-commit ops that would never be dispatched (which would
+/// otherwise roughly double the op pool for circuits with loss on every gate).
+#[must_use]
+pub fn get_noise_ops(
+    op: &Op,
+    noise_config: &NoiseConfig<f32, f64>,
+    emit_loss_commits: bool,
+) -> Option<Vec<Op>> {
+    let noise_table = noise_table_for(op, noise_config)?;
+
     if noise_table.is_noiseless() {
         return None;
     }

@@ -508,28 +508,14 @@ namespace Test {
 fn error_diagnostic_has_code() {
     use miette::Diagnostic;
     use qsc_data_structures::span::Span;
+    use qsc_fir::fir::{PackageId, PackageSpan};
 
-    let error = super::Error::DynamicCallable(Span::default());
+    let error =
+        super::Error::DynamicCallable(PackageSpan::new(PackageId::from(2usize), Span::default()));
     let code = error
         .code()
         .expect("DynamicCallable should have a diagnostic code");
-    assert_eq!(code.to_string(), "Qsc.Defunctionalize.DynamicCallable");
-}
-
-#[test]
-fn error_recursive_specialization() {
-    use miette::Diagnostic;
-    use qsc_data_structures::span::Span;
-
-    let error = super::Error::RecursiveSpecialization(Span { lo: 42, hi: 50 });
-    expect!["specialization leads to infinite recursion"].assert_eq(&error.to_string());
-    let code = error
-        .code()
-        .expect("RecursiveSpecialization should have a diagnostic code");
-    assert_eq!(
-        code.to_string(),
-        "Qsc.Defunctionalize.RecursiveSpecialization"
-    );
+    assert_eq!(code.to_string(), "Qdk.Qsc.Defunctionalize.DynamicCallable");
 }
 
 #[test]

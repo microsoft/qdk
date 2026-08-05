@@ -8,7 +8,7 @@ module raises an ImportError describing how to enable it.
 """
 
 try:
-    from qsharp_widgets import *  # pyright: ignore[reportWildcardImportFromLibrary]
+    from qsharp_widgets import *  # type: ignore[import-not-found]
 except Exception as ex:
     raise ImportError(
         "qdk.widgets requires the jupyter extra. Install with 'pip install qdk[jupyter]'."

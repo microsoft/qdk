@@ -4,22 +4,26 @@
 //! This crate implements a stabilizer simulator for the QDK.
 
 pub mod operation;
+pub mod outcome_specific_simulation;
 
 use crate::{
     MeasurementResult, NearlyZero, QubitID, Simulator,
-    noise_config::{CumulativeNoiseConfig, Fault, FaultTerm, IntrinsicID},
+    noise_config::{CumulativeNoiseConfig, Fault, FaultTerm, IntrinsicID, LossPolicy},
 };
 use operation::Operation;
-use paulimer::{
-    Simulation, UnitaryOp,
-    outcome_specific_simulation::{OutcomeSpecificSimulation, apply_hadamard},
-    quantum_core::{self, PauliObservable},
-};
-use rand::{SeedableRng as _, rngs::StdRng};
+use outcome_specific_simulation::OutcomeSpecificSimulation;
+use paulimer::{PauliObservable, UnitaryOp};
+use pauliverse::Simulation;
+use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
     sync::Arc,
 };
+
+fn seeded_randomness(seed: u64) -> (StdRng, u64) {
+    let mut seed_rng = StdRng::seed_from_u64(seed);
+    (StdRng::from_rng(&mut seed_rng), seed_rng.random())
+}
 
 /// A stabilizer simulator with the ability to simulate atom loss.
 pub struct StabilizerSimulator {
@@ -103,7 +107,9 @@ macro_rules! apply_noise {
 impl StabilizerSimulator {
     /// Sets the random seed of the simulator.
     pub fn set_seed(&mut self, seed: u64) {
-        self.rng = StdRng::seed_from_u64(seed);
+        let (noise_rng, measurement_seed) = seeded_randomness(seed);
+        self.rng = noise_rng;
+        self.state.set_seed(measurement_seed);
     }
 
     /// Increment the simulation time by one.
@@ -137,6 +143,11 @@ impl StabilizerSimulator {
         }
     }
 
+    /// Forces the state of a qubit to collapse to a specific value.
+    pub fn post_select_z(&mut self, result: bool, target: QubitID) -> Result<(), String> {
+        self.state.post_select_z(result, target)
+    }
+
     fn apply_gate_in_place(&mut self, gate: &Operation) {
         match *gate {
             Operation::I { .. } => (),
@@ -158,7 +169,7 @@ impl StabilizerSimulator {
         self.last_operation_time[target] = self.time;
         let idle_fault = self.noise_config.gen_idle_fault(&mut self.rng, idle_time);
         if idle_fault && !self.loss[target] {
-            self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
+            self.state.unitary_op(UnitaryOp::SqrtZ, &[target]);
         }
     }
 
@@ -188,7 +199,14 @@ impl StabilizerSimulator {
                 FaultTerm::I | FaultTerm::Loss => unreachable!("these terms were filtered"),
             })
             .collect();
-        self.state.pauli(&observable);
+        self.state.pauli(&observable.into());
+    }
+
+    /// Applies an `S` adjoint to the given target
+    /// Used by the [`LossPolicy::ResidualSDagger`] behavior.
+    fn residual_s_dagger(&mut self, target: QubitID) {
+        self.apply_idle_noise(target);
+        self.state.unitary_op(UnitaryOp::SqrtZInv, &[target]);
     }
 
     /// Records a z-measurement on the given `target`.
@@ -210,7 +228,7 @@ impl StabilizerSimulator {
             return MeasurementResult::Loss;
         }
 
-        self.state.measure(&[quantum_core::z(target)]);
+        self.state.measure(&[paulimer::core::z(target)].into());
 
         if *self
             .state
@@ -231,9 +249,9 @@ impl StabilizerSimulator {
             return MeasurementResult::Loss;
         }
 
-        let r = self.state.measure(&[quantum_core::z(target)]);
+        let r = self.state.measure(&[paulimer::core::z(target)].into());
         self.state
-            .conditional_pauli(&[quantum_core::x(target)], &[r], true);
+            .conditional_pauli(&[paulimer::core::x(target)].into(), &[r], true);
 
         if *self
             .state
@@ -246,6 +264,13 @@ impl StabilizerSimulator {
             MeasurementResult::Zero
         }
     }
+
+    fn loss_impl(&mut self, target: QubitID) {
+        if !self.loss[target] {
+            self.mresetz_impl(target);
+            self.loss[target] = true;
+        }
+    }
 }
 
 impl Simulator for StabilizerSimulator {
@@ -253,10 +278,14 @@ impl Simulator for StabilizerSimulator {
     type StateDumpData = paulimer::clifford::CliffordUnitary;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
+        let (rng, measurement_seed) = seeded_randomness(u64::from(seed));
         Self {
             noise_config,
-            rng: StdRng::seed_from_u64(u64::from(seed)),
-            state: OutcomeSpecificSimulation::new_with_random_outcomes(num_qubits, num_results),
+            rng,
+            state: OutcomeSpecificSimulation::new_with_seeded_random_outcomes(
+                num_qubits,
+                measurement_seed,
+            ),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],
@@ -267,7 +296,7 @@ impl Simulator for StabilizerSimulator {
     fn x(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::X, &[target]);
+            self.state.unitary_op(UnitaryOp::X, &[target]);
             apply_noise!(self, x, &[target]);
         }
     }
@@ -275,7 +304,7 @@ impl Simulator for StabilizerSimulator {
     fn y(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::Y, &[target]);
+            self.state.unitary_op(UnitaryOp::Y, &[target]);
             apply_noise!(self, y, &[target]);
         }
     }
@@ -283,7 +312,7 @@ impl Simulator for StabilizerSimulator {
     fn z(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::Z, &[target]);
+            self.state.unitary_op(UnitaryOp::Z, &[target]);
             apply_noise!(self, z, &[target]);
         }
     }
@@ -291,7 +320,7 @@ impl Simulator for StabilizerSimulator {
     fn h(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            apply_hadamard(&mut self.state, target);
+            self.state.unitary_op(UnitaryOp::Hadamard, &[target]);
             apply_noise!(self, h, &[target]);
         }
     }
@@ -299,7 +328,7 @@ impl Simulator for StabilizerSimulator {
     fn s(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
+            self.state.unitary_op(UnitaryOp::SqrtZ, &[target]);
             apply_noise!(self, s, &[target]);
         }
     }
@@ -307,7 +336,7 @@ impl Simulator for StabilizerSimulator {
     fn s_adj(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
+            self.state.unitary_op(UnitaryOp::SqrtZInv, &[target]);
             apply_noise!(self, s_adj, &[target]);
         }
     }
@@ -315,7 +344,7 @@ impl Simulator for StabilizerSimulator {
     fn sx(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::SqrtX, &[target]);
+            self.state.unitary_op(UnitaryOp::SqrtX, &[target]);
             apply_noise!(self, sx, &[target]);
         }
     }
@@ -323,41 +352,86 @@ impl Simulator for StabilizerSimulator {
     fn sx_adj(&mut self, target: QubitID) {
         if !self.loss[target] {
             self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::SqrtXInv, &[target]);
+            self.state.unitary_op(UnitaryOp::SqrtXInv, &[target]);
             apply_noise!(self, sx_adj, &[target]);
         }
     }
 
     fn cx(&mut self, control: QubitID, target: QubitID) {
-        if !self.loss[control] && !self.loss[target] {
-            self.apply_idle_noise(control);
-            self.apply_idle_noise(target);
-            self.state
-                .apply_unitary(UnitaryOp::ControlledX, &[control, target]);
+        match (self.loss[control], self.loss[target]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[control] { target } else { control };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.cx.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cx` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
+                }
+            }
+            (false, false) => {
+                self.apply_idle_noise(control);
+                self.apply_idle_noise(target);
+                self.state
+                    .unitary_op(UnitaryOp::ControlledX, &[control, target]);
+            }
         }
         // We still apply operation faults to non-lost qubits.
         apply_noise!(self, cx, &[control, target]);
     }
 
     fn cy(&mut self, control: QubitID, target: QubitID) {
-        if !self.loss[control] && !self.loss[target] {
-            self.apply_idle_noise(control);
-            self.apply_idle_noise(target);
-            self.state.apply_unitary(UnitaryOp::SqrtZInv, &[target]);
-            self.state
-                .apply_unitary(UnitaryOp::ControlledX, &[control, target]);
-            self.state.apply_unitary(UnitaryOp::SqrtZ, &[target]);
+        match (self.loss[control], self.loss[target]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[control] { target } else { control };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.cy.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cy` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
+                }
+            }
+            (false, false) => {
+                self.apply_idle_noise(control);
+                self.apply_idle_noise(target);
+                self.state.unitary_op(UnitaryOp::SqrtZInv, &[target]);
+                self.state
+                    .unitary_op(UnitaryOp::ControlledX, &[control, target]);
+                self.state.unitary_op(UnitaryOp::SqrtZ, &[target]);
+            }
         }
         // We still apply operation faults to non-lost qubits.
         apply_noise!(self, cy, &[control, target]);
     }
 
     fn cz(&mut self, control: QubitID, target: QubitID) {
-        if !self.loss[control] && !self.loss[target] {
-            self.apply_idle_noise(control);
-            self.apply_idle_noise(target);
-            self.state
-                .apply_unitary(UnitaryOp::ControlledZ, &[control, target]);
+        match (self.loss[control], self.loss[target]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[control] { target } else { control };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.cz.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::Degrade | LossPolicy::ApplyAnyway => unreachable!(
+                        "the `cz` gate does not support the Degrade or ApplyAnyway loss policies"
+                    ),
+                }
+            }
+            (false, false) => {
+                self.apply_idle_noise(control);
+                self.apply_idle_noise(target);
+                self.state
+                    .unitary_op(UnitaryOp::ControlledZ, &[control, target]);
+            }
         }
         // We still apply operation faults to non-lost qubits.
         apply_noise!(self, cz, &[control, target]);
@@ -375,7 +449,7 @@ impl Simulator for StabilizerSimulator {
                 UnitaryOp::SqrtX,
                 UnitaryOp::SqrtXInv,
             );
-            self.state.apply_unitary(unitary, &[target]);
+            self.state.unitary_op(unitary, &[target]);
 
             apply_noise!(self, rx, &[target]);
         }
@@ -393,7 +467,7 @@ impl Simulator for StabilizerSimulator {
                 UnitaryOp::SqrtY,
                 UnitaryOp::SqrtYInv,
             );
-            self.state.apply_unitary(unitary, &[target]);
+            self.state.unitary_op(unitary, &[target]);
 
             apply_noise!(self, ry, &[target]);
         }
@@ -411,7 +485,7 @@ impl Simulator for StabilizerSimulator {
                 UnitaryOp::SqrtZ,
                 UnitaryOp::SqrtZInv,
             );
-            self.state.apply_unitary(unitary, &[target]);
+            self.state.unitary_op(unitary, &[target]);
 
             apply_noise!(self, rz, &[target]);
         }
@@ -420,8 +494,19 @@ impl Simulator for StabilizerSimulator {
     fn rxx(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
         match (self.loss[q1], self.loss[q2]) {
             (true, true) => (),
-            (true, false) => self.rx(angle, q2),
-            (false, true) => self.rx(angle, q1),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.rxx.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => return self.rx(angle, remaining_qubit),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => {
+                        unreachable!("the `rxx` gate does not support the ApplyAnyway loss policy")
+                    }
+                }
+            }
             (false, false) => {
                 self.apply_idle_noise(q1);
                 self.apply_idle_noise(q2);
@@ -435,24 +520,34 @@ impl Simulator for StabilizerSimulator {
                     UnitaryOp::SqrtZInv,
                 );
                 // NOTE: We perform the Rxx gate by changing basis to Y and performing the decomposition of Rzz.
-                self.state.apply_unitary(UnitaryOp::Hadamard, &[q1]);
-                self.state.apply_unitary(UnitaryOp::Hadamard, &[q2]);
-                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.apply_unitary(unitary, &[q1]);
-                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.apply_unitary(UnitaryOp::Hadamard, &[q1]);
-                self.state.apply_unitary(UnitaryOp::Hadamard, &[q2]);
-
-                apply_noise!(self, rxx, &[q1, q2]);
+                self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
+                self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
+                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.unitary_op(unitary, &[q1]);
+                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
+                self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
             }
         }
+        apply_noise!(self, rxx, &[q1, q2]);
     }
 
     fn ryy(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
         match (self.loss[q1], self.loss[q2]) {
             (true, true) => (),
-            (true, false) => self.ry(angle, q2),
-            (false, true) => self.ry(angle, q1),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.ryy.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => return self.ry(angle, remaining_qubit),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => {
+                        unreachable!("the `ryy` gate does not support the ApplyAnyway loss policy")
+                    }
+                }
+            }
             (false, false) => {
                 self.apply_idle_noise(q1);
                 self.apply_idle_noise(q2);
@@ -466,24 +561,34 @@ impl Simulator for StabilizerSimulator {
                     UnitaryOp::SqrtZInv,
                 );
                 // NOTE: We perform the Ryy gate by changing basis to Z and performing the decomposition of Rzz.
-                self.state.apply_unitary(UnitaryOp::SqrtX, &[q1]);
-                self.state.apply_unitary(UnitaryOp::SqrtX, &[q2]);
-                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.apply_unitary(unitary, &[q1]);
-                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q1]);
-                self.state.apply_unitary(UnitaryOp::SqrtXInv, &[q2]);
-
-                apply_noise!(self, ryy, &[q1, q2]);
+                self.state.unitary_op(UnitaryOp::SqrtX, &[q1]);
+                self.state.unitary_op(UnitaryOp::SqrtX, &[q2]);
+                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.unitary_op(unitary, &[q1]);
+                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.unitary_op(UnitaryOp::SqrtXInv, &[q1]);
+                self.state.unitary_op(UnitaryOp::SqrtXInv, &[q2]);
             }
         }
+        apply_noise!(self, ryy, &[q1, q2]);
     }
 
     fn rzz(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
         match (self.loss[q1], self.loss[q2]) {
             (true, true) => (),
-            (true, false) => self.rz(angle, q2),
-            (false, true) => self.rz(angle, q1),
+            (true, false) | (false, true) => {
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.rzz.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => return self.rz(angle, remaining_qubit),
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => self.residual_s_dagger(remaining_qubit),
+                    LossPolicy::ApplyAnyway => {
+                        unreachable!("the `rzz` gate does not support the ApplyAnyway loss policy")
+                    }
+                }
+            }
             (false, false) => {
                 self.apply_idle_noise(q1);
                 self.apply_idle_noise(q2);
@@ -496,32 +601,15 @@ impl Simulator for StabilizerSimulator {
                     UnitaryOp::SqrtZ,
                     UnitaryOp::SqrtZInv,
                 );
-                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.apply_unitary(unitary, &[q1]);
-                self.state.apply_unitary(UnitaryOp::ControlledX, &[q2, q1]);
-
-                apply_noise!(self, rzz, &[q1, q2]);
+                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                self.state.unitary_op(unitary, &[q1]);
+                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
             }
         }
+        apply_noise!(self, rzz, &[q1, q2]);
     }
 
     fn swap(&mut self, q1: QubitID, q2: QubitID) {
-        match (self.loss[q1], self.loss[q2]) {
-            (true, true) => (),
-            (true, false) => {
-                self.apply_idle_noise(q2);
-                self.state.apply_permutation(&[1, 0], &[q1, q2]);
-            }
-            (false, true) => {
-                self.apply_idle_noise(q1);
-                self.state.apply_permutation(&[1, 0], &[q1, q2]);
-            }
-            (false, false) => {
-                self.apply_idle_noise(q1);
-                self.apply_idle_noise(q2);
-                self.state.apply_permutation(&[1, 0], &[q1, q2]);
-            }
-        }
         // There are three kinds of swaps:
         //   1. A logical swap, also called a relabel.
         //   2. A swap by physically exchanging the location of the qubits.
@@ -530,7 +618,37 @@ impl Simulator for StabilizerSimulator {
         // This method is concerned with the kinds (1) and (2), since (3)
         // gets decomposed into other instructions before making it to the simulator.
         // In both (1) and (2), the loss state of the qubits gets exchanged.
-        self.loss.swap(q1, q2);
+
+        match (self.loss[q1], self.loss[q2]) {
+            (true, true) => (),
+            (true, false) | (false, true) => {
+                let lost_qubit = if self.loss[q1] { q1 } else { q2 };
+                let remaining_qubit = if self.loss[q1] { q2 } else { q1 };
+                self.apply_idle_noise(remaining_qubit);
+                match self.noise_config.swap.on_loss {
+                    LossPolicy::Skip => (),
+                    LossPolicy::Degrade => {
+                        unreachable!("the `swap` gate does not support the Degrade loss policy")
+                    }
+                    LossPolicy::Propagate => self.loss_impl(remaining_qubit),
+                    LossPolicy::ResidualSDagger => {
+                        self.state.permute(&[1, 0], &[q1, q2]);
+                        self.residual_s_dagger(lost_qubit);
+                        self.loss.swap(q1, q2);
+                    }
+                    LossPolicy::ApplyAnyway => {
+                        self.state.permute(&[1, 0], &[q1, q2]);
+                        self.loss.swap(q1, q2);
+                    }
+                }
+            }
+            (false, false) => {
+                self.apply_idle_noise(q1);
+                self.apply_idle_noise(q2);
+                self.state.permute(&[1, 0], &[q1, q2]);
+                self.loss.swap(q1, q2);
+            }
+        }
 
         // Is up to the user if swap is a virtual operation or not.
         // If they don't specify noise/loss probability for swap, then it is virtual.

@@ -8,6 +8,8 @@ bipartite graphs as hypergraphs. These structures are useful for quantum
 systems with all-to-all or bipartite all-to-all interactions.
 """
 
+from typing import Optional
+
 from ..utilities import (
     Hyperedge,
     Hypergraph,
@@ -55,7 +57,9 @@ class CompleteGraph(Hypergraph):
 
         self.n = n
 
-    def edge_coloring(self) -> HypergraphEdgeColoring:
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
         """Compute edge coloring for this complete graph."""
         coloring = HypergraphEdgeColoring(self)
         for edge in self.edges():
@@ -136,7 +140,9 @@ class CompleteBipartiteGraph(Hypergraph):
         self.m = m
         self.n = n
 
-    def edge_coloring(self) -> HypergraphEdgeColoring:
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
         """Compute edge coloring for this complete bipartite graph."""
         coloring = HypergraphEdgeColoring(self)
         m = self.m

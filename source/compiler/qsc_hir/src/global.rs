@@ -3,7 +3,8 @@
 
 use crate::{
     hir::{
-        Item, ItemId, ItemKind, ItemStatus, Package, PackageId, Res, SpecBody, SpecGen, Visibility,
+        Attr, Item, ItemId, ItemKind, ItemStatus, Package, PackageId, Res, SpecBody, SpecGen,
+        Visibility,
     },
     ty::Scheme,
 };
@@ -48,7 +49,8 @@ pub struct Ty {
 pub struct Callable {
     pub id: ItemId,
     pub scheme: Scheme,
-    pub intrinsic: bool,
+    pub is_intrinsic: bool,
+    pub is_test: bool,
 }
 
 /// A lookup table used for looking up global core items for insertion in `qsc_passes`.
@@ -144,7 +146,8 @@ impl PackageIter<'_> {
                 kind: Kind::Callable(Callable {
                     id: item_id,
                     scheme: decl.scheme(),
-                    intrinsic: decl.body.body == SpecBody::Gen(SpecGen::Intrinsic),
+                    is_intrinsic: decl.body.body == SpecBody::Gen(SpecGen::Intrinsic),
+                    is_test: decl.attrs.contains(&Attr::Test),
                 }),
             }),
             (ItemKind::Callable(decl), None) => Some(Global {
@@ -155,7 +158,8 @@ impl PackageIter<'_> {
                 kind: Kind::Callable(Callable {
                     id: item_id,
                     scheme: decl.scheme(),
-                    intrinsic: decl.body.body == SpecBody::Gen(SpecGen::Intrinsic),
+                    is_intrinsic: decl.body.body == SpecBody::Gen(SpecGen::Intrinsic),
+                    is_test: decl.attrs.contains(&Attr::Test),
                 }),
             }),
             (ItemKind::Ty(name, _def), Some(ItemKind::Namespace(namespace, _))) => Some(Global {

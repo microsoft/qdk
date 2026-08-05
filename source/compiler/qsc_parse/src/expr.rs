@@ -229,6 +229,10 @@ fn expr_base(s: &mut ParserContext) -> Result<Box<Expr>> {
         Ok(Box::new(ExprKind::Repeat(body, cond, fixup)))
     } else if token(s, TokenKind::Keyword(Keyword::Return)).is_ok() {
         Ok(Box::new(ExprKind::Return(expr(s)?)))
+    } else if token(s, TokenKind::Keyword(Keyword::Break)).is_ok() {
+        Ok(Box::new(ExprKind::Break))
+    } else if token(s, TokenKind::Keyword(Keyword::Continue)).is_ok() {
+        Ok(Box::new(ExprKind::Continue))
     } else if !s.contains_language_feature(LanguageFeatures::V2PreviewSyntax)
         && token(s, TokenKind::Keyword(Keyword::Set)).is_ok()
     {

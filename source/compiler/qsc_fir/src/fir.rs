@@ -116,6 +116,9 @@ fir_id!(LocalVarId);
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PackageId(usize);
 
+/// A span qualified by the FIR package that owns it.
+pub type PackageSpan = qsc_data_structures::span::PackageSpan<PackageId>;
+
 impl PackageId {
     /// The package ID of the core library.
     pub const CORE: Self = Self(0);

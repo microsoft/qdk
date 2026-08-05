@@ -128,15 +128,15 @@ pub trait DirEntry {
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("No `src` directory found for project")]
-    #[diagnostic(code("Qsc.Project.NoSrcDir"))]
+    #[diagnostic(code("Qdk.Qsc.Project.NoSrcDir"))]
     NoSrcDir { path: String },
 
     #[error("Failed to parse manifest: {error}")]
-    #[diagnostic(code("Qsc.Project.ManifestParse"))]
+    #[diagnostic(code("Qdk.Qsc.Project.ManifestParse"))]
     ManifestParse { path: String, error: String },
 
     #[error("Failed to parse manifest for GitHub dependency {repo}/{owner} : {error}")]
-    #[diagnostic(code("Qsc.Project.GitHubManifestParse"))]
+    #[diagnostic(code("Qdk.Qsc.Project.GitHubManifestParse"))]
     GitHubManifestParse {
         path: String,
         owner: String,
@@ -145,30 +145,30 @@ pub enum Error {
     },
 
     #[error("Circular dependency detected between {0} and {1}")]
-    #[diagnostic(code("Qsc.Project.CircularDependency"))]
+    #[diagnostic(code("Qdk.Qsc.Project.CircularDependency"))]
     Circular(String, String),
 
     #[error("GitHub dependency {0} contains a local dependency {1}, which is not supported")]
-    #[diagnostic(code("Qsc.Project.GitHubToLocal"))]
+    #[diagnostic(code("Qdk.Qsc.Project.GitHubToLocal"))]
     GitHubToLocal(String, String),
 
     #[error("File system error: {about_path}: {error}")]
-    #[diagnostic(code("Qsc.Project.FileSystem"))]
+    #[diagnostic(code("Qdk.Qsc.Project.FileSystem"))]
     FileSystem { about_path: String, error: String },
 
     #[error("Error reading circuit file: {path}: {error}")]
-    #[diagnostic(code("Qsc.Project.Circuit"))]
+    #[diagnostic(code("Qdk.Qsc.Project.Circuit"))]
     Circuit { path: String, error: String },
 
     #[error("Error fetching from GitHub: {0}")]
-    #[diagnostic(code("Qsc.Project.GitHub"))]
+    #[diagnostic(code("Qdk.Qsc.Project.GitHub"))]
     GitHub(String),
 
     #[error("File {relative_path} is not listed in the `files` field of the manifest")]
     #[diagnostic(help(
         "To avoid unexpected behavior, add this file to the `files` field in the `qsharp.json` manifest"
     ))]
-    #[diagnostic(code("Qsc.Project.DocumentNotInProject"))]
+    #[diagnostic(code("Qdk.Qsc.Project.DocumentNotInProject"))]
     DocumentNotInProject { path: String, relative_path: String },
 }
 
@@ -665,6 +665,7 @@ pub trait FileSystemAsync {
                 errors.push(Error::GitHubToLocal(key.to_string(), alias.to_string()));
                 continue;
             }
+            let dependency = apply_dependency_override(dependency);
 
             let dep_result = self
                 .read_manifest_and_sources(global_cache, dep_key.clone(), &dependency, errors)
@@ -714,6 +715,50 @@ pub fn key_for_package_ref(dep: &PackageRef) -> PackageKey {
 #[must_use]
 pub fn package_ref_from_key(key: &PackageKey) -> PackageRef {
     serde_json::from_str(key).expect("dependency should be deserializable")
+}
+
+/// Returns the environment variable name for overriding a GitHub dependency.
+///
+/// Names use the form `QDK_LIB_OVERRIDE_<OWNER>_<REPO>`, converted to ASCII uppercase, and
+/// every character other than an ASCII letter or digit is replaced with an underscore. For example,
+/// to override dependency on repository `{"owner": "Microsoft", "repo": "qdk"`, use
+/// environment variable `QDK_LIB_OVERRIDE_MICROSOFT_QDK`.
+///
+/// The value of the environment variable must be the path to a local checkout of the GitHub
+/// repository, not necessarily the path to the library itself. If the library is not located at
+/// the repository root (that is, the GitHub dependency has a non-empty `path`), its path relative
+/// to the repository root must be the same locally as it is on GitHub.
+///
+/// If the repository has multiple libraries, all of them are overridden.
+pub(crate) fn local_override_env_var_name(github: &GitHubRef) -> String {
+    let mut name = format!("QDK_LIB_OVERRIDE_{}_{}", github.owner, github.repo);
+    name.make_ascii_uppercase();
+    name.replace(|character: char| !character.is_ascii_alphanumeric(), "_")
+}
+
+/// Returns the local override for a GitHub dependency, if configured in environment variables.
+fn local_override_for_github_dependency(github: &GitHubRef) -> Option<PathBuf> {
+    let mut path = PathBuf::from(std::env::var_os(local_override_env_var_name(github))?);
+    if let Some(github_path) = &github.path {
+        path.push(github_path.trim_matches('/'));
+    }
+    Some(path)
+}
+
+/// Replaces a GitHub dependency with its configured local override.
+fn apply_dependency_override(package_ref: PackageRef) -> PackageRef {
+    match &package_ref {
+        PackageRef::GitHub { github } => {
+            if let Some(local_path) = local_override_for_github_dependency(github) {
+                PackageRef::Path {
+                    path: local_path.to_string_lossy().into_owned(),
+                }
+            } else {
+                package_ref
+            }
+        }
+        PackageRef::Path { .. } => package_ref,
+    }
 }
 
 /// A `PackageKey` is a global unique identifier for a package, and it's

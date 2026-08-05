@@ -14,6 +14,7 @@ from .._native import (
     _estimate_parallel,
     _estimate_with_graph,
     _EstimationCollection,
+    ErrorComposition,
     EstimationResult,
     FactoryResult,
     _FloatFunction,

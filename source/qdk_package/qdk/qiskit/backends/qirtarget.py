@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 import logging
-from typing import Union
+from typing import Any
 
 from qiskit.circuit import (
     Barrier,
@@ -58,10 +58,10 @@ class QirTarget:
 
     def __init__(
         self,
-        num_qubits=None,
-        target_profile=TargetProfile.Base,
-        supports_barrier=False,
-        supports_delay=False,
+        num_qubits: int | None = None,
+        target_profile: TargetProfile = TargetProfile.Base,
+        supports_barrier: bool = False,
+        supports_delay: bool = False,
     ) -> None:
         logger.warning(
             "QirTarget should not be instantiated directly. Use the 'build_target' class method"
@@ -75,7 +75,7 @@ class QirTarget:
             supports_delay=supports_delay,
         )
 
-    def __getattr__(self, item):
+    def __getattr__(self, item: str) -> Any:
         """
         Delegate attribute access to the underlying _target object.
 
@@ -99,10 +99,10 @@ class QirTarget:
     @classmethod
     def build_target(
         cls,
-        num_qubits: Union[int, None] = None,
-        target_profile=TargetProfile.Base,
-        supports_barrier=False,
-        supports_delay=False,
+        num_qubits: int | None = None,
+        target_profile: TargetProfile = TargetProfile.Base,
+        supports_barrier: bool = False,
+        supports_delay: bool = False,
     ) -> Target:
         """
         Create a Qiskit Target object with quantum gates and operations for QIR compilation.

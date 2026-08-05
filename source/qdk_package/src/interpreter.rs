@@ -24,7 +24,7 @@ use crate::{
     },
     noisy_simulator::register_noisy_simulator_submodule,
     qir_simulation::{
-        IdleNoiseParams, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
+        IdleNoiseParams, LossPolicy, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{
             run_clifford, run_clifford_adaptive, run_cpu_adaptive, run_cpu_full_state,
         },
@@ -40,9 +40,9 @@ use num_bigint::BigUint;
 use num_complex::Complex64;
 use pyo3::{
     IntoPyObjectExt, create_exception,
-    exceptions::{PyException, PyValueError},
+    exceptions::{PyException, PyTypeError, PyValueError},
     prelude::*,
-    types::{PyDict, PyList, PyString, PyTuple, PyType},
+    types::{PyBool, PyDict, PyList, PyString, PyTuple, PyType},
 };
 use qsc::{
     LanguageFeatures, PackageType, SourceMap,
@@ -51,7 +51,7 @@ use qsc::{
     fir::{self},
     hir::ty::{Prim, Ty},
     interpret::{
-        self, CircuitEntryPoint, PauliNoise, SimType, TaggedItem, Value,
+        self, CircuitEntryPoint, PackageGlobal, PauliNoise, SimType, TaggedItem, Value,
         output::{Error, Receiver},
     },
     openqasm::{
@@ -66,6 +66,7 @@ use qsc::{
 use resource_estimator::{
     self as re, estimate_call, estimate_expr, logical_counts_call, logical_counts_expr,
 };
+use rustc_hash::FxHashMap;
 use std::{cell::RefCell, fmt::Write, path::PathBuf, rc::Rc, str::FromStr, sync::Arc};
 
 /// If the classes are not Send, the Python interpreter
@@ -105,6 +106,7 @@ fn verify_classes_are_sendable() {
     is_send::<NoiseConfig>();
     is_send::<NoiseTable>();
     is_send::<IdleNoiseParams>();
+    is_send::<LossPolicy>();
 }
 
 #[pymodule]
@@ -134,6 +136,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_class::<NoiseConfig>()?;
     m.add_class::<NoiseTable>()?;
     m.add_class::<IdleNoiseParams>()?;
+    m.add_class::<LossPolicy>()?;
     m.add_function(wrap_pyfunction!(physical_estimates, m)?)?;
     m.add_function(wrap_pyfunction!(run_clifford, m)?)?;
     m.add_function(wrap_pyfunction!(try_create_gpu_adapter, m)?)?;
@@ -402,12 +405,40 @@ pub(crate) struct Interpreter {
 
 thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default(); }
 
+// Converts Q# config from PyDict to FxHashMap.
+fn convert_qdk_config(
+    qdk_config: Option<Bound<'_, PyDict>>,
+) -> PyResult<FxHashMap<Rc<str>, Value>> {
+    let mut config = FxHashMap::default();
+    if let Some(config_dict) = qdk_config {
+        for (key, value) in config_dict.iter() {
+            let key: String = key.extract()?;
+            let value = if value.is_instance_of::<PyBool>() {
+                Value::Bool(value.extract::<bool>()?)
+            } else if let Ok(value) = value.extract::<i64>() {
+                Value::Int(value)
+            } else if let Ok(value) = value.extract::<f64>() {
+                Value::Double(value)
+            } else if let Ok(value) = value.extract::<String>() {
+                Value::String(value.into())
+            } else {
+                return Err(PyTypeError::new_err(
+                    "config value must be bool, int, float, or str",
+                ));
+            };
+            config.insert(key.into(), value);
+        }
+    }
+    Ok(config)
+}
+
 #[pymethods]
 /// A Q# interpreter.
 impl Interpreter {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_pass_by_value)]
-    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None))]
+    #[allow(clippy::too_many_lines)]
+    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None, qdk_config=None))]
     #[new]
     /// Initializes a new Q# interpreter.
     pub(crate) fn new(
@@ -422,6 +453,7 @@ impl Interpreter {
         make_callable: Option<Py<PyAny>>,
         make_class: Option<Py<PyAny>>,
         trace_circuit: Option<bool>,
+        qdk_config: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let target = Into::<Profile>::into(target_profile).into();
 
@@ -457,6 +489,7 @@ impl Interpreter {
             BuildableProgram::new(target, graph)
         };
 
+        let qdk_config = convert_qdk_config(qdk_config)?;
         let trace_circuit = trace_circuit.unwrap_or(false);
         let interpreter = if trace_circuit {
             interpret::Interpreter::with_circuit_trace(
@@ -475,6 +508,7 @@ impl Interpreter {
                     group_by_scope: false,
                     prune_classical_qubits: false,
                 },
+                qdk_config,
             )
         } else {
             interpret::Interpreter::new(
@@ -484,6 +518,7 @@ impl Interpreter {
                 buildable_program.user_code.language_features,
                 buildable_program.store,
                 &buildable_program.user_code_dependencies,
+                qdk_config,
             )
         }
         .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;
@@ -491,8 +526,14 @@ impl Interpreter {
         if let Some(make_callable) = &make_callable {
             // Add any global callables from the user source as Python functions to the environment.
             let exported_items = interpreter.source_globals();
-            for (namespace, name, val) in exported_items {
-                create_py_callable(py, make_callable, &namespace, &name, val)?;
+            for PackageGlobal {
+                namespace,
+                name,
+                value,
+                is_test,
+            } in exported_items
+            {
+                create_py_callable(py, make_callable, &namespace, &name, value, is_test)?;
             }
         }
         if let Some(make_class) = &make_class {
@@ -508,6 +549,7 @@ impl Interpreter {
                 create_py_class(&interpreter, py, make_class, &namespace, &name, &ty)?;
             }
         }
+
         Ok(Self {
             interpreter,
             make_callable,
@@ -540,8 +582,14 @@ impl Interpreter {
                     // This is safe because either the callable will be replaced with itself or a new callable with the
                     // same name will shadow the previous one, which is the expected behavior.
                     let new_items = self.interpreter.user_globals();
-                    for (namespace, name, val) in new_items {
-                        create_py_callable(py, make_callable, &namespace, &name, val)?;
+                    for PackageGlobal {
+                        namespace,
+                        name,
+                        value,
+                        is_test,
+                    } in new_items
+                    {
+                        create_py_callable(py, make_callable, &namespace, &name, value, is_test)?;
                     }
                 }
                 if let Some(make_class) = &self.make_class {
@@ -667,8 +715,14 @@ impl Interpreter {
                     // This is safe because either the callable will be replaced with itself or a new callable with the
                     // same name will shadow the previous one, which is the expected behavior.
                     let new_items = self.interpreter.user_globals();
-                    for (namespace, name, val) in new_items {
-                        create_py_callable(py, make_callable, &namespace, &name, val)?;
+                    for PackageGlobal {
+                        namespace,
+                        name,
+                        value,
+                        is_test,
+                    } in new_items
+                    {
+                        create_py_callable(py, make_callable, &namespace, &name, value, is_test)?;
                     }
                 }
                 value_to_pyobj(&self.interpreter, py, &value)
@@ -1582,6 +1636,7 @@ fn create_py_callable(
     namespace: &[Rc<str>],
     name: &str,
     val: Value,
+    is_test: bool,
 ) -> PyResult<()> {
     if namespace.is_empty() && name.starts_with(".lambda") {
         // We don't want to bind auto-generated lambda callables.
@@ -1592,6 +1647,7 @@ fn create_py_callable(
         Py::new(py, GlobalCallable::from(val)).expect("should be able to create callable"), // callable id
         PyList::new(py, namespace.iter().map(ToString::to_string))?, // namespace as string array
         PyString::new(py, name),                                     // name of callable
+        PyBool::new(py, is_test), // whether the callable has the @Test attribute
     );
 
     // Call into the Python layer to create the function wrapping the callable invocation.

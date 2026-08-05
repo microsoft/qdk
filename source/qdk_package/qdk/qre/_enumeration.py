@@ -6,6 +6,7 @@ from dataclasses import MISSING
 from enum import Enum
 from itertools import product
 from typing import (
+    Any,
     Generator,
     Literal,
     Type,
@@ -23,7 +24,7 @@ T = TypeVar("T")
 _KW_ONLY_NAMES = {"KW_ONLY", "dataclasses.KW_ONLY"}
 
 
-def _get_type_hints_safe(cls: type) -> dict:
+def _get_type_hints_safe(cls: type) -> dict[str, Any]:
     """Get type hints for a dataclass, working around Python 3.10 KW_ONLY bug.
 
     In Python 3.10, ``get_type_hints`` fails on classes that use
@@ -49,12 +50,12 @@ def _get_type_hints_safe(cls: type) -> dict:
         annotations.update(removed)
 
 
-def _is_union_type(tp) -> bool:
+def _is_union_type(tp: Any) -> bool:
     """Check if a type is a Union or Python 3.10+ union (X | Y)."""
     return get_origin(tp) is Union or isinstance(tp, types.UnionType)
 
 
-def _is_type_filter(val, union_members: tuple) -> bool:
+def _is_type_filter(val: Any, union_members: tuple[Any, ...]) -> bool:
     """
     Check if *val* is a union member type or a list of union member types,
     i.e. a type filter for a union field (as opposed to a fixed value or
@@ -70,7 +71,7 @@ def _is_type_filter(val, union_members: tuple) -> bool:
     return False
 
 
-def _is_union_constraint_dict(val) -> bool:
+def _is_union_constraint_dict(val: Any) -> bool:
     """
     Check if *val* is a dict whose keys are all types, i.e. a per-member
     constraint mapping for a union field.
@@ -81,8 +82,8 @@ def _is_union_constraint_dict(val) -> bool:
 
 
 def _enumerate_union_members(
-    union_members: tuple,
-    val=None,
+    union_members: tuple[Any, ...],
+    val: Any = None,
 ) -> list:
     """
     Enumerate instances for a union-typed field.
@@ -128,7 +129,7 @@ def _enumerate_union_members(
     )
 
 
-def _enumerate_instances(cls: Type[T], **kwargs) -> Generator[T, None, None]:
+def _enumerate_instances(cls: Type[T], **kwargs: Any) -> Generator[T, None, None]:
     """
     Yield all instances of a dataclass given its class.
 

@@ -13,7 +13,7 @@
 // that file additionally re-exports the quaternion-driven Rotations engine and
 // would drag three into the worker.
 
-import type { ComponentGrid, Operation, Qubit } from "../../circuit.js";
+import type { ComponentGrid, Operation, Qubit } from "../../data/circuit.js";
 import { evaluateAngleExpression } from "../../angleExpression.js";
 import {
   Cplx,

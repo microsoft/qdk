@@ -283,7 +283,7 @@ export class QscDebugSession extends LoggingDebugSession {
       this.writeToDebugConsole(this.failureMessage);
       this.sendErrorResponse(response, {
         id: -1,
-        format: this.failureMessage.includes("Qsc.EntryPoint.NotFound")
+        format: this.failureMessage.includes("Qdk.Qsc.EntryPoint.NotFound")
           ? ErrorProgramMissingEntry
           : ErrorProgramHasErrors,
         showUser: true,

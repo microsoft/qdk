@@ -4,6 +4,142 @@
 use indoc::formatdoc;
 use proptest::prelude::*;
 
+/// Regression for controlled dispatch of a *capturing* closure passed to a
+/// higher-order operation whose callable parameter is **not** the first
+/// argument. The HOF applies `Controlled op(ctls, q)`, so rewrite must nest the
+/// closure's captures inside the base input tuple beneath the control register
+/// (`([ctls], (q, capture0, capture1))`) rather than appending them as trailing
+/// top-level siblings of `([ctls], q)`. A mis-placed capture would either crash
+/// downstream control/input splitting or diverge from the original semantics.
+///
+/// The control qubit is prepared |1> so the controlled rotation actually fires;
+/// the captured angles are threaded through a partial application so the closure
+/// carries two ordered captures across the control boundary (exercising the
+/// multi-capture nesting order, not just placement).
+#[test]
+fn controlled_capturing_closure_nonzero_param_slot_is_equivalent() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation RotOp(a : Double, b : Double, q : Qubit) : Unit is Adj + Ctl {
+                Rx(a, q);
+                Rz(b, q);
+            }
+            operation ApplyCtl(ctls : Qubit[], op : Qubit => Unit is Ctl, q : Qubit) : Unit {
+                Controlled op(ctls, q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use ctl = Qubit();
+                use q = Qubit();
+                X(ctl);
+                let a = 3.141592653589793;
+                let b = 1.5707963267948966;
+                let op = RotOp(a, b, _);
+                ApplyCtl([ctl], op, q);
+                return MResetZ(q);
+            }
+        }
+    "#});
+}
+
+/// Regression for recorded direct-rewrite cleanup. `GetOp(q)` performs `X(q)`
+/// before returning the named callable `X`; direct dispatch consumes `op`, so
+/// the cleanup must retain the now-unused immutable binding and its effect.
+#[test]
+fn recorded_direct_rewrite_cleanup_retains_effectful_callable_initializer() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetOp(q : Qubit) : (Qubit => Unit) {
+                X(q);
+                X
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = GetOp(q);
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// Regression for the removal gate on a rewritten higher-order argument. The
+/// factory is a pure `function`, so its consumed result makes the binding a
+/// deletion candidate, but its body can still fail. Cleanup must keep the
+/// binding so the division failure stays observable.
+#[test]
+fn rewritten_hof_arg_cleanup_retains_fallible_function_factory() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            function GetOp(divisor : Int) : Qubit => Unit {
+                let ignored = 1 / divisor;
+                X
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = GetOp(0);
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// Regression for demoting a dead callable binding that must still run. The
+/// captured angle comes from `GetAngle`, which flips the qubit, so dropping the
+/// binding outright would lose that effect. Cleanup keeps the evaluation and
+/// discards only the consumed callable value.
+#[test]
+fn demoted_dead_callable_binding_retains_capture_effect() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetAngle(q : Qubit) : Double {
+                X(q);
+                0.0
+            }
+            operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let op = Rx(GetAngle(q), _);
+                ApplyOp(op, q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
+/// Regression for `prune_dead_callable_locals_in_block`. The initializer is
+/// intentionally unused and never passed to a higher-order operation, so it
+/// must be retained by the global dead-local pruner solely for its `X(q)`.
+#[test]
+fn global_dead_local_pruner_retains_effectful_callable_initializer() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation GetOp(q : Qubit) : (Qubit => Unit) {
+                X(q);
+                X
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                let unused = GetOp(q);
+                MResetZ(q)
+            }
+        }
+    "#});
+}
+
 /// Generates syntactically valid Q# programs exercising defunctionalization's
 /// key code paths: lambda arguments, partial application, and direct callable
 /// references passed to higher-order functions.
@@ -153,6 +289,131 @@ fn multi_multi_shared_callable_across_branches_is_equivalent() {
                          } else {
                              if rb == One { X } else { Z }
                          };
+                ApplyOp(op, q);
+                return MResetZ(q);
+            }
+        }
+    "#});
+}
+
+/// Regression for the `Single ⊔ Multi` join: a callable-valued local is
+/// selected by an outer dynamic `if` whose *true* branch is a single concrete
+/// callable (`X`) and whose *false* branch is itself a dynamic conditional that
+/// can also yield `X` (under its own guard).
+///
+/// The lattice merge must not deduplicate the true-branch `X` against the
+/// occurrence already present in the false-branch `Multi` — doing so drops the
+/// `outer` dispatch arm and reroutes the `outer == true` path through the
+/// false-branch's inner guards instead of unconditionally applying `X`. The
+/// fixture pins `outer == true` (`a` is |1>) and the false-branch inner guard
+/// `rb == One` false (`b` stays |0>), so the dropped arm is exactly the path
+/// taken: the original applies `X(q)` (measuring `One`) while the buggy rewrite
+/// falls through to the false-branch default `Z(q)` (measuring `Zero`),
+/// diverging in both return value and effect trace. The guards are pure reads
+/// of pre-measured `Result` locals so the fixture isolates the lattice merge
+/// from condition-hoisting concerns.
+#[test]
+fn single_multi_shared_callable_across_branches_is_equivalent() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit is Adj, q : Qubit) : Unit is Adj {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                use a = Qubit();
+                use b = Qubit();
+                // a is |1> so the outer guard is true — op must be the
+                // true-branch `X`; b stays |0> so the false-branch inner guard
+                // is false, the arm the identity-dedup would route through.
+                X(a);
+                let ra = MResetZ(a);
+                let rb = MResetZ(b);
+                let op = if ra == One {
+                             X
+                         } else {
+                             if rb == One { X } else { Z }
+                         };
+                ApplyOp(op, q);
+                return MResetZ(q);
+            }
+        }
+    "#});
+}
+
+/// Regression for the `Multi ⊔ Multi` join's "unmodified variable" fast path: a
+/// callable-valued local is selected by an outer dynamic `if` whose *both*
+/// branches are dynamic conditionals that yield the *same set of callables*
+/// (`X`/`Z`) but under *different* inner guards (`rb` in the true branch, `rc`
+/// in the false branch).
+///
+/// The merge must not treat the two branches as an unmodified variable just
+/// because the callable identities coincide — the guards differ, so keeping the
+/// true-branch chain drops the outer condition and reroutes the `outer == false`
+/// path through the true branch's `rb` guard instead of the false branch's `rc`
+/// guard. The fixture pins `outer == false` (`a` stays |0>), `rb == One`
+/// (`b` is |1>), and `rc == Zero` (`c` stays |0>): the original applies `Z(q)`
+/// (measuring `Zero`) while the buggy rewrite applies `X(q)` (measuring `One`),
+/// diverging in both return value and effect trace.
+#[test]
+fn multi_multi_same_callables_different_guards_is_equivalent() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit is Adj, q : Qubit) : Unit is Adj {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                use a = Qubit();
+                use b = Qubit();
+                use c = Qubit();
+                // a stays |0> (outer guard false); b is |1> (rb == One);
+                // c stays |0> (rc == Zero).
+                X(b);
+                let ra = MResetZ(a);
+                let rb = MResetZ(b);
+                let rc = MResetZ(c);
+                let op = if ra == One {
+                             if rb == One { X } else { Z }
+                         } else {
+                             if rc == One { X } else { Z }
+                         };
+                ApplyOp(op, q);
+                return MResetZ(q);
+            }
+        }
+    "#});
+}
+
+/// Probe: a conditional callable is bound from a guard variable that is then
+/// mutated before the callable is applied. The original captures the callable
+/// value at binding time (guard true -> `X`); a defunctionalization that
+/// re-evaluates the guard at the apply site would read the mutated guard
+/// (now false -> `Z`) and diverge.
+///
+/// The safe-degradation regression asserting the pipeline rejects this rather
+/// than silently miscompiling lives in
+/// `defunctionalize::tests::guard_var_reassigned_after_binding_degrades_to_dynamic`.
+#[test]
+fn guard_var_never_reassigned_after_binding_is_equivalent() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation ApplyOp(op : Qubit => Unit is Adj, q : Qubit) : Unit is Adj {
+                op(q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                use a = Qubit();
+                X(a);
+                let ra = MResetZ(a);
+                // `flag` is mutable but never reassigned after the binding, so
+                // hoisting its read to the apply site is safe and dispatch is
+                // preserved.
+                mutable flag = ra == One;
+                let op = if flag { X } else { Z };
                 ApplyOp(op, q);
                 return MResetZ(q);
             }

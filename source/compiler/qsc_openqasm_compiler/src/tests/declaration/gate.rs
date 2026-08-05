@@ -120,7 +120,7 @@ fn capturing_non_const_external_variable_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ExprMustBeConst
+        [Qdk.Qasm.Lowerer.ExprMustBeConst
 
           x a captured variable must be a const expression
            ,-[Test.qasm:4:21]
@@ -147,7 +147,7 @@ fn capturing_non_const_evaluatable_external_variable_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.NegativeUIntValue
+        [Qdk.Qasm.Lowerer.NegativeUIntValue
 
           x uint expression must evaluate to a non-negative value, but it evaluated to
           | -3

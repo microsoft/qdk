@@ -2,7 +2,7 @@
 # Licensed under the MIT License.
 
 import logging
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 from uuid import uuid4
 
 from qiskit import QuantumCircuit
@@ -73,14 +73,14 @@ class NeutralAtomBackend(BackendBase):
 
     def __init__(
         self,
-        device=None,
+        device: Any = None,
         target: Optional[Target] = None,
         qiskit_pass_options: Optional[Dict[str, Any]] = None,
         transpile_options: Optional[Dict[str, Any]] = None,
         qasm_export_options: Optional[Dict[str, Any]] = None,
         skip_transpilation: bool = False,
-        **options,
-    ):
+        **options: Any,
+    ) -> None:
         """
         :param device: The NeutralAtomDevice instance to use for compilation and simulation.
             A default-configured device is created automatically if not provided.
@@ -121,7 +121,7 @@ class NeutralAtomBackend(BackendBase):
             **options,
         )
 
-    def _get_device(self):
+    def _get_device(self) -> Any:
         """Return the NeutralAtomDevice, creating a default one on first access."""
         if self._device is None:
             from ..._device._atom import NeutralAtomDevice
@@ -139,7 +139,7 @@ class NeutralAtomBackend(BackendBase):
         return NeutralAtomTarget.build_target(num_qubits=None)
 
     @classmethod
-    def _default_options(cls):
+    def _default_options(cls) -> Options:
         return Options(
             search_path=".",
             shots=1024,
@@ -153,7 +153,7 @@ class NeutralAtomBackend(BackendBase):
     def run(
         self,
         run_input: Union[QuantumCircuit, List[QuantumCircuit]],
-        **options,
+        **options: Any,
     ) -> Union[QsSimJob, QsJobSet]:
         """Simulate the given circuit(s) using the NeutralAtomDevice pipeline.
 
@@ -175,9 +175,9 @@ class NeutralAtomBackend(BackendBase):
             or if a ``target_profile`` other than ``TargetProfile.Base`` is provided.
         """
         run_input = self._validate_quantum_circuits(run_input)
-        return self._run(run_input, **options)
+        return cast(Union[QsSimJob, QsJobSet], self._run(run_input, **options))
 
-    def _map_result_bit(self, v) -> str:
+    def _map_result_bit(self, v: Any) -> str:
         """Override: unknown values are qubit-loss markers (``"-"``)."""
         if v == Result.One:
             return "1"
@@ -185,7 +185,9 @@ class NeutralAtomBackend(BackendBase):
             return "0"
         return "-"
 
-    def _execute(self, programs: List[Compilation], **input_params) -> Dict[str, Any]:
+    def _execute(
+        self, programs: List[Compilation], **input_params: Any
+    ) -> Dict[str, Any]:
         device = self._get_device()
 
         shots = input_params.get("shots")

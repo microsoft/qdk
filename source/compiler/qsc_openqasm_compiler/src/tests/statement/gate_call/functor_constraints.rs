@@ -43,7 +43,7 @@ fn intrinsic_in_modifiable_gate_def_errors() {
     check_qasm_to_qir(
         src,
         &expect![[r#"
-            Qsc.AdjGen.MissingAdjFunctor
+            Qdk.Qsc.AdjGen.MissingAdjFunctor
 
               x operation does not support the adjoint functor
                ,-[Test.qasm:6:9]

@@ -54,12 +54,12 @@ mod semantic_equivalence_tests;
 use crate::fir_builder::functored_specs;
 use crate::package_assigners::PackageAssigners;
 use miette::Diagnostic;
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
         BlockId, CallableDecl, CallableImpl, ExprKind, ItemId, ItemKind, LocalItemId, Package,
-        PackageId, PackageLookup, PackageStore, Res, StmtKind, StoreItemId,
+        PackageId, PackageLookup, PackageSpan, PackageStore, Res, StmtKind, StoreBlockId,
+        StoreItemId,
     },
     ty::Ty,
 };
@@ -83,7 +83,7 @@ pub enum Error {
     /// Return-slot selection could not prove that either Direct or
     /// `ArrayBacked` lowering is valid for this return type.
     #[error("cannot unify early returns of type `{0}`")]
-    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedEarlyReturnType"))]
+    #[diagnostic(code("Qdk.Qsc.ReturnUnify.UnsupportedEarlyReturnType"))]
     #[diagnostic(severity(Warning))]
     #[diagnostic(help(
         "the return type has no classical default and cannot be array-backed; \
@@ -91,7 +91,7 @@ pub enum Error {
     ))]
     UnsupportedEarlyReturnType(
         String,
-        #[label("callable with unsupported return type")] Span,
+        #[label("callable with unsupported return type")] PackageSpan,
     ),
 
     /// Emitted when one of the return-unification fixpoint loops — the
@@ -101,18 +101,18 @@ pub enum Error {
     /// `"simplify"`) identifies which loop did not converge. The IR remains
     /// semantically valid, but the partial fold indicates a rule regression.
     #[error("return-unification {0} did not reach a fixpoint")]
-    #[diagnostic(code("Qsc.ReturnUnify.FixpointNotReached"))]
+    #[diagnostic(code("Qdk.Qsc.ReturnUnify.FixpointNotReached"))]
     #[diagnostic(severity(Warning))]
     #[diagnostic(help(
         "this is an internal compiler diagnostic; please file an issue \
          including the source program that triggered it"
     ))]
-    FixpointNotReached(&'static str, BlockId),
+    FixpointNotReached(&'static str, StoreBlockId),
 
     /// A return appears inside a compound expression whose enclosing
     /// expression has a type with no classical default.
     #[error("cannot hoist `return` from a compound position of type `{0}`")]
-    #[diagnostic(code("Qsc.ReturnUnify.UnsupportedHoistContext"))]
+    #[diagnostic(code("Qdk.Qsc.ReturnUnify.UnsupportedHoistContext"))]
     #[diagnostic(severity(Warning))]
     #[diagnostic(help(
         "the surrounding expression has a non-defaultable type; \
@@ -121,11 +121,33 @@ pub enum Error {
     ))]
     UnsupportedHoistContext(
         String,
-        #[label("compound expression with unsupported `return`")] Span,
+        #[label("compound expression with unsupported `return`")] PackageSpan,
     ),
 }
 
 impl Error {
+    /// Returns the package that owns this diagnostic.
+    #[must_use]
+    pub fn owner(&self) -> PackageId {
+        match self {
+            Self::UnsupportedEarlyReturnType(_, span) | Self::UnsupportedHoistContext(_, span) => {
+                span.package
+            }
+            Self::FixpointNotReached(_, block_id) => block_id.package,
+        }
+    }
+
+    /// Returns the package-qualified source span for located diagnostics.
+    #[must_use]
+    pub fn package_span(&self) -> Option<PackageSpan> {
+        match self {
+            Self::UnsupportedEarlyReturnType(_, span) | Self::UnsupportedHoistContext(_, span) => {
+                Some(*span)
+            }
+            Self::FixpointNotReached(..) => None,
+        }
+    }
+
     /// Returns true if this error is a non-fatal warning that should not
     /// trigger pipeline abort.
     #[must_use]
@@ -436,6 +458,7 @@ fn unify_returns_impl_cross_package(
         let owning_pkg = store_id.package;
         let item_id = store_id.item;
         let assigner = assigners.get_mut(store, owning_pkg);
+        let mut callable_errors = Vec::new();
         process_callable_returns(
             store,
             owning_pkg,
@@ -444,9 +467,10 @@ fn unify_returns_impl_cross_package(
             &udt_pure_tys,
             &mut arrow_default_cache,
             run_simplify,
-            &mut errors,
+            &mut callable_errors,
             &mut skipped,
         );
+        errors.extend(callable_errors);
     }
 
     (errors, skipped)
@@ -561,7 +585,7 @@ fn process_callable_returns(
         if has_return {
             errors.push(Error::UnsupportedEarlyReturnType(
                 format!("{return_ty}"),
-                callable.name.span,
+                PackageSpan::new(owning_pkg, callable.name.span),
             ));
             skipped.insert(StoreItemId {
                 package: owning_pkg,
@@ -612,7 +636,7 @@ fn process_callable_returns(
             return_slot_strategy,
         );
         if run_simplify {
-            simplify::run_to_fixpoint(package, assigner, block_id, errors, &slots);
+            simplify::run_to_fixpoint(package, assigner, owning_pkg, block_id, errors, &slots);
         }
     }
 }
@@ -681,7 +705,7 @@ fn check_normalize_supportable(
             {
                 errors.push(Error::UnsupportedHoistContext(
                     format!("{}", expr.ty),
-                    expr.span,
+                    PackageSpan::new(package_id, expr.span),
                 ));
             }
             ExprKind::Block(bid) | ExprKind::While(_, bid) => block_ids.push(*bid),
@@ -702,7 +726,7 @@ fn check_normalize_supportable(
                 if !is_type_defaultable(package, package_id, pat_ty) {
                     errors.push(Error::UnsupportedHoistContext(
                         format!("{pat_ty}"),
-                        package.get_expr(*init_id).span,
+                        PackageSpan::new(package_id, package.get_expr(*init_id).span),
                     ));
                 }
             }
@@ -716,6 +740,9 @@ fn check_normalize_supportable(
     // operand because each eager child has a stable write-back slot. Reporting
     // here leaves the callable unchanged instead of panicking during normalize.
     for (ty, span) in normalize::find_unsupported_operand_lifts(package, package_id, block_id) {
-        errors.push(Error::UnsupportedHoistContext(ty, span));
+        errors.push(Error::UnsupportedHoistContext(
+            ty,
+            PackageSpan::new(package_id, span),
+        ));
     }
 }

@@ -34,9 +34,11 @@
 //!
 //! 1. Tuple-bind pattern (`let (_a, _b) = (1, 2);`) — the matcher
 //!    rejects non-Bind patterns regardless of downstream use (Q#).
-//! 2. Call initializer (`let _x = Helper();`) — the side-effect-free
+//! 2. Call initializer (`let _x = Helper();`) — the discard-safety
 //!    check rejects `ExprKind::Call` (Q#).
-//! 3. Closure capture downstream — direct-FIR pin for the
+//! 3. Array-index initializer (`let _x = xs[2];`) — locally pure but
+//!    not safe to discard because it can raise `IndexOutOfRange` (Q#).
+//! 4. Closure capture downstream — direct-FIR pin for the
 //!    `ExprKind::Closure` matcher path in `local_use_count`. Mono
 //!    routinely lifts closures, so the raw Closure expression is not
 //!    reliably reachable from Q# at the simplify stage.
@@ -46,7 +48,10 @@ use indoc::indoc;
 use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
-    fir::{CallableKind, ExprKind, Lit, LocalItemId, Mutability, Package, PackageLookup, StmtId},
+    fir::{
+        CallableKind, ExprKind, Lit, LocalItemId, Mutability, Package, PackageId, PackageLookup,
+        StmtId,
+    },
     ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty},
 };
 
@@ -90,7 +95,7 @@ fn given_immutable_unused_let_with_literal_init_dead_local_drops_binding() {
         "#},
         "Main",
         "dead_local",
-        |p, a, b, _| dead_local::apply(p, a, b),
+        |p, a, pkg_id, b, _| dead_local::apply(p, a, pkg_id, b),
         &expect![[r#"
             // before dead_local (fired=true)
             function Main() : Int {
@@ -126,7 +131,7 @@ fn given_mutable_unused_let_with_literal_init_dead_local_drops_binding() {
         "#},
         "Main",
         "dead_local",
-        |p, a, b, _| dead_local::apply(p, a, b),
+        |p, a, pkg_id, b, _| dead_local::apply(p, a, pkg_id, b),
         &expect![[r#"
             // before dead_local (fired=true)
             function Main() : Int {
@@ -160,8 +165,7 @@ fn given_preserved_local_with_default_init_dead_local_drops_binding() {
     //   let result : Int = 0;     // user name preserved with default-value init
     //   42
     // The default-value init is a literal (Int's default is 0), which
-    // the side-effect-free check accepts. The rule must drop the
-    // binding.
+    // the discard-safety check accepts. The rule must drop the binding.
     let mut package = Package::default();
     let mut assigner = Assigner::default();
 
@@ -183,7 +187,7 @@ fn given_preserved_local_with_default_init_dead_local_drops_binding() {
         Span::default(),
     );
 
-    let fired = dead_local::apply(&mut package, &mut assigner, block);
+    let fired = dead_local::apply(&mut package, &mut assigner, PackageId::CORE, block);
     assert!(
         fired,
         "dead_local must drop the preserved user binding with a default-value init",
@@ -212,7 +216,7 @@ fn given_tuple_bind_dead_local_does_not_drop() {
         "#},
         "Main",
         "dead_local",
-        |p, a, b, _| dead_local::apply(p, a, b),
+        |p, a, pkg_id, b, _| dead_local::apply(p, a, pkg_id, b),
         &expect![[r#"
             // before dead_local (fired=false)
             function Main() : Int {
@@ -234,11 +238,10 @@ fn given_tuple_bind_dead_local_does_not_drop() {
 }
 
 #[test]
-fn given_call_init_dead_local_does_not_drop() {
-    // Q# input: `let _x = Helper(); 42`. The initializer is a call
-    // expression; the side-effect-free check rejects `ExprKind::Call`
-    // and the rule must not drop the binding even though `_x` is
-    // unused.
+fn given_pure_call_init_dead_local_drops_binding() {
+    // Q# input: `let _x = Helper(); 42`. The initializer is a known pure
+    // function call whose body is total, so the binding can be dropped once
+    // `_x` is unused.
     check_simplify_rule_q(
         indoc! {r#"
         namespace Test {
@@ -253,9 +256,9 @@ fn given_call_init_dead_local_does_not_drop() {
         "#},
         "Main",
         "dead_local",
-        |p, a, b, _| dead_local::apply(p, a, b),
+        |p, a, pkg_id, b, _| dead_local::apply(p, a, pkg_id, b),
         &expect![[r#"
-            // before dead_local (fired=false)
+            // before dead_local (fired=true)
             function Helper() : Int {
                 0
             }
@@ -271,7 +274,94 @@ fn given_call_init_dead_local_does_not_drop() {
                 0
             }
             function Main() : Int {
+                42
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn given_effectful_call_init_dead_local_does_not_drop() {
+    // A function call whose body writes output through `Message` is not safe to
+    // discard, even when the bound local is otherwise dead.
+    check_simplify_rule_q(
+        indoc! {r#"
+        namespace Test {
+            function Helper() : Int {
+                Message("x");
+                0
+            }
+            function Main() : Int {
+                let _x = Helper();
+                42
+            }
+        }
+        "#},
+        "Main",
+        "dead_local",
+        |p, a, pkg_id, b, _| dead_local::apply(p, a, pkg_id, b),
+        &expect![[r#"
+            // before dead_local (fired=false)
+            function Helper() : Int {
+                Message($"x");
+                0
+            }
+            function Main() : Int {
                 let _x : Int = Helper();
+                42
+            }
+            // entry
+            Main()
+
+            // after dead_local
+            function Helper() : Int {
+                Message($"x");
+                0
+            }
+            function Main() : Int {
+                let _x : Int = Helper();
+                42
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn given_array_index_init_dead_local_does_not_drop() {
+    // Q# input: `let _x = xs[2]; 42`. The initializer is locally
+    // side-effect-free, but evaluating it can raise IndexOutOfRange,
+    // so the dead-local rule must not erase it.
+    check_simplify_rule_q(
+        indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                let xs = [1];
+                let _x = xs[2];
+                42
+            }
+        }
+        "#},
+        "Main",
+        "dead_local",
+        |p, a, pkg_id, b, _| dead_local::apply(p, a, pkg_id, b),
+        &expect![[r#"
+            // before dead_local (fired=false)
+            function Main() : Int {
+                let xs : Int[] = [1];
+                let _x : Int = xs[2];
+                42
+            }
+            // entry
+            Main()
+
+            // after dead_local
+            function Main() : Int {
+                let xs : Int[] = [1];
+                let _x : Int = xs[2];
                 42
             }
             // entry
@@ -333,7 +423,7 @@ fn given_local_used_in_closure_capture_dead_local_does_not_drop() {
         Span::default(),
     );
 
-    let fired = dead_local::apply(&mut package, &mut assigner, block);
+    let fired = dead_local::apply(&mut package, &mut assigner, PackageId::CORE, block);
     assert!(
         !fired,
         "dead_local must not drop a binding whose local is captured by a downstream closure",

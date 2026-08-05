@@ -6,7 +6,7 @@ from concurrent.futures import Executor, Future
 import datetime
 from time import monotonic
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, cast
 from uuid import uuid4
 
 
@@ -41,8 +41,8 @@ class QsJobSet(Job):
         job_callable: RunInputCallable,
         run_input: List[QuantumCircuit],
         input_params: Dict[str, Any],
-        executor=None,
-        **kwargs,
+        executor: Optional[Executor] = None,
+        **kwargs: Any,
     ) -> None:
         super().__init__(backend, job_id, **kwargs)
 
@@ -55,7 +55,7 @@ class QsJobSet(Job):
         self._start_time: Optional[float] = None
         self._end_time: Optional[float] = None
 
-    def submit(self):
+    def submit(self) -> None:
         """Submit the job to the backend for execution.
 
         :raises JobError: If trying to re-submit the job.
@@ -69,7 +69,7 @@ class QsJobSet(Job):
         for circuit in self._run_input:
             job_id = str(uuid4())
             job = QsSimJob(
-                self._backend,
+                cast(Optional[BackendV2], self._backend),
                 job_id,
                 self._job_callable,
                 [circuit],
@@ -82,7 +82,7 @@ class QsJobSet(Job):
 
             self._jobs.append(job)
 
-    def _job_done(self, _future: Future):
+    def _job_done(self, _future: Future) -> None:
         self._end_time = monotonic()
         if all(job.in_final_state() for job in self._jobs):
             # all jobs are done, so we can log the telemetry event
@@ -93,7 +93,7 @@ class QsJobSet(Job):
             num_circuits = len(self._run_input)
             telemetry_events.on_qiskit_run_end(shots, num_circuits, duration_in_ms)
 
-    def cancel(self):
+    def cancel(self) -> None:
         """Attempt to cancel the job."""
         for future in self._jobs:
             future.cancel()
@@ -126,8 +126,9 @@ class QsJobSet(Job):
 
         output["job_id"] = self.job_id()
         output["date"] = str(datetime.datetime.now().isoformat())
-        output["backend_name"] = self.backend().name
-        output["backend_version"] = self.backend().backend_version
+        backend = cast(BackendV2, self.backend())
+        output["backend_name"] = backend.name
+        output["backend_version"] = backend.backend_version
 
         # Times are set in submit() and _job_done() which must be called before result()
         assert self._start_time is not None

@@ -5,7 +5,7 @@
 
 use super::{CircuitEntryPoint, Debugger, Interpreter};
 use crate::{
-    interpret::{CircuitGenerationMethod, Error},
+    interpret::{CircuitGenerationMethod, Error, PackageGlobal},
     target::Profile,
 };
 use expect_test::expect;
@@ -26,6 +26,7 @@ fn interpreter(code: &str, package_type: PackageType, profile: Profile) -> Inter
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     )
     .expect("interpreter creation should succeed")
 }
@@ -41,6 +42,7 @@ fn interpreter_with_circuit_trace(code: &str, profile: Profile) -> Interpreter {
         store,
         &[(std_id, None)],
         default_test_tracer_config(),
+        Default::default(),
     )
     .expect("interpreter creation should succeed")
 }
@@ -280,15 +282,15 @@ fn static_circuit_from_callable_with_callable_arg_matches_classical_eval() {
     let globals = interp.source_globals();
     let invoke = globals
         .iter()
-        .find(|(_, n, _)| &**n == "InvokeWithQubits")
+        .find(|PackageGlobal { name, .. }| &**name == "InvokeWithQubits")
         .expect("InvokeWithQubits should be a source global")
-        .2
+        .value
         .clone();
     let all_h = globals
         .iter()
-        .find(|(_, n, _)| &**n == "AllH")
+        .find(|PackageGlobal { name, .. }| &**name == "AllH")
         .expect("AllH should be a source global")
-        .2
+        .value
         .clone();
     let args = Value::Tuple(vec![Value::Int(3), all_h].into(), None);
 
@@ -1012,7 +1014,7 @@ fn eval_method_result_comparison() {
         .pop()
         .expect("error should exist");
 
-    expect!["Qsc.Eval.ResultComparisonUnsupported"].assert_eq(
+    expect!["Qdk.Qsc.Eval.ResultComparisonUnsupported"].assert_eq(
         &circuit_err
             .code()
             .expect("error code should exist")

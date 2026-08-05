@@ -992,3 +992,50 @@ fn recover_call_with_arg_missing_close_paren_in_block() {
             ]"#]],
     );
 }
+
+// `break` and `continue` are reserved keywords, so they cannot be used as
+// identifiers. This is an intentional breaking change for existing code that
+// used these words as bindings.
+#[test]
+fn break_reserved_as_identifier() {
+    check(
+        parse,
+        "let break = 1;",
+        &expect![[r#"
+        Error(
+            Rule(
+                "pattern",
+                Keyword(
+                    Break,
+                ),
+                Span {
+                    lo: 4,
+                    hi: 9,
+                },
+            ),
+        )
+    "#]],
+    );
+}
+
+#[test]
+fn continue_reserved_as_identifier() {
+    check(
+        parse,
+        "let continue = 1;",
+        &expect![[r#"
+        Error(
+            Rule(
+                "pattern",
+                Keyword(
+                    Continue,
+                ),
+                Span {
+                    lo: 4,
+                    hi: 12,
+                },
+            ),
+        )
+    "#]],
+    );
+}

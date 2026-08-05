@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::vec;
 
+use qdk_openqasm_parser::io::SourceResolver;
 use qsc_data_structures::error::WithSource;
 use qsc_data_structures::target::Profile;
 use qsc_frontend::compile::PackageStore;
@@ -13,19 +14,18 @@ pub use qsc_openqasm_compiler::{
     CompilerConfig, OperationSignature, OutputSemantics, ProgramType, QasmCompileUnit,
     QubitSemantics,
 };
-use qsc_openqasm_parser::io::SourceResolver;
 use qsc_passes::PackageType;
 
 pub mod io {
-    pub use qsc_openqasm_parser::io::*;
+    pub use qdk_openqasm_parser::io::*;
 }
 
 pub mod parser {
-    pub use qsc_openqasm_parser::parser::*;
+    pub use qdk_openqasm_parser::parser::*;
 }
 
 pub mod semantic {
-    pub use qsc_openqasm_parser::semantic::*;
+    pub use qdk_openqasm_parser::semantic::*;
 }
 
 pub mod error {
@@ -34,7 +34,7 @@ pub mod error {
 }
 
 pub mod completion {
-    pub use qsc_openqasm_parser::parser::completion::*;
+    pub use qdk_openqasm_parser::parser::completion::*;
 }
 
 pub mod compiler {
@@ -42,7 +42,7 @@ pub mod compiler {
 }
 
 pub mod stdlib {
-    pub use qsc_openqasm_parser::stdlib::*;
+    pub use qdk_openqasm_parser::stdlib::*;
 }
 
 use crate::compile::package_store_with_stdlib;

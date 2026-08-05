@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn no_args_no_targets() {
@@ -79,26 +80,30 @@ fn args_with_targets() {
 #[test]
 fn block_instruction() {
     check(
-        "REPEAT 5 {\n    H 0\n}",
+        indoc! {"
+            REPEAT 5 {
+              H 0
+            }
+        "},
         &expect![[r#"
-        Circuit [0-20]:
-            items:
-                Block [0-20]:
-                    block_instruction: Instruction [0-8]:
-                        name: REPEAT
-                        tag: <none>
-                        args: <empty>
-                        targets:
-                            Target [7-8]:
-                                kind: Qubit(5)
-                    items:
-                        Instruction [15-18]:
-                            name: H
+            Circuit [0-19]:
+                items:
+                    Block [0-18]:
+                        block_instruction: Instruction [0-8]:
+                            name: REPEAT
                             tag: <none>
                             args: <empty>
                             targets:
-                                Target [17-18]:
-                                    kind: Qubit(0)"#]],
+                                Target [7-8]:
+                                    kind: Qubit(5)
+                        items:
+                            Instruction [13-16]:
+                                name: H
+                                tag: <none>
+                                args: <empty>
+                                targets:
+                                    Target [15-16]:
+                                        kind: Qubit(0)"#]],
     );
 }
 

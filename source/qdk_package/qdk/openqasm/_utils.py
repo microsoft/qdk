@@ -1,10 +1,12 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from typing import Any, List, cast
+
 from .. import Result
 
 
-def _map_qsharp_result_to_bit(v) -> str:
+def _map_qsharp_result_to_bit(v: Any) -> str:
     if isinstance(v, Result):
         if v == Result.One:
             return "1"
@@ -13,7 +15,7 @@ def _map_qsharp_result_to_bit(v) -> str:
     return str(v)
 
 
-def _convert_result_arrays_to_bitstrings(obj):
+def _convert_result_arrays_to_bitstrings(obj: Any) -> Any:
     if isinstance(obj, tuple):
         return tuple([_convert_result_arrays_to_bitstrings(term) for term in obj])
     elif isinstance(obj, list):
@@ -30,11 +32,11 @@ def _convert_result_arrays_to_bitstrings(obj):
         return obj
 
 
-def as_bitstring(obj):
+def as_bitstring(obj: List[Any]) -> List[Any] | str:
     """
     Convert Q# results to bitstrings.
 
     :param obj: The object to convert.
     :return: The converted object.
     """
-    return _convert_result_arrays_to_bitstrings(obj)
+    return cast(List[Any] | str, _convert_result_arrays_to_bitstrings(obj))

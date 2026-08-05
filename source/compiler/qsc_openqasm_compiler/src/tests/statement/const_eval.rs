@@ -64,7 +64,7 @@ fn const_decl_with_non_const_init_expression_fails() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: a
            ,-[Test.qasm:2:23]
@@ -74,7 +74,7 @@ fn const_decl_with_non_const_init_expression_fails() {
          3 |     
            `----
 
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: b
            ,-[Test.qasm:2:27]
@@ -126,7 +126,7 @@ fn non_const_exprs_fail_in_bitarray_size_position() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.ExprMustBeConst
+        Qdk.Qasm.Lowerer.ExprMustBeConst
 
           x expression must be const
            ,-[Test.qasm:5:13]
@@ -136,7 +136,7 @@ fn non_const_exprs_fail_in_bitarray_size_position() {
          6 |         bit[c] r2;
            `----
 
-        Qasm.Lowerer.ExprMustBeConst
+        Qdk.Qasm.Lowerer.ExprMustBeConst
 
           x expression must be const
            ,-[Test.qasm:6:13]
@@ -505,7 +505,7 @@ fn binary_op_shl_creg_fails() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Parser.Rule
+        Qdk.Qasm.Parser.Rule
 
           x expected scalar type, found keyword `creg`
            ,-[Test.qasm:2:15]
@@ -515,7 +515,7 @@ fn binary_op_shl_creg_fails() {
          3 |         const creg b[3] = a << 2;
            `----
 
-        Qasm.Parser.Rule
+        Qdk.Qasm.Parser.Rule
 
           x expected scalar type, found keyword `creg`
            ,-[Test.qasm:3:15]
@@ -525,7 +525,7 @@ fn binary_op_shl_creg_fails() {
          4 |         bit[b] r;
            `----
 
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: b
            ,-[Test.qasm:4:13]
@@ -674,7 +674,7 @@ fn binary_op_shr_creg_fails() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Parser.Rule
+        Qdk.Qasm.Parser.Rule
 
           x expected scalar type, found keyword `creg`
            ,-[Test.qasm:2:15]
@@ -684,7 +684,7 @@ fn binary_op_shr_creg_fails() {
          3 |         const creg b[4] = a >> 2;
            `----
 
-        Qasm.Parser.Rule
+        Qdk.Qasm.Parser.Rule
 
           x expected scalar type, found keyword `creg`
            ,-[Test.qasm:3:15]
@@ -694,7 +694,7 @@ fn binary_op_shr_creg_fails() {
          4 |         bit[b] r;
            `----
 
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: b
            ,-[Test.qasm:4:13]
@@ -1872,7 +1872,7 @@ fn binary_op_err_type_fails() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: a
            ,-[Test.qasm:2:13]
@@ -1882,7 +1882,7 @@ fn binary_op_err_type_fails() {
          3 |     
            `----
 
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: b
            ,-[Test.qasm:2:17]
@@ -1909,7 +1909,7 @@ fn binary_op_non_const_type_fails() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.ExprMustBeConst
+        Qdk.Qasm.Lowerer.ExprMustBeConst
 
           x expression must be const
            ,-[Test.qasm:4:13]
@@ -1934,7 +1934,7 @@ fn fuzzer_issue_2294() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Parser.Token
+        Qdk.Qasm.Parser.Token
 
           x expected `;`, found EOF
            ,-[Test.qasm:3:5]
@@ -1942,7 +1942,7 @@ fn fuzzer_issue_2294() {
          3 |     
            `----
 
-        Qasm.Parser.MissingGateCallOperands
+        Qdk.Qasm.Parser.MissingGateCallOperands
 
           x missing gate call operands
            ,-[Test.qasm:2:9]
@@ -1952,7 +1952,7 @@ fn fuzzer_issue_2294() {
          3 |     
            `----
 
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: _
            ,-[Test.qasm:2:16]
@@ -1978,7 +1978,7 @@ fn binary_op_with_non_supported_types_fails() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.CannotApplyOperatorToTypes
+        Qdk.Qasm.Lowerer.CannotApplyOperatorToTypes
 
           x cannot apply operator Div to types const int and const duration
            ,-[Test.qasm:2:23]
@@ -2004,7 +2004,7 @@ fn division_of_int_by_zero_int_errors() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.DivisionByZero
+        Qdk.Qasm.Lowerer.DivisionByZero
 
           x division by zero error during const evaluation
            ,-[Test.qasm:2:23]
@@ -2031,7 +2031,7 @@ fn division_of_angle_by_zero_int_errors() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.DivisionByZero
+        Qdk.Qasm.Lowerer.DivisionByZero
 
           x division by zero error during const evaluation
            ,-[Test.qasm:3:25]
@@ -2057,7 +2057,7 @@ fn division_by_zero_float_errors() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.DivisionByZero
+        Qdk.Qasm.Lowerer.DivisionByZero
 
           x division by zero error during const evaluation
            ,-[Test.qasm:2:25]
@@ -2085,7 +2085,7 @@ fn division_by_zero_angle_errors() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.DivisionByZero
+        Qdk.Qasm.Lowerer.DivisionByZero
 
           x division by zero error during const evaluation
            ,-[Test.qasm:4:24]
@@ -2111,7 +2111,7 @@ fn modulo_of_int_by_zero_int_errors() {
     let errs: Vec<_> = errs.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.DivisionByZero
+        Qdk.Qasm.Lowerer.DivisionByZero
 
           x division by zero error during const evaluation
            ,-[Test.qasm:2:23]
@@ -2134,15 +2134,15 @@ fn wrong_type_as_modifer_arg_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-        Qasm.Lowerer.CannotCastLiteral
+            Qdk.Qasm.Lowerer.CannotCastLiteral
 
-          x cannot cast literal expression of type const float to type const int
-           ,-[Test.qasm:2:9]
-         1 | 
-         2 |         const int n = 2.0;
-           :         ^^^^^^^^^^^^^^^^^^
-         3 |         ctrl(n) @ x q;
-           `----
-    "#]],
+              x cannot cast literal expression of type const float to type const int
+               ,-[Test.qasm:2:9]
+             1 | 
+             2 |         const int n = 2.0;
+               :         ^^^^^^^^^^^^^^^^^^
+             3 |         ctrl(n) @ x q;
+               `----
+        "#]],
     );
 }

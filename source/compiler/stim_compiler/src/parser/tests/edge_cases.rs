@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn only_newlines() {
@@ -67,25 +68,30 @@ fn blank_lines_and_comments_only() {
 #[test]
 fn comment_inside_block() {
     check(
-        "REPEAT 2 {\n    # inner\n    H 0\n}",
+        indoc! {"
+            REPEAT 2 {
+              # inner
+              H 0
+            }
+        "},
         &expect![[r#"
-        Circuit [0-32]:
-            items:
-                Block [0-32]:
-                    block_instruction: Instruction [0-8]:
-                        name: REPEAT
-                        tag: <none>
-                        args: <empty>
-                        targets:
-                            Target [7-8]:
-                                kind: Qubit(2)
-                    items:
-                        Instruction [27-30]:
-                            name: H
+            Circuit [0-29]:
+                items:
+                    Block [0-28]:
+                        block_instruction: Instruction [0-8]:
+                            name: REPEAT
                             tag: <none>
                             args: <empty>
                             targets:
-                                Target [29-30]:
-                                    kind: Qubit(0)"#]],
+                                Target [7-8]:
+                                    kind: Qubit(2)
+                        items:
+                            Instruction [23-26]:
+                                name: H
+                                tag: <none>
+                                args: <empty>
+                                targets:
+                                    Target [25-26]:
+                                        kind: Qubit(0)"#]],
     );
 }

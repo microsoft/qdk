@@ -6,5 +6,10 @@
 
 from .._native import instruction_ids
 
-for name in instruction_ids.__all__:
-    globals()[name] = getattr(instruction_ids, name)
+INSTRUCTION_ID_MAP: dict[str, int] = {
+    attr: getattr(instruction_ids, attr)
+    for attr in dir(instruction_ids)
+    if not attr.startswith("_") and isinstance(getattr(instruction_ids, attr), int)
+}
+
+globals().update(INSTRUCTION_ID_MAP)

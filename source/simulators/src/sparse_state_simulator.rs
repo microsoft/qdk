@@ -1305,6 +1305,55 @@ impl SparseStateSim {
             "State vector should never be empty."
         );
     }
+
+    /// Applies an arithmetic function to a register of qubits, preserving amplitudes.
+    /// For each basis state, interprets the target qubits as a little-endian integer, applies the
+    /// function to get a new integer, and remaps the state accordingly.
+    /// `f` must be a bijection on [0, 2^targets.len()-1].
+    pub fn apply_arithmetic_gate(
+        &mut self,
+        mut f: impl FnMut(BigUint) -> Result<BigUint, String>,
+        targets: &[usize],
+    ) -> Result<(), String> {
+        if targets.is_empty() {
+            return Ok(());
+        }
+
+        self.flush_queue(targets, FlushLevel::HRxRy);
+        Self::check_for_duplicates(targets);
+
+        // `f` is a bijection, so distinct basis states map to distinct outputs.
+        // We can remap basis states in place and leave amplitudes untouched.
+        for (basis_idx, _amplitude) in &mut self.state {
+            // Read the target qubits as a little-endian integer.
+            let mut input_int = BigUint::zero();
+            for (i, &target) in targets.iter().enumerate() {
+                if basis_idx.bit(target as u64) {
+                    input_int.set_bit(i as u64, true);
+                }
+            }
+
+            let output_int = f(input_int)?;
+
+            // Write the function output back into the target qubits.
+            for (i, &target) in targets.iter().enumerate() {
+                basis_idx.set_bit(target as u64, output_int.bit(i as u64));
+            }
+        }
+
+        // Check that the remapped states are still distinct. If not, `f` was not injective
+        // over the populated states, so the operation would not be unitary.
+        if self.state.len() > 1 {
+            let mut seen = FxHashSet::default();
+            for (basis_idx, _) in &self.state {
+                if !seen.insert(basis_idx) {
+                    return Err("function must be injective".to_string());
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Given a list of operations, applies them sequentially to the given state vector index and value in-place.

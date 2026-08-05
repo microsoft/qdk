@@ -13,13 +13,13 @@ use qsc_ast::ast::{
 };
 use qsc_data_structures::span::Span;
 
-use qsc_openqasm_parser::{
-    parser::ast::{List, list_from_iter},
-    semantic::types::Type,
-    stdlib::angle::Angle,
-};
+use qdk_openqasm_parser::{semantic::types::Type, stdlib::angle::Angle};
 
 use crate::types::{ArrayDimensions, Complex};
+
+fn list_from_iter<T>(iter: impl IntoIterator<Item = T>) -> Box<[Box<T>]> {
+    iter.into_iter().map(Box::new).collect()
+}
 
 pub(crate) fn build_managed_qubit_alloc<S>(
     name: S,
@@ -1351,6 +1351,26 @@ pub(crate) fn build_end_stmt(span: Span) -> Stmt {
     build_stmt_semi_from_expr_with_span(expr, span)
 }
 
+pub(crate) fn build_break_stmt(span: Span) -> Stmt {
+    let expr = Expr {
+        kind: Box::new(ExprKind::Break),
+        span,
+        ..Default::default()
+    };
+
+    build_stmt_semi_from_expr_with_span(expr, span)
+}
+
+pub(crate) fn build_continue_stmt(span: Span) -> Stmt {
+    let expr = Expr {
+        kind: Box::new(ExprKind::Continue),
+        span,
+        ..Default::default()
+    };
+
+    build_stmt_semi_from_expr_with_span(expr, span)
+}
+
 pub(crate) fn build_index_expr(expr: Expr, index_expr: Expr, span: Span) -> Expr {
     let kind = ExprKind::Index(Box::new(expr), Box::new(index_expr));
     Expr {
@@ -1464,7 +1484,7 @@ pub(crate) fn build_function_or_operation(
     return_type: Ty,
     kind: CallableKind,
     functors: Option<FunctorExpr>,
-    attrs: List<Attr>,
+    attrs: Box<[Box<Attr>]>,
 ) -> Stmt {
     let args = cargs
         .into_iter()

@@ -1,13 +1,13 @@
-/// # Sample
-/// Resource Estimation for Integer Factoring
-///
-/// # Description
-/// In this sample we concentrate on costing quantum part in the algorithm for
-/// factoring RSA integers based on Ekerå and Håstad
-/// [ia.cr/2017/077](https://eprint.iacr.org/2017/077) based on the
-/// implementation described in
-/// [arXiv:1905.09749](https://arxiv.org/abs/1905.09749). This makes it ideal
-/// for use with the Microsoft Quantum Resource Estimator.
+// # Sample
+// Resource Estimation for Integer Factoring
+//
+// # Description
+// In this sample we concentrate on costing quantum part in the algorithm for
+// factoring RSA integers based on Ekerå and Håstad
+// [ia.cr/2017/077](https://eprint.iacr.org/2017/077) based on the
+// implementation described in
+// [arXiv:1905.09749](https://arxiv.org/abs/1905.09749). This makes it ideal
+// for use with the Microsoft Quantum Resource Estimator.
 import Std.Convert.*;
 import Std.Math.*;
 import Std.ResourceEstimation.*;

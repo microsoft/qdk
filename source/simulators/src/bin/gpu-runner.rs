@@ -36,6 +36,7 @@ fn main() {
     test_mz_idempotent();
     test_reset_preserves_distribution();
     gates_on_lost_qubits();
+    survivor_noise_on_lost_2q_gate();
     scaled_ising();
     scaled_grover();
     noise_config();
@@ -214,6 +215,42 @@ fn gates_on_lost_qubits() {
     assert_ratio(&qubit_1_results, &[2], 0.1, 0.01);
     assert_ratio(&qubit_1_results, &[1], 0.09, 0.01);
     assert_ratio(&qubit_1_results, &[0], 0.8, 0.01);
+}
+
+// When a 2-qubit gate has a lost operand, the gate body is handled by its loss
+// policy, but the attached Pauli noise must still be applied to the *surviving*
+// operand (matching the CPU `apply_fault`, which skips only lost targets).
+fn survivor_noise_on_lost_2q_gate() {
+    // Build a 2q Pauli noise op that applies X to the second operand (q2) with
+    // certainty and identity to the first. Slot k = q1_term*5 + q2_term with the
+    // encoding I=0, X=1, Z=2, Y=3, L=4, so (I, X) -> slot 1.
+    let mut iz_x_noise = Op::new_2q_gate(ops::PAULI_NOISE_2Q, 0, 1);
+    iz_x_noise.set_noise_prob_slot(1, 1.0); // P(I on q0, X on q1) = 1.0
+
+    let ops: Vec<Op> = vec![
+        // Deterministically lose qubit 0. The loss noise must follow a gate so it
+        // is sampled into pending_loss_mask, then committed by the loss-commit op.
+        Op::new_id_gate(0),
+        Op::new_pauli_noise_1q_with_loss(0, 0.0, 0.0, 0.0, 1.0),
+        Op::new_loss_commit(0),
+        // CX with a lost control. With the default (SKIP) policy the gate body is
+        // dropped, but the survivor (qubit 1) must still receive its X noise term.
+        Op::new_cx_gate(0, 1),
+        iz_x_noise,
+        Op::new_mresetz_gate(0, 0),
+        Op::new_mresetz_gate(1, 1),
+    ];
+
+    let results =
+        run_shots_sync(2, 2, &ops, &None, 200, DEFAULT_SEED, 0).expect("GPU shots failed");
+    check_success(&results);
+
+    // Qubit 0 is always lost (code 2); qubit 1 always picks up the survivor X (1).
+    assert!(
+        results.shot_results.iter().all(|r| r[0] == 2 && r[1] == 1),
+        "Expected every shot to be [Loss, 1] from survivor noise, got {results:?}"
+    );
+    println!("[GPU Runner]: survivor_noise_on_lost_2q_gate passed (200 shots)");
 }
 
 fn scale_teleport() {

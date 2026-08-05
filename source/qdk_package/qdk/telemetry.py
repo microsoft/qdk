@@ -252,7 +252,7 @@ def _post_telemetry() -> bool:
 
 # This is the thread that aggregates and posts telemetry at a regular interval.
 # The main thread will signal the thread loop to exit when the process is about to exit.
-def _telemetry_thread_start():
+def _telemetry_thread_start() -> None:
     next_post_sec: Union[float, None] = None
 
     def on_metric(msg: Metric):

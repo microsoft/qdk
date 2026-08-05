@@ -3,21 +3,18 @@
 
 //! Return-slot and defaultability policy for return unification.
 
-use crate::{
-    EMPTY_EXEC_RANGE,
-    fir_builder::{
-        alloc_assign_expr, alloc_block, alloc_expr, alloc_expr_stmt, alloc_if_expr,
-        alloc_local_var, alloc_local_var_expr,
-    },
+use crate::fir_builder::{
+    alloc_assign_expr, alloc_block, alloc_discard_pat, alloc_expr, alloc_expr_stmt, alloc_if_expr,
+    alloc_local_var, alloc_local_var_expr,
 };
 use num_bigint::BigInt;
 use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Ident, ItemId, ItemKind, Lit,
-        LocalItemId, LocalVarId, Mutability, Package, PackageId, Pat, PatKind, Res, Result, StmtId,
-        StoreItemId, StringComponent,
+        CallableDecl, CallableImpl, ExprId, ExprKind, Ident, ItemId, ItemKind, Lit, LocalItemId,
+        LocalVarId, Mutability, Package, PackageId, Res, Result, StmtId, StoreItemId,
+        StringComponent,
     },
     ty::{Prim, Ty},
 };
@@ -516,18 +513,13 @@ pub(super) fn create_default_value(
         arrow_default_cache,
     )?;
 
-    let expr_id = assigner.next_expr();
-    package.exprs.insert(
-        expr_id,
-        Expr {
-            id: expr_id,
-            span: Span::default(),
-            ty: ty.clone(),
-            kind,
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    Some(expr_id)
+    Some(alloc_expr(
+        package,
+        assigner,
+        ty.clone(),
+        kind,
+        Span::default(),
+    ))
 }
 
 fn create_default_value_kind(
@@ -719,16 +711,7 @@ fn synthesize_fail_callable(
         Span::default(),
     );
 
-    let input_pat_id = assigner.next_pat();
-    package.pats.insert(
-        input_pat_id,
-        Pat {
-            id: input_pat_id,
-            span: Span::default(),
-            ty: input_ty.clone(),
-            kind: PatKind::Discard,
-        },
-    );
+    let input_pat_id = alloc_discard_pat(package, assigner, input_ty.clone(), Span::default());
 
     let body_spec = qsc_fir::fir::SpecDecl {
         span: Span::default(),

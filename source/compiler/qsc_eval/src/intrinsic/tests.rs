@@ -17,7 +17,7 @@ use num_bigint::BigInt;
 use qsc_data_structures::language_features::LanguageFeatures;
 use qsc_data_structures::source::SourceMap;
 use qsc_data_structures::target::TargetCapabilityFlags;
-use qsc_fir::fir::{self, ExecGraphConfig};
+use qsc_fir::fir::{self, ExecGraphConfig, PackageStoreLookup};
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
@@ -144,11 +144,16 @@ impl Backend for CustomSim {
         self.sim.qubit_is_zero(q)
     }
 
-    fn custom_intrinsic(&mut self, name: &str, arg: Value) -> Option<Result<Value, String>> {
+    fn custom_intrinsic(
+        &mut self,
+        name: &str,
+        arg: Value,
+        globals: &impl PackageStoreLookup,
+    ) -> Option<Result<Value, String>> {
         match name {
             "Add1" => Some(Ok(Value::Int(arg.unwrap_int() + 1))),
             "Check" => Some(Err("cannot verify input".to_string())),
-            _ => self.sim.custom_intrinsic(name, arg),
+            _ => self.sim.custom_intrinsic(name, arg, globals),
         }
     }
 }
@@ -2839,5 +2844,18 @@ fn applyidlenoise_qubit_already_released_fails() {
             Std.Diagnostics.ApplyIdleNoise(q);
         }"},
         &expect!["qubit used after release"],
+    );
+}
+
+#[test]
+fn is_resource_estimating_is_false_for_simulator() {
+    check_intrinsic_result(
+        indoc! {"
+            namespace Test {
+                import Std.ResourceEstimation.*;
+            }
+        "},
+        "Std.ResourceEstimation.IsResourceEstimating()",
+        &expect!["false"],
     );
 }

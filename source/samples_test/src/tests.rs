@@ -68,6 +68,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
                 max_operations: 0,
                 prune_classical_qubits: false,
             },
+            Default::default(),
         )
     } else {
         Interpreter::new(
@@ -77,6 +78,7 @@ fn compile_and_run_internal(sources: SourceMap, debug: bool) -> String {
             LanguageFeatures::default(),
             store,
             &[(std_id, None)],
+            Default::default(),
         )
     } {
         Ok(interpreter) => interpreter,
@@ -207,6 +209,7 @@ fn compile(sources: SourceMap) {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         for error in &errors {
             eprintln!("error: {error}");
@@ -258,6 +261,7 @@ fn compile_project(project_folder: &str) {
         LanguageFeatures::default(),
         store,
         &user_code_dependencies,
+        Default::default(),
     ) {
         for error in &errors {
             eprintln!("error: {error}");
@@ -279,6 +283,7 @@ fn circuit(sources: SourceMap) -> String {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {
@@ -387,10 +392,8 @@ fn circuit_qasm(source: &str) -> String {
     }
 }
 
-fn qirgen(sources: SourceMap) -> String {
-    let capabilities = TargetCapabilityFlags::Adaptive
-        | TargetCapabilityFlags::IntegerComputations
-        | TargetCapabilityFlags::FloatingPointComputations;
+fn qirgen(sources: SourceMap, profile: Profile) -> String {
+    let capabilities = profile.into();
     let (std_id, store) = compile::package_store_with_stdlib(capabilities);
 
     let namespace = sources
@@ -410,6 +413,7 @@ fn qirgen(sources: SourceMap) -> String {
         LanguageFeatures::default(),
         store,
         &[(std_id, None)],
+        Default::default(),
     ) {
         Ok(interpreter) => interpreter,
         Err(errors) => {
@@ -424,7 +428,7 @@ fn qirgen(sources: SourceMap) -> String {
     }
 }
 
-fn qirgen_qasm(source: &str) -> String {
+fn qirgen_qasm(source: &str, profile: Profile) -> String {
     let config = qsc::openqasm::CompilerConfig::new(
         QubitSemantics::Qiskit,
         OutputSemantics::OpenQasm,
@@ -450,9 +454,7 @@ fn qirgen_qasm(source: &str) -> String {
         "Circuit has unbound input parameters\n  help: Parameters: {}",
         signature.input_params()
     );
-    let capabilities = TargetCapabilityFlags::Adaptive
-        | TargetCapabilityFlags::IntegerComputations
-        | TargetCapabilityFlags::FloatingPointComputations;
+    let capabilities = profile.into();
     let package_type = PackageType::Lib;
     let language_features = LanguageFeatures::default();
     let (stdid, mut store) = qsc::compile::package_store_with_stdlib(capabilities);

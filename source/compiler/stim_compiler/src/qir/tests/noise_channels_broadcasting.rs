@@ -3,6 +3,7 @@
 
 use super::check;
 use expect_test::expect;
+use indoc::indoc;
 
 #[test]
 fn depolarize1_yields_expected_qir() {
@@ -18,22 +19,15 @@ fn depolarize1_yields_expected_qir() {
                     Y: 0.0033333333333333335
                     Z: 0.0033333333333333335
 
-                1: NoiseTable:
-                    qubits: 1
-                    X: 0.0033333333333333335
-                    Y: 0.0033333333333333335
-                    Z: 0.0033333333333333335
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -66,14 +60,14 @@ fn depolarize1_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingArg
 
-          x missing probability argument in instruction: DEPOLARIZE1
-           ,----
-         1 | DEPOLARIZE1 0 1
-           : ^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing argument in instruction: DEPOLARIZE1
+               ,----
+             1 | DEPOLARIZE1 0 1
+               : ^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -103,34 +97,15 @@ fn depolarize2_yields_expected_qir() {
                     ZY: 0.0006666666666666666
                     ZZ: 0.0006666666666666666
 
-                1: NoiseTable:
-                    qubits: 2
-                    IX: 0.0006666666666666666
-                    IY: 0.0006666666666666666
-                    IZ: 0.0006666666666666666
-                    XI: 0.0006666666666666666
-                    XX: 0.0006666666666666666
-                    XY: 0.0006666666666666666
-                    XZ: 0.0006666666666666666
-                    YI: 0.0006666666666666666
-                    YX: 0.0006666666666666666
-                    YY: 0.0006666666666666666
-                    YZ: 0.0006666666666666666
-                    ZI: 0.0006666666666666666
-                    ZX: 0.0006666666666666666
-                    ZY: 0.0006666666666666666
-                    ZZ: 0.0006666666666666666
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr, ptr) #2
             declare void @noise_intrinsic_0(ptr, ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -163,14 +138,14 @@ fn depolarize2_without_probability_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.MissingProbability
+            Qdk.Stim.Compiler.MissingArg
 
-          x missing probability argument in instruction: DEPOLARIZE2
-           ,----
-         1 | DEPOLARIZE2 0 1 2 3
-           : ^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x missing argument in instruction: DEPOLARIZE2
+               ,----
+             1 | DEPOLARIZE2 0 1 2 3
+               : ^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -180,14 +155,14 @@ fn depolarize2_with_odd_number_of_targets_yields_error() {
     check(
         source,
         &expect![[r#"
-        Stim.OddQubitCount
+            Qdk.Stim.Compiler.OddTargetCount
 
-          x instruction DEPOLARIZE2 requires an even number of qubit targets
-           ,----
-         1 | DEPOLARIZE2(0.01) 0
-           : ^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x instruction DEPOLARIZE2 requires an even number of targets
+               ,----
+             1 | DEPOLARIZE2(0.01) 0
+               : ^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -206,69 +181,275 @@ fn heralded_pauli_channel_1_yields_error() {
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
 fn i_error_yields_expected_qir() {
-    let source = "
-# does nothing
-I_ERROR 0 1
+    let source = indoc! {"
+        # does nothing
+        I_ERROR 0 1
 
-# does nothing with probability 0.1, else does nothing
-I_ERROR(0.1) 0 1
+        # does nothing with probability 0.1, else does nothing
+        I_ERROR(0.1) 0 1
 
-# doesn't require a probability argument
-I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4
+        # doesn't require a probability argument
+        I_ERROR[LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4
 
-# checks for you that the disjoint probabilities in the arguments are legal
-I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0 2 4
-";
-    check(source, &expect![[""]]);
+        # checks for you that the disjoint probabilities in the arguments are legal
+        I_ERROR[MULTIPLE_NOISE_MECHANISMS](0.1, 0.2) 0 2 4
+    "};
+    check(
+        source,
+        &expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
 fn ii_error_yields_expected_qir() {
-    let source = "
-# does nothing
-II_ERROR 0 1
+    let source = indoc! {"
+        # does nothing
+        II_ERROR 0 1
 
-# does nothing with probability 0.1, else does nothing
-II_ERROR(0.1) 0 1
+        # does nothing with probability 0.1, else does nothing
+        II_ERROR(0.1) 0 1
 
-# checks for you that the targets are two-qubit pairs
-II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
+        # checks for you that the targets are two-qubit pairs
+        II_ERROR[TWO_QUBIT_LEAKAGE_NOISE_FOR_AN_ADVANCED_SIMULATOR:0.1] 0 2 4 6
 
-# checks for you that the disjoint probabilities in the arguments are legal
-II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
-";
-    check(source, &expect![[""]]);
+        # checks for you that the disjoint probabilities in the arguments are legal
+        II_ERROR[MULTIPLE_TWO_QUBIT_NOISE_MECHANISMS](0.1, 0.2) 0 2 4 6
+    "};
+    check(
+        source,
+        &expect![[r#"
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
-fn ii_error_with_odd_number_of_targets_yields_expected_qir() {
+fn ii_error_with_odd_number_of_targets_yields_error() {
     let source = "II_ERROR 0";
-    check(source, &expect![[""]]);
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.OddTargetCount
+
+          x instruction II_ERROR requires an even number of targets
+           ,----
+         1 | II_ERROR 0
+           : ^^^^^^^^^^
+           `----
+    "#]],
+    );
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
 fn pauli_channel_1_yields_expected_qir() {
     let source = "PAULI_CHANNEL_1(0.1, 0.2, 0.3) 0 1";
-    check(source, &expect![[""]]);
+    check(
+        source,
+        &expect![[r#"
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                X: 0.1
+                Y: 0.2
+                Z: 0.3
+
+
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+          call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @noise_intrinsic_0(ptr) #2
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        attributes #2 = { "qdk_noise" }
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
+fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
+    let source = "PAULI_CHANNEL_1(0.1, 0.2) 0 1";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.WrongArgCount
+
+          x instruction PAULI_CHANNEL_1 requires 3 arguments, but found 2
+           ,----
+         1 | PAULI_CHANNEL_1(0.1, 0.2) 0 1
+           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn pauli_channel_2_yields_expected_qir() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1 2 3";
-    check(source, &expect![[""]]);
+    check(
+        source,
+        &expect![[r#"
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 2
+                IX: 0
+                IY: 0
+                IZ: 0
+                XI: 0
+                XX: 0.1
+                XY: 0
+                XZ: 0
+                YI: 0
+                YX: 0
+                YY: 0
+                YZ: 0.2
+                ZI: 0
+                ZX: 0
+                ZY: 0
+                ZZ: 0
+
+
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          call void @noise_intrinsic_0(ptr inttoptr (i64 2 to ptr), ptr inttoptr (i64 3 to ptr))
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
+
+        declare void @noise_intrinsic_0(ptr, ptr) #2
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="4" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        attributes #2 = { "qdk_noise" }
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
 }
 
 #[test]
-#[ignore = "unsupported instruction"]
 fn pauli_channel_2_with_odd_number_of_targets_yields_error() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1 2";
-    check(source, &expect![[""]]);
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.OddTargetCount
+
+          x instruction PAULI_CHANNEL_2 requires an even number of targets
+           ,----
+         1 | PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1 2
+           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
+    let source = "PAULI_CHANNEL_2(0.1) 0 1 2 3";
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.WrongArgCount
+
+          x instruction PAULI_CHANNEL_2 requires 15 arguments, but found 1
+           ,----
+         1 | PAULI_CHANNEL_2(0.1) 0 1 2 3
+           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
 }
 
 #[test]
@@ -283,20 +464,15 @@ fn x_error_yields_expected_qir() {
                     qubits: 1
                     X: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    X: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -335,20 +511,15 @@ fn y_error_yields_expected_qir() {
                     qubits: 1
                     Y: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    Y: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -387,20 +558,15 @@ fn z_error_yields_expected_qir() {
                     qubits: 1
                     Z: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    Z: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)
@@ -439,20 +605,15 @@ fn loss_error_yields_expected_qir() {
                     qubits: 1
                     L: 0.01
 
-                1: NoiseTable:
-                    qubits: 1
-                    L: 0.01
-
 
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
               call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @noise_intrinsic_1(ptr inttoptr (i64 1 to ptr))
+              call void @noise_intrinsic_0(ptr inttoptr (i64 1 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
 
-            declare void @noise_intrinsic_1(ptr) #2
             declare void @noise_intrinsic_0(ptr) #2
             declare void @__quantum__rt__result_record_output(ptr, ptr)
             declare void @__quantum__rt__array_record_output(i64, ptr)

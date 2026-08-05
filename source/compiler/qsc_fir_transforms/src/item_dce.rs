@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Item-level dead code elimination — runs after GC, before exec graph
-//! rebuild.
+//! Item-level dead code elimination — runs after the tuple-decompose and
+//! argument-promotion fixed point, before node-level GC and exec graph rebuild.
 //!
 //! Removes items from [`Package::items`](qsc_fir::fir::Package) that became
 //! unreachable after monomorphization and defunctionalization (original
@@ -17,9 +17,9 @@
 //!   walk, whereas `gc_unreachable` works on a single package's arena nodes.
 //! - **`StmtKind::Item` edge case.** Removing an item whose declaring
 //!   `StmtKind::Item` stmt sits in a still-reachable block would trip
-//!   `invariants::check_id_references`. The pipeline mitigates by re-running
-//!   `gc_unreachable` after item DCE when anything was removed, tombstoning the
-//!   deleted items' arena nodes. The `StmtKind::Item` stmts survive as harmless
+//!   `invariants::check_id_references`. The pipeline mitigates by running
+//!   `gc_unreachable` immediately after item DCE, tombstoning the deleted
+//!   items' arena nodes. The `StmtKind::Item` stmts survive as harmless
 //!   dangling references (allowed post-DCE; ignored by `exec_graph_rebuild`).
 //! - Accepts entry-rooted or seed-expanded (pinned-callable) reachability.
 

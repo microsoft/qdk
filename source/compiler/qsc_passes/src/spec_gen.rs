@@ -36,39 +36,39 @@ pub enum Error {
     AdjGen(adj_gen::Error),
 
     #[error("invalid specialization generator")]
-    #[diagnostic(code("Qsc.SpecGen.InvalidAdjGen"))]
+    #[diagnostic(code("Qdk.Qsc.SpecGen.InvalidAdjGen"))]
     #[diagnostic(help(
         "valid specialization generators for adjoint are `auto`, `invert`, and `self`"
     ))]
     InvalidAdjGen(#[label] Span),
 
     #[error("invalid specialization generator")]
-    #[diagnostic(code("Qsc.SpecGen.InvalidBodyGen"))]
+    #[diagnostic(code("Qdk.Qsc.SpecGen.InvalidBodyGen"))]
     #[diagnostic(help("body specialization only supports `intrinsic`"))]
     InvalidBodyGen(#[label] Span),
 
     #[error("invalid specialization generator")]
-    #[diagnostic(code("Qsc.SpecGen.InvalidCtlGen"))]
+    #[diagnostic(code("Qdk.Qsc.SpecGen.InvalidCtlGen"))]
     #[diagnostic(help(
         "valid specialization generators for controlled are `auto` and `distribute`"
     ))]
     InvalidCtlGen(#[label] Span),
 
     #[error("invalid specialization generator")]
-    #[diagnostic(code("Qsc.SpecGen.InvalidCtlAdjGen"))]
+    #[diagnostic(code("Qdk.Qsc.SpecGen.InvalidCtlAdjGen"))]
     #[diagnostic(help(
         "valid specialization generators for controlled adjoint are `auto`, `distribute`, `invert`, and `self`"
     ))]
     InvalidCtlAdjGen(#[label] Span),
 
     #[error("specialization generation missing required body implementation")]
-    #[diagnostic(code("Qsc.SpecGen.MissingBody"))]
+    #[diagnostic(code("Qdk.Qsc.SpecGen.MissingBody"))]
     MissingBody(#[label] Span),
 
     #[error(
         "specialization generation is not supported for callables with the attribute `SimulatableIntrinsic`"
     )]
-    #[diagnostic(code("Qsc.SpecGen.SimulatableIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.SpecGen.SimulatableIntrinsic"))]
     #[diagnostic(help(
         "try removing the specializations for this callable and providing them via a separate wrapper operation"
     ))]

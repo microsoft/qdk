@@ -69,7 +69,7 @@ fn angle_to_duration_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type duration
                ,-[Test.qasm:3:9]
@@ -91,7 +91,7 @@ fn sized_angle_to_duration_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type duration
                ,-[Test.qasm:3:9]
@@ -117,7 +117,7 @@ fn angle_to_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type int
                ,-[Test.qasm:3:9]
@@ -139,7 +139,7 @@ fn angle_to_sized_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type int[32]
                ,-[Test.qasm:3:9]
@@ -161,7 +161,7 @@ fn sized_angle_to_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type int
                ,-[Test.qasm:3:9]
@@ -183,7 +183,7 @@ fn sized_angle_to_sized_int_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type int[32]
                ,-[Test.qasm:3:9]
@@ -205,7 +205,7 @@ fn sized_angle_to_sized_int_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type int[16]
                ,-[Test.qasm:3:9]
@@ -227,7 +227,7 @@ fn sized_angle_to_sized_int_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type int[64]
                ,-[Test.qasm:3:9]
@@ -253,7 +253,7 @@ fn angle_to_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type uint
                ,-[Test.qasm:3:9]
@@ -275,7 +275,7 @@ fn angle_to_sized_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type uint[32]
                ,-[Test.qasm:3:9]
@@ -297,7 +297,7 @@ fn sized_angle_to_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type uint
                ,-[Test.qasm:3:9]
@@ -319,7 +319,7 @@ fn sized_angle_to_sized_uint_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type uint[32]
                ,-[Test.qasm:3:9]
@@ -341,7 +341,7 @@ fn sized_angle_to_sized_uint_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type uint[16]
                ,-[Test.qasm:3:9]
@@ -363,7 +363,7 @@ fn sized_angle_to_sized_uint_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type uint[64]
                ,-[Test.qasm:3:9]
@@ -389,7 +389,7 @@ fn angle_to_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type float
                ,-[Test.qasm:3:9]
@@ -411,7 +411,7 @@ fn angle_to_sized_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type float[32]
                ,-[Test.qasm:3:9]
@@ -433,7 +433,7 @@ fn sized_angle_to_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type float
                ,-[Test.qasm:3:9]
@@ -455,7 +455,7 @@ fn sized_angle_to_sized_float_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type float[32]
                ,-[Test.qasm:3:9]
@@ -477,7 +477,7 @@ fn sized_angle_to_sized_float_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type float[16]
                ,-[Test.qasm:3:9]
@@ -499,7 +499,7 @@ fn sized_angle_to_sized_float_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type float[64]
                ,-[Test.qasm:3:9]
@@ -643,7 +643,7 @@ fn angle_to_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type complex[float]
                ,-[Test.qasm:3:9]
@@ -665,7 +665,7 @@ fn angle_to_sized_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type complex[float[32]]
                ,-[Test.qasm:3:9]
@@ -687,7 +687,7 @@ fn sized_angle_to_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type complex[float]
                ,-[Test.qasm:3:9]
@@ -709,7 +709,7 @@ fn sized_angle_to_sized_complex_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type complex[float[32]]
                ,-[Test.qasm:3:9]
@@ -731,7 +731,7 @@ fn sized_angle_to_sized_complex_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type complex[float[16]]
                ,-[Test.qasm:3:9]
@@ -753,7 +753,7 @@ fn sized_angle_to_sized_complex_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type complex[float[64]]
                ,-[Test.qasm:3:9]
@@ -798,7 +798,7 @@ fn angle_to_bitarray_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle to type bit[32]
                ,-[Test.qasm:3:9]
@@ -858,7 +858,7 @@ fn sized_angle_to_bitarray_truncating_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type bit[16]
                ,-[Test.qasm:3:9]
@@ -880,7 +880,7 @@ fn sized_angle_to_bitarray_expanding_fails() {
     check(
         source,
         &expect![[r#"
-            Qasm.Lowerer.CannotCast
+            Qdk.Qasm.Lowerer.CannotCast
 
               x cannot cast expression of type angle[32] to type bit[64]
                ,-[Test.qasm:3:9]

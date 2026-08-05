@@ -5,7 +5,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, Literal, Optional, TYPE_CHECKING
 
 import cirq
 
@@ -79,12 +79,14 @@ class NeutralAtomSampler(cirq.Sampler):
         self,
         *,
         noise: Optional["NoiseConfig"] = None,
-        simulator_type: Optional[str] = None,
+        simulator_type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
         seed: Optional[int] = None,
         device: Optional["NeutralAtomDevice"] = None,
     ) -> None:
         self._noise = noise
-        self._simulator_type = simulator_type
+        self._simulator_type: Optional[Literal["clifford", "cpu", "gpu"]] = (
+            simulator_type
+        )
         self._seed = seed
         self._device = device
 
@@ -112,11 +114,7 @@ class NeutralAtomSampler(cirq.Sampler):
         :return: A list of :class:`NeutralAtomCirqResult` objects, one per resolver.
         :rtype: List[NeutralAtomCirqResult]
         """
-        resolvers = (
-            list(cirq.to_sweep(params))
-            if params is not None
-            else [cirq.ParamResolver()]
-        )
+        resolvers = list(cirq.to_resolvers(params))
         return [
             self._run_once(program, resolver, repetitions) for resolver in resolvers
         ]

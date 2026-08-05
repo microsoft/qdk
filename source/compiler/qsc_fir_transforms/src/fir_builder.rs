@@ -25,17 +25,21 @@
 //! passes should route every `Expr`/`Stmt` allocation through the helpers
 //! below.
 
+#[cfg(test)]
+mod tests;
+
 use crate::EMPTY_EXEC_RANGE;
+use qsc_data_structures::functors::FunctorApp;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Ident, ItemKind,
-    LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup, Pat, PatId, PatKind,
-    Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
+    BinOp, Block, BlockId, CallableDecl, Expr, ExprId, ExprKind, Field, FieldPath, Functor, Ident,
+    ItemId, ItemKind, Lit, LocalItemId, LocalVarId, Mutability, Package, PackageId, PackageLookup,
+    Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind, StoreItemId, UnOp,
 };
 use rustc_hash::FxHashSet;
 
-use qsc_fir::ty::{Prim, Ty};
+use qsc_fir::ty::{Arrow, Prim, Ty};
 use std::rc::Rc;
 
 /// Allocates an `Expr` with the given kind and inserts it into the package.
@@ -98,6 +102,205 @@ pub(crate) fn alloc_field_expr(
         ),
         span,
     )
+}
+
+/// Allocates a `Field(record, Path(indices))` expression whose projection
+/// path may descend multiple tuple levels in one node.
+///
+/// Companion to [`alloc_field_expr`], which projects a single level.
+pub(crate) fn alloc_field_path_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    record_id: ExprId,
+    indices: Vec<usize>,
+    ty: Ty,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        ty,
+        ExprKind::Field(record_id, Field::Path(FieldPath { indices })),
+        span,
+    )
+}
+
+/// Allocates a `Var(Res::Item(item_id))` expression referencing a global item.
+pub(crate) fn alloc_item_var_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    item_id: ItemId,
+    ty: Ty,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        ty,
+        ExprKind::Var(Res::Item(item_id), Vec::new()),
+        span,
+    )
+}
+
+/// Allocates a `Call(callee, args)` expression.
+pub(crate) fn alloc_call_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    callee_id: ExprId,
+    args_id: ExprId,
+    ty: Ty,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        ty,
+        ExprKind::Call(callee_id, args_id),
+        span,
+    )
+}
+
+/// Allocates an integer literal expression with `Int` type.
+pub(crate) fn alloc_int_lit(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    value: i64,
+    span: Span,
+) -> ExprId {
+    alloc_expr(
+        package,
+        assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Lit(Lit::Int(value)),
+        span,
+    )
+}
+
+/// Strips a single controlled-functor input layer from an arrow type,
+/// returning the inner, less-controlled arrow type.
+///
+/// `Controlled` turns an operation `I => O` into `(Qubit[], I) => O`, wrapping
+/// the input in a `(Qubit[], _)` tuple. This peels one such layer by replacing
+/// the arrow input with the second element of that tuple.
+///
+/// # Panics
+///
+/// Panics if `ty` is not a controlled arrow — a `Ty::Arrow` whose input is a
+/// tuple of at least two elements `(Qubit[], _)`. This helper is only ever
+/// asked to peel a control layer that the caller's `FunctorApp` already claims
+/// exists, so any other shape is an internal compiler bug (a
+/// `functor.controlled` count that disagrees with the wrapped type) rather than
+/// recoverable input.
+fn strip_controlled_input_layer(ty: &Ty) -> Ty {
+    let Ty::Arrow(arrow) = ty else {
+        panic!("expected a controlled arrow type to strip a control layer from, found {ty:?}");
+    };
+    let Ty::Tuple(items) = arrow.input.as_ref() else {
+        panic!(
+            "expected a controlled arrow input tuple `(Qubit[], _)`, found input {:?}",
+            arrow.input
+        );
+    };
+    assert!(
+        items.len() >= 2,
+        "expected a controlled arrow input tuple `(Qubit[], _)` with at least two elements, found {items:?}"
+    );
+    Ty::Arrow(Box::new(Arrow {
+        kind: arrow.kind,
+        input: Box::new(items[1].clone()),
+        output: arrow.output.clone(),
+        functors: arrow.functors,
+    }))
+}
+
+/// Computes the arrow type at each controlled depth of a functor-wrapper
+/// chain, from the outermost node down to the base.
+///
+/// The returned vector has `controlled + 1` entries: index `0` is `outer_ty`
+/// (the fully controlled, outermost node), and each subsequent entry strips one
+/// `(Qubit[], _)` input layer, so the last entry is the un-controlled base
+/// type. Adjoint is intentionally not modeled here because it preserves the
+/// arrow type.
+fn controlled_layer_types(outer_ty: &Ty, controlled: u8) -> Vec<Ty> {
+    let mut layer_tys = Vec::with_capacity(usize::from(controlled) + 1);
+    layer_tys.push(outer_ty.clone());
+    for _ in 0..controlled {
+        let inner = strip_controlled_input_layer(layer_tys.last().expect("seeded with outer_ty"));
+        layer_tys.push(inner);
+    }
+    layer_tys
+}
+
+/// Wraps `base_id` in a chain of functor applications (`Adj` then `controlled`
+/// layers of `Ctl`) as described by `functor`, allocating one `UnOp` `Expr`
+/// per layer. Returns the id of the outermost expression, which equals
+/// `base_id` when `functor` requests no functors.
+///
+/// `ty` is the arrow type of the outermost (fully functor-wrapped) expression.
+/// Each `Controlled` layer wraps the callable's input in another `(Qubit[], _)`
+/// tuple, so the layers do not share one type: the outermost `Ctl` node carries
+/// `ty`, every inner node strips one control layer, and the base node plus any
+/// `Adj` node carry the un-controlled base type `base_id` is assumed to already
+/// carry that base type.
+pub(crate) fn wrap_in_functors(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    base_id: ExprId,
+    functor: FunctorApp,
+    ty: &Ty,
+    span: Span,
+) -> ExprId {
+    // `layer_tys[0]` is the outermost type; `layer_tys[controlled]` is the base.
+    let layer_tys = controlled_layer_types(ty, functor.controlled);
+    let controlled = usize::from(functor.controlled);
+
+    let mut current_id = base_id;
+    if functor.adjoint {
+        // Adjoint preserves the arrow type, so this node shares the base type.
+        current_id = alloc_expr(
+            package,
+            assigner,
+            layer_tys[controlled].clone(),
+            ExprKind::UnOp(UnOp::Functor(Functor::Adj), current_id),
+            span,
+        );
+    }
+    for depth in 1..=controlled {
+        // The node at control depth `depth` (counted up from the base) carries
+        // the type with `depth` control layers applied.
+        current_id = alloc_expr(
+            package,
+            assigner,
+            layer_tys[controlled - depth].clone(),
+            ExprKind::UnOp(UnOp::Functor(Functor::Ctl), current_id),
+            span,
+        );
+    }
+    current_id
+}
+
+/// Allocates a base expression of `base_kind` and wraps it in the functor
+/// chain described by `functor` (see [`wrap_in_functors`]). Returns the id of
+/// the outermost expression.
+///
+/// `ty` is the arrow type of the outermost (fully functor-wrapped) expression.
+/// The base node is allocated with the un-controlled base type derived by
+/// stripping `functor.controlled` control layers from `ty`; `wrap_in_functors`
+/// then re-adds one `(Qubit[], _)` input layer per `Ctl` node back up to `ty`.
+pub(crate) fn alloc_functor_wrapped_expr(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    base_kind: ExprKind,
+    functor: FunctorApp,
+    ty: &Ty,
+    span: Span,
+) -> ExprId {
+    let mut base_ty = ty.clone();
+    for _ in 0..functor.controlled {
+        base_ty = strip_controlled_input_layer(&base_ty);
+    }
+    let base_id = alloc_expr(package, assigner, base_ty, base_kind, span);
+    wrap_in_functors(package, assigner, base_id, functor, ty, span)
 }
 
 /// Allocates a `BinOp(op, lhs, rhs)` expression.
@@ -208,7 +411,6 @@ pub(crate) fn alloc_unit_expr(
 }
 
 /// Allocates a `Tuple(exprs)` expression.
-#[allow(dead_code)]
 pub(crate) fn alloc_tuple_expr(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -321,6 +523,26 @@ pub(crate) fn alloc_bind_pat(
         },
     );
     (local_id, pat_id)
+}
+
+/// Allocates a `Pat` with `PatKind::Discard` and inserts it into the package.
+pub(crate) fn alloc_discard_pat(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    ty: Ty,
+    span: Span,
+) -> PatId {
+    let pat_id = assigner.next_pat();
+    package.pats.insert(
+        pat_id,
+        Pat {
+            id: pat_id,
+            span,
+            ty,
+            kind: PatKind::Discard,
+        },
+    );
+    pat_id
 }
 
 /// Creates a local variable declaration and returns its `(LocalVarId, StmtId)`.

@@ -20,16 +20,16 @@
 //! Synthesized expressions use [`crate::EMPTY_EXEC_RANGE`];
 //! [`crate::exec_graph_rebuild`] rebuilds exec graphs later.
 
-use crate::EMPTY_EXEC_RANGE;
+use crate::fir_builder::alloc_field_path_expr;
+use crate::fir_builder::alloc_local_stmt;
 use crate::fir_builder::alloc_local_var_expr;
 use crate::fir_builder::reachable_local_callables;
 use crate::tuple_decompose::collect_all_block_ids_in_callable;
 use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    BlockId, Expr, ExprId, ExprKind, Field, FieldPath, ItemKind, LocalItemId, LocalVarId,
-    Mutability, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res, Stmt, StmtId,
-    StmtKind, StoreItemId,
+    BlockId, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
+    PackageLookup, PackageStore, PatId, PatKind, Res, StmtId, StmtKind, StoreItemId,
 };
 use qsc_fir::ty::Ty;
 use rustc_hash::FxHashSet;
@@ -357,15 +357,13 @@ fn apply_destructure_rewrite(
     // Allocate fresh statements for the remaining projections.
     let mut new_stmt_ids: Vec<StmtId> = Vec::with_capacity(descriptors.len() - 1);
     for &(mutability, pat_id, rhs_id) in &descriptors[1..] {
-        let stmt_id = assigner.next_stmt();
-        package.stmts.insert(
-            stmt_id,
-            Stmt {
-                id: stmt_id,
-                span: Span::default(),
-                kind: StmtKind::Local(mutability, pat_id, rhs_id),
-                exec_graph_range: EMPTY_EXEC_RANGE,
-            },
+        let stmt_id = alloc_local_stmt(
+            package,
+            assigner,
+            mutability,
+            pat_id,
+            rhs_id,
+            Span::default(),
         );
         new_stmt_ids.push(stmt_id);
     }
@@ -437,21 +435,12 @@ fn create_local_projection_path(
         tuple_ty.clone(),
         Span::default(),
     );
-    let field_expr_id = assigner.next_expr();
-    package.exprs.insert(
-        field_expr_id,
-        Expr {
-            id: field_expr_id,
-            span: Span::default(),
-            ty: leaf_ty.clone(),
-            kind: ExprKind::Field(
-                base_id,
-                Field::Path(FieldPath {
-                    indices: indices.to_vec(),
-                }),
-            ),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    field_expr_id
+    alloc_field_path_expr(
+        package,
+        assigner,
+        base_id,
+        indices.to_vec(),
+        leaf_ty.clone(),
+        Span::default(),
+    )
 }

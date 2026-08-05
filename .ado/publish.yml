@@ -19,6 +19,7 @@ schedules:
 
 variables:
   CARGO_TERM_COLOR: always
+  QDK_LIB_OVERRIDE_MICROSOFT_QDK: $(Build.SourcesDirectory)
   RUST_TOOLCHAIN_VERSION: "1.95"
   # CFS requires that we have a .npmrc next to each package.json.  If we set this variable, it will
   # synthesize everything it requires during the pipeline run, leaving our external contributors
@@ -92,6 +93,8 @@ extends:
         name: "Azure-Pipelines-DevTools-EO"
         image: windows-2025
         os: windows
+      sbom:
+        continueOnError: false
     stages:
       - stage: build
         displayName: Build

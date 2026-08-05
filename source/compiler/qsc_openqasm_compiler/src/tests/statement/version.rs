@@ -11,22 +11,22 @@ fn missing_version_number() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-        Qasm.Parser.Literal
+            Qdk.Qasm.Parser.Literal
 
-          x invalid version literal
-           ,-[Test.qasm:1:9]
-         1 | OPENQASM;
-           :         ^
-           `----
+              x invalid version literal
+               ,-[Test.qasm:1:9]
+             1 | OPENQASM;
+               :         ^
+               `----
 
-        Qasm.Parser.EmptyStatement
+            Qdk.Qasm.Parser.EmptyStatement
 
-          x Empty statements are not supported
-           ,-[Test.qasm:1:9]
-         1 | OPENQASM;
-           :         ^
-           `----
-    "#]],
+              x Empty statements are not supported
+               ,-[Test.qasm:1:9]
+             1 | OPENQASM;
+               :         ^
+               `----
+        "#]],
     );
 }
 
@@ -51,14 +51,14 @@ fn non_existing_version_errors() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-        Qasm.Lowerer.UnsupportedVersion
+            Qdk.Qasm.Lowerer.UnsupportedVersion
 
-          x unsupported version: '1.5'
-           ,-[Test.qasm:1:10]
-         1 | OPENQASM 1.5;
-           :          ^^^
-           `----
-    "#]],
+              x unsupported version: '1.5'
+               ,-[Test.qasm:1:10]
+             1 | OPENQASM 1.5;
+               :          ^^^
+               `----
+        "#]],
     );
 }
 
@@ -69,7 +69,7 @@ fn other_expressions_error() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Parser.Literal
+            Qdk.Qasm.Parser.Literal
 
               x invalid version literal
                ,-[Test.qasm:1:10]

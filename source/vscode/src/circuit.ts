@@ -383,7 +383,7 @@ function hasResultComparisonError(errors: IQSharpError[]) {
     errors &&
     errors.findIndex(
       (item) =>
-        item?.diagnostic?.code === "Qsc.Eval.ResultComparisonUnsupported",
+        item?.diagnostic?.code === "Qdk.Qsc.Eval.ResultComparisonUnsupported",
     ) >= 0;
   return hasResultComparisonError;
 }
@@ -395,10 +395,10 @@ function hasAdaptiveComplianceOrUnsupportedRirError(errors: IQSharpError[]) {
       const code = item?.diagnostic?.code;
       return (
         !!code &&
-        (code.startsWith("Qsc.PartialEval.") || // Partial eval error (codegen)
-          code.startsWith("Qsc.CapabilitiesCk.") || // RCA error (codegen)
-          code === "Qsc.Resolve.NotFound" || // Raised sometimes when @Config(Unrestricted) items are used in Adaptive
-          code === "Qsc.Circuit.UnsupportedFeature") // Generated RIR can't be handled by the circuit generator
+        (code.startsWith("Qdk.Qsc.PartialEval.") || // Partial eval error (codegen)
+          code.startsWith("Qdk.Qsc.CapabilitiesCk.") || // RCA error (codegen)
+          code === "Qdk.Qsc.Resolve.NotFound" || // Raised sometimes when @Config(Unrestricted) items are used in Adaptive
+          code === "Qdk.Qsc.Circuit.UnsupportedFeature") // Generated RIR can't be handled by the circuit generator
       );
     }) >= 0;
   return hasResultComparisonError;

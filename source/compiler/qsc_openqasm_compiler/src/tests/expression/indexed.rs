@@ -157,7 +157,7 @@ fn index_set_in_non_alias_stmt_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.IndexSetOnlyAllowedInAliasStmt
+        [Qdk.Qasm.Lowerer.IndexSetOnlyAllowedInAliasStmt
 
           x index sets are only allowed in alias statements
            ,-[Test.qasm:5:16]
@@ -390,7 +390,7 @@ fn negative_index_out_of_bounds_errors() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.IndexOutOfBounds
+            Qdk.Qasm.Lowerer.IndexOutOfBounds
 
               x index must be in the range [-4, 3] but it was -5
                ,-[Test.qasm:3:26]
@@ -430,7 +430,7 @@ fn positive_index_out_of_bounds_errors() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.IndexOutOfBounds
+            Qdk.Qasm.Lowerer.IndexOutOfBounds
 
               x index must be in the range [-4, 3] but it was 4
                ,-[Test.qasm:3:25]
@@ -453,7 +453,7 @@ fn const_zero_step_errors() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.ZeroStepInRange
+            Qdk.Qasm.Lowerer.ZeroStepInRange
 
               x range step cannot be zero
                ,-[Test.qasm:3:25]

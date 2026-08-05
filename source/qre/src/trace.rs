@@ -10,8 +10,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    ConstraintBound, Encoding, Error, EstimationResult, FactoryResult, ISA, ISARequirements,
-    Instruction, InstructionConstraint, LockedISA,
+    ConstraintBound, Encoding, Error, ErrorComposition, EstimationResult, FactoryResult, ISA,
+    ISARequirements, Instruction, InstructionConstraint, LockedISA,
     property_keys::{
         LOGICAL_COMPUTE_QUBITS, LOGICAL_MEMORY_QUBITS, PHYSICAL_COMPUTE_QUBITS,
         PHYSICAL_FACTORY_QUBITS, PHYSICAL_MEMORY_QUBITS,
@@ -249,7 +249,7 @@ impl Trace {
             .block
             .depth_and_used(Some(&|op: &Gate| {
                 let instr = get_instruction(locked, op.id)?;
-                Ok(instr.expect_time(Some(op.qubits.len() as u64)))
+                Ok(instr.expect_time(Some(op.qubits.len() as u64), &op.params))
             }))?
             .0)
     }
@@ -260,7 +260,12 @@ impl Trace {
         clippy::cast_sign_loss,
         clippy::too_many_lines
     )]
-    pub fn estimate(&self, isa: &ISA, max_error: Option<f64>) -> Result<EstimationResult, Error> {
+    pub fn estimate(
+        &self,
+        isa: &ISA,
+        max_error: Option<f64>,
+        composition: ErrorComposition,
+    ) -> Result<EstimationResult, Error> {
         let locked = isa.lock();
         let max_error = max_error.unwrap_or(1.0);
 
@@ -272,9 +277,10 @@ impl Trace {
         }
 
         let mut result = EstimationResult::new();
+        result.set_error_composition(composition);
 
         // base error starts with the error already present in the trace
-        result.add_error(self.base_error);
+        result.add_error(self.base_error, 1.0);
 
         // Counts how many magic state factories are needed per resource state ID
         let mut factories: FxHashMap<u64, u64> = FxHashMap::default();
@@ -289,8 +295,8 @@ impl Trace {
         // ------------------------------------------------------------------
         if let Some(resource_states) = &self.resource_states {
             for (state_id, count) in resource_states {
-                let rate = get_error_rate_by_id(&locked, *state_id)?;
-                let actual_error = result.add_error(rate * (*count as f64));
+                let rate = get_error_rate_by_id(&locked, *state_id, &[])?;
+                let actual_error = result.add_error(rate, *count as f64);
                 if actual_error > max_error {
                     return Err(Error::MaximumErrorExceeded {
                         actual_error,
@@ -311,15 +317,15 @@ impl Trace {
 
             let arity = gate.qubits.len() as u64;
 
-            let rate = instr.expect_error_rate(Some(arity));
+            let rate = instr.expect_error_rate(Some(arity), &gate.params);
 
-            let qubit_count = instr.expect_space(Some(arity)) as f64 / arity as f64;
+            let qubit_count = instr.expect_space(Some(arity), &gate.params) as f64 / arity as f64;
 
             if let Err(i) = qubit_counts.binary_search_by(|qc| qc.total_cmp(&qubit_count)) {
                 qubit_counts.insert(i, qubit_count);
             }
 
-            let actual_error = result.add_error(rate * (mult as f64));
+            let actual_error = result.add_error(rate, mult as f64);
             if actual_error > max_error {
                 return Err(Error::MaximumErrorExceeded {
                     actual_error,
@@ -346,9 +352,9 @@ impl Trace {
         let mut total_factory_qubits = 0;
         for (factory, count) in &factories {
             let instr = get_instruction(&locked, *factory)?;
-            let factory_time = get_time(instr)?;
-            let factory_space = get_space(instr)?;
-            let factory_error_rate = get_error_rate(instr)?;
+            let factory_time = get_time(instr, &[])?;
+            let factory_space = get_space(instr, &[])?;
+            let factory_error_rate = get_error_rate(instr, &[])?;
             let runs = result.runtime() / factory_time;
 
             if runs == 0 {
@@ -380,7 +386,7 @@ impl Trace {
                 .get(&instruction_ids::MEMORY)
                 .ok_or(Error::InstructionNotFound(instruction_ids::MEMORY))?;
 
-            let memory_space = memory.expect_space(Some(memory_qubits));
+            let memory_space = memory.expect_space(Some(memory_qubits), &[]);
             result.add_qubits(memory_space);
             result.set_property(
                 PHYSICAL_MEMORY_QUBITS,
@@ -391,10 +397,12 @@ impl Trace {
             // respect to the total runtime of the algorithm.
             let rounds = result
                 .runtime()
-                .div_ceil(memory.expect_time(Some(memory_qubits)));
+                .div_ceil(memory.expect_time(Some(memory_qubits), &[]));
 
-            let actual_error =
-                result.add_error(rounds as f64 * memory.expect_error_rate(Some(memory_qubits)));
+            let actual_error = result.add_error(
+                memory.expect_error_rate(Some(memory_qubits), &[]),
+                rounds as f64,
+            );
             if actual_error > max_error {
                 return Err(Error::MaximumErrorExceeded {
                     actual_error,
@@ -804,27 +812,27 @@ fn get_instruction<'a>(isa: &'a LockedISA<'_>, id: u64) -> Result<&'a Instructio
     isa.get(&id).ok_or(Error::InstructionNotFound(id))
 }
 
-fn get_space(instruction: &Instruction) -> Result<u64, Error> {
+fn get_space(instruction: &Instruction, params: &[f64]) -> Result<u64, Error> {
     instruction
-        .space(None)
+        .space(None, params)
         .ok_or(Error::CannotExtractSpace(instruction.id()))
 }
 
-fn get_time(instruction: &Instruction) -> Result<u64, Error> {
+fn get_time(instruction: &Instruction, params: &[f64]) -> Result<u64, Error> {
     instruction
-        .time(None)
+        .time(None, params)
         .ok_or(Error::CannotExtractTime(instruction.id()))
 }
 
-fn get_error_rate(instruction: &Instruction) -> Result<f64, Error> {
+fn get_error_rate(instruction: &Instruction, params: &[f64]) -> Result<f64, Error> {
     instruction
-        .error_rate(None)
+        .error_rate(None, params)
         .ok_or(Error::CannotExtractErrorRate(instruction.id()))
 }
 
-fn get_error_rate_by_id(isa: &LockedISA<'_>, id: u64) -> Result<f64, Error> {
+fn get_error_rate_by_id(isa: &LockedISA<'_>, id: u64, params: &[f64]) -> Result<f64, Error> {
     let instr = get_instruction(isa, id)?;
     instr
-        .error_rate(None)
+        .error_rate(None, params)
         .ok_or(Error::CannotExtractErrorRate(id))
 }

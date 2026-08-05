@@ -1,7 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-from pyqir import QirModuleVisitor, is_entry_point, ptr_id, required_num_qubits
+from pyqir import QirModuleVisitor, is_entry_point, ptr_id, required_num_qubits, Opcode
 
 
 class ValidateBeginEndParallel(QirModuleVisitor):
@@ -94,3 +94,39 @@ def check_qubit_ordering_unchanged(
             for instr in after_instrs:
                 print(f"    {instr}")
             raise RuntimeError("Reordering changed the per-qubit instruction order")
+
+
+def check_module_verifies(module) -> None:
+    """
+    Validate that the module passes LLVM verification.
+
+    Reordering classical (multi-block) programs must not produce structurally
+    invalid IR, e.g. by moving a definition after its use or violating the
+    requirement that phi nodes appear at the start of a block.
+    """
+    errors = module.verify()
+    if errors is not None:
+        raise RuntimeError(f"Module verification failed:\n{errors}")
+
+
+def check_phis_precede_other_instructions(module) -> None:
+    """
+    Validate that, in every block, all phi nodes appear before any non-phi
+    instruction.
+
+    LLVM requires phi nodes to be at the very start of a basic block. The
+    reorder pass rewrites instruction order within each block, so it must
+    preserve this invariant for programs with classical control flow.
+    """
+    for function in module.functions:
+        for block in function.basic_blocks:
+            seen_non_phi = False
+            for instr in block.instructions:
+                is_phi = instr.opcode == Opcode.PHI
+                if is_phi and seen_non_phi:
+                    raise RuntimeError(
+                        "Reordering placed a phi node after a non-phi instruction "
+                        f"in block '{block.name}': {str(instr).strip()}"
+                    )
+                if not is_phi:
+                    seen_non_phi = True

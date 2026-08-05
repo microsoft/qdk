@@ -9,50 +9,50 @@ fn common_symbols_are_unrecognized() {
     check(
         "@",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | @
-           : ^
-           `----
-    "#]],
+              x unrecognized character
+               ,----
+             1 | @
+               : ^
+               `----
+        "#]],
     );
     check(
         "$",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | $
-           : ^
-           `----
-    "#]],
+              x unrecognized character
+               ,----
+             1 | $
+               : ^
+               `----
+        "#]],
     );
     check(
         "%",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | %
-           : ^
-           `----
-    "#]],
+              x unrecognized character
+               ,----
+             1 | %
+               : ^
+               `----
+        "#]],
     );
     check(
         "?",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | ?
-           : ^
-           `----
-    "#]],
+              x unrecognized character
+               ,----
+             1 | ?
+               : ^
+               `----
+        "#]],
     );
 }
 
@@ -63,15 +63,15 @@ fn leading_underscore_is_unrecognized() {
     check(
         "_foo",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | _foo
-           : ^
-           `----
+              x unrecognized character
+               ,----
+             1 | _foo
+               : ^
+               `----
 
-        instruction_name(foo) [1-4]"#]],
+            instruction_name(foo) [1-4]"#]],
     );
 }
 
@@ -80,27 +80,27 @@ fn lexing_recovers_after_unrecognized_character() {
     check(
         "@H",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | @H
-           : ^
-           `----
+              x unrecognized character
+               ,----
+             1 | @H
+               : ^
+               `----
 
-        instruction_name(H) [1-2]"#]],
+            instruction_name(H) [1-2]"#]],
     );
     check(
         "@1",
         &expect![[r#"
-        Stim.UnrecognizedCharacter
+            Qdk.Stim.Lex.UnrecognizedCharacter
 
-          x unrecognized character
-           ,----
-         1 | @1
-           : ^
-           `----
+              x unrecognized character
+               ,----
+             1 | @1
+               : ^
+               `----
 
-        uint(1) [1-2]"#]],
+            uint(1) [1-2]"#]],
     );
 }

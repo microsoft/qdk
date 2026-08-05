@@ -1,19 +1,19 @@
-/// # Sample
-/// Simplified Sample of a Variational Quantum Eigensolver
-///
-/// # Description
-/// This is an example of a Variational Quantum Eigensolver (VQE).
-/// This example includes:
-///   1. Simple classical optimization to find minimum of a multi-variable function
-///      in order to find an approximation to the minimum eigenvalue of a Hamiltonian
-///   2. Finding Hamiltonian expectation value as a weighted sum of terms.
-///   3. Finding one term expectation value by performing multiple shots.
-///   4. Ansatz state preparation similar to the circuit in the referenced paper.
-/// To keep this sample simple Hamiltonian terms are generated randomly.
-///
-/// # Reference
-/// Ground-state energy estimation of the water molecule on a trapped ion quantum
-/// computer by Yunseong Nam et al., 2019. https://arxiv.org/abs/1902.10171
+// # Sample
+// Simplified Sample of a Variational Quantum Eigensolver
+//
+// # Description
+// This is an example of a Variational Quantum Eigensolver (VQE).
+// This example includes:
+//   1. Simple classical optimization to find minimum of a multi-variable function
+//      in order to find an approximation to the minimum eigenvalue of a Hamiltonian
+//   2. Finding Hamiltonian expectation value as a weighted sum of terms.
+//   3. Finding one term expectation value by performing multiple shots.
+//   4. Ansatz state preparation similar to the circuit in the referenced paper.
+// To keep this sample simple Hamiltonian terms are generated randomly.
+//
+// # Reference
+// Ground-state energy estimation of the water molecule on a trapped ion quantum
+// computer by Yunseong Nam et al., 2019. https://arxiv.org/abs/1902.10171
 
 import Std.Arrays.IsEmpty;
 import Std.Arrays.IndexRange;

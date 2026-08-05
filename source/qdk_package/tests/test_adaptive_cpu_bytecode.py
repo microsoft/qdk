@@ -473,6 +473,98 @@ def test_record_output_ordering(sim_type):
 
 
 # =========================================================================
+# OP_RECORD_OUTPUT — output records (result / bool / int / double)
+#
+# Measurement results and classical values flow through a single ordered output
+# record stream, so a shot's recorded values (whatever their type) come back in
+# record order.
+# =========================================================================
+
+# Records a tuple of (result0, bool, int, double). Qubit 0 is flipped to |1⟩ so
+# result0 == One and the recorded bool (read from result0) is True. The double
+# value is chosen to be exactly representable in both f64 (CPU/Clifford) and f32
+# (GPU) so all simulators agree.
+CLASSICAL_RECORDS_TUPLE_QIR = """
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %r = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__tuple_record_output(i64 4, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+  call void @__quantum__rt__bool_record_output(i1 %r, i8* null)
+  call void @__quantum__rt__int_record_output(i64 42, i8* null)
+  call void @__quantum__rt__double_record_output(double 3.25, i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare i1 @__quantum__qis__read_result__body(%Result*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+declare void @__quantum__rt__bool_record_output(i1, i8*)
+declare void @__quantum__rt__int_record_output(i64, i8*)
+declare void @__quantum__rt__double_record_output(double, i8*)
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_classical_record_outputs(sim_type):
+    """bool/int/double records surface as native Python types in a tuple."""
+    results = run_qir(CLASSICAL_RECORDS_TUPLE_QIR, SHOTS, seed=42, type=sim_type)
+    assert len(results) == SHOTS
+    for shot in results:
+        result, flag, integer, number = shot
+        assert result == Result.One
+        assert flag is True and isinstance(flag, bool)
+        assert integer == 42 and isinstance(integer, int)
+        assert number == 3.25 and isinstance(number, float)
+
+
+# Records an array of [int 7, int -5, bool]. Qubit 0 is measured in |0⟩ so the
+# recorded bool (read from result0) is False. Exercises negative integers and
+# array nesting around classical records.
+CLASSICAL_RECORDS_ARRAY_QIR = """
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %r = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__rt__array_record_output(i64 3, i8* null)
+  call void @__quantum__rt__int_record_output(i64 7, i8* null)
+  call void @__quantum__rt__int_record_output(i64 -5, i8* null)
+  call void @__quantum__rt__bool_record_output(i1 %r, i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare i1 @__quantum__qis__read_result__body(%Result*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__int_record_output(i64, i8*)
+declare void @__quantum__rt__bool_record_output(i1, i8*)
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+attributes #1 = { "irreversible" }
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_classical_record_outputs_in_array(sim_type):
+    """Negative ints and a bool record correctly inside an array."""
+    results = run_qir(CLASSICAL_RECORDS_ARRAY_QIR, SHOTS, seed=42, type=sim_type)
+    assert len(results) == SHOTS
+    for shot in results:
+        assert shot == [7, -5, False]
+
+
+# =========================================================================
 # OP_READ_LOSS — read whether a measurement observed qubit loss
 # =========================================================================
 

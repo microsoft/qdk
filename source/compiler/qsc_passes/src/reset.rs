@@ -16,19 +16,19 @@ use thiserror::Error;
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("a callable with the reset attribute should take at least one argument of type Qubit")]
-    #[diagnostic(code("Qsc.Reset.NoArguments"))]
+    #[diagnostic(code("Qdk.Qsc.Reset.NoArguments"))]
     NoArguments(#[label] Span),
 
     #[error("a callable with the reset attribute should only take arguments of type Qubit")]
-    #[diagnostic(code("Qsc.Reset.NonQubitArgument"))]
+    #[diagnostic(code("Qdk.Qsc.Reset.NonQubitArgument"))]
     NonQubitArgument(#[label] Span),
 
     #[error("a callable with the reset attribute should have output of type Unit")]
-    #[diagnostic(code("Qsc.Reset.NonResultOutput"))]
+    #[diagnostic(code("Qdk.Qsc.Reset.NonResultOutput"))]
     NonUnitOutput(#[label] Span),
 
     #[error("a callable with the reset attribute should be an intrinsic")]
-    #[diagnostic(code("Qsc.Reset.NotIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.Reset.NotIntrinsic"))]
     NotIntrinsic(#[label] Span),
 }
 

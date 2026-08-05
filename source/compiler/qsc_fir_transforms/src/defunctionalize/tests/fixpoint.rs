@@ -811,14 +811,6 @@ fn nested_hof_requires_multi_iteration_convergence() {
                 op(q);
                 op(q);
             }
-            operation ApplyAndMeasure_Empty__AdjCtl__ApplyTwice_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Result {
-                ApplyTwice_Empty_(op, q);
-                M(q)
-            }
-            operation ApplyAndMeasure_Empty__AdjCtl__H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Result {
-                H(op, q);
-                M(q)
-            }
             operation ApplyAndMeasure_Empty__AdjCtl__ApplyTwice_Empty___H_(q : Qubit) : Result {
                 ApplyTwice_Empty__H_(q);
                 M(q)
@@ -1039,12 +1031,6 @@ fn transient_dynamic_resolves_after_outer_hof_specialization() {
             operation ApplyMiddle_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 ApplyInner_Empty_(op, q);
             }
-            operation ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                ApplyMiddle_Empty_(op, q);
-            }
-            operation ApplyOuter_Empty__AdjCtl__H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(op, q);
-            }
             operation ApplyOuter_Empty__AdjCtl__ApplyMiddle_Empty___H_(q : Qubit) : Unit {
                 ApplyMiddle_Empty__H_(q);
             }
@@ -1058,6 +1044,273 @@ fn transient_dynamic_resolves_after_outer_hof_specialization() {
             Main()
         "#]],
     );
+}
+
+/// Two-level cross-HOF regression for callable-array forwarding. An outer HOF
+/// receives a closure array as a flat parameter and forwards it to an inner HOF
+/// that indexes the array under a loop. The closures capture DISTINCT integer
+/// values, so a collapse to a single element would be observable.
+///
+/// The correct post-fix behavior threads ALL array elements across both HOF
+/// levels: the inner HOF specializes into an `if idx == p` dispatch chain with a
+/// DISTINCT `__capture_i` per branch, and the outer forwards every capture (not
+/// just `__capture_0`). A pre-fix cross-HOF array collapse would have produced a
+/// single `__capture_0` and no dispatch chain.
+#[test]
+fn two_level_cross_hof_closure_array_forwarding_threads_all_captures() {
+    let source = r#"
+        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+            if value == 1 {
+                Controlled X([control], register[0]);
+            }
+        }
+
+        operation ApplyInner(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            for idx in 0..count - 1 {
+                ops[idx](controls[idx], targets);
+            }
+        }
+
+        operation ApplyOuter(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            ApplyInner(ops, count, controls, targets);
+        }
+
+        operation Main() : Unit {
+            use qs = Qubit[3];
+            let controls = qs[0..1];
+            let targets = qs[2...];
+            let ops = [ApplyParityOperation(1, _, _), ApplyParityOperation(2, _, _)];
+            ApplyOuter(ops, 2, controls, targets);
+            ResetAll(qs);
+        }
+        "#;
+    check_errors(source, &expect!["(no error)"]);
+    check_analysis(
+        source,
+        &expect![[r#"
+        callable_params: 2
+          param: callable_id=<item 8 in package 2>, path=[0], ty=(((Qubit, (Qubit)[]) => Unit))[]
+          param: callable_id=<item 7 in package 2>, path=[0], ty=(((Qubit, (Qubit)[]) => Unit))[]
+        call_sites: 3
+          site: hof=ApplyInner<Empty>, arg=Dynamic
+          site: hof=ApplyOuter<Empty>, arg=Closure(target=5, Body)
+          site: hof=ApplyOuter<Empty>, arg=Closure(target=6, Body)
+        direct_call_sites: 1
+          site: callee=X:Ctl, default"#]],
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+                if value == 1 {
+                    Controlled X([control], register[0]);
+                }
+
+            }
+            operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
+
+                }
+
+            }
+            operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            operation Main() : Unit {
+                let qs : Qubit[] = AllocateQubitArray(3);
+                let controls : Qubit[] = qs[0..1];
+                let targets : Qubit[] = qs[2...];
+                let ops : ((Qubit, Qubit[]) => Unit)[] = [{
+                    let arg : Int = 1;
+                    / * closure item = 5 captures = [arg] * / _lambda_5
+                }, {
+                    let arg_1 : Int = 2;
+                    / * closure item = 6 captures = [arg_1] * / _lambda_6
+                }];
+                ApplyOuter_Empty_(ops, 2, controls, targets);
+                ResetAll(qs);
+                ReleaseQubitArray(qs);
+            }
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
+
+                }
+
+            }
+            operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+                if value == 1 {
+                    Controlled X([control], register[0]);
+                }
+
+            }
+            operation ApplyInner(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
+
+                }
+
+            }
+            operation ApplyOuter(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            operation Main() : Unit {
+                let qs : Qubit[] = AllocateQubitArray(3);
+                let controls : Qubit[] = qs[0..1];
+                let targets : Qubit[] = qs[2...];
+                ApplyOuter_Empty__closure__closure_(2, controls, targets, 1, 2);
+                ResetAll(qs);
+                ReleaseQubitArray(qs);
+            }
+            operation _lambda_5(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation _lambda_6(arg : Int, (hole : Qubit, hole_1 : Qubit[])) : Unit {
+                ApplyParityOperation(arg, hole, hole_1)
+            }
+            operation ApplyInner_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
+                        let idx : Int = _index_id_186;
+                        ops[idx](controls[idx], targets);
+                        _index_id_186 += _step_id_191;
+                    }
+
+                }
+
+            }
+            operation ApplyOuter_Empty_(ops : ((Qubit, Qubit[]) => Unit)[], count : Int, controls : Qubit[], targets : Qubit[]) : Unit {
+                ApplyInner_Empty_(ops, count, controls, targets);
+            }
+            operation ApplyOuter_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+                ApplyInner_Empty__closure__closure_(count, controls, targets, __capture_0, __capture_1);
+            }
+            operation ApplyInner_Empty__closure__closure_(count : Int, controls : Qubit[], targets : Qubit[], __capture_0 : Int, __capture_1 : Int) : Unit {
+                {
+                    let _range_id_183 : Range = 0..count - 1;
+                    mutable _index_id_186 : Int = _range_id_183.Start;
+                    let _step_id_191 : Int = _range_id_183.Step;
+                    let _end_id_196 : Int = _range_id_183.End;
+                    while ((_step_id_191 > 0) and (_index_id_186 <= _end_id_196)) or ((_step_id_191 < 0) and (_index_id_186 >= _end_id_196)) {
+                        let idx : Int = _index_id_186;
+                        if idx == 0 {
+                            _lambda_5(__capture_0, (controls[idx], targets))
+                        } else {
+                            _lambda_6(__capture_1, (controls[idx], targets))
+                        };
+                        _index_id_186 += _step_id_191;
+                    }
+
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// A closure callable-array forwarded across two higher-order levels and fully
+/// consumed by the innermost indexed dispatch leaves the source-array local
+/// dead in the reachable caller. Because closure cleanup blanks each element to
+/// unit, the surviving array binding would be an arrow-typed block with a unit
+/// tail that trips the `PostDefunc` non-unit block-tail invariant. The dead
+/// binding must be removed; this runs the invariant walk and full pipeline over
+/// the same shape as
+/// `two_level_cross_hof_closure_array_forwarding_threads_all_captures`.
+#[test]
+fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
+    let source = r#"
+        operation ApplyParityOperation(value : Int, control : Qubit, register : Qubit[]) : Unit {
+            if value == 1 {
+                Controlled X([control], register[0]);
+            }
+        }
+
+        operation ApplyInner(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            for idx in 0..count - 1 {
+                ops[idx](controls[idx], targets);
+            }
+        }
+
+        operation ApplyOuter(
+            ops : ((Qubit, Qubit[]) => Unit)[],
+            count : Int,
+            controls : Qubit[],
+            targets : Qubit[]
+        ) : Unit {
+            ApplyInner(ops, count, controls, targets);
+        }
+
+        operation Main() : Unit {
+            use qs = Qubit[3];
+            let controls = qs[0..1];
+            let targets = qs[2...];
+            let ops = [ApplyParityOperation(1, _, _), ApplyParityOperation(2, _, _)];
+            ApplyOuter(ops, 2, controls, targets);
+            ResetAll(qs);
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
 }
 
 /// Regression test for producer-body closure cleanup: a producer function
@@ -1148,6 +1401,62 @@ fn producer_body_closure_cleanup_converges() {
     );
 }
 
+#[test]
+fn callable_returning_closure_with_controlled_callable_captures() {
+    let source = r#"
+        operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
+
+        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
+
+        function MakeControlledPrepSelPrepOp(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : (Qubit, Qubit[]) => Unit {
+            (control, allQubits) => {
+                let systems = allQubits[0..numSystemQubits - 1];
+                let ancilla = allQubits[numSystemQubits...];
+                for _ in 0..power - 1 {
+                    Controlled prepareOp([control], systems);
+                    Controlled selectOp([control], (systems, ancilla));
+                }
+            }
+        }
+
+        operation MakeControlledPrepSelPrepCircuit(
+            prepareOp : Qubit[] => Unit is Adj + Ctl,
+            selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
+            numSystemQubits : Int,
+            numAncillaQubits : Int,
+            power : Int
+        ) : Unit {
+            use control = Qubit();
+            use systems = Qubit[numSystemQubits + numAncillaQubits];
+            let op = MakeControlledPrepSelPrepOp(
+                prepareOp,
+                selectOp,
+                numSystemQubits,
+                numAncillaQubits,
+                power
+            );
+            op(control, systems);
+        }
+
+        operation Main() : Unit {
+            MakeControlledPrepSelPrepCircuit(
+                PrepareIdentity,
+                SelectIdentity,
+                1,
+                1,
+                1
+            );
+        }
+        "#;
+    check_invariants(source);
+}
+
 /// Two callable arguments passed to a multi-parameter HOF: one partial
 /// application closure and one global callable. Both must survive cleanup
 /// because they are still live as call arguments.
@@ -1218,14 +1527,6 @@ fn closure_in_active_call_arg_survives_cleanup() {
                 f(q);
                 g(q);
             }
-            operation Apply2_Empty__AdjCtl__closure_(g : (Qubit => Unit is Adj + Ctl), q : Qubit, __capture_0 : Bool) : Unit {
-                _lambda_4(__capture_0, q);
-                g(q);
-            }
-            operation Apply2_Empty__AdjCtl__X_(g : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                X(q);
-                g(q);
-            }
             operation Apply2_Empty__AdjCtl__closure__X_(q : Qubit, __capture_0 : Bool) : Unit {
                 _lambda_4(__capture_0, q);
                 X(q);
@@ -1234,6 +1535,329 @@ fn closure_in_active_call_arg_survives_cleanup() {
             Main()
         "#]],
     );
+}
+
+#[test]
+fn captured_closure_forwarded_to_nested_hof_converges() {
+    let source = r#"
+        operation ApplySequential(first : Qubit[] => Unit, second : Qubit[] => Unit, systems : Qubit[]) : Unit {
+            first(systems);
+            second(systems);
+        }
+
+        operation ApplyFirstStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                H(q);
+            }
+        }
+
+        operation ApplySecondStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                X(q);
+            }
+        }
+
+        operation ApplyThirdStep(systems : Qubit[]) : Unit {
+            for q in systems {
+                Z(q);
+            }
+        }
+
+        operation Main() : Unit {
+            use systems = Qubit[2];
+            let sequential = ApplySequential(ApplyFirstStep, ApplySecondStep, _);
+            ApplySequential(sequential, ApplyThirdStep, systems);
+        }
+        "#;
+    check_invariants(source);
+    check(
+        source,
+        &expect![[r#"
+            ApplyFirstStep: input_ty=(Qubit)[]
+            ApplySecondStep: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{ApplyFirstStep}{ApplySecondStep}: input_ty=(Qubit)[]
+            ApplySequential<Empty, Empty>{closure}{ApplyThirdStep}: input_ty=(Qubit)[]
+            ApplyThirdStep: input_ty=(Qubit)[]
+            Main: input_ty=Unit"#]],
+    );
+}
+
+/// Regression: a partial application of a recursive higher-order function,
+/// forwarded as that same recursive HOF's own callable argument, converges.
+///
+/// `Repeat(Repeat(H, 1, _), n - 1, q)` lowers to a closure that captures the
+/// fixed callable `H` (and the literal `1`) and forwards them, as parameters, to
+/// a lifted lambda that re-invokes `Repeat`. Before the static closure-capture
+/// inlining prepass, the captured `H` could not be resolved statically and this
+/// construct errored with `DynamicCallable`. The prepass inlines the callable
+/// capture into the lifted body, normalizing the closure into the already
+/// converging capture-free explicit-lambda shape.
+///
+/// The `check_rewrite` snapshot locks the full converged specialization chain so
+/// a zero-error miscompile with wrong downstream routing (wrong callable,
+/// orphaned/duplicated specialization, or wrong recursion target) fails the test.
+/// The routing is `{H}` -> `{closure}` -> lifted lambda -> `{H}`, so `Repeat(H, 2, q)`
+/// applies `H` exactly twice.
+#[test]
+fn partial_app_of_recursive_hof_forwarded_as_its_callable_arg_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_invariants(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            Main: input_ty=Unit
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl_(H, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 5 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_Empty_(arg, arg_1, hole)
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 3 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl__H_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(arg, hole)
+            }
+            operation Repeat_Empty_(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_Empty_({
+                        let arg : (Qubit => Unit is Adj + Ctl) = H;
+                        let arg_1 : Int = 1;
+                        / * closure item = 7 captures = [arg, arg_1] * / _lambda_3
+                    }, n - 1, q);
+                }
+
+            }
+            operation _lambda_3(arg : (Qubit => Unit is Adj + Ctl), arg_1 : Int, hole : Qubit) : Unit {
+                Repeat_Empty_(arg, arg_1, hole)
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__H_(H, arg, hole)
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation _lambda_3(arg : Int, hole : Qubit) : Unit {
+                Repeat_AdjCtl__closure_(H, arg, hole)
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            operation Repeat_AdjCtl__closure_(n : Int, q : Qubit, __capture_0 : Int) : Unit {
+                if n > 0 {
+                    _lambda_3(__capture_0, q);
+                    Repeat_AdjCtl__closure_(n - 1, q, 1);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+/// Regression for a recursive HOF with an auto-generated adjoint body.
+///
+/// The partial application `Repeat(H, 1, _)` is copied into both the body and
+/// adjoint implementations, so both closure expressions reference the same
+/// lifted lambda target. Static closure-capture inlining must recognize that
+/// the copies make an identical target rewrite, inline `H` once in the shared
+/// target, and remove the corresponding capture from both closure occurrences.
+/// The invariant and pipeline checks ensure the resulting body and adjoint
+/// specialization chains converge without `DynamicCallable` diagnostics or
+/// stale callable arguments.
+#[test]
+fn adjoint_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Adj, n : Int, q : Qubit) : Unit is Adj {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
+    check(
+        source,
+        &expect![[r#"
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            .lambda_3: input_ty=(Int, Qubit)
+            Main: input_ty=Unit
+            Repeat<AdjCtl>{H}: input_ty=(Int, Qubit)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)
+            Repeat<AdjCtl>{closure}: input_ty=(Int, Qubit, Int)"#]],
+    );
+}
+
+/// Regression for a recursive HOF with an auto-generated controlled body.
+///
+/// The recursive partial application captures `H`, while `Controlled Repeat`
+/// nests the operation input beneath the controls array and causes functor
+/// generation to copy the recursive body. Defunctionalization must apply a
+/// compatible shared-target capture rewrite to every generated occurrence,
+/// locate the callable slot through the controlled input path, and route the
+/// reduced recursive calls to type-correct specializations.
+#[test]
+fn controlled_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Ctl, n : Int, q : Qubit) : Unit is Ctl {
+            if n > 0 {
+                op(q);
+                Repeat(Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            use ctls = Qubit[2];
+            Controlled Repeat(ctls, (H, 2, q));
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
+}
+
+/// Regression for recursive partial applications under combined controlled and
+/// adjoint functors.
+///
+/// One recursive call applies `Adjoint` to a call receiving `Repeat(H, 1, _)`;
+/// the other forwards `Adjoint Repeat(H, 1, _)` as the callable argument. Along
+/// with the controlled entry call, these shapes exercise shared lifted-target
+/// rewrites, nested controlled input paths, and functor composition on both the
+/// HOF callee and its closure argument. Every generated body must converge
+/// without dynamic callable values, stale capture slots, or malformed reduced
+/// calls.
+#[test]
+fn controlled_adjoint_recursive_hof_partial_app_shared_target_converges() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit is Ctl + Adj, n : Int, q : Qubit) : Unit is Ctl + Adj {
+            if n > 0 {
+                op(q);
+                Adjoint Repeat(Repeat(H, 1, _), n - 1, q);
+                Repeat(Adjoint Repeat(H, 1, _), n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            use ctls = Qubit[2];
+            Controlled Repeat(ctls, (H, 2, q));
+        }
+        "#;
+    check_invariants(source);
+    check_pipeline(source);
 }
 
 /// Regression: when a callable's entire input is a single closure-valued
@@ -1417,32 +2041,8 @@ fn progress_tracking_allows_multi_iteration_convergence() {
             operation L1_Empty_(op : (Qubit => Unit), q : Qubit) : Unit {
                 op(q);
             }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty__(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty_(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L1_Empty__(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L1_Empty_(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__H_(inner : (((Qubit => Unit), Qubit) => Unit), op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                H(inner, op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___L1_Empty__(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty__L1_Empty__(op, q);
-            }
-            operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___H_(op : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
-                L2_Empty__Empty_(H, op, q);
-            }
-            operation L2_Empty__Empty__L1_Empty__(op : (Qubit => Unit), q : Qubit) : Unit {
-                L1_Empty_(op, q);
-            }
             operation L3_Empty__Empty__AdjCtl__L2_Empty__Empty___L1_Empty___H_(q : Qubit) : Unit {
                 L2_Empty__Empty__L1_Empty___H_(q);
-            }
-            operation L2_Empty__Empty__L1_Empty__(op : (Qubit => Unit), q : Qubit) : Unit {
-                L1_Empty_(op, q);
-            }
-            operation L2_Empty__Empty__H_(op : (Qubit => Unit), q : Qubit) : Unit {
-                H(op, q);
             }
             operation L2_Empty__Empty__L1_Empty___H_(q : Qubit) : Unit {
                 L1_Empty__H_(q);
@@ -1486,10 +2086,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
-                        while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -1507,11 +2107,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
-                            while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -1537,10 +2137,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
-                        while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -1558,11 +2158,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
-                            while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -1587,10 +2187,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
-                        while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -1608,11 +2208,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
-                            while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -1638,10 +2238,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                     };
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
-                        while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             u(target);
                             _index_id_119 += _step_id_124;
@@ -1659,11 +2259,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
-                            while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 Adjoint u(target);
                                 _index_id_162 += _step_id_167;
@@ -1679,10 +2279,10 @@ fn pipeline_resolves_conditional_callable_binding() {
                 body ... {
                     {
                         let _range_id_116 : Range = 1..power;
-                        mutable _index_id_119 : Int = _range_id_116::Start;
-                        let _step_id_124 : Int = _range_id_116::Step;
-                        let _end_id_129 : Int = _range_id_116::End;
-                        while _step_id_124 > 0 and _index_id_119 <= _end_id_129 or _step_id_124 < 0 and _index_id_119 >= _end_id_129 {
+                        mutable _index_id_119 : Int = _range_id_116.Start;
+                        let _step_id_124 : Int = _range_id_116.Step;
+                        let _end_id_129 : Int = _range_id_116.End;
+                        while ((_step_id_124 > 0) and (_index_id_119 <= _end_id_129)) or ((_step_id_124 < 0) and (_index_id_119 >= _end_id_129)) {
                             let _ : Int = _index_id_119;
                             if power >= 0 {
                                 S(target)
@@ -1699,11 +2299,11 @@ fn pipeline_resolves_conditional_callable_binding() {
                     {
                         let _range : Range = 1..power;
                         {
-                            let _range_id_159 : Range = _range::Start + _range::End - _range::Start / _range::Step * _range::Step..-_range::Step.._range::Start;
-                            mutable _index_id_162 : Int = _range_id_159::Start;
-                            let _step_id_167 : Int = _range_id_159::Step;
-                            let _end_id_172 : Int = _range_id_159::End;
-                            while _step_id_167 > 0 and _index_id_162 <= _end_id_172 or _step_id_167 < 0 and _index_id_162 >= _end_id_172 {
+                            let _range_id_159 : Range = _range.Start + (((_range.End - _range.Start) / _range.Step) * _range.Step)..(-_range.Step).._range.Start;
+                            mutable _index_id_162 : Int = _range_id_159.Start;
+                            let _step_id_167 : Int = _range_id_159.Step;
+                            let _end_id_172 : Int = _range_id_159.End;
+                            while ((_step_id_167 > 0) and (_index_id_162 <= _end_id_172)) or ((_step_id_167 < 0) and (_index_id_162 >= _end_id_172)) {
                                 let _ : Int = _index_id_162;
                                 if power >= 0 {
                                     Adjoint S(target)
@@ -1772,6 +2372,7 @@ fn pipeline_callable_from_tuple_destructured_array_iteration() {
                     let _len_id_40 : Int = Length(_array_id_36);
                     mutable _index_id_45 : Int = 0;
                     while _index_id_45 < _len_id_40 {
+                        let (op : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_36[_index_id_45];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         if _index_id_45 == 0 {
                             S(q)
@@ -1915,6 +2516,7 @@ fn pipeline_teleportation_pattern_callable_from_array_of_tuples() {
                     let _len_id_160 : Int = Length(_array_id_156);
                     mutable _index_id_165 : Int = 0;
                     while _index_id_165 < _len_id_160 {
+                        let (initializer : (Qubit => Unit is Adj + Ctl), _basis : Pauli) = _array_id_156[_index_id_165];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         if _index_id_165 == 0 {
                             I(q)
@@ -2062,6 +2664,7 @@ fn pipeline_callable_at_middle_of_three_tuple_from_array_iteration() {
                     let _len_id_166 : Int = Length(_array_id_162);
                     mutable _index_id_171 : Int = 0;
                     while _index_id_171 < _len_id_166 {
+                        let (_basis : Pauli, initializer : (Qubit => Unit is Adj + Ctl), _flag : Bool) = _array_id_162[_index_id_171];
                         let q : Qubit = __quantum__rt__qubit_allocate();
                         if _index_id_171 == 0 {
                             I(q)
@@ -2319,6 +2922,7 @@ fn pipeline_callable_array_iteration_exceeding_old_multi_cap() {
                     let _len_id_108 : Int = Length(_array_id_104);
                     mutable _index_id_113 : Int = 0;
                     while _index_id_113 < _len_id_108 {
+                        let gate : (Qubit => Unit is Adj + Ctl) = _array_id_104[_index_id_113];
                         if _index_id_113 == 0 {
                             H(q)
                         } else if _index_id_113 == 1 {
@@ -2404,5 +3008,127 @@ fn defunc_21_level_hof_returns_static_resolution_error() {
         matches!(errors.as_slice(), [super::super::Error::DynamicCallable(_)]),
         "Expected DynamicCallable error, got: {:?}",
         errors.iter().map(ToString::to_string).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn multiple_forwarded_callable_arrays_return_unsupported_error() {
+    // Forwarding two or more distinct callable arrays through a single HOF call
+    // is a shape the transform does not support. This test pins the diagnostic
+    // so a future change cannot silently start generating incorrect code for
+    // it.
+    //
+    // A two-level HOF forwards two distinct arrays of callables through one
+    // call. The transform must report exactly one
+    // `UnsupportedMultipleCallableArrays` diagnostic. It must not fall through
+    // to the per-row path, which would collapse each array to a single member,
+    // nor report a spurious `FixpointNotReached`.
+    let source = r#"
+        operation ApplyTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            for op in firstOps {
+                op(q);
+            }
+            for op in secondOps {
+                op(q);
+            }
+        }
+        operation ForwardTwoArrays(
+            firstOps : (Qubit => Unit)[],
+            secondOps : (Qubit => Unit)[],
+            q : Qubit
+        ) : Unit {
+            ApplyTwoArrays(firstOps, secondOps, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            ForwardTwoArrays([X, Y], [Z, H], q);
+        }
+        "#;
+
+    let (mut store, package_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let errors = defunctionalize(&mut store, package_id, &mut assigners);
+
+    assert!(
+        matches!(
+            errors.as_slice(),
+            [super::super::Error::UnsupportedMultipleCallableArrays(_)]
+        ),
+        "expected exactly one UnsupportedMultipleCallableArrays error, got: {}",
+        format_defunctionalization_errors(&errors)
+    );
+}
+
+#[test]
+fn operation_computed_captured_field_declines_to_dynamic_callable() {
+    // A captured struct field whose value is computed by an operation call
+    // cannot be specialized. Rebuilding the captured literal in the caller would
+    // duplicate and reorder that operation call, which is unsound for a call
+    // with quantum side effects because it cannot be run twice or moved. The
+    // transform therefore declines the closure to a dynamic call site and
+    // reports a recoverable `DynamicCallable` diagnostic. On the base profile
+    // this surfaces as a hard error rather than silently incorrect code.
+    check_errors(
+        r#"
+        struct Wrapper { Op : Qubit => Unit }
+        operation Choose(flag : Result) : (Qubit => Unit) {
+            return flag == One ? X | H;
+        }
+        operation ApplyWrapped(w : Wrapper, q : Qubit) : Unit {
+            w.Op(q);
+        }
+        operation MakeWrapper(q : Qubit) : Wrapper {
+            new Wrapper { Op = Choose(MResetZ(q)) }
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let w = MakeWrapper(q);
+            ApplyWrapped(w, q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
+    );
+}
+
+#[test]
+fn operation_call_in_captured_compound_literal_without_locals_declines_to_dynamic_callable() {
+    // A closure returned from `MakeOp` captures a `Payload` struct literal whose
+    // field is initialized by a runtime operation call (`ReadValue()`), with no
+    // intervening local binding to anchor that call. The captured value is not a
+    // statically-known callable, so defunctionalization must decline the
+    // `ApplyOp(MakeOp(), q)` call site to a dynamic callable — emitting the
+    // "callable argument could not be resolved statically" diagnostic — rather than
+    // attempt to specialize the unresolved compound-literal capture.
+    check_errors(
+        r#"
+        struct Payload { Value : Int }
+        operation ReadValue() : Int {
+            return 1;
+        }
+        operation UsePayload(payload : Payload, q : Qubit) : Unit {
+            if payload.Value == 1 {
+                H(q);
+            }
+        }
+        operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+        operation MakeOp() : Qubit => Unit {
+            let payload = new Payload { Value = ReadValue() };
+            return q => UsePayload(payload, q);
+        }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            ApplyOp(MakeOp(), q);
+        }
+        "#,
+        &expect!["callable argument could not be resolved statically"],
     );
 }

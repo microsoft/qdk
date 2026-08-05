@@ -37,19 +37,19 @@ pub(crate) struct Token {
 #[derive(Clone, Copy, Debug, Diagnostic, Eq, Error, PartialEq)]
 pub enum Error {
     #[error("expected {0} to complete {1}, found {2}")]
-    #[diagnostic(code("Qsc.Lex.Incomplete"))]
+    #[diagnostic(code("Qdk.Qsc.Lex.Incomplete"))]
     Incomplete(raw::TokenKind, TokenKind, raw::TokenKind, #[label] Span),
 
     #[error("expected {0} to complete {1}, found EOF")]
-    #[diagnostic(code("Qsc.Lex.IncompleteEof"))]
+    #[diagnostic(code("Qdk.Qsc.Lex.IncompleteEof"))]
     IncompleteEof(raw::TokenKind, TokenKind, #[label] Span),
 
     #[error("unterminated string literal")]
-    #[diagnostic(code("Qsc.Lex.UnterminatedString"))]
+    #[diagnostic(code("Qdk.Qsc.Lex.UnterminatedString"))]
     UnterminatedString(#[label] Span),
 
     #[error("unrecognized character `{0}`")]
-    #[diagnostic(code("Qsc.Lex.UnknownChar"))]
+    #[diagnostic(code("Qdk.Qsc.Lex.UnknownChar"))]
     Unknown(char, #[label] Span),
 }
 

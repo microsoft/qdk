@@ -50,7 +50,7 @@ fn declaring_a_qubit_array_of_zero_size_fails() {
     };
 
     expect![[r#"
-        [Qasm.Lowerer.ExprMustBePositiveInt
+        [Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
           x quantum register size must be a positive integer
            ,-[Test.qasm:2:15]

@@ -17,7 +17,7 @@ pub enum Error {
     #[diagnostic(help(
         "each operation called inside an operation with compiler-generated adjoint specializations must support the adjoint functor"
     ))]
-    #[diagnostic(code("Qsc.AdjGen.MissingAdjFunctor"))]
+    #[diagnostic(code("Qdk.Qsc.AdjGen.MissingAdjFunctor"))]
     MissingAdjFunctor(#[label] Span),
 
     #[error(transparent)]

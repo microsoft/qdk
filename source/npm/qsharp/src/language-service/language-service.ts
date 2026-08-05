@@ -126,7 +126,7 @@ export class QSharpLanguageService implements ILanguageService {
   private eventHandler =
     new EventTarget() as IServiceEventTarget<LanguageServiceEvent>;
 
-  private backgroundWork: Promise<void>;
+  private updateLoop: Promise<void>;
 
   constructor(
     private wasm: QscWasm,
@@ -141,7 +141,7 @@ export class QSharpLanguageService implements ILanguageService {
     log.info("Constructing a QSharpLanguageService instance");
     this.languageService = new wasm.LanguageService();
 
-    this.backgroundWork = this.languageService.start_background_work(
+    this.updateLoop = this.languageService.start_update_loop(
       this.onDiagnostics.bind(this),
       this.onTestCallables.bind(this),
       host,
@@ -261,8 +261,8 @@ export class QSharpLanguageService implements ILanguageService {
   }
 
   async dispose() {
-    this.languageService.stop_background_work();
-    await this.backgroundWork;
+    this.languageService.stop_update_loop();
+    await this.updateLoop;
     this.languageService.free();
   }
 

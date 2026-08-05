@@ -1,20 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Hoist-returns pre-pass for the return-unification pass.
+//! Hoists compound-position `Return` expressions for return unification.
 //!
-//! Rewrites every callable-body block so that any `ExprKind::Return`
-//! surviving in a compound (non-statement-carrying) position is lifted to a
-//! bare `return v;` statement at the enclosing statement boundary. After
-//! this pass, `Return` only appears as:
-//!
-//! * a `StmtKind::Semi`/`StmtKind::Expr` whose expression is `ExprKind::Return(_)`,
-//! * the trailing expression of a block reached through `ExprKind::Block`,
-//! * a branch of `ExprKind::If`, or
-//! * the body of `ExprKind::While`.
-//!
-//! The downstream flag-lowering pass (`transform_block_with_flags`) consumes
-//! that statement-level shape.
+//! The downstream flag transform consumes statement-boundary returns, so this
+//! pass preserves prior operand effects while exposing returns at that boundary.
 //!
 //! ## Match exhaustiveness
 //!
@@ -63,15 +53,15 @@ mod shape_tests;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
-        BinOp, Expr, ExprId, ExprKind, Ident, Mutability, Package, PackageId, PackageLookup, Pat,
-        PatId, PatKind, Res, Stmt, StmtId, StmtKind, StringComponent,
+        BinOp, ExprId, ExprKind, Mutability, Package, PackageId, PackageLookup, StmtId, StmtKind,
+        StringComponent,
     },
     ty::{Prim, Ty},
 };
 
-use crate::{
-    EMPTY_EXEC_RANGE,
-    fir_builder::{alloc_block, alloc_bool_lit, alloc_expr, alloc_expr_stmt, alloc_semi_stmt},
+use crate::fir_builder::{
+    alloc_block, alloc_bool_lit, alloc_discard_pat, alloc_expr, alloc_expr_stmt, alloc_local_stmt,
+    alloc_local_var, alloc_local_var_expr, alloc_not_expr, alloc_semi_stmt,
 };
 use qsc_data_structures::span::Span;
 use std::rc::Rc;
@@ -156,7 +146,13 @@ fn count_compound_returns_in_expr(package: &Package, expr_id: ExprId) -> usize {
             count_compound_returns_in_expr(package, *a)
                 + count_compound_returns_in_expr(package, *b)
         }
-        // Ternary
+        // Ternary. Grouping the mutable `AssignIndex` form with the immutable
+        // `UpdateIndex` form is safe here, unlike in `hoist_in_expr`, because
+        // this is a sum over the whole sub-tree and so does not depend on
+        // operand order. Descending the `AssignIndex` place `a` is harmless for
+        // the same reason it is excluded there: `borrowck::verify_assignment`
+        // limits an assignment target to `Var(Res::Local)`, `Hole`, or a
+        // `Tuple` of those, all of which are leaves that contribute zero.
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
             count_compound_returns_in_expr(package, *a)
                 + count_compound_returns_in_expr(package, *b)
@@ -224,13 +220,19 @@ pub(super) fn hoist_returns_to_statement_boundary(
         changed_any = true;
         let measure = count_compound_position_returns(package, block_id);
         if matches!(prev_measure, Some(prev) if measure >= prev) {
-            errors.push(super::Error::FixpointNotReached("hoist", block_id));
+            errors.push(super::Error::FixpointNotReached(
+                "hoist",
+                (package_id, block_id).into(),
+            ));
             return changed_any;
         }
         prev_measure = Some(measure);
     }
     // Hard cap reached without convergence.
-    errors.push(super::Error::FixpointNotReached("hoist", block_id));
+    errors.push(super::Error::FixpointNotReached(
+        "hoist",
+        (package_id, block_id).into(),
+    ));
     changed_any
 }
 
@@ -297,6 +299,13 @@ pub(super) fn visit_expr_for_collect(
             visit_expr_for_collect(package, a, out, seen);
             visit_expr_for_collect(package, b, out, seen);
         }
+        // Grouping the mutable `AssignIndex` form with the immutable
+        // `UpdateIndex` form is safe here, unlike in `hoist_in_expr`, because
+        // this collects the set of reachable blocks and so does not depend on
+        // operand order. Descending the `AssignIndex` place `a` is harmless:
+        // `borrowck::verify_assignment` limits an assignment target to
+        // `Var(Res::Local)`, `Hole`, or a `Tuple` of those, none of which holds
+        // a nested block.
         ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
             visit_expr_for_collect(package, a, out, seen);
             visit_expr_for_collect(package, b, out, seen);
@@ -473,15 +482,17 @@ fn hoist_stmt(
 /// - Returns `None` when the subtree is return-free or the only Returns sit
 ///   behind a statement-carrying construct (`Block`, `If`, `While`) which the
 ///   downstream flag lowering handles.
-/// - Preserves left-to-right evaluation order of earlier operands via
-///   discard-`let` bindings; operands after the hoist point are dropped
-///   because their results are dead.
+/// - Preserves the caller-supplied runtime order of earlier operands via
+///   discard-`let` bindings; operands after the hoist point are dropped because
+///   their results are dead.
 /// - Short-circuit `and`/`or` RHS Returns are guarded with an `if`; LHS
 ///   Returns are unconditional.
 ///
 /// # Mutations
 /// - Allocates new statements and expressions through `assigner`.
-/// - Does not rewrite `expr_id`'s own node in place.
+/// - Usually returns replacement statements without changing `expr_id`, but
+///   rewrites `If` conditions and short-circuit value/assignment forms in place
+///   when their conditional semantics require a `Block` or guarded `If`.
 #[allow(clippy::match_same_arms)] // Statement-carrying vs leaf arms kept distinct for clarity.
 fn hoist_in_expr(
     package: &mut Package,
@@ -533,21 +544,44 @@ fn hoist_in_expr(
         ExprKind::BinOp(BinOp::OrL, a, b) => {
             hoist_short_circuit(package, assigner, package_id, expr_id, a, b, false)
         }
+        ExprKind::AssignOp(BinOp::AndL, place, rhs) => {
+            hoist_short_circuit_assign(package, assigner, expr_id, place, rhs, true)
+        }
+        ExprKind::AssignOp(BinOp::OrL, place, rhs) => {
+            hoist_short_circuit_assign(package, assigner, expr_id, place, rhs, false)
+        }
 
-        // Two-operand compounds evaluated left-to-right.
+        // Two-operand compounds supplied in runtime order.
         ExprKind::BinOp(_, a, b)
         | ExprKind::Call(a, b)
         | ExprKind::Index(a, b)
         | ExprKind::ArrayRepeat(a, b)
         | ExprKind::Assign(a, b)
-        | ExprKind::AssignOp(_, a, b)
-        | ExprKind::AssignField(a, _, b)
-        | ExprKind::UpdateField(a, _, b) => hoist_n_ary(package, assigner, package_id, &[a, b]),
+        | ExprKind::AssignField(a, _, b) => hoist_n_ary(package, assigner, package_id, &[a, b]),
 
-        // Three-operand compounds evaluated left-to-right.
-        ExprKind::AssignIndex(a, b, c) | ExprKind::UpdateIndex(a, b, c) => {
-            hoist_n_ary(package, assigner, package_id, &[a, b, c])
+        ExprKind::AssignOp(_, place, rhs) => {
+            hoist_n_ary(package, assigner, package_id, &[place, rhs])
         }
+
+        // Immutable field updates evaluate the replacement before the record.
+        ExprKind::UpdateField(record, _, replacement) => {
+            hoist_n_ary(package, assigner, package_id, &[replacement, record])
+        }
+
+        // The target is a place, not an rvalue: `AssignIndex` evaluates only
+        // its index and replacement. Borrow checking and `ConvertToWSlash`
+        // ensure the target cannot hide a return. ANF uses the same contract.
+        ExprKind::AssignIndex(_, index, replacement) => {
+            hoist_n_ary(package, assigner, package_id, &[index, replacement])
+        }
+
+        // Immutable index updates evaluate index, replacement, then container.
+        ExprKind::UpdateIndex(container, index, replacement) => hoist_n_ary(
+            package,
+            assigner,
+            package_id,
+            &[index, replacement, container],
+        ),
 
         // N-ary compounds.
         ExprKind::Array(exprs) | ExprKind::ArrayLit(exprs) | ExprKind::Tuple(exprs) => {
@@ -592,12 +626,13 @@ fn hoist_in_expr(
     }
 }
 
-/// Hoists a compound with operands evaluated strictly left-to-right.
+/// Hoists a compound whose operands are supplied in runtime semantic order.
 ///
 /// Finds the first operand whose subtree contains a hoistable `Return`.
 /// Every earlier operand is bound to a discard-pattern `let` so its
-/// side-effects execute in original source order; operands after the hoist
-/// point are dead and dropped.
+/// side-effects execute in the supplied order; operands after the hoist point
+/// are dead and dropped. Callers encode non-source orders explicitly, such as
+/// replacement-before-record and index/replacement/container immutable updates.
 fn hoist_n_ary(
     package: &mut Package,
     assigner: &mut Assigner,
@@ -655,6 +690,53 @@ fn hoist_short_circuit(
     let (then_id, else_id) = if is_and { (b, lit_expr) } else { (lit_expr, b) };
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
     expr.kind = ExprKind::If(a, then_id, Some(else_id));
+    None
+}
+
+/// Rewrites a return-bearing short-circuit compound assignment into a guarded
+/// plain assignment, preserving the RHS's conditional evaluation.
+fn hoist_short_circuit_assign(
+    package: &mut Package,
+    assigner: &mut Assigner,
+    expr_id: ExprId,
+    place: ExprId,
+    rhs: ExprId,
+    is_and: bool,
+) -> Option<Vec<StmtId>> {
+    if !contains_return_in_expr(package, rhs) {
+        return None;
+    }
+    let place_expr = package.get_expr(place);
+    if !matches!(place_expr.kind, ExprKind::Var(_, _)) {
+        debug_assert!(
+            false,
+            "a short-circuit `AssignOp` place is expected to be `ExprKind::Var`; \
+             an unhandled place shape returns without rewriting and leaves the \
+             right-hand side `Return` in a compound position"
+        );
+        return None;
+    }
+    let place_read = alloc_expr(
+        package,
+        assigner,
+        place_expr.ty.clone(),
+        place_expr.kind.clone(),
+        Span::default(),
+    );
+    let cond = if is_and {
+        place_read
+    } else {
+        alloc_not_expr(package, assigner, place_read, Span::default())
+    };
+    let assign = alloc_expr(
+        package,
+        assigner,
+        Ty::UNIT,
+        ExprKind::Assign(place, rhs),
+        Span::default(),
+    );
+    let expr = package.exprs.get_mut(expr_id).expect("expr not found");
+    expr.kind = ExprKind::If(cond, assign, None);
     None
 }
 
@@ -746,27 +828,15 @@ fn create_discard_let_stmt(
     expr_id: ExprId,
 ) -> StmtId {
     let ty = package.get_expr(expr_id).ty.clone();
-    let pat_id: PatId = assigner.next_pat();
-    package.pats.insert(
+    let pat_id = alloc_discard_pat(package, assigner, ty, Span::default());
+    alloc_local_stmt(
+        package,
+        assigner,
+        Mutability::Immutable,
         pat_id,
-        Pat {
-            id: pat_id,
-            span: Span::default(),
-            ty,
-            kind: PatKind::Discard,
-        },
-    );
-    let stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        stmt_id,
-        Stmt {
-            id: stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Local(Mutability::Immutable, pat_id, expr_id),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
-    stmt_id
+        expr_id,
+        Span::default(),
+    )
 }
 
 /// Pins a statement-carrying `inner` (Block/If/While with internal Returns)
@@ -795,43 +865,17 @@ fn bind_inner_and_return(
     inner: ExprId,
 ) -> Vec<StmtId> {
     let inner_ty = package.get_expr(inner).ty.clone();
-    let local_var_id = assigner.next_local();
-    let pat_id = assigner.next_pat();
-    package.pats.insert(
-        pat_id,
-        Pat {
-            id: pat_id,
-            span: Span::default(),
-            ty: inner_ty.clone(),
-            kind: PatKind::Bind(Ident {
-                id: local_var_id,
-                span: Span::default(),
-                name: Rc::from(super::symbols::RET_HOIST),
-            }),
-        },
-    );
-    let local_stmt_id = assigner.next_stmt();
-    package.stmts.insert(
-        local_stmt_id,
-        Stmt {
-            id: local_stmt_id,
-            span: Span::default(),
-            kind: StmtKind::Local(Mutability::Immutable, pat_id, inner),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
+    let (local_var_id, local_stmt_id) = alloc_local_var(
+        package,
+        assigner,
+        super::symbols::RET_HOIST,
+        &inner_ty,
+        inner,
+        Mutability::Immutable,
     );
 
-    let var_expr_id = assigner.next_expr();
-    package.exprs.insert(
-        var_expr_id,
-        Expr {
-            id: var_expr_id,
-            span: Span::default(),
-            ty: inner_ty,
-            kind: ExprKind::Var(Res::Local(local_var_id), Vec::new()),
-            exec_graph_range: EMPTY_EXEC_RANGE,
-        },
-    );
+    let var_expr_id =
+        alloc_local_var_expr(package, assigner, local_var_id, inner_ty, Span::default());
 
     // Rewrite the existing Return expression in place so it now wraps the
     // Var, then wrap it in a fresh Semi statement.

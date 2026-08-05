@@ -11,7 +11,7 @@ Your solution:
 * will be called multiple times, with one of the states picked with equal probability every time,
 * may give an inconclusive (-1) answer in at most 80% of all the cases,
 * must correctly identify the $\ket{0}$ state as 0 in at least 10% of all the cases,
-* must correctly identify the $\ket{1}$ state as 1 in at least 10% of all the cases.
+* must correctly identify the $\ket{+}$ state as 1 in at least 10% of all the cases.
     
 The state of the qubit at the end of the operation does not matter.
     

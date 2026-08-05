@@ -53,7 +53,7 @@ fn simple_guard_clause_collapses_to_if_else() {
         "#},
         "Main",
         "guard_clause",
-        guard_clause::apply,
+        |p, a, _pkg_id, b, s| guard_clause::apply(p, a, b, s),
         &expect![[r#"
             // before guard_clause (fired=true)
             function Main() : Int {
@@ -66,7 +66,7 @@ fn simple_guard_clause_collapses_to_if_else() {
                     };
                 }
 
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     0
                 } else {
                     __ret_val
@@ -123,7 +123,7 @@ fn guard_clause_with_let_in_rest_block() {
         "#},
         "Main",
         "guard_clause",
-        guard_clause::apply,
+        |p, a, _pkg_id, b, s| guard_clause::apply(p, a, b, s),
         &expect![[r#"
             // before guard_clause (fired=false)
             function Main() : Int {
@@ -136,12 +136,12 @@ fn guard_clause_with_let_in_rest_block() {
                     };
                 }
 
-                let y : Int = if not __has_returned {
+                let y : Int = if (not __has_returned) {
                     2
                 } else {
                     0
                 };
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     y
                 } else {
                     __ret_val
@@ -166,12 +166,12 @@ fn guard_clause_with_let_in_rest_block() {
                     };
                 }
 
-                let y : Int = if not __has_returned {
+                let y : Int = if (not __has_returned) {
                     2
                 } else {
                     0
                 };
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     y
                 } else {
                     __ret_val
@@ -215,7 +215,7 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
         "#},
         "Main",
         "guard_clause",
-        guard_clause::apply,
+        |p, a, _pkg_id, b, s| guard_clause::apply(p, a, b, s),
         &expect![[r#"
             // before guard_clause (fired=false)
             function Main() : Int {
@@ -228,7 +228,7 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
                     };
                 }
 
-                if not __has_returned {
+                if (not __has_returned) {
                     if false {
                         {
                             __ret_val = 2;
@@ -237,7 +237,7 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
                     }
 
                 };
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     0
                 } else {
                     __ret_val
@@ -262,7 +262,7 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
                     };
                 }
 
-                if not __has_returned {
+                if (not __has_returned) {
                     if false {
                         {
                             __ret_val = 2;
@@ -271,7 +271,7 @@ fn multiple_guard_clauses_chain_into_nested_if_else() {
                     }
 
                 };
-                let __trailing_result : Int = if not __has_returned {
+                let __trailing_result : Int = if (not __has_returned) {
                     0
                 } else {
                     __ret_val
@@ -304,7 +304,7 @@ fn no_returns_block_has_no_merge_so_rule_does_not_fire() {
         "#},
         "Main",
         "guard_clause",
-        guard_clause::apply,
+        |p, a, _pkg_id, b, s| guard_clause::apply(p, a, b, s),
         &expect![[r#"
             // before guard_clause (fired=false)
             function Main() : Int {
@@ -346,7 +346,7 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
         "#},
         "Main",
         "guard_clause",
-        guard_clause::apply,
+        |p, a, _pkg_id, b, s| guard_clause::apply(p, a, b, s),
         &expect![[r#"
             // before guard_clause (fired=false)
             function Main() : Int {
@@ -793,7 +793,7 @@ mod inverted_orientation {
             "#},
             "Main",
             "guard_clause",
-            guard_clause::apply,
+            |p, a, _pkg_id, b, s| guard_clause::apply(p, a, b, s),
             &expect![[r#"
                 // before guard_clause (fired=true)
                 function Main() : Int {
@@ -806,7 +806,7 @@ mod inverted_orientation {
                         };
                     }
 
-                    let __trailing_result : Int = if not __has_returned {
+                    let __trailing_result : Int = if (not __has_returned) {
                         2
                     } else {
                         __ret_val
@@ -824,7 +824,7 @@ mod inverted_orientation {
                 function Main() : Int {
                     mutable __has_returned : Bool = false;
                     mutable __ret_val : Int = 0;
-                    if not true {
+                    if (not true) {
                         1
                     } else {
                         2

@@ -18,19 +18,19 @@ pub enum Error {
     #[error(
         "a callable with the measurement attribute should take at least one argument of type Qubit"
     )]
-    #[diagnostic(code("Qsc.Measurement.NoArguments"))]
+    #[diagnostic(code("Qdk.Qsc.Measurement.NoArguments"))]
     NoArguments(#[label] Span),
 
     #[error("a callable with the measurement attribute should only take arguments of type Qubit")]
-    #[diagnostic(code("Qsc.Measurement.NonQubitArgument"))]
+    #[diagnostic(code("Qdk.Qsc.Measurement.NonQubitArgument"))]
     NonQubitArgument(#[label] Span),
 
     #[error("a callable with the measurement attribute should only have outputs of type Result")]
-    #[diagnostic(code("Qsc.Measurement.NonResultOutput"))]
+    #[diagnostic(code("Qdk.Qsc.Measurement.NonResultOutput"))]
     NonResultOutput(#[label] Span),
 
     #[error("a callable with the measurement attribute should be an intrinsic")]
-    #[diagnostic(code("Qsc.Measurement.NotIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.Measurement.NotIntrinsic"))]
     NotIntrinsic(#[label] Span),
 }
 

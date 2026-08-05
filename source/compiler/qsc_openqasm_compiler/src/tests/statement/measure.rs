@@ -115,16 +115,16 @@ fn measure_zero_length_qubits_into_register_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-        Qasm.Lowerer.ExprMustBePositiveInt
+            Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
-          x quantum register size must be a positive integer
-           ,-[Test.qasm:3:15]
-         2 |         bit[0] c;
-         3 |         qubit[0] q;
-           :               ^
-         4 |         c = measure q;
-           `----
-    "#]],
+              x quantum register size must be a positive integer
+               ,-[Test.qasm:3:15]
+             2 |         bit[0] c;
+             3 |         qubit[0] q;
+               :               ^
+             4 |         c = measure q;
+               `----
+        "#]],
     );
 }
 
@@ -185,7 +185,7 @@ fn measuring_hardware_qubits_generates_an_error() {
     }
 
     expect![[r#"
-        Qasm.Compiler.NotSupported
+        Qdk.Qasm.Compiler.NotSupported
 
           x hardware qubit operands are not supported
            ,-[Test.qasm:3:21]
@@ -267,7 +267,7 @@ fn measure_arrow_zero_length_qubits_into_register_fails() {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-            Qasm.Lowerer.ExprMustBePositiveInt
+            Qdk.Qasm.Lowerer.ExprMustBePositiveInt
 
               x quantum register size must be a positive integer
                ,-[Test.qasm:3:15]

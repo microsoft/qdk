@@ -11,6 +11,7 @@ from qdk.qre import (
     ISA,
     LOGICAL,
     PSSPC,
+    ErrorComposition,
     EstimationResult,
     LatticeSurgery,
     Trace,
@@ -205,6 +206,44 @@ def test_trace_enumeration():
 
     q = PSSPC.q() * LatticeSurgery.q()
     assert sum(1 for _ in q.enumerate(ctx)) == 32
+
+
+def test_error_composition_modes():
+    """Test that union-bound and product error composition differ as expected."""
+    # Ten T gates, each with error rate 0.1.  Under the union bound the total
+    # error is the sum (1.0), while under product composition it is
+    # 1 - (1 - 0.1)^10.
+    trace = Trace(1)
+    for _ in range(10):
+        trace.add_operation(T, [0])
+
+    graph = _ProvenanceGraph()
+    isa = graph.make_isa(
+        [
+            graph.add_instruction(
+                T, encoding=LOGICAL, time=1000, space=400, error_rate=0.1
+            ),
+        ]
+    )
+
+    union = trace.estimate(
+        isa, max_error=float("inf"), composition=ErrorComposition.UnionBound
+    )
+    assert union is not None
+    assert abs(union.error - 1.0) <= 1e-9
+    assert union.error_composition == ErrorComposition.UnionBound
+
+    product = trace.estimate(
+        isa, max_error=float("inf"), composition=ErrorComposition.Product
+    )
+    assert product is not None
+    assert abs(product.error - (1.0 - 0.9**10)) <= 1e-9
+    assert product.error_composition == ErrorComposition.Product
+
+    # The default composition is the union bound.
+    default = trace.estimate(isa, max_error=float("inf"))
+    assert default is not None
+    assert abs(default.error - union.error) <= 1e-9
 
 
 def test_rotation_error_psspc():

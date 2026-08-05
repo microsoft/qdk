@@ -18,7 +18,7 @@ fn unresolved_idenfiers_raise_symbol_error() {
     let errs: Vec<_> = errors.iter().map(|e| format!("{e:?}")).collect();
     let errs_string = errs.join("\n");
     expect![[r#"
-        Qasm.Lowerer.UndefinedSymbol
+        Qdk.Qasm.Lowerer.UndefinedSymbol
 
           x undefined symbol: t
            ,-[Test.qasm:2:19]

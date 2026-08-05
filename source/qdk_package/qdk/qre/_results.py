@@ -167,7 +167,7 @@ class EstimationTable(list["EstimationTableEntry"]):
             ]
         )
 
-    def plot(self, **kwargs):
+    def plot(self, **kwargs: Any):
         """Plot this table's results.
 
         Convenience wrapper around ``plot_estimates``.  All keyword

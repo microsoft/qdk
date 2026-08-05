@@ -960,6 +960,71 @@ fn mono_closure_in_generic() {
 }
 
 #[test]
+fn mono_closure_targeting_generic_callable_is_retargeted() {
+    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(indoc! {r#"
+                function First<'T>(x : 'T, y : 'T) : 'T { x }
+                function Main() : Int {
+                    let captured = 42;
+                    let first = First(captured, _);
+                    first(7)
+                }
+            "#});
+
+    let generic_target = store
+        .get(pkg_id)
+        .items
+        .iter()
+        .find_map(|(item_id, item)| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.as_ref() == "First" => Some(item_id),
+            _ => None,
+        })
+        .expect("generic callable target should exist");
+
+    let package = store.get_mut(pkg_id);
+    let closure_expr_id = package
+        .exprs
+        .iter()
+        .find_map(|(expr_id, expr)| match &expr.kind {
+            ExprKind::Closure(captures, _) if !captures.is_empty() => Some(expr_id),
+            _ => None,
+        })
+        .expect("partial application should lower to a capturing closure");
+    let ExprKind::Closure(_, target) = &mut package
+        .exprs
+        .get_mut(closure_expr_id)
+        .expect("closure expression should exist")
+        .kind
+    else {
+        panic!("closure expression should remain a closure");
+    };
+    // Source partial application lowers through a wrapper lambda, so retarget
+    // the closure directly to exercise monomorphization's generic closure path.
+    *target = generic_target;
+
+    let mut assigners = PackageAssigners::new(&store, pkg_id);
+    monomorphize(&mut store, pkg_id, &mut assigners);
+
+    let package = store.get(pkg_id);
+    let mut closure_target_names = package
+        .exprs
+        .iter()
+        .filter_map(|(_, expr)| {
+            let ExprKind::Closure(_, target) = expr.kind else {
+                return None;
+            };
+            let ItemKind::Callable(decl) = &package.get_item(target).kind else {
+                panic!("closure target should resolve to a callable");
+            };
+            Some(decl.name.name.to_string())
+        })
+        .collect::<Vec<_>>();
+    closure_target_names.sort();
+
+    assert_eq!(closure_target_names, vec!["First<Int>".to_string()]);
+    crate::invariants::check(&store, pkg_id, crate::invariants::InvariantLevel::PostMono);
+}
+
+#[test]
 fn mono_cross_package_length() {
     // Length is a cross-package intrinsic generic callable in std.
     let source = indoc! {r#"
@@ -1381,20 +1446,20 @@ fn mono_functor_specialized_clone_preserves_explicit_specs() {
                 }
             "#},
         &expect![[r#"
-                        callable ApplyOp<Qubit, AdjCtl>: input_ty=((Qubit => Unit is Adj + Ctl), Qubit), output_ty=Unit
-                          body: block_ty=Unit
-                            [0] Semi ty=Unit Call(Local(op), arg_ty=Qubit)
-                          adj: block_ty=Unit
-                            [0] Semi ty=Unit Call(Functor Adj(Local(op)), arg_ty=Qubit)
-                          ctl: block_ty=Unit
-                            [0] Semi ty=Unit Call(Functor Ctl(Local(op)), arg_ty=((Qubit)[], Qubit))
-                          ctl_adj: block_ty=Unit
-                            [0] Semi ty=Unit Call(Functor Ctl(Functor Adj(Local(op))), arg_ty=((Qubit)[], Qubit))
-                        callable Main: input_ty=Unit, output_ty=Unit
-                          body: block_ty=Unit
-                            [0] Local pat_ty=Qubit init_ty=Qubit Call(Item(Item 8 (Package 0)), arg_ty=Unit)
-                            [1] Semi ty=Unit Call(ApplyOp<Qubit, AdjCtl>, arg_ty=((Qubit => Unit is Adj + Ctl), Qubit))
-                            [2] Semi ty=Unit Call(Item(Item 10 (Package 0)), arg_ty=Qubit)"#]],
+            callable ApplyOp<Qubit, AdjCtl>: input_ty=((Qubit => Unit is Adj + Ctl), Qubit), output_ty=Unit
+              body: block_ty=Unit
+                [0] Semi ty=Unit Call(Local(op), arg_ty=Qubit)
+              adj: block_ty=Unit
+                [0] Semi ty=Unit Call(Functor Adj(Local(op)), arg_ty=Qubit)
+              ctl: block_ty=Unit
+                [0] Semi ty=Unit Call(Functor Ctl(Local(op)), arg_ty=((Qubit)[], Qubit))
+              ctl_adj: block_ty=Unit
+                [0] Semi ty=Unit Call(Functor Ctl(Functor Adj(Local(op))), arg_ty=((Qubit)[], Qubit))
+            callable Main: input_ty=Unit, output_ty=Unit
+              body: block_ty=Unit
+                [0] Local pat_ty=Qubit init_ty=Qubit Call(Item(Item 10 (Package 0)), arg_ty=Unit)
+                [1] Semi ty=Unit Call(ApplyOp<Qubit, AdjCtl>, arg_ty=((Qubit => Unit is Adj + Ctl), Qubit))
+                [2] Semi ty=Unit Call(Item(Item 12 (Package 0)), arg_ty=Qubit)"#]],
     );
 }
 
@@ -2022,29 +2087,29 @@ fn mono_generic_with_type_class_constraint() {
     check_before_after(
         source,
         &expect![[r#"
-        BEFORE:
-        function Double(x : 'T0) : 'T0 {
-            x + x
-        }
-        operation Main() : Int {
-            Double < Int > (21)
-        }
-        // entry
-        Main()
+            BEFORE:
+            function Double(x : 'T0) : 'T0 {
+                x + x
+            }
+            operation Main() : Int {
+                Double < Int > (21)
+            }
+            // entry
+            Main()
 
-        AFTER:
-        function Double(x : 'T0) : 'T0 {
-            x + x
-        }
-        operation Main() : Int {
-            Double_Int_(21)
-        }
-        function Double_Int_(x : Int) : Int {
-            x + x
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            function Double(x : 'T0) : 'T0 {
+                x + x
+            }
+            operation Main() : Int {
+                Double_Int_(21)
+            }
+            function Double_Int_(x : Int) : Int {
+                x + x
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 

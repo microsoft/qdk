@@ -253,17 +253,17 @@ fn invalid_profile_target_errors() -> miette::Result<(), Vec<Report>> {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-        Qasm.Compiler.InvalidProfilePragmaTarget
+            Qdk.Qasm.Compiler.InvalidProfilePragmaTarget
 
-          x Invalid or missing QIR Profile: 'Foo'. Please specify one of:
-          | `Unrestricted`, `Base`, `Adaptive_RI`, `Adaptive_RIF`.
-           ,-[Test.qasm:3:33]
-         2 |         include "stdgates.inc";
-         3 |         #pragma qdk.qir.profile Foo
-           :                                 ^^^
-         4 | 
-           `----
-    "#]],
+              x Invalid or missing QIR Profile: 'Foo'. Please specify one of:
+              | `Unrestricted`, `Base`, `Adaptive_RI`, `Adaptive_RIF`.
+               ,-[Test.qasm:3:33]
+             2 |         include "stdgates.inc";
+             3 |         #pragma qdk.qir.profile Foo
+               :                                 ^^^
+             4 | 
+               `----
+        "#]],
     );
     Ok(())
 }
@@ -367,17 +367,17 @@ fn missing_profile_target_errors() -> miette::Result<(), Vec<Report>> {
     check_qasm_to_qsharp(
         source,
         &expect![[r#"
-        Qasm.Compiler.InvalidProfilePragmaTarget
+            Qdk.Qasm.Compiler.InvalidProfilePragmaTarget
 
-          x Invalid or missing QIR Profile: ''. Please specify one of: `Unrestricted`,
-          | `Base`, `Adaptive_RI`, `Adaptive_RIF`.
-           ,-[Test.qasm:3:9]
-         2 |         include "stdgates.inc";
-         3 |         #pragma qdk.qir.profile
-           :         ^^^^^^^^^^^^^^^^^^^^^^^
-         4 | 
-           `----
-    "#]],
+              x Invalid or missing QIR Profile: ''. Please specify one of: `Unrestricted`,
+              | `Base`, `Adaptive_RI`, `Adaptive_RIF`.
+               ,-[Test.qasm:3:9]
+             2 |         include "stdgates.inc";
+             3 |         #pragma qdk.qir.profile
+               :         ^^^^^^^^^^^^^^^^^^^^^^^
+             4 | 
+               `----
+        "#]],
     );
     Ok(())
 }

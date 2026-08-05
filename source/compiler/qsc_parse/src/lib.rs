@@ -106,50 +106,50 @@ enum ErrorKind {
     #[diagnostic(transparent)]
     Lex(lex::Error),
     #[error("invalid {0} literal")]
-    #[diagnostic(code("Qsc.Parse.Literal"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.Literal"))]
     Lit(&'static str, #[label] Span),
     #[error("unknown escape sequence: `{0}`")]
-    #[diagnostic(code("Qsc.Parse.Escape"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.Escape"))]
     Escape(char, #[label] Span),
     #[error("expected {0}, found {1}")]
-    #[diagnostic(code("Qsc.Parse.Token"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.Token"))]
     Token(TokenKind, TokenKind, #[label] Span),
     #[error("expected item after attribute")]
-    #[diagnostic(code("Qsc.Parse.FloatingAttr"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.FloatingAttr"))]
     FloatingAttr(#[label] Span),
     #[error("expected item after doc comment")]
-    #[diagnostic(code("Qsc.Parse.FloatingDocComment"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.FloatingDocComment"))]
     FloatingDocComment(#[label] Span),
     #[error("expected item after visibility modifier")]
-    #[diagnostic(code("Qsc.Parse.FloatingVisibility"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.FloatingVisibility"))]
     FloatingVisibility(#[label] Span),
     #[error("expected {0}, found {1}")]
-    #[diagnostic(code("Qsc.Parse.Rule"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.Rule"))]
     Rule(&'static str, TokenKind, #[label] Span),
     #[error("expected {0}, found {1}")]
-    #[diagnostic(code("Qsc.Parse.Convert"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.Convert"))]
     Convert(&'static str, &'static str, #[label] Span),
     #[error("expected statement to end with a semicolon")]
-    #[diagnostic(code("Qsc.Parse.MissingSemi"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.MissingSemi"))]
     MissingSemi(#[label] Span),
     #[error("expected callable inputs to be parenthesized")]
-    #[diagnostic(code("Qsc.Parse.MissingParens"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.MissingParens"))]
     MissingParens(#[label] Span),
     #[error("missing entry in sequence")]
-    #[diagnostic(code("Qsc.Parse.MissingSeqEntry"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.MissingSeqEntry"))]
     MissingSeqEntry(#[label] Span),
     #[error("dotted namespace aliases are not allowed")]
-    #[diagnostic(code("Qsc.Parse.DotIdentAlias"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.DotIdentAlias"))]
     DotIdentAlias(#[label] Span),
     #[error("file name {1} could not be converted into valid namespace name")]
-    #[diagnostic(code("Qsc.Parse.InvalidFileName"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.InvalidFileName"))]
     InvalidFileName(#[label] Span, String),
     #[error("expected an item or closing brace, found {0}")]
-    #[diagnostic(code("Qsc.Parse.ExpectedItem"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.ExpectedItem"))]
     ExpectedItem(TokenKind, #[label] Span),
     #[error("cannot use an alias with a wildcard import")]
     #[diagnostic(help("try `import {path} as {alias}` instead"))]
-    #[diagnostic(code("Qsc.Parse.WildcardAlias"))]
+    #[diagnostic(code("Qdk.Qsc.Parse.WildcardAlias"))]
     WildcardAlias {
         #[label]
         span: Span,

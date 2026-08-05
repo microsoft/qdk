@@ -10,10 +10,10 @@ fn test_fixed_arity_instruction() {
     assert_eq!(instr.id(), 1);
     assert_eq!(instr.encoding(), Encoding::Physical);
     assert_eq!(instr.arity(), Some(2));
-    assert_eq!(instr.time(None), Some(100));
-    assert_eq!(instr.space(None), Some(10));
-    assert_eq!(instr.length(None), Some(5));
-    assert_eq!(instr.error_rate(None), Some(0.01));
+    assert_eq!(instr.time(None, &[]), Some(100));
+    assert_eq!(instr.space(None, &[]), Some(10));
+    assert_eq!(instr.length(None, &[]), Some(5));
+    assert_eq!(instr.error_rate(None, &[]), Some(0.01));
 }
 
 #[test]
@@ -30,13 +30,13 @@ fn test_variable_arity_instruction() {
     assert_eq!(instr.arity(), None);
 
     // Check evaluation at specific arity
-    assert_eq!(instr.time(Some(3)), Some(30)); // 3 * 10
-    assert_eq!(instr.space(Some(3)), Some(5));
-    assert_eq!(instr.length(Some(3)), Some(5)); // Defaulted to space_fn
-    assert_eq!(instr.error_rate(Some(3)), Some(0.001));
+    assert_eq!(instr.time(Some(3), &[]), Some(30)); // 3 * 10
+    assert_eq!(instr.space(Some(3), &[]), Some(5));
+    assert_eq!(instr.length(Some(3), &[]), Some(5)); // Defaulted to space_fn
+    assert_eq!(instr.error_rate(Some(3), &[]), Some(0.001));
 
     // Check None arity returns None for variable metrics
-    assert_eq!(instr.time(None), None);
+    assert_eq!(instr.time(None, &[]), None);
 }
 
 #[test]
@@ -138,17 +138,17 @@ fn test_variable_arity_satisfies() {
 #[test]
 fn test_variable_arity_function() {
     let linear_fn = VariableArityFunction::linear(10);
-    assert_eq!(linear_fn.evaluate(3), 30);
-    assert_eq!(linear_fn.evaluate(0), 0);
+    assert_eq!(linear_fn.evaluate(3, &[]), 30);
+    assert_eq!(linear_fn.evaluate(0, &[]), 0);
 
     let constant_fn = VariableArityFunction::constant(5);
-    assert_eq!(constant_fn.evaluate(3), 5);
-    assert_eq!(constant_fn.evaluate(0), 5);
+    assert_eq!(constant_fn.evaluate(3, &[]), 5);
+    assert_eq!(constant_fn.evaluate(0, &[]), 5);
 
     // Test with a custom function
     let custom_fn = VariableArityFunction::generic(|arity| arity * arity); // Quadratic
-    assert_eq!(custom_fn.evaluate(3), 9);
-    assert_eq!(custom_fn.evaluate(4), 16);
+    assert_eq!(custom_fn.evaluate(3, &[]), 9);
+    assert_eq!(custom_fn.evaluate(4, &[]), 16);
 }
 
 #[test]

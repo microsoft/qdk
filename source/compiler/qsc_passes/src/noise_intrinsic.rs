@@ -16,11 +16,11 @@ use thiserror::Error;
 #[derive(Clone, Debug, Diagnostic, Error)]
 pub enum Error {
     #[error("a callable with the @NoiseIntrinsic() attribute should have output of type Unit")]
-    #[diagnostic(code("Qsc.NoiseIntrinsic.NonResultOutput"))]
+    #[diagnostic(code("Qdk.Qsc.NoiseIntrinsic.NonResultOutput"))]
     NonUnitOutput(#[label] Span),
 
     #[error("a callable with the @NoiseIntrinsic() attribute should be an intrinsic")]
-    #[diagnostic(code("Qsc.NoiseIntrinsic.NotIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.NoiseIntrinsic.NotIntrinsic"))]
     NotIntrinsic(#[label] Span),
 }
 

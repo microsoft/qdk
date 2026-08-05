@@ -156,9 +156,10 @@ class Interpreter:
         list_directory: Callable[[str], List[Dict[str, str]]],
         resolve_path: Callable[[str, str], str],
         fetch_github: Callable[[str, str, str, str], str],
-        make_callable: Optional[Callable[[GlobalCallable, List[str], str], None]],
+        make_callable: Optional[Callable[[GlobalCallable, List[str], str, bool], None]],
         make_class: Optional[Callable[[TypeIR, List[str], str], None]],
         trace_circuit: Optional[bool],
+        qdk_config: Optional[Dict[str, int | float | str | bool]] = None,
     ) -> None:
         """
         Initializes the Q# interpreter.
@@ -172,6 +173,8 @@ class Interpreter:
         :param trace_circuit: Enables tracing of circuit during execution.
             Passing `True` is required for the `dump_circuit` function to return a circuit.
             The `circuit` function is *NOT* affected by this parameter will always generate a circuit.
+        :param qdk_config: A dictionary of configuration parameters that will be accessible
+            in Q# code using ``Std.Core.ConfigValue``.
         """
         ...
 
@@ -368,7 +371,7 @@ class Interpreter:
         list_directory: Callable[[str], List[Dict[str, str]]],
         resolve_path: Callable[[str, str], str],
         fetch_github: Callable[[str, str, str, str], str],
-        **kwargs,
+        **kwargs: Any,
     ) -> Any:
         """
         Imports OpenQASM source code into the active Q# interpreter.
@@ -567,11 +570,12 @@ def compile_visual_circuit_to_qsharp(
 
 def circuit_qasm_program(
     source: str,
+    config: CircuitConfig,
     read_file: Callable[[str], Tuple[str, str]],
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> Circuit:
     """
     Synthesizes a circuit for an OpenQASM program.
@@ -582,6 +586,7 @@ def circuit_qasm_program(
         callbacks and other Python specific details.
 
     :param source: An OpenQASM program.
+    :param config: Circuit generation options.
     :param read_file: A callable that reads a file and returns its content and path.
     :param list_directory: A callable that lists the contents of a directory.
     :param resolve_path: A callable that resolves a file path given a base path and a relative path.
@@ -603,7 +608,7 @@ def compile_qasm_program_to_qir(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> str:
     """
     Compiles the OpenQASM source code into a program that can be submitted to a
@@ -638,7 +643,7 @@ def compile_qasm_to_qsharp(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> str:
     """
     Converts a OpenQASM program to Q#.
@@ -685,7 +690,7 @@ def resource_estimate_qasm_program(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> str:
     """
     Estimates the resource requirements for executing OpenQASM source code.
@@ -720,7 +725,7 @@ def run_qasm_program(
     list_directory: Callable[[str], List[Dict[str, str]]],
     resolve_path: Callable[[str, str], str],
     fetch_github: Callable[[str, str, str, str], str],
-    **kwargs,
+    **kwargs: Any,
 ) -> Any:
     """
     Runs the given OpenQASM program for the given number of shots.
@@ -756,9 +761,9 @@ def run_qasm_program(
     ...
 
 def estimate_custom(
-    algorithm,
-    qubit,
-    qec,
+    algorithm: Any,
+    qubit: dict,
+    qec: Any,
     factories: List = [],
     *,
     error_budget: float = 0.01,
@@ -893,6 +898,31 @@ class QirInstruction: ...
 class IdleNoiseParams:
     s_probability: float
 
+class LossPolicy(Enum):
+    """
+    Specifies the behavior of a multi-qubit gate when at least one of its
+    qubit operands is lost.
+    """
+
+    # If any operand of a gate is lost, skip the gate entirely.
+    # This policy can apply to all multi-qubit gates.
+    SKIP = 0
+    # If any operand of a gate is lost, propagate the loss to the other operands.
+    # This policy can apply to all multi-qubit gates.
+    PROPAGATE = 1
+    # For multi-qubit rotations, degrade the unitary to its single-qubit version
+    # on the surviving operand (e.g. rxx -> rx). Falls back to SKIP for gates with
+    # no single-qubit reduction (cx, cy, cz, swap, and single-qubit gates).
+    # This policy only applies to the rxx, ryy, and rzz gates, in which case
+    # they degrade to rx, ry, and rz on the remaining qubit respectively.
+    DEGRADE = 2
+    # Skip the gate and instead apply an S adjoint to each surviving operand.
+    # This policy can apply to all multi-qubit gates.
+    RESIDUAL_S_DAGGER = 3
+    # This policy only applies to the swap gate, in which case the qubit states
+    # are exchanged, including their loss flags.
+    APPLY_ANYWAY = 4
+
 class NoiseTable:
     # Deprecated. Setting `loss` distributes the per-qubit loss probability
     # across the correlated loss fault strings ('L' for a single-qubit
@@ -901,6 +931,7 @@ class NoiseTable:
     # `loss` reconstructs that per-qubit probability. Prefer setting the loss
     # fault strings directly via `set_pauli_noise`.
     loss: float
+    on_loss: LossPolicy
 
     def __init__(self, num_qubits: int):
         """
@@ -916,7 +947,7 @@ class NoiseTable:
         for arbitrary pauli fields.
         """
 
-    def __setattr__(self, name: str, value: float):
+    def __setattr__(self, name: str, value: float) -> None:
         """
         Defining __setattr__ allows setting noise like this
 
@@ -935,7 +966,7 @@ class NoiseTable:
         """
 
     @overload
-    def set_pauli_noise(self, lst: list[tuple[str, float]]):
+    def set_pauli_noise(self, lst: list[tuple[str, float]]) -> None:
         """
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
@@ -954,7 +985,7 @@ class NoiseTable:
         """
 
     @overload
-    def set_pauli_noise(self, pauli_strings: list[str], values: list[float]):
+    def set_pauli_noise(self, pauli_strings: list[str], values: list[float]) -> None:
         """
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
@@ -966,7 +997,7 @@ class NoiseTable:
         """
 
     @overload
-    def set_pauli_noise(self, pauli_string: str, value: float):
+    def set_pauli_noise(self, pauli_string: str, value: float) -> None:
         """
         The correlated pauli noise to use in simulation. Setting an element
         that was previously set overrides that entry with the new value.
@@ -977,17 +1008,17 @@ class NoiseTable:
             noise_table.set_pauli_noise("XZ", 1e-10)
         """
 
-    def set_depolarizing(self, value: float):
+    def set_depolarizing(self, value: float) -> None:
         """
         The depolarizing noise to use in simulation.
         """
 
-    def set_bitflip(self, value: float):
+    def set_bitflip(self, value: float) -> None:
         """
         The bit flip noise to use in simulation.
         """
 
-    def set_phaseflip(self, value: float):
+    def set_phaseflip(self, value: float) -> None:
         """
         The phase flip noise to use in simulation.
         """
@@ -1010,7 +1041,7 @@ class NoiseIntrinsicsTable:
             my_intrinsic_noise_table = noise_config.intrinsics["my_intrinsic"]
         """
 
-    def __setitem__(self, name: str, value: float):
+    def __setitem__(self, name: str, value: float) -> None:
         """
         Defining __setitem__ allows setting intrinsic noise tables like this:
             noise_config = NoiseConfig()
@@ -1045,6 +1076,10 @@ class NoiseConfig:
     rxx: NoiseTable
     ryy: NoiseTable
     rzz: NoiseTable
+    # The simulator assumes a `swap` is either a logical swap (relabel) or a
+    # physical exchange of the two qubits, so it exchanges their loss state. A
+    # `swap` is never treated as an information exchange via three CX gates; that
+    # form is decomposed into other instructions before reaching the simulator.
     swap: NoiseTable
     mov: NoiseTable
     mresetz: NoiseTable
@@ -1056,7 +1091,7 @@ class NoiseConfig:
         The noise table for a custom intrinsic.
         """
 
-    def load_csv_dir(self, dir_path: str):
+    def load_csv_dir(self, dir_path: str) -> None:
         """
         Loads noise tables from the specified directory path. For each .csv file found in the directory,
         the noise table is loaded and associated with a unique identifier. The name of the file (without the .csv extension)
@@ -1191,8 +1226,8 @@ def run_adaptive_parallel_shots(
 # This is a little clunky, but until we move to Python 3.11 as a minimum, the NotRequired annotation
 # for Dict fields that may be missing is not availalble. See https://peps.python.org/pep-0655/#motivation
 class _GpuShotResultsBase(TypedDict):
-    shot_results: List[str]
-    """Bit strings for each shot ('0', '1', or 'L' for lost qubits)."""
+    shot_results: List[object]
+    """Processed output for each shot, or `None` when a shot fails."""
 
     shot_result_codes: List[int]
     """Result codes for each shot. 0 = Success, else Failure  (Specific codes are an internal detail)."""
@@ -1201,6 +1236,11 @@ class GpuShotResults(_GpuShotResultsBase, total=False):
     """
     Results from running shots on the GPU simulator.
     """
+
+    shot_output_records: List[List[object]]
+    """Per-shot ordered output record values (``Result`` enum values for
+    measurement results, plus native ``bool``/``int``/``float`` for classical
+    records), in the order they were recorded during the shot."""
 
     diagnostics: str
     """Diagnostic information if available. (Useful primarly for debugging by the development team)"""

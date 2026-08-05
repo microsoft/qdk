@@ -154,9 +154,9 @@ impl ProvenanceGraph {
                     .iter()
                     .filter_map(|&idx| {
                         let instr = &self.nodes[idx].instruction;
-                        let space = instr.space(Some(1))?;
-                        let time = instr.time(Some(1))?;
-                        let error = instr.error_rate(Some(1))?;
+                        let space = instr.space(Some(1), &[])?;
+                        let time = instr.time(Some(1), &[])?;
+                        let error = instr.error_rate(Some(1), &[])?;
                         Some(InstructionParetoItem {
                             node_index: idx,
                             space,

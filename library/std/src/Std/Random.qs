@@ -6,6 +6,7 @@
 /// # Summary
 /// Draws a random integer from a uniform distribution
 /// in a given inclusive range. Fails if `max < min`.
+/// This operation is simulator-only and is not supported on hardware.
 ///
 /// # Input
 /// ## min
@@ -30,6 +31,7 @@ operation DrawRandomInt(min : Int, max : Int) : Int {
 /// # Summary
 /// Draws a random real number from a uniform distribution
 /// in a given inclusive interval. Fails if `max < min`.
+/// This operation is simulator-only and is not supported on hardware.
 ///
 /// # Input
 /// ## min
@@ -54,6 +56,7 @@ operation DrawRandomDouble(min : Double, max : Double) : Double {
 /// # Summary
 /// Given a success probability, returns a single Bernoulli trial
 /// that is true with the given probability.
+/// This operation is simulator-only and is not supported on hardware.
 ///
 /// # Input
 /// ## successProbability

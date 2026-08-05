@@ -92,7 +92,7 @@ def trace_from_qir(input: str | bytes) -> Trace:
     else:
         mod = pyqir.Module.from_bitcode(context, input)
 
-    gates, num_qubits, _ = AggregateGatesPass().run(mod)
+    gates, num_qubits, _ = AggregateGatesPass().run_and_collect(mod)
 
     trace = Trace(compute_qubits=num_qubits)
 

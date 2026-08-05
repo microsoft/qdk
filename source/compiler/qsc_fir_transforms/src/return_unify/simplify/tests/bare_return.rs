@@ -210,7 +210,7 @@ fn canonical_literal_bare_return_collapses() {
         "#},
         "Main",
         "bare_return",
-        bare_return::apply,
+        |p, a, _pkg_id, b, s| bare_return::apply(p, a, b, s),
         &expect![[r#"
             // before bare_return (fired=true)
             function Main() : Int {
@@ -258,7 +258,7 @@ fn bare_return_with_call_value_collapses() {
         "#},
         "Main",
         "bare_return",
-        bare_return::apply,
+        |p, a, _pkg_id, b, s| bare_return::apply(p, a, b, s),
         &expect![[r#"
             // before bare_return (fired=true)
             function Helper() : Int {
@@ -573,7 +573,7 @@ fn given_single_return_body_bare_return_collapses_to_value() {
         "#},
         "Main",
         "bare_return",
-        bare_return::apply,
+        |p, a, _pkg_id, b, s| bare_return::apply(p, a, b, s),
         &expect![[r#"
             // before bare_return (fired=true)
             function Main() : Int {
@@ -621,7 +621,7 @@ fn given_single_return_body_with_user_prefix_bare_return_collapses() {
         "#},
         "Main",
         "bare_return",
-        bare_return::apply,
+        |p, a, _pkg_id, b, s| bare_return::apply(p, a, b, s),
         &expect![[r#"
             // before bare_return (fired=true)
             function Main() : Int {

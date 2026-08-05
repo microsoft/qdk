@@ -155,7 +155,7 @@ pub enum Importable {
 #[derive(Clone, Debug, Diagnostic, Error, PartialEq)]
 pub(super) enum Error {
     #[error("`{name}` could refer to the item in `{first_open}` or `{second_open}`")]
-    #[diagnostic(code("Qsc.Resolve.Ambiguous"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.Ambiguous"))]
     Ambiguous {
         name: String,
         first_open: String,
@@ -170,7 +170,7 @@ pub(super) enum Error {
 
     #[error("`{name}` could refer to the item in `{candidate_a}` or an item in `{candidate_b}`")]
     #[diagnostic(help("both namespaces are implicitly opened by the prelude"))]
-    #[diagnostic(code("Qsc.Resolve.AmbiguousPrelude"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.AmbiguousPrelude"))]
     AmbiguousPrelude {
         name: String,
         candidate_a: String,
@@ -180,19 +180,19 @@ pub(super) enum Error {
     },
 
     #[error("duplicate declaration of `{0}` in namespace `{1}`")]
-    #[diagnostic(code("Qsc.Resolve.Duplicate"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.Duplicate"))]
     Duplicate(String, String, #[label] Span),
 
     #[error("duplicate name `{0}` in pattern")]
     #[diagnostic(help("a name cannot shadow another name in the same pattern"))]
-    #[diagnostic(code("Qsc.Resolve.DuplicateBinding"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.DuplicateBinding"))]
     DuplicateBinding(String, #[label] Span),
 
     #[error("duplicate intrinsic `{0}`")]
     #[diagnostic(help(
         "each callable declared as `body intrinsic` or `@SimulatableIntrinsic` must have a globally unique name"
     ))]
-    #[diagnostic(code("Qsc.Resolve.DuplicateIntrinsic"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.DuplicateIntrinsic"))]
     DuplicateIntrinsic(String, #[label] Span),
 
     #[error("duplicate export of `{name}`")]
@@ -205,34 +205,35 @@ pub(super) enum Error {
     },
 
     #[error("`{0}` not found")]
-    #[diagnostic(code("Qsc.Resolve.NotFound"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.NotFound"))]
     NotFound(String, #[label] Span),
 
-    #[error("`{0}` not found")]
+    #[error("`{0}` not available")]
     #[diagnostic(help(
-        "found a matching item `{1}` that is not available for the current compilation configuration"
+        "found a matching item `{1}` that is not available in the current QIR profile"
     ))]
-    #[diagnostic(code("Qsc.Resolve.NotFound"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.NotAvailable"))]
+    #[diagnostic(url("https://aka.ms/qdk.qir"))]
     NotAvailable(String, String, #[label] Span),
 
     #[error("`Qubit` not found")]
     #[diagnostic(help(
         "to allocate qubits, use syntax like `use q = Qubit();` or `use qs = Qubit[N];` or `use (q1, q2) = (Qubit(), Qubit());`"
     ))]
-    #[diagnostic(code("Qsc.Resolve.NotFoundQubit"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.NotFoundQubit"))]
     NotFoundQubit(#[label] Span),
 
     #[error("use of unimplemented item `{0}`")]
     #[diagnostic(help("this item is not implemented and cannot be used"))]
-    #[diagnostic(code("Qsc.Resolve.Unimplemented"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.Unimplemented"))]
     Unimplemented(String, #[label] Span),
 
     #[error("export statements are not allowed in a local scope")]
-    #[diagnostic(code("Qsc.Resolve.ExportFromLocalScope"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.ExportFromLocalScope"))]
     ExportFromLocalScope(#[label] Span),
 
     #[error("import resolution exceeded maximum iterations ({0})")]
-    #[diagnostic(code("Qsc.Resolve.ImportResolutionLimitExceeded"))]
+    #[diagnostic(code("Qdk.Qsc.Resolve.ImportResolutionLimitExceeded"))]
     ImportResolutionLimitExceeded(usize),
 }
 
@@ -1278,7 +1279,7 @@ impl GlobalTable {
 
         for global in global::iter_package(id, package).filter(|global| {
             global.visibility == hir::Visibility::Public
-                || matches!(&global.kind, global::Kind::Callable(t) if t.intrinsic)
+                || matches!(&global.kind, global::Kind::Callable(t) if t.is_intrinsic)
         }) {
             // If the namespace is `Main` and we have an alias, we treat it as the root of the package, so there's no
             // namespace prefix between the dependency alias and the defined items.
@@ -1322,7 +1323,7 @@ impl GlobalTable {
                             Res::Importable(Importable::Callable(term.id, global.status)),
                         );
                     }
-                    if term.intrinsic {
+                    if term.is_intrinsic {
                         self.scope.intrinsics.insert(global.name);
                     }
                 }

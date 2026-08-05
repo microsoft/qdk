@@ -48,6 +48,7 @@ pub fn large_file_interpreter(c: &mut Criterion) {
                 LanguageFeatures::default(),
                 store,
                 &[(std_id, None)],
+                Default::default(),
             )
             .expect("code should compile");
         });

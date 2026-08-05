@@ -12,6 +12,7 @@ from ._qre import (
     _estimate_parallel,
     _estimate_with_graph,
     _EstimationCollection,
+    ErrorComposition,
     Trace,
 )
 from ._trace import TraceQuery, PSSPC, LatticeSurgery
@@ -28,6 +29,7 @@ def estimate(
     max_error: float = 1.0,
     post_process: bool = False,
     use_graph: bool = True,
+    composition: ErrorComposition = ErrorComposition.UnionBound,
     name: Optional[str] = None,
 ) -> EstimationTable:
     """
@@ -73,6 +75,11 @@ def estimate(
             builds a graph of ISAs and prunes suboptimal ISAs during estimation.
             If False, use the Rust estimation path that does not perform any
             pruning and simply enumerates all ISAs for each trace.
+        composition (ErrorComposition): Controls how per-item error
+            contributions are composed into the total error.
+            ``ErrorComposition.UnionBound`` (default) sums the contributions,
+            while ``ErrorComposition.Product`` composes them as
+            ``1 - prod(1 - p_i)``.
         name (Optional[str]): An optional name for the estimation.  If given, this
             will be added as a first column to the results table for all entries.
 
@@ -106,7 +113,11 @@ def estimate(
             num_isas = arch_ctx._provenance.total_isa_count()
 
             collection = _estimate_with_graph(
-                cast(list[Trace], traces_only), arch_ctx._provenance, max_error, True
+                cast(list[Trace], traces_only),
+                arch_ctx._provenance,
+                max_error,
+                True,
+                composition,
             )
             isas = collection.isas
         else:
@@ -115,7 +126,7 @@ def estimate(
             num_isas = len(isas)
 
             collection = _estimate_parallel(
-                cast(list[Trace], traces_only), isas, max_error, True
+                cast(list[Trace], traces_only), isas, max_error, True, composition
             )
 
         total_jobs = collection.total_jobs
@@ -133,7 +144,7 @@ def estimate(
                 trace_sample_isa[t_idx] = isa_idx
         for t_idx, isa_idx in trace_sample_isa.items():
             params, trace = params_and_traces[t_idx]
-            sample = trace.estimate(isas[isa_idx], max_error)
+            sample = trace.estimate(isas[isa_idx], max_error, composition)
             if sample is not None:
                 pre_q = sample.qubits
                 pre_r = sample.runtime
@@ -164,7 +175,7 @@ def estimate(
         pp_collection = _EstimationCollection()
         for t_idx, isa_idx, _q, _r in approx_pareto:
             params, trace = params_and_traces[t_idx]
-            result = trace.estimate(isas[isa_idx], max_error)
+            result = trace.estimate(isas[isa_idx], max_error, composition)
             if result is not None:
                 pp_result = app_ctx.application.post_process(params, result)
                 if pp_result is not None:
@@ -181,7 +192,11 @@ def estimate(
             num_isas = arch_ctx._provenance.total_isa_count()
 
             collection = _estimate_with_graph(
-                cast(list[Trace], traces), arch_ctx._provenance, max_error, False
+                cast(list[Trace], traces),
+                arch_ctx._provenance,
+                max_error,
+                False,
+                composition,
             )
         else:
             isas = list(isa_query.enumerate(arch_ctx))
@@ -190,7 +205,7 @@ def estimate(
 
             # Use the Rust parallel estimation path
             collection = _estimate_parallel(
-                cast(list[Trace], traces), isas, max_error, False
+                cast(list[Trace], traces), isas, max_error, False, composition
             )
 
         total_jobs = collection.total_jobs
