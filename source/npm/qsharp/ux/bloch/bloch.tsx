@@ -901,6 +901,17 @@ export function BlochSphere(props: BlochSphereProps = {}) {
     return idx / RZ_STEPS_PER_RAD;
   }
 
+  // Wrap an angle (radians) into [0, 2*PI) and round to the displayed
+  // precision, WITHOUT snapping to the dial's coarse lookup-table grid.
+  // Used for typed input so the committed angle is exactly what the field
+  // shows (e.g. 1.234 stays 1.234, not the nearest 1/200-rad grid value).
+  function wrapAngle(a: number): number {
+    const twoPi = Math.PI * 2;
+    let w = a % twoPi;
+    if (w < 0) w += twoPi;
+    return Number(w.toFixed(RZ_DISPLAY_DECIMALS));
+  }
+
   // Pointer position to angle from the dial center. 0 rad is 3 o'clock,
   // increasing counterclockwise; SVG y points down, so negate the y delta.
   function angleFromPointer(clientX: number, clientY: number): number {
@@ -947,13 +958,15 @@ export function BlochSphere(props: BlochSphereProps = {}) {
   }
 
   // The Rz readout doubles as a text field: users can type an angle in
-  // radians and the dial + decomposition snap to the nearest grid value
-  // the lookup table can produce. Parse, snap, and drop the draft so the
-  // field reverts to showing the live (snapped) angle.
+  // radians at the field's full displayed precision, and the committed
+  // rotation uses exactly that value (the dial needle and decomposition
+  // preview follow, snapping only to the nearest grid value they can
+  // render). Parse, wrap into range, and drop the draft so the field
+  // reverts to showing the live angle.
   function commitRzInput() {
     if (rzInputDraft === null) return;
     const parsed = Number.parseFloat(rzInputDraft);
-    if (Number.isFinite(parsed)) setRzAngle(snapAngle(parsed));
+    if (Number.isFinite(parsed)) setRzAngle(wrapAngle(parsed));
     setRzInputDraft(null);
   }
 
