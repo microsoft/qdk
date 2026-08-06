@@ -220,6 +220,87 @@ def on_circuit_qasm_end(durationMs: float) -> None:
     )
 
 
+# OpenQASM preview API telemetry events
+
+
+def on_parse_qasm(
+    entry_source_len: int, resolver: bool, compat: bool, permissive: bool
+) -> None:
+    # `permissive` is only meaningful when `compat` is true; direct parse() calls report false for both.
+    # Only the entry source is known before the parse; the resolved total lands on the duration event.
+    log_telemetry(
+        "qsharp.parse_qasm",
+        1,
+        properties={
+            "entry_source_len": get_next_power_of_ten_bucket(entry_source_len),
+            "resolver": resolver,
+            "compat": compat,
+            "permissive": permissive,
+        },
+    )
+
+
+def on_parse_qasm_end(
+    durationMs: float,
+    has_errors: bool,
+    compat: bool,
+    resolver: bool,
+    total_source_bytes: int,
+) -> None:
+    log_telemetry(
+        "qsharp.parse_qasm.durationMs",
+        durationMs,
+        properties={
+            "has_errors": has_errors,
+            "compat": compat,
+            "resolver": resolver,
+            "total_source_bytes": get_next_power_of_ten_bucket(total_source_bytes),
+        },
+        type="histogram",
+    )
+
+
+def on_analyze_qasm(entry_source_len: int, resolver: bool) -> None:
+    log_telemetry(
+        "qsharp.analyze_qasm",
+        1,
+        properties={
+            "entry_source_len": get_next_power_of_ten_bucket(entry_source_len),
+            "resolver": resolver,
+        },
+    )
+
+
+def on_analyze_qasm_end(
+    durationMs: float, has_errors: bool, resolver: bool, total_source_bytes: int
+) -> None:
+    log_telemetry(
+        "qsharp.analyze_qasm.durationMs",
+        durationMs,
+        properties={
+            "has_errors": has_errors,
+            "resolver": resolver,
+            "total_source_bytes": get_next_power_of_ten_bucket(total_source_bytes),
+        },
+        type="histogram",
+    )
+
+
+def on_dumps_qasm() -> None:
+    log_telemetry(
+        "qsharp.dumps_qasm",
+        1,
+    )
+
+
+def on_dumps_qasm_end(durationMs: float) -> None:
+    log_telemetry(
+        "qsharp.dumps_qasm.durationMs",
+        durationMs,
+        type="histogram",
+    )
+
+
 # Qiskit telemetry events
 
 
