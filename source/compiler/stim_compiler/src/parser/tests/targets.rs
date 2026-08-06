@@ -501,7 +501,7 @@ fn negating_combiner_is_error() {
 }
 
 #[test]
-fn pauli_with_non_integer_value_is_error() {
+fn instruction_name_as_target_is_error() {
     check(
         "MPP XY",
         &expect![[r#"

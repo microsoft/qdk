@@ -696,12 +696,7 @@ impl<'a> Parser<'a> {
     fn parse_pauli_target(&mut self, token: Token) -> Option<(Pauli, u32)> {
         let (prefix, value) = self.extract_prefix_and_suffix(token)?;
         let Ok(pauli) = prefix.parse::<Pauli>() else {
-            self.emit_error(Error::Expected {
-                expected: "a Pauli operator (X, Y, or Z)",
-                found: token.kind,
-                span: token.span,
-            });
-            return None;
+            unreachable!("lexer guarantees a valid Pauli target");
         };
 
         Some((pauli, value))
