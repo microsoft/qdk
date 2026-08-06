@@ -5,12 +5,15 @@ from enum import Enum
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Optional,
     Dict,
+    Iterator,
     List,
     Tuple,
     TypedDict,
     Literal,
+    Union,
     overload,
 )
 
@@ -1303,3 +1306,2044 @@ class GpuContext:
         Runs the specified number of shots of the loaded adaptive program on the GPU.
         """
         ...
+
+# ---------------------------------------------------------------------------
+# qdk.openqasm AST bindings
+# ---------------------------------------------------------------------------
+
+class Span:
+    """A hashable value representing a half-open UTF-8 byte range."""
+
+    def __init__(self, lo: int, hi: int) -> None: ...
+    @property
+    def lo(self) -> int:
+        """The inclusive start offset, in bytes."""
+    @property
+    def hi(self) -> int:
+        """The exclusive end offset, in bytes."""
+    def __hash__(self) -> int: ...
+
+class PositionEncoding:
+    """The column encoding used by a source position."""
+
+    UTF8: PositionEncoding
+    CODE_POINT: PositionEncoding
+    UTF16: PositionEncoding
+    @property
+    def value(self) -> str:
+        """The lowercase spelling accepted by position conversion APIs."""
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class ClassicalType(QASMNode):
+    """The abstract base of every type node."""
+
+class AccessControl:
+    """Whether an array reference parameter may be written through."""
+
+    READONLY: AccessControl
+    MUTABLE: AccessControl
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class IntType(ClassicalType):
+    """A signed integer type, optionally sized."""
+
+    @property
+    def size(self) -> Optional[QASMNode]:
+        """The declared bit width, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class UintType(ClassicalType):
+    """An unsigned integer type, optionally sized."""
+
+    @property
+    def size(self) -> Optional[QASMNode]:
+        """The declared bit width, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class FloatType(ClassicalType):
+    """A floating-point type, optionally sized."""
+
+    @property
+    def size(self) -> Optional[QASMNode]:
+        """The declared bit width, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class AngleType(ClassicalType):
+    """An angle type, optionally sized."""
+
+    @property
+    def size(self) -> Optional[QASMNode]:
+        """The declared bit width, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class BitType(ClassicalType):
+    """A bit or bit-register type, optionally sized."""
+
+    @property
+    def size(self) -> Optional[QASMNode]:
+        """The declared register width, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class ComplexType(ClassicalType):
+    """A complex type, optionally carrying its component float type."""
+
+    @property
+    def base_type(self) -> Optional[QASMNode]:
+        """The component type of the real and imaginary parts, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class BoolType(ClassicalType):
+    """A boolean type."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class DurationType(ClassicalType):
+    """A duration type."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class StretchType(ClassicalType):
+    """A stretch type."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class QubitType(ClassicalType):
+    """A qubit parameter type, optionally sized."""
+
+    @property
+    def size(self) -> Optional[QASMNode]:
+        """The declared register width, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class ErrorType(ClassicalType):
+    """A type that could not be parsed."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class ArrayType(ClassicalType):
+    """A sized array type."""
+
+    @property
+    def base_type(self) -> ClassicalType:
+        """The element type."""
+    @property
+    def dimensions(self) -> List[QASMNode]:
+        """The length of each dimension, outermost first."""
+    def children(self) -> List[QASMNode]: ...
+
+class StaticArrayReferenceType(ClassicalType):
+    """An array reference with statically known dimensions."""
+
+    @property
+    def base_type(self) -> ClassicalType:
+        """The element type."""
+    @property
+    def dimensions(self) -> List[QASMNode]:
+        """The length of each dimension, outermost first."""
+    @property
+    def mutability(self) -> AccessControl:
+        """Whether the referenced array is readonly or mutable."""
+    def children(self) -> List[QASMNode]: ...
+
+class DynArrayReferenceType(ClassicalType):
+    """An array reference with a dynamic number of dimensions."""
+
+    @property
+    def base_type(self) -> ClassicalType:
+        """The element type."""
+    @property
+    def num_dimensions(self) -> QASMNode:
+        """The expression giving the number of dimensions."""
+    @property
+    def mutability(self) -> AccessControl:
+        """Whether the referenced array is readonly or mutable."""
+    def children(self) -> List[QASMNode]: ...
+
+class ResolutionStatus:
+    """How a source in a snapshot was obtained."""
+
+    ENTRY: ResolutionStatus
+    RESOLVED: ResolutionStatus
+    UNRESOLVED: ResolutionStatus
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class Position:
+    """A frozen, hashable zero-based line and column in a source file.
+
+    Raises ``OverflowError`` if ``line`` or ``column`` is negative or greater
+    than ``2**32 - 1``.
+    """
+
+    def __init__(
+        self,
+        line: int,
+        column: int,
+        encoding: PositionEncoding = ...,
+    ) -> None: ...
+    @property
+    def line(self) -> int:
+        """The zero-based line number."""
+    @property
+    def column(self) -> int:
+        """The zero-based column in the selected encoding."""
+    @property
+    def encoding(self) -> PositionEncoding:
+        """The encoding used for ``column``."""
+    def __hash__(self) -> int: ...
+
+class SourceRange:
+    """A frozen, hashable range within one source file.
+
+    Raises ``OverflowError`` if ``source_id`` is negative or greater than
+    ``2**32 - 1``.
+    """
+
+    def __init__(self, source_id: int, start: Position, end: Position) -> None: ...
+    @property
+    def source_id(self) -> int:
+        """The identifier of the source file containing the range."""
+    @property
+    def start(self) -> Position:
+        """The inclusive range boundary."""
+    @property
+    def end(self) -> Position:
+        """The exclusive range boundary."""
+    def __hash__(self) -> int: ...
+
+class SourceFile:
+    """One immutable, hashable source file in a parse snapshot."""
+
+    @property
+    def id(self) -> int:
+        """The source file's stable identifier within the snapshot."""
+    @property
+    def path(self) -> str:
+        """The logical path used to resolve this source."""
+    @property
+    def text(self) -> str:
+        """The complete source text."""
+    @property
+    def span(self) -> Span:
+        """The span covering the complete source text."""
+    @property
+    def is_entry(self) -> bool:
+        """Whether this is the parse entry source."""
+    @property
+    def is_resolved(self) -> bool:
+        """Whether the include resolver supplied this source."""
+    @property
+    def resolution_status(self) -> ResolutionStatus:
+        """How this source entered the snapshot."""
+    def __hash__(self) -> int: ...
+
+class SourceMap:
+    """An immutable collection of source files in parser pre-order.
+
+    Lines and columns are zero based. Coordinate conversion is strict and
+    raises ``ValueError`` rather than clamping invalid boundaries. Source maps
+    compare by value and are intentionally unhashable.
+    """
+
+    @property
+    def entry(self) -> SourceFile:
+        """The entry source file."""
+    @property
+    def files(self) -> Tuple[SourceFile, ...]:
+        """All source files in parser pre-order."""
+    def __len__(self) -> int: ...
+    def __iter__(self) -> Iterator[SourceFile]: ...
+    def get(self, source_id: int) -> SourceFile: ...
+    def find(self, path: str) -> Optional[SourceFile]: ...
+    def find_all(self, path: str) -> Tuple[SourceFile, ...]: ...
+    def position_at(
+        self,
+        source_id: int,
+        byte_offset: int,
+        *,
+        encoding: PositionEncoding = ...,
+    ) -> Position: ...
+    def byte_offset(self, source_id: int, position: Position) -> int: ...
+    def range_from_span(
+        self,
+        span: Span,
+        *,
+        encoding: PositionEncoding = ...,
+    ) -> SourceRange: ...
+    def span_from_range(self, source_range: SourceRange) -> Span: ...
+    def __eq__(self, value: object, /) -> bool: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
+
+class SourceDocument:
+    """The immutable, value-comparable, unhashable sources in one snapshot."""
+
+    @property
+    def entry(self) -> SourceFile:
+        """The entry source file."""
+    @property
+    def source_map(self) -> SourceMap:
+        """The source map for this immutable snapshot."""
+    def __eq__(self, value: object, /) -> bool: ...
+    __hash__: ClassVar[None]  # type: ignore[assignment]
+
+class Severity:
+    """The severity of a :class:`Diagnostic`."""
+
+    Error: Severity
+    Warning: Severity
+    Advice: Severity
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class Label:
+    """A frozen, hashable labeled region associated with a diagnostic."""
+
+    @property
+    def span(self) -> Span:
+        """The span the label points at."""
+    @property
+    def message(self) -> Optional[str]:
+        """An optional message describing the label."""
+    def __hash__(self) -> int: ...
+
+class Diagnostic:
+    """A frozen, value-comparable, unhashable diagnostic projection."""
+
+    @property
+    def message(self) -> str:
+        """The primary, human-readable message."""
+    @property
+    def severity(self) -> Severity:
+        """The diagnostic's severity."""
+    @property
+    def code(self) -> Optional[str]:
+        """An optional machine-readable code (e.g. ``Qasm.Parse.Token``)."""
+    @property
+    def labels(self) -> List[Label]:
+        """Source labels attached to the diagnostic."""
+    @property
+    def related(self) -> List[Diagnostic]:
+        """Related diagnostics, projected recursively."""
+    def __eq__(self, value: object, /) -> bool: ...
+    def __str__(self) -> str:
+        """The pretty, source-annotated rendering of the diagnostic."""
+        ...
+
+    def render(
+        self,
+        *,
+        color: Optional[bool] = None,
+        unicode: Optional[bool] = None,
+        width: Optional[int] = None,
+    ) -> str:
+        """Render the diagnostic to its pretty, source-annotated form.
+
+        Unlike ``str(diagnostic)`` (a fixed no-color rendering), this lets the
+        caller tune the output for the current terminal. ``color`` defaults to
+        on only when standard output is a terminal and ``NO_COLOR`` is unset;
+        ``unicode`` defaults to ``True``; ``width`` defaults to 80 columns.
+        """
+        ...
+
+    __hash__: ClassVar[None]  # type: ignore[assignment]
+
+# --- classes shared by both layers (qdk.openqasm) ---
+
+class QASMNode:
+    """The abstract root of every `OpenQASM` AST node."""
+
+    @property
+    def span(self) -> Span: ...
+    def __eq__(self, value: object, /) -> bool: ...
+
+class Expression(QASMNode):
+    """The abstract base of every expression node."""
+
+class Statement(QASMNode):
+    """The abstract base of every statement node."""
+
+    @property
+    def annotations(self) -> List["Annotation"]: ...
+
+class Annotation(QASMNode):
+    """An annotation attached to an OpenQASM statement."""
+
+    @property
+    def identifier(self) -> str:
+        """The annotation's dotted identifier, without the leading `@`."""
+    @property
+    def value(self) -> Optional[str]:
+        """The annotation's remaining text, when it has any."""
+    @property
+    def value_span(self) -> Optional[Span]:
+        """The span covering the annotation's value, when it has one."""
+    def children(self) -> List[QASMNode]: ...
+
+# --- syntactic-only nodes (qdk.openqasm.parser) ---
+
+class Program(QASMNode):
+    """The root of a parsed `OpenQASM` program."""
+
+    @property
+    def version(self) -> Optional[str]:
+        """The declared `OpenQASM` version, if any (for example `\"3.0\"`)."""
+    @property
+    def document(self) -> SourceDocument:
+        """The immutable source document for this parse snapshot."""
+    @property
+    def statements(self) -> List[QASMNode]:
+        """The top-level statements of the program, in source order."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumGateModifier(QASMNode):
+    """A quantum gate modifier (for example ``ctrl @`` or ``pow(2) @``)."""
+
+    @property
+    def modifier(self) -> GateModifierName:
+        """The modifier keyword."""
+    @property
+    def argument(self) -> Optional[Expression]:
+        """The modifier's argument expression, if any (the exponent for `pow` or the
+        optional control count for `ctrl` / `negctrl`)."""
+    def children(self) -> List[QASMNode]: ...
+
+class RangeDefinition(QASMNode):
+    """A range used in an index or a `for` loop."""
+
+    @property
+    def start(self) -> Optional[Expression]:
+        """The inclusive start of the range, when written."""
+    @property
+    def step(self) -> Optional[Expression]:
+        """The step between values, when written."""
+    @property
+    def end(self) -> Optional[Expression]:
+        """The inclusive end of the range, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class DiscreteSet(QASMNode):
+    """A brace-enclosed set of values."""
+
+    @property
+    def values(self) -> List[Expression]:
+        """The set's members, in source order."""
+    def children(self) -> List[QASMNode]: ...
+
+class IndexList(QASMNode):
+    """The entries of one index bracket."""
+
+    @property
+    def values(self) -> List[QASMNode]:
+        """The entries of one index bracket, in source order."""
+    def children(self) -> List[QASMNode]: ...
+
+class SwitchCase(QASMNode):
+    """One `case` branch of a switch statement."""
+
+    @property
+    def labels(self) -> List[Expression]:
+        """The case labels this branch matches."""
+    @property
+    def body(self) -> List[Statement]:
+        """The statements run when a label matches."""
+    def children(self) -> List[QASMNode]: ...
+
+class SubroutineParameter(QASMNode):
+    """One declared parameter of a subroutine."""
+
+    @property
+    def identifier(self) -> Expression:
+        """The parameter's name."""
+    @property
+    def type(self) -> ClassicalType:
+        """The parameter's declared type."""
+    def children(self) -> List[QASMNode]: ...
+
+class Identifier(Expression):
+    """An identifier expression (a reference to a name)."""
+
+    @property
+    def name(self) -> str:
+        """The identifier's source text."""
+    def children(self) -> List[QASMNode]: ...
+
+class IndexedIdentifier(Expression):
+    """An indexed identifier (for example ``a[i]``) in an l-value position."""
+
+    @property
+    def name(self) -> Identifier:
+        """The identifier being indexed."""
+    @property
+    def indices(self) -> List[Expression]:
+        """The index lists applied to the identifier, outermost first."""
+    def children(self) -> List[QASMNode]: ...
+
+class HardwareQubit(Expression):
+    """A hardware-qubit gate operand (for example ``$0``)."""
+
+    @property
+    def name(self) -> str:
+        """The hardware qubit's identifier text, including the leading `$`."""
+    def children(self) -> List[QASMNode]: ...
+
+class ErrorExpression(Expression):
+    """An expression with invalid syntax that could not be parsed."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class UnaryExpression(Expression):
+    """A unary operator expression."""
+
+    @property
+    def op(self) -> UnaryOperator:
+        """The unary operator applied to the operand."""
+    @property
+    def operand(self) -> Expression:
+        """The expression the operator is applied to."""
+    def children(self) -> List[QASMNode]: ...
+
+class BinaryExpression(Expression):
+    """A binary operator expression."""
+
+    @property
+    def op(self) -> BinaryOperator:
+        """The binary operator joining the two operands."""
+    @property
+    def lhs(self) -> Expression:
+        """The left operand."""
+    @property
+    def rhs(self) -> Expression:
+        """The right operand."""
+    def children(self) -> List[QASMNode]: ...
+
+class BinaryOperator:
+    """A binary operator.
+
+    Member names are descriptive because the ``openqasm3`` reference enum names
+    its members by symbol, which are not Python identifiers. The OpenQASM
+    spelling is available as ``value``.
+    """
+
+    ADD: BinaryOperator
+    SUB: BinaryOperator
+    MUL: BinaryOperator
+    DIV: BinaryOperator
+    MOD: BinaryOperator
+    POW: BinaryOperator
+    EQ: BinaryOperator
+    NEQ: BinaryOperator
+    GT: BinaryOperator
+    GTE: BinaryOperator
+    LT: BinaryOperator
+    LTE: BinaryOperator
+    LOGIC_AND: BinaryOperator
+    LOGIC_OR: BinaryOperator
+    BIT_AND: BinaryOperator
+    BIT_OR: BinaryOperator
+    BIT_XOR: BinaryOperator
+    SHL: BinaryOperator
+    SHR: BinaryOperator
+    @property
+    def value(self) -> str:
+        """The OpenQASM spelling of the operator, for example ``\">=\"``."""
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class UnaryOperator:
+    """A unary operator. The OpenQASM spelling is available as ``value``."""
+
+    NEG: UnaryOperator
+    BIT_NOT: UnaryOperator
+    LOGIC_NOT: UnaryOperator
+    @property
+    def value(self) -> str:
+        """The OpenQASM spelling of the operator, for example ``\"~\"``."""
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class TimeUnit:
+    """The time unit of a duration literal."""
+
+    DT: TimeUnit
+    NS: TimeUnit
+    US: TimeUnit
+    MS: TimeUnit
+    S: TimeUnit
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class IOKeyword:
+    """The direction of an ``input`` or ``output`` declaration.
+
+    The OpenQASM keyword is available as ``value``.
+    """
+
+    INPUT: IOKeyword
+    OUTPUT: IOKeyword
+    @property
+    def value(self) -> str:
+        """The ``OpenQASM`` keyword, either ``\"input\"`` or ``\"output\"``."""
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class GateModifierName:
+    """The keyword naming a quantum gate modifier.
+
+    The OpenQASM keyword is available as ``value``.
+    """
+
+    INV: GateModifierName
+    POW: GateModifierName
+    CTRL: GateModifierName
+    NEGCTRL: GateModifierName
+    @property
+    def value(self) -> str:
+        """The ``OpenQASM`` keyword, for example ``\"negctrl\"``."""
+    def __int__(self) -> int: ...
+    def __hash__(self) -> int: ...
+
+class IntegerLiteral(Expression):
+    """An integer literal of arbitrary precision."""
+
+    @property
+    def value(self) -> int:
+        """The literal's value as a Python `int`, of unbounded width."""
+    def children(self) -> List[QASMNode]: ...
+
+class FloatLiteral(Expression):
+    """A floating-point literal."""
+
+    @property
+    def value(self) -> float:
+        """The literal's value."""
+    def children(self) -> List[QASMNode]: ...
+
+class ImaginaryLiteral(Expression):
+    """An imaginary literal, carrying its magnitude."""
+
+    @property
+    def value(self) -> float:
+        """The imaginary coefficient, so `2.0im` carries `2.0`."""
+    def children(self) -> List[QASMNode]: ...
+
+class BooleanLiteral(Expression):
+    """A boolean literal."""
+
+    @property
+    def value(self) -> bool:
+        """The literal's value."""
+    def children(self) -> List[QASMNode]: ...
+
+class BitstringLiteral(Expression):
+    """A bitstring literal, carrying its value and declared width."""
+
+    @property
+    def value(self) -> int:
+        """The bit pattern as a Python `int`, with the leftmost bit most significant."""
+    @property
+    def width(self) -> int:
+        """The number of bits written in the source, including leading zeros."""
+    def children(self) -> List[QASMNode]: ...
+
+class DurationLiteral(Expression):
+    """A duration literal, carrying its magnitude and unit."""
+
+    @property
+    def value(self) -> float:
+        """The numeric part of the duration."""
+    @property
+    def unit(self) -> TimeUnit:
+        """The time unit the value is expressed in."""
+    def children(self) -> List[QASMNode]: ...
+
+class ArrayLiteral(Expression):
+    """An array literal, exposing its elements as children."""
+
+    @property
+    def values(self) -> List[Expression]:
+        """The literal's elements, in source order."""
+    def children(self) -> List[QASMNode]: ...
+
+class StringLiteral(Expression):
+    """A string literal. There is no ``openqasm3`` equivalent."""
+
+    @property
+    def value(self) -> str:
+        """The string's contents, with the surrounding quotes removed."""
+    def children(self) -> List[QASMNode]: ...
+
+class FunctionCall(Expression):
+    """A function-call expression."""
+
+    @property
+    def name(self) -> Identifier:
+        """The identifier naming the callee."""
+    @property
+    def args(self) -> List[Expression]:
+        """The call arguments, in source order."""
+    def children(self) -> List[QASMNode]: ...
+
+class Cast(Expression):
+    """A type-cast expression."""
+
+    @property
+    def type(self) -> ClassicalType:
+        """The type the operand is cast to."""
+    @property
+    def operand(self) -> Expression:
+        """The expression being cast."""
+    def children(self) -> List[QASMNode]: ...
+
+class IndexExpression(Expression):
+    """An index expression (for example ``a[i]``)."""
+
+    @property
+    def collection(self) -> Expression:
+        """The expression being indexed."""
+    @property
+    def indices(self) -> List[QASMNode]:
+        """The index lists applied to the collection, outermost first."""
+    def children(self) -> List[QASMNode]: ...
+
+class ParenExpression(Expression):
+    """A parenthesized expression."""
+
+    @property
+    def operand(self) -> Expression:
+        """The expression inside the parentheses."""
+    def children(self) -> List[QASMNode]: ...
+
+class DurationOf(Expression):
+    """A ``durationof`` expression over a block of statements."""
+
+    @property
+    def body(self) -> List[QASMNode]:
+        """The statements whose duration is being measured."""
+    def children(self) -> List[QASMNode]: ...
+
+class Concatenation(Expression):
+    """A concatenation r-value (for example ``a ++ b``)."""
+
+    @property
+    def operands(self) -> List[Expression]:
+        """The operands joined by `++`, in source order."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumMeasurement(Expression):
+    """A measurement r-value (for example ``measure q``)."""
+
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubits being measured."""
+    def children(self) -> List[QASMNode]: ...
+
+class QubitDeclaration(Statement):
+    """A qubit declaration statement (for example ``qubit q;``)."""
+
+    @property
+    def qubit(self) -> Identifier:
+        """The identifier naming the declared qubit or register."""
+    @property
+    def size(self) -> Optional[Expression]:
+        """The register width, when the declaration is an array."""
+    def children(self) -> List[QASMNode]: ...
+
+class AliasStatement(Statement):
+    """An alias declaration statement (``let``)."""
+
+    @property
+    def target(self) -> Expression:
+        """The identifier the alias binds."""
+    @property
+    def exprs(self) -> List[Expression]:
+        """The expressions the alias refers to, joined by `++` when several."""
+    def children(self) -> List[QASMNode]: ...
+
+class ClassicalAssignment(Statement):
+    """A classical assignment statement (``a = b;``)."""
+
+    @property
+    def lhs(self) -> Expression:
+        """The assignment target."""
+    @property
+    def rhs(self) -> Expression:
+        """The assigned value."""
+    def children(self) -> List[QASMNode]: ...
+
+class CompoundAssignment(Statement):
+    """A compound assignment statement (for example ``a += b;``)."""
+
+    @property
+    def op(self) -> BinaryOperator:
+        """The underlying operator, so `+=` reports addition."""
+    @property
+    def lhs(self) -> Expression:
+        """The assignment target."""
+    @property
+    def rhs(self) -> Expression:
+        """The right operand of the compound operation."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumBarrier(Statement):
+    """A ``barrier`` statement."""
+
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubits the barrier applies to."""
+    def children(self) -> List[QASMNode]: ...
+
+class Box(Statement):
+    """A ``box`` statement."""
+
+    @property
+    def duration(self) -> Optional[Expression]:
+        """The box's declared duration, when written."""
+    @property
+    def body(self) -> List[QASMNode]:
+        """The statements inside the box."""
+    def children(self) -> List[QASMNode]: ...
+
+class BreakStatement(Statement):
+    """A ``break`` statement."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class CompoundStatement(Statement):
+    """A block of statements (``{ ... }``)."""
+
+    @property
+    def statements(self) -> List[QASMNode]:
+        """The statements inside the block, in source order."""
+    def children(self) -> List[QASMNode]: ...
+
+class CalibrationStatement(Statement):
+    """A ``cal`` calibration block."""
+
+    @property
+    def body(self) -> str:
+        """The calibration block's raw text, which this parser does not interpret."""
+    def children(self) -> List[QASMNode]: ...
+
+class CalibrationGrammarDeclaration(Statement):
+    """A ``defcalgrammar`` declaration."""
+
+    @property
+    def name(self) -> str:
+        """The named calibration grammar, for example `openpulse`."""
+    def children(self) -> List[QASMNode]: ...
+
+class ClassicalDeclaration(Statement):
+    """A classical variable declaration."""
+
+    @property
+    def type(self) -> ClassicalType:
+        """The declared type."""
+    @property
+    def identifier(self) -> Identifier:
+        """The identifier being declared."""
+    @property
+    def init_expr(self) -> Optional[Expression]:
+        """The initializer, when the declaration has one."""
+    def children(self) -> List[QASMNode]: ...
+
+class ConstantDeclaration(Statement):
+    """A ``const`` declaration."""
+
+    @property
+    def type(self) -> ClassicalType:
+        """The declared type."""
+    @property
+    def identifier(self) -> Identifier:
+        """The identifier being declared."""
+    @property
+    def init_expr(self) -> Expression:
+        """The initializer, which a constant always has."""
+    def children(self) -> List[QASMNode]: ...
+
+class ContinueStatement(Statement):
+    """A ``continue`` statement."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class SubroutineDefinition(Statement):
+    """A ``def`` subroutine definition."""
+
+    @property
+    def name(self) -> Identifier:
+        """The identifier naming the subroutine."""
+    @property
+    def params(self) -> List[SubroutineParameter]:
+        """The declared parameters, in source order."""
+    @property
+    def return_type(self) -> Optional[ClassicalType]:
+        """The declared return type, when the subroutine returns a value."""
+    @property
+    def body(self) -> List[QASMNode]:
+        """The statements making up the subroutine body."""
+    def children(self) -> List[QASMNode]: ...
+
+class CalibrationDefinition(Statement):
+    """A ``defcal`` calibration definition."""
+
+    @property
+    def body(self) -> str:
+        """The `defcal` block's raw text, which this parser does not interpret."""
+    def children(self) -> List[QASMNode]: ...
+
+class DelayInstruction(Statement):
+    """A ``delay`` instruction."""
+
+    @property
+    def duration(self) -> Expression:
+        """The delay's duration."""
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubits the delay applies to."""
+    def children(self) -> List[QASMNode]: ...
+
+class EndStatement(Statement):
+    """An ``end`` statement."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class ExpressionStatement(Statement):
+    """A statement that evaluates an expression."""
+
+    @property
+    def expr(self) -> Expression:
+        """The evaluated expression."""
+    def children(self) -> List[QASMNode]: ...
+
+class ExternDeclaration(Statement):
+    """An ``extern`` declaration."""
+
+    @property
+    def name(self) -> Identifier:
+        """The identifier naming the external subroutine."""
+    @property
+    def param_types(self) -> List[ClassicalType]:
+        """The declared parameter types, in source order."""
+    @property
+    def return_type(self) -> Optional[ClassicalType]:
+        """The declared return type, when the subroutine returns a value."""
+    def children(self) -> List[QASMNode]: ...
+
+class ForInLoop(Statement):
+    """A ``for`` loop over an iterable set."""
+
+    @property
+    def type(self) -> ClassicalType:
+        """The loop variable's declared type."""
+    @property
+    def identifier(self) -> Identifier:
+        """The loop variable."""
+    @property
+    def iterable(self) -> QASMNode:
+        """The range, set, or expression being iterated."""
+    @property
+    def body(self) -> QASMNode:
+        """The loop body."""
+    def children(self) -> List[QASMNode]: ...
+
+class BranchingStatement(Statement):
+    """An ``if`` / ``else`` branching statement."""
+
+    @property
+    def condition(self) -> Expression:
+        """The branch condition."""
+    @property
+    def if_body(self) -> QASMNode:
+        """The statement run when the condition holds."""
+    @property
+    def else_body(self) -> Optional[QASMNode]:
+        """The `else` branch, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumGate(Statement):
+    """A quantum gate call."""
+
+    @property
+    def name(self) -> Identifier:
+        """The identifier naming the gate."""
+    @property
+    def modifiers(self) -> List[QuantumGateModifier]:
+        """The modifiers applied to the gate, such as `ctrl` or `inv`."""
+    @property
+    def args(self) -> List[Expression]:
+        """The classical arguments, such as a rotation angle."""
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubit operands the gate acts on."""
+    @property
+    def duration(self) -> Optional[Expression]:
+        """The gate's declared duration, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumPhase(Statement):
+    """A ``gphase`` statement."""
+
+    @property
+    def modifiers(self) -> List[QuantumGateModifier]:
+        """The modifiers applied to the phase, such as `ctrl`."""
+    @property
+    def args(self) -> List[Expression]:
+        """The phase arguments."""
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubit operands, present only when the phase is controlled."""
+    @property
+    def duration(self) -> Optional[Expression]:
+        """The declared duration, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class Include(Statement):
+    """An ``include`` directive."""
+
+    @property
+    def filename(self) -> str:
+        """The included file's path as written in the source."""
+    def children(self) -> List[QASMNode]: ...
+
+class IODeclaration(Statement):
+    """An ``input`` / ``output`` declaration."""
+
+    @property
+    def io_keyword(self) -> IOKeyword:
+        """Whether the declaration is an `input` or an `output`."""
+    @property
+    def type(self) -> ClassicalType:
+        """The declared type."""
+    @property
+    def identifier(self) -> Identifier:
+        """The identifier being declared."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumMeasurementStatement(Statement):
+    """A measurement statement (for example ``c = measure q;``)."""
+
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubits being measured."""
+    @property
+    def target(self) -> Optional[Expression]:
+        """The classical target the result is written to, when written."""
+    def children(self) -> List[QASMNode]: ...
+
+class Pragma(Statement):
+    """A ``pragma`` directive.
+
+    ``command`` is authoritative; ``name`` and ``value`` are derived
+    compatibility views.
+    """
+
+    @property
+    def command(self) -> str:
+        """The pragma's full text after the keyword."""
+    @property
+    def name(self) -> Optional[str]:
+        """The leading dotted identifier, when the pragma has one."""
+    @property
+    def value(self) -> Optional[str]:
+        """The remaining text after the identifier, when present."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumGateDefinition(Statement):
+    """A ``gate`` definition.
+
+    ``params`` and ``qubits`` hold :class:`Identifier` nodes. A parameter the
+    parser recovered from is an :class:`ErrorExpression` at the span it would
+    have occupied.
+    """
+
+    @property
+    def name(self) -> Identifier:
+        """The identifier naming the gate."""
+    @property
+    def params(self) -> List[Expression]:
+        """The classical parameters, in source order."""
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubit parameters, in source order."""
+    @property
+    def body(self) -> List[QASMNode]:
+        """The statements making up the gate body."""
+    def children(self) -> List[QASMNode]: ...
+
+class QuantumReset(Statement):
+    """A ``reset`` statement."""
+
+    @property
+    def qubits(self) -> List[Expression]:
+        """The qubits being reset."""
+    def children(self) -> List[QASMNode]: ...
+
+class ReturnStatement(Statement):
+    """A ``return`` statement."""
+
+    @property
+    def value(self) -> Optional[Expression]:
+        """The returned expression, when the subroutine returns a value."""
+    def children(self) -> List[QASMNode]: ...
+
+class SwitchStatement(Statement):
+    """A ``switch`` statement."""
+
+    @property
+    def target(self) -> Expression:
+        """The expression being switched on."""
+    @property
+    def cases(self) -> List[SwitchCase]:
+        """The `case` branches, in source order."""
+    @property
+    def default(self) -> Optional[List[Statement]]:
+        """The `default` branch's statements, or `None` when there is no `default`."""
+    def children(self) -> List[QASMNode]: ...
+
+class WhileLoop(Statement):
+    """A ``while`` loop."""
+
+    @property
+    def condition(self) -> Expression:
+        """The loop condition, tested before each iteration."""
+    @property
+    def body(self) -> QASMNode:
+        """The loop body."""
+    def children(self) -> List[QASMNode]: ...
+
+class ErrorStatement(Statement):
+    """A statement with invalid syntax that could not be parsed."""
+
+    def children(self) -> List[QASMNode]: ...
+
+class _semantic:
+    """Stub for the ``qdk._native._semantic`` native submodule.
+
+    The semantic OpenQASM node classes keep their ``Sem``-prefixed Rust
+    identifiers but are exposed to Python under clean, un-prefixed names inside
+    this attribute-only submodule (for example ``SemGateCall`` -> ``QuantumGate``).
+    Modeling the submodule as a nested class lets pyright resolve
+    ``_semantic.<Name>`` from the single ``_native.pyi`` stub without a stub
+    package or ``sys.modules`` registration. Sibling references between the
+    nested classes are written as qualified strings (for example
+    ``"_semantic.Type"``) because pyright does not resolve bare sibling names in
+    method annotations.
+    """
+
+    class CastKind:
+        """Whether a cast was written in the source or inserted by the analyzer."""
+
+        EXPLICIT: "_semantic.CastKind"
+        IMPLICIT: "_semantic.CastKind"
+        def __int__(self) -> int: ...
+        def __hash__(self) -> int: ...
+
+    class IOKind:
+        """Whether a symbol is a program input, a program output, or neither."""
+
+        DEFAULT: "_semantic.IOKind"
+        INPUT: "_semantic.IOKind"
+        OUTPUT: "_semantic.IOKind"
+        def __int__(self) -> int: ...
+        def __hash__(self) -> int: ...
+
+    class Angle:
+        """A constant angle value, stored as OpenQASM stores it: a fixed-point integer."""
+
+        def __init__(self, value: int, size: int) -> None: ...
+        @property
+        def value(self) -> int:
+            """The fixed-point numerator, in units of a full turn divided by ``2 ** size``."""
+        @property
+        def size(self) -> int:
+            """The number of bits ``value`` is expressed in.
+
+            This is the precision the analyzer folded the constant at, not the
+            width written in the source. A ``const angle[4]`` is folded at the
+            full 53 bits a float carries; the declared width is on the
+            expression's ``ty``.
+            """
+        @property
+        def radians(self) -> float:
+            """The angle in radians, in the range ``[0, 2 * pi)``.
+
+            Derived from ``value`` and ``size`` rather than stored by the analyzer, so it
+            is lossy whenever ``size`` exceeds the 53 bits a Python float can hold. It
+            is ``nan`` when ``size`` exceeds 64, which no representable angle reaches.
+            """
+
+    class Duration:
+        """A constant duration value: a magnitude paired with the unit it was written in."""
+
+        def __init__(self, value: float, unit: TimeUnit) -> None: ...
+        @property
+        def value(self) -> float:
+            """The magnitude, expressed in ``unit``."""
+        @property
+        def unit(self) -> TimeUnit:
+            """The unit the duration was written in."""
+
+    class Type:
+        """The abstract base of every resolved semantic type.
+
+        A resolved type is analysis output, not syntax, so it carries no source
+        position and is not a ``QASMNode``. Dispatch over the concrete
+        subclasses with ``isinstance``.
+        """
+
+        @property
+        def name(self) -> str:
+            """The type's textual rendering, for example ``"int[32]"`` or ``"qubit"``."""
+        @property
+        def is_const(self) -> bool:
+            """Whether the type is compile-time constant."""
+        def children(self) -> List["_semantic.Type"]: ...
+        def __eq__(self, value: object, /) -> bool: ...
+        def __str__(self) -> str: ...
+
+    class IntType(Type):
+        """A resolved signed integer type."""
+
+        @property
+        def size(self) -> Optional[int]:
+            """The resolved bit width, when the type has one."""
+
+    class UintType(Type):
+        """A resolved unsigned integer type."""
+
+        @property
+        def size(self) -> Optional[int]:
+            """The resolved bit width, when the type has one."""
+
+    class FloatType(Type):
+        """A resolved floating-point type."""
+
+        @property
+        def size(self) -> Optional[int]:
+            """The resolved bit width, when the type has one."""
+
+    class AngleType(Type):
+        """A resolved angle type."""
+
+        @property
+        def size(self) -> Optional[int]:
+            """The resolved bit width, when the type has one."""
+
+    class ComplexType(Type):
+        """A resolved complex type."""
+
+        @property
+        def size(self) -> Optional[int]:
+            """The resolved bit width of each component, when the type has one.
+
+            A `complex[float[64]]` resolves to a size of 64, describing one
+            component; the syntax layer instead carries the component type node.
+            """
+
+    class BitType(Type):
+        """A resolved single-bit type."""
+
+    class BoolType(Type):
+        """A resolved boolean type."""
+
+    class DurationType(Type):
+        """A resolved duration type."""
+
+    class StretchType(Type):
+        """A resolved stretch type."""
+
+    class QubitType(Type):
+        """A resolved single-qubit type."""
+
+    class HardwareQubitType(Type):
+        """A resolved hardware qubit type, as written ``$0``."""
+
+    class BitArrayType(Type):
+        """A resolved bit register type."""
+
+        @property
+        def size(self) -> int:
+            """The register width."""
+
+    class QubitArrayType(Type):
+        """A resolved qubit register type."""
+
+        @property
+        def size(self) -> int:
+            """The register width."""
+
+    class ArrayType(Type):
+        """A resolved array type."""
+
+        @property
+        def base_type(self) -> "_semantic.Type":
+            """The element type."""
+        @property
+        def dimensions(self) -> List[int]:
+            """The length of each dimension, outermost first."""
+
+    class StaticArrayReferenceType(Type):
+        """A resolved array reference whose dimension lengths are all known."""
+
+        @property
+        def base_type(self) -> "_semantic.Type":
+            """The element type."""
+        @property
+        def dimensions(self) -> List[int]:
+            """The length of each dimension, outermost first."""
+        @property
+        def mutability(self) -> AccessControl:
+            """Whether the referenced array is readonly or mutable."""
+
+    class DynArrayReferenceType(Type):
+        """A resolved array reference declared with ``#dim``, so only its rank is known."""
+
+        @property
+        def base_type(self) -> "_semantic.Type":
+            """The element type."""
+        @property
+        def num_dimensions(self) -> int:
+            """The number of dimensions, which is known even though their lengths are not."""
+        @property
+        def mutability(self) -> AccessControl:
+            """Whether the referenced array is readonly or mutable."""
+
+    class GateType(Type):
+        """A resolved gate type."""
+
+        @property
+        def num_classical_args(self) -> int:
+            """The number of classical parameters the gate declares."""
+        @property
+        def num_qubit_args(self) -> int:
+            """The number of qubit parameters the gate declares."""
+
+    class FunctionType(Type):
+        """A resolved subroutine signature."""
+
+        @property
+        def parameter_types(self) -> List["_semantic.Type"]:
+            """The parameter types, in declaration order."""
+        @property
+        def return_type(self) -> "_semantic.Type":
+            """The return type, which is `VoidType` for a subroutine that returns nothing."""
+
+    class RangeType(Type):
+        """The resolved type of a range expression."""
+
+    class SetType(Type):
+        """The resolved type of a discrete set expression."""
+
+    class VoidType(Type):
+        """The resolved type of an expression that yields no value."""
+
+    class ErrorType(Type):
+        """The resolved type analysis assigns when it could not determine one."""
+
+    class Symbol:
+        """A read-only view of a resolved symbol."""
+
+        @property
+        def id(self) -> int:
+            """The symbol's unique id within the [``SemSymbolTable``]."""
+        @property
+        def name(self) -> str:
+            """The symbol's name."""
+        @property
+        def span(self) -> Span:
+            """The span where the symbol is declared."""
+        @property
+        def ty(self) -> "_semantic.Type":
+            """The symbol's resolved type."""
+        @property
+        def io_kind(self) -> "_semantic.IOKind":
+            """Whether the symbol is a program input, a program output, or neither."""
+        @property
+        def const_value(self) -> Optional[Any]:
+            """The symbol's const-evaluated value, if it is a constant."""
+
+    class SymbolTable:
+        """An iterable, read-only projection of the resolved symbol table."""
+
+        def __len__(self) -> int: ...
+        def __iter__(self) -> Any: ...
+        def get(self, id: int) -> "Optional[_semantic.Symbol]": ...
+        def lookup(self, name: str) -> "Optional[_semantic.Symbol]": ...
+        def symbols(self) -> "List[_semantic.Symbol]": ...
+
+    class SemanticExpression(Expression):
+        """The base of every semantic expression node."""
+
+        @property
+        def ty(self) -> "_semantic.Type": ...
+        @property
+        def const_value(self) -> Optional[Any]: ...
+        @property
+        def symbol(self) -> "Optional[_semantic.Symbol]": ...
+
+    class SemanticStatement(Statement):
+        """The base of every semantic statement node."""
+
+    class Program(QASMNode):
+        """The root of a semantic `OpenQASM` program."""
+
+        @property
+        def version(self) -> Optional[str]:
+            """The declared `OpenQASM` version, if any (for example `"3.0"`)."""
+        @property
+        def pragmas(self) -> List[QASMNode]:
+            """The program's top-level pragmas, in source order."""
+        @property
+        def statements(self) -> List[QASMNode]:
+            """The program's top-level statements, in source order."""
+        @property
+        def document(self) -> SourceDocument:
+            """The immutable source document for this analysis snapshot."""
+        def children(self) -> List[QASMNode]: ...
+
+    class HardwareQubit(SemanticExpression):
+        """A hardware-qubit gate operand (for example ``$0``)."""
+
+        @property
+        def name(self) -> str:
+            """The hardware qubit's identifier text (for example `"$0"`)."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QuantumGateModifier(QASMNode):
+        """A semantic quantum gate modifier."""
+
+        @property
+        def modifier(self) -> GateModifierName:
+            """The modifier keyword."""
+        @property
+        def argument(self) -> Optional[Expression]:
+            """The modifier's argument, such as a `pow` exponent or a control count."""
+        def children(self) -> List[QASMNode]: ...
+
+    class RangeDefinition(QASMNode):
+        """A semantic range, as written in a slice or ``for`` loop."""
+
+        @property
+        def ty(self) -> "_semantic.Type":
+            """The range's resolved type, which is always `RangeType`."""
+        @property
+        def start(self) -> Optional[Expression]:
+            """The inclusive start of the range, when written."""
+        @property
+        def step(self) -> Optional[Expression]:
+            """The step between values, when written."""
+        @property
+        def end(self) -> Optional[Expression]:
+            """The inclusive end of the range, when written."""
+        def children(self) -> List[QASMNode]: ...
+
+    class DiscreteSet(QASMNode):
+        """A semantic brace-delimited set of values."""
+
+        @property
+        def ty(self) -> "_semantic.Type":
+            """The set's resolved type, which is always `SetType`."""
+        @property
+        def values(self) -> List[Expression]:
+            """The set's members, in source order."""
+        def children(self) -> List[QASMNode]: ...
+
+    class SwitchCase(QASMNode):
+        """A semantic ``case`` branch of a ``switch`` statement."""
+
+        @property
+        def labels(self) -> List[Expression]:
+            """The case labels this branch matches."""
+        @property
+        def body(self) -> List[Statement]:
+            """The statements run when a label matches."""
+        def children(self) -> List[QASMNode]: ...
+
+    class SubroutineParameter(QASMNode):
+        """A semantic subroutine parameter declaration."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The parameter's name, when analysis resolved one."""
+        @property
+        def symbol(self) -> "_semantic.Symbol": ...
+        @property
+        def type(self) -> "_semantic.Type":
+            """The parameter's resolved type."""
+        def children(self) -> List[QASMNode]: ...
+
+    class GateParameter(QASMNode):
+        """A semantic gate parameter declaration."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The parameter's name, when analysis resolved one."""
+        @property
+        def symbol(self) -> "_semantic.Symbol": ...
+        @property
+        def type(self) -> "_semantic.Type":
+            """The parameter's resolved type."""
+        def children(self) -> List[QASMNode]: ...
+
+    # --- semantic expression nodes ---
+
+    class ErrorExpression(SemanticExpression):
+        """An expression that could not be resolved."""
+
+        def children(self) -> List[QASMNode]: ...
+
+    class Identifier(SemanticExpression):
+        """A reference to a resolved symbol."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The identifier's name, when analysis resolved one."""
+        def children(self) -> List[QASMNode]: ...
+
+    class CapturedIdentifier(SemanticExpression):
+        """A reference to a symbol captured from an enclosing scope."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The identifier's name, when analysis resolved one."""
+        def children(self) -> List[QASMNode]: ...
+
+    class UnaryExpression(SemanticExpression):
+        """A unary operator expression."""
+
+        @property
+        def op(self) -> UnaryOperator:
+            """The unary operator applied to the operand."""
+        @property
+        def operand(self) -> Expression:
+            """The expression the operator is applied to."""
+        def children(self) -> List[QASMNode]: ...
+
+    class BinaryExpression(SemanticExpression):
+        """A binary operator expression."""
+
+        @property
+        def op(self) -> BinaryOperator:
+            """The binary operator joining the two operands."""
+        @property
+        def lhs(self) -> Expression:
+            """The left operand."""
+        @property
+        def rhs(self) -> Expression:
+            """The right operand."""
+        def children(self) -> List[QASMNode]: ...
+
+    class LiteralExpression(SemanticExpression):
+        """A literal expression."""
+
+        @property
+        def value(self) -> Optional[Any]:
+            """The literal's value, or `None` for an array literal."""
+        @property
+        def elements(self) -> List[Expression]:
+            """The element expressions, for an array literal."""
+        def children(self) -> List[QASMNode]: ...
+
+    class FunctionCall(SemanticExpression):
+        """A call to a resolved function."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The callee's name, when analysis resolved one."""
+        @property
+        def args(self) -> List[Expression]:
+            """The call arguments, in source order."""
+        def children(self) -> List[QASMNode]: ...
+
+    class BuiltinFunctionCall(SemanticExpression):
+        """A call to a built-in function."""
+
+        @property
+        def name(self) -> str:
+            """The built-in function's name."""
+        @property
+        def args(self) -> List[Expression]:
+            """The call arguments, in source order."""
+        def children(self) -> List[QASMNode]: ...
+
+    class Cast(SemanticExpression):
+        """A type cast expression."""
+
+        @property
+        def operand(self) -> Expression:
+            """The expression being cast."""
+        @property
+        def kind(self) -> "_semantic.CastKind":
+            """Whether the cast was written in the source or inserted by analysis."""
+        def children(self) -> List[QASMNode]: ...
+
+    class IndexExpression(SemanticExpression):
+        """An indexing expression."""
+
+        @property
+        def collection(self) -> Expression:
+            """The expression being indexed."""
+        @property
+        def indices(self) -> List[Expression]:
+            """The indices applied to the collection, outermost first."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ParenExpression(SemanticExpression):
+        """A parenthesized expression."""
+
+        @property
+        def operand(self) -> Expression:
+            """The expression inside the parentheses."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QuantumMeasurement(SemanticExpression):
+        """A measurement expression."""
+
+        @property
+        def qubits(self) -> List[Expression]:
+            """The qubits being measured."""
+        def children(self) -> List[QASMNode]: ...
+
+    class RuntimeSizeof(SemanticExpression):
+        """A runtime ``sizeof`` expression."""
+
+        @property
+        def array(self) -> Expression:
+            """The array whose size is being taken."""
+        @property
+        def dimension(self) -> Expression:
+            """The dimension being measured."""
+        @property
+        def array_rank(self) -> int:
+            """The array's number of dimensions."""
+        def children(self) -> List[QASMNode]: ...
+
+    class DurationOf(SemanticExpression):
+        """An evaluated ``durationof`` expression."""
+
+        @property
+        def body(self) -> List[Statement]:
+            """The statements whose duration was measured."""
+        def children(self) -> List[QASMNode]: ...
+
+    class Concatenation(SemanticExpression):
+        """A concatenation expression."""
+
+        @property
+        def operands(self) -> List[Expression]:
+            """The operands joined by `++`, in source order."""
+        def children(self) -> List[QASMNode]: ...
+
+    # --- semantic statement nodes ---
+
+    class AliasStatement(SemanticStatement):
+        """An alias declaration statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The alias's name, when analysis resolved one."""
+        @property
+        def exprs(self) -> List[Expression]:
+            """The expressions the alias refers to, joined by `++` when several."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ClassicalAssignment(SemanticStatement):
+        """An assignment statement."""
+
+        @property
+        def lhs(self) -> Expression:
+            """The assignment target."""
+        @property
+        def rhs(self) -> Expression:
+            """The assigned value, cast to the target's type when needed."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QuantumBarrier(SemanticStatement):
+        """A barrier statement."""
+
+        @property
+        def qubits(self) -> List[Expression]:
+            """The qubits the barrier applies to."""
+        def children(self) -> List[QASMNode]: ...
+
+    class Box(SemanticStatement):
+        """A box statement."""
+
+        @property
+        def duration(self) -> Optional[Expression]:
+            """The box's declared duration, when written."""
+        @property
+        def body(self) -> List[Statement]:
+            """The statements inside the box."""
+        def children(self) -> List[QASMNode]: ...
+
+    class CompoundStatement(SemanticStatement):
+        """A block of statements."""
+
+        @property
+        def statements(self) -> List[Statement]:
+            """The statements inside the block, in source order."""
+        def children(self) -> List[QASMNode]: ...
+
+    class BreakStatement(SemanticStatement):
+        """A break statement."""
+
+        def children(self) -> List[QASMNode]: ...
+
+    class CalibrationStatement(SemanticStatement):
+        """A calibration statement."""
+
+        @property
+        def content(self) -> str:
+            """The calibration block's raw text, which analysis does not interpret."""
+        def children(self) -> List[QASMNode]: ...
+
+    class CalibrationGrammarDeclaration(SemanticStatement):
+        """A calibration grammar statement."""
+
+        @property
+        def name(self) -> str:
+            """The named calibration grammar, for example `openpulse`."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ClassicalDeclaration(SemanticStatement):
+        """A classical variable declaration statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The declared name, when analysis resolved one."""
+        @property
+        def type(self) -> "_semantic.Type":
+            """The declared, resolved type."""
+        @property
+        def init_expr(self) -> Expression:
+            """The initializer, defaulted by analysis when the source omitted one."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ContinueStatement(SemanticStatement):
+        """A continue statement."""
+
+        def children(self) -> List[QASMNode]: ...
+
+    class SubroutineDefinition(SemanticStatement):
+        """A subroutine definition statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The subroutine's name, when analysis resolved one."""
+        @property
+        def params(self) -> List["_semantic.SubroutineParameter"]:
+            """The declared parameters, in source order."""
+        @property
+        def return_type(self) -> "_semantic.Type":
+            """The resolved return type, which is `VoidType` when the subroutine returns nothing."""
+        @property
+        def body(self) -> List[Statement]:
+            """The statements making up the subroutine body."""
+        def children(self) -> List[QASMNode]: ...
+
+    class CalibrationDefinition(SemanticStatement):
+        """A ``defcal`` statement."""
+
+        @property
+        def content(self) -> str:
+            """The `defcal` block's raw text, which analysis does not interpret."""
+        def children(self) -> List[QASMNode]: ...
+
+    class DelayInstruction(SemanticStatement):
+        """A delay statement."""
+
+        @property
+        def duration(self) -> Expression:
+            """The delay's duration."""
+        @property
+        def qubits(self) -> List[Expression]:
+            """The qubits the delay applies to."""
+        def children(self) -> List[QASMNode]: ...
+
+    class EndStatement(SemanticStatement):
+        """An end statement."""
+
+        def children(self) -> List[QASMNode]: ...
+
+    class ExpressionStatement(SemanticStatement):
+        """An expression statement."""
+
+        @property
+        def expr(self) -> Expression:
+            """The evaluated expression."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ExternDeclaration(SemanticStatement):
+        """An extern declaration statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The external subroutine's name, when analysis resolved one."""
+        @property
+        def type(self) -> "_semantic.Type":
+            """The resolved signature, whose `parameter_types` and `return_type` describe the call."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ForInLoop(SemanticStatement):
+        """A ``for`` loop statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The loop variable's name, when analysis resolved one."""
+        @property
+        def type(self) -> "_semantic.Type":
+            """The loop variable's resolved type."""
+        @property
+        def iterable(self) -> QASMNode:
+            """The range, set, or expression being iterated."""
+        @property
+        def body(self) -> Statement:
+            """The loop body."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QuantumGate(SemanticStatement):
+        """A gate call statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The gate's name, when analysis resolved one."""
+        @property
+        def modifiers(self) -> List["_semantic.QuantumGateModifier"]:
+            """The modifiers applied to the gate, such as `ctrl` or `inv`."""
+        @property
+        def args(self) -> List[Expression]:
+            """The classical arguments, such as a rotation angle."""
+        @property
+        def qubits(self) -> List[Expression]:
+            """The qubit operands the gate acts on."""
+        @property
+        def duration(self) -> Optional[Expression]:
+            """The gate's declared duration, when written."""
+        def children(self) -> List[QASMNode]: ...
+
+    class BranchingStatement(SemanticStatement):
+        """An ``if`` statement."""
+
+        @property
+        def condition(self) -> Expression:
+            """The branch condition."""
+        @property
+        def then_block(self) -> Statement:
+            """The block run when the condition holds."""
+        @property
+        def else_block(self) -> Optional[Statement]:
+            """The `else` block, when written."""
+        def children(self) -> List[QASMNode]: ...
+
+    class IndexedClassicalAssignment(SemanticStatement):
+        """An indexed assignment statement."""
+
+        @property
+        def lhs(self) -> Expression:
+            """The base expression being assigned into."""
+        @property
+        def indices(self) -> List[Expression]:
+            """The indices selecting the assigned element, outermost first."""
+        @property
+        def rhs(self) -> Expression:
+            """The assigned value, cast to the element's type when needed."""
+        def children(self) -> List[QASMNode]: ...
+
+    class InputDeclaration(SemanticStatement):
+        """An input declaration statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The input's name, when analysis resolved one."""
+        @property
+        def type(self) -> "_semantic.Type":
+            """The declared, resolved type."""
+        def children(self) -> List[QASMNode]: ...
+
+    class OutputDeclaration(SemanticStatement):
+        """An output declaration statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The output's name, when analysis resolved one."""
+        @property
+        def type(self) -> "_semantic.Type":
+            """The declared, resolved type."""
+        @property
+        def init_expr(self) -> Expression:
+            """The default value analysis assigned to the output."""
+        def children(self) -> List[QASMNode]: ...
+
+    class Pragma(SemanticStatement):
+        """A pragma statement.
+
+        ``command`` is authoritative; ``name`` and ``value`` are derived
+        compatibility views.
+        """
+
+        @property
+        def command(self) -> str:
+            """The pragma's full text after the keyword."""
+        @property
+        def name(self) -> Optional[str]:
+            """The leading dotted identifier, when the pragma has one."""
+        @property
+        def value(self) -> Optional[str]:
+            """The remaining text after the identifier, when present."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QuantumGateDefinition(SemanticStatement):
+        """A quantum gate definition statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The gate's name, when analysis resolved one."""
+        @property
+        def params(self) -> List["_semantic.GateParameter"]:
+            """The classical parameters, in source order."""
+        @property
+        def qubits(self) -> List["_semantic.GateParameter"]:
+            """The qubit parameters, in source order."""
+        @property
+        def body(self) -> List[Statement]:
+            """The statements making up the gate body."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QubitDeclaration(SemanticStatement):
+        """A qubit declaration statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The qubit's name, when analysis resolved one."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QubitArrayDeclaration(SemanticStatement):
+        """A qubit array declaration statement."""
+
+        @property
+        def name(self) -> Optional[str]:
+            """The register's name, when analysis resolved one."""
+        @property
+        def size(self) -> Expression:
+            """The register width."""
+        def children(self) -> List[QASMNode]: ...
+
+    class QuantumReset(SemanticStatement):
+        """A reset statement."""
+
+        @property
+        def qubits(self) -> List[Expression]:
+            """The qubits being reset."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ReturnStatement(SemanticStatement):
+        """A return statement."""
+
+        @property
+        def value(self) -> Optional[Expression]:
+            """The returned expression, when the subroutine returns a value."""
+        def children(self) -> List[QASMNode]: ...
+
+    class SwitchStatement(SemanticStatement):
+        """A switch statement."""
+
+        @property
+        def target(self) -> Expression:
+            """The expression being switched on."""
+        @property
+        def cases(self) -> List["_semantic.SwitchCase"]:
+            """The `case` branches, in source order."""
+        @property
+        def default(self) -> Optional[List[Statement]]:
+            """The `default` branch's statements, or `None` when there is no `default`."""
+        def children(self) -> List[QASMNode]: ...
+
+    class WhileLoop(SemanticStatement):
+        """A ``while`` loop statement."""
+
+        @property
+        def condition(self) -> Expression:
+            """The loop condition, tested before each iteration."""
+        @property
+        def body(self) -> Statement:
+            """The loop body."""
+        def children(self) -> List[QASMNode]: ...
+
+    class ErrorStatement(SemanticStatement):
+        """A statement that could not be resolved."""
+
+        def children(self) -> List[QASMNode]: ...
+
+class AnalysisResult:
+    """The result of a semantic :func:`analyze`."""
+
+    @property
+    def program(self) -> _semantic.Program:
+        """The root of the analyzed semantic program."""
+    @property
+    def document(self) -> SourceDocument:
+        """The immutable source document for this analysis snapshot."""
+    @property
+    def symbols(self) -> _semantic.SymbolTable:
+        """The resolved symbol table produced during analysis."""
+    @property
+    def diagnostics(self) -> List[Diagnostic]:
+        """All diagnostics (syntax and semantic errors) produced while analyzing."""
+    @property
+    def errors(self) -> List[Diagnostic]:
+        """Alias for [``AnalysisResult::diagnostics``]."""
+    @property
+    def has_errors(self) -> bool:
+        """Whether any errors were produced."""
+
+def analyze(
+    source: str,
+    path: str = ...,
+    includes: Optional[Union[Dict[str, str], Callable[[str], Optional[str]]]] = ...,
+) -> AnalysisResult:
+    """Parses and semantically analyzes `OpenQASM` source text."""
+    ...
+
+class ParseResult:
+    """The result of a syntactic :func:`parse`."""
+
+    @property
+    def program(self) -> Program:
+        """The root of the parsed syntactic program."""
+    @property
+    def document(self) -> SourceDocument:
+        """The immutable source document for this parse snapshot."""
+    @property
+    def diagnostics(self) -> List[Diagnostic]:
+        """All diagnostics (parse errors) produced while parsing."""
+    @property
+    def errors(self) -> List[Diagnostic]:
+        """Alias for [``ParseResult::diagnostics``]."""
+    @property
+    def has_errors(self) -> bool:
+        """Whether any errors were produced."""
+
+class _QASMUnparseError(ValueError):
+    """Internal checked serialization error carrier."""
+
+    code: str
+    span: Optional[Span]
+    diagnostics: Tuple[Diagnostic, ...]
+
+def parse(
+    source: str,
+    path: str = ...,
+    includes: Optional[Union[Dict[str, str], Callable[[str], Optional[str]]]] = ...,
+) -> ParseResult:
+    """Parses `OpenQASM` source text into a syntax tree."""
+    ...
+
+def qasm_dumps(program: Program) -> str:
+    """Canonically serializes a syntactic program from its entry source.
+
+    Only a syntactic `Program` is accepted. The parameter may widen to other
+    node kinds once an emitter that walks the Python nodes exists.
+    """
+    ...
