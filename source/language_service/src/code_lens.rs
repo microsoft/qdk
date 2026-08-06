@@ -25,6 +25,10 @@ pub(crate) fn get_code_lenses(
         return vec![]; // entrypoint actions don't work in notebooks
     }
 
+    if compilation.is_openqasm_spec_mode() {
+        return vec![]; // these lenses all run the program through the QDK
+    }
+
     if !compilation.project_errors.is_empty()
         || compilation
             .compile_errors

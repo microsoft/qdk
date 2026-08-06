@@ -6,7 +6,11 @@
 
 use super::{CompilationState, CompilationStateUpdater};
 use crate::{
-    protocol::{DiagnosticUpdate, NotebookMetadata, TestCallables, WorkspaceConfigurationUpdate},
+    compilation::CompilationKind,
+    protocol::{
+        DiagnosticUpdate, EffectiveOpenQasmMode, ModeResolved, NotebookMetadata, OpenQasmMode,
+        TestCallables, WorkspaceConfigurationUpdate,
+    },
     tests::test_fs::{FsNode, TestProjectHost, dir, file},
 };
 use expect_test::{Expect, expect};
@@ -37,6 +41,44 @@ async fn no_error() {
         .await;
 
     expect_errors(&errors, &expect!["[]"]);
+}
+
+#[tokio::test]
+async fn openqasm_mode_override_recompiles_and_notifies() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let modes = RefCell::new(Vec::<ModeResolved>::new());
+    let fs = Rc::new(RefCell::new(FsNode::Dir(
+        [dir("single", [file("test.qasm", "OPENQASM 3.0;")])]
+            .into_iter()
+            .collect(),
+    )));
+    let mut updater = new_updater_with_modes(&errors, &test_cases, &modes, &fs);
+
+    updater
+        .update_document("single/test.qasm", 1, "OPENQASM 3.0;", "openqasm")
+        .await;
+
+    assert_eq!(
+        updater.openqasm_compilation_uri_for_document("single/test.qasm"),
+        Some("single/test.qasm".into())
+    );
+    assert_eq!(
+        modes.borrow().last().map(|update| update.mode),
+        Some(EffectiveOpenQasmMode::Qdk)
+    );
+
+    updater.set_openqasm_mode_override("single/test.qasm", Some(OpenQasmMode::Spec));
+    assert_eq!(
+        modes.borrow().last().map(|update| update.mode),
+        Some(EffectiveOpenQasmMode::Spec)
+    );
+
+    updater.set_openqasm_mode_override("single/test.qasm", None);
+    assert_eq!(
+        modes.borrow().last().map(|update| update.mode),
+        Some(EffectiveOpenQasmMode::Qdk)
+    );
 }
 
 #[tokio::test]
@@ -522,6 +564,180 @@ async fn base_profile_rca_errors_are_reported_when_compilation_succeeds() {
                 cannot use a dynamic double value
                   [parent/src/main.qs] [x]
               ],
+            ]"#]],
+    );
+}
+
+#[tokio::test]
+async fn openqasm_mode_defaults_to_auto_and_recompiles_only_on_change() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    assert_eq!(updater.configuration.openqasm_mode, OpenQasmMode::Auto);
+
+    let changed_to_spec = updater.apply_configuration(WorkspaceConfigurationUpdate {
+        openqasm_mode: Some(OpenQasmMode::Spec),
+        ..WorkspaceConfigurationUpdate::default()
+    });
+    assert!(changed_to_spec, "a new mode should trigger recompilation");
+    assert_eq!(updater.configuration.openqasm_mode, OpenQasmMode::Spec);
+
+    let set_again = updater.apply_configuration(WorkspaceConfigurationUpdate {
+        openqasm_mode: Some(OpenQasmMode::Spec),
+        ..WorkspaceConfigurationUpdate::default()
+    });
+    assert!(
+        !set_again,
+        "an unchanged mode should not trigger recompilation"
+    );
+
+    let unrelated_update = updater.apply_configuration(WorkspaceConfigurationUpdate {
+        openqasm_mode: None,
+        ..WorkspaceConfigurationUpdate::default()
+    });
+    assert!(!unrelated_update);
+    assert_eq!(updater.configuration.openqasm_mode, OpenQasmMode::Spec);
+}
+
+/// Guards the recompilation path specifically: `update_configuration` reaches
+/// existing compilations through `recompile_all`, so a mode not threaded there
+/// would make the setting appear to work only until the first recompile.
+#[tokio::test]
+async fn openqasm_mode_change_reaches_existing_compilations() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    updater
+        .update_document(
+            "openqasm_files/self-contained.qasm",
+            1,
+            "include \"stdgates.inc\";\nqubit q;\nh q;\n",
+            "openqasm",
+        )
+        .await;
+
+    let mode_of = |updater: &CompilationStateUpdater| {
+        updater.with_state(|state| {
+            let (compilation, _) = state
+                .compilations
+                .get("openqasm_files/self-contained.qasm")
+                .expect("compilation should exist");
+            match compilation.kind {
+                CompilationKind::OpenQASM { effective_mode, .. } => effective_mode,
+                _ => panic!("expected an OpenQASM compilation"),
+            }
+        })
+    };
+
+    assert_eq!(mode_of(&updater), EffectiveOpenQasmMode::Qdk);
+
+    updater.update_configuration(WorkspaceConfigurationUpdate {
+        openqasm_mode: Some(OpenQasmMode::Spec),
+        ..WorkspaceConfigurationUpdate::default()
+    });
+
+    assert_eq!(mode_of(&updater), EffectiveOpenQasmMode::Spec);
+}
+
+/// A file can belong to a spec-mode parent compilation and also be open as its
+/// own compilation. Spec mode's promise is that the QDK stops reporting on the
+/// files it covers, so the second compilation must not publish into it.
+#[tokio::test]
+async fn spec_mode_parent_claims_its_included_files() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    updater
+        .update_document(
+            "openqasm_files/imports.inc",
+            1,
+            "#pragma qdk.qir.profile Base\nqubit qq;\nbit cc;\ncc = measure qq;\nif (cc == 1) { reset qq; }\n",
+            "openqasm",
+        )
+        .await;
+
+    expect_errors(
+        &errors,
+        &expect![[r#"
+        [
+          uri: "openqasm_files/imports.inc" version: Some(1) errors: [
+            cannot use a dynamic bool value
+              [openqasm_files/imports.inc] [if (cc == 1) { reset qq; }]
+            cannot use a dynamic integer value
+              [openqasm_files/imports.inc] [if (cc == 1) { reset qq; }]
+            cannot use a dynamic bool value
+              [openqasm_files/imports.inc] [cc == 1]
+            cannot use a dynamic integer value
+              [openqasm_files/imports.inc] [cc == 1]
+          ],
+        ]"#]],
+    );
+
+    updater
+        .update_document(
+            "openqasm_files/multifile.qasm",
+            1,
+            "include \"stdgates.inc\";\ninclude \"imports.inc\";\ndefcalgrammar \"openpulse\";\nqubit q;\nh q;\n",
+            "openqasm",
+        )
+        .await;
+
+    expect_errors(
+        &errors,
+        &expect![[r#"
+        [
+          uri: "openqasm_files/multifile.qasm" version: Some(1) errors: [],
+
+          uri: "openqasm_files/imports.inc" version: Some(1) errors: [],
+        ]"#]],
+    );
+
+    assert_eq!(
+        updater.openqasm_compilation_uri_for_document("openqasm_files/imports.inc"),
+        Some("openqasm_files/multifile.qasm".into())
+    );
+}
+
+#[tokio::test]
+async fn standalone_openqasm_include_resolves_spec_mode_independently() {
+    let errors = RefCell::new(Vec::new());
+    let test_cases = RefCell::new(Vec::new());
+    let mut updater = new_updater(&errors, &test_cases);
+
+    updater.update_configuration(WorkspaceConfigurationUpdate {
+        openqasm_mode: Some(OpenQasmMode::Spec),
+        ..WorkspaceConfigurationUpdate::default()
+    });
+
+    updater
+        .update_document(
+            "openqasm_files/imports.inc",
+            1,
+            "OPENQASM 3.0;\ndefcalgrammar \"openpulse\";\nqubit q;\n",
+            "openqasm",
+        )
+        .await;
+
+    let mode = updater.with_state(|state| {
+        let (compilation, _) = state
+            .compilations
+            .get("openqasm_files/imports.inc")
+            .expect("standalone include should have a compilation");
+        match compilation.kind {
+            CompilationKind::OpenQASM { effective_mode, .. } => effective_mode,
+            _ => panic!("expected an OpenQASM compilation"),
+        }
+    });
+
+    assert_eq!(mode, EffectiveOpenQasmMode::Spec);
+    expect_errors(
+        &errors,
+        &expect![[r#"
+            [
+              uri: "openqasm_files/imports.inc" version: Some(1) errors: [],
             ]"#]],
     );
 }
@@ -2894,9 +3110,26 @@ fn new_updater<'a>(
         Rc::new(RefCell::new(CompilationState::default())),
         diagnostic_receiver,
         test_callable_receiver,
+        |_| {},
         TestProjectHost {
             fs: TEST_FS.with(Clone::clone),
         },
+        Encoding::Utf8,
+    )
+}
+
+fn new_updater_with_modes<'a>(
+    received_errors: &'a RefCell<Vec<DiagnosticUpdate>>,
+    received_test_cases: &'a RefCell<Vec<TestCallables>>,
+    received_modes: &'a RefCell<Vec<ModeResolved>>,
+    fs: &Rc<RefCell<FsNode>>,
+) -> CompilationStateUpdater<'a> {
+    CompilationStateUpdater::new(
+        Rc::new(RefCell::new(CompilationState::default())),
+        move |update| received_errors.borrow_mut().push(update),
+        move |update| received_test_cases.borrow_mut().push(update),
+        move |update| received_modes.borrow_mut().push(update),
+        TestProjectHost { fs: fs.clone() },
         Encoding::Utf8,
     )
 }
@@ -2920,6 +3153,7 @@ fn new_updater_with_file_system<'a>(
         Rc::new(RefCell::new(CompilationState::default())),
         diagnostic_receiver,
         test_callable_receiver,
+        |_| {},
         TestProjectHost { fs: fs.clone() },
         Encoding::Utf8,
     )
