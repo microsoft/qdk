@@ -305,6 +305,7 @@ async fn package_aware_foreign_fir_transform_diagnostic() {
                 }));
         },
         |_| {},
+        |_| {},
         TestProjectHost { fs },
     );
 
@@ -407,6 +408,7 @@ fn create_update_handler<'a>(
             let mut v = received_test_cases.borrow_mut();
             v.push(update);
         },
+        |_| {},
         TestProjectHost {
             fs: TEST_FS.with(Clone::clone),
         },

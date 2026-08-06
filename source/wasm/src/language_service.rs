@@ -13,7 +13,10 @@ use qsc::{
     target::Profile,
 };
 use qsc_project::Manifest;
-use qsls::protocol::{DiagnosticUpdate, TestCallable, TestCallables};
+use qsls::protocol::{
+    DiagnosticUpdate, EffectiveOpenQasmMode, ModeResolved, OpenQasmMode, TestCallable,
+    TestCallables,
+};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
@@ -35,6 +38,7 @@ impl LanguageService {
         &mut self,
         diagnostics_callback: &DiagnosticsCallback,
         test_callables_callback: &TestCallableCallback,
+        mode_resolved_callback: &ModeResolvedCallback,
         host: ProjectHost,
     ) -> js_sys::Promise {
         let diagnostics_callback = diagnostics_callback
@@ -94,9 +98,26 @@ impl LanguageService {
                 )
                 .expect("callback should succeed");
         };
-        let mut worker =
-            self.0
-                .create_update_handler(diagnostics_callback, test_callables_callback, host);
+        let mode_resolved_callback = mode_resolved_callback
+            .dyn_ref::<js_sys::Function>()
+            .expect("expected a valid JS function")
+            .clone();
+
+        let mode_resolved_callback = move |update: ModeResolved| {
+            let mode = match update.mode {
+                EffectiveOpenQasmMode::Qdk => "qdk",
+                EffectiveOpenQasmMode::Spec => "spec",
+            };
+            let _ = mode_resolved_callback
+                .call2(&JsValue::NULL, &update.uri.into(), &mode.into())
+                .expect("callback should succeed");
+        };
+        let mut worker = self.0.create_update_handler(
+            diagnostics_callback,
+            test_callables_callback,
+            mode_resolved_callback,
+            host,
+        );
 
         future_to_promise(async move {
             worker.run().await;
@@ -125,6 +146,13 @@ impl LanguageService {
                     .map(|features| features.iter().collect::<LanguageFeatures>()),
                 lints_config: config.lints,
                 dev_diagnostics: config.devDiagnostics,
+                openqasm_mode: config.openqasmMode.as_deref().and_then(|mode| match mode {
+                    "auto" => Some(qsls::protocol::OpenQasmMode::Auto),
+                    "qdk" => Some(qsls::protocol::OpenQasmMode::Qdk),
+                    "spec" => Some(qsls::protocol::OpenQasmMode::Spec),
+                    // Leave the current mode in place rather than failing the whole update.
+                    _ => None,
+                }),
             });
     }
 
@@ -174,6 +202,22 @@ impl LanguageService {
 
     pub fn close_notebook_document(&mut self, notebook_uri: &str) {
         self.0.close_notebook_document(notebook_uri);
+    }
+
+    pub fn get_openqasm_mode(&self, uri: &str) -> Option<String> {
+        self.0.get_openqasm_mode(uri).map(|mode| match mode {
+            EffectiveOpenQasmMode::Qdk => "qdk".to_string(),
+            EffectiveOpenQasmMode::Spec => "spec".to_string(),
+        })
+    }
+
+    pub fn set_openqasm_mode_override(&mut self, uri: &str, mode: Option<String>) {
+        let mode = mode.and_then(|mode| match mode.as_str() {
+            "qdk" => Some(OpenQasmMode::Qdk),
+            "spec" => Some(OpenQasmMode::Spec),
+            _ => None,
+        });
+        self.0.set_openqasm_mode_override(uri, mode);
     }
 
     pub fn get_code_actions(&self, uri: &str, range: IRange) -> Vec<ICodeAction> {
@@ -382,6 +426,7 @@ serializable_type! {
         pub languageFeatures: Option<Vec<String>>,
         pub lints: Option<Vec<LintOrGroupConfig>>,
         pub devDiagnostics: Option<bool>,
+        pub openqasmMode: Option<String>,
     },
     r#"export interface IWorkspaceConfiguration {
         targetProfile?: TargetProfile;
@@ -389,6 +434,7 @@ serializable_type! {
         languageFeatures?: LanguageFeatures[];
         lints?: ({ lint: string; level: string } | { group: string; level: string })[];
         devDiagnostics?: boolean;
+        openqasmMode?: "auto" | "qdk" | "spec";
     }"#,
     IWorkspaceConfiguration
 }
@@ -648,4 +694,10 @@ extern "C" {
 extern "C" {
     #[wasm_bindgen(typescript_type = "(callables: ITestDescriptor[]) => void")]
     pub type TestCallableCallback;
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(typescript_type = "(uri: string, mode: \"qdk\" | \"spec\") => void")]
+    pub type ModeResolvedCallback;
 }

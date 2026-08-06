@@ -1,6 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+use crate::protocol::{EffectiveOpenQasmMode, OpenQasmMode};
 use log::trace;
 use qsc::{
     CompileUnit, LanguageFeatures, PackageStore, PackageType, PassContext, SourceMap, Span, ast,
@@ -12,7 +13,7 @@ use qsc::{
     line_column::{Encoding, Position, Range},
     openqasm::{
         CompileRawQasmResult, CompilerConfig, OutputSemantics, ProgramType, QubitSemantics,
-        compiler::compile_to_qsharp_ast_with_config,
+        compiler::compile_to_qsharp_ast_with_config, semantic::QasmSemanticParseResult,
     },
     packages::{BuildableProgram, prepare_package_store},
     project, resolve,
@@ -22,6 +23,9 @@ use qsc_linter::{LintLevel, LintOrGroupConfig};
 use qsc_project::{PackageGraphSources, Project, ProjectType};
 use std::mem::take;
 use std::sync::Arc;
+
+#[cfg(test)]
+mod openqasm_mode_tests;
 
 /// Represents an immutable compilation state that can be used
 /// to implement language service features.
@@ -56,6 +60,8 @@ pub(crate) enum CompilationKind {
         sources: Vec<(Arc<str>, Arc<str>)>,
         /// a human-readable name for the package (not a unique URI -- meant to be read by humans)
         friendly_name: Arc<str>,
+        /// The mode this compilation actually ran in.
+        effective_mode: EffectiveOpenQasmMode,
     },
 }
 
@@ -244,6 +250,7 @@ impl Compilation {
         sources: Vec<(Arc<str>, Arc<str>)>,
         project_errors: Vec<project::Error>,
         friendly_name: &Arc<str>,
+        requested_mode: OpenQasmMode,
     ) -> Self {
         let config = CompilerConfig::new(
             QubitSemantics::Qiskit,
@@ -253,7 +260,12 @@ impl Compilation {
             None,
         );
         let res = qsc::openqasm::semantic::parse_sources(&sources);
+        let stage_one = stage_one_diagnostics(&res);
         let unit = compile_to_qsharp_ast_with_config(res, config);
+        // Lowering seeds the unit from the stage-1 set and appends, so a longer
+        // list means stage 2 rejected something the QDK cannot represent.
+        let stage_two_appended = unit.errors().len() > stage_one.len();
+        let effective_mode = resolve_openqasm_mode(requested_mode, stage_two_appended);
         let target_profile = unit.profile().unwrap_or(Profile::Unrestricted);
         let CompileRawQasmResult(store, source_package_id, _, _sig, mut compile_errors, _) =
             qsc::openqasm::compile_openqasm(unit, package_type);
@@ -262,13 +274,19 @@ impl Compilation {
             .get(source_package_id)
             .expect("expected to find user package");
 
-        run_fir_passes(
-            &mut compile_errors,
-            target_profile,
-            &store,
-            source_package_id,
-            compile_unit,
-        );
+        if effective_mode == EffectiveOpenQasmMode::Spec {
+            // Everything past semantic analysis describes the QDK's view of the
+            // program, which spec mode does not report on.
+            compile_errors = stage_one;
+        } else {
+            run_fir_passes(
+                &mut compile_errors,
+                target_profile,
+                &store,
+                source_package_id,
+                compile_unit,
+            );
+        }
 
         Self {
             package_store: store,
@@ -276,11 +294,23 @@ impl Compilation {
             kind: CompilationKind::OpenQASM {
                 sources,
                 friendly_name: friendly_name.clone(),
+                effective_mode,
             },
             compile_errors,
             project_errors,
             test_cases: vec![],
         }
+    }
+
+    /// Whether this compilation is an OpenQASM compilation running in spec mode.
+    pub(crate) fn is_openqasm_spec_mode(&self) -> bool {
+        matches!(
+            self.kind,
+            CompilationKind::OpenQASM {
+                effective_mode: EffectiveOpenQasmMode::Spec,
+                ..
+            }
+        )
     }
 
     /// Returns a human-readable compilation name if one exists.
@@ -346,6 +376,7 @@ impl Compilation {
         target_profile: Profile,
         language_features: LanguageFeatures,
         lints_config: &[LintOrGroupConfig],
+        openqasm_mode: OpenQasmMode,
     ) {
         let new = match self.kind {
             CompilationKind::OpenProject {
@@ -378,11 +409,13 @@ impl Compilation {
             CompilationKind::OpenQASM {
                 ref sources,
                 ref friendly_name,
+                ..
             } => Self::new_qasm(
                 package_type,
                 sources.clone(),
                 Vec::new(), // project errors will stay the same
                 friendly_name,
+                openqasm_mode,
             ),
         };
 
@@ -390,7 +423,51 @@ impl Compilation {
         self.user_package_id = new.user_package_id;
         self.test_cases = new.test_cases;
         self.compile_errors = new.compile_errors;
+        // Carries the freshly resolved OpenQASM mode; equivalent to the old kind
+        // for the other compilation types.
+        self.kind = new.kind;
     }
+}
+
+/// Applies the mode resolution order: an explicit `Qdk` or `Spec` wins, and
+/// `Auto` selects `Spec` only when stage 2 rejected something.
+///
+/// Detection is deliberately stage 2 only. A stage-3 or stage-4 failure means
+/// the QDK tried and something else went wrong, and switching to spec mode
+/// there would hide the only diagnostic explaining the failure.
+fn resolve_openqasm_mode(
+    requested: OpenQasmMode,
+    stage_two_appended: bool,
+) -> EffectiveOpenQasmMode {
+    match requested {
+        OpenQasmMode::Qdk => EffectiveOpenQasmMode::Qdk,
+        OpenQasmMode::Spec => EffectiveOpenQasmMode::Spec,
+        OpenQasmMode::Auto => {
+            if stage_two_appended {
+                EffectiveOpenQasmMode::Spec
+            } else {
+                EffectiveOpenQasmMode::Qdk
+            }
+        }
+    }
+}
+
+/// Converts the OpenQASM semantic analysis diagnostics into the compilation's
+/// error type.
+///
+/// Reads the `errors` field rather than calling `all_errors()`: the field is
+/// already syntax plus semantic, so `all_errors()` would repeat every syntax
+/// error.
+fn stage_one_diagnostics(res: &QasmSemanticParseResult) -> Vec<WithSource<compile::ErrorKind>> {
+    res.errors
+        .iter()
+        .map(|e| {
+            WithSource::from_map(
+                &res.source_map,
+                compile::ErrorKind::OpenQasm(e.clone().into_error().into()),
+            )
+        })
+        .collect()
 }
 
 /// Runs the passes required for code generation

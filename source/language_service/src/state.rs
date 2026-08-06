@@ -7,9 +7,10 @@ mod tests;
 use crate::protocol::{DocumentStatusDiagnostic, TestCallable, UnnecessaryCodeDiagnostic};
 use crate::qsc_utils::into_range;
 
-use super::compilation::Compilation;
+use super::compilation::{Compilation, CompilationKind};
 use super::protocol::{
-    DiagnosticUpdate, ErrorKind, NotebookMetadata, TestCallables, WorkspaceConfigurationUpdate,
+    DiagnosticUpdate, EffectiveOpenQasmMode, ErrorKind, ModeResolved, NotebookMetadata,
+    OpenQasmMode, TestCallables, WorkspaceConfigurationUpdate,
 };
 use log::{debug, trace};
 use miette::Diagnostic;
@@ -70,6 +71,8 @@ struct Configuration {
     pub lints_config: Vec<LintOrGroupConfig>,
     /// Enables non-user-facing developer diagnostics.
     pub dev_diagnostics: bool,
+    /// The configured OpenQASM mode. `Auto` defers to per-compilation resolution.
+    pub openqasm_mode: OpenQasmMode,
 }
 
 impl Default for Configuration {
@@ -80,6 +83,7 @@ impl Default for Configuration {
             language_features: LanguageFeatures::default(),
             lints_config: Vec::default(),
             dev_diagnostics: false,
+            openqasm_mode: OpenQasmMode::Auto,
         }
     }
 }
@@ -112,6 +116,10 @@ pub(super) struct CompilationStateUpdater<'a> {
     diagnostics_receiver: Box<dyn Fn(DiagnosticUpdate) + 'a>,
     /// Callback which will receive test callables whenever a (re-)compilation occurs.
     test_callable_receiver: Box<dyn Fn(TestCallables) + 'a>,
+    /// Callback which receives resolved OpenQASM modes after every compilation.
+    mode_resolved_receiver: Box<dyn Fn(ModeResolved) + 'a>,
+    /// Session-scoped OpenQASM mode overrides, keyed by compilation URI.
+    openqasm_mode_overrides: FxHashMap<CompilationUri, OpenQasmMode>,
     cache: RefCell<PackageCache>,
     /// Functions to interact with the host filesystem for project system operations.
     project_host: Box<dyn JSProjectHost>,
@@ -124,6 +132,7 @@ impl<'a> CompilationStateUpdater<'a> {
         state: Rc<RefCell<CompilationState>>,
         diagnostics_receiver: impl Fn(DiagnosticUpdate) + 'a,
         test_callable_receiver: impl Fn(TestCallables) + 'a,
+        mode_resolved_receiver: impl Fn(ModeResolved) + 'a,
         project_host: impl JSProjectHost + 'static,
         position_encoding: Encoding,
     ) -> Self {
@@ -133,6 +142,8 @@ impl<'a> CompilationStateUpdater<'a> {
             documents_with_diagnostics: FxHashSet::default(),
             diagnostics_receiver: Box::new(diagnostics_receiver),
             test_callable_receiver: Box::new(test_callable_receiver),
+            mode_resolved_receiver: Box::new(mode_resolved_receiver),
+            openqasm_mode_overrides: FxHashMap::default(),
             cache: RefCell::default(),
             project_host: Box::new(project_host),
             position_encoding,
@@ -192,6 +203,27 @@ impl<'a> CompilationStateUpdater<'a> {
         self.insert_buffer_aware_compilation(project);
 
         self.publish_diagnostics_and_test_callables();
+    }
+
+    pub(super) fn set_openqasm_mode_override(
+        &mut self,
+        document_uri: &str,
+        mode: Option<OpenQasmMode>,
+    ) {
+        let Some(compilation_uri) = self.openqasm_compilation_uri_for_document(document_uri) else {
+            return;
+        };
+
+        match mode {
+            Some(mode) => {
+                self.openqasm_mode_overrides.insert(compilation_uri, mode);
+            }
+            None => {
+                self.openqasm_mode_overrides.remove(&compilation_uri);
+            }
+        }
+
+        self.recompile_all();
     }
 
     async fn load_project_from_doc_uri(
@@ -313,6 +345,7 @@ impl<'a> CompilationStateUpdater<'a> {
                     sources,
                     loaded_project.errors,
                     &loaded_project.name,
+                    self.openqasm_mode_for(&loaded_project.path),
                 ),
                 ProjectType::QSharp(package_graph_sources) => Compilation::new(
                     configuration.package_type,
@@ -329,6 +362,8 @@ impl<'a> CompilationStateUpdater<'a> {
                 .compilations
                 .insert(loaded_project.path, (compilation, compilation_overrides));
         });
+
+        self.publish_openqasm_modes();
     }
 
     pub(super) async fn close_document(&mut self, uri: &str, language_id: &str) {
@@ -474,7 +509,13 @@ impl<'a> CompilationStateUpdater<'a> {
         let mut docs_with_diags = FxHashSet::default();
 
         self.with_state(|state| {
-            for (compilation_uri, compilation) in &state.compilations {
+            // Spec-mode compilations are visited first so the documents they
+            // cover cannot be claimed by another compilation that would report
+            // QDK diagnostics for them.
+            let mut compilations: Vec<_> = state.compilations.iter().collect();
+            compilations.sort_by_key(|(_, (compilation, _))| !compilation.is_openqasm_spec_mode());
+
+            for (compilation_uri, compilation) in compilations {
                 trace!("publishing diagnostics for {compilation_uri}");
 
                 if compilation_uri.starts_with(qsc_project::GITHUB_SCHEME) {
@@ -500,6 +541,21 @@ impl<'a> CompilationStateUpdater<'a> {
                     self.position_encoding,
                     &mut compilation_diags_by_doc,
                 );
+
+                if let CompilationKind::OpenQASM {
+                    sources,
+                    effective_mode: EffectiveOpenQasmMode::Spec,
+                    ..
+                } = &compilation.0.kind
+                {
+                    // A spec-mode compilation often has nothing to report, and a
+                    // compilation that reports nothing claims no documents. Claim
+                    // its sources explicitly so no other compilation publishes QDK
+                    // diagnostics into a file this one covers.
+                    for (name, _) in sources {
+                        compilation_diags_by_doc.entry(name.clone()).or_default();
+                    }
+                }
 
                 if self.configuration.dev_diagnostics {
                     // Add the document status diagnostic for all open documents too
@@ -537,6 +593,36 @@ impl<'a> CompilationStateUpdater<'a> {
         });
 
         self.documents_with_diagnostics = docs_with_diags;
+    }
+
+    fn publish_openqasm_modes(&self) {
+        let updates = self.with_state(|state| {
+            state
+                .compilations
+                .values()
+                .filter_map(|(compilation, _)| match &compilation.kind {
+                    CompilationKind::OpenQASM {
+                        sources,
+                        effective_mode,
+                        ..
+                    } => Some(
+                        sources
+                            .iter()
+                            .map(|(uri, _)| ModeResolved {
+                                uri: uri.to_string(),
+                                mode: *effective_mode,
+                            })
+                            .collect::<Vec<_>>(),
+                    ),
+                    CompilationKind::OpenProject { .. } | CompilationKind::Notebook { .. } => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>()
+        });
+
+        for update in updates {
+            (self.mode_resolved_receiver)(update);
+        }
     }
 
     fn publish_diagnostics_for_doc(
@@ -585,6 +671,11 @@ impl<'a> CompilationStateUpdater<'a> {
             self.configuration.dev_diagnostics = dev_diagnostics;
         }
 
+        if let Some(openqasm_mode) = configuration.openqasm_mode {
+            need_recompile |= self.configuration.openqasm_mode != openqasm_mode;
+            self.configuration.openqasm_mode = openqasm_mode;
+        }
+
         // Possible optimization: some projects will have overrides for these configurations,
         // so workspace updates won't impact them. We could exclude those projects
         // from recompilation, but we don't right now.
@@ -597,7 +688,7 @@ impl<'a> CompilationStateUpdater<'a> {
     /// diagnostics for all documents.
     fn recompile_all(&mut self) {
         self.with_state_mut(|state| {
-            for (compilation, package_specific_configuration) in state.compilations.values_mut() {
+            for (uri, (compilation, package_specific_configuration)) in &mut state.compilations {
                 let configuration =
                     merge_configurations(package_specific_configuration, &self.configuration);
                 let lints_config = package_specific_configuration.lints_config.clone();
@@ -606,11 +697,27 @@ impl<'a> CompilationStateUpdater<'a> {
                     configuration.target_profile,
                     configuration.language_features,
                     &lints_config,
+                    self.openqasm_mode_for(uri),
                 );
             }
         });
 
+        self.publish_openqasm_modes();
         self.publish_diagnostics_and_test_callables();
+    }
+
+    /// The mode to compile the given compilation root in. The single place
+    /// where a per-compilation override would take precedence over the
+    /// workspace setting.
+    fn openqasm_mode_for(&self, compilation_uri: &str) -> OpenQasmMode {
+        self.openqasm_mode_overrides
+            .get(compilation_uri)
+            .copied()
+            .unwrap_or(self.configuration.openqasm_mode)
+    }
+
+    fn openqasm_compilation_uri_for_document(&self, document_uri: &str) -> Option<CompilationUri> {
+        self.with_state(|state| state.openqasm_compilation_uri_for_document(document_uri))
     }
 
     /// Borrows the compilation state immutably and invokes `f`.
@@ -689,6 +796,45 @@ impl CompilationState {
         Some(&self.compilations.get(compilation_uri).unwrap_or_else(|| {
             panic!("document associated with compilation that hasn't been initialized ({compilation_uri})")
         }).0)
+    }
+
+    pub(crate) fn get_openqasm_mode(&self, document_uri: &str) -> Option<EffectiveOpenQasmMode> {
+        let compilation_uri = self.openqasm_compilation_uri_for_document(document_uri)?;
+        let compilation = &self.compilations.get(&compilation_uri)?.0;
+        let CompilationKind::OpenQASM { effective_mode, .. } = compilation.kind else {
+            return None;
+        };
+        Some(effective_mode)
+    }
+
+    fn openqasm_compilation_uri_for_document(&self, document_uri: &str) -> Option<CompilationUri> {
+        let spec_compilation =
+            self.compilations
+                .iter()
+                .find_map(|(compilation_uri, (compilation, _))| {
+                    let CompilationKind::OpenQASM {
+                        sources,
+                        effective_mode: EffectiveOpenQasmMode::Spec,
+                        ..
+                    } = &compilation.kind
+                    else {
+                        return None;
+                    };
+
+                    sources
+                        .iter()
+                        .any(|(source_uri, _)| source_uri.as_ref() == document_uri)
+                        .then(|| compilation_uri.clone())
+                });
+
+        spec_compilation.or_else(|| {
+            let compilation_uri = self.open_documents.get(document_uri)?.compilation.clone();
+            matches!(
+                self.compilations.get(&compilation_uri)?.0.kind,
+                CompilationKind::OpenQASM { .. }
+            )
+            .then_some(compilation_uri)
+        })
     }
 }
 
@@ -794,5 +940,6 @@ fn merge_configurations(
             .unwrap_or(workspace_scope.language_features),
         lints_config: merged_lints,
         dev_diagnostics: workspace_scope.dev_diagnostics,
+        openqasm_mode: workspace_scope.openqasm_mode,
     }
 }

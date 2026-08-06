@@ -43,9 +43,18 @@ export type LanguageServiceTestCallablesEvent = {
   };
 };
 
+export type LanguageServiceModeResolvedEvent = {
+  type: "modeResolved";
+  detail: {
+    uri: string;
+    mode: "qdk" | "spec";
+  };
+};
+
 export type LanguageServiceEvent =
   | LanguageServiceDiagnosticEvent
-  | LanguageServiceTestCallablesEvent;
+  | LanguageServiceTestCallablesEvent
+  | LanguageServiceModeResolvedEvent;
 
 // These need to be async/promise results for when communicating across a WebWorker, however
 // for running the compiler in the same thread the result will be synchronous (a resolved promise).
@@ -69,6 +78,11 @@ export interface ILanguageService {
   ): Promise<void>;
   closeDocument(uri: string, languageId?: string): Promise<void>;
   closeNotebookDocument(notebookUri: string): Promise<void>;
+  getOpenQasmMode(documentUri: string): Promise<"qdk" | "spec" | undefined>;
+  setOpenQasmModeOverride(
+    documentUri: string,
+    mode: "qdk" | "spec" | undefined,
+  ): Promise<void>;
   getCodeActions(documentUri: string, range: IRange): Promise<ICodeAction[]>;
   getCompletions(
     documentUri: string,
@@ -144,6 +158,7 @@ export class QSharpLanguageService implements ILanguageService {
     this.updateLoop = this.languageService.start_update_loop(
       this.onDiagnostics.bind(this),
       this.onTestCallables.bind(this),
+      this.onModeResolved.bind(this),
       host,
     );
   }
@@ -181,6 +196,20 @@ export class QSharpLanguageService implements ILanguageService {
 
   async closeNotebookDocument(documentUri: string): Promise<void> {
     this.languageService.close_notebook_document(documentUri);
+  }
+
+  async getOpenQasmMode(
+    documentUri: string,
+  ): Promise<"qdk" | "spec" | undefined> {
+    const mode = this.languageService.get_openqasm_mode(documentUri);
+    return mode === "qdk" || mode === "spec" ? mode : undefined;
+  }
+
+  async setOpenQasmModeOverride(
+    documentUri: string,
+    mode: "qdk" | "spec" | undefined,
+  ): Promise<void> {
+    this.languageService.set_openqasm_mode_override(documentUri, mode);
   }
 
   async getCodeActions(
@@ -312,6 +341,18 @@ export class QSharpLanguageService implements ILanguageService {
       log.error("Error in onTestCallables", e);
     }
   }
+
+  async onModeResolved(uri: string, mode: "qdk" | "spec") {
+    try {
+      const event = new Event(
+        "modeResolved",
+      ) as LanguageServiceModeResolvedEvent & Event;
+      event.detail = { uri, mode };
+      this.eventHandler.dispatchEvent(event);
+    } catch (e) {
+      log.error("Error in onModeResolved", e);
+    }
+  }
 }
 
 /**
@@ -321,7 +362,7 @@ export class QSharpLanguageService implements ILanguageService {
  */
 export const languageServiceProtocol: ServiceProtocol<
   ILanguageService,
-  LanguageServiceDiagnosticEvent
+  LanguageServiceEvent
 > = {
   class: QSharpLanguageService,
   methods: {
@@ -330,6 +371,8 @@ export const languageServiceProtocol: ServiceProtocol<
     updateNotebookDocument: "request",
     closeDocument: "request",
     closeNotebookDocument: "request",
+    getOpenQasmMode: "request",
+    setOpenQasmModeOverride: "request",
     getCodeActions: "request",
     getCompletions: "request",
     getFormatChanges: "request",
@@ -344,5 +387,5 @@ export const languageServiceProtocol: ServiceProtocol<
     addEventListener: "addEventListener",
     removeEventListener: "removeEventListener",
   },
-  eventNames: ["diagnostics"],
+  eventNames: ["diagnostics", "testCallables", "modeResolved"],
 };

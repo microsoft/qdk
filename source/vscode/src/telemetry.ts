@@ -42,6 +42,7 @@ export enum EventType {
   DebugSessionEvent = "Qsharp.DebugSessionEvent",
   Launch = "Qsharp.Launch",
   OpenedDocument = "Qsharp.OpenedDocument",
+  OpenQasmModeResolved = "Qsharp.OpenQasmModeResolved",
   TriggerResourceEstimation = "Qsharp.TriggerResourceEstimation",
   ResourceEstimationStart = "Qsharp.ResourceEstimationStart",
   ResourceEstimationEnd = "Qsharp.ResourceEstimationEnd",
@@ -95,6 +96,10 @@ type EventTypes = {
     measurements: {
       timeToStartMs: number;
     };
+  };
+  [EventType.OpenQasmModeResolved]: {
+    properties: { mode: "qdk" | "spec" };
+    measurements: Empty;
   };
   [EventType.ReturnCompletionList]: {
     properties: DocumentEventProperties;

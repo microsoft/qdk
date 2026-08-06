@@ -231,6 +231,7 @@ export type {
   ILanguageServiceWorker,
   LanguageServiceDiagnosticEvent,
   LanguageServiceEvent,
+  LanguageServiceModeResolvedEvent,
   LanguageServiceTestCallablesEvent,
 } from "./language-service/language-service.js";
 export type { ProjectLoader } from "./project.js";

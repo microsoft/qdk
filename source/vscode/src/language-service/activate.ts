@@ -14,7 +14,7 @@ import {
   openqasmLanguageId,
   qsharpLanguageId,
 } from "../common.js";
-import { getShowDevDiagnostics } from "../config.js";
+import { getOpenQasmMode, getShowDevDiagnostics } from "../config.js";
 import {
   fetchGithubRaw,
   findManifestDirectory,
@@ -36,6 +36,10 @@ import { startLanguageServiceDiagnostics } from "./diagnostics.js";
 import { createFormattingProvider } from "./format.js";
 import { createHoverProvider } from "./hover.js";
 import { registerQdkNotebookCellUpdateHandlers } from "./notebook.js";
+import {
+  initializeOpenQasmModeService,
+  registerOpenQasmModeCommands,
+} from "./openqasmMode.js";
 import { createReferenceProvider } from "./references.js";
 import { createRenameProvider } from "./rename.js";
 import { createSignatureHelpProvider } from "./signature.js";
@@ -51,6 +55,14 @@ export async function activateLanguageService(
   const subscriptions: vscode.Disposable[] = [];
 
   const languageService = await loadLanguageService(extensionUri);
+
+  const openQasmModeService = initializeOpenQasmModeService(languageService);
+  subscriptions.push(openQasmModeService, ...registerOpenQasmModeCommands());
+  subscriptions.push(
+    openQasmModeService.onDidResolveMode((event) =>
+      sendTelemetryEvent(EventType.OpenQasmModeResolved, { mode: event.mode }),
+    ),
+  );
 
   // diagnostics
   subscriptions.push(...startLanguageServiceDiagnostics(languageService));
@@ -307,7 +319,10 @@ function registerConfigurationChangeHandlers(
   languageService: ILanguageService,
 ) {
   return vscode.workspace.onDidChangeConfiguration((event) => {
-    if (event.affectsConfiguration("Q#.dev.showDevDiagnostics")) {
+    if (
+      event.affectsConfiguration("Q#.dev.showDevDiagnostics") ||
+      event.affectsConfiguration("qdk.openqasm.mode")
+    ) {
       updateLanguageServiceConfiguration(languageService);
     }
   });
@@ -317,12 +332,15 @@ async function updateLanguageServiceConfiguration(
   languageService: ILanguageService,
 ) {
   const showDevDiagnostics = getShowDevDiagnostics();
+  const openqasmMode = getOpenQasmMode();
 
   log.debug("Show dev diagnostics set to: " + showDevDiagnostics);
+  log.debug("OpenQASM mode set to: " + openqasmMode);
 
   // Update all configuration settings
   languageService.updateConfiguration({
     devDiagnostics: showDevDiagnostics,
+    openqasmMode,
     lints: [{ lint: "needlessOperation", level: "warn" }],
   });
 }

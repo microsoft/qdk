@@ -17,6 +17,31 @@ pub struct WorkspaceConfigurationUpdate {
     pub language_features: Option<LanguageFeatures>,
     pub lints_config: Option<Vec<LintOrGroupConfig>>,
     pub dev_diagnostics: Option<bool>,
+    pub openqasm_mode: Option<OpenQasmMode>,
+}
+
+/// The configured OpenQASM editing mode. `Auto` is not an effective mode; it
+/// defers the choice to per-compilation resolution.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum OpenQasmMode {
+    #[default]
+    Auto,
+    Qdk,
+    Spec,
+}
+
+/// The mode a compilation actually ran in. Unlike `OpenQasmMode`, this has no
+/// deferred value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EffectiveOpenQasmMode {
+    Qdk,
+    Spec,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModeResolved {
+    pub uri: String,
+    pub mode: EffectiveOpenQasmMode,
 }
 
 #[derive(Clone, Debug, Diagnostic, Error)]

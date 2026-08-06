@@ -99,152 +99,186 @@
         }
       ]
     },
-    "configuration": {
-      "title": "Q#",
-      "properties": {
-        "Q#.circuits.config": {
-          "markdownDescription": "Circuit diagram options",
-          "type": "object",
-          "additionalProperties": false,
-          "default": {
-            "maxOperations": 10001,
-            "generationMethod": "static",
-            "sourceLocations": true,
-            "groupByScope": true
-          },
-          "properties": {
-            "maxOperations": {
-              "type": "number",
-              "default": 10001,
-              "minimum": 1,
-              "description": "The maximum number of operations to include in the circuit diagram."
-            },
-            "groupByScope": {
-              "type": "boolean",
-              "default": true,
-              "description": "Group operations based on the structure of the original source code."
-            },
-            "generationMethod": {
-              "type": "string",
-              "default": "static",
-              "enum": [
-                "static",
-                "classicalEval",
-                "simulate"
-              ],
-              "description": "The method to use for generating the circuit diagram. 'static' uses static analysis and partial evaluation, 'classicalEval' uses only classical evaluation, and 'simulate' uses quantum simulation."
-            },
-            "sourceLocations": {
-              "type": "boolean",
-              "default": true,
-              "description": "Show the source code locations of operations and qubit declarations in the circuit diagram."
-            }
-          }
-        },
-        "Q#.simulation.pauliNoise": {
-          "markdownDescription": "The Pauli noise to apply when running multiple shots via the Histogram command. This is applied for every gate or measurement on all qubits referenced.\n\nProbability values are in the range [0, 1].",
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "X": {
-              "type": "number",
-              "default": 0,
-              "minimum": 0,
-              "maximum": 1,
-              "description": "The probability of a bit flip error occurring"
-            },
-            "Y": {
-              "type": "number",
-              "default": 0,
-              "minimum": 0,
-              "maximum": 1,
-              "description": "The probability of a bit-and-phase flip error occurring"
-            },
-            "Z": {
-              "type": "number",
-              "default": 0,
-              "minimum": 0,
-              "maximum": 1,
-              "description": "The probability of a phase flip error occurring"
-            }
-          }
-        },
-        "Q#.simulation.qubitLoss": {
-          "markdownDescription": "The probability of a qubit loss occurring when running multiple shots via the Histogram command. This is applied on every gate or measurement on all qubits referenced.\n\nProbability values are in the range [0, 1].",
-          "type": "number",
-          "default": 0,
-          "minimum": 0,
-          "maximum": 1,
-          "description": "The probability of a qubit loss occurring"
-        },
-        "Q#.dev.showDevDiagnostics": {
-          "type": "boolean",
-          "default": false,
-          "description": "Show dev diagnostics in Problems view for each open document. This is for internal development and testing purposes.",
-          "tags": [
-            "hidden"
-          ]
-        },
-        "Q#.notifications.suppressUpdateNotifications": {
-          "type": "boolean",
-          "default": false,
-          "description": "Suppress notifications about new QDK updates. If true, you will not be prompted about new features after updates."
-        },
-        "Q#.azure.uploadSupplementalData": {
-          "type": "boolean",
-          "default": true,
-          "tags": [
-            "hidden"
-          ],
-          "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
-        },
-        "Q#.azure.quantumOsRoot": {
-          "type": "string",
-          "default": "https://manage.quantum.microsoft.com",
-          "tags": [
-            "hidden"
-          ],
-          "description": "The root URL of the Quantum OS web portal, used when generating deep links to V2 workspaces and jobs."
-        },
-        "Q#.azure.targetJobParams": {
-          "type": "object",
-          "default": {},
-          "tags": [
-            "hidden"
-          ],
-          "markdownDescription": "Additional job parameters to include in `inputParams` when submitting to a specific target. Keys are target IDs (e.g. `ionq.simulator`), values are objects merged into the job's `inputParams`.",
-          "additionalProperties": {
+    "configuration": [
+      {
+        "title": "Q#",
+        "properties": {
+          "Q#.circuits.config": {
+            "markdownDescription": "Circuit diagram options",
             "type": "object",
-            "additionalProperties": true
+            "additionalProperties": false,
+            "default": {
+              "maxOperations": 10001,
+              "generationMethod": "static",
+              "sourceLocations": true,
+              "groupByScope": true
+            },
+            "properties": {
+              "maxOperations": {
+                "type": "number",
+                "default": 10001,
+                "minimum": 1,
+                "description": "The maximum number of operations to include in the circuit diagram."
+              },
+              "groupByScope": {
+                "type": "boolean",
+                "default": true,
+                "description": "Group operations based on the structure of the original source code."
+              },
+              "generationMethod": {
+                "type": "string",
+                "default": "static",
+                "enum": [
+                  "static",
+                  "classicalEval",
+                  "simulate"
+                ],
+                "description": "The method to use for generating the circuit diagram. 'static' uses static analysis and partial evaluation, 'classicalEval' uses only classical evaluation, and 'simulate' uses quantum simulation."
+              },
+              "sourceLocations": {
+                "type": "boolean",
+                "default": true,
+                "description": "Show the source code locations of operations and qubit declarations in the circuit diagram."
+              }
+            }
+          },
+          "Q#.simulation.pauliNoise": {
+            "markdownDescription": "The Pauli noise to apply when running multiple shots via the Histogram command. This is applied for every gate or measurement on all qubits referenced.\n\nProbability values are in the range [0, 1].",
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "X": {
+                "type": "number",
+                "default": 0,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "The probability of a bit flip error occurring"
+              },
+              "Y": {
+                "type": "number",
+                "default": 0,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "The probability of a bit-and-phase flip error occurring"
+              },
+              "Z": {
+                "type": "number",
+                "default": 0,
+                "minimum": 0,
+                "maximum": 1,
+                "description": "The probability of a phase flip error occurring"
+              }
+            }
+          },
+          "Q#.simulation.qubitLoss": {
+            "markdownDescription": "The probability of a qubit loss occurring when running multiple shots via the Histogram command. This is applied on every gate or measurement on all qubits referenced.\n\nProbability values are in the range [0, 1].",
+            "type": "number",
+            "default": 0,
+            "minimum": 0,
+            "maximum": 1,
+            "description": "The probability of a qubit loss occurring"
+          },
+          "Q#.dev.showDevDiagnostics": {
+            "type": "boolean",
+            "default": false,
+            "description": "Show dev diagnostics in Problems view for each open document. This is for internal development and testing purposes.",
+            "tags": [
+              "hidden"
+            ]
+          },
+          "Q#.notifications.suppressUpdateNotifications": {
+            "type": "boolean",
+            "default": false,
+            "description": "Suppress notifications about new QDK updates. If true, you will not be prompted about new features after updates."
+          },
+          "Q#.azure.uploadSupplementalData": {
+            "type": "boolean",
+            "default": true,
+            "tags": [
+              "hidden"
+            ],
+            "description": "Upload supplemental input data (circuit diagram) to the storage container when submitting jobs to Azure Quantum."
+          },
+          "Q#.azure.quantumOsRoot": {
+            "type": "string",
+            "default": "https://manage.quantum.microsoft.com",
+            "tags": [
+              "hidden"
+            ],
+            "description": "The root URL of the Quantum OS web portal, used when generating deep links to V2 workspaces and jobs."
+          },
+          "Q#.azure.targetJobParams": {
+            "type": "object",
+            "default": {},
+            "tags": [
+              "hidden"
+            ],
+            "markdownDescription": "Additional job parameters to include in `inputParams` when submitting to a specific target. Keys are target IDs (e.g. `ionq.simulator`), values are objects merged into the job's `inputParams`.",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      {
+        "title": "QDK",
+        "properties": {
+          "qdk.openqasm.mode": {
+            "type": "string",
+            "default": "auto",
+            "enum": [
+              "auto",
+              "qdk",
+              "spec"
+            ],
+            "enumDescriptions": [
+              "Use QDK mode, and switch a file to spec mode automatically when it uses OpenQASM the QDK cannot compile.",
+              "Always use QDK mode. OpenQASM the QDK cannot compile is reported as errors, and run, debug, estimate, and submission stay available.",
+              "Always use spec mode. Only OpenQASM specification errors are reported, and QDK-only features such as run, debug, estimate, and submission are unavailable."
+            ],
+            "markdownDescription": "How the editor treats OpenQASM files.\n\nThe QDK compiles a subset of OpenQASM. In **QDK mode** the whole toolchain is available, but constructs outside that subset are reported as errors. In **spec mode** your file is checked against the OpenQASM specification alone, so valid code reads as valid, at the cost of the QDK-only features.\n\n**auto** keeps QDK mode until a file actually needs spec mode. A code lens offers the way back."
           }
         }
       }
-    },
+    ],
     "menus": {
       "editor/title/run": [
         {
           "command": "qsharp-vscode.runProgram",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit",
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)",
           "group": "navigation@1"
         },
         {
           "command": "qsharp-vscode.debugProgram",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit",
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)",
           "group": "navigation@2"
         }
       ],
       "commandPalette": [
         {
+          "command": "qsharp-vscode.openqasmSwitchToQdk",
+          "when": "resourceLangId == openqasm && qsharp-vscode.openqasmMode == spec"
+        },
+        {
+          "command": "qsharp-vscode.openqasmSwitchToSpec",
+          "when": "resourceLangId == openqasm && qsharp-vscode.openqasmMode == qdk"
+        },
+        {
+          "command": "qsharp-vscode.openqasmResetMode",
+          "when": "resourceLangId == openqasm"
+        },
+        {
           "command": "qsharp-vscode.runProgram",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit"
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)"
         },
         {
           "command": "qsharp-vscode.debugProgram",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit"
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm || resourceLangId == qsharpcircuit) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)"
         },
         {
           "command": "qsharp-vscode.runEditorContentsWithCircuit",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm"
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)"
         },
         {
           "command": "qsharp-vscode.targetSubmit",
@@ -280,15 +314,15 @@
         },
         {
           "command": "qsharp-vscode.getQir",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm"
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)"
         },
         {
           "command": "qsharp-vscode.showHistogram",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm"
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)"
         },
         {
           "command": "qsharp-vscode.showRe",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm"
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)"
         },
         {
           "command": "qsharp-vscode.showHelp",
@@ -296,7 +330,7 @@
         },
         {
           "command": "qsharp-vscode.showCircuit",
-          "when": "resourceLangId == qsharp || resourceLangId == openqasm"
+          "when": "(resourceLangId == qsharp || resourceLangId == openqasm) && (resourceLangId != openqasm || qsharp-vscode.openqasmMode != spec)"
         },
         {
           "command": "qsharp-vscode.showDocumentation",
@@ -531,6 +565,21 @@
         "title": "Run program",
         "category": "QDK",
         "icon": "$(play)"
+      },
+      {
+        "command": "qsharp-vscode.openqasmSwitchToQdk",
+        "title": "Switch OpenQASM file to QDK mode",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.openqasmSwitchToSpec",
+        "title": "Switch OpenQASM file to spec mode",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.openqasmResetMode",
+        "title": "Reset OpenQASM file mode to workspace default",
+        "category": "QDK"
       },
       {
         "command": "qsharp-vscode.runEditorContentsWithCircuit",
