@@ -390,7 +390,9 @@ async fn run_coalesces_updates_delivered_while_yielding() {
 
     let ls = RefCell::new(ls);
     let yields = Cell::new(0);
+    // Mock the function that would be created by createHostYield
     let yield_to_host = || {
+        // The first time the update handler yields, simulate two more updates coming in before it resumes
         if yields.replace(yields.get() + 1) == 0 {
             let mut ls = ls.borrow_mut();
             // Two more keystrokes land while the first update is being handled.
@@ -429,12 +431,15 @@ async fn run_applies_updates_to_distinct_documents() {
     let mut ls = LanguageService::new(Encoding::Utf8);
     let mut update_handler = create_update_handler(&mut ls, &received_errors, &test_cases);
 
+    // Deliberately erroneous code so we'll see an error from this file if this code
+    // is included in the compilation
     ls.update_document("foo.qs", 1, "namespace Foo { ", "qsharp");
 
     let ls = RefCell::new(ls);
     let yields = Cell::new(0);
     let yield_to_host = || {
         if yields.replace(yields.get() + 1) == 0 {
+            // Simulate the arrival of another update while the handler is yielding
             let mut ls = ls.borrow_mut();
             ls.update_document("bar.qs", 1, "namespace Bar { ", "qsharp");
             ls.stop_updates();
