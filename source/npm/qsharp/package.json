@@ -36,7 +36,7 @@
     "build:ux": "node ../../../node_modules/typescript/bin/tsc -p ./ux/tsconfig.json",
     "tsc:watch": "node ../../../node_modules/typescript/bin/tsc -p ./src/tsconfig.json --watch --preserveWatchOutput",
     "test": "node --test",
-    "rz": "node ../../../node_modules/typescript/bin/tsc -p ./tools/tsconfig.json && node ./dist/tools/rz-synthesis.js"
+    "rz": "node ../../../node_modules/typescript/bin/tsc -p ./tools/tsconfig.json && node ./dist/tools/tools/rz-synthesis.js"
   },
   "type": "module",
   "files": [

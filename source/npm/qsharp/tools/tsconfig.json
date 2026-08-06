@@ -12,6 +12,5 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "types": ["node"]
-  },
-  "include": ["./*.ts", "../ux/cplx.ts"]
+  }
 }
