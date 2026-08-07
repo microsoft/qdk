@@ -444,7 +444,7 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("cannot measure an anti-Hermitian Pauli product")]
+    #[error("Pauli product must be Hermitian")]
     #[diagnostic(code("Qdk.Stim.Compiler.AntiHermitianPauliProduct"))]
     AntiHermitianPauliProduct {
         #[label]
@@ -1294,23 +1294,17 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Generalized Pauli Product Gates
-            "MPP" => {
-                self.unsupported_args(instruction);
-                for target in &instruction.targets {
-                    let Some((factors, negated)) = self.expect_pauli_product(instruction, target)
-                    else {
-                        continue;
-                    };
-                    let Some((factors, negated)) =
-                        self.canonicalize_pauli_product(instruction, target, factors, negated)
-                    else {
-                        continue;
-                    };
-
-                    self.decompose_pauli_product(&factors, negated);
+            "MPP" => self.broadcast_pauli_product(instruction, |s, q, invert| {
+                s.op_measure("m", q, invert);
+            }),
+            "SPP" | "SPP_DAG" => self.broadcast_pauli_product(instruction, |s, q, negated| {
+                let invert = (instruction.name == "SPP_DAG") ^ negated;
+                if invert {
+                    s.op_adj("s", q);
+                } else {
+                    s.op("s", q);
                 }
-            }
-            "SPP" | "SPP_DAG" => self.unsupported(instruction),
+            }),
 
             // Control Flow
             "REPEAT" | "SELECT" => self.push_error(Error::InstructionWithoutBlock {
@@ -1373,6 +1367,28 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         self.for_each_qubit(instruction, |s, q| f(s, q, probability));
+    }
+
+    fn broadcast_pauli_product(
+        &mut self,
+        instruction: &Instruction,
+        mut f: impl FnMut(&mut Self, u32, bool),
+    ) {
+        self.unsupported_args(instruction);
+        for target in &instruction.targets {
+            let Some((factors, negated)) = self.expect_pauli_product(instruction, target) else {
+                continue;
+            };
+            let Some((factors, negated)) =
+                self.canonicalize_pauli_product(instruction, target, factors, negated)
+            else {
+                continue;
+            };
+            if factors.is_empty() {
+                continue;
+            }
+            self.decompose_pauli_product(&factors, negated, &mut f);
+        }
     }
 
     fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
@@ -1604,7 +1620,7 @@ impl<'noise> Compiler<'noise> {
             self.push_error(Error::AntiHermitianPauliProduct { span: target.span });
             return None;
         }
-        if canonical_factors.is_empty() {
+        if canonical_factors.is_empty() && instruction.name == "MPP" {
             // TODO: an empty product measures the identity, which needs support for appending to measurement records
             self.push_error(Error::UnsupportedTarget {
                 instruction: instruction.name.clone(),
@@ -1618,7 +1634,12 @@ impl<'noise> Compiler<'noise> {
         Some((canonical_factors, negated))
     }
 
-    fn decompose_pauli_product(&mut self, factors: &[PauliFactor], negated: bool) {
+    fn decompose_pauli_product(
+        &mut self,
+        factors: &[PauliFactor],
+        negated: bool,
+        f: impl FnOnce(&mut Self, u32, bool),
+    ) {
         let focus_qubit = factors[0].qubit;
 
         for factor in factors {
@@ -1630,7 +1651,7 @@ impl<'noise> Compiler<'noise> {
             self.op_2("cx", factor.qubit, focus_qubit);
         }
 
-        self.op_measure("m", focus_qubit, negated);
+        f(self, focus_qubit, negated);
 
         for factor in factors.iter().skip(1).rev() {
             self.op_2("cx", factor.qubit, focus_qubit);
