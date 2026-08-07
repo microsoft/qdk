@@ -434,9 +434,11 @@ function registerMonacoLanguageServiceProviders(
     ) => {
       const completions = await languageService.getCompletions(
         model.uri.toString(),
+        model.getVersionId(),
         monacoPositionToLsPosition(position),
       );
       return {
+        incomplete: completions.isIncomplete,
         suggestions: completions.items.map((i) => {
           let kind;
           switch (i.kind) {
