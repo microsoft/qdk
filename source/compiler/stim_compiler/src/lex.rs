@@ -218,10 +218,6 @@ impl<'a> Lexer<'a> {
         })
     }
 
-    fn is_ascii_uint(bytes: &[u8]) -> bool {
-        !bytes.is_empty() && bytes.iter().all(u8::is_ascii_digit)
-    }
-
     fn scan_identifier(&mut self, lo: usize) -> TokenKind {
         self.eat_while(|c| c.is_alphanumeric() || c == '_');
         let hi: usize = self.pos() as usize;
@@ -237,15 +233,17 @@ impl<'a> Lexer<'a> {
                 self.chars.next_if(|(_, c)| *c == ']');
                 TokenKind::Sweep
             }
-            _ => match identifier.as_bytes() {
-                [b'X' | b'Y' | b'Z', digits @ ..] if Self::is_ascii_uint(digits) => {
-                    TokenKind::PauliTarget
-                }
-                [b'L', digits @ ..] if Self::is_ascii_uint(digits) => TokenKind::LossTarget,
+            _ => match identifier.split_at_checked(1) {
+                Some(("X" | "Y" | "Z", digits)) if is_ascii_uint(digits) => TokenKind::PauliTarget,
+                Some(("L", digits)) if is_ascii_uint(digits) => TokenKind::LossTarget,
                 _ => TokenKind::InstructionName,
             },
         }
     }
+}
+
+fn is_ascii_uint(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 impl Iterator for Lexer<'_> {

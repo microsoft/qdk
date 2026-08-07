@@ -185,6 +185,23 @@ pub enum Pauli {
     Z,
 }
 
+impl Pauli {
+    /// Multiplies two Paulis acting on the same qubit. Returns the resulting Pauli (`None` when
+    /// they cancel to the identity) and the exponent `k` of the accompanying phase `i^k`.
+    pub fn multiply(self, other: Pauli) -> (Option<Pauli>, u8) {
+        use Pauli::{X, Y, Z};
+        match (self, other) {
+            (X, X) | (Y, Y) | (Z, Z) => (None, 0),
+            (X, Y) => (Some(Z), 1),
+            (Y, Z) => (Some(X), 1),
+            (Z, X) => (Some(Y), 1),
+            (Y, X) => (Some(Z), 3),
+            (Z, Y) => (Some(X), 3),
+            (X, Z) => (Some(Y), 3),
+        }
+    }
+}
+
 impl Display for Pauli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -539,7 +556,7 @@ impl<'a> Parser<'a> {
         }
 
         while let Some(token) = self.peek() {
-            if !self.is_target_start(&token) {
+            if !Self::is_target_start(&token) {
                 break;
             }
             targets.push(self.parse_target()?);
@@ -563,7 +580,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn is_target_start(&self, token: &Token) -> bool {
+    fn is_target_start(token: &Token) -> bool {
         match token.kind {
             TokenKind::Uint
             | TokenKind::Rec

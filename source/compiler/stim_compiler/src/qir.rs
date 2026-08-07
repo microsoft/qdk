@@ -306,20 +306,6 @@ impl FaultChar {
     }
 }
 
-/// Multiplies two Paulis acting on the same qubit. Returns the resulting Pauli (`None` when
-/// they cancel to the identity) and the exponent `k` of the accompanying phase `i^k`.
-fn multiply_paulis(a: Pauli, b: Pauli) -> (Option<Pauli>, u8) {
-    match (a, b) {
-        (X, X) | (Y, Y) | (Z, Z) => (None, 0),
-        (X, Y) => (Some(Z), 1),
-        (Y, Z) => (Some(X), 1),
-        (Z, X) => (Some(Y), 1),
-        (Y, X) => (Some(Z), 3),
-        (Z, Y) => (Some(X), 3),
-        (X, Z) => (Some(Y), 3),
-    }
-}
-
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
     #[error("unsupported instruction: {name}")]
@@ -1311,17 +1297,17 @@ impl<'noise> Compiler<'noise> {
             "MPP" => {
                 self.unsupported_args(instruction);
                 for target in &instruction.targets {
-                    let Some((negated, factors)) = self.expect_pauli_product(instruction, target)
+                    let Some((factors, negated)) = self.expect_pauli_product(instruction, target)
                     else {
                         continue;
                     };
-                    let Some((canonical_factors, negated)) =
-                        self.canonicalize_pauli_product(target, factors, negated)
+                    let Some((factors, negated)) =
+                        self.canonicalize_pauli_product(instruction, target, factors, negated)
                     else {
                         continue;
                     };
 
-                    self.decompose_pauli_product(instruction, &canonical_factors, negated);
+                    self.decompose_pauli_product(&factors, negated);
                 }
             }
             "SPP" | "SPP_DAG" => self.unsupported(instruction),
@@ -1583,6 +1569,7 @@ impl<'noise> Compiler<'noise> {
 
     fn canonicalize_pauli_product(
         &mut self,
+        instruction: &Instruction,
         target: &Target,
         mut factors: Vec<PauliFactor>,
         negated: bool,
@@ -1597,7 +1584,7 @@ impl<'noise> Compiler<'noise> {
                 accumulated = match accumulated {
                     None => Some(factor.pauli),
                     Some(pauli) => {
-                        let (product, product_phase) = multiply_paulis(pauli, factor.pauli);
+                        let (product, product_phase) = pauli.multiply(factor.pauli);
                         phase = (phase + product_phase) % 4;
                         product
                     }
@@ -1616,21 +1603,19 @@ impl<'noise> Compiler<'noise> {
             self.push_error(Error::AntiHermitianPauliProduct { span: target.span });
             return None;
         }
+        if canonical_factors.is_empty() {
+            // TODO: an empty product measures the identity, which needs support for appending to measurement records
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: target.span,
+            });
+            return None;
+        }
         Some((canonical_factors, phase == 2)) // a phase of i^2=-1 flips the measurement result
     }
 
-    fn decompose_pauli_product(
-        &mut self,
-        instruction: &Instruction,
-        factors: &[PauliFactor],
-        negated: bool,
-    ) {
-        let Some(focus) = factors.first() else {
-            // TODO: an empty product measures the identity, which needs support for appending to measurement records
-            self.unsupported(instruction);
-            return;
-        };
-        let focus_qubit = focus.qubit;
+    fn decompose_pauli_product(&mut self, factors: &[PauliFactor], negated: bool) {
+        let focus_qubit = factors[0].qubit;
 
         for factor in factors {
             self.rotate_to_z_basis(factor.pauli, factor.qubit);
@@ -1971,19 +1956,19 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         instruction: &Instruction,
         target: &Target,
-    ) -> Option<(bool, Vec<PauliFactor>)> {
+    ) -> Option<(Vec<PauliFactor>, bool)> {
         match &target.kind {
-            TargetKind::PauliProduct { negated, factors } => Some((*negated, factors.clone())),
+            TargetKind::PauliProduct { negated, factors } => Some((factors.clone(), *negated)),
             TargetKind::Pauli {
                 negated,
                 pauli,
                 value,
             } => Some((
-                *negated,
                 vec![PauliFactor {
                     pauli: *pauli,
                     qubit: *value,
                 }],
+                *negated,
             )),
             _ => {
                 self.push_error(Error::UnsupportedTarget {
