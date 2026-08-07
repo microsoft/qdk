@@ -281,7 +281,7 @@ class Config:
     def _repr_mimebundle_(
         self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
     ) -> Dict[str, Dict[str, Any]]:
-        return {"application/x.qsharp-config": self._config}
+        return {"application/x.qsharp-config+json": self._config}
 
     def get_target_profile(self) -> str:
         """
