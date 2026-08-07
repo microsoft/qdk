@@ -9,6 +9,7 @@ use qdk_simulators::noise_config::{
 };
 
 use crate::parser::*;
+use Pauli::{X, Y, Z};
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
@@ -305,6 +306,20 @@ impl FaultChar {
     }
 }
 
+/// Multiplies two Paulis acting on the same qubit. Returns the resulting Pauli (`None` when
+/// they cancel to the identity) and the exponent `k` of the accompanying phase `i^k`.
+fn multiply_paulis(a: Pauli, b: Pauli) -> (Option<Pauli>, u8) {
+    match (a, b) {
+        (X, X) | (Y, Y) | (Z, Z) => (None, 0),
+        (X, Y) => (Some(Z), 1),
+        (Y, Z) => (Some(X), 1),
+        (Z, X) => (Some(Y), 1),
+        (Y, X) => (Some(Z), 3),
+        (Z, Y) => (Some(X), 3),
+        (X, Z) => (Some(Y), 3),
+    }
+}
+
 #[derive(Clone, Debug, Error, Diagnostic)]
 pub enum Error {
     #[error("unsupported instruction: {name}")]
@@ -440,6 +455,12 @@ pub enum Error {
     #[error("a REPEAT count of zero is not supported")]
     #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
     ZeroRepeatCount {
+        #[label]
+        span: Span,
+    },
+    #[error("the Pauli product is anti-Hermitian, which is not allowed")]
+    #[diagnostic(code("Qdk.Stim.Compiler.AntiHermitianPauliProduct"))]
+    AntiHermitianPauliProduct {
         #[label]
         span: Span,
     },
@@ -1287,7 +1308,23 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Generalized Pauli Product Gates
-            "MPP" | "SPP" | "SPP_DAG" => self.unsupported(instruction),
+            "MPP" => {
+                self.unsupported_args(instruction);
+                for target in &instruction.targets {
+                    let Some((negated, factors)) = self.expect_pauli_product(instruction, target)
+                    else {
+                        continue;
+                    };
+                    let Some((canonical_factors, negated)) =
+                        self.canonicalize_pauli_product(target, factors, negated)
+                    else {
+                        continue;
+                    };
+
+                    self.decompose_pauli_product(instruction, &canonical_factors, negated);
+                }
+            }
+            "SPP" | "SPP_DAG" => self.unsupported(instruction),
 
             // Control Flow
             "REPEAT" | "SELECT" => self.push_error(Error::InstructionWithoutBlock {
@@ -1544,6 +1581,98 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_classical_control(pauli, result_id, qubit);
     }
 
+    fn canonicalize_pauli_product(
+        &mut self,
+        target: &Target,
+        mut factors: Vec<PauliFactor>,
+        negated: bool,
+    ) -> Option<(Vec<PauliFactor>, bool)> {
+        let mut phase = if negated { 2 } else { 0 };
+        factors.sort_by_key(|factor| factor.qubit); // must be stable to preserve the order of same-qubit factors
+
+        let mut canonical_factors = Vec::new();
+        for same_qubit_factors in factors.chunk_by(|a, b| a.qubit == b.qubit) {
+            let mut accumulated = None;
+            for factor in same_qubit_factors {
+                accumulated = match accumulated {
+                    None => Some(factor.pauli),
+                    Some(pauli) => {
+                        let (product, product_phase) = multiply_paulis(pauli, factor.pauli);
+                        phase = (phase + product_phase) % 4;
+                        product
+                    }
+                };
+            }
+            if let Some(pauli) = accumulated {
+                canonical_factors.push(PauliFactor {
+                    pauli,
+                    qubit: same_qubit_factors[0].qubit,
+                });
+            }
+        }
+
+        if !phase.is_multiple_of(2) {
+            // a phase of i or -i makes the product anti-Hermitian, so it has no measurable eigenvalues
+            self.push_error(Error::AntiHermitianPauliProduct { span: target.span });
+            return None;
+        }
+        Some((canonical_factors, phase == 2)) // a phase of i^2=-1 flips the measurement result
+    }
+
+    fn decompose_pauli_product(
+        &mut self,
+        instruction: &Instruction,
+        factors: &[PauliFactor],
+        negated: bool,
+    ) {
+        let Some(focus) = factors.first() else {
+            // TODO: an empty product measures the identity, which needs support for appending to measurement records
+            self.unsupported(instruction);
+            return;
+        };
+        let focus_qubit = focus.qubit;
+
+        for factor in factors {
+            self.rotate_to_z_basis(factor.pauli, factor.qubit);
+        }
+
+        for factor in factors.iter().skip(1) {
+            // accumulate parity of all qubits into the focus qubit
+            self.op_2("cx", factor.qubit, focus_qubit);
+        }
+
+        self.op_measure("m", focus_qubit, negated);
+
+        for factor in factors.iter().skip(1).rev() {
+            self.op_2("cx", factor.qubit, focus_qubit);
+        }
+        for factor in factors.iter().rev() {
+            self.rotate_from_z_basis(factor.pauli, factor.qubit);
+        }
+    }
+
+    fn rotate_to_z_basis(&mut self, pauli: Pauli, qubit: u32) {
+        match pauli {
+            X => self.op("h", qubit),
+            Y => {
+                self.op_adj("s", qubit);
+                self.op("h", qubit);
+            }
+            Z => (),
+        }
+    }
+
+    fn rotate_from_z_basis(&mut self, pauli: Pauli, qubit: u32) {
+        match pauli {
+            X => self.op("h", qubit),
+            Y => {
+                self.op("h", qubit);
+                self.op("s", qubit);
+            }
+            Z => (),
+        }
+    }
+
     fn op(&mut self, intrinsic: &str, qubit: u32) {
         let q = self.id_map.allocate_qubit(qubit);
         self.writer.write_qis_call(intrinsic, &[q]);
@@ -1581,6 +1710,15 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
     }
 
+    fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[u32]) {
+        let ids: Vec<u32> = qubits
+            .iter()
+            .map(|&qubit| self.id_map.allocate_qubit(qubit))
+            .collect();
+        let name = self.noise_accumulator.get_or_insert_intrinsic(table);
+        self.writer.write_noise_call(&name, &ids);
+    }
+
     fn build_noise_table(
         &mut self,
         num_qubits: u32,
@@ -1600,15 +1738,6 @@ impl<'noise> Compiler<'noise> {
                 None
             }
         }
-    }
-
-    fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[u32]) {
-        let ids: Vec<u32> = qubits
-            .iter()
-            .map(|&qubit| self.id_map.allocate_qubit(qubit))
-            .collect();
-        let name = self.noise_accumulator.get_or_insert_intrinsic(table);
-        self.writer.write_noise_call(&name, &ids);
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
@@ -1836,6 +1965,34 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
         Some((value, negated))
+    }
+
+    fn expect_pauli_product(
+        &mut self,
+        instruction: &Instruction,
+        target: &Target,
+    ) -> Option<(bool, Vec<PauliFactor>)> {
+        match &target.kind {
+            TargetKind::PauliProduct { negated, factors } => Some((*negated, factors.clone())),
+            TargetKind::Pauli {
+                negated,
+                pauli,
+                value,
+            } => Some((
+                *negated,
+                vec![PauliFactor {
+                    pauli: *pauli,
+                    qubit: *value,
+                }],
+            )),
+            _ => {
+                self.push_error(Error::UnsupportedTarget {
+                    instruction: instruction.name.clone(),
+                    span: target.span,
+                });
+                None
+            }
+        }
     }
 
     fn expect_arg(&mut self, instruction: &Instruction) -> Option<f64> {

@@ -130,7 +130,7 @@ pub enum TargetKind {
     },
     PauliProduct {
         negated: bool,
-        factors: Vec<(Pauli, u32)>,
+        factors: Vec<PauliFactor>,
     },
 }
 
@@ -166,11 +166,11 @@ impl Display for TargetKind {
             TargetKind::Loss { value } => write!(f, "Loss({value})"),
             TargetKind::PauliProduct { negated, factors } => {
                 write!(f, "PauliProduct({}", if *negated { "-" } else { "" })?;
-                for (index, (pauli, value)) in factors.iter().enumerate() {
+                for (index, factor) in factors.iter().enumerate() {
                     if index > 0 {
                         write!(f, "*")?;
                     }
-                    write!(f, "Pauli({pauli} {value})")?;
+                    write!(f, "{factor}")?;
                 }
                 write!(f, ")")
             }
@@ -205,6 +205,18 @@ impl FromStr for Pauli {
             "Z" => Ok(Pauli::Z),
             _ => Err(()),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PauliFactor {
+    pub pauli: Pauli,
+    pub qubit: u32,
+}
+
+impl Display for PauliFactor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Pauli({} {})", self.pauli, self.qubit)
     }
 }
 
@@ -672,9 +684,9 @@ impl<'a> Parser<'a> {
         mut span: Span,
         mut negated: bool,
     ) -> Option<Target> {
-        let first_factor = self.parse_pauli_target(token)?;
+        let (pauli, qubit) = self.parse_pauli_target(token)?;
 
-        let mut factors = vec![first_factor];
+        let mut factors = vec![PauliFactor { pauli, qubit }];
         while self
             .next_if(|token| token.kind == TokenKind::Star)
             .is_some()
@@ -684,7 +696,8 @@ impl<'a> Parser<'a> {
                 .is_some();
             let token = self.expect_token(TokenKind::PauliTarget)?;
             span.hi = token.span.hi;
-            factors.push(self.parse_pauli_target(token)?);
+            let (pauli, qubit) = self.parse_pauli_target(token)?;
+            factors.push(PauliFactor { pauli, qubit });
         }
 
         Some(Target {
