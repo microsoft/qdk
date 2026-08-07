@@ -584,38 +584,29 @@ impl<'a> Parser<'a> {
         let negated = negated_token.is_some();
 
         let first_token = self.expect_any()?;
-        let span = Span {
+        let mut span = Span {
             lo: negated_token.map_or(first_token.span.lo, |token| token.span.lo),
             hi: first_token.span.hi,
         };
 
-        let target = match first_token.kind {
-            TokenKind::Uint => Target {
-                span,
-                kind: TargetKind::Qubit {
-                    negated,
-                    value: self.extract_uint(first_token)?,
-                },
+        let kind = match first_token.kind {
+            TokenKind::Uint => TargetKind::Qubit {
+                negated,
+                value: self.extract_uint(first_token)?,
             },
             TokenKind::PauliTarget if self.peek().is_some_and(|t| t.kind == TokenKind::Star) => {
-                self.parse_pauli_product(first_token, span, negated)?
+                self.parse_pauli_product(first_token, &mut span, negated)?
             }
             TokenKind::PauliTarget => {
                 let (pauli, value) = self.parse_pauli_target(first_token)?;
-                Target {
-                    span,
-                    kind: TargetKind::Pauli {
-                        negated,
-                        pauli,
-                        value,
-                    },
+                TargetKind::Pauli {
+                    negated,
+                    pauli,
+                    value,
                 }
             }
-            TokenKind::LossTarget => Target {
-                span,
-                kind: TargetKind::Loss {
-                    value: self.extract_prefix_and_suffix(first_token)?.1,
-                },
+            TokenKind::LossTarget => TargetKind::Loss {
+                value: self.extract_prefix_and_suffix(first_token)?.1,
             },
             TokenKind::Rec => {
                 // Strips 'rec[-' prefix and trailing ']'.
@@ -628,23 +619,17 @@ impl<'a> Parser<'a> {
                     self.emit_error(Error::ZeroMeasurementRecord { span: value_span });
                     return None;
                 }
-                Target {
-                    span,
-                    kind: TargetKind::MeasurementRecord { negated, value },
-                }
+                TargetKind::MeasurementRecord { negated, value }
             }
-            TokenKind::Sweep => Target {
-                span,
-                kind: TargetKind::SweepBit {
-                    // Strips 'sweep[' prefix and trailing ']'.
-                    value: self.extract_uint_from_span(
-                        first_token,
-                        Span {
-                            lo: first_token.span.lo + 6,
-                            hi: first_token.span.hi - 1,
-                        },
-                    )?,
-                },
+            TokenKind::Sweep => TargetKind::SweepBit {
+                // Strips 'sweep[' prefix and trailing ']'.
+                value: self.extract_uint_from_span(
+                    first_token,
+                    Span {
+                        lo: first_token.span.lo + 6,
+                        hi: first_token.span.hi - 1,
+                    },
+                )?,
             },
             TokenKind::Star if negated => {
                 self.emit_error(Error::CannotNegateTarget {
@@ -664,7 +649,7 @@ impl<'a> Parser<'a> {
 
         if let Some(bang) = negated_token
             && !matches!(
-                &target.kind,
+                &kind,
                 TargetKind::Qubit { .. }
                     | TargetKind::Pauli { .. }
                     | TargetKind::MeasurementRecord { .. }
@@ -675,15 +660,15 @@ impl<'a> Parser<'a> {
             return None;
         }
 
-        Some(target)
+        Some(Target { span, kind })
     }
 
     fn parse_pauli_product(
         &mut self,
         token: Token,
-        mut span: Span,
+        span: &mut Span,
         mut negated: bool,
-    ) -> Option<Target> {
+    ) -> Option<TargetKind> {
         let (pauli, qubit) = self.parse_pauli_target(token)?;
 
         let mut factors = vec![PauliFactor { pauli, qubit }];
@@ -700,10 +685,7 @@ impl<'a> Parser<'a> {
             factors.push(PauliFactor { pauli, qubit });
         }
 
-        Some(Target {
-            span,
-            kind: TargetKind::PauliProduct { negated, factors },
-        })
+        Some(TargetKind::PauliProduct { negated, factors })
     }
 
     fn parse_pauli_target(&mut self, token: Token) -> Option<(Pauli, u32)> {
