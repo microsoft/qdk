@@ -67,8 +67,14 @@ export function ensureTheme(): boolean | undefined {
  *
  * @param el The element to observe for theme attribute changes (usually document.body)
  * @param callback The callback to invoke when the theme changes
+ * @returns A disposer that stops the underlying MutationObserver. Long-lived
+ *   pages can ignore this; components that mount/unmount (e.g. webview
+ *   subviews) should call it on cleanup so observers don't accumulate.
  */
-export function detectThemeChange(el: Element, callback: ThemeChangeCallback) {
+export function detectThemeChange(
+  el: Element,
+  callback: ThemeChangeCallback,
+): () => void {
   const observer = new MutationObserver((mutations: MutationRecord[]) => {
     let isDark = false; // Default to light
 
@@ -96,6 +102,8 @@ export function detectThemeChange(el: Element, callback: ThemeChangeCallback) {
       commonThemeAttribute,
     ],
   });
+
+  return () => observer.disconnect();
 }
 
 /**
