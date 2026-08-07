@@ -482,7 +482,7 @@
   letter-spacing: 0.04em;
   word-break: break-all;
   user-select: text;
-  max-height: 4.5em;
+  max-height: 5.85em;
   overflow-y: auto;
   line-height: 1.3;
   color: var(--qdk-description-foreground, var(--qdk-foreground-muted));

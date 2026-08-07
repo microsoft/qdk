@@ -23,7 +23,7 @@ import { writeFileSync } from "node:fs";
 // An epsilon of 0.002 takes about 500M tries to find 1256 points, mostly containing around 50 - 60 gates
 // An epsilon of 0.001 takes about 4.4B tries to find 1256 points, mostly containing around 64 gates
 const points = Math.floor(Math.PI * 2 * 200); // 1256 points around the sphere
-const epsilon = 0.001;
+const epsilon = 0.02;
 
 // We only find 1/8 of the total points, as the other 7/8 can be derived from the 1/8 using a simple
 // T, S, ST, Z, ZT, S*, or T* addition, which is cheaper than any further Hadamard + T sequences.
