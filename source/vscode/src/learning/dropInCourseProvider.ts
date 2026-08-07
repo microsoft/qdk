@@ -17,6 +17,7 @@ import type {
   CatalogActivity,
   CatalogCourse,
   CatalogExercise,
+  CatalogLesson,
   CatalogUnit,
   CourseEnvironment,
   NotebookExerciseInfo,
@@ -267,6 +268,16 @@ export class DropInCourseProvider implements CourseProvider {
           solutionExplanation: ex.solutionExplanation,
         } satisfies CatalogExercise);
       }
+    }
+
+    // A unit with no activities can't be navigated to, so a notebook without
+    // tagged exercises still gets one activity covering the reading.
+    if (activities.length === 0) {
+      activities.push({
+        type: "lesson",
+        id: unit.id,
+        title: "Read the notebook",
+      } satisfies CatalogLesson);
     }
 
     return { activities, notebookExercises, sourceNotebookRel };
