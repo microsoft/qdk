@@ -25,6 +25,27 @@ const packagePickItems: vscode.QuickPickItem[] = [
   { label: "ipympl", picked: true },
 ];
 
+// Merge selected qdk extras (e.g. qdk + qdk[azure] + qdk[jupyter]) into one specifier.
+function coalesceQdkExtras(packages: string[]): string[] {
+  const extras: string[] = [];
+  const rest: string[] = [];
+  let hasQdk = false;
+  for (const pkg of packages) {
+    if (pkg === "qdk") {
+      hasQdk = true;
+    } else if (pkg.startsWith("qdk[") && pkg.endsWith("]")) {
+      hasQdk = true;
+      extras.push(...pkg.slice(4, -1).split(","));
+    } else {
+      rest.push(pkg);
+    }
+  }
+  if (hasQdk) {
+    rest.unshift(extras.length > 0 ? `qdk[${extras.join(",")}]` : "qdk");
+  }
+  return rest;
+}
+
 async function getPythonEnvsApi(): Promise<PythonEnvironmentApi | undefined> {
   try {
     return await PythonEnvironments.api();
@@ -160,7 +181,7 @@ export async function createQuantumVenvCommand(): Promise<void> {
   );
   if (!selected || selected.length === 0) return;
 
-  const install = selected.map((item) => item.label);
+  const install = coalesceQdkExtras(selected.map((item) => item.label));
 
   try {
     if (existingEnv) {
