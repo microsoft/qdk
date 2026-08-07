@@ -444,7 +444,7 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("the Pauli product is anti-Hermitian, which is not allowed")]
+    #[error("cannot measure an anti-Hermitian Pauli product")]
     #[diagnostic(code("Qdk.Stim.Compiler.AntiHermitianPauliProduct"))]
     AntiHermitianPauliProduct {
         #[label]
@@ -1575,7 +1575,8 @@ impl<'noise> Compiler<'noise> {
         negated: bool,
     ) -> Option<(Vec<PauliFactor>, bool)> {
         let mut phase = if negated { 2 } else { 0 };
-        factors.sort_by_key(|factor| factor.qubit); // must be stable to preserve the order of same-qubit factors
+        // must be stable so that same-qubit factors keep their relative order
+        factors.sort_by_key(|factor| factor.qubit);
 
         let mut canonical_factors = Vec::new();
         for same_qubit_factors in factors.chunk_by(|a, b| a.qubit == b.qubit) {
@@ -1598,7 +1599,7 @@ impl<'noise> Compiler<'noise> {
             }
         }
 
-        if !phase.is_multiple_of(2) {
+        if phase % 2 != 0 {
             // a phase of i or -i makes the product anti-Hermitian, so it has no measurable eigenvalues
             self.push_error(Error::AntiHermitianPauliProduct { span: target.span });
             return None;
@@ -1611,7 +1612,10 @@ impl<'noise> Compiler<'noise> {
             });
             return None;
         }
-        Some((canonical_factors, phase == 2)) // a phase of i^2=-1 flips the measurement result
+
+        // a phase of i^2 = -1 flips the measurement result
+        let negated = phase == 2;
+        Some((canonical_factors, negated))
     }
 
     fn decompose_pauli_product(&mut self, factors: &[PauliFactor], negated: bool) {
@@ -1621,8 +1625,8 @@ impl<'noise> Compiler<'noise> {
             self.rotate_to_z_basis(factor.pauli, factor.qubit);
         }
 
+        // accumulate the parity of every qubit into the focus qubit
         for factor in factors.iter().skip(1) {
-            // accumulate parity of all qubits into the focus qubit
             self.op_2("cx", factor.qubit, focus_qubit);
         }
 
