@@ -341,6 +341,10 @@
         {
           "command": "qsharp-vscode.learningAskInChat",
           "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.createQuantumNotebookVenv",
+          "when": "!isWeb"
         }
       ],
       "view/title": [
@@ -637,6 +641,11 @@
         "command": "qsharp-vscode.createNotebook",
         "category": "QDK",
         "title": "Create a Microsoft Quantum notebook"
+      },
+      {
+        "command": "qsharp-vscode.createQuantumNotebookVenv",
+        "category": "QDK",
+        "title": "Create a Microsoft Quantum notebook virtual environment"
       },
       {
         "command": "qsharp-vscode.openPlayground",
@@ -1514,6 +1523,26 @@
         "toolReferenceName": "qdkLearningReset",
         "displayName": "QDK Learning: Reset",
         "modelDescription": "Reset the current exercise to its placeholder code and clear its completion. Destructive — requires confirmation. Only valid on exercises.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-create-notebook-venv",
+        "tags": [
+          "qdk",
+          "python",
+          "jupyter",
+          "venv"
+        ],
+        "toolReferenceName": "qdkCreateNotebookVenv",
+        "displayName": "Create Quantum Notebook Virtual Environment",
+        "modelDescription": "Creates or updates a Python virtual environment in the workspace root with packages for quantum notebook development (qdk[jupyter], ipympl, ipykernel). If a venv already exists it will be updated. Requires the Python Environments extension (ms-python.vscode-python-envs).",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

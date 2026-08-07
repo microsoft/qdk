@@ -11,6 +11,7 @@ import { QSharpTools } from "./qsharpTools";
 import { CopilotToolError } from "./types";
 import { ToolState } from "./azureQuantumTools";
 import type { LearningService } from "../learning/index";
+import { createQuantumVenv, findWorkspaceVenv } from "../pythonEnvs.js";
 
 // state
 const workspaceState: ToolState = {};
@@ -175,6 +176,24 @@ const toolDefinitions: {
           "Reset the current exercise to the original placeholder? Your code will be lost.",
       },
     }),
+  },
+  // ─── Python environment tools ───
+  {
+    name: "qdk-create-notebook-venv",
+    tool: async () => await createQuantumVenv(),
+    confirm: async () => {
+      const exists = await findWorkspaceVenv();
+      return {
+        confirmationMessages: {
+          title: exists
+            ? "Update Virtual Environment"
+            : "Create Virtual Environment",
+          message: exists
+            ? "A virtual environment already exists. Update it with quantum notebook packages?"
+            : "Create a Python virtual environment and install quantum notebook packages?",
+        },
+      };
+    },
   },
 ];
 
