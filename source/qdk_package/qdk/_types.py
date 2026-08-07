@@ -18,7 +18,6 @@ Types defined here:
 - ``QirInputData`` — compiled QIR wrapper for azure-quantum submission.
 """
 
-import json
 import os
 from pathlib import Path
 from typing import (
@@ -281,8 +280,8 @@ class Config:
     # (i.e. the language service) can read and interpret the data.
     def _repr_mimebundle_(
         self, include: Union[Any, None] = None, exclude: Union[Any, None] = None
-    ) -> Dict[str, str]:
-        return {"application/x.qsharp-config": json.dumps(self._config)}
+    ) -> Dict[str, Dict[str, Any]]:
+        return {"application/x.qsharp-config+json": self._config}
 
     def get_target_profile(self) -> str:
         """
