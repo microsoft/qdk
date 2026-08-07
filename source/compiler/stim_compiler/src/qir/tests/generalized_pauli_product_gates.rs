@@ -894,7 +894,9 @@ fn mpp_with_probability_argument_yields_error() {
 
 #[test]
 fn spp_single_z_yields_expected_qir() {
-    check("SPP Z1", &expect![[r#"
+    check(
+        "SPP Z1",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
@@ -922,12 +924,15 @@ fn spp_single_z_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_single_x_yields_expected_qir() {
-    check("SPP X1", &expect![[r#"
+    check(
+        "SPP X1",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -958,12 +963,15 @@ fn spp_single_x_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_negated_single_x_yields_expected_qir() {
-    check("SPP !X1", &expect![[r#"
+    check(
+        "SPP !X1",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -994,12 +1002,15 @@ fn spp_negated_single_x_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_two_factor_product_yields_expected_qir() {
-    check("SPP X1*X2", &expect![[r#"
+    check(
+        "SPP X1*X2",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -1035,12 +1046,15 @@ fn spp_two_factor_product_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_multiple_products_in_one_instruction_yield_expected_qir() {
-    check("SPP Y1*Y2 !Z1*Z2", &expect![[r#"
+    check(
+        "SPP Y1*Y2 !Z1*Z2",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
@@ -1084,12 +1098,15 @@ fn spp_multiple_products_in_one_instruction_yield_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_negated_three_factor_product_yields_expected_qir() {
-    check("SPP !X1*Y2*Z3", &expect![[r#"
+    check(
+        "SPP !X1*Y2*Z3",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -1130,7 +1147,8 @@ fn spp_negated_three_factor_product_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -1293,7 +1311,9 @@ fn spp_with_argument_yields_error() {
 
 #[test]
 fn spp_dag_single_z_yields_expected_qir() {
-    check("SPP_DAG Z1", &expect![[r#"
+    check(
+        "SPP_DAG Z1",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
@@ -1321,12 +1341,15 @@ fn spp_dag_single_z_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_dag_single_x_yields_expected_qir() {
-    check("SPP_DAG X1", &expect![[r#"
+    check(
+        "SPP_DAG X1",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -1357,12 +1380,15 @@ fn spp_dag_single_x_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_dag_negated_single_x_yields_expected_qir() {
-    check("SPP_DAG !X1", &expect![[r#"
+    check(
+        "SPP_DAG !X1",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -1393,12 +1419,15 @@ fn spp_dag_negated_single_x_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_dag_two_factor_product_yields_expected_qir() {
-    check("SPP_DAG X1*X2", &expect![[r#"
+    check(
+        "SPP_DAG X1*X2",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -1434,12 +1463,15 @@ fn spp_dag_two_factor_product_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_dag_multiple_products_in_one_instruction_yield_expected_qir() {
-    check("SPP_DAG Y1*Y2 !Z1*Z2", &expect![[r#"
+    check(
+        "SPP_DAG Y1*Y2 !Z1*Z2",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__s__adj(ptr inttoptr (i64 0 to ptr))
@@ -1483,12 +1515,15 @@ fn spp_dag_multiple_products_in_one_instruction_yield_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
 fn spp_dag_negated_three_factor_product_yields_expected_qir() {
-    check("SPP_DAG !X1*Y2*Z3", &expect![[r#"
+    check(
+        "SPP_DAG !X1*Y2*Z3",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__h__body(ptr inttoptr (i64 0 to ptr))
@@ -1529,5 +1564,6 @@ fn spp_dag_negated_three_factor_product_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }

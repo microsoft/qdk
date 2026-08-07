@@ -36,4 +36,3 @@ fn heralded_pauli_channel_1_yields_unsupported_error() {
         "#]],
     );
 }
-
