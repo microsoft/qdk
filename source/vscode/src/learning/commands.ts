@@ -193,18 +193,27 @@ export function registerLearningCommands(
 
     vscode.commands.registerCommand(
       "qsharp-vscode.learningAskInChat",
-      async (node: LearningProgressNode) => {
-        const location = nodeToLocation(node);
-        if (!location) {
-          return;
+      async (node?: LearningProgressNode) => {
+        // No node means the view title button, which is already "here".
+        let title: string;
+        if (node) {
+          const location = nodeToLocation(node);
+          if (!location) {
+            return;
+          }
+
+          // Navigate first so the panel shows the activity.
+          await service.goTo(location, "tree");
+          await panelManager.show();
+          title = nodeToTitle(node);
+        } else {
+          if (!service.initialized) {
+            return;
+          }
+          title = service.getCurrentActivity().activityTitle;
         }
 
-        // Navigate first so the panel shows the activity.
-        await service.goTo(location, "tree");
-        await panelManager.show();
-
         // Open chat with a friendly prompt referencing the activity title.
-        const title = nodeToTitle(node);
         const prompt = `/qdk-learning Let's work on "${title}".`;
         await vscode.commands.executeCommand("workbench.action.chat.open", {
           query: prompt,
@@ -301,31 +310,35 @@ function resolveCellId(
 let focusModeActive = false;
 
 /**
- * Reduce the window to the course tree plus the workbook.
+ * Strip the window down to the course outline and the workbook: no activity
+ * bar, no title bar, no panel.
  *
- * Deliberately not Zen Mode, which hides the sidebar — the course outline is
- * the one thing that has to stay. Chat is left alone so "Explain" can still
- * open it alongside.
+ * Not Zen Mode, which hides the sidebar — the outline is the one thing that has
+ * to stay. The status bar also stays, because that is where the kernel state
+ * and the hint affordance live.
  */
 async function toggleFocusMode(service: LearningService): Promise<void> {
   focusModeActive = !focusModeActive;
-  if (!focusModeActive) {
-    await vscode.commands.executeCommand("workbench.action.togglePanel");
-    return;
+
+  if (focusModeActive) {
+    await vscode.commands.executeCommand("qsharp-vscode.learningTree.focus");
+    if (
+      service.initialized &&
+      service.getActiveCourseInfo().kind === "python-notebook"
+    ) {
+      await openCourseNotebook(service);
+    }
   }
 
-  await vscode.commands.executeCommand("qsharp-vscode.learningTree.focus");
-  if (
-    service.initialized &&
-    service.getActiveCourseInfo().kind === "python-notebook"
-  ) {
-    await openCourseNotebook(service);
-  }
-  await vscode.commands.executeCommand("workbench.action.closeOtherEditors");
   await vscode.commands.executeCommand(
-    "workbench.action.closeEditorsInOtherGroups",
+    "workbench.action.toggleActivityBarVisibility",
   );
-  await vscode.commands.executeCommand("workbench.action.closePanel");
+  await vscode.commands.executeCommand("workbench.action.toggleFullScreen");
+  await vscode.commands.executeCommand(
+    focusModeActive
+      ? "workbench.action.closePanel"
+      : "workbench.action.togglePanel",
+  );
 }
 
 /**

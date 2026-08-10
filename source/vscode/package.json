@@ -384,6 +384,11 @@
           "group": "navigation@3"
         },
         {
+          "command": "qsharp-vscode.learningAskInChat",
+          "when": "view == qsharp-vscode.learningTree",
+          "group": "navigation@4"
+        },
+        {
           "command": "qsharp-vscode.workspacesRefresh",
           "when": "view == quantum-workspaces",
           "group": "navigation"

@@ -449,81 +449,58 @@ export class LearningService {
   }
 
   /**
-   * Mark the exercise activity with the given cell ID as complete.
-   * Returns `true` if the exercise was found and marked (or already complete).
-   * Fires the state-change event so the treeview updates.
-   */
-  async markExerciseCompleteByCellId(cellId: string): Promise<boolean> {
-    if (this.activeCourse.kind !== "python-notebook") {
-      return false;
-    }
-    const unit = this.findUnit(this.position.unitId);
-    const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
-    if (!exercise) {
-      log.warn(`Unable to find exercise corresponding to cell ${cellId}`);
-      return false;
-    }
-    const location: ActivityLocation = {
-      courseId: this.activeCourse.id,
-      unitId: unit.id,
-      activityId: exercise.id,
-    };
-    if (this.isComplete(location)) {
-      return true;
-    }
-    this.markComplete(location);
-    await this.saveProgress();
-    this._onDidChangeState.fire(this.getState());
-    return true;
-  }
-
-  /**
-   * Mark the section containing `cellId` complete, but only once every code
-   * cell in that section has run successfully.
+   * Record a successful run of `cellId`: completes the exercise that cell
+   * backs, and completes the section it sits in once every code cell in that
+   * section has run.
    *
-   * Reading is the whole task for a prose section, so those complete on being
-   * navigated past. A section that contains code has not been done until the
-   * learner has actually run it, which is the only evidence we have that they
-   * did more than scroll.
+   * Reading is the whole task for a prose section, so those still complete on
+   * being navigated past. A section that contains code has not been done until
+   * the learner has run it, which is the only evidence we have that they did
+   * more than scroll.
    */
-  async markSectionCompleteIfExecuted(
+  async markCellExecuted(
     cellId: string,
     notebook: vscode.NotebookDocument,
-  ): Promise<boolean> {
+  ): Promise<void> {
     if (this.activeCourse.kind !== "python-notebook") {
-      return false;
+      return;
     }
     const unit = this.findUnit(this.position.unitId);
+
+    const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
+    if (exercise) {
+      await this.completeIfNeeded(unit.id, exercise.id);
+    }
+
     const section = unit.notebookSections?.find((s) =>
       s.codeCellIds.includes(cellId),
     );
     if (!section) {
-      return false;
+      return;
     }
-
-    const succeeded = new Set(
+    const ran = new Set(
       notebook
         .getCells()
         .filter((c) => c.executionSummary?.success)
-        .map((c) => c.metadata?.id)
-        .filter((id): id is string => typeof id === "string"),
+        .map((c) => c.metadata?.id),
     );
-    if (!section.codeCellIds.every((id) => succeeded.has(id))) {
-      return false;
+    if (section.codeCellIds.every((id) => ran.has(id))) {
+      await this.completeIfNeeded(unit.id, section.id);
     }
+  }
 
+  private async completeIfNeeded(
+    unitId: string,
+    activityId: string,
+  ): Promise<void> {
     const location: ActivityLocation = {
       courseId: this.activeCourse.id,
-      unitId: unit.id,
-      activityId: section.id,
+      unitId,
+      activityId,
     };
-    if (this.isComplete(location)) {
-      return true;
+    if (!this.isComplete(location)) {
+      await this.commitCompletion(location);
     }
-    this.markComplete(location);
-    await this.saveProgress();
-    this._onDidChangeState.fire(this.getState());
-    return true;
   }
 
   /**
@@ -1113,10 +1090,7 @@ export class LearningService {
   }
 
   async markExampleRun(): Promise<void> {
-    const location = this.requireWorkspace().progressData.position;
-    this.markComplete(location);
-    await this.saveProgress();
-    this._onDidChangeState.fire(this.getState());
+    await this.commitCompletion(this.requireWorkspace().progressData.position);
   }
 
   getCurrentCodeFileUri(): vscode.Uri | undefined {
@@ -1808,12 +1782,17 @@ export class LearningService {
     return kata;
   }
 
-  private async markExerciseComplete(
-    location: ActivityLocation,
-  ): Promise<void> {
+  /** Persist a completion and refresh everything that renders progress. */
+  private async commitCompletion(location: ActivityLocation): Promise<void> {
     this.markComplete(location);
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
+  }
+
+  private async markExerciseComplete(
+    location: ActivityLocation,
+  ): Promise<void> {
+    await this.commitCompletion(location);
 
     // TODO (acasey): do we actually want telemetry for other courses?
     // We need to either drop it so that all telemetry is about the katas
