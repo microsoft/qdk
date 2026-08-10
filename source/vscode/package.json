@@ -472,6 +472,21 @@
       ],
       "notebook/toolbar": [
         {
+          "command": "qsharp-vscode.learningNotebookPrevious",
+          "when": "qsharp-vscode.learningNotebookActive",
+          "group": "navigation@10"
+        },
+        {
+          "command": "qsharp-vscode.learningNotebookNext",
+          "when": "qsharp-vscode.learningNotebookActive",
+          "group": "navigation@20"
+        },
+        {
+          "command": "qsharp-vscode.learningFocusMode",
+          "when": "qsharp-vscode.learningNotebookActive",
+          "group": "navigation@30"
+        },
+        {
           "command": "qsharp-vscode.learningCheckEnvironment",
           "when": "qsharp-vscode.learningNotebookActive",
           "group": "navigation@100"
@@ -804,6 +819,24 @@
         "title": "Explain",
         "category": "QDK Learning",
         "icon": "$(comment-discussion-sparkle)"
+      },
+      {
+        "command": "qsharp-vscode.learningNotebookPrevious",
+        "title": "Previous",
+        "category": "QDK Learning",
+        "icon": "$(arrow-left)"
+      },
+      {
+        "command": "qsharp-vscode.learningNotebookNext",
+        "title": "Next",
+        "category": "QDK Learning",
+        "icon": "$(arrow-right)"
+      },
+      {
+        "command": "qsharp-vscode.learningFocusMode",
+        "title": "Focus Mode",
+        "category": "QDK Learning",
+        "icon": "$(screen-full)"
       }
     ],
     "breakpoints": [

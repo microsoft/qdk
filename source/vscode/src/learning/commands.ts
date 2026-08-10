@@ -213,6 +213,21 @@ export function registerLearningCommands(
       },
     ),
 
+    vscode.commands.registerCommand("qsharp-vscode.learningFocusMode", () =>
+      // Zen Mode already hides the sidebar and centers the layout, so it is
+      // the whole feature; what was missing is a way to find it.
+      vscode.commands.executeCommand("workbench.action.toggleZenMode"),
+    ),
+
+    vscode.commands.registerCommand(
+      "qsharp-vscode.learningNotebookPrevious",
+      () => stepInNotebook(service, "previous"),
+    ),
+
+    vscode.commands.registerCommand("qsharp-vscode.learningNotebookNext", () =>
+      stepInNotebook(service, "next"),
+    ),
+
     vscode.commands.registerCommand(
       "qsharp-vscode.learningNotebookHint",
       async (arg?: string | { cell: vscode.NotebookCell }) => {
@@ -283,6 +298,35 @@ function resolveCellId(
     }
   }
   return undefined;
+}
+
+/**
+ * Step to the adjacent activity and scroll the workbook to it.
+ *
+ * Moving forward is also what marks a narrative section read — `next` completes
+ * the activity being left, which is the only completion signal a markdown
+ * section has, since there is nothing in it to execute.
+ */
+async function stepInNotebook(
+  service: LearningService,
+  direction: "previous" | "next",
+): Promise<void> {
+  if (
+    !service.initialized ||
+    service.getActiveCourseInfo().kind !== "python-notebook"
+  ) {
+    return;
+  }
+
+  const result =
+    direction === "next"
+      ? await service.next("notebook")
+      : await service.previous("notebook");
+  if (!result.moved) {
+    return;
+  }
+
+  await openCourseNotebook(service);
 }
 
 /**
