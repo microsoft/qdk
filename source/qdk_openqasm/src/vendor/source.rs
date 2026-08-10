@@ -1,7 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Vendored from `qsc_data_structures::source`.
+#[cfg(test)]
+mod tests;
 
 use std::sync::Arc;
 
@@ -149,21 +150,29 @@ pub type SourceContents = Arc<str>;
 
 /// Returns the shared path prefix of the supplied source names.
 ///
-/// When source names diverge, the common text is truncated through its last
-/// path separator (`/`, `\`, or `:`), so the result does not contain a partial
-/// path component. Identical source names retain the complete name. A single
-/// source returns its containing path, and an empty slice returns an empty
-/// string.
+/// * An empty slice returns an empty string.
+/// * A single source name returns its containing path: the name truncated
+///   through its last path separator (`/` or `\`), or through its last `:` if
+///   it has neither, or an empty string if it has none of them.
+/// * Two or more source names return the text they all share. That text is
+///   truncated the same way, unless the first name is a prefix of every other
+///   name, in which case the whole first name is returned. Identical source
+///   names are the common case of that exception.
+///
+/// Truncating is what keeps the result from ending in a partial path component.
 ///
 /// Comparison is bytewise and linear in the compared input. This is UTF-8 safe
 /// because returned slices end only after an ASCII path separator or at the end
 /// of the first source name.
 #[must_use]
 pub fn longest_common_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
+    // The fold below has nothing to disagree with a lone name, so it would hand
+    // back that whole name, file component included, instead of a prefix.
     if strs.len() == 1 {
         return truncate_to_path_separator(strs[0]);
     }
 
+    // Only an empty slice reaches this, because the single-name case returned above.
     let Some(first) = strs.first() else {
         return "";
     };
@@ -179,6 +188,8 @@ pub fn longest_common_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
             .unwrap_or_else(|| prefix_len.min(string.len()))
     });
 
+    // Nothing contradicted `first`, so it is a prefix of every other name and
+    // truncating it would discard a component they genuinely share.
     if common_prefix_len == first.len() {
         first
     } else {
@@ -200,8 +211,9 @@ fn truncate_to_path_separator_at(prefix: &str, end: usize) -> &str {
     let bytes = &prefix.as_bytes()[..end];
     let last_separator_index = bytes
         .iter()
-        .rposition(|byte| *byte == b'/')
-        .or_else(|| bytes.iter().rposition(|byte| *byte == b'\\'))
+        .rposition(|byte| matches!(*byte, b'/' | b'\\'))
+        // A `:` separates a drive or scheme from what follows it, so it bounds a
+        // path only when the name has no path separator of its own, as in `C:a.qasm`.
         .or_else(|| bytes.iter().rposition(|byte| *byte == b':'));
     if let Some(last_separator_index) = last_separator_index {
         // Return the prefix up to and including the last path separator
@@ -217,68 +229,4 @@ fn next_offset(last_source: Option<&Source>) -> u32 {
     last_source.map_or(0, |s| {
         1 + s.offset + u32::try_from(s.contents.len()).expect("contents length should fit into u32")
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{SourceMap, longest_common_prefix};
-
-    #[test]
-    fn longest_common_prefix_preserves_separator_behavior() {
-        let cases = [
-            (&[][..], ""),
-            (&["main.qasm"][..], ""),
-            (&["src/main.qasm"][..], "src/"),
-            (
-                &["/project/src/a.qasm", "/project/src/b.qasm"][..],
-                "/project/src/",
-            ),
-            (
-                &[r"C:\project\src\a.qasm", r"C:\project\src\b.qasm"][..],
-                r"C:\project\src\",
-            ),
-            (
-                &["file:///project/a.qasm", "file:///project/b.qasm"][..],
-                "file:///project/",
-            ),
-            (&["C:project/a.qasm", "C:project/b.qasm"][..], "C:project/"),
-            (&["alpha.qasm", "beta.qasm"][..], ""),
-            (&["same/path.qasm", "same/path.qasm"][..], "same/path.qasm"),
-            (&["short/path", "short/path/longer"][..], "short/path"),
-        ];
-
-        for (sources, expected) in cases {
-            assert_eq!(longest_common_prefix(sources), expected);
-        }
-    }
-
-    #[test]
-    fn longest_common_prefix_handles_multibyte_boundaries() {
-        let cases = [
-            (&["/项目/源/a.qasm", "/项目/源/b.qasm"][..], "/项目/源/"),
-            (&["/项目/甲.qasm", "/项目/乙.qasm"][..], "/项目/"),
-            (&["项目甲.qasm", "项目乙.qasm"][..], ""),
-            (
-                &["file:///项目/a.qasm", "file:///项目/b.qasm"][..],
-                "file:///项目/",
-            ),
-        ];
-
-        for (sources, expected) in cases {
-            assert_eq!(longest_common_prefix(sources), expected);
-        }
-    }
-
-    #[test]
-    fn find_by_offset_rejects_offsets_past_source_end() {
-        let source_map = SourceMap::new([("main.qasm".into(), "".into())], None);
-
-        assert_eq!(
-            source_map
-                .find_by_offset(0)
-                .map(|source| source.name.as_ref()),
-            Some("main.qasm")
-        );
-        assert!(source_map.find_by_offset(1).is_none());
-    }
 }

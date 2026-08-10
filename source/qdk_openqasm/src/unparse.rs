@@ -2,6 +2,13 @@
 // Licensed under the MIT License.
 
 //! Checked canonical serialization for the syntactic `OpenQASM` AST.
+//!
+//! This is the inverse of parsing: it turns a syntactic program back into
+//! `OpenQASM` source text. The text is canonical rather than verbatim, so it
+//! normalizes formatting and does not reproduce the original source byte for
+//! byte, but it is a fixed point: reparsing it and serializing again yields the
+//! same text. Serialization is checked, so a tree holding nodes synthesized by
+//! parser recovery produces an [`UnparseError`] instead of invalid output.
 
 #[cfg(test)]
 mod tests;

@@ -36,6 +36,20 @@ pub struct RawToken {
     pub text: String,
     pub is_trivia: bool,
     pub detail: Option<&'static str>,
+    /// Whether the lexer reached this token's natural end.
+    ///
+    /// False in exactly four lexer cases: an unterminated bitstring, an
+    /// unterminated block comment, an unterminated string, and a string
+    /// containing a raw control character. Those cases span three
+    /// [`RawTokenKind`] variants, [`Bitstring`](RawTokenKind::Bitstring),
+    /// [`Comment`](RawTokenKind::Comment), and
+    /// [`String`](RawTokenKind::String), but they are not those variants: a
+    /// terminated bitstring, a closed block comment, and a terminated string
+    /// are all complete. Every other kind is always complete.
+    ///
+    /// That includes [`Unknown`](RawTokenKind::Unknown). Unknown marks text the
+    /// lexer could not classify, not text the lexer ran out of, so an unknown
+    /// token is complete.
     pub is_complete: bool,
 }
 

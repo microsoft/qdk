@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Vendored from the `index_map` crate.
-
 use std::{
     fmt::{self, Debug, Formatter},
     iter::Enumerate,

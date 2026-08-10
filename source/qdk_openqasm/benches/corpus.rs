@@ -3,7 +3,7 @@
 
 use std::{fmt::Write as _, sync::Arc};
 
-use qdk_openqasm_parser::io::InMemorySourceResolver;
+use qdk_openqasm::io::InMemorySourceResolver;
 
 #[derive(Clone, Debug)]
 pub struct Corpus {
@@ -18,6 +18,69 @@ impl Corpus {
     #[must_use]
     pub fn resolver(&self) -> InMemorySourceResolver {
         self.includes.iter().cloned().collect()
+    }
+
+    /// The byte length of the entry source, excluding any includes.
+    #[must_use]
+    pub fn source_bytes(&self) -> usize {
+        self.source.len()
+    }
+}
+
+/// A byte budget for the size-indexed corpora.
+///
+/// These are the sizes the recorded parse and analyze baselines were measured
+/// at, so keeping them stable keeps successive runs comparable.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ExactSize {
+    Kib10,
+    Kib100,
+    Mib1,
+    Mib5,
+    Mib10,
+}
+
+impl ExactSize {
+    pub const ALL: [Self; 5] = [
+        Self::Kib10,
+        Self::Kib100,
+        Self::Mib1,
+        Self::Mib5,
+        Self::Mib10,
+    ];
+
+    /// The label used on the command line and in benchmark identifiers.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Kib10 => "10KiB",
+            Self::Kib100 => "100KiB",
+            Self::Mib1 => "1MiB",
+            Self::Mib5 => "5MiB",
+            Self::Mib10 => "10MiB",
+        }
+    }
+
+    /// The exact source length the generated corpus will have.
+    #[must_use]
+    pub const fn byte_budget(self) -> usize {
+        match self {
+            Self::Kib10 => 10 * 1024,
+            Self::Kib100 => 100 * 1024,
+            Self::Mib1 => 1024 * 1024,
+            Self::Mib5 => 5 * 1024 * 1024,
+            Self::Mib10 => 10 * 1024 * 1024,
+        }
+    }
+
+    const fn corpus_name(self) -> &'static str {
+        match self {
+            Self::Kib10 => "exact_size_10KiB",
+            Self::Kib100 => "exact_size_100KiB",
+            Self::Mib1 => "exact_size_1MiB",
+            Self::Mib5 => "exact_size_5MiB",
+            Self::Mib10 => "exact_size_10MiB",
+        }
     }
 }
 
@@ -107,5 +170,81 @@ pub fn include_heavy(include_count: usize, statements_per_include: usize) -> Cor
         path: Arc::from("include_heavy.qasm"),
         statement_count: 3 + (2 * include_count) + (include_count * statements_per_include),
         includes,
+    }
+}
+
+/// A corpus dominated by pragma and annotation directives.
+///
+/// Directive lexing emits a command token, value tokens, and an end token per
+/// directive, so this corpus is the one that moves when that path changes.
+#[must_use]
+pub fn directive_heavy(repetitions: usize) -> Corpus {
+    let mut source = String::new();
+    source.push_str("OPENQASM 3.0;\n");
+    source.push_str("include \"stdgates.inc\";\n");
+    source.push_str("qubit[2] q;\n");
+
+    for index in 0..repetitions {
+        let _ = writeln!(source, "pragma qdk.bench.marker index {index}");
+        let _ = writeln!(source, "@qdk.bench.note index {index}");
+        source.push_str("h q[0];\n");
+        let _ = writeln!(source, "pragma qdk.bench.region depth {index} width 2");
+        source.push_str("cx q[0], q[1];\n");
+    }
+
+    Corpus {
+        name: "directive_heavy",
+        source: Arc::from(source),
+        path: Arc::from("directive_heavy.qasm"),
+        // Three header statements, then per repetition: two pragmas and two
+        // gate calls. The annotation attaches to the gate call that follows it
+        // rather than forming a statement of its own.
+        statement_count: 3 + (4 * repetitions),
+        includes: Vec::new(),
+    }
+}
+
+/// Builds a flat gate corpus whose source is exactly [`ExactSize::byte_budget`]
+/// bytes long.
+///
+/// Whole statements are emitted until the next one would overrun the budget,
+/// then the remainder is filled with newlines. Newlines are trivia, so the
+/// padding changes the byte count without changing the statement count.
+#[must_use]
+pub fn exact_size(size: ExactSize) -> Corpus {
+    const HEADER: &str = "OPENQASM 3.0;\ninclude \"stdgates.inc\";\nqubit[2] q;\n";
+    const HEADER_STATEMENTS: usize = 3;
+    const BODY: [&str; 3] = ["h q[0];\n", "cx q[0], q[1];\n", "rz(0.125) q[1];\n"];
+
+    let budget = size.byte_budget();
+    assert!(
+        budget > HEADER.len(),
+        "byte budget must exceed the corpus header"
+    );
+
+    let mut source = String::with_capacity(budget);
+    source.push_str(HEADER);
+
+    let mut statement_count = HEADER_STATEMENTS;
+    for statement in BODY.iter().cycle() {
+        if source.len() + statement.len() > budget {
+            break;
+        }
+        source.push_str(statement);
+        statement_count += 1;
+    }
+
+    // The shortest body statement is longer than one byte, so the loop can stop
+    // short of the budget. Newline padding closes the gap exactly.
+    while source.len() < budget {
+        source.push('\n');
+    }
+
+    Corpus {
+        name: size.corpus_name(),
+        source: Arc::from(source),
+        path: Arc::from("exact_size.qasm"),
+        statement_count,
+        includes: Vec::new(),
     }
 }

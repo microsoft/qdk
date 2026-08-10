@@ -1,9 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! Vendored from `qsc_data_structures::display::core`.
-//!
-//! Low level printing primitives used by the vendored `display` module.
+//! Low level printing primitives used by [`crate::display`].
 
 use std::fmt::{self, Display, Write};
 

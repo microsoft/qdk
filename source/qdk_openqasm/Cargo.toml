@@ -12,6 +12,8 @@ description = "A standalone lexer, parser, and semantic analyzer for OpenQASM 3.
 readme = "README.md"
 keywords = ["openqasm", "qasm", "quantum", "parser", "compiler"]
 categories = ["parser-implementations", "compilers", "science"]
+# Maintainer tooling for the vendored files. Not part of the crate.
+exclude = ["vendor-sync/"]
 
 [features]
 default = []
@@ -35,6 +37,10 @@ miette = { workspace = true, features = ["fancy-no-syscall"] }
 [[bin]]
 name = "qasm_memtest"
 path = "src/bin/qasm_memtest.rs"
+
+[[bench]]
+name = "qasm_pipeline"
+harness = false
 
 [lints]
 workspace = true

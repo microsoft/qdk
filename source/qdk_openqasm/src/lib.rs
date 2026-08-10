@@ -11,6 +11,7 @@ mod lex;
 pub mod parser;
 pub mod semantic;
 pub mod source;
+pub mod span;
 pub mod stdlib;
 pub mod unparse;
 
@@ -19,10 +20,16 @@ pub(crate) mod tests;
 
 mod vendor;
 
-pub use vendor::span;
 pub(crate) use vendor::{display, index_map};
 
 /// Lossless raw tokenization without exposing lexer implementation types.
+///
+/// Lossless means the token stream reconstructs its input exactly. Trivia such
+/// as whitespace, newlines, and comments is emitted rather than skipped, and
+/// each token's span runs from its own start to the next token's start, so the
+/// spans are gap-free and together cover the whole source. Every byte of the
+/// source therefore belongs to exactly one token, and concatenating the tokens'
+/// text reproduces the source verbatim.
 pub mod tokens {
     pub use crate::lex::{RawToken, RawTokenKind, tokenize};
 }
@@ -50,6 +57,13 @@ fn entry_only_resolver(source: &Arc<str>, path: &Arc<str>) -> io::InMemorySource
 ///
 /// Use [`parse_sources`] when the program's dependencies are already loaded, or
 /// [`parse_source`] to resolve them on demand.
+///
+/// The source is named `<source>` in diagnostics and in the source snapshot. To
+/// name it yourself, call [`parse_source`] with no resolver. Its resolver type
+/// parameter is unconstrained in that case, so a bare `None` does not compile;
+/// spell it `None::<&mut InMemorySourceResolver>` with
+/// [`InMemorySourceResolver`](io::InMemorySourceResolver) in scope, as the first
+/// [`parse_source`] example does.
 ///
 /// # Arguments
 ///
