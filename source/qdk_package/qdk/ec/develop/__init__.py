@@ -18,13 +18,14 @@ instructions.
 
 from .completion import complete_gadget, complete_qodec
 from .primitives import from_yaml, load, save, to_yaml
-from .synthesis import qodec_from_code, synthesis_notes
+from .synthesis import memory_program, qodec_from_code, synthesis_notes
 
 __all__ = [
     "complete_gadget",
     "complete_qodec",
     "from_yaml",
     "load",
+    "memory_program",
     "qodec_from_code",
     "save",
     "synthesis_notes",

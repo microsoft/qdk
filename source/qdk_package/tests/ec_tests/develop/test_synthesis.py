@@ -124,17 +124,91 @@ def test_synthesis_notes_are_empty_for_a_hand_authored_qodec() -> None:
 # ── Circuits ────────────────────────────────────────────────────────────────
 
 
-def test_syndrome_round_uses_one_ancilla_per_stabilizer(steane: qodec.Qodec) -> None:
+def test_syndrome_round_allocates_a_syndrome_ancilla_and_a_flag_per_stabilizer(
+    steane: qodec.Qodec,
+) -> None:
     code = steane.codes["steane"]
+    stabilizers = len(list(code.stabilizers))
     source = steane.layers[0].gadgets["idle"].circuit.source
 
-    ancillas = {
+    measured = [
         int(target)
         for line in source.splitlines()
         if line.startswith("M ")
         for target in line.split()[1:]
-    }
-    assert ancillas == {7 + offset for offset in range(len(list(code.stabilizers)))}
+    ]
+    # Every Steane stabilizer has weight 4, so each carries exactly one flag.
+    assert len(measured) == 2 * stabilizers
+    syndromes, flag_qubits = measured[:stabilizers], measured[stabilizers:]
+    # Syndrome ancillas are measured first, in stabilizer order, so the record
+    # index of stabilizer i is i regardless of which stabilizers carry flags.
+    assert syndromes == sorted(syndromes)
+    assert set(syndromes).isdisjoint(flag_qubits)
+    assert min(measured) >= 7, "ancillas must not collide with the 7 data qubits"
+
+
+def test_syndrome_records_are_ordered_stabilizers_then_flags(
+    steane: qodec.Qodec,
+) -> None:
+    """The record layout must not depend on which stabilizers carry flags."""
+    source = steane.layers[0].gadgets["idle"].circuit.source
+    measurement_lines = [
+        line for line in source.splitlines() if line.startswith("M ")
+    ]
+
+    assert len(measurement_lines) == 2, "expected one M for syndromes, one for flags"
+
+
+def test_flag_outcomes_are_discovered_as_deterministic_checks(
+    steane: qodec.Qodec,
+) -> None:
+    """A flag bit is deterministic, so completion must find it as a check.
+
+    That is what turns a flagged hook error into a detector the decoder sees.
+    """
+    idle = steane.layers[0].gadgets["idle"]
+
+    flag_checks = [
+        check
+        for check in idle.checks
+        if len(check) == 1 and str(check[0]).startswith("circuit.readouts")
+    ]
+    assert len(flag_checks) == 6, "one flag check per weight-4 stabilizer"
+
+
+def test_a_weight_two_stabilizer_carries_no_flag() -> None:
+    """Flag brackets must stay nested, which a weight-2 stabilizer cannot host."""
+    from qdk.ec.develop.synthesis import _flag_capacity
+
+    assert _flag_capacity(2) == 0
+    assert _flag_capacity(3) == 1
+    assert _flag_capacity(4) == 1
+    assert _flag_capacity(6) == 2
+
+
+def test_flag_count_defaults_to_the_codes_error_correcting_radius() -> None:
+    """Chamberland-Beverland call for t = (d-1)//2 flags for a distance-d code."""
+    steane_code = _code("steane", catalog.make_steane_code)
+
+    notes = synthesis_notes(qodec_from_code(steane_code))
+
+    assert notes["flags_per_stabilizer"] == 1
+
+
+def test_flags_can_be_disabled_for_the_naive_circuit() -> None:
+    code = _code("steane", catalog.make_steane_code)
+
+    built = qodec_from_code(code, flags=0)
+
+    source = built.layers[0].gadgets["idle"].circuit.source
+    assert synthesis_notes(built)["flags_per_stabilizer"] == 0
+    # 7 data qubits + one ancilla per stabilizer, and nothing else.
+    assert max(int(t) for line in source.splitlines() for t in line.split()[1:]) == 12
+
+
+def test_negative_flag_counts_are_rejected() -> None:
+    with pytest.raises(ValueError, match="non-negative"):
+        qodec_from_code(_code("steane", catalog.make_steane_code), flags=-1)
 
 
 def test_syndrome_round_never_touches_data_qubits_with_single_qubit_gates(
@@ -459,6 +533,147 @@ def test_idle_gadget_has_a_circuit_level_distance(steane: qodec.Qodec) -> None:
     )
 
     assert distance >= 1
+
+
+# ── Fault tolerance ─────────────────────────────────────────────────────────
+#
+# The point of synthesis is that the artifact inherits the code's protection.
+# These are the tests that hold it to that.
+
+#: Codes whose full memory experiment composes end to end, with their distance.
+MEMORY_CODES = [
+    ("steane", catalog.make_steane_code, 3),
+    (
+        "surface3",
+        lambda: catalog.make_rotated_surface_code(x_distance=3, z_distance=3),
+        3,
+    ),
+]
+
+
+@requires_stim
+@pytest.mark.parametrize(
+    ("label", "factory", "distance"),
+    MEMORY_CODES,
+    ids=[case[0] for case in MEMORY_CODES],
+)
+def test_synthesized_circuit_distance_equals_the_code_distance(
+    label: str, factory, distance: int
+) -> None:
+    """The headline guarantee: a distance-d code yields a distance-d circuit."""
+    from qdk.ec import targets
+
+    built = qodec_from_code(_code(label, factory))
+
+    measured = targets.circuit_distance_of(
+        built, develop.memory_program(built), max_weight=6
+    )
+
+    assert measured == distance
+
+
+@requires_stim
+@pytest.mark.parametrize(
+    ("label", "factory", "distance"),
+    MEMORY_CODES,
+    ids=[case[0] for case in MEMORY_CODES],
+)
+def test_the_naive_circuit_loses_distance_and_flags_recover_it(
+    label: str, factory, distance: int
+) -> None:
+    """Pins *why* flag qubits are there, not just that they are.
+
+    Unflagged extraction lets one ancilla fault propagate into a weight-2 hook
+    error, capping the circuit at distance 2 no matter the code (Chao &
+    Reichardt, arXiv:1705.02329).
+    """
+    from qdk.ec import targets
+
+    code = _code(label, factory)
+    naive = qodec_from_code(code, flags=0, name=f"{label}_naive")
+    flagged = qodec_from_code(code, name=f"{label}_flagged")
+
+    naive_distance = targets.circuit_distance_of(
+        naive, develop.memory_program(naive), max_weight=6
+    )
+    flagged_distance = targets.circuit_distance_of(
+        flagged, develop.memory_program(flagged), max_weight=6
+    )
+
+    assert naive_distance < distance
+    assert flagged_distance == distance
+
+
+@requires_stim
+def test_extra_rounds_do_not_rescue_the_naive_circuit() -> None:
+    """Distinguishes hook errors from the separate measurement-error problem."""
+    from qdk.ec import targets
+
+    naive = qodec_from_code(
+        _code("steane", catalog.make_steane_code), flags=0, name="steane_naive"
+    )
+
+    by_rounds = {
+        rounds: targets.circuit_distance_of(
+            naive, develop.memory_program(naive, rounds=rounds), max_weight=6
+        )
+        for rounds in (1, 2, 3)
+    }
+
+    assert set(by_rounds.values()) == {2}
+
+
+@requires_stim
+def test_verify_distance_accepts_a_sound_build() -> None:
+    built = qodec_from_code(
+        _code("steane", catalog.make_steane_code), verify_distance=True
+    )
+
+    notes = synthesis_notes(built)
+    assert notes["code_distance"] == 3
+    assert notes["circuit_distance"] == 3
+
+
+@requires_stim
+def test_verify_distance_rejects_a_deficient_build() -> None:
+    """The guarantee is checked, not assumed."""
+    code = _code("steane", catalog.make_steane_code)
+
+    with pytest.raises(ValueError, match="short of the code distance"):
+        qodec_from_code(code, flags=0, verify_distance=True, name="steane_bad")
+
+
+@requires_stim
+def test_memory_program_composes_into_a_well_formed_circuit(
+    steane: qodec.Qodec,
+) -> None:
+    """A non-deterministic detector would mean checks and circuits disagree."""
+    from qdk.ec import targets
+
+    circuit = targets.StimEmitter(steane, noise=None).build_circuit(
+        develop.memory_program(steane, rounds=2)
+    )
+
+    circuit.detector_error_model()  # raises if any detector is non-deterministic
+
+
+def test_memory_program_reports_missing_instructions() -> None:
+    built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
+
+    with pytest.raises(ValueError, match="missing"):
+        develop.memory_program(built)
+
+
+def test_memory_program_has_the_expected_shape(steane: qodec.Qodec) -> None:
+    program = develop.memory_program(steane, rounds=3)
+
+    assert [call.mnemonic for call in program.instructions] == [
+        "prepare_z",
+        "idle",
+        "idle",
+        "idle",
+        "measure_z",
+    ]
 
 
 def _memory_program(codec: qodec.Qodec):

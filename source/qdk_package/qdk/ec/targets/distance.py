@@ -97,8 +97,53 @@ def gadget_distance_bounds_of(
     return lower, upper, [data.effects[index] for index in cycle]
 
 
+def circuit_distance_of(
+    codec: qodec.Qodec,
+    program: Program,
+    *,
+    noise: Optional[dict] = None,
+    max_weight: int = 8,
+) -> int:
+    """Fault distance of the *whole compiled circuit* for ``program``.
+
+    Lowers ``program`` through ``codec`` to a physical stim circuit and returns
+    the smallest number of circuit faults that together flip a logical
+    observable while flipping no detector — the circuit-level analogue of code
+    distance, and the number that says whether a qodec actually delivers the
+    protection its code promises.
+
+    This is a *different* and stricter question than
+    :func:`gadget_distance_of`, which scores one gadget in isolation. A single
+    round of syndrome extraction can never see a data fault that lands after it
+    has already measured its stabilizers, so per-gadget numbers understate a
+    memory experiment; only the composed circuit answers the real question.
+
+    ``noise`` is the stim gate-noise model to attach (defaults to uniform
+    depolarizing at 0.1%); its magnitudes do not affect the distance, only
+    which fault locations exist. ``max_weight`` bounds the search stim performs.
+
+    Requires the ``stim`` backend. Raises :class:`ValueError` if the lowered
+    circuit is not well formed — in particular if it carries a detector that is
+    not actually deterministic, which means the qodec's declared checks and its
+    circuits disagree.
+    """
+    from .stim import StimEmitter
+
+    emitter = StimEmitter(
+        codec, noise=noise if noise is not None else {"p_data": 0.001, "p_meas": 0.001}
+    )
+    circuit = emitter.build_circuit(program)
+    error = circuit.search_for_undetectable_logical_errors(
+        dont_explore_detection_event_sets_with_size_above=max_weight,
+        dont_explore_edges_with_degree_above=max_weight,
+        dont_explore_edges_increasing_symptom_degree=False,
+    )
+    return len(error)
+
+
 __all__ = [
     "GadgetDistanceData",
+    "circuit_distance_of",
     "gadget_distance_bounds_of",
     "gadget_distance_of",
 ]

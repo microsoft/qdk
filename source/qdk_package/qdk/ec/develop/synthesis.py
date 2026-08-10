@@ -23,25 +23,23 @@ instruction      synthesized circuit
 ``z{i}``         the code's i-th logical Z operator, gate by gate
 ===============  ===========================================================
 
-Syndrome extraction uses one ancilla per stabilizer, in the uniform
-controlled-Pauli form: the ancilla is prepared in :math:`|+\\rangle`, a
-controlled-``X`` / controlled-``Z`` is applied from it to each qubit in the
-stabilizer's support, and it is then rotated back and measured. This single
-construction covers CSS and non-CSS codes alike, and touches no data qubit
-with a basis-changing gate.
+Syndrome extraction is fault tolerant. Each stabilizer gets a syndrome ancilla
+prepared in :math:`|+\\rangle` and coupled by a controlled Pauli to every qubit
+of its support, plus ``t`` nested **flag qubits** that catch the hook errors
+that construction would otherwise admit (see :func:`_syndrome_round`). A single
+uncaught ancilla fault would propagate onto several data qubits at once and cap
+the circuit at distance 2 no matter how good the code is; the flags make every
+such fault announce itself. This is the ``t``-flag construction of Chamberland &
+Beverland (arXiv:1708.02246), whose ``t = 1`` case is Chao & Reichardt's
+two-extra-qubit circuit for distance-3 codes (arXiv:1705.02329).
 
-.. warning::
-
-   The synthesized circuits are textbook, **not fault-tolerant**. Extracting a
-   stabilizer with a single unflagged ancilla means one fault partway through
-   its string of controlled Paulis can propagate onto several data qubits at
-   once, so a synthesized gadget typically has circuit-level distance 1 no
-   matter how large the code's distance is
-   (:func:`~qdk.ec.targets.gadget_distance_of` will show this). Fault-tolerant
-   extraction needs flag qubits, Shor- or Steane-style ancilla preparation, or a
-   code-specific schedule — design decisions a general synthesizer should not
-   make silently. Treat the result as the fastest path to something runnable and
-   measurable, and as a baseline to compare a hand-tuned qodec against.
+The default ``t`` is ``(d - 1) // 2`` for a code of distance ``d``. The
+resulting artifact inherits the code's protection: for the Steane and rotated
+surface codes, ``qdk.ec.targets.circuit_distance_of`` measures a compiled memory
+experiment at distance 3, matching the codes, where the unflagged circuit
+measures 2. Pass ``flags=0`` to get that naive circuit deliberately, and
+``verify_distance=True`` to have synthesis measure the finished artifact and
+refuse one that falls short.
 
 Checks and readouts are *not* hand-derived: each synthesized gadget is a draft
 that :func:`~qdk.ec.develop.completion.complete_gadget` finishes by exact
@@ -68,17 +66,27 @@ of logical basis: the [[4,2,2]] code admits ``measure_z`` when its logical Z
 operators are written ``Z_0 Z_2, Z_0 Z_1`` but not when the same code is written
 ``Z_1 Z_3, Z_2 Z_3``, though the two bases are equally valid.
 
+A separate gap affects codes whose stabilizers are not all X-type or Z-type.
+``measure_z`` reads the logical Z operators out of a transversal Z-basis
+measurement, and for a CSS code those same outcomes also reconstruct the Z
+stabilizers, so the final measurement is self-checking. A non-CSS code's mixed
+stabilizers cannot be recovered that way, leaving the last layer of the circuit
+unprotected; such codes will not reach their code distance through this
+construction even with flags.
+
 Rather than guess which case applies, :func:`qodec_from_code` keeps only the
 instructions whose gadgets complete *and* verify, and records every omission
 with its reason under the returned qodec's
 ``metadata["qdk.ec"]["synthesis"]["omitted"]`` (see :func:`synthesis_notes`).
-Pass ``strict=True`` to turn any omission into an exception instead.
+Pass ``strict=True`` to turn any omission into an exception instead, and
+``verify_distance=True`` to additionally hold the finished artifact to the
+code's distance.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import qodec
 from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
@@ -86,8 +94,12 @@ from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 
 from ..profile.action import gadget_action_mismatch
+from ..profile.distance import code_distance_of
 from ..profile.propagation.pauli import Pauli, characters_of
 from .completion import complete_gadget
+
+if TYPE_CHECKING:
+    from qodec.circuits import Program
 
 #: Name given to the synthesized physical instruction set.
 _PHYSICAL_ISA_NAME = "stim"
@@ -208,26 +220,98 @@ def _targets(qubits: Iterable[int]) -> str:
     return " ".join(str(qubit) for qubit in qubits)
 
 
-def _syndrome_round(stabilizers: Sequence[object], data_width: int) -> list[str]:
-    """Stim lines measuring every stabilizer once, one ancilla each.
+def _flag_capacity(weight: int) -> int:
+    """How many nested flag brackets a weight-``weight`` stabilizer can host.
 
-    Ancillas occupy ``data_width, data_width + 1, ...``. Each is prepared in
-    :math:`|+\\rangle`, used as the control of a controlled-Pauli into every
-    qubit of its stabilizer's support, then rotated back and measured — so the
-    ancilla's outcome is the stabilizer's eigenvalue and no data qubit is
-    disturbed.
+    Flag ``j`` opens before the ``j``-th coupling and closes after the
+    ``(w - j)``-th, so the brackets stay properly nested only while
+    ``j < w - j``.
     """
-    if not stabilizers:
-        return []
-    ancillas = [data_width + offset for offset in range(len(stabilizers))]
-    lines = [f"R {_targets(ancillas)}", f"H {_targets(ancillas)}"]
-    for ancilla, stabilizer in zip(ancillas, stabilizers):
+    return max(0, (weight - 1) // 2)
+
+
+def _syndrome_round(
+    stabilizers: Sequence[object], data_width: int, flags: int
+) -> list[str]:
+    """Stim lines measuring every stabilizer once, fault-tolerantly.
+
+    Each stabilizer gets a syndrome ancilla prepared in :math:`|+\\rangle`,
+    coupled by a controlled Pauli to every qubit of its support, then rotated
+    back and measured — so its outcome is the stabilizer's eigenvalue and no
+    data qubit is disturbed.
+
+    On its own that circuit is *not* fault tolerant. An X fault on the syndrome
+    ancilla after the ``i``-th coupling propagates through the remaining
+    ``w - i`` couplings, leaving a weight-``(w - i)`` **hook error** on the data
+    from a single fault; the worst case is weight ``⌈w/2⌉``, which drags the
+    circuit distance down to 2 for essentially any code with weight-4 or larger
+    stabilizers (Dennis et al. 2002; Chao & Reichardt, arXiv:1705.02329).
+
+    ``flags`` nested flag qubits per stabilizer fix that. Flag ``j`` is a qubit
+    in :math:`|0\\rangle` linked to the syndrome ancilla by a ``CX`` before the
+    ``j``-th coupling and another after the ``(w - j)``-th. The pair cancels in
+    the fault-free case, leaving the flag in :math:`|0\\rangle` and the syndrome
+    ancilla undisturbed; but an X fault on the ancilla *between* the two
+    brackets propagates through only the closing ``CX``, flipping the flag. So
+    every fault that would produce a hook error of weight ≥ 2 also raises a
+    flag, and the flag outcome is a deterministic bit — a check the decoder can
+    condition on. This is the ``t``-flag construction of Chamberland &
+    Beverland (arXiv:1708.02246, §3.3), of which Chao & Reichardt's
+    two-extra-qubit ``d = 3`` circuit is the ``t = 1`` case.
+
+    Faults outside the brackets are harmless by construction: one before the
+    opening ``CX`` propagates onto the stabilizer's whole support, which acts
+    trivially on the codespace, and one after the closing ``CX`` leaves the data
+    untouched and only flips the syndrome bit.
+    """
+    lines: list[str] = []
+    syndrome_qubits: list[int] = []
+    all_flags: list[int] = []
+    next_qubit = data_width
+    for stabilizer in stabilizers:
         characters = _characters(stabilizer)
-        for qubit in sorted(characters):
+        support = sorted(characters)
+        weight = len(support)
+        if weight == 0:
+            continue
+        flag_count = min(flags, _flag_capacity(weight))
+
+        syndrome = next_qubit
+        next_qubit += 1
+        flag_qubits = list(range(next_qubit, next_qubit + flag_count))
+        next_qubit += flag_count
+        syndrome_qubits.append(syndrome)
+        all_flags.extend(flag_qubits)
+
+        # Flag j (1-indexed) brackets the couplings that could leave a hook
+        # error of weight >= 2 behind.
+        opens = {index: flag_qubits[index - 1] for index in range(1, flag_count + 1)}
+        closes = {
+            weight - index: flag_qubits[index - 1]
+            for index in range(1, flag_count + 1)
+        }
+
+        lines.append(f"R {syndrome}")
+        lines.append(f"H {syndrome}")
+        if flag_qubits:
+            lines.append(f"R {_targets(flag_qubits)}")
+        for position, qubit in enumerate(support, start=1):
+            if position in opens:
+                lines.append(f"CX {syndrome} {opens[position]}")
             gate = "CX" if characters[qubit] == "X" else "CZ"
-            lines.append(f"{gate} {ancilla} {qubit}")
-    lines.append(f"H {_targets(ancillas)}")
-    lines.append(f"M {_targets(ancillas)}")
+            lines.append(f"{gate} {syndrome} {qubit}")
+            if position in closes:
+                lines.append(f"CX {syndrome} {closes[position]}")
+        lines.append(f"H {syndrome}")
+
+    # Measure the syndrome ancillas first, in stabilizer order, then the flags.
+    # Keeping the two groups contiguous makes the measurement-record layout
+    # independent of which stabilizers happen to carry flags, so the record
+    # index of stabilizer i is always i.
+    if syndrome_qubits:
+        lines.append(f"M {_targets(syndrome_qubits)}")
+    if all_flags:
+        lines.append(f"M {_targets(all_flags)}")
     return lines
 
 
@@ -338,11 +422,13 @@ def _candidates(
     logical_count: int,
     data_width: int,
     tokens: Mapping[tuple[str, int], int],
+    flags: int,
 ) -> list[_Candidate]:
     """Every logical instruction this synthesizer knows how to attempt.
 
     ``tokens`` maps ``(basis, logical index)`` to the action token index that
-    names that logical qubit (see :func:`_logical_token_map`).
+    names that logical qubit (see :func:`_logical_token_map`). ``flags`` is the
+    number of nested flag qubits per stabilizer (see :func:`_syndrome_round`).
     """
 
     def operand() -> BlockOperand:
@@ -352,7 +438,7 @@ def _candidates(
         return tokens.get((basis, index), index)
 
     stabilizers = list(code.stabilizers)
-    syndrome = _syndrome_round(stabilizers, data_width)
+    syndrome = _syndrome_round(stabilizers, data_width, flags)
     all_data = _targets(range(data_width))
     order = range(logical_count)
 
@@ -493,19 +579,55 @@ def _rebound(gadget: qodec.Gadget, instruction: Instruction) -> qodec.Gadget:
     )
 
 
+def memory_program(codec: qodec.Qodec, *, rounds: int = 1) -> "Program":
+    """The standard memory experiment over a synthesized ``codec``.
+
+    ``prepare_z``, then ``rounds`` of ``idle``, then ``measure_z`` — the
+    circuit whose fault distance should equal the code distance, and the one
+    :func:`~qdk.ec.targets.circuit_distance_of` is meant to score.
+
+    Raises :class:`ValueError` if ``codec`` lacks any of those instructions,
+    which is what happens when synthesis had to omit them.
+    """
+    from qodec.circuits import Program
+
+    isa = codec.layers[0].isa
+    mnemonics = ["prepare_z", *["idle"] * rounds, "measure_z"]
+    missing = [name for name in dict.fromkeys(mnemonics) if name not in isa.instructions]
+    if missing:
+        raise ValueError(
+            f"codec {codec.name!r} cannot express a memory experiment; it is "
+            f"missing {', '.join(missing)}"
+        )
+
+    def call(mnemonic: str) -> "qodec.instructions.InstructionCall":
+        instruction = isa.instruction(mnemonic)
+        inputs = {str(i): "q" for i in range(len(list(instruction.inputs)))}
+        outputs = {str(i): "q" for i in range(len(list(instruction.outputs)))}
+        if not inputs and not outputs:
+            return qodec.instructions.InstructionCall(mnemonic)
+        return qodec.instructions.InstructionCall(
+            mnemonic, inputs=inputs, outputs=outputs
+        )
+
+    return Program([call(name) for name in mnemonics], isa)
+
+
 def qodec_from_code(
     code: qodec.Code,
     *,
     name: Optional[str] = None,
     description: Optional[str] = None,
+    flags: Optional[int] = None,
+    verify_distance: bool = False,
     strict: bool = False,
 ) -> qodec.Qodec:
     """Synthesize a runnable qodec that implements ``code``.
 
     Returns a two-layer qodec: a logical ISA over the code's ``k`` logical
     qubits, lowering to a physical stim ISA, with one completed gadget per
-    logical instruction. See the module docstring for the instruction menu, the
-    circuit used for each, and the fault-tolerance caveat.
+    logical instruction. See the module docstring for the instruction menu and
+    the circuit used for each.
 
     Parameters
     ----------
@@ -518,10 +640,25 @@ def qodec_from_code(
     description:
         Description for the resulting qodec. A summary of the code's parameters
         is generated when omitted.
+    flags:
+        Nested flag qubits per stabilizer, which is what makes syndrome
+        extraction fault tolerant (see :func:`_syndrome_round`). Defaults to
+        ``(d - 1) // 2`` for a code of distance ``d``, the value
+        Chamberland & Beverland's ``t``-flag construction calls for; this costs
+        one distance computation. Pass ``0`` for the naive, non-fault-tolerant
+        circuit, or an explicit count to skip the distance computation.
+    verify_distance:
+        When ``True``, lower a memory experiment through the finished qodec and
+        measure its fault distance with
+        :func:`~qdk.ec.targets.circuit_distance_of`, raising if it falls short
+        of the code distance. This turns the package's central promise — that
+        the artifact inherits the code's protection — into a checked property
+        rather than an assumption. Requires the ``stim`` backend, and costs a
+        circuit-distance search.
     strict:
-        When ``True``, raise if any instruction's gadget fails to complete.
-        When ``False`` (the default) such instructions are omitted from the
-        logical ISA and recorded in the qodec's metadata.
+        When ``True``, raise if any instruction's gadget fails to complete or
+        to verify. When ``False`` (the default) such instructions are omitted
+        from the logical ISA and recorded in the qodec's metadata.
 
     Raises
     ------
@@ -545,12 +682,22 @@ def qodec_from_code(
     if not resolved_name:
         raise ValueError("code has no name; pass name= explicitly")
 
+    if flags is None:
+        code_distance, _ = code_distance_of(code)
+        flags = max(0, (code_distance - 1) // 2)
+    elif flags < 0:
+        raise ValueError(f"flags must be non-negative; got {flags}")
+    else:
+        code_distance = None
+
     physical = _physical_isa()
     block = Block(resolved_name, encodes=logical_count)
     tokens = _logical_token_map(
         code, resolved_name, logical_count, physical, data_width
     )
-    candidates = _candidates(code, resolved_name, logical_count, data_width, tokens)
+    candidates = _candidates(
+        code, resolved_name, logical_count, data_width, tokens, flags
+    )
 
     # First pass: draft every candidate against a provisional ISA, then let
     # completion and the declared-vs-realized action check decide which
@@ -616,12 +763,13 @@ def qodec_from_code(
                 "code": code.name,
                 "physical_qubits": data_width,
                 "logical_qubits": logical_count,
+                "flags_per_stabilizer": flags,
                 "omitted": omitted,
             }
         }
     }
 
-    return qodec.Qodec(
+    built = qodec.Qodec(
         [qodec.Layer(logical, gadgets=gadgets), qodec.Layer(physical)],
         name=resolved_name,
         description=(
@@ -634,6 +782,28 @@ def qodec_from_code(
         ),
         metadata=metadata,
     )
+
+    if verify_distance:
+        from ..targets.distance import circuit_distance_of
+
+        if code_distance is None:
+            code_distance, _ = code_distance_of(code)
+        measured = circuit_distance_of(
+            built, memory_program(built), max_weight=max(4, code_distance + 2)
+        )
+        notes = metadata[_METADATA_KEY]["synthesis"]  # type: ignore[index]
+        notes["code_distance"] = code_distance  # type: ignore[index]
+        notes["circuit_distance"] = measured  # type: ignore[index]
+        built.metadata = metadata
+        if measured < code_distance:
+            raise ValueError(
+                f"synthesized qodec for {resolved_name!r} has circuit distance "
+                f"{measured}, short of the code distance {code_distance}; the "
+                f"artifact would not deliver the protection the code promises "
+                f"(flags_per_stabilizer={flags})"
+            )
+
+    return built
 
 
 def synthesis_notes(codec: qodec.Qodec) -> dict[str, object]:
@@ -648,4 +818,4 @@ def synthesis_notes(codec: qodec.Qodec) -> dict[str, object]:
     return dict(notes) if isinstance(notes, Mapping) else {}
 
 
-__all__ = ["qodec_from_code", "synthesis_notes"]
+__all__ = ["memory_program", "qodec_from_code", "synthesis_notes"]

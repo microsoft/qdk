@@ -21,6 +21,7 @@ _SURFACE: dict[str, tuple[str, ...]] = {
         "complete_qodec",
         "from_yaml",
         "load",
+        "memory_program",
         "qodec_from_code",
         "save",
         "synthesis_notes",
@@ -47,8 +48,7 @@ _SURFACE: dict[str, tuple[str, ...]] = {
     "qdk.ec.profile.distance": (
         "code_distance_bounds_of",
         "code_distance_of",
-    ),
-    "qdk.ec.profile.faults": (
+    ),    "qdk.ec.profile.faults": (
         "fault_effects_of",
         "fault_profile_of",
     ),
@@ -72,7 +72,15 @@ _SURFACE: dict[str, tuple[str, ...]] = {
         "readouts",
         "why_not_valid",
     ),
-    "qdk.ec.targets": ("Sampler", "Target", "TargetModel"),
+    "qdk.ec.targets": (
+        "Sampler",
+        "Target",
+        "TargetModel",
+        "circuit_distance_of",
+        "encodable_gates_of",
+        "encode_qir",
+        "run_qir_encoded",
+    ),
 }
 
 
