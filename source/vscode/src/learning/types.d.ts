@@ -300,6 +300,12 @@ export interface NotebookSectionInfo {
   cellId: string;
   /** Ids of the exercises inside this section, in document order. */
   exerciseIds: string[];
+  /**
+   * Cell ids of the ordinary code cells inside this section. A section with
+   * any of these is only complete once they have all run successfully;
+   * a prose-only section completes on being read.
+   */
+  codeCellIds: string[];
 }
 
 export interface CatalogUnit {
@@ -311,6 +317,11 @@ export interface CatalogUnit {
    * notebook's cell tags. Used by chat LM tools for hints/solutions.
    */
   notebookExercises?: NotebookExerciseInfo[];
+  /**
+   * Section outline for python-notebook courses, parsed from the authored
+   * notebook. Drives per-section completion.
+   */
+  notebookSections?: NotebookSectionInfo[];
   /**
    * Path (relative to the course source dir) of the notebook for this
    * unit. Set for python-notebook courses.

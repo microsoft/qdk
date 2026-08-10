@@ -227,10 +227,17 @@ export function parseNotebookSections(
       }
       continue;
     }
-    if (
-      cellKind(cell) !== "markdown" ||
-      AUTHORING_TAGS.some((t) => tags.includes(t))
-    ) {
+    if (AUTHORING_TAGS.some((t) => tags.includes(t))) {
+      continue;
+    }
+    if (cellKind(cell) === "code") {
+      const id = cellIdOf(cell);
+      if (id) {
+        sections[sections.length - 1]?.codeCellIds.push(id);
+      }
+      continue;
+    }
+    if (cellKind(cell) !== "markdown") {
       continue;
     }
 
@@ -258,6 +265,7 @@ export function parseNotebookSections(
       title,
       cellId,
       exerciseIds: [],
+      codeCellIds: [],
     });
   }
 

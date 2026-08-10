@@ -342,7 +342,12 @@ export class LearningService {
     const oldActivity = oldKata.activities.find(
       (s) => s.id === currentPos.activityId,
     );
-    if (oldActivity?.type === "lesson") {
+    // A section holding code isn't finished just because it was scrolled past;
+    // it completes from execution instead. See markSectionCompleteIfExecuted.
+    if (
+      oldActivity?.type === "lesson" &&
+      !this.sectionNeedsRun(oldKata, oldActivity.id)
+    ) {
       this.markComplete(currentPos);
     }
 
@@ -473,6 +478,55 @@ export class LearningService {
   }
 
   /**
+   * Mark the section containing `cellId` complete, but only once every code
+   * cell in that section has run successfully.
+   *
+   * Reading is the whole task for a prose section, so those complete on being
+   * navigated past. A section that contains code has not been done until the
+   * learner has actually run it, which is the only evidence we have that they
+   * did more than scroll.
+   */
+  async markSectionCompleteIfExecuted(
+    cellId: string,
+    notebook: vscode.NotebookDocument,
+  ): Promise<boolean> {
+    if (this.activeCourse.kind !== "python-notebook") {
+      return false;
+    }
+    const unit = this.findUnit(this.position.unitId);
+    const section = unit.notebookSections?.find((s) =>
+      s.codeCellIds.includes(cellId),
+    );
+    if (!section) {
+      return false;
+    }
+
+    const succeeded = new Set(
+      notebook
+        .getCells()
+        .filter((c) => c.executionSummary?.success)
+        .map((c) => c.metadata?.id)
+        .filter((id): id is string => typeof id === "string"),
+    );
+    if (!section.codeCellIds.every((id) => succeeded.has(id))) {
+      return false;
+    }
+
+    const location: ActivityLocation = {
+      courseId: this.activeCourse.id,
+      unitId: unit.id,
+      activityId: section.id,
+    };
+    if (this.isComplete(location)) {
+      return true;
+    }
+    this.markComplete(location);
+    await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+    return true;
+  }
+
+  /**
    * Move the current position to the unit backing the given workbook URI,
    * so that unit-scoped UI (hint status bar items, notebook toolbar actions,
    * completion tracking) applies to the notebook the learner is looking at.
@@ -573,6 +627,12 @@ export class LearningService {
     }
     const unit = this.findUnit(this.position.unitId);
     return unit.notebookExercises?.some((ex) => ex.cellId === cellId) ?? false;
+  }
+
+  /** True when a lesson is a section whose code cells still gate completion. */
+  private sectionNeedsRun(unit: CatalogUnit, activityId: string): boolean {
+    const section = unit.notebookSections?.find((s) => s.id === activityId);
+    return (section?.codeCellIds.length ?? 0) > 0;
   }
 
   /**

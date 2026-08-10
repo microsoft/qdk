@@ -369,6 +369,21 @@
       ],
       "view/title": [
         {
+          "command": "qsharp-vscode.learningNotebookPrevious",
+          "when": "view == qsharp-vscode.learningTree",
+          "group": "navigation@1"
+        },
+        {
+          "command": "qsharp-vscode.learningNotebookNext",
+          "when": "view == qsharp-vscode.learningTree",
+          "group": "navigation@2"
+        },
+        {
+          "command": "qsharp-vscode.learningFocusMode",
+          "when": "view == qsharp-vscode.learningTree",
+          "group": "navigation@3"
+        },
+        {
           "command": "qsharp-vscode.workspacesRefresh",
           "when": "view == quantum-workspaces",
           "group": "navigation"
@@ -380,8 +395,7 @@
         },
         {
           "command": "qsharp-vscode.learningRefresh",
-          "when": "view == qsharp-vscode.learningTree",
-          "group": "navigation"
+          "when": "view == qsharp-vscode.learningTree"
         },
         {
           "command": "qsharp-vscode.learningContinue",
@@ -471,21 +485,6 @@
         }
       ],
       "notebook/toolbar": [
-        {
-          "command": "qsharp-vscode.learningNotebookPrevious",
-          "when": "qsharp-vscode.learningNotebookActive",
-          "group": "navigation@10"
-        },
-        {
-          "command": "qsharp-vscode.learningNotebookNext",
-          "when": "qsharp-vscode.learningNotebookActive",
-          "group": "navigation@20"
-        },
-        {
-          "command": "qsharp-vscode.learningFocusMode",
-          "when": "qsharp-vscode.learningNotebookActive",
-          "group": "navigation@30"
-        },
         {
           "command": "qsharp-vscode.learningCheckEnvironment",
           "when": "qsharp-vscode.learningNotebookActive",

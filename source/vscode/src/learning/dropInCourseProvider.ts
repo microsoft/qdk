@@ -24,6 +24,7 @@ import type {
   CatalogUnit,
   CourseEnvironment,
   NotebookExerciseInfo,
+  NotebookSectionInfo,
 } from "./types.js";
 
 /**
@@ -162,8 +163,12 @@ export class DropInCourseProvider implements CourseProvider {
         );
         continue;
       }
-      const { activities, notebookExercises, sourceNotebookRel } =
-        await this.parseNotebookUnit(unitDir, manifestUnit);
+      const {
+        activities,
+        notebookExercises,
+        notebookSections,
+        sourceNotebookRel,
+      } = await this.parseNotebookUnit(unitDir, manifestUnit);
       if (activities.length === 0) {
         log.warn(
           `Unit "${manifestUnit.id}" in course "${id}" has no activities.`,
@@ -174,6 +179,7 @@ export class DropInCourseProvider implements CourseProvider {
         title: manifestUnit.title,
         activities,
         notebookExercises,
+        notebookSections,
         sourceNotebookRel,
       });
     }
@@ -210,6 +216,7 @@ export class DropInCourseProvider implements CourseProvider {
   ): Promise<{
     activities: CatalogActivity[];
     notebookExercises?: NotebookExerciseInfo[];
+    notebookSections?: NotebookSectionInfo[];
     sourceNotebookRel?: string;
   }> {
     // Find the source notebook file in the unit dir. Materialized working
@@ -299,7 +306,12 @@ export class DropInCourseProvider implements CourseProvider {
       } satisfies CatalogLesson);
     }
 
-    return { activities, notebookExercises, sourceNotebookRel };
+    return {
+      activities,
+      notebookExercises,
+      notebookSections: sections,
+      sourceNotebookRel,
+    };
   }
 }
 

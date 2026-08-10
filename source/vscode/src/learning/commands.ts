@@ -214,9 +214,7 @@ export function registerLearningCommands(
     ),
 
     vscode.commands.registerCommand("qsharp-vscode.learningFocusMode", () =>
-      // Zen Mode already hides the sidebar and centers the layout, so it is
-      // the whole feature; what was missing is a way to find it.
-      vscode.commands.executeCommand("workbench.action.toggleZenMode"),
+      toggleFocusMode(service),
     ),
 
     vscode.commands.registerCommand(
@@ -298,6 +296,36 @@ function resolveCellId(
     }
   }
   return undefined;
+}
+
+let focusModeActive = false;
+
+/**
+ * Reduce the window to the course tree plus the workbook.
+ *
+ * Deliberately not Zen Mode, which hides the sidebar — the course outline is
+ * the one thing that has to stay. Chat is left alone so "Explain" can still
+ * open it alongside.
+ */
+async function toggleFocusMode(service: LearningService): Promise<void> {
+  focusModeActive = !focusModeActive;
+  if (!focusModeActive) {
+    await vscode.commands.executeCommand("workbench.action.togglePanel");
+    return;
+  }
+
+  await vscode.commands.executeCommand("qsharp-vscode.learningTree.focus");
+  if (
+    service.initialized &&
+    service.getActiveCourseInfo().kind === "python-notebook"
+  ) {
+    await openCourseNotebook(service);
+  }
+  await vscode.commands.executeCommand("workbench.action.closeOtherEditors");
+  await vscode.commands.executeCommand(
+    "workbench.action.closeEditorsInOtherGroups",
+  );
+  await vscode.commands.executeCommand("workbench.action.closePanel");
 }
 
 /**

@@ -66,7 +66,13 @@ export function initLearning(
           }
           void learningService.goToExerciseByCellId(cellId, "notebook");
           if (change.executionSummary.success) {
-            void learningService.markExerciseCompleteByCellId(cellId);
+            if (learningService.isExerciseCellId(cellId)) {
+              void learningService.markExerciseCompleteByCellId(cellId);
+            }
+            void learningService.markSectionCompleteIfExecuted(
+              cellId,
+              e.notebook,
+            );
           }
         }
       }
