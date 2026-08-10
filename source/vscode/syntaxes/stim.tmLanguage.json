@@ -52,7 +52,7 @@
       "name": "comment.line.number-sign.stim"
     },
     "control-flow": {
-      "match": "\\b(REPEAT|PREPARE|REQUIRE)\\b",
+      "match": "\\b(REPEAT|SELECT|REQUIRE|NOTLEAKED)\\b",
       "name": "keyword.control.stim"
     },
     "annotation": {

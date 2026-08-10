@@ -122,7 +122,7 @@ fn while_condition_return_shape_snapshot() {
             function Main() : Int {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
-                while not __has_returned and if true {
+                while ((not __has_returned)) and if true {
                     if true {
                         {
                             __ret_val = 31;
@@ -142,7 +142,7 @@ fn while_condition_return_shape_snapshot() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -203,7 +203,7 @@ fn while_local_initializer_return_shape_snapshot() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 3 {
+                while ((not __has_returned)) and (i < 3) {
                     let _ : Unit = if i == 1 {
                         let _ : ((Int, Int) -> Int) = Add;
                         {
@@ -211,7 +211,7 @@ fn while_local_initializer_return_shape_snapshot() {
                             __has_returned = true;
                         };
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -219,7 +219,7 @@ fn while_local_initializer_return_shape_snapshot() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i + 5
                     } else {
                         __ret_val

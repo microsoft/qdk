@@ -459,10 +459,10 @@ fn specialize_closure_capture_types_preserved() {
                 {
                     {
                         let _range_id_59 : Range = 0..n;
-                        mutable _index_id_62 : Int = _range_id_59::Start;
-                        let _step_id_67 : Int = _range_id_59::Step;
-                        let _end_id_72 : Int = _range_id_59::End;
-                        while _step_id_67 > 0 and _index_id_62 <= _end_id_72 or _step_id_67 < 0 and _index_id_62 >= _end_id_72 {
+                        mutable _index_id_62 : Int = _range_id_59.Start;
+                        let _step_id_67 : Int = _range_id_59.Step;
+                        let _end_id_72 : Int = _range_id_59.End;
+                        while ((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72)) {
                             let _ : Int = _index_id_62;
                             H(q1);
                             _index_id_62 += _step_id_67;
@@ -493,10 +493,10 @@ fn specialize_closure_capture_types_preserved() {
                 {
                     {
                         let _range_id_59 : Range = 0..n;
-                        mutable _index_id_62 : Int = _range_id_59::Start;
-                        let _step_id_67 : Int = _range_id_59::Step;
-                        let _end_id_72 : Int = _range_id_59::End;
-                        while _step_id_67 > 0 and _index_id_62 <= _end_id_72 or _step_id_67 < 0 and _index_id_62 >= _end_id_72 {
+                        mutable _index_id_62 : Int = _range_id_59.Start;
+                        let _step_id_67 : Int = _range_id_59.Step;
+                        let _end_id_72 : Int = _range_id_59.End;
+                        while ((_step_id_67 > 0) and (_index_id_62 <= _end_id_72)) or ((_step_id_67 < 0) and (_index_id_62 >= _end_id_72)) {
                             let _ : Int = _index_id_62;
                             H(q1);
                             _index_id_62 += _step_id_67;
@@ -2922,6 +2922,501 @@ fn single_param_recursive_tuple_callable_specializes_end_to_end() {
 }
 
 #[test]
+fn recursive_hof_function_specialization_remaps_self_call_to_specialization() {
+    let source = r#"
+        function Repeat(op : Int -> Int, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                let i : Int = op(n);
+                Repeat(Id, i - 1, q);
+            }
+        }
+        function Id(x : Int) : Int { x }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(Id, 2, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("Repeat") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let repeat_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{Id}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        repeat_specializations.len(),
+        1,
+        "expected one H-specialized Repeat callable, got {repeat_specializations:?} from {repeat_names:?}"
+    );
+
+    let repeat_specialization = repeat_specializations[0];
+    let targets = callable_call_targets_after_defunc(source, repeat_specialization);
+    assert!(
+        targets.contains(repeat_specialization),
+        "recursive specialization {repeat_specialization} should call itself, got targets {targets:?}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            function Repeat(op : (Int -> Int), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    let i : Int = op(n);
+                    Repeat(Id, i - 1, q);
+                }
+
+            }
+            function Id(x : Int) : Int {
+                x
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat(Id, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            // entry
+            Main()
+
+            AFTER:
+            function Repeat(op : (Int -> Int), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    let i : Int = op(n);
+                    Repeat_Id_(i - 1, q);
+                }
+
+            }
+            function Id(x : Int) : Int {
+                x
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_Id_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            function Repeat_Id_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    let i : Int = Id(n);
+                    Repeat_Id_(i - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_hof_specialization_remaps_self_call_to_specialization() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(H, n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("Repeat") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let repeat_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{H}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        repeat_specializations.len(),
+        1,
+        "expected one H-specialized Repeat callable, got {repeat_specializations:?} from {repeat_names:?}"
+    );
+
+    let repeat_specialization = repeat_specializations[0];
+    let targets = callable_call_targets_after_defunc(source, repeat_specialization);
+    assert!(
+        targets.contains(repeat_specialization),
+        "recursive specialization {repeat_specialization} should call itself, got targets {targets:?}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(H, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl_(H, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(H, n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(H, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl__H_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl__H_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_AdjCtl__H_(n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_multi_param_hof_specialization_remaps_self_call_to_specialization() {
+    let source = r#"
+        operation RepeatPair(n : Int, first : Qubit => Unit, second : Qubit => Unit, q : Qubit) : Unit {
+            if n > 0 {
+                first(q);
+                second(q);
+                RepeatPair(n - 1, H, X, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            RepeatPair(2, H, X, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("RepeatPair") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let repeat_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{H}") && name.contains("{X}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        repeat_specializations.len(),
+        1,
+        "expected one H/X-specialized RepeatPair callable, got {repeat_specializations:?} from {repeat_names:?}"
+    );
+
+    let repeat_specialization = repeat_specializations[0];
+    let targets = callable_call_targets_after_defunc(source, repeat_specialization);
+    assert!(
+        targets.contains(repeat_specialization),
+        "recursive specialization {repeat_specialization} should call itself, got targets {targets:?}"
+    );
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation RepeatPair(n : Int, first : (Qubit => Unit), second : (Qubit => Unit), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RepeatPair_AdjCtl__AdjCtl_(2, H, X, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RepeatPair_AdjCtl__AdjCtl_(n : Int, first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation RepeatPair(n : Int, first : (Qubit => Unit), second : (Qubit => Unit), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl_(n - 1, H, X, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                RepeatPair_AdjCtl__AdjCtl__H__X_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation RepeatPair_AdjCtl__AdjCtl_(n : Int, first : (Qubit => Unit is Adj + Ctl), second : (Qubit => Unit is Adj + Ctl), q : Qubit) : Unit {
+                if n > 0 {
+                    first(q);
+                    second(q);
+                    RepeatPair_AdjCtl__AdjCtl__H__X_(n - 1, q);
+                }
+
+            }
+            operation RepeatPair_AdjCtl__AdjCtl__H__X_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    X(q);
+                    RepeatPair_AdjCtl__AdjCtl__H__X_(n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+// Regression for the soundness of the conditional, key-matched recursive
+// self-call remap. When a used-parameter recursive HOF forwards a *different*
+// global callable on its self-call than the one it was entered with, the
+// self-call must be routed to the sibling specialization for that forwarded
+// callable rather than folded into a self-loop on the current specialization.
+//
+// Here `Repeat` is entered with `H` but its recursive self-call forwards `X`.
+// The correct lowering emits the sequence `H, X`: the `H` specialization runs
+// `H(q)` and then calls the `X` sibling specialization, which runs `X(q)` and
+// recurses on itself. An unconditional remap (the pre-fix behavior) would
+// instead retarget the self-call back into the `H` specialization, silently
+// emitting `H, H` and leaving the `X` specialization orphaned.
+//
+// Note: the sibling-routing path currently mints the `X` specialization more
+// than once (one copy is reachable via the `H` specialization and one is dead
+// code reached only through the now-unreachable generic HOF). This is a
+// redundant-specialization inefficiency, not a miscompile -- the reachable
+// gate sequence is still `H, X` -- so the assertions below key off the
+// specialization *names* rather than a specialization count.
+#[test]
+fn recursive_hof_self_call_with_different_callable_routes_to_sibling_specialization() {
+    let source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(X, n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(source);
+    let package = fir_store.get(fir_pkg_id);
+    let repeat_names = package
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            ItemKind::Callable(decl) if decl.name.name.starts_with("Repeat") => {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let h_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{H}"))
+        .collect::<Vec<_>>();
+    let x_specializations = repeat_names
+        .iter()
+        .filter(|name| name.contains("{X}"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        h_specializations.len(),
+        1,
+        "expected one H-specialized Repeat callable, got {h_specializations:?} from {repeat_names:?}"
+    );
+    assert!(
+        !x_specializations.is_empty(),
+        "expected at least one X-specialized Repeat callable, got {x_specializations:?} from {repeat_names:?}"
+    );
+
+    let h_specialization = h_specializations[0];
+    let x_specialization = x_specializations[0];
+
+    // The H specialization forwards `X` on its self-call, so it must call the
+    // X sibling specialization and must not self-loop (a self-loop would emit
+    // the incorrect sequence H, H instead of the correct H, X).
+    let h_targets = callable_call_targets_after_defunc(source, h_specialization);
+    assert!(
+        h_targets.contains(x_specialization),
+        "H specialization {h_specialization} should call the X sibling specialization \
+         {x_specialization}, got targets {h_targets:?}"
+    );
+    assert!(
+        !h_targets.contains(h_specialization),
+        "H specialization {h_specialization} must not self-loop (that would emit H, H), \
+         got targets {h_targets:?}"
+    );
+
+    // The X specialization forwards `X` on its self-call, which matches its own
+    // key, so it self-loops.
+    let x_targets = callable_call_targets_after_defunc(source, x_specialization);
+    assert!(
+        x_targets.contains(x_specialization),
+        "X specialization {x_specialization} should self-loop, got targets {x_targets:?}"
+    );
+
+    check_rewrite(
+        source,
+        &expect![[r#"
+            BEFORE:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(X, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl_(H, 2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(X, n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+
+            AFTER:
+            operation Repeat(op : (Qubit => Unit), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl_(X, n - 1, q);
+                }
+
+            }
+            operation Main() : Unit {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                Repeat_AdjCtl__H_(2, q);
+                __quantum__rt__qubit_release(q);
+            }
+            operation Repeat_AdjCtl_(op : (Qubit => Unit is Adj + Ctl), n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    op(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__H_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    H(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__X_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    X(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            operation Repeat_AdjCtl__X_(n : Int, q : Qubit) : Unit {
+                if n > 0 {
+                    X(q);
+                    Repeat_AdjCtl__X_(n - 1, q);
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+// The exact repro reported for degenerate recursive defunctionalization. `F`'s
+// callable parameter is unused, so every specialization collapses to the same
+// body once the callable slot is stripped, and the fixpoint loop converges on a
+// small bounded specialization set. This must complete with no diagnostics --
+// no fixpoint-not-reached, no dynamic-callable, and no excessive-specialization
+// warning.
+#[test]
+fn recursive_unused_param_identity_lambda_converges_clean() {
+    let source = r#"
+        operation Main() : Unit {
+            F(x => x)
+        }
+        operation F(f : () => ()) : Unit {
+            F(() => F(x => x));
+        }
+        "#;
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+    assert!(
+        errors.is_empty(),
+        "expected clean convergence with no diagnostics, got:\n{}",
+        format_defunctionalization_errors(&errors)
+    );
+}
+
+#[test]
 fn single_param_recursive_tuple_callable_closure_capture_invariants() {
     let source = r#"
         operation ApplyOp(op : Qubit => Unit, q : Qubit) : Unit {
@@ -3416,6 +3911,100 @@ fn excessive_specializations_warning_does_not_block_compilation() {
 }
 
 #[test]
+fn cumulative_specialization_cap_fails_closed_with_fatal_error() {
+    use std::fmt::Write as _;
+
+    // A single HOF forwarded one more distinct global callable than the
+    // cumulative cap allows must fail closed with a fatal
+    // `RecursiveSpecialization` diagnostic rather than looping or panicking.
+    // Each `OpN` is a distinct global, so each `Apply(OpN, q)` call site yields
+    // a distinct specialization key for `Apply`; `cap + 1` of them pushes the
+    // HOF's cumulative distinct-specialization count past the budget.
+    let cap = crate::defunctionalize::specialize::CUMULATIVE_SPECIALIZATION_CAP;
+    let num_ops = cap + 1;
+
+    let mut ops = String::new();
+    let mut calls = String::new();
+    for i in 0..num_ops {
+        writeln!(ops, "        operation Op{i}(q : Qubit) : Unit {{}}")
+            .expect("writing to a String cannot fail");
+        writeln!(calls, "            Apply(Op{i}, q);").expect("writing to a String cannot fail");
+    }
+    let source = format!(
+        "\n        operation Apply(op : Qubit => Unit, q : Qubit) : Unit {{ op(q); }}\n{ops}        operation Main() : Unit {{\n            use q = Qubit();\n{calls}        }}\n"
+    );
+
+    let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(&source);
+    let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+    // The loop must terminate (fail closed); if the guard were absent this
+    // could otherwise run to the iteration cap. Reaching this assertion at all
+    // proves there was no panic or hang.
+    let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+
+    let recursive: Vec<_> = errors
+        .iter()
+        .filter(|e| matches!(e, super::super::Error::RecursiveSpecialization(..)))
+        .collect();
+    assert_eq!(
+        recursive.len(),
+        1,
+        "expected exactly one RecursiveSpecialization diagnostic, got: {errors:?}"
+    );
+    // The fatal diagnostic must not be classified as a warning.
+    assert!(
+        !recursive[0].is_warning(),
+        "RecursiveSpecialization must be fatal, not a warning"
+    );
+    // The reported cumulative count must be over the cap.
+    if let super::super::Error::RecursiveSpecialization(_, count, _) = recursive[0] {
+        assert!(
+            *count > cap,
+            "reported count {count} should exceed the cap {cap}"
+        );
+    }
+}
+
+#[test]
+fn primary_fix_regressions_stay_under_cumulative_cap() {
+    // The key-matched self-call remap keeps each recursive HOF's specialization
+    // set bounded, so neither the used-parameter variant nor the exact
+    // unused-parameter repro should ever trip the cumulative cap. Both must
+    // defunctionalize without emitting a `RecursiveSpecialization` diagnostic.
+    let used_param = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(X, n - 1, q);
+            }
+        }
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    let unused_param = r#"
+        operation Main() : Unit {
+            F(x => x)
+        }
+        operation F(f : () => ()) : Unit {
+            F(() => F(x => x));
+        }
+        "#;
+
+    for source in [used_param, unused_param] {
+        let (mut fir_store, fir_pkg_id) = compile_to_monomorphized_fir(source);
+        let mut assigners = PackageAssigners::new(&fir_store, fir_pkg_id);
+        let errors = defunctionalize(&mut fir_store, fir_pkg_id, &mut assigners);
+        assert!(
+            !errors
+                .iter()
+                .any(|e| matches!(e, super::super::Error::RecursiveSpecialization(..))),
+            "expected no RecursiveSpecialization under the cap, got: {errors:?}"
+        );
+    }
+}
+
+#[test]
 fn zero_capture_conditional_alias_dispatches_correctly() {
     let source = r#"
         operation ZeroCaptureConditionalAlias(q : Qubit, useAdj : Bool) : Unit {
@@ -3739,309 +4328,309 @@ fn struct_capture_closure_threads_capture_through_controlled_dispatch() {
     check_rewrite(
         source,
         &expect![[r#"
-        BEFORE:
-        newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
-        operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
-            body ... {
-                if Length(params::expansionOps) != 0 {
-                    X(qs[0]);
-                }
+            BEFORE:
+            newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
+            operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    if Length(params::expansionOps) != 0 {
+                        X(qs[0]);
+                    }
 
-            }
-            adjoint ... {
-                if Length(params::expansionOps) != 0 {
-                    Adjoint X(qs[0]);
                 }
+                adjoint ... {
+                    if Length(params::expansionOps) != 0 {
+                        Adjoint X(qs[0]);
+                    }
 
-            }
-            controlled (ctls, ...) {
-                if Length(params::expansionOps) != 0 {
-                    Controlled X(ctls, qs[0]);
                 }
+                controlled (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled X(ctls, qs[0]);
+                    }
 
-            }
-            controlled adjoint (ctls, ...) {
-                if Length(params::expansionOps) != 0 {
-                    Controlled Adjoint X(ctls, qs[0]);
                 }
+                controlled adjoint (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled Adjoint X(ctls, qs[0]);
+                    }
 
+                }
             }
-        }
-        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
-            body ... {}
-            adjoint ... {}
-            controlled (ctls, ...) {}
-            controlled adjoint (ctls, ...) {}
-        }
-        function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-            / * closure item = 7 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
-        }
-        operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
-            let control : Qubit = __quantum__rt__qubit_allocate();
-            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
-            let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
-            op(control, systems);
-            ReleaseQubitArray(systems);
-            __quantum__rt__qubit_release(control);
-        }
-        operation Main() : Unit {
-            let params : __UDT_Item_1__Package_2_ = new StatePreparationParams {
-                rowMap = [0],
-                stateVector = [1., 0.],
-                expansionOps = [],
-                numQubits = 1
-            };
-            let prep : (Qubit[] => Unit is Adj + Ctl) = {
-                let arg : __UDT_Item_1__Package_2_ = params;
-                / * closure item = 8 captures = [arg] * / _lambda_8
-            };
-            MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prep, SelectIdentity, 1, 1);
-        }
-        operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
-            {
-                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
-                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+                body ... {}
+                adjoint ... {}
+                controlled (ctls, ...) {}
+                controlled adjoint (ctls, ...) {}
+            }
+            function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 7 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
+            }
+            operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
+                op(control, systems);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            operation Main() : Unit {
+                let params : __UDT_Item_1__Package_2_ = new StatePreparationParams {
+                    rowMap = [0],
+                    stateVector = [1., 0.],
+                    expansionOps = [],
+                    numQubits = 1
+                };
+                let prep : (Qubit[] => Unit is Adj + Ctl) = {
+                    let arg : __UDT_Item_1__Package_2_ = params;
+                    / * closure item = 8 captures = [arg] * / _lambda_8
+                };
+                MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prep, SelectIdentity, 1, 1);
+            }
+            operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let _range_id_341 : Range = 0..power - 1;
-                    mutable _index_id_344 : Int = _range_id_341::Start;
-                    let _step_id_349 : Int = _range_id_341::Step;
-                    let _end_id_354 : Int = _range_id_341::End;
-                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
-                        let _ : Int = _index_id_344;
-                        Controlled prepareOp([control], systems);
-                        Controlled selectOp([control], (systems, ancilla));
-                        _index_id_344 += _step_id_349;
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_341 : Range = 0..power - 1;
+                        mutable _index_id_344 : Int = _range_id_341.Start;
+                        let _step_id_349 : Int = _range_id_341.Step;
+                        let _end_id_354 : Int = _range_id_341.End;
+                        while ((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354)) {
+                            let _ : Int = _index_id_344;
+                            Controlled prepareOp([control], systems);
+                            Controlled selectOp([control], (systems, ancilla));
+                            _index_id_344 += _step_id_349;
+                        }
+
                     }
 
                 }
 
             }
-
-        }
-        operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
-            body ... {
-                ApplyStatePreparation(arg, hole)
+            operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyStatePreparation(arg, hole)
+                }
+                adjoint ... {
+                    Adjoint ApplyStatePreparation(arg, hole)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyStatePreparation(ctls, (arg, hole))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+                }
             }
-            adjoint ... {
-                Adjoint ApplyStatePreparation(arg, hole)
+            function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
             }
-            controlled (ctls, ...) {
-                Controlled ApplyStatePreparation(ctls, (arg, hole))
-            }
-            controlled adjoint (ctls, ...) {
-                Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
-            }
-        }
-        function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-            / * closure item = 10 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
-        }
-        operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
-            {
-                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
-                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+            operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let _range_id_341 : Range = 0..power - 1;
-                    mutable _index_id_344 : Int = _range_id_341::Start;
-                    let _step_id_349 : Int = _range_id_341::Step;
-                    let _end_id_354 : Int = _range_id_341::End;
-                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
-                        let _ : Int = _index_id_344;
-                        Controlled prepareOp([control], systems);
-                        Controlled selectOp([control], (systems, ancilla));
-                        _index_id_344 += _step_id_349;
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_341 : Range = 0..power - 1;
+                        mutable _index_id_344 : Int = _range_id_341.Start;
+                        let _step_id_349 : Int = _range_id_341.Step;
+                        let _end_id_354 : Int = _range_id_341.End;
+                        while ((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354)) {
+                            let _ : Int = _index_id_344;
+                            Controlled prepareOp([control], systems);
+                            Controlled selectOp([control], (systems, ancilla));
+                            _index_id_344 += _step_id_349;
+                        }
+
                     }
 
                 }
 
             }
-
-        }
-        operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
-            let control : Qubit = __quantum__rt__qubit_allocate();
-            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
-            let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
-            op(control, systems);
-            ReleaseQubitArray(systems);
-            __quantum__rt__qubit_release(control);
-        }
-        // entry
-        Main()
-
-        AFTER:
-        newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
-        operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
-            body ... {
-                if Length(params::expansionOps) != 0 {
-                    X(qs[0]);
-                }
-
+            operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
+                op(control, systems);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
             }
-            adjoint ... {
-                if Length(params::expansionOps) != 0 {
-                    Adjoint X(qs[0]);
-                }
+            // entry
+            Main()
 
-            }
-            controlled (ctls, ...) {
-                if Length(params::expansionOps) != 0 {
-                    Controlled X(ctls, qs[0]);
-                }
+            AFTER:
+            newtype StatePreparationParams = (Int[], Double[], Int[][], Int);
+            operation ApplyStatePreparation(params : __UDT_Item_1__Package_2_, qs : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    if Length(params::expansionOps) != 0 {
+                        X(qs[0]);
+                    }
 
-            }
-            controlled adjoint (ctls, ...) {
-                if Length(params::expansionOps) != 0 {
-                    Controlled Adjoint X(ctls, qs[0]);
                 }
+                adjoint ... {
+                    if Length(params::expansionOps) != 0 {
+                        Adjoint X(qs[0]);
+                    }
 
+                }
+                controlled (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled X(ctls, qs[0]);
+                    }
+
+                }
+                controlled adjoint (ctls, ...) {
+                    if Length(params::expansionOps) != 0 {
+                        Controlled Adjoint X(ctls, qs[0]);
+                    }
+
+                }
             }
-        }
-        operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
-            body ... {}
-            adjoint ... {}
-            controlled (ctls, ...) {}
-            controlled adjoint (ctls, ...) {}
-        }
-        function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-            / * closure item = 7 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
-        }
-        operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
-            let control : Qubit = __quantum__rt__qubit_allocate();
-            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
-            let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
-            op(control, systems);
-            ReleaseQubitArray(systems);
-            __quantum__rt__qubit_release(control);
-        }
-        operation Main() : Unit {
-            let params : __UDT_Item_1__Package_2_ = new StatePreparationParams {
-                rowMap = [0],
-                stateVector = [1., 0.],
-                expansionOps = [],
-                numQubits = 1
-            };
-            MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, params);
-        }
-        operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
-            {
-                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
-                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {
+                body ... {}
+                adjoint ... {}
+                controlled (ctls, ...) {}
+                controlled adjoint (ctls, ...) {}
+            }
+            function MakeControlledPrepSelPrepOp(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 7 captures = [prepareOp, selectOp, numSystemQubits, power] * / _lambda_7
+            }
+            operation MakeControlledPrepSelPrepCircuit(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                let op : ((Qubit, Qubit[]) => Unit) = MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp, selectOp, numSystemQubits, power);
+                op(control, systems);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            operation Main() : Unit {
+                let params : __UDT_Item_1__Package_2_ = new StatePreparationParams {
+                    rowMap = [0],
+                    stateVector = [1., 0.],
+                    expansionOps = [],
+                    numQubits = 1
+                };
+                MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(1, 1, params);
+            }
+            operation _lambda_7(prepareOp : (Qubit[] => Unit), selectOp : ((Qubit[], Qubit[]) => Unit), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let _range_id_341 : Range = 0..power - 1;
-                    mutable _index_id_344 : Int = _range_id_341::Start;
-                    let _step_id_349 : Int = _range_id_341::Step;
-                    let _end_id_354 : Int = _range_id_341::End;
-                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
-                        let _ : Int = _index_id_344;
-                        Controlled prepareOp([control], systems);
-                        Controlled selectOp([control], (systems, ancilla));
-                        _index_id_344 += _step_id_349;
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_341 : Range = 0..power - 1;
+                        mutable _index_id_344 : Int = _range_id_341.Start;
+                        let _step_id_349 : Int = _range_id_341.Step;
+                        let _end_id_354 : Int = _range_id_341.End;
+                        while ((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354)) {
+                            let _ : Int = _index_id_344;
+                            Controlled prepareOp([control], systems);
+                            Controlled selectOp([control], (systems, ancilla));
+                            _index_id_344 += _step_id_349;
+                        }
+
                     }
 
                 }
 
             }
-
-        }
-        operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
-            body ... {
-                ApplyStatePreparation(arg, hole)
+            operation _lambda_8(arg : __UDT_Item_1__Package_2_, hole : Qubit[]) : Unit is Adj + Ctl {
+                body ... {
+                    ApplyStatePreparation(arg, hole)
+                }
+                adjoint ... {
+                    Adjoint ApplyStatePreparation(arg, hole)
+                }
+                controlled (ctls, ...) {
+                    Controlled ApplyStatePreparation(ctls, (arg, hole))
+                }
+                controlled adjoint (ctls, ...) {
+                    Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
+                }
             }
-            adjoint ... {
-                Adjoint ApplyStatePreparation(arg, hole)
+            function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
+                ()
             }
-            controlled (ctls, ...) {
-                Controlled ApplyStatePreparation(ctls, (arg, hole))
-            }
-            controlled adjoint (ctls, ...) {
-                Controlled Adjoint ApplyStatePreparation(ctls, (arg, hole))
-            }
-        }
-        function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : ((Qubit, Qubit[]) => Unit) {
-            ()
-        }
-        operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
-            {
-                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
-                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+            operation _lambda_7(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let _range_id_341 : Range = 0..power - 1;
-                    mutable _index_id_344 : Int = _range_id_341::Start;
-                    let _step_id_349 : Int = _range_id_341::Step;
-                    let _end_id_354 : Int = _range_id_341::End;
-                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
-                        let _ : Int = _index_id_344;
-                        Controlled prepareOp([control], systems);
-                        Controlled selectOp([control], (systems, ancilla));
-                        _index_id_344 += _step_id_349;
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_341 : Range = 0..power - 1;
+                        mutable _index_id_344 : Int = _range_id_341.Start;
+                        let _step_id_349 : Int = _range_id_341.Step;
+                        let _end_id_354 : Int = _range_id_341.End;
+                        while ((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354)) {
+                            let _ : Int = _index_id_344;
+                            Controlled prepareOp([control], systems);
+                            Controlled selectOp([control], (systems, ancilla));
+                            _index_id_344 += _step_id_349;
+                        }
+
                     }
 
                 }
 
             }
-
-        }
-        operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
-            let control : Qubit = __quantum__rt__qubit_allocate();
-            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
-            _lambda_7(prepareOp, selectOp, numSystemQubits, power, (control, systems));
-            ReleaseQubitArray(systems);
-            __quantum__rt__qubit_release(control);
-        }
-        operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : Unit {
-            let control : Qubit = __quantum__rt__qubit_allocate();
-            let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
-            _lambda_7_closure__SelectIdentity_(numSystemQubits, power, (control, systems), __capture_0);
-            ReleaseQubitArray(systems);
-            __quantum__rt__qubit_release(control);
-        }
-        function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
-            / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
-        }
-        operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
-            {
-                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
-                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+            operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl_(prepareOp : (Qubit[] => Unit is Adj + Ctl), selectOp : ((Qubit[], Qubit[]) => Unit is Adj + Ctl), numSystemQubits : Int, power : Int) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                _lambda_7(prepareOp, selectOp, numSystemQubits, power, (control, systems));
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            operation MakeControlledPrepSelPrepCircuit_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : Unit {
+                let control : Qubit = __quantum__rt__qubit_allocate();
+                let systems : Qubit[] = AllocateQubitArray(numSystemQubits + 1);
+                _lambda_7_closure__SelectIdentity_(numSystemQubits, power, (control, systems), __capture_0);
+                ReleaseQubitArray(systems);
+                __quantum__rt__qubit_release(control);
+            }
+            function MakeControlledPrepSelPrepOp_AdjCtl__AdjCtl__closure__SelectIdentity_(numSystemQubits : Int, power : Int, __capture_0 : __UDT_Item_1__Package_2_) : ((Qubit, Qubit[]) => Unit) {
+                / * closure item = 14 captures = [numSystemQubits, power] * / _lambda_7
+            }
+            operation _lambda_7(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[])) : Unit {
                 {
-                    let _range_id_341 : Range = 0..power - 1;
-                    mutable _index_id_344 : Int = _range_id_341::Start;
-                    let _step_id_349 : Int = _range_id_341::Step;
-                    let _end_id_354 : Int = _range_id_341::End;
-                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
-                        let _ : Int = _index_id_344;
-                        Controlled _lambda_8([control], systems);
-                        Controlled SelectIdentity([control], (systems, ancilla));
-                        _index_id_344 += _step_id_349;
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_341 : Range = 0..power - 1;
+                        mutable _index_id_344 : Int = _range_id_341.Start;
+                        let _step_id_349 : Int = _range_id_341.Step;
+                        let _end_id_354 : Int = _range_id_341.End;
+                        while ((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354)) {
+                            let _ : Int = _index_id_344;
+                            Controlled _lambda_8([control], systems);
+                            Controlled SelectIdentity([control], (systems, ancilla));
+                            _index_id_344 += _step_id_349;
+                        }
+
                     }
 
                 }
 
             }
-
-        }
-        operation _lambda_7_closure__SelectIdentity_(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[]), __capture_0 : __UDT_Item_1__Package_2_) : Unit {
-            {
-                let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
-                let ancilla : Qubit[] = allQubits[numSystemQubits...];
+            operation _lambda_7_closure__SelectIdentity_(numSystemQubits : Int, power : Int, (control : Qubit, allQubits : Qubit[]), __capture_0 : __UDT_Item_1__Package_2_) : Unit {
                 {
-                    let _range_id_341 : Range = 0..power - 1;
-                    mutable _index_id_344 : Int = _range_id_341::Start;
-                    let _step_id_349 : Int = _range_id_341::Step;
-                    let _end_id_354 : Int = _range_id_341::End;
-                    while _step_id_349 > 0 and _index_id_344 <= _end_id_354 or _step_id_349 < 0 and _index_id_344 >= _end_id_354 {
-                        let _ : Int = _index_id_344;
-                        Controlled _lambda_8([control], (__capture_0, systems));
-                        Controlled SelectIdentity([control], (systems, ancilla));
-                        _index_id_344 += _step_id_349;
+                    let systems : Qubit[] = allQubits[0..numSystemQubits - 1];
+                    let ancilla : Qubit[] = allQubits[numSystemQubits...];
+                    {
+                        let _range_id_341 : Range = 0..power - 1;
+                        mutable _index_id_344 : Int = _range_id_341.Start;
+                        let _step_id_349 : Int = _range_id_341.Step;
+                        let _end_id_354 : Int = _range_id_341.End;
+                        while ((_step_id_349 > 0) and (_index_id_344 <= _end_id_354)) or ((_step_id_349 < 0) and (_index_id_344 >= _end_id_354)) {
+                            let _ : Int = _index_id_344;
+                            Controlled _lambda_8([control], (__capture_0, systems));
+                            Controlled SelectIdentity([control], (systems, ancilla));
+                            _index_id_344 += _step_id_349;
+                        }
+
                     }
 
                 }
 
             }
-
-        }
-        // entry
-        Main()
-    "#]],
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -4715,6 +5304,7 @@ fn callable_array_loop_dispatch_with_global_sibling_preserves_length_call() {
                     let _len_id_55 : Int = Length(_array_id_51);
                     mutable _index_id_60 : Int = 0;
                     while _index_id_60 < _len_id_55 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_51[_index_id_60];
                         if _index_id_60 == 0 {
                             ApplyTwo_AdjCtl__AdjCtl__H__Y_(q)
                         } else {
@@ -4788,7 +5378,7 @@ fn indexed_callable_array_param_hoists_side_effecting_index_once() {
         "side-effecting index must be hoisted into a single local after specialization:\n{after}"
     );
     assert!(
-        !after.contains("if ChooseIndex(q)") && !after.contains("else if ChooseIndex(q)"),
+        !after.contains("if (ChooseIndex(q)") && !after.contains("else if (ChooseIndex(q)"),
         "specialized dispatch guards must not re-evaluate the side-effecting index:\n{after}"
     );
     check_rewrite(
@@ -4964,6 +5554,7 @@ fn callable_array_forwarded_to_iterating_hof_preserves_length_call() {
                     let _len_id_59 : Int = Length(_array_id_55);
                     mutable _index_id_64 : Int = 0;
                     while _index_id_64 < _len_id_59 {
+                        let op : (Qubit => Unit is Adj + Ctl) = _array_id_55[_index_id_64];
                         if _index_id_64 == 0 {
                             Run_Empty__H_(q)
                         } else {

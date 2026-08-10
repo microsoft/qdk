@@ -68,18 +68,18 @@ class Trace(QirModuleVisitor):
         q = ptr_id(qubit)
         self.trace["steps"][-1]["ops"].append(f"sx {q}")
 
-    def _on_qis_rz(self, call: Call, angle: Value, qubit: Value) -> None:
+    def _on_qis_rz(self, call: Call, angle: Value, target: Value) -> None:
         if not self.in_parallel:
             self._next_step()
-        q = ptr_id(qubit)
+        q = ptr_id(target)
         angle_const = cast(FloatConstant, angle)
         self.trace["steps"][-1]["ops"].append(f"rz({angle_const.value}) {q}")
 
-    def _on_qis_cz(self, call: Call, qubit1: Value, qubit2: Value) -> None:
+    def _on_qis_cz(self, call: Call, ctrl: Value, target: Value) -> None:
         if not self.in_parallel:
             self._next_step()
-        q1 = ptr_id(qubit1)
-        q2 = ptr_id(qubit2)
+        q1 = ptr_id(ctrl)
+        q2 = ptr_id(target)
         if self.q_cols.get(q1, -1) > self.q_cols.get(q2, -1):
             q1, q2 = q2, q1
         self.trace["steps"][-1]["ops"].append(f"cz {q1}, {q2}")

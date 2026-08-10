@@ -233,7 +233,9 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
             vis.visit_expr(cond);
             vis.visit_block(block);
         }
-        ExprKind::Closure(_, _)
+        ExprKind::Break
+        | ExprKind::Closure(_, _)
+        | ExprKind::Continue
         | ExprKind::Err
         | ExprKind::Hole
         | ExprKind::Lit(_)

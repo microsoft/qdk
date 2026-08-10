@@ -1,0 +1,19 @@
+{
+    "license": "MIT",
+    "author": "Microsoft Quantum",
+    "files": [
+        "src/Add.qs",
+        "src/AddConst.qs",
+        "src/AddLookup.qs",
+        "src/ClassicalMath.qs",
+        "src/Compare.qs",
+        "src/ModAdd.qs",
+        "src/ModDiv.qs",
+        "src/ModExp.qs",
+        "src/ModMul.qs",
+        "src/ModNegate.qs",
+        "src/MultiControl.qs",
+        "src/ResourceEstimation.qs",
+        "src/Utils.qs"
+    ]
+}

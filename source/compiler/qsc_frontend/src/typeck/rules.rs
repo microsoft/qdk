@@ -325,8 +325,7 @@ impl<'a> Context<'a> {
                 let within_span = within.span;
                 let within = self.infer_block(within);
                 self.inferrer.eq(within_span, Ty::UNIT, within.ty);
-                let apply = self.infer_block(apply);
-                apply.diverge_if(within.diverges)
+                self.infer_block(apply)
             }
             ExprKind::Fail(message) => {
                 let message_ty = self.infer_expr(message).ty;
@@ -365,7 +364,7 @@ impl<'a> Context<'a> {
                 let body_span = body.span;
                 let body = self.infer_block(body);
                 self.inferrer.eq(body_span, Ty::UNIT, body.ty);
-                converge(Ty::UNIT).diverge_if(container.diverges || body.diverges)
+                converge(Ty::UNIT)
             }
             ExprKind::If(cond, if_true, if_false) => {
                 let cond_span = cond.span;
@@ -514,16 +513,12 @@ impl<'a> Context<'a> {
                 let until_span = until.span;
                 let until = self.infer_expr(until);
                 self.inferrer.eq(until_span, Ty::Prim(Prim::Bool), until.ty);
-                let fixup_diverges = match fixup {
-                    None => false,
-                    Some(f) => {
-                        let f_span = f.span;
-                        let f = self.infer_block(f);
-                        self.inferrer.eq(f_span, Ty::UNIT, f.ty);
-                        f.diverges
-                    }
-                };
-                converge(Ty::UNIT).diverge_if(body.diverges || until.diverges || fixup_diverges)
+                if let Some(fixup) = fixup {
+                    let fixup_span = fixup.span;
+                    let fixup = self.infer_block(fixup);
+                    self.inferrer.eq(fixup_span, Ty::UNIT, fixup.ty);
+                }
+                converge(Ty::UNIT)
             }
             ExprKind::Return(expr) => {
                 let ty = self.infer_expr(expr).ty;
@@ -611,12 +606,16 @@ impl<'a> Context<'a> {
                 let body_span = body.span;
                 let body = self.infer_block(body);
                 self.inferrer.eq(body_span, Ty::UNIT, body.ty);
-                converge(Ty::UNIT).diverge_if(cond.diverges || body.diverges)
+                converge(Ty::UNIT)
             }
             ExprKind::Hole => {
                 self.typed_holes.push((expr.id, expr.span));
                 converge(self.inferrer.fresh_ty(TySource::not_divergent(expr.span)))
             }
+            // A break or continue expression diverges, like return or fail. Using a
+            // fresh divergent type variable lets it compose in operand position, so
+            // `let x = if c { break } else { 3 };` infers `x : Int`.
+            ExprKind::Break | ExprKind::Continue => self.diverge(),
             ExprKind::Err | ast::ExprKind::Struct(ast::PathKind::Err(_), ..) => converge(Ty::Err),
         };
 

@@ -1031,6 +1031,63 @@ fn given_if_then_only_is_not_side_effect_free() {
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
+/// Finds the first call whose callee resolves to an item in another package.
+fn find_foreign_call(package: &Package, pkg_id: PackageId) -> ExprId {
+    package
+        .exprs
+        .iter()
+        .find_map(|(expr_id, expr)| {
+            let ExprKind::Call(callee_id, _) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Var(Res::Item(item_id), _) = &package.get_expr(callee_id).kind else {
+                return None;
+            };
+            (item_id.package != pkg_id).then_some(expr_id)
+        })
+        .expect("a call to a foreign callable should exist")
+}
+
+#[test]
+fn given_foreign_length_call_is_discardable_only_with_total_foreign() {
+    // `Length` lives in the core package, so the single-package walker cannot
+    // open its declaration and must reject it. Supplying it as a known-total
+    // foreign callable is what makes the call provably discardable.
+    let (store, pkg_id) = compile_to_fir("function Main() : Int { Length([1, 2, 3]) }");
+    let package = store.get(pkg_id);
+    let call = find_foreign_call(package, pkg_id);
+
+    assert!(
+        !expr_is_safe_to_discard(package, pkg_id, call),
+        "a foreign callee must be rejected without resolved totality"
+    );
+
+    let total_foreign = collect_total_foreign_callables(&store);
+    assert!(
+        !total_foreign.is_empty(),
+        "the core `Length` intrinsic should be collected"
+    );
+    assert!(
+        expr_is_safe_to_discard_with_total_foreign(package, pkg_id, call, &total_foreign),
+        "a resolved total foreign callee should be discardable"
+    );
+}
+
+#[test]
+fn given_foreign_fallible_function_call_is_not_discardable() {
+    // `Repeated` is a core function that fails on a negative length, so it is
+    // never collected as total and stays non-discardable.
+    let (store, pkg_id) = compile_to_fir("function Main() : Int[] { Repeated(1, 3) }");
+    let package = store.get(pkg_id);
+    let call = find_foreign_call(package, pkg_id);
+
+    let total_foreign = collect_total_foreign_callables(&store);
+    assert!(
+        !expr_is_safe_to_discard_with_total_foreign(package, pkg_id, call, &total_foreign),
+        "a fallible foreign function must not become discardable"
+    );
+}
+
 #[test]
 fn structural_walker_covers_blocks_locals_and_spec_inputs() {
     // A controlled operation with a nested block (the `if` body) and tuple-pattern

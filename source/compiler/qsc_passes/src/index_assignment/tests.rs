@@ -61,7 +61,7 @@ fn convert_array_assign() {
                                         Expr 10 [48-49] [Type Int]: Lit: Int(1)
                                 Stmt 11 [56-67]: Semi: Expr 25 [56-66] [Type Unit]: Expr Block: Block 26 [56-66] [Type Unit]:
                                     Stmt 19 [0-0]: Local (Immutable):
-                                        Pat 20 [60-61] [Type Int]: Bind: Ident 18 [60-61] "@index_18"
+                                        Pat 20 [60-61] [Type Int]: Bind: Ident 18 [60-61] ".index_18"
                                         Expr 15 [60-61] [Type Int]: Lit: Int(0)
                                     Stmt 24 [0-0]: Expr: Expr 22 [0-0] [Type Unit]: AssignIndex:
                                         Expr 21 [56-59] [Type Int[]]: Var: Local 7
@@ -106,10 +106,10 @@ fn convert_2d_array_assign() {
                                             Expr 14 [57-58] [Type Int]: Lit: Int(3)
                                 Stmt 15 [66-80]: Semi: Expr 39 [66-79] [Type Unit]: Expr Block: Block 40 [66-79] [Type Unit]:
                                     Stmt 25 [0-0]: Local (Immutable):
-                                        Pat 26 [70-71] [Type Int]: Bind: Ident 24 [70-71] "@index_24"
+                                        Pat 26 [70-71] [Type Int]: Bind: Ident 24 [70-71] ".index_24"
                                         Expr 20 [70-71] [Type Int]: Lit: Int(0)
                                     Stmt 28 [0-0]: Local (Immutable):
-                                        Pat 29 [73-74] [Type Int]: Bind: Ident 27 [73-74] "@index_27"
+                                        Pat 29 [73-74] [Type Int]: Bind: Ident 27 [73-74] ".index_27"
                                         Expr 21 [73-74] [Type Int]: Lit: Int(1)
                                     Stmt 38 [0-0]: Expr: Expr 36 [0-0] [Type Unit]: AssignIndex:
                                         Expr 35 [66-69] [Type Int[][]]: Var: Local 7
@@ -167,13 +167,13 @@ fn convert_3d_array_assign() {
                                                 Expr 22 [104-109] [Type Int]: Lit: Int(7)
                                 Stmt 23 [118-140]: Semi: Expr 59 [118-139] [Type Unit]: Expr Block: Block 60 [118-139] [Type Unit]:
                                     Stmt 35 [0-0]: Local (Immutable):
-                                        Pat 36 [122-123] [Type Int]: Bind: Ident 34 [122-123] "@index_34"
+                                        Pat 36 [122-123] [Type Int]: Bind: Ident 34 [122-123] ".index_34"
                                         Expr 29 [122-123] [Type Int]: Lit: Int(0)
                                     Stmt 38 [0-0]: Local (Immutable):
-                                        Pat 39 [125-126] [Type Int]: Bind: Ident 37 [125-126] "@index_37"
+                                        Pat 39 [125-126] [Type Int]: Bind: Ident 37 [125-126] ".index_37"
                                         Expr 30 [125-126] [Type Int]: Lit: Int(1)
                                     Stmt 41 [0-0]: Local (Immutable):
-                                        Pat 42 [128-129] [Type Int]: Bind: Ident 40 [128-129] "@index_40"
+                                        Pat 42 [128-129] [Type Int]: Bind: Ident 40 [128-129] ".index_40"
                                         Expr 31 [128-129] [Type Int]: Lit: Int(1)
                                     Stmt 58 [0-0]: Expr: Expr 56 [0-0] [Type Unit]: AssignIndex:
                                         Expr 55 [118-121] [Type Int[][][]]: Var: Local 7
@@ -228,7 +228,7 @@ fn convert_array_assign_range() {
                                         Expr 12 [54-55] [Type Int]: Lit: Int(3)
                                 Stmt 13 [62-84]: Semi: Expr 32 [62-83] [Type Unit]: Expr Block: Block 33 [62-83] [Type Unit]:
                                     Stmt 26 [0-0]: Local (Immutable):
-                                        Pat 27 [66-70] [Type Range]: Bind: Ident 25 [66-70] "@index_25"
+                                        Pat 27 [66-70] [Type Range]: Bind: Ident 25 [66-70] ".index_25"
                                         Expr 17 [66-70] [Type Range]: Range:
                                             Expr 18 [66-67] [Type Int]: Lit: Int(1)
                                             <no step>
@@ -277,13 +277,13 @@ fn convert_array_assign_single_with_range() {
                                         Expr 12 [54-55] [Type Int]: Lit: Int(3)
                                 Stmt 13 [62-79]: Semi: Expr 39 [62-78] [Type Unit]: Expr Block: Block 40 [62-78] [Type Unit]:
                                     Stmt 25 [0-0]: Local (Immutable):
-                                        Pat 26 [66-70] [Type Range]: Bind: Ident 24 [66-70] "@index_24"
+                                        Pat 26 [66-70] [Type Range]: Bind: Ident 24 [66-70] ".index_24"
                                         Expr 18 [66-70] [Type Range]: Range:
                                             Expr 19 [66-67] [Type Int]: Lit: Int(1)
                                             <no step>
                                             Expr 20 [69-70] [Type Int]: Lit: Int(3)
                                     Stmt 28 [0-0]: Local (Immutable):
-                                        Pat 29 [72-73] [Type Int]: Bind: Ident 27 [72-73] "@index_27"
+                                        Pat 29 [72-73] [Type Int]: Bind: Ident 27 [72-73] ".index_27"
                                         Expr 21 [72-73] [Type Int]: Lit: Int(1)
                                     Stmt 38 [0-0]: Expr: Expr 36 [0-0] [Type Unit]: AssignIndex:
                                         Expr 35 [62-65] [Type Int[]]: Var: Local 7
@@ -329,7 +329,7 @@ fn convert_array_assign_op() {
                                         Expr 10 [48-49] [Type Int]: Lit: Int(1)
                                 Stmt 11 [56-68]: Semi: Expr 29 [56-67] [Type Unit]: Expr Block: Block 30 [56-67] [Type Unit]:
                                     Stmt 19 [0-0]: Local (Immutable):
-                                        Pat 20 [60-61] [Type Int]: Bind: Ident 18 [60-61] "@index_18"
+                                        Pat 20 [60-61] [Type Int]: Bind: Ident 18 [60-61] ".index_18"
                                         Expr 15 [60-61] [Type Int]: Lit: Int(0)
                                     Stmt 28 [0-0]: Expr: Expr 26 [0-0] [Type Unit]: AssignIndex:
                                         Expr 25 [56-59] [Type Int[]]: Var: Local 7
@@ -378,10 +378,10 @@ fn convert_2d_array_assign_op() {
                                             Expr 14 [57-58] [Type Int]: Lit: Int(3)
                                 Stmt 15 [66-81]: Semi: Expr 45 [66-80] [Type Unit]: Expr Block: Block 46 [66-80] [Type Unit]:
                                     Stmt 25 [0-0]: Local (Immutable):
-                                        Pat 26 [70-71] [Type Int]: Bind: Ident 24 [70-71] "@index_24"
+                                        Pat 26 [70-71] [Type Int]: Bind: Ident 24 [70-71] ".index_24"
                                         Expr 20 [70-71] [Type Int]: Lit: Int(0)
                                     Stmt 28 [0-0]: Local (Immutable):
-                                        Pat 29 [73-74] [Type Int]: Bind: Ident 27 [73-74] "@index_27"
+                                        Pat 29 [73-74] [Type Int]: Bind: Ident 27 [73-74] ".index_27"
                                         Expr 21 [73-74] [Type Int]: Lit: Int(1)
                                     Stmt 44 [0-0]: Expr: Expr 42 [0-0] [Type Unit]: AssignIndex:
                                         Expr 41 [66-69] [Type Int[][]]: Var: Local 7

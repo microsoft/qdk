@@ -10,7 +10,7 @@ import {
   jupyterNotebookType,
 } from "../notebook.js";
 
-const qsharpConfigMimeType = "application/x.qsharp-config";
+const qsharpConfigMimeType = "application/x.qsharp-config+json";
 
 const openQdkNotebooks = new Set<string>();
 

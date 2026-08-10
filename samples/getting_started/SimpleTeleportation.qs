@@ -1,10 +1,10 @@
-/// # Summary
-/// Simple quantum teleportation sample
-///
-/// # Description
-/// This Q# program demonstrates how to teleport quantum state
-/// by communicating two classical bits and using previously entangled qubits.
-/// This code teleports one specific state, but any state can be teleported.
+// # Summary
+// Simple quantum teleportation sample
+//
+// # Description
+// This Q# program demonstrates how to teleport quantum state
+// by communicating two classical bits and using previously entangled qubits.
+// This code teleports one specific state, but any state can be teleported.
 operation Main() : Bool {
     // Allocate `qAlice`, `qBob` qubits
     use (qAlice, qBob) = (Qubit(), Qubit());

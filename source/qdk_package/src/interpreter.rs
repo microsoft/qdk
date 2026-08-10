@@ -406,11 +406,11 @@ pub(crate) struct Interpreter {
 thread_local! { static PACKAGE_CACHE: Rc<RefCell<PackageCache>> = Rc::default(); }
 
 // Converts Q# config from PyDict to FxHashMap.
-fn convert_qsharp_config(
-    qsharp_config: Option<Bound<'_, PyDict>>,
+fn convert_qdk_config(
+    qdk_config: Option<Bound<'_, PyDict>>,
 ) -> PyResult<FxHashMap<Rc<str>, Value>> {
     let mut config = FxHashMap::default();
-    if let Some(config_dict) = qsharp_config {
+    if let Some(config_dict) = qdk_config {
         for (key, value) in config_dict.iter() {
             let key: String = key.extract()?;
             let value = if value.is_instance_of::<PyBool>() {
@@ -438,7 +438,7 @@ impl Interpreter {
     #[allow(clippy::too_many_arguments)]
     #[allow(clippy::needless_pass_by_value)]
     #[allow(clippy::too_many_lines)]
-    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None, qsharp_config=None))]
+    #[pyo3(signature = (target_profile, language_features=None, project_root=None, read_file=None, list_directory=None, resolve_path=None, fetch_github=None, make_callable=None, make_class=None, trace_circuit=None, qdk_config=None))]
     #[new]
     /// Initializes a new Q# interpreter.
     pub(crate) fn new(
@@ -453,7 +453,7 @@ impl Interpreter {
         make_callable: Option<Py<PyAny>>,
         make_class: Option<Py<PyAny>>,
         trace_circuit: Option<bool>,
-        qsharp_config: Option<Bound<'_, PyDict>>,
+        qdk_config: Option<Bound<'_, PyDict>>,
     ) -> PyResult<Self> {
         let target = Into::<Profile>::into(target_profile).into();
 
@@ -489,7 +489,7 @@ impl Interpreter {
             BuildableProgram::new(target, graph)
         };
 
-        let qsharp_config = convert_qsharp_config(qsharp_config)?;
+        let qdk_config = convert_qdk_config(qdk_config)?;
         let trace_circuit = trace_circuit.unwrap_or(false);
         let interpreter = if trace_circuit {
             interpret::Interpreter::with_circuit_trace(
@@ -508,7 +508,7 @@ impl Interpreter {
                     group_by_scope: false,
                     prune_classical_qubits: false,
                 },
-                qsharp_config,
+                qdk_config,
             )
         } else {
             interpret::Interpreter::new(
@@ -518,7 +518,7 @@ impl Interpreter {
                 buildable_program.user_code.language_features,
                 buildable_program.store,
                 &buildable_program.user_code_dependencies,
-                qsharp_config,
+                qdk_config,
             )
         }
         .map_err(|errors| QSharpError::new_err(format_errors(errors)))?;

@@ -154,7 +154,7 @@ fn common_expr_kinds_render() {
                     if arr[0] > 0 {
                         arr[0]
                     } else {
-            -1
+                        (-1)
                     }
 
                 }

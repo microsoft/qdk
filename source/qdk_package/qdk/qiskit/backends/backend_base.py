@@ -212,16 +212,21 @@ class BackendBase(BackendV2, ABC):
         )
 
     @property
-    def target(self) -> Target:
+    def target(self) -> Target:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Returns the target of the Backend object."""
         return self._target
 
     @property
-    def max_circuits(self) -> None:
+    def max_circuits(self) -> Optional[int]:  # pyright: ignore[reportIncompatibleMethodOverride]
         """
         Returns the maximum number of circuits that can be executed simultaneously.
         """
         return None
+
+    @classmethod
+    @abstractmethod
+    def _default_options(cls) -> Options:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Return the backend's default options."""
 
     @abstractmethod
     def _execute(
@@ -237,11 +242,11 @@ class BackendBase(BackendV2, ABC):
         """
 
     @abstractmethod
-    def run(
+    def run(  # pyright: ignore[reportIncompatibleMethodOverride]
         self,
         run_input: Union[QuantumCircuit, List[QuantumCircuit]],
         **options: Any,
-    ) -> QsJob:
+    ) -> QsJob | QsJobSet:
         pass
 
     def _run(
@@ -337,9 +342,9 @@ class BackendBase(BackendV2, ABC):
         compilations = []
         for circuit in run_input:
             args = options.copy()
-            assert isinstance(
-                circuit, QuantumCircuit
-            ), "Input must be a QuantumCircuit."
+            assert isinstance(circuit, QuantumCircuit), (
+                "Input must be a QuantumCircuit."
+            )
             start = monotonic()
             qasm = self._qasm(circuit, **args)
             end = monotonic()

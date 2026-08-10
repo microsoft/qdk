@@ -489,7 +489,7 @@ impl Display for ArrayParamApplication {
 /// concepts in Partial Evaluation, where "static" refers to computations that can be performed
 /// at code generation time and "dynamic" refers to computations that must occur during runtime
 /// and are emitted into the generated code.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ComputeKind {
     // An element that will be fully computed during code generation and does not affect the required capabilities of
     // the runtime environment for emitted code.

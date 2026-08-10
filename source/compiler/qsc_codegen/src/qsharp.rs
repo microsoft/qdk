@@ -468,6 +468,9 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                 self.visit_expr(value);
             }
             ExprKind::Block(block) => self.visit_block(block),
+            ExprKind::Break => {
+                self.write("break");
+            }
             ExprKind::Call(callee, arg) => {
                 self.visit_expr(callee);
                 self.visit_expr(arg);
@@ -477,6 +480,9 @@ impl<W: Write> Visitor<'_> for QSharpGen<W> {
                 self.visit_block(within);
                 self.write("apply");
                 self.visit_block(apply);
+            }
+            ExprKind::Continue => {
+                self.write("continue");
             }
             ExprKind::Fail(msg) => {
                 self.write("fail ");
