@@ -252,7 +252,7 @@ fn included_pragma_command_span_uses_source_offset() {
             Arc::from("pragma vendor.cmd payload"),
         ),
     ];
-    let result = crate::analyze_sources(&sources);
+    let result = crate::analyze_all(&sources);
 
     assert!(!result.has_errors());
     let source_offset = result
@@ -339,7 +339,7 @@ fn standalone_analysis_resolves_builtin_includes_without_a_resolver() {
 
 #[test]
 fn diagnostics_are_stored_once_and_aggregated_in_category_order() {
-    let result = crate::analyze_sources(&[(
+    let result = crate::analyze_all(&[(
         "main.qasm".into(),
         "OPENQASM 3.0; qubit; int value = missing;".into(),
     )]);

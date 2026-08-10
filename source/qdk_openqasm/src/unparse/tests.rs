@@ -6,7 +6,7 @@ use std::io;
 
 use crate::{
     io::InMemorySourceResolver,
-    parse_source,
+    parse_and_resolve,
     parser::ast::{Expr, ExprKind, Lit, LiteralKind, Program, Stmt, StmtKind, Version},
     span::Span,
     unparse::{UnparseError, unparse, write},
@@ -17,7 +17,7 @@ fn parse(source: &str) -> crate::parser::ParseResult {
         ("defs.inc".into(), "".into()),
         ("qelib1.inc".into(), "".into()),
     ]);
-    parse_source(source, "main.qasm", Some(&mut resolver))
+    parse_and_resolve(source, "main.qasm", Some(&mut resolver))
 }
 
 fn emit(source: &str) -> String {

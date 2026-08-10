@@ -55,15 +55,15 @@ fn entry_only_resolver(source: &Arc<str>, path: &Arc<str>) -> io::InMemorySource
 /// `qdk.inc` includes are available. Any other `include` is reported as
 /// unresolved and recorded as an unresolved entry in the source snapshot.
 ///
-/// Use [`parse_sources`] when the program's dependencies are already loaded, or
-/// [`parse_source`] to resolve them on demand.
+/// Use [`parse_all`] when the program's dependencies are already loaded, or
+/// [`parse_and_resolve`] to resolve them on demand.
 ///
 /// The source is named `<source>` in diagnostics and in the source snapshot. To
-/// name it yourself, call [`parse_source`] with no resolver. Its resolver type
-/// parameter is unconstrained in that case, so a bare `None` does not compile;
-/// spell it `None::<&mut InMemorySourceResolver>` with
+/// name it yourself, call [`parse_and_resolve`] with no resolver. Its resolver
+/// type parameter is unconstrained in that case, so a bare `None` does not
+/// compile; spell it `None::<&mut InMemorySourceResolver>` with
 /// [`InMemorySourceResolver`](io::InMemorySourceResolver) in scope, as the first
-/// [`parse_source`] example does.
+/// [`parse_and_resolve`] example does.
 ///
 /// # Arguments
 ///
@@ -114,19 +114,19 @@ pub fn parse(source: impl Into<Arc<str>>) -> ParseResult {
 /// # Examples
 ///
 /// ```
-/// use qdk_openqasm::parse_sources;
+/// use qdk_openqasm::parse_all;
 ///
-/// let result = parse_sources(&[
+/// let result = parse_all(&[
 ///     ("main.qasm".into(), "OPENQASM 3.0; include \"gates.inc\"; qubit q; my_h q;".into()),
 ///     ("gates.inc".into(), "gate my_h q { h q; }".into()),
 /// ]);
 /// assert!(!result.has_errors());
 /// ```
 #[must_use]
-pub fn parse_sources(sources: &[(Arc<str>, Arc<str>)]) -> ParseResult {
+pub fn parse_all(sources: &[(Arc<str>, Arc<str>)]) -> ParseResult {
     let (path, source) = sources
         .first()
-        .expect("parse_sources requires at least one source");
+        .expect("parse_all requires at least one source");
     let mut resolver = sources
         .iter()
         .cloned()
@@ -137,7 +137,7 @@ pub fn parse_sources(sources: &[(Arc<str>, Arc<str>)]) -> ParseResult {
 /// Parses `OpenQASM` source text into a syntax tree.
 ///
 /// This performs lexing and parsing only; it does not run semantic analysis.
-/// Use [`analyze_source`] when symbol resolution and semantic checks are
+/// Use [`analyze_and_resolve`] when symbol resolution and semantic checks are
 /// required.
 ///
 /// # Arguments
@@ -165,27 +165,27 @@ pub fn parse_sources(sources: &[(Arc<str>, Arc<str>)]) -> ParseResult {
 /// Parse a self-contained program without a custom resolver:
 ///
 /// ```
-/// use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
+/// use qdk_openqasm::{io::InMemorySourceResolver, parse_and_resolve};
 ///
 /// let source = "OPENQASM 3.0; qubit q; h q;";
-/// let result = parse_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
+/// let result = parse_and_resolve(source, "main.qasm", None::<&mut InMemorySourceResolver>);
 /// assert!(!result.has_errors());
 /// ```
 ///
 /// Provide an in-memory resolver so `include` statements can be resolved:
 ///
 /// ```
-/// use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
+/// use qdk_openqasm::{io::InMemorySourceResolver, parse_and_resolve};
 ///
 /// let mut resolver = InMemorySourceResolver::from_iter([(
 ///     "gates.inc".into(),
 ///     "gate my_h q { h q; }".into(),
 /// )]);
 /// let source = "OPENQASM 3.0; include \"gates.inc\"; qubit q; my_h q;";
-/// let result = parse_source(source, "main.qasm", Some(&mut resolver));
+/// let result = parse_and_resolve(source, "main.qasm", Some(&mut resolver));
 /// assert!(!result.has_errors());
 /// ```
-pub fn parse_source<R: io::SourceResolver>(
+pub fn parse_and_resolve<R: io::SourceResolver>(
     source: impl Into<Arc<str>>,
     path: impl Into<Arc<str>>,
     resolver: Option<&mut R>,
@@ -207,8 +207,8 @@ pub fn parse_source<R: io::SourceResolver>(
 /// are available, so a typical standalone program analyzes cleanly. Any other
 /// `include` is reported as unresolved.
 ///
-/// Use [`analyze_sources`] when the program's dependencies are already loaded,
-/// or [`analyze_source`] to resolve them on demand.
+/// Use [`analyze_all`] when the program's dependencies are already loaded,
+/// or [`analyze_and_resolve`] to resolve them on demand.
 ///
 /// # Arguments
 ///
@@ -236,7 +236,7 @@ pub fn analyze(source: impl Into<Arc<str>>) -> AnalysisResult {
 ///
 /// In addition to lexing and parsing, this builds a symbol table and the
 /// semantic AST, reporting both parse and semantic diagnostics. Use
-/// [`parse_source`] when only a syntax tree is needed.
+/// [`parse_and_resolve`] when only a syntax tree is needed.
 ///
 /// # Arguments
 ///
@@ -266,17 +266,17 @@ pub fn analyze(source: impl Into<Arc<str>>) -> AnalysisResult {
 /// `stdgates.inc` include is resolved internally, so `h` is in scope:
 ///
 /// ```
-/// use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
+/// use qdk_openqasm::{analyze_and_resolve, io::InMemorySourceResolver};
 ///
 /// let source = "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;";
-/// let result = analyze_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
+/// let result = analyze_and_resolve(source, "main.qasm", None::<&mut InMemorySourceResolver>);
 /// assert!(!result.has_errors());
 /// ```
 ///
 /// Provide an in-memory resolver so custom `include` statements can be resolved:
 ///
 /// ```
-/// use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
+/// use qdk_openqasm::{analyze_and_resolve, io::InMemorySourceResolver};
 ///
 /// let mut resolver = InMemorySourceResolver::from_iter([(
 ///     "gates.inc".into(),
@@ -287,10 +287,10 @@ pub fn analyze(source: impl Into<Arc<str>>) -> AnalysisResult {
 /// include "gates.inc";
 /// qubit q;
 /// my_h q;"#;
-/// let result = analyze_source(source, "main.qasm", Some(&mut resolver));
+/// let result = analyze_and_resolve(source, "main.qasm", Some(&mut resolver));
 /// assert!(!result.has_errors());
 /// ```
-pub fn analyze_source<R: io::SourceResolver>(
+pub fn analyze_and_resolve<R: io::SourceResolver>(
     source: impl Into<Arc<str>>,
     path: impl Into<Arc<str>>,
     resolver: Option<&mut R>,
@@ -319,7 +319,7 @@ pub fn analyze_source<R: io::SourceResolver>(
 ///
 /// # Returns
 ///
-/// An [`AnalysisResult`] for the entry source. As with [`analyze_source`],
+/// An [`AnalysisResult`] for the entry source. As with [`analyze_and_resolve`],
 /// errors are collected on the result rather than returned as an `Err`.
 ///
 /// # Panics
@@ -329,9 +329,9 @@ pub fn analyze_source<R: io::SourceResolver>(
 /// # Examples
 ///
 /// ```
-/// use qdk_openqasm::analyze_sources;
+/// use qdk_openqasm::analyze_all;
 ///
-/// let result = analyze_sources(&[
+/// let result = analyze_all(&[
 ///     (
 ///         "main.qasm".into(),
 ///         "OPENQASM 3.0; include \"stdgates.inc\"; include \"gates.inc\"; qubit q; my_h q;".into(),
@@ -341,10 +341,10 @@ pub fn analyze_source<R: io::SourceResolver>(
 /// assert!(!result.has_errors());
 /// ```
 #[must_use]
-pub fn analyze_sources(sources: &[(Arc<str>, Arc<str>)]) -> AnalysisResult {
+pub fn analyze_all(sources: &[(Arc<str>, Arc<str>)]) -> AnalysisResult {
     let (path, source) = sources
         .first()
-        .expect("analyze_sources requires at least one source");
+        .expect("analyze_all requires at least one source");
     let mut resolver = sources
         .iter()
         .cloned()
@@ -355,7 +355,7 @@ pub fn analyze_sources(sources: &[(Arc<str>, Arc<str>)]) -> AnalysisResult {
 /// Semantically analyzes an existing [`ParseResult`].
 ///
 /// Use this to run analysis over a syntax tree that has already been produced
-/// by [`parse_source`], instead of parsing the source a second time.
+/// by [`parse_and_resolve`], instead of parsing the source a second time.
 ///
 /// # Returns
 ///
@@ -365,9 +365,9 @@ pub fn analyze_sources(sources: &[(Arc<str>, Arc<str>)]) -> AnalysisResult {
 /// # Examples
 ///
 /// ```
-/// use qdk_openqasm::{analyze_parse_result, io::InMemorySourceResolver, parse_source};
+/// use qdk_openqasm::{analyze_parse_result, io::InMemorySourceResolver, parse_and_resolve};
 ///
-/// let parsed = parse_source(
+/// let parsed = parse_and_resolve(
 ///     "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;",
 ///     "main.qasm",
 ///     None::<&mut InMemorySourceResolver>,

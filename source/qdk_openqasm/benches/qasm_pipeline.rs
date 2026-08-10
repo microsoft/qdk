@@ -5,7 +5,8 @@ use std::hint::black_box;
 
 use criterion::{BatchSize, BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 use qdk_openqasm::{
-    analyze_parse_result, analyze_source, parse_source, tokens::tokenize, unparse::unparse,
+    analyze_and_resolve, analyze_parse_result, parse_and_resolve, tokens::tokenize,
+    unparse::unparse,
 };
 
 #[allow(dead_code, unused_imports)]
@@ -35,7 +36,7 @@ fn assert_semantic_success(corpus: &Corpus, result: &qdk_openqasm::semantic::Ana
 
 fn parse(corpus: &Corpus) -> qdk_openqasm::parser::ParseResult {
     let mut resolver = corpus.resolver();
-    let result = parse_source(
+    let result = parse_and_resolve(
         corpus.source.clone(),
         corpus.path.clone(),
         Some(&mut resolver),
@@ -46,7 +47,7 @@ fn parse(corpus: &Corpus) -> qdk_openqasm::parser::ParseResult {
 
 fn analyze(corpus: &Corpus) -> qdk_openqasm::semantic::AnalysisResult {
     let mut resolver = corpus.resolver();
-    let result = analyze_source(
+    let result = analyze_and_resolve(
         corpus.source.clone(),
         corpus.path.clone(),
         Some(&mut resolver),
@@ -123,12 +124,12 @@ pub fn exact_size_pipeline(c: &mut Criterion) {
         ));
 
         group.bench_with_input(
-            BenchmarkId::new("parse_source", size.label()),
+            BenchmarkId::new("parse_and_resolve", size.label()),
             &corpus,
             |b, corpus| b.iter(|| black_box(parse(black_box(corpus)))),
         );
         group.bench_with_input(
-            BenchmarkId::new("analyze_source", size.label()),
+            BenchmarkId::new("analyze_and_resolve", size.label()),
             &corpus,
             |b, corpus| b.iter(|| black_box(analyze(black_box(corpus)))),
         );

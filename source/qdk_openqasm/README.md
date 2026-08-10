@@ -18,11 +18,11 @@ export only the types those entry points return.
 
 Pick a stage, then pick how the program's dependencies are supplied:
 
-| Dependencies       | Parse (syntax)                         | Analyze (syntax and semantics)           |
-| ------------------ | -------------------------------------- | ---------------------------------------- |
-| Self-contained     | `parse(source)`                        | `analyze(source)`                        |
-| Already loaded     | `parse_sources(&[(path, source)])`     | `analyze_sources(&[(path, source)])`     |
-| Resolved on demand | `parse_source(source, path, resolver)` | `analyze_source(source, path, resolver)` |
+| Dependencies       | Parse (syntax)                              | Analyze (syntax and semantics)                |
+| ------------------ | ------------------------------------------- | --------------------------------------------- |
+| Self-contained     | `parse(source)`                             | `analyze(source)`                             |
+| Already loaded     | `parse_all(&[(path, source)])`              | `analyze_all(&[(path, source)])`              |
+| Resolved on demand | `parse_and_resolve(source, path, resolver)` | `analyze_and_resolve(source, path, resolver)` |
 
 `tokens::tokenize` sits below both stages, and `analyze_parse_result` promotes
 an existing `ParseResult` without reparsing.
@@ -32,9 +32,9 @@ an existing `ParseResult` without reparsing.
 standalone program works. Any other `include` is reported as unresolved and
 recorded as an unresolved entry in the source snapshot.
 
-When `parse_source` or `analyze_source` is passed `None` instead of a resolver,
-the entry source is registered under its own path, so a self-include is reported
-as a cycle rather than a missing file.
+When `parse_and_resolve` or `analyze_and_resolve` is passed `None` instead of a
+resolver, the entry source is registered under its own path, so a self-include is
+reported as a cycle rather than a missing file.
 
 ### Source Resolution
 
@@ -52,8 +52,8 @@ parse, decode, fetch, or canonicalize URIs. Matching in
 `InMemorySourceResolver` is exact and case-sensitive.
 
 The resolver context currently stores include-graph state for one top-level
-parse. Create a fresh resolver for each call to `parse_source` or
-`analyze_source`. Results do not borrow from the resolver. They retain an
+parse. Create a fresh resolver for each call to `parse_and_resolve` or
+`analyze_and_resolve`. Results do not borrow from the resolver. They retain an
 immutable source snapshot containing the entry source, resolved includes,
 unresolved placeholders, and aliases.
 
@@ -108,44 +108,44 @@ assert!(!analyzed.has_errors());
 
 ### Syntactic parsing
 
-Use `parse_source` for a fast, syntax-only parse. It takes the source text, a
+Use `parse_and_resolve` for a fast, syntax-only parse. It takes the source text, a
 logical path, and an optional `SourceResolver` for `include` directives. Pass
 `None` when the program is self-contained:
 
 ```rust
-use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
+use qdk_openqasm::{io::InMemorySourceResolver, parse_and_resolve};
 
 let source = "OPENQASM 3.0; qubit q; h q;";
-let result = parse_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
+let result = parse_and_resolve(source, "main.qasm", None::<&mut InMemorySourceResolver>);
 assert!(!result.has_errors());
 ```
 
 Provide an in-memory resolver so `include` statements can be resolved:
 
 ```rust
-use qdk_openqasm::{io::InMemorySourceResolver, parse_source};
+use qdk_openqasm::{io::InMemorySourceResolver, parse_and_resolve};
 
 let mut resolver = InMemorySourceResolver::from_iter([(
     "gates.inc".into(),
     "gate my_h q { h q; }".into(),
 )]);
 let source = "OPENQASM 3.0; include \"gates.inc\"; qubit q; my_h q;";
-let result = parse_source(source, "main.qasm", Some(&mut resolver));
+let result = parse_and_resolve(source, "main.qasm", Some(&mut resolver));
 assert!(!result.has_errors());
 ```
 
 ### Semantic analysis
 
-`analyze_source` performs the full lowering pipeline (type checking, symbol
+`analyze_and_resolve` performs the full lowering pipeline (type checking, symbol
 resolution, and const evaluation). It shares the same `Option<&mut R>` resolver
-argument as `parse_source`. The `stdgates.inc` standard library is resolved
+argument as `parse_and_resolve`. The `stdgates.inc` standard library is resolved
 internally, so a self-contained program can pass `None`:
 
 ```rust
-use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_and_resolve, io::InMemorySourceResolver};
 
 let source = "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;";
-let result = analyze_source(source, "main.qasm", None::<&mut InMemorySourceResolver>);
+let result = analyze_and_resolve(source, "main.qasm", None::<&mut InMemorySourceResolver>);
 assert!(!result.has_errors());
 ```
 
@@ -154,7 +154,7 @@ built-in `InMemorySourceResolver` maps include paths to their contents, which is
 handy for editors, notebooks, and tests:
 
 ```rust
-use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_and_resolve, io::InMemorySourceResolver};
 
 let mut resolver = InMemorySourceResolver::from_iter([(
     "gates.inc".into(),
@@ -165,7 +165,7 @@ include "stdgates.inc";
 include "gates.inc";
 qubit q;
 my_h q;"#;
-let result = analyze_source(source, "main.qasm", Some(&mut resolver));
+let result = analyze_and_resolve(source, "main.qasm", Some(&mut resolver));
 assert!(!result.has_errors());
 ```
 
@@ -178,14 +178,14 @@ post-selects a computational-basis result. These names are unavailable unless
 
 ### Analyzing pre-loaded sources
 
-When the include graph is already materialized, `analyze_sources` takes every
+When the include graph is already materialized, `analyze_all` takes every
 source up front and needs no resolver. Sources are `(path, source)` pairs and
-the first pair is the entry point. `parse_sources` is its syntax-only twin:
+the first pair is the entry point. `parse_all` is its syntax-only twin:
 
 ```rust
-use qdk_openqasm::analyze_sources;
+use qdk_openqasm::analyze_all;
 
-let result = analyze_sources(&[
+let result = analyze_all(&[
     (
         "main.qasm".into(),
         "OPENQASM 3.0; include \"stdgates.inc\"; include \"gates.inc\"; qubit q; my_h q;".into(),
@@ -199,9 +199,9 @@ To analyze a syntax tree you already parsed, pass the `ParseResult` to
 `analyze_parse_result` instead of parsing the source again:
 
 ```rust
-use qdk_openqasm::{analyze_parse_result, io::InMemorySourceResolver, parse_source};
+use qdk_openqasm::{analyze_parse_result, io::InMemorySourceResolver, parse_and_resolve};
 
-let parsed = parse_source(
+let parsed = parse_and_resolve(
     "OPENQASM 3.0; include \"stdgates.inc\"; qubit q; h q;",
     "main.qasm",
     None::<&mut InMemorySourceResolver>,
@@ -212,12 +212,12 @@ assert!(!analyzed.has_errors());
 
 ### Walking the semantic program
 
-A successful `analyze_source` exposes the lowered program at `result.program`:
+A successful `analyze_and_resolve` exposes the lowered program at `result.program`:
 
 ```rust
-use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_and_resolve, io::InMemorySourceResolver};
 
-let result = analyze_source(
+let result = analyze_and_resolve(
     "OPENQASM 3.0; qubit[2] q; U(0, 0, 0) q[0];",
     "main.qasm",
     None::<&mut InMemorySourceResolver>,
@@ -251,9 +251,9 @@ non-finite floating-point spellings. `write` also returns
 output:
 
 ```rust
-use qdk_openqasm::{io::InMemorySourceResolver, parse_source, unparse};
+use qdk_openqasm::{io::InMemorySourceResolver, parse_and_resolve, unparse};
 
-let result = parse_source(
+let result = parse_and_resolve(
     "OPENQASM 3.0; qubit q;",
     "main.qasm",
     None::<&mut InMemorySourceResolver>,
@@ -276,10 +276,10 @@ qdk_openqasm = { path = "../qdk_openqasm", features = ["fancy"] }
 ```
 
 ```rust
-use qdk_openqasm::{analyze_source, io::InMemorySourceResolver};
+use qdk_openqasm::{analyze_and_resolve, io::InMemorySourceResolver};
 
 // `h` requires `include "stdgates.inc";`, so this reports a diagnostic.
-let result = analyze_source(
+let result = analyze_and_resolve(
     "OPENQASM 3.0; qubit q; h q;",
     "main.qasm",
     None::<&mut InMemorySourceResolver>,

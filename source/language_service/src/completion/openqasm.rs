@@ -112,8 +112,7 @@ fn directive_value_completions(
 /// Reparses semantically because valid box targets depend on resolved callable
 /// signatures rather than parser word kinds.
 fn box_target_completions_from_source(source_contents: &str) -> Vec<Completion> {
-    let result =
-        qsc::openqasm::analyze_sources(&[("<completions>".into(), source_contents.into())]);
+    let result = qsc::openqasm::analyze_all(&[("<completions>".into(), source_contents.into())]);
     box_target_completions(&result.symbols)
 }
 

@@ -17,8 +17,8 @@ pub use qsc_openqasm_compiler::{
 use qsc_passes::PackageType;
 
 pub use qdk_openqasm::{
-    analyze, analyze_parse_result, analyze_source, analyze_sources, parse, parse_source,
-    parse_sources,
+    analyze, analyze_all, analyze_and_resolve, analyze_parse_result, parse, parse_all,
+    parse_and_resolve,
 };
 
 pub mod io {

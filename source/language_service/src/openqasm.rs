@@ -33,7 +33,7 @@ fn find_symbol_in_sources(
     qsc::openqasm::semantic::AnalysisResult,
     Option<qsc::openqasm::semantic::symbols::SymbolId>,
 ) {
-    let res = qsc::openqasm::analyze_sources(sources);
+    let res = qsc::openqasm::analyze_all(sources);
     let offset = source_position_to_package_offset(
         &res.source_map,
         source_name,

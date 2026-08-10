@@ -273,7 +273,7 @@ pub fn get_ast(program: ProgramConfig) -> Result<String, String> {
         // to. The semantic AST intentionally keeps broadcast calls compact, with one
         // gate call per source statement. Compiler errors are ignored here so the
         // (partial) AST still renders, matching the Q# path.
-        let qasm_ast = qsc::openqasm::analyze_sources(&sources).program;
+        let qasm_ast = qsc::openqasm::analyze_all(&sources).program;
         let (store, package_id) = compile_openqasm_to_store(&sources);
         let unit = store
             .get(package_id)

@@ -106,7 +106,7 @@ pub fn parse_and_compile_to_qsharp_ast_with_config<
     resolver: Option<&mut R>,
     config: CompilerConfig,
 ) -> QasmCompileUnit {
-    let res = qdk_openqasm::analyze_source(source, path, resolver);
+    let res = qdk_openqasm::analyze_and_resolve(source, path, resolver);
     compile_to_qsharp_ast_with_config(res, config)
 }
 

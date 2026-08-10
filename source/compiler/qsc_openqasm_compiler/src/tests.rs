@@ -266,7 +266,7 @@ pub(crate) fn parse<S: Into<Arc<str>>>(source: S) -> miette::Result<AnalysisResu
     let name: Arc<str> = "Test.qasm".into();
     let sources = [(name.clone(), source.clone())];
     let mut resolver = InMemorySourceResolver::from_iter(sources);
-    let res = qdk_openqasm::analyze_source(source, name, Some(&mut resolver));
+    let res = qdk_openqasm::analyze_and_resolve(source, name, Some(&mut resolver));
     if res.has_parse_errors() {
         let errors = res.parse_errors().into_iter().map(Report::new).collect();
         return Err(errors);
@@ -284,7 +284,7 @@ pub(crate) fn parse_all<P: Into<Arc<str>>>(
         .resolve(&path, &path)
         .map_err(|e| vec![Report::new(e)])?
         .1;
-    let res = qdk_openqasm::analyze_source(source, path, Some(&mut resolver));
+    let res = qdk_openqasm::analyze_and_resolve(source, path, Some(&mut resolver));
     if res.has_parse_errors() {
         let errors = res.parse_errors().into_iter().map(Report::new).collect();
         Err(errors)

@@ -8,7 +8,7 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 
-use qdk_openqasm::{analyze_parse_result, analyze_source, parse_source};
+use qdk_openqasm::{analyze_and_resolve, analyze_parse_result, parse_and_resolve};
 
 #[path = "../../benches/corpus.rs"]
 #[allow(dead_code)]
@@ -287,7 +287,7 @@ fn run_stage(stage: Stage, corpus: &Corpus) -> Result<(), String> {
 
 fn parse(corpus: &Corpus) -> Result<qdk_openqasm::parser::ParseResult, String> {
     let mut resolver = corpus.resolver();
-    let result = parse_source(
+    let result = parse_and_resolve(
         corpus.source.clone(),
         corpus.path.clone(),
         Some(&mut resolver),
@@ -298,7 +298,7 @@ fn parse(corpus: &Corpus) -> Result<qdk_openqasm::parser::ParseResult, String> {
 
 fn analyze(corpus: &Corpus) -> Result<qdk_openqasm::semantic::AnalysisResult, String> {
     let mut resolver = corpus.resolver();
-    let result = analyze_source(
+    let result = analyze_and_resolve(
         corpus.source.clone(),
         corpus.path.clone(),
         Some(&mut resolver),
