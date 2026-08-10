@@ -649,11 +649,11 @@ impl Iterator for Lexer<'_> {
     }
 }
 
-fn is_identifier_start(c: char) -> bool {
+pub(super) fn is_identifier_start(c: char) -> bool {
     c == '_' || c.is_alphabetic()
 }
 
-fn is_identifier_continue(c: char) -> bool {
+pub(super) fn is_identifier_continue(c: char) -> bool {
     is_identifier_start(c) || c.is_ascii_digit()
 }
 

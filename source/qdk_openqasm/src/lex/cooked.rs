@@ -16,7 +16,7 @@ mod tests;
 
 use super::{
     Delim, Radix,
-    raw::{self, Number, Single},
+    raw::{self, Number, Single, is_identifier_continue, is_identifier_start},
 };
 use crate::keyword::Keyword;
 use crate::span::Span;
@@ -1014,12 +1014,4 @@ fn skip_horizontal_space(input: &str, mut cursor: u32, line_end: u32) -> u32 {
         cursor += 1;
     }
     cursor
-}
-
-fn is_identifier_start(character: char) -> bool {
-    character == '_' || character.is_alphabetic()
-}
-
-fn is_identifier_continue(character: char) -> bool {
-    is_identifier_start(character) || character.is_ascii_digit()
 }
