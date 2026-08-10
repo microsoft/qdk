@@ -6,7 +6,10 @@
 // `dragController` and the rendering pipeline lean on:
 //
 //   - `makeDropzoneBox`: inter-column vs on-column geometry, the trailing-append column past the
-//     rightmost real column, and the `data-dropzone-*` attribute set used by `findParentArray`.
+//     rightmost real column, `bandRightX` stretching a band to cover a group's label slack, and the
+//     `data-dropzone-*` attribute set used by `findParentArray`.
+//   - `trailingBandRightX`: the label-slack overhang rule shared by the always-on and shift-extend
+//     trailing bands.
 //   - `makeShiftExtendGhost`: clones the group's rendered box and slides one edge — vertical span
 //     extension above/below the group, right-edge growth when inserting a new column (with
 //     label-slack absorption), and the `shift-extend-ghost` CSS hook.
@@ -29,6 +32,7 @@ import {
   makeDropzoneBox,
   makeShiftExtendGhost,
   removeAllWireDropzones,
+  trailingBandRightX,
 } from "../../dist/ux/circuit-vis/editor/draggable.js";
 
 const documentTemplate = `<!doctype html><html>
@@ -142,6 +146,51 @@ test("makeDropzoneBox: inter-column band sits centered on the column's left edge
   // Vertically padded around the wire Y.
   assert.equal(attrNum(dz, "y"), 200 - DROPZONE_PADDING_Y);
   assert.equal(attrNum(dz, "height"), DROPZONE_PADDING_Y * 2);
+});
+
+test("makeDropzoneBox: bandRightX stretches a band's right edge (but never shrinks it)", () => {
+  const scope = makeScope([100], [60]);
+  const wireData = [200];
+  const bandLeft = 100 - INTER_COLUMN_HALF_WIDTH - GATE_PADDING; // 82
+
+  // A group's long label pushes the box's right edge past the band's default extent, so the band
+  // stretches out to `bandRightX` while its left edge stays put.
+  const stretched = makeDropzoneBox(
+    { scope, wireData },
+    {
+      colIndex: 0,
+      opIndex: 0,
+      wireIndex: 0,
+      interColumn: true,
+      bandRightX: 400,
+    },
+  );
+  assert.equal(attrNum(stretched, "x"), bandLeft);
+  assert.equal(attrNum(stretched, "width"), 400 - bandLeft);
+
+  // A `bandRightX` short of the default right edge is ignored — the band never shrinks.
+  const clamped = makeDropzoneBox(
+    { scope, wireData },
+    {
+      colIndex: 0,
+      opIndex: 0,
+      wireIndex: 0,
+      interColumn: true,
+      bandRightX: bandLeft,
+    },
+  );
+  assert.equal(attrNum(clamped, "width"), INTER_COLUMN_FULL_WIDTH);
+});
+
+test("trailingBandRightX: overhangs the box's right edge by gatePadding, or undefined at top level", () => {
+  // A group scope's trailing band overhangs the box's right edge by `gatePadding`, mirroring the
+  // overlap inter-column bands have on their left.
+  assert.equal(
+    trailingBandRightX({ ...makeScope([], []), boxRightX: 300 }),
+    300 + GATE_PADDING,
+  );
+  // The top-level scope has no enclosing box, so the band keeps its default width.
+  assert.equal(trailingBandRightX(makeScope([], [])), undefined);
 });
 
 test("makeDropzoneBox: on-column box spans exactly the column's width", () => {

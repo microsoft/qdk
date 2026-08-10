@@ -405,6 +405,10 @@ const _dropzoneLayer = (context: Context) => {
  * synthesizes the new column. With the leading band emitted at `colIndex=0`, every expanded group
  * gets an extend-sideways gesture on both edges. `[minWire, maxWire)` bounds the band to the scope's
  * wire span so a nested column can't escape its group.
+ *
+ * For a group scope whose box a long label stretched wider than its child columns, the band's right
+ * edge is pushed out past the box's right edge (`scope.boxRightX`, plus the usual `gatePadding`
+ * overhang) so that label slack stays covered rather than leaving a dead right gutter.
  */
 const _appendTrailingColumnForScope = (
   dropzoneLayer: SVGElement,
@@ -416,12 +420,14 @@ const _appendTrailingColumnForScope = (
 ): void => {
   const trailingColIndex = scope.columnXOffsets.length;
   const ctx: DropzoneContext = { scope, wireData, pathPrefix };
+  const bandRightX = trailingBandRightX(scope);
   for (let wireIndex = minWire; wireIndex < maxWire; wireIndex++) {
     const dropzone = makeDropzoneBox(ctx, {
       colIndex: trailingColIndex,
       opIndex: 0,
       wireIndex,
       interColumn: true,
+      bandRightX,
     });
     dropzone.setAttribute("data-dropzone-inter-column", "false");
     dropzoneLayer.appendChild(dropzone);
@@ -566,12 +572,29 @@ const _populateDropzonesForGrid = (
 
 /**
  * Half-width of an inter-column dropzone band, in svg units. The band straddles the gap between two
- * columns; total band width is `INTER_COLUMN_HALF_WIDTH * 2`.
+ * columns; its default total width is `INTER_COLUMN_HALF_WIDTH * 2` (a trailing band may stretch
+ * wider to cover a group's label slack — see `makeDropzoneBox`'s `bandRightX`).
  */
 const INTER_COLUMN_HALF_WIDTH = gatePadding * 2;
 
 /** Vertical padding above/below each dropzone, in svg units. */
 const DROPZONE_PADDING_Y = 20;
+
+/**
+ * Right edge (absolute svg x) a scope's trailing inter-column band should reach, or `undefined` when
+ * the scope has no enclosing box (top-level) so the band keeps its default width.
+ *
+ * When a group's long label stretches its box wider than the child columns, the band must cover that
+ * label slack — the empty area right of the last child column. Inter-column bands are intentionally
+ * a bit longer than the gutter they cover: they overhang the boundary they sit on by `gatePadding`
+ * on each side (the trailing band already overlaps the last on-column dropzone by that much on its
+ * left). So overhang the box's right edge by `gatePadding` too, rather than stopping short of it.
+ *
+ * Shared by the always-on trailing band (`_appendTrailingColumnForScope`) and the shift-extend
+ * trailing band (`dragController`) so both stretch identically.
+ */
+const trailingBandRightX = (scope: LayoutScope): number | undefined =>
+  scope.boxRightX != null ? scope.boxRightX + gatePadding : undefined;
 
 /**
  * Geometry for one column inside one scope. Either looks up an existing column from `LayoutScope`,
@@ -657,6 +680,13 @@ interface DropzoneTarget {
    * box covering the column.
    */
   interColumn: boolean;
+  /**
+   * Only meaningful for an inter-column band. Absolute x the band's right edge should reach, used to
+   * stretch the interior trailing band across a group's label slack (the empty area a long label
+   * adds inside the box, right of the last child column). Ignored when it wouldn't widen the band
+   * past its default size, and unused by the on-column box.
+   */
+  bandRightX?: number;
 }
 
 /**
@@ -667,29 +697,39 @@ const makeDropzoneBox = (
   target: DropzoneTarget,
 ): SVGElement => {
   const { scope, wireData, pathPrefix = "" } = ctx;
-  const { colIndex, opIndex, wireIndex, interColumn } = target;
+  const { colIndex, opIndex, wireIndex, interColumn, bandRightX } = target;
   const wireY = wireData[wireIndex];
   const { colStartX, colWidth } = columnGeometry(scope, colIndex);
 
-  const dropzone = interColumn
-    ? // Inter-column band: centered on the left edge of `colIndex`,
-      // i.e. on the gap between this column and the previous one.
-      box(
-        colStartX - INTER_COLUMN_HALF_WIDTH - gatePadding,
-        wireY - DROPZONE_PADDING_Y,
-        INTER_COLUMN_HALF_WIDTH * 2,
-        DROPZONE_PADDING_Y * 2,
-        "dropzone",
-      )
-    : // On-column box: covers exactly `[colStartX, colStartX + colWidth]`,
-      // which is the gate's bounding box width-wise.
-      box(
-        colStartX,
-        wireY - DROPZONE_PADDING_Y,
-        colWidth,
-        DROPZONE_PADDING_Y * 2,
-        "dropzone",
-      );
+  let dropzone: SVGElement;
+  if (interColumn) {
+    // Inter-column band: centered on the left edge of `colIndex`, i.e. on the gap between this
+    // column and the previous one.
+    const bandLeft = colStartX - INTER_COLUMN_HALF_WIDTH - gatePadding;
+    const defaultRight = bandLeft + INTER_COLUMN_HALF_WIDTH * 2;
+    // A group's long label can push the box's right edge (`bandRightX`) past the trailing band's
+    // default right edge; stretch the band to cover that slack. `Math.max` guards against ever
+    // shrinking below the default width.
+    const bandRight =
+      bandRightX != null ? Math.max(defaultRight, bandRightX) : defaultRight;
+    dropzone = box(
+      bandLeft,
+      wireY - DROPZONE_PADDING_Y,
+      bandRight - bandLeft,
+      DROPZONE_PADDING_Y * 2,
+      "dropzone",
+    );
+  } else {
+    // On-column box: covers exactly `[colStartX, colStartX + colWidth]`, which is the gate's
+    // bounding box width-wise.
+    dropzone = box(
+      colStartX,
+      wireY - DROPZONE_PADDING_Y,
+      colWidth,
+      DROPZONE_PADDING_Y * 2,
+      "dropzone",
+    );
+  }
 
   dropzone.setAttribute(
     "data-dropzone-location",
@@ -773,4 +813,5 @@ export {
   makeDropzoneBox,
   makeShiftExtendGhost,
   removeAllWireDropzones,
+  trailingBandRightX,
 };

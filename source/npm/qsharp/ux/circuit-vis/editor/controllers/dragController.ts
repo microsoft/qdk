@@ -19,6 +19,7 @@ import {
   makeDropzoneBox,
   makeShiftExtendGhost,
   removeAllWireDropzones,
+  trailingBandRightX,
 } from "../draggable.js";
 import {
   beginToolboxDrag,
@@ -777,6 +778,9 @@ export class DragController {
       wireData: this.ctx.wireData,
       pathPrefix: parentLoc,
     };
+    // Stretch the trailing band to cover the group's label slack, same as the always-on trailing
+    // band does (see `trailingBandRightX`). Only the trailing-append column's band uses it.
+    const trailingBand = trailingBandRightX(parentScope);
     for (let colIndex = 0; colIndex < totalCols; colIndex++) {
       const isTrailingCol = colIndex >= realColCount;
       for (let wire = 0; wire < this.ctx.wireData.length; wire++) {
@@ -797,6 +801,8 @@ export class DragController {
             opIndex: 0,
             wireIndex: wire,
             interColumn,
+            // Only the trailing-append band stretches; inner bands ignore `bandRightX`.
+            bandRightX: isTrailingCol ? trailingBand : undefined,
           });
           dropzone.setAttribute("data-shift-extend", "true");
           // Keep the shape-derived `data-dropzone-inter-column`: the band inserts a new inner column
