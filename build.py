@@ -763,6 +763,7 @@ if build_pip and build_widgets and build_qdk and args.integration_tests:
         "pennylane_submission_to_azure.",
         "benzene.",
         # Need the `qdk[ec]` extra, whose `qodec` dependency is not on PyPI yet.
+        "qdk_ec_simple_demo.",
         "qdk_ec_walkthrough.",
         "qodec_from_code.",
     )
