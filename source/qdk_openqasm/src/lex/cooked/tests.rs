@@ -244,8 +244,36 @@ fn int() {
             ]
         "#]],
     );
+}
+
+#[test]
+fn octal_int_uppercase_prefix() {
     check(
         "0O7",
+        &expect![[r#"
+            [
+                Ok(
+                    Token {
+                        kind: Literal(
+                            Integer(
+                                Octal,
+                            ),
+                        ),
+                        span: Span {
+                            lo: 0,
+                            hi: 3,
+                        },
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn octal_int_lowercase_prefix() {
+    check(
+        "0o7",
         &expect![[r#"
             [
                 Ok(
