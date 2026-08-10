@@ -25,6 +25,7 @@ _EXPORTS = {
     "DepolarizingTargetModel": (".model", "DepolarizingTargetModel"),
     "depolarizing": (".model", "depolarizing"),
     "GadgetDistanceData": (".distance", "GadgetDistanceData"),
+    "circuit_distance_of": (".distance", "circuit_distance_of"),
     "gadget_distance_bounds_of": (".distance", "gadget_distance_bounds_of"),
     "gadget_distance_of": (".distance", "gadget_distance_of"),
     "build_dem": (".dem", "build_dem"),
@@ -34,6 +35,9 @@ _EXPORTS = {
     "QdkSampler": (".qdk_sim", "QdkSampler"),
     "preselect_on_flags": (".qdk_sim", "preselect_on_flags"),
     "PaulimerSampler": (".paulimer", "PaulimerSampler"),
+    "encodable_gates_of": (".qir", "encodable_gates_of"),
+    "encode_qir": (".qir", "encode_qir"),
+    "run_qir_encoded": (".qir", "run_qir_encoded"),
     "DeqLerTarget": (".deq", "DeqLerTarget"),
     "DeqOptions": (".deq", "DeqOptions"),
     "LerResult": (".deq", "LerResult"),
@@ -88,6 +92,7 @@ if TYPE_CHECKING:
     )
     from .distance import (
         GadgetDistanceData as GadgetDistanceData,
+        circuit_distance_of as circuit_distance_of,
         gadget_distance_bounds_of as gadget_distance_bounds_of,
         gadget_distance_of as gadget_distance_of,
     )
@@ -97,6 +102,11 @@ if TYPE_CHECKING:
         depolarizing as depolarizing,
     )
     from .paulimer import PaulimerSampler as PaulimerSampler
+    from .qir import (
+        encodable_gates_of as encodable_gates_of,
+        encode_qir as encode_qir,
+        run_qir_encoded as run_qir_encoded,
+    )
     from .qdk_sim import (
         QdkSampler as QdkSampler,
         preselect_on_flags as preselect_on_flags,
