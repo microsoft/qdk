@@ -44,8 +44,9 @@ from .._adaptive_pass import (
     OP_RECORD_OUTPUT,
 )
 
-if TYPE_CHECKING:  # This is in the pyi file only
-    from .._native import GpuShotResults
+if TYPE_CHECKING:
+    import qodec as _qodec
+    from .._native import GpuShotResults  # This is in the pyi file only
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -783,6 +784,7 @@ def run_qir(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
     type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+    qodec: Optional["_qodec.Qodec"] = None,
 ) -> List:
     """
     Simulate the given QIR source.
@@ -797,9 +799,29 @@ def run_qir(
     :param shots: The number of shots to run.
     :param noise: A noise model to use in the simulation.
     :param seed: A seed for reproducibility.
+    :param qodec: An optional error correction scheme (a ``qodec.Qodec``) to run
+        the program under. When given, the program's qubits are encoded into the
+        qodec's logical qubits, the resulting encoded circuit is simulated, and
+        the logical measurement outcomes are decoded back into results — so the
+        same program runs with error correction rather than on bare physical
+        qubits. Requires the ``ec`` extra (``pip install "qdk[ec,ec-backends]"``).
+        See :func:`qdk.ec.targets.run_qir_encoded` for the full set of options,
+        including whether to postselect on detected errors.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
     """
+    if qodec is not None:
+        try:
+            from ..ec.targets.qir import run_qir_encoded
+        except ImportError as error:  # pragma: no cover - depends on install
+            raise ImportError(
+                "run_qir(qodec=...) requires the ec extra; install it with "
+                'pip install "qdk[ec,ec-backends]"'
+            ) from error
+        return run_qir_encoded(
+            input, qodec, shots=shots if shots is not None else 1, noise=noise, seed=seed
+        )
+
     if type is None:
         try:
             try_create_gpu_adapter()
