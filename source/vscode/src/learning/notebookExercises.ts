@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 import { log } from "qsharp-lang";
-import type { NotebookExerciseInfo } from "./types.js";
+import type { NotebookExerciseInfo, NotebookSectionInfo } from "./types.js";
 
 /**
  * Authoring model for `python-notebook` course units.
@@ -14,6 +14,7 @@ import type { NotebookExerciseInfo } from "./types.js";
  *
  * | Tag           | Cell kind | Meaning                                       |
  * | ------------- | --------- | --------------------------------------------- |
+ * | `section`     | markdown  | Starts a section. Optional `section:<id>`.    |
  * | `exercise`    | code      | The cell the learner edits.                   |
  * | `hint`        | markdown  | One hint. Multiple allowed, in document order.|
  * | `solution`    | code      | A reference solution. Multiple allowed.       |
@@ -21,7 +22,8 @@ import type { NotebookExerciseInfo } from "./types.js";
  *
  * `hint`, `solution` and `explanation` cells bind to the nearest preceding
  * `exercise` cell, and are stripped from the learner's working copy during
- * materialization (see {@link stripAuthoringCells}).
+ * materialization (see {@link stripAuthoringCells}). `section` cells are part
+ * of the narrative and always survive into the working copy.
  *
  * The exercise id is the name of the `@exercise`-decorated function in the
  * exercise cell. That name is the source of truth linking the notebook cell,
@@ -34,6 +36,12 @@ import type { NotebookExerciseInfo } from "./types.js";
 
 /** Tag marking the code cell a learner edits. */
 export const EXERCISE_TAG = "exercise";
+
+/**
+ * Tag marking the markdown cell that opens a section. Either bare
+ * (`section`) or carrying an explicit id (`section:active-space`).
+ */
+export const SECTION_TAG = "section";
 
 /** Tags marking author-only cells, removed from the learner's working copy. */
 export const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
@@ -176,6 +184,84 @@ export function parseNotebookExercises(
   }
 
   return exercises;
+}
+
+/**
+ * Parse the section outline out of an authored notebook's JSON text.
+ *
+ * Sections resolve in two tiers: the `section`-tagged markdown cells if the
+ * notebook tags any, otherwise the markdown cells that open with an h1 or h2
+ * heading. A notebook with neither yields no sections, leaving the caller to
+ * fall back to a single activity covering the whole notebook.
+ *
+ * Inference is deliberately the weaker tier. Headings are typographic, not
+ * pedagogical, so an author who wants a say takes it by tagging — at which
+ * point the tags become the entire outline and stray headings stop counting.
+ *
+ * Exercises are attached to the section they sit in so the caller can list a
+ * unit's activities in document order.
+ */
+export function parseNotebookSections(
+  text: string,
+  unitLabel: string,
+): NotebookSectionInfo[] {
+  const cells = readCells(text, unitLabel);
+  if (!cells) {
+    return [];
+  }
+
+  const tagged = cells.some((cell) => sectionTag(cellTags(cell)).present);
+
+  const sections: NotebookSectionInfo[] = [];
+  const seenIds = new Set<string>();
+
+  for (const cell of cells) {
+    const tags = cellTags(cell);
+
+    if (tags.includes(EXERCISE_TAG)) {
+      const id = exerciseId(cellSource(cell));
+      // An exercise ahead of the first section has nothing to attach to; the
+      // caller lists those first so they can't go missing.
+      if (id) {
+        sections[sections.length - 1]?.exerciseIds.push(id);
+      }
+      continue;
+    }
+    if (
+      cellKind(cell) !== "markdown" ||
+      AUTHORING_TAGS.some((t) => tags.includes(t))
+    ) {
+      continue;
+    }
+
+    const tag = sectionTag(tags);
+    const heading = leadingHeading(cellSource(cell));
+    if (tagged ? !tag.present : !heading || heading.level > 2) {
+      continue;
+    }
+
+    const cellId = cellIdOf(cell);
+    if (!cellId) {
+      log.warn(
+        `Learning: skipping a "${SECTION_TAG}" cell in unit "${unitLabel}": ` +
+          `the cell has no id.`,
+      );
+      continue;
+    }
+
+    const title = heading?.text || `Section ${sections.length + 1}`;
+    // The `sec-` prefix keeps section ids clear of exercise ids, which are
+    // Python function names and so can never contain a hyphen.
+    const base = tag.id || slugify(title) || String(sections.length + 1);
+    sections.push({
+      id: uniqueId(`sec-${base}`, seenIds),
+      title,
+      cellId,
+      exerciseIds: [],
+    });
+  }
+
+  return sections;
 }
 
 /**
@@ -350,4 +436,52 @@ function splitPrompt(
       .join("\n")
       .trim(),
   };
+}
+
+/** Read a cell's `section` tag, which may carry an explicit id after a colon. */
+function sectionTag(tags: string[]): { present: boolean; id?: string } {
+  for (const tag of tags) {
+    if (tag === SECTION_TAG) {
+      return { present: true };
+    }
+    if (tag.startsWith(`${SECTION_TAG}:`)) {
+      return { present: true, id: slugify(tag.slice(SECTION_TAG.length + 1)) };
+    }
+  }
+  return { present: false };
+}
+
+/**
+ * The heading a markdown cell opens with, if it opens with one. Unlike
+ * {@link splitPrompt}, which takes an exercise's title from the last heading
+ * in its prompt, a section is named by the heading that begins it.
+ */
+function leadingHeading(
+  source: string,
+): { level: number; text: string } | undefined {
+  const first = source.split(/\r?\n/).find((line) => line.trim().length > 0);
+  const match = first ? /^\s{0,3}(#{1,6})\s+(.+)$/.exec(first) : undefined;
+  if (!match) {
+    return undefined;
+  }
+  return {
+    level: match[1].length,
+    text: match[2].replace(/\s+#*\s*$/, "").trim(),
+  };
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function uniqueId(id: string, seen: Set<string>): string {
+  let candidate = id;
+  for (let n = 2; seen.has(candidate); n++) {
+    candidate = `${id}-${n}`;
+  }
+  seen.add(candidate);
+  return candidate;
 }

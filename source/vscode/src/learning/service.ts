@@ -576,15 +576,18 @@ export class LearningService {
   }
 
   /**
-   * The notebook cell ID backing the current activity — the inverse of
-   * {@link goToExerciseByCellId}. `undefined` when the course isn't a
-   * python-notebook course or the activity has no associated cell.
+   * The notebook cell ID backing the current activity — an exercise's code
+   * cell, or the markdown cell a section opens with. `undefined` when the
+   * course isn't a python-notebook course or the activity has no cell.
    */
-  getCurrentExerciseCellId(): string | undefined {
+  getCurrentCellId(): string | undefined {
     if (this.activeCourse.kind !== "python-notebook") {
       return undefined;
     }
     const { unit, activity } = this.findCurrentActivity();
+    if (activity.type === "lesson") {
+      return activity.cellId;
+    }
     return unit.notebookExercises?.find((e) => e.id === activity.id)?.cellId;
   }
 

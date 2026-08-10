@@ -12,7 +12,10 @@ import {
 } from "./constants.js";
 import type { CourseProvider } from "./courseProvider.js";
 import { uriExists } from "./fsUtils.js";
-import { parseNotebookExercises } from "./notebookExercises.js";
+import {
+  parseNotebookExercises,
+  parseNotebookSections,
+} from "./notebookExercises.js";
 import type {
   CatalogActivity,
   CatalogCourse,
@@ -251,27 +254,43 @@ export class DropInCourseProvider implements CourseProvider {
     const notebookExercises = notebookText
       ? parseNotebookExercises(notebookText, unit.id)
       : undefined;
+    const sections = notebookText
+      ? parseNotebookSections(notebookText, unit.id)
+      : [];
 
-    // Surface each notebook exercise as a catalog activity so it appears
-    // in the progress tree and can be navigated to.
-    if (notebookExercises) {
-      for (const ex of notebookExercises) {
-        activities.push({
-          type: "exercise",
-          id: ex.id,
-          title: ex.title,
-          description: ex.description,
-          placeholderCode: "",
-          sourceIds: [],
-          hints: ex.hints,
-          solutionCodes: ex.solutions,
-          solutionExplanation: ex.solutionExplanation,
-        } satisfies CatalogExercise);
+    // Surface the notebook's sections and exercises as catalog activities so
+    // they appear in the progress tree and can be navigated to. Both are
+    // emitted in document order, so the tree reads like the notebook.
+    const exercisesById = new Map(
+      (notebookExercises ?? []).map((ex) => [ex.id, ex]),
+    );
+    const inSection = new Set(sections.flatMap((s) => s.exerciseIds));
+
+    // Anything ahead of the first section belongs to no section but still
+    // precedes all of them.
+    for (const ex of notebookExercises ?? []) {
+      if (!inSection.has(ex.id)) {
+        activities.push(exerciseActivity(ex));
       }
     }
 
-    // A unit with no activities can't be navigated to, so a notebook without
-    // tagged exercises still gets one activity covering the reading.
+    for (const section of sections) {
+      activities.push({
+        type: "lesson",
+        id: section.id,
+        title: section.title,
+        cellId: section.cellId,
+      } satisfies CatalogLesson);
+      for (const id of section.exerciseIds) {
+        const ex = exercisesById.get(id);
+        if (ex) {
+          activities.push(exerciseActivity(ex));
+        }
+      }
+    }
+
+    // A unit with no activities can't be navigated to, so a notebook with
+    // neither sections nor exercises still gets one activity for the reading.
     if (activities.length === 0) {
       activities.push({
         type: "lesson",
@@ -282,6 +301,20 @@ export class DropInCourseProvider implements CourseProvider {
 
     return { activities, notebookExercises, sourceNotebookRel };
   }
+}
+
+function exerciseActivity(ex: NotebookExerciseInfo): CatalogExercise {
+  return {
+    type: "exercise",
+    id: ex.id,
+    title: ex.title,
+    description: ex.description,
+    placeholderCode: "",
+    sourceIds: [],
+    hints: ex.hints,
+    solutionCodes: ex.solutions,
+    solutionExplanation: ex.solutionExplanation,
+  };
 }
 
 // ─── Manifest field validation ───

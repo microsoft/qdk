@@ -252,6 +252,11 @@ export interface CatalogLesson {
   type: "lesson";
   id: string;
   title: string;
+  /**
+   * Stable cell ID this lesson starts at, for python-notebook units. Lets
+   * the tree reveal the section's opening cell in the workbook.
+   */
+  cellId?: string;
   /** If the lesson contains a code example, its id and code. */
   example?: { id: string; code: string };
   /** Markdown text before the example (only when `example` is set). */
@@ -280,6 +285,21 @@ export interface NotebookExerciseInfo {
   solutionExplanation: string;
   /** Stable cell ID (from the notebook's cell metadata) for this exercise. */
   cellId: string;
+}
+
+/**
+ * A section of a `python-notebook` unit: the run of cells introduced by a
+ * `section`-tagged markdown cell, or by a heading when the notebook tags
+ * nothing. Sections are what the progress tree lists for a notebook unit.
+ */
+export interface NotebookSectionInfo {
+  /** From the tag's payload if given, otherwise a slug of the heading. */
+  id: string;
+  title: string;
+  /** Cell ID of the markdown cell that opens the section. */
+  cellId: string;
+  /** Ids of the exercises inside this section, in document order. */
+  exerciseIds: string[];
 }
 
 export interface CatalogUnit {

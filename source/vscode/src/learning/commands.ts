@@ -300,7 +300,7 @@ async function openCourseNotebook(
     log.warn("No notebook associated with the current position.");
     return;
   }
-  const cellId = service.getCurrentExerciseCellId();
+  const cellId = service.getCurrentCellId();
 
   await vscode.commands.executeCommand(
     "vscode.openWith",
@@ -327,9 +327,9 @@ async function openCourseNotebook(
 
 /**
  * Select the cell with the given stable ID in an already-open notebook and
- * scroll it into view. When the cell is immediately preceded by a markdown
- * cell — typically the exercise's instructions — that cell is scrolled to
- * instead, so the learner sees the prompt and not just the code.
+ * scroll it into view. When the target is a code cell immediately preceded by
+ * a markdown cell — typically the exercise's instructions — that cell is
+ * scrolled to instead, so the learner sees the prompt and not just the code.
  *
  * No-op if the notebook isn't visible or the cell can't be found.
  */
@@ -346,12 +346,15 @@ function revealNotebookCell(notebookUri: vscode.Uri, cellId: string): void {
     return;
   }
 
-  // The selection stays on the exercise cell — only the scroll target
-  // widens to include the preceding prompt.
+  // The selection stays on the target cell — only the scroll target widens.
+  // A markdown target is its own prompt, so widening would push its heading
+  // off the top of the viewport.
   editor.selection = new vscode.NotebookRange(cell.index, cell.index + 1);
 
   const previous =
-    cell.index > 0 ? editor.notebook.cellAt(cell.index - 1) : undefined;
+    cell.kind === vscode.NotebookCellKind.Code && cell.index > 0
+      ? editor.notebook.cellAt(cell.index - 1)
+      : undefined;
   const revealStart =
     previous?.kind === vscode.NotebookCellKind.Markup
       ? previous.index
