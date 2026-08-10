@@ -28,13 +28,13 @@ use std::{
 enum NumberLexError {
     /// A number ending in an underscore.
     EndsInUnderscore,
-    /// An incomplete binary, octal, or hex number.
-    Incomplete,
-    /// A numeric literal that does not conform to the OpenQASM grammar.
-    Invalid,
+    /// A binary, octal, or hex prefix with no digits after it.
+    IncompleteRadix,
+    /// A number containing two or more consecutive underscores.
+    RepeatedSeparator,
     /// The token wasn't parsed and no characters were consumed
     /// when trying to parse the token.
-    None,
+    NotApplicable,
 }
 
 /// A raw token.
@@ -327,13 +327,13 @@ impl<'a> Lexer<'a> {
     fn number(&mut self, c: char) -> Result<Number, NumberLexError> {
         match self.leading_zero(c) {
             Ok(number) => return Ok(number),
-            Err(NumberLexError::None) => (),
+            Err(NumberLexError::NotApplicable) => (),
             Err(err) => return Err(err),
         }
 
         match self.leading_dot(c) {
             Ok(number) => return Ok(number),
-            Err(NumberLexError::None) => (),
+            Err(NumberLexError::NotApplicable) => (),
             Err(err) => return Err(err),
         }
 
@@ -348,11 +348,11 @@ impl<'a> Lexer<'a> {
             let (_, c1) = self.chars.next().expect("first.is_some_and() succeeded");
             self.decimal(c1)?;
             match self.exp() {
-                Ok(()) | Err(NumberLexError::None) => Ok(Number::Float),
+                Ok(()) | Err(NumberLexError::NotApplicable) => Ok(Number::Float),
                 Err(err) => Err(err),
             }
         } else {
-            Err(NumberLexError::None)
+            Err(NumberLexError::NotApplicable)
         }
     }
 
@@ -368,18 +368,20 @@ impl<'a> Lexer<'a> {
                         Err(NumberLexError::EndsInUnderscore) => {
                             Err(NumberLexError::EndsInUnderscore)
                         }
-                        Ok(_) | Err(NumberLexError::None) => match self.exp() {
-                            Ok(()) | Err(NumberLexError::None) => Ok(Number::Float),
-                            Err(_) => Err(NumberLexError::EndsInUnderscore),
+                        Ok(_) | Err(NumberLexError::NotApplicable) => match self.exp() {
+                            Ok(()) | Err(NumberLexError::NotApplicable) => Ok(Number::Float),
+                            Err(err) => Err(err),
                         },
-                        Err(NumberLexError::Incomplete) => unreachable!(),
-                        Err(NumberLexError::Invalid) => Err(NumberLexError::Invalid),
+                        Err(NumberLexError::IncompleteRadix) => unreachable!(),
+                        Err(NumberLexError::RepeatedSeparator) => {
+                            Err(NumberLexError::RepeatedSeparator)
+                        }
                     }
                 }
                 Some('e' | 'E') => match self.exp() {
                     Ok(()) => Ok(Number::Float),
-                    Err(NumberLexError::None) => unreachable!("we know there is an `e`"),
-                    Err(NumberLexError::Incomplete) => {
+                    Err(NumberLexError::NotApplicable) => unreachable!("we know there is an `e`"),
+                    Err(NumberLexError::IncompleteRadix) => {
                         unreachable!("this only applies when lexing binary, octal, or hex")
                     }
                     Err(err) => Err(err),
@@ -387,7 +389,7 @@ impl<'a> Lexer<'a> {
                 None | Some(_) => Ok(Number::Float),
             }
         } else {
-            Err(NumberLexError::None)
+            Err(NumberLexError::NotApplicable)
         }
     }
 
@@ -396,7 +398,7 @@ impl<'a> Lexer<'a> {
     /// Numbers in Qasm aren't allowed to end in an underscore.
     fn leading_zero(&mut self, c: char) -> Result<Number, NumberLexError> {
         if c != '0' {
-            return Err(NumberLexError::None);
+            return Err(NumberLexError::NotApplicable);
         }
 
         let radix = if self.next_if_eq('b') || self.next_if_eq('B') {
@@ -413,7 +415,7 @@ impl<'a> Lexer<'a> {
 
         match radix {
             Radix::Binary | Radix::Octal | Radix::Hexadecimal => match last_eaten {
-                None => Err(NumberLexError::Incomplete),
+                None => Err(NumberLexError::IncompleteRadix),
                 Some('_') => Err(NumberLexError::EndsInUnderscore),
                 _ => Ok(Number::Int(radix)),
             },
@@ -424,8 +426,8 @@ impl<'a> Lexer<'a> {
                 }
                 Some('e' | 'E') => match self.exp() {
                     Ok(()) => Ok(Number::Float),
-                    Err(NumberLexError::None) => unreachable!(),
-                    Err(_) => Err(NumberLexError::EndsInUnderscore),
+                    Err(NumberLexError::NotApplicable) => unreachable!(),
+                    Err(err) => Err(err),
                 },
                 None | Some(_) => Ok(Number::Int(Radix::Decimal)),
             },
@@ -438,13 +440,13 @@ impl<'a> Lexer<'a> {
     /// `DecimalIntegerLiteral: ([0-9] '_'?)* [0-9];`
     fn decimal(&mut self, c: char) -> Result<Number, NumberLexError> {
         if !c.is_ascii_digit() {
-            return Err(NumberLexError::None);
+            return Err(NumberLexError::NotApplicable);
         }
 
         let last_eaten = self.eat_number_characters(|c| c.is_ascii_digit())?;
 
         match last_eaten {
-            None if c == '_' => Err(NumberLexError::None),
+            None if c == '_' => Err(NumberLexError::NotApplicable),
             Some('_') => Err(NumberLexError::EndsInUnderscore),
             _ => Ok(Number::Int(Radix::Decimal)),
         }
@@ -462,18 +464,18 @@ impl<'a> Lexer<'a> {
             }
             _ => match self.exp() {
                 Ok(()) => Ok(Number::Float),
-                Err(NumberLexError::None) => Ok(Number::Int(Radix::Decimal)),
+                Err(NumberLexError::NotApplicable) => Ok(Number::Int(Radix::Decimal)),
                 Err(NumberLexError::EndsInUnderscore) => Err(NumberLexError::EndsInUnderscore),
-                Err(NumberLexError::Invalid) => Err(NumberLexError::Invalid),
-                Err(NumberLexError::Incomplete) => unreachable!(),
+                Err(NumberLexError::RepeatedSeparator) => Err(NumberLexError::RepeatedSeparator),
+                Err(NumberLexError::IncompleteRadix) => unreachable!(),
             },
         }
     }
 
     /// Parses an exponent. Errors if the exponent is an invalid decimal.
-    /// The rule `decimal_or_float` uses the `LexError::None` variant of the error
+    /// The rule `decimal_or_float` uses the `NumberLexError::NotApplicable` variant of the error
     /// to classify the token as an integer.
-    /// The `leading_dot` and `mid_dot` rules use the `LexError::None` variant to
+    /// The `leading_dot` and `mid_dot` rules use the `NumberLexError::NotApplicable` variant to
     /// classify the token as a float.
     fn exp(&mut self) -> Result<(), NumberLexError> {
         if self.next_if(|c| c == 'e' || c == 'E') {
@@ -492,14 +494,18 @@ impl<'a> Lexer<'a> {
                 match self.decimal(first) {
                     Ok(_) => Ok(()),
                     Err(NumberLexError::EndsInUnderscore) => Err(NumberLexError::EndsInUnderscore),
-                    Err(NumberLexError::Invalid) => Err(NumberLexError::Invalid),
-                    Err(NumberLexError::None | NumberLexError::Incomplete) => unreachable!(),
+                    Err(NumberLexError::RepeatedSeparator) => {
+                        Err(NumberLexError::RepeatedSeparator)
+                    }
+                    Err(NumberLexError::NotApplicable | NumberLexError::IncompleteRadix) => {
+                        unreachable!()
+                    }
                 }
             } else {
                 Ok(())
             }
         } else {
-            Err(NumberLexError::None)
+            Err(NumberLexError::NotApplicable)
         }
     }
 
@@ -523,7 +529,7 @@ impl<'a> Lexer<'a> {
         }
 
         if has_repeated_separator {
-            Err(NumberLexError::Invalid)
+            Err(NumberLexError::RepeatedSeparator)
         } else {
             Ok(last_eaten)
         }
@@ -625,10 +631,10 @@ impl Iterator for Lexer<'_> {
                 Ok(number) => TokenKind::Number(number),
                 Err(
                     NumberLexError::EndsInUnderscore
-                    | NumberLexError::Incomplete
-                    | NumberLexError::Invalid,
+                    | NumberLexError::IncompleteRadix
+                    | NumberLexError::RepeatedSeparator,
                 ) => TokenKind::Unknown,
-                Err(NumberLexError::None) => self
+                Err(NumberLexError::NotApplicable) => self
                     .comment(c)
                     .or_else(|| self.string(c))
                     .or_else(|| single(c).map(TokenKind::Single))
