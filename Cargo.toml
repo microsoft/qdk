@@ -67,8 +67,6 @@ js-sys = "0.3"
 libfuzzer-sys = "0.4"
 log = "0.4"
 miette = { version = "7.6" }
-# Explicitly use matrixmultiply transitive dependency to disable avx512 default feature
-matrixmultiply = { version = "0.3", default-features = false, features = ["std"] }
 thiserror = "2.0"
 nalgebra = { version = "0.35" }
 ndarray = "0.17"
