@@ -426,7 +426,7 @@ export class LearningService {
       return false;
     }
     // Only move if we're not already on this exercise.
-    if (this.position.activityId === exercise.id) {
+    if (this.position.activityId === exercise.cellId) {
       return true;
     }
 
@@ -434,7 +434,7 @@ export class LearningService {
     ws.progressData.position = {
       courseId: this.activeCourse.id,
       unitId: unit.id,
-      activityId: exercise.id,
+      activityId: exercise.cellId,
     };
     await this.saveProgress();
     if (source) {
@@ -461,7 +461,7 @@ export class LearningService {
     const location: ActivityLocation = {
       courseId: this.activeCourse.id,
       unitId: unit.id,
-      activityId: exercise.id,
+      activityId: exercise.cellId,
     };
     if (this.isComplete(location)) {
       return true;
@@ -584,8 +584,9 @@ export class LearningService {
     if (this.activeCourse.kind !== "python-notebook") {
       return undefined;
     }
-    const { unit, activity } = this.findCurrentActivity();
-    return unit.notebookExercises?.find((e) => e.id === activity.id)?.cellId;
+    const { activity } = this.findCurrentActivity();
+    // For python-notebook courses the activity ID is the cell ID.
+    return activity.type === "exercise" ? activity.id : undefined;
   }
 
   /** Enumerate all available courses. */

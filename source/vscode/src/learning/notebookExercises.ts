@@ -23,9 +23,9 @@ import type { NotebookExerciseInfo } from "./types.js";
  * `exercise` cell, and are stripped from the learner's working copy during
  * materialization (see {@link stripAuthoringCells}).
  *
- * The exercise id is the name of the `@exercise`-decorated function in the
- * exercise cell. That name is the source of truth linking the notebook cell,
- * this metadata, and the Python checker registered for it in `_unit.py`.
+ * The exercise id is the stable nbformat cell ID. The `@exercise`-decorated
+ * function name links the cell to the Python checker in `_unit.py` at
+ * runtime but is not used as an identifier in the extension.
  *
  * This module works on raw notebook JSON rather than VS Code's notebook API
  * because both course load and materialization happen with the file closed.
@@ -73,7 +73,6 @@ export function parseNotebookExercises(
   }
 
   const exercises: NotebookExerciseInfo[] = [];
-  const seenIds = new Set<string>();
 
   // The exercise most recently seen, and therefore the one that any
   // subsequent authoring cells belong to. `undefined` until the first
@@ -94,35 +93,23 @@ export function parseNotebookExercises(
         continue;
       }
 
-      const id = exerciseId(cellSource(cell));
-      if (!id) {
-        log.warn(
-          `Learning: skipping an "${EXERCISE_TAG}" cell in unit "${unitLabel}": ` +
-            "no @exercise-decorated function found. The exercise id comes from " +
-            "that function's name.",
-        );
-        continue;
-      }
-      if (seenIds.has(id)) {
-        log.warn(
-          `Learning: skipping duplicate exercise "${id}" in unit "${unitLabel}".`,
-        );
-        continue;
-      }
-
       const cellId = cellIdOf(cell);
       if (!cellId) {
         log.warn(
-          `Learning: skipping exercise "${id}" in unit "${unitLabel}": the cell has no id.`,
+          `Learning: skipping an "${EXERCISE_TAG}" cell in unit "${unitLabel}": ` +
+            "the cell has no id.",
         );
         continue;
       }
 
-      seenIds.add(id);
-      const { title, description } = precedingPrompt(cells, i, id);
+      // This is a terrible fallback name, but it shouldn't actually happen
+      const { title, description } = precedingPrompt(
+        cells,
+        i,
+        `Cell ${cellId}`,
+      );
       current = {
-        id,
-        cellId,
+        cellId: cellId,
         title,
         description,
         hints: [],
@@ -148,7 +135,7 @@ export function parseNotebookExercises(
 
     if (!hasExpectedKind(cell, authoringTag)) {
       log.warn(
-        `Learning: ignoring a "${authoringTag}" cell for exercise "${current.id}" ` +
+        `Learning: ignoring a "${authoringTag}" cell for exercise "${current.cellId}" ` +
           `in unit "${unitLabel}": expected a ${expectedKind(authoringTag)} cell.`,
       );
       continue;
@@ -166,7 +153,7 @@ export function parseNotebookExercises(
         if (current.solutionExplanation) {
           log.warn(
             `Learning: ignoring an extra "explanation" cell for exercise ` +
-              `"${current.id}" in unit "${unitLabel}".`,
+              `"${current.cellId}" in unit "${unitLabel}".`,
           );
           break;
         }
@@ -278,19 +265,6 @@ function hasExpectedKind(cell: RawCell, tag: AuthoringTag): boolean {
 }
 
 // ─── Field derivation ───
-
-/**
- * The exercise id: the name of the `@exercise`-decorated function. The
- * decorator may be applied bare or called, and other decorators may sit
- * between it and the `def`.
- */
-function exerciseId(source: string): string | undefined {
-  const match =
-    /^[ \t]*@exercise\b[^\n]*\n(?:[^\n]*\n)*?[ \t]*def[ \t]+(\w+)/m.exec(
-      source,
-    );
-  return match?.[1];
-}
 
 /**
  * Title and description for an exercise, taken from the markdown cell that

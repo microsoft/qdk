@@ -270,16 +270,14 @@ export type CatalogActivity = CatalogExercise | CatalogLesson;
  * chat LM tools without requiring cell execution.
  */
 export interface NotebookExerciseInfo {
-  /** Name of the `@exercise`-decorated function the learner implements. */
-  id: string;
+  /** Stable cell ID (from the notebook's cell metadata) for this exercise. */
+  cellId: string;
   title: string;
   description: string;
   hints: string[];
   /** Reference solutions, one per `solution`-tagged cell. */
   solutions: string[];
   solutionExplanation: string;
-  /** Stable cell ID (from the notebook's cell metadata) for this exercise. */
-  cellId: string;
 }
 
 export interface CatalogUnit {

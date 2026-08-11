@@ -251,13 +251,14 @@ export class DropInCourseProvider implements CourseProvider {
       ? parseNotebookExercises(notebookText, unit.id)
       : undefined;
 
+    // TODO (acasey): include examples too
     // Surface each notebook exercise as a catalog activity so it appears
     // in the progress tree and can be navigated to.
     if (notebookExercises) {
       for (const ex of notebookExercises) {
         activities.push({
           type: "exercise",
-          id: ex.id,
+          id: ex.cellId,
           title: ex.title,
           description: ex.description,
           placeholderCode: "",
