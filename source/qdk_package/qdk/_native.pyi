@@ -892,6 +892,7 @@ class QirInstructionId(Enum):
     TupleRecordOutput: QirInstructionId
     ArrayRecordOutput: QirInstructionId
     CorrelatedNoise: QirInstructionId
+    ReadoutNoise: QirInstructionId
 
 class QirInstruction: ...
 
