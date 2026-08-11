@@ -34,6 +34,16 @@
     "ui"
   ],
   "contributes": {
+    "notebookRenderer": [
+      {
+        "id": "qsharp-vscode.learning-quiz",
+        "displayName": "QDK Learning Quiz",
+        "entrypoint": "./out/learning/renderer/quiz-renderer.js",
+        "mimeTypes": [
+          "application/vnd.qdk.quiz+json"
+        ]
+      }
+    ],
     "walkthroughs": [
       {
         "id": "qsharp-vscode.welcome",
@@ -1764,7 +1774,8 @@
     "tsc:check:main": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json",
     "tsc:check:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json",
     "tsc:check:learning": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/webview/tsconfig.json",
-    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view && npm run tsc:check:learning",
+    "tsc:check:renderer": "node ../../node_modules/typescript/bin/tsc -p ./src/learning/renderer/tsconfig.json",
+    "tsc:check": "npm run tsc:check:main && npm run tsc:check:view && npm run tsc:check:learning && npm run tsc:check:renderer",
     "tsc:watch": "node ../../node_modules/typescript/bin/tsc -p ./tsconfig.json --watch --preserveWatchOutput",
     "tsc:watch:view": "node ../../node_modules/typescript/bin/tsc -p ./src/webview/tsconfig.json --watch --preserveWatchOutput"
   },

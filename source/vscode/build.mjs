@@ -42,6 +42,16 @@ const platformBuildOptions = {
     },
     // plugins added at build time (needs inlineStateComputeWorkerPlugin)
   },
+  // Notebook renderers are loaded with a native dynamic import(), so this
+  // bundle has to be ESM even though every other platform here is CJS.
+  renderer: {
+    ...commonBuildOptions,
+    format: "esm",
+    platform: "browser",
+    outbase: join(thisDir, "src"),
+    outdir: join(thisDir, "out"),
+    entryPoints: [join(thisDir, "src", "learning/renderer/quiz-renderer.ts")],
+  },
   browser: {
     ...commonBuildOptions,
     entryPoints: [
@@ -282,6 +292,7 @@ export async function watchVsCode() {
 
       await Promise.all([
         buildPlatform("ui"),
+        buildPlatform("renderer"),
         buildPlatform("browser"),
         buildPlatform("node"),
         buildPlatform("node-worker"),
