@@ -85,12 +85,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       // environment check) can be scoped to them.
       item.contextValue =
         descriptor.kind === "python-notebook" ? "coursePython" : "course";
-      // TODO (acasey): is this valuable?  It just adds " - Python environment" to the tooltip
-      const envNote =
-        descriptor.kind === "python-notebook"
-          ? " \u00b7 Python environment"
-          : "";
-      item.tooltip = `${descriptor.title}${envNote}${
+      item.tooltip = `${descriptor.title}${
         descriptor.shortDescription ? `\n${descriptor.shortDescription}` : ""
       }`;
       item.id = isActive
