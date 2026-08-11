@@ -644,8 +644,8 @@ impl ToQir<String> for rir::Callable {
 ///
 /// `is_entry` selects how a bodied callable is rendered: the entry point is emitted as
 /// `@ENTRYPOINT__main()` returning `i64 0`, while a non-entry `Regular` callable is emitted as a
-/// real LLVM `define void @<name>(<params>)` IR function with typed parameters named after the
-/// callable's `input_vars`. Bodyless callables (intrinsics) always render as `declare`.
+/// real LLVM `define internal void @<name>(<params>)` IR function with typed parameters named after
+/// the callable's `input_vars`. Bodyless callables (intrinsics) always render as `declare`.
 fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Program) -> String {
     let output_type = ToQir::<String>::to_qir(&callable.output_type, program);
     let Some(entry_id) = callable.body else {
@@ -702,7 +702,7 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
             })
             .collect::<Vec<_>>()
             .join(", ");
-        format!("define {output_type} {callable_name}({params}) {{\n{body}}}")
+        format!("define internal {output_type} {callable_name}({params}) {{\n{body}}}")
     }
 }
 
