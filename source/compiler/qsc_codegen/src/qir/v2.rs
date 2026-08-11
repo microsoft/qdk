@@ -308,6 +308,7 @@ fn store_array_to_qir(
     let var_ty = get_variable_ty(variable);
     let mut qir = String::new();
     let var_str = ToQir::<String>::to_qir(&variable.variable_id, program);
+    let final_operand_idx = operands.len() - 1;
     for (i, operand) in operands.iter().enumerate() {
         let temp_var = format!("{var_str}_{i}");
         writeln!(
@@ -321,6 +322,9 @@ fn store_array_to_qir(
             ToQir::<String>::to_qir(operand, program)
         )
         .expect("writing to string should succeed");
+        if i != final_operand_idx {
+            writeln!(qir).expect("writing to string should succeed");
+        }
     }
     qir
 }
