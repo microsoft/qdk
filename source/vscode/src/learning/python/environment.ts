@@ -146,6 +146,11 @@ export class EnvironmentManager {
 
     const results: { module: string; ok: boolean }[] = [];
     for (const module of modules) {
+      if (!isValidModuleName(module)) {
+        log.warn(`Skipping invalid module name: ${module}`);
+        results.push({ module, ok: false });
+        continue;
+      }
       const code = await runPython(api, env, ["-c", `import ${module}`]);
       results.push({ module, ok: code === 0 });
     }
@@ -204,6 +209,12 @@ export class EnvironmentManager {
 }
 
 // ─── Helpers ───
+
+const validModuleName = /^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$/;
+
+function isValidModuleName(name: string): boolean {
+  return validModuleName.test(name);
+}
 
 /**
  * Run Python with the given args in the background and return the exit code.
