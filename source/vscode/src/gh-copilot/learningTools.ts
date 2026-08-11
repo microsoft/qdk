@@ -195,10 +195,18 @@ export class LearningTools {
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
       if (this.service.getActiveCourseInfo().kind === "python-notebook") {
-        return {
-          code: "", // TODO (acasey): can/should we get the code in the active cell?
-          filePath: uri.fsPath,
-        };
+        let code = "";
+        // Prefer the cell the user actually has focused in the editor.
+        const editor = vscode.window.activeNotebookEditor;
+        const selection = editor?.selections[0];
+        if (
+          selection && // Implies editor
+          editor.notebook.uri.toString() === uri.toString()
+        ) {
+          const cell = editor.notebook.cellAt(selection.start);
+          code = cell.document.getText();
+        }
+        return { code, filePath: uri.fsPath };
       }
       const code = await this.service.readUserCode();
       return { code, filePath: uri.fsPath };
