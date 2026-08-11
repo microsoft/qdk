@@ -47,7 +47,7 @@ fn check_directive(input: &str, expected: CompletionDirective) {
 #[test]
 fn begin_document() {
     check_valid_words(
-        "|OPENQASM 3;",
+        "↘OPENQASM 3;",
         &expect![[r#"
             WordKinds(
                 PathExpr | Annotation | Durationof | Barrier | Box | Break | Cal | Const | Continue | CReg | Ctrl | Def | DefCal | DefCalGrammar | Delay | End | Extern | False | For | Gate | If | Include | Input | Inv | Let | Measure | NegCtrl | OpenQASM | Output | Pow | Pragma | QReg | Qubit | Reset | True | Return | Switch | While,
@@ -59,7 +59,7 @@ fn begin_document() {
 #[test]
 fn end_of_version() {
     check_valid_words(
-        "OPENQASM 3;|",
+        "OPENQASM 3;↘",
         &expect![[r#"
             WordKinds(
                 PathExpr | Annotation | Durationof | Barrier | Box | Break | Cal | Const | Continue | CReg | Ctrl | Def | DefCal | DefCalGrammar | Delay | End | Extern | False | For | Gate | If | Include | Input | Inv | Let | Measure | NegCtrl | Output | Pow | Pragma | QReg | Qubit | Reset | True | Return | Switch | While,
@@ -80,7 +80,7 @@ fn annotation_completion_context_tracks_name_and_value_boundaries() {
         check_context(input, CompletionContext::AnnotationName);
     }
 
-    for input in ["@qdk.qir.profile |Base", "@qdk.qir.profile Ba|se"] {
+    for input in ["@qdk.qir.profile ↘Base", "@qdk.qir.profile Ba↘se"] {
         check_context(input, CompletionContext::DirectiveValue);
     }
 }

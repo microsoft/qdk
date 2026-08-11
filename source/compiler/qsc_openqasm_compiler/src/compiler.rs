@@ -713,6 +713,8 @@ impl QasmCompiler {
             semast::StmtKind::For(stmt) => self.compile_for_stmt(stmt),
             semast::StmtKind::If(stmt) => self.compile_if_stmt(stmt),
             semast::StmtKind::GateCall(stmt) => {
+                // Since broadcasting might result in multiple statements being generated
+                // we update `output` ourselves and return early.
                 self.compile_gate_call_stmt(stmt, output);
                 return;
             }
