@@ -11,6 +11,7 @@ This repository contains tooling for the Q# language, specifically:
 - **[library](./library/)**: Q# standard library
 - **[npm](./source/npm/)**: Q# npm package
 - **[playground](./source/playground/)**: simple website for interacting with Q#
+- **[qdk_package](./source/qdk_package/)**: The `qdk` Python package (core Q# Python API with native Rust extension)
 - **[resource_estimator](./source/resource_estimator)**: Implementation for the Microsoft Quantum Resource Estimator
 - **[vscode](./source/vscode/)**: Visual Studio Code extension
 - **[wasm](./source/wasm/)**: The bindings and logic for the WebAssembly module
