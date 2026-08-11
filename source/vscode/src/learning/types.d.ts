@@ -221,9 +221,7 @@ export type WebviewToHostMessage =
   /** Switch to a different course. */
   | { command: "switchCourse"; courseId: string }
   /** Show README/info for a course (defaults to the active course). */
-  | { command: "courseInfo"; courseId?: string }
-  /** Open the course picker to browse and switch courses. */
-  | { command: "browseCourses" };
+  | { command: "courseInfo"; courseId?: string };
 
 // ─── Catalog ───
 //

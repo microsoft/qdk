@@ -249,7 +249,6 @@ function App() {
 
 function Branding({ course }: { course: LearningState["course"] }) {
   const mobiusUri = document.body.dataset.mobiusUri ?? "";
-  const onBrowse = () => vscodeApi.postMessage({ command: "browseCourses" });
   return (
     <div class="branding" style={`--mobius-url: url('${mobiusUri}')`}>
       <div
@@ -258,15 +257,6 @@ function Branding({ course }: { course: LearningState["course"] }) {
         aria-label="Microsoft Quantum logo"
       />
       <span class="branding-text">{course.title}</span>
-      <span class="branding-actions">
-        <button
-          class="link-button"
-          title="Browse and switch courses"
-          onClick={onBrowse}
-        >
-          Browse courses
-        </button>
-      </span>
     </div>
   );
 }

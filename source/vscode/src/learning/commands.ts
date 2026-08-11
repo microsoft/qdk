@@ -144,9 +144,9 @@ export function registerLearningCommands(
     vscode.commands.registerCommand(
       "qsharp-vscode.learningSwitchCourse",
       async (node?: LearningProgressNode) => {
-        const courseId = await resolveCourseId(service, node);
+        const courseId =
+          node?.kind === "course" ? node.descriptor.id : undefined;
         if (!courseId) {
-          // This may simply indicate that the user declined to pick a course
           return;
         }
         await service.switchCourse(courseId, "tree");
@@ -398,38 +398,4 @@ function nodeToLocation(
       };
     }
   }
-}
-
-/**
- * Resolve a target course id from a tree node, or prompt the user with a
- * quick pick when invoked without one (e.g. from the command palette).
- */
-async function resolveCourseId(
-  service: LearningService,
-  node?: LearningProgressNode,
-): Promise<string | undefined> {
-  if (node?.kind === "course") {
-    return node.descriptor.id;
-  }
-  if (!service.initialized) {
-    const ok = await service.tryInitialize({ createIfMissing: true });
-    if (!ok) {
-      return undefined;
-    }
-  }
-  const courses = service.getCourses();
-  if (courses.length === 0) {
-    return undefined;
-  }
-  const activeId = service.getActiveCourseId();
-  const picked = await vscode.window.showQuickPick(
-    courses.map((c) => ({
-      label: c.title,
-      description: c.id === activeId ? "current" : undefined,
-      detail: c.shortDescription,
-      id: c.id,
-    })),
-    { placeHolder: "Select a course" },
-  );
-  return picked?.id;
 }
