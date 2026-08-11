@@ -18,9 +18,16 @@ import {
   MoleculeViewer,
   Entanglement,
   type EntanglementProps,
+  BlochSphere,
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
+// KaTeX's stylesheet (with fonts inlined as data URLs by esbuild) so
+// rendered math in widgets -- e.g. the Bloch sphere trace -- lays out
+// correctly. Unlike the VS Code and playground hosts, which link a
+// separate katex.min.css, the widget injects its CSS inline into the
+// notebook output, so the fonts must be self-contained.
+import "katex/dist/katex.min.css";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - there are no types for this
@@ -90,6 +97,9 @@ function render({ model, el }: RenderArgs) {
       break;
     case "Entanglement":
       renderEntanglement({ model, el });
+      break;
+    case "BlochSphere":
+      renderBlochSphere({ model, el });
       break;
     default:
       throw new Error(`Unknown component type ${componentType}`);
@@ -287,6 +297,25 @@ function renderCircuit({ model, el }: RenderArgs) {
 
   onChange();
   model.on("change:circuit_json", onChange);
+}
+
+function renderBlochSphere({ model, el }: RenderArgs) {
+  const onChange = () => {
+    const initialGates = model.get("initial_gates") as string;
+    prender(
+      <BlochSphere
+        initialGates={initialGates}
+        onGatesChanged={(gates) => {
+          model.set("gates", gates);
+          model.save_changes();
+        }}
+      ></BlochSphere>,
+      el,
+    );
+  };
+
+  onChange();
+  model.on("change:initial_gates", onChange);
 }
 
 function renderAtoms({ model, el }: RenderArgs) {

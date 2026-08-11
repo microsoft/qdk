@@ -9,7 +9,6 @@ from typing import Literal
 import anywidget
 import traitlets
 
-
 try:
     __version__ = importlib.metadata.version("qsharp_widgets")
 except importlib.metadata.PackageNotFoundError:
@@ -213,6 +212,32 @@ class Circuit(anywidget.AnyWidget):
         self.layout.overflow = "visible scroll"
 
 
+class BlochSphere(anywidget.AnyWidget):
+    _esm = pathlib.Path(__file__).parent / "static" / "index.js"
+    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+
+    comp = traitlets.Unicode("BlochSphere").tag(sync=True)
+    initial_gates = traitlets.Unicode("").tag(sync=True)
+    gates = traitlets.Unicode("").tag(sync=True)
+
+    def __init__(self, initial_gates=""):
+        """
+        This function displays an interactive Bloch sphere for exploring
+        single-qubit states and gates.
+
+        Parameters:
+        - initial_gates (optional): a whitespace-separated sequence of gate
+          tokens to replay when the widget is first shown. Fixed gates are
+          X, Y, Z, H, S, T, and SX; adjoints use a trailing apostrophe
+          (S', T', SX'); rotations are Rx(angle), Ry(angle), and Rz(angle)
+          with the angle in radians. For example: "X H Z" or "H Rx(1.5708) S'".
+
+        The current gate sequence can be read back at any time from the `gates`
+        trait, which stays in sync as gates are applied in the widget.
+        """
+        super().__init__(initial_gates=initial_gates, gates=initial_gates)
+
+
 class Atoms(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
     _css = pathlib.Path(__file__).parent / "static" / "index.css"
@@ -233,7 +258,9 @@ class Entanglement(anywidget.AnyWidget):
     s1_entropies = traitlets.List().tag(sync=True)
     mutual_information = traitlets.List().tag(sync=True)
     labels = traitlets.List().tag(sync=True)
-    selected_indices = traitlets.List(allow_none=True, default_value=None).tag(sync=True)
+    selected_indices = traitlets.List(allow_none=True, default_value=None).tag(
+        sync=True
+    )
     groups = traitlets.Dict(allow_none=True, default_value=None).tag(sync=True)
     options = traitlets.Dict().tag(sync=True)
 
@@ -340,7 +367,9 @@ class Entanglement(anywidget.AnyWidget):
                 raw_s1.tolist() if hasattr(raw_s1, "tolist") else list(raw_s1)
             )
             mutual_information = (
-                raw_mi.tolist() if hasattr(raw_mi, "tolist") else [list(row) for row in raw_mi]
+                raw_mi.tolist()
+                if hasattr(raw_mi, "tolist")
+                else [list(row) for row in raw_mi]
             )
             n = len(s1_entropies)
             if labels is None:
