@@ -351,7 +351,6 @@ type EventTypes = {
   };
   [EventType.LearningExerciseCompleted]: {
     properties: {
-      courseId: string;
       courseKind: CourseKind;
     };
     measurements: {

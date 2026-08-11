@@ -1495,7 +1495,6 @@ export class LearningService {
     sendTelemetryEvent(
       EventType.LearningExerciseCompleted,
       {
-        courseId: this.activeCourse.id, // This is OII
         courseKind: this.activeCourse.kind,
       },
       {
