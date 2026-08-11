@@ -310,35 +310,38 @@ function resolveCellId(
 let focusModeActive = false;
 
 /**
- * Strip the window down to the course outline and the workbook: no activity
- * bar, no title bar, no panel.
+ * Focus mode: collapse the window down to the course outline and the workbook.
  *
- * Not Zen Mode, which hides the sidebar — the outline is the one thing that has
- * to stay. The status bar also stays, because that is where the kernel state
- * and the hint affordance live.
+ * The hiding is delegated to VS Code's built-in Zen Mode, which contributes its
+ * own exit hint. It also hides the sidebar, so the outline is pulled back after.
  */
 async function toggleFocusMode(service: LearningService): Promise<void> {
   focusModeActive = !focusModeActive;
 
-  if (focusModeActive) {
-    await vscode.commands.executeCommand("qsharp-vscode.learningTree.focus");
-    if (
-      service.initialized &&
-      service.getActiveCourseInfo().kind === "python-notebook"
-    ) {
-      await openCourseNotebook(service);
-    }
+  await vscode.commands.executeCommand("workbench.action.toggleZenMode");
+
+  if (!focusModeActive) {
+    return;
   }
 
-  await vscode.commands.executeCommand(
-    "workbench.action.toggleActivityBarVisibility",
-  );
-  await vscode.commands.executeCommand("workbench.action.toggleFullScreen");
-  await vscode.commands.executeCommand(
-    focusModeActive
-      ? "workbench.action.closePanel"
-      : "workbench.action.togglePanel",
-  );
+  // The centred layout leaves too little room for the workbook once the
+  // outline is back alongside it.
+  const centered = vscode.workspace
+    .getConfiguration("zenMode")
+    .get<boolean>("centerLayout", true);
+  if (centered) {
+    await vscode.commands.executeCommand(
+      "workbench.action.toggleCenteredLayout",
+    );
+  }
+
+  if (
+    service.initialized &&
+    service.getActiveCourseInfo().kind === "python-notebook"
+  ) {
+    await openCourseNotebook(service);
+  }
+  await vscode.commands.executeCommand("qsharp-vscode.learningTree.focus");
 }
 
 /**
@@ -407,6 +410,30 @@ async function openCourseNotebook(
   );
   if (doc?.isDirty) {
     await doc.save();
+  }
+
+  void showSidebarTip();
+}
+
+let sidebarTipShown = false;
+
+/**
+ * Point the learner at the outline once a session. Nothing in the notebook
+ * itself suggests the sidebar is where navigation lives.
+ */
+async function showSidebarTip(): Promise<void> {
+  if (sidebarTipShown) {
+    return;
+  }
+  sidebarTipShown = true;
+
+  const reveal = "Show me";
+  const choice = await vscode.window.showInformationMessage(
+    "Your course outline is in the sidebar. The buttons at the top of it move between sections, focus the window, and ask Copilot for help.",
+    reveal,
+  );
+  if (choice === reveal) {
+    await vscode.commands.executeCommand("qsharp-vscode.learningTree.focus");
   }
 }
 
