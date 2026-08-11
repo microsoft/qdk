@@ -330,16 +330,6 @@ export class LessonPanelManager {
       return;
     }
 
-    if (msg.command === "courseInfo") {
-      await vscode.commands.executeCommand(
-        "qsharp-vscode.learningCourseInfo",
-        msg.courseId
-          ? { kind: "course", descriptor: { id: msg.courseId } }
-          : undefined,
-      );
-      return;
-    }
-
     if (msg.command === "browseCourses") {
       // TODO (acasey): we might want to rename some of the commands and tools for consistency
       await vscode.commands.executeCommand(

@@ -318,8 +318,6 @@ export interface CatalogCourse {
    * only). Used to locate notebooks and other assets for materialization.
    */
   sourceDir?: string;
-  /** Optional path (URI string) to a README rendered for "Course info". */
-  readmePath?: string;
   /** Environment requirements (python-notebook courses). */
   environment?: CourseEnvironment;
 }
@@ -336,8 +334,6 @@ export interface CourseDescriptor {
   title: string;
   shortDescription?: string;
   kind: CourseKind;
-  /** Optional path (URI string) to a README rendered for "Course info". */
-  readmePath?: string;
   /** Optional environment requirements (used by python-notebook courses). */
   environment?: CourseEnvironment;
 }

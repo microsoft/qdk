@@ -45,7 +45,7 @@ Multiple courses may be available. The active course is reported by `get-state` 
 | ------------------------------------- | ------------------- | ------------------------------------------------------------------------- |
 | "What courses are available?"         | `list-courses`      | Returns the available courses and the active course id.                   |
 | "Switch to …" / "Open the … course"   | `switch-course`     | Pass the `courseId`. Switching changes the active course and position.    |
-| "Tell me about this course"           | `course-info`       | Returns the course descriptor and README (defaults to the active course). |
+| "Tell me about this course"           | `course-info`       | Returns the a description of the active course.                           |
 | "Diagnose" / "Set up the environment" | `check-environment` | Runs environment diagnostics for the active course (Python courses).      |
 
 **Handling guidance:**

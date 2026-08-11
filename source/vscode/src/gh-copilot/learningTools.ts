@@ -172,30 +172,18 @@ export class LearningTools {
   }
 
   /**
-   * Return descriptor and README content (if any) for a course. Defaults
-   * to the active course when no id is provided.
+   * Return the descriptor for a course. Defaults to the active course
+   * when no id is provided.
    */
   async courseInfo(input?: { courseId?: string }): Promise<{
     descriptor: CourseDescriptor | undefined;
-    readme?: string;
   }> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const courseId = input?.courseId ?? this.service.getActiveCourseId();
       const courses = await this.service.getCourses();
       const descriptor = courses.find((c) => c.id === courseId);
-      let readme: string | undefined;
-      if (descriptor?.readmePath) {
-        try {
-          const bytes = await vscode.workspace.fs.readFile(
-            vscode.Uri.parse(descriptor.readmePath),
-          );
-          readme = new TextDecoder().decode(bytes);
-        } catch {
-          readme = undefined;
-        }
-      }
-      return { descriptor, readme };
+      return { descriptor };
     });
   }
 

@@ -92,7 +92,6 @@ export function toDescriptor(course: CatalogCourse): CourseDescriptor {
     title: course.title,
     shortDescription: course.shortDescription,
     kind: course.kind,
-    readmePath: course.readmePath,
     environment: course.environment,
   };
 }

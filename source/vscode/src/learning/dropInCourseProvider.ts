@@ -5,7 +5,6 @@ import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import {
   COURSE_MANIFEST_FILE,
-  COURSE_README_FILE,
   LEARNING_COURSES_SUBDIR,
   LEARNING_WORKSPACE_FOLDER,
   WORKBOOK_SUFFIX,
@@ -174,11 +173,6 @@ export class DropInCourseProvider implements CourseProvider {
       });
     }
 
-    const readmeUri = vscode.Uri.joinPath(loc.dir, COURSE_README_FILE);
-    const readmePath = (await uriExists(readmeUri))
-      ? readmeUri.toString()
-      : undefined;
-
     return {
       id,
       title,
@@ -186,7 +180,6 @@ export class DropInCourseProvider implements CourseProvider {
       kind: "python-notebook",
       units,
       sourceDir: loc.dir.toString(),
-      readmePath,
       environment: manifestEnvironment(loc.manifest.environment),
     };
   }

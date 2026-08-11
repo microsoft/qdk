@@ -355,10 +355,6 @@
           "when": "false"
         },
         {
-          "command": "qsharp-vscode.learningCourseInfo",
-          "when": "false"
-        },
-        {
           "command": "qsharp-vscode.learningCheckEnvironment",
           "when": "qsharp-vscode.learningWorkspaceDetected"
         },
@@ -405,16 +401,7 @@
           "when": "view == qsharp-vscode.learningTree && (viewItem == course || viewItem == coursePython)"
         },
         {
-          "command": "qsharp-vscode.learningCourseInfo",
-          "group": "inline",
-          "when": "view == qsharp-vscode.learningTree && (viewItem == course || viewItem == coursePython)"
-        },
-        {
           "command": "qsharp-vscode.learningSwitchCourse",
-          "when": "view == qsharp-vscode.learningTree && (viewItem == course || viewItem == coursePython)"
-        },
-        {
-          "command": "qsharp-vscode.learningCourseInfo",
           "when": "view == qsharp-vscode.learningTree && (viewItem == course || viewItem == coursePython)"
         },
         {
@@ -789,12 +776,6 @@
         "title": "Switch Course",
         "category": "QDK Learning",
         "icon": "$(arrow-swap)"
-      },
-      {
-        "command": "qsharp-vscode.learningCourseInfo",
-        "title": "Course Info",
-        "category": "QDK Learning",
-        "icon": "$(info)"
       },
       {
         "command": "qsharp-vscode.learningCheckEnvironment",
@@ -1499,7 +1480,7 @@
         ],
         "toolReferenceName": "qdkLearningCourseInfo",
         "displayName": "QDK Learning: Course Info",
-        "modelDescription": "Return the descriptor and README content (if any) for a course. Defaults to the active course when no courseId is provided.",
+        "modelDescription": "Return the descriptor (title, shortDescription, kind, environment) for a course. Defaults to the active course when no courseId is provided.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {

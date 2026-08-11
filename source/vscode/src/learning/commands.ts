@@ -151,36 +151,14 @@ export function registerLearningCommands(
         }
         await service.switchCourse(courseId, "tree");
 
-        // python-notebook courses don't use the lesson panel. For a course
-        // that hasn't been started yet, show the README so there's something
-        // to read while the environment is set up in the background;
-        // otherwise pick up where the learner left off.
+        // python-notebook courses don't use the lesson panel — open the
+        // notebook directly and pick up where the learner left off.
         if (service.getActiveCourseInfo().kind === "python-notebook") {
-          if (service.getProgress().stats.completedActivities === 0) {
-            // TODO (acasey): the readme serves as a sort of splash screen while things are set up.
-            // Ideally, we would close it once you navigate away.
-            // Alternatively, we could go back to using a panel, which would have the advantage of
-            // being able to include a "Get Started" button (even greyed out while not ready?).
-            await showCourseInfo(service, courseId);
-          } else {
-            await openCourseNotebook(service);
-          }
+          await openCourseNotebook(service);
           return;
         }
 
         await panelManager.show();
-      },
-    ),
-
-    vscode.commands.registerCommand(
-      "qsharp-vscode.learningCourseInfo",
-      async (node?: LearningProgressNode) => {
-        const courseId = await resolveCourseId(service, node);
-        if (!courseId) {
-          // This may simply indicate that the user declined to pick a course
-          return;
-        }
-        await showCourseInfo(service, courseId);
       },
     ),
 
@@ -461,30 +439,6 @@ async function resolveCourseId(
     { placeHolder: "Select a course" },
   );
   return picked?.id;
-}
-
-/** Show a course's README in a markdown preview, or a fallback message. */
-async function showCourseInfo(
-  service: LearningService,
-  courseId: string,
-): Promise<void> {
-  const courses = service.getCourses();
-  const descriptor = courses.find((c) => c.id === courseId);
-  if (!descriptor) {
-    log.warn(`Unable to show course info for unknown course ${courseId}`);
-    return;
-  }
-  if (descriptor.readmePath) {
-    const uri = vscode.Uri.parse(descriptor.readmePath);
-    await vscode.commands.executeCommand("markdown.showPreview", uri);
-    return;
-  }
-  const detail = descriptor.shortDescription
-    ? `\n\n${descriptor.shortDescription}`
-    : "";
-  await vscode.window.showInformationMessage(`${descriptor.title}${detail}`, {
-    modal: false,
-  });
 }
 
 /**
