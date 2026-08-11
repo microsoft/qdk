@@ -28,7 +28,7 @@ use std::{
 enum NumberLexError {
     /// A number ending in an underscore.
     EndsInUnderscore,
-    /// A binary, octal, or hex prefix with no digits after it.
+    /// A binary, octal, or hex prefix that isn't immediately followed by a digit.
     IncompleteRadix,
     /// A number containing two or more consecutive underscores.
     RepeatedSeparator,
@@ -395,7 +395,7 @@ impl<'a> Lexer<'a> {
 
     /// This rule parses binary, octal, hexadecimal numbers, or decimal/floats
     /// if the next character isn't a radix specifier.
-    /// Numbers in Qasm aren't allowed to end in an underscore.
+    /// Numbers in Qasm aren't allowed to start or end in an underscore.
     fn leading_zero(&mut self, c: char) -> Result<Number, NumberLexError> {
         if c != '0' {
             return Err(NumberLexError::NotApplicable);
@@ -411,12 +411,15 @@ impl<'a> Lexer<'a> {
             Radix::Decimal
         };
 
+        // A decimal can't start with a separator because it starts with the `0` we just ate.
+        let starts_with_separator = self.first() == Some('_');
         let last_eaten = self.eat_number_characters(|c| c.is_digit(radix.into()))?;
 
         match radix {
             Radix::Binary | Radix::Octal | Radix::Hexadecimal => match last_eaten {
                 None => Err(NumberLexError::IncompleteRadix),
                 Some('_') => Err(NumberLexError::EndsInUnderscore),
+                _ if starts_with_separator => Err(NumberLexError::IncompleteRadix),
                 _ => Ok(Number::Int(radix)),
             },
             Radix::Decimal => match self.first() {
@@ -584,11 +587,12 @@ impl<'a> Lexer<'a> {
             return None;
         }
 
-        // A bitstring must use single separators and end in a 0 or a 1.
+        // A bitstring must use single separators and start and end in a 0 or a 1.
+        let starts_with_separator = self.first() == Some('_');
         let Ok(last_eaten) = self.eat_number_characters(|c| matches!(c, '0' | '1')) else {
             return None;
         };
-        if last_eaten == Some('_') {
+        if starts_with_separator || last_eaten == Some('_') {
             return None;
         }
 

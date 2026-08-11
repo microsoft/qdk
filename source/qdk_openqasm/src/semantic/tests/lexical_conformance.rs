@@ -10,7 +10,12 @@ use crate::{
 
 #[test]
 fn lexical_errors_recover_to_following_semantic_statement() {
-    for malformed in ["int bad = 1__2;", "bit[4] bad = \"1__0\";", "int π٢ = 0;"] {
+    for malformed in [
+        "int bad = 1__2;",
+        "int bad = 0x_F;",
+        "bit[4] bad = \"1__0\";",
+        "int π٢ = 0;",
+    ] {
         let source: Arc<str> = format!("{malformed}\nint good = 1;").into();
         let good_offset = u32::try_from(source.find("int good").expect("sentinel statement"))
             .expect("source offset should fit into u32");

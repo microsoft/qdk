@@ -89,14 +89,14 @@ fn unterminated_block_comment_remains_visible_as_trivia() {
 
 #[test]
 fn invalid_lexical_forms_are_visible_through_facade() {
-    for source in ["1__2", "0b1__0", "0o7__0", "0xA__B"] {
+    for source in ["1__2", "0b1__0", "0o7__0", "0xA__B", "0b_1", "0o_7", "0x_A"] {
         let tokens = tokenize(source);
         assert_eq!(tokens.len(), 1, "source: {source}");
         assert_eq!(tokens[0].kind, RawTokenKind::Unknown, "source: {source}");
         assert_eq!(tokens[0].text, source);
     }
 
-    for source in ["'\n'", r#""1__0""#] {
+    for source in ["'\n'", r#""1__0""#, r#""_10""#] {
         let tokens = tokenize(source);
         assert_eq!(tokens.len(), 1, "source: {source:?}");
         assert_eq!(tokens[0].kind, RawTokenKind::String);

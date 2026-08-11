@@ -920,6 +920,37 @@ fn invalid_numeric_forms_error() {
 }
 
 #[test]
+fn leading_numeric_separators_error() {
+    for input in ["0b_1", "0B_1", "0o_7", "0O_7", "0x_A", "0X_A"] {
+        let actual = Lexer::new(input).collect::<Vec<_>>();
+        assert!(
+            matches!(actual.as_slice(), [Err(Error::Unknown(_, _))]),
+            "input: {input}, actual: {actual:?}"
+        );
+    }
+}
+
+#[test]
+fn octal_int_uppercase_prefix_leading_underscore() {
+    check(
+        "0O_7",
+        &expect![[r#"
+            [
+                Err(
+                    Unknown(
+                        '0',
+                        Span {
+                            lo: 0,
+                            hi: 4,
+                        },
+                    ),
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn non_ascii_digit_does_not_continue_identifier() {
     assert_eq!(
         Lexer::new("π٢").collect::<Vec<_>>(),

@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 use super::Lexer;
-use crate::lex::raw::{Single, Token, TokenKind};
+use crate::lex::Radix;
+use crate::lex::raw::{Number, Single, Token, TokenKind};
 use expect_test::{Expect, expect};
 
 fn check(input: &str, expect: &Expect) {
@@ -457,6 +458,60 @@ fn repeated_numeric_separators_are_invalid() {
         Lexer::new(r#""1__0""#).collect::<Vec<_>>(),
         vec![Token {
             kind: TokenKind::InvalidString { terminated: true },
+            offset: 0,
+        }]
+    );
+}
+
+#[test]
+fn leading_numeric_separators_are_invalid() {
+    for input in [
+        "0b_1", "0B_1", "0o_7", "0O_7", "0x_A", "0X_A", "0b__1", "0x_",
+    ] {
+        assert_eq!(
+            Lexer::new(input).collect::<Vec<_>>(),
+            vec![Token {
+                kind: TokenKind::Unknown,
+                offset: 0,
+            }],
+            "input: {input}"
+        );
+    }
+
+    assert_eq!(
+        Lexer::new(r#""_10""#).collect::<Vec<_>>(),
+        vec![Token {
+            kind: TokenKind::InvalidString { terminated: true },
+            offset: 0,
+        }]
+    );
+}
+
+#[test]
+fn interior_numeric_separators_are_valid() {
+    for (input, radix) in [
+        ("0b0110_1001", Radix::Binary),
+        ("0B0110_1001", Radix::Binary),
+        ("0o12_34", Radix::Octal),
+        ("0O12_34", Radix::Octal),
+        ("0xffff_ffff", Radix::Hexadecimal),
+        ("0Xffff_ffff", Radix::Hexadecimal),
+        ("0_123", Radix::Decimal),
+    ] {
+        assert_eq!(
+            Lexer::new(input).collect::<Vec<_>>(),
+            vec![Token {
+                kind: TokenKind::Number(Number::Int(radix)),
+                offset: 0,
+            }],
+            "input: {input}"
+        );
+    }
+
+    assert_eq!(
+        Lexer::new(r#""0010_1010""#).collect::<Vec<_>>(),
+        vec![Token {
+            kind: TokenKind::Bitstring { terminated: true },
             offset: 0,
         }]
     );
