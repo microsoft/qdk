@@ -2574,7 +2574,8 @@ fn user_callable_named_like_entry_point_is_discriminated() {
     // The user operation is emitted under a discriminated name, never shadowing
     // the reserved entry symbol.
     assert_eq!(
-        qir.matches("define internal void @ENTRYPOINT__main__p").count(),
+        qir.matches("define internal void @ENTRYPOINT__main__p")
+            .count(),
         1,
         "expected the user callable to be discriminated away from the reserved \
          entry symbol; got:\n{qir}"

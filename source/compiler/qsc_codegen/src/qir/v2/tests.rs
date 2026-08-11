@@ -300,7 +300,7 @@ fn ir_function_program() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define void @ApplyX(ptr %var_0) {
+        define internal void @ApplyX(ptr %var_0) {
         block_0:
           call void @__quantum__qis__x__body(ptr %var_0)
           ret void
@@ -588,7 +588,7 @@ fn scalar_ir_function_program() {
     program.num_results = 0;
     expect![[r#"
 
-        define i64 @Increment(i64 %var_0) {
+        define internal i64 @Increment(i64 %var_0) {
         block_0:
           %var_1 = add i64 %var_0, 1
           ret i64 %var_1
