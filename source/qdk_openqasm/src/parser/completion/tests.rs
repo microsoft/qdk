@@ -71,11 +71,11 @@ fn end_of_version() {
 #[test]
 fn annotation_completion_context_tracks_name_and_value_boundaries() {
     for input in [
-        "@|",
-        "@|qdk.qir.profile",
-        "@qdk.|qir.profile",
-        "@qdk.qir.profile|",
-        "@!malformed|",
+        "@↘",
+        "@↘qdk.qir.profile",
+        "@qdk.↘qir.profile",
+        "@qdk.qir.profile↘",
+        "@!malformed↘",
     ] {
         check_context(input, CompletionContext::AnnotationName);
     }
@@ -88,18 +88,18 @@ fn annotation_completion_context_tracks_name_and_value_boundaries() {
 #[test]
 fn pragma_completion_context_tracks_name_and_value_boundaries() {
     for input in [
-        "#pragma |",
-        "#pragma |qdk.qir.profile",
-        "#pragma qdk.qir.profile|",
-        "#pragma qdk.|",
-        "#pragma !malformed|",
+        "#pragma ↘",
+        "#pragma ↘qdk.qir.profile",
+        "#pragma qdk.qir.profile↘",
+        "#pragma qdk.↘",
+        "#pragma !malformed↘",
     ] {
         check_context(input, CompletionContext::PragmaName);
     }
 
     for input in [
-        "#pragma qdk.qir.profile |Base",
-        "#pragma qdk.qir.profile Ba|se",
+        "#pragma qdk.qir.profile ↘Base",
+        "#pragma qdk.qir.profile Ba↘se",
     ] {
         check_context(input, CompletionContext::DirectiveValue);
     }
@@ -107,14 +107,14 @@ fn pragma_completion_context_tracks_name_and_value_boundaries() {
 
 #[test]
 fn directive_value_completion_includes_directive_identity() {
-    for input in ["@qdk.qir.profile |", "@qdk.qir.profile Ba|se"] {
+    for input in ["@qdk.qir.profile ↘", "@qdk.qir.profile Ba↘se"] {
         check_directive(
             input,
             CompletionDirective::Annotation("qdk.qir.profile".to_string()),
         );
     }
 
-    for input in ["#pragma qdk.qir.profile |", "#pragma qdk.qir.profile Ba|se"] {
+    for input in ["#pragma qdk.qir.profile ↘", "#pragma qdk.qir.profile Ba↘se"] {
         check_directive(
             input,
             CompletionDirective::Pragma("qdk.qir.profile".to_string()),
