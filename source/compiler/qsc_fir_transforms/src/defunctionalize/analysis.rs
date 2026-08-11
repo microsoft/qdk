@@ -193,6 +193,8 @@ struct ArrowParamExtraction<'a> {
 ///
 /// UDTs are expanded to their pure type so callable fields inside nested
 /// newtypes are treated the same way as tuple fields.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn extract_arrow_params_from_ty(
     context: &ArrowParamExtraction<'_>,
     param_ty: &Ty,
@@ -1452,6 +1454,8 @@ fn resolve_callee_projection(
 
 /// Reports whether following `path` into the (possibly nested tuple) type `ty`
 /// lands on an arrow type.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn output_path_resolves_to_arrow(store: &PackageStore, ty: &Ty, path: &[usize]) -> bool {
     match ty {
         Ty::Arrow(_) => path.is_empty(),

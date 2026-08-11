@@ -5049,6 +5049,8 @@ fn local_ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
 /// Resolves a type through user-defined-type wrappers to its underlying
 /// structural type, recursing into tuples, arrays, and arrow inputs and
 /// outputs.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
     match ty {
         Ty::Udt(Res::Item(item_id)) => {
