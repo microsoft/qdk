@@ -3,6 +3,7 @@
 
 /// Intrinsic names that partial evaluation handles as code generation no-ops.
 pub const CODEGEN_NOOP_INTRINSIC_NAMES: &[&str] = &[
+    "DumpMachine",
     "DumpRegister",
     "DumpOperation",
     "AccountForEstimatesInternal",
