@@ -83,44 +83,53 @@ export function parseNotebookExercises(
     const cell = cells[i];
     const tags = cellTags(cell);
 
-    if (tags.includes(EXERCISE_TAG)) {
-      current = undefined;
+    const authoringTag = AUTHORING_TAGS.find((t) => tags.includes(t));
 
-      if (cellKind(cell) !== "code") {
-        log.warn(
-          `Learning: ignoring "${EXERCISE_TAG}" tag on a non-code cell in unit "${unitLabel}".`,
+    // Treat all code cells as activities, but only update current for EXERCISE_TAG.
+    // Treating non-exercises as exercises is a bit of a hack, but it should do the
+    // right thing - they'll pass once they're run.
+    if (cellKind(cell) === "code") {
+      // Make sure we don't create entries for cells that won't appear in the working copy
+      if (!authoringTag) {
+        current = undefined;
+
+        const cellId = cellIdOf(cell);
+        if (!cellId) {
+          log.warn(
+            `Learning: skipping a code cell in unit "${unitLabel}": the cell has no id.`,
+          );
+          continue;
+        }
+
+        // This is a terrible fallback name, but it shouldn't actually happen
+        const { title, description } = precedingPrompt(
+          cells,
+          i,
+          `Cell ${cellId}`,
         );
+        const exercise = {
+          cellId: cellId,
+          title,
+          description,
+          hints: [],
+          solutions: [],
+          solutionExplanation: "",
+        };
+        exercises.push(exercise);
+
+        if (tags.includes(EXERCISE_TAG)) {
+          current = exercise;
+        }
+
         continue;
       }
-
-      const cellId = cellIdOf(cell);
-      if (!cellId) {
-        log.warn(
-          `Learning: skipping an "${EXERCISE_TAG}" cell in unit "${unitLabel}": ` +
-            "the cell has no id.",
-        );
-        continue;
-      }
-
-      // This is a terrible fallback name, but it shouldn't actually happen
-      const { title, description } = precedingPrompt(
-        cells,
-        i,
-        `Cell ${cellId}`,
+    } else if (tags.includes(EXERCISE_TAG)) {
+      log.warn(
+        `Learning: ignoring "${EXERCISE_TAG}" tag on a non-code cell in unit "${unitLabel}".`,
       );
-      current = {
-        cellId: cellId,
-        title,
-        description,
-        hints: [],
-        solutions: [],
-        solutionExplanation: "",
-      };
-      exercises.push(current);
       continue;
     }
 
-    const authoringTag = AUTHORING_TAGS.find((t) => tags.includes(t));
     if (!authoringTag) {
       continue;
     }
