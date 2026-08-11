@@ -1,0 +1,2 @@
+qdk-chemistry[jupyter]==2.0.0
+ipykernel>=6.0

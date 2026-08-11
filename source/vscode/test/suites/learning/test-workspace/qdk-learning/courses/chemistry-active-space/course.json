@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "id": "chemistry-active-space",
+  "title": "Ground-State Molecular Energies with QPE",
+  "shortDescription": "Port of the QDK/Chemistry ground-state QPE tutorial to the QDK Learning notebook format.",
+  "units": [
+    {
+      "id": "energy-and-accuracy",
+      "title": "Energy and Accuracy",
+      "dir": "00-energy-and-accuracy"
+    },
+    {
+      "id": "describe-molecule",
+      "title": "Describing the Molecule",
+      "dir": "01-describe-molecule"
+    },
+    {
+      "id": "active-space",
+      "title": "Choosing the Active Space",
+      "dir": "02-active-space"
+    },
+    {
+      "id": "map-to-qubits",
+      "title": "Putting the Problem on Qubits",
+      "dir": "03-map-to-qubits"
+    },
+    {
+      "id": "trial-state",
+      "title": "Preparing the Trial State",
+      "dir": "04-trial-state"
+    }
+  ],
+  "environment": {
+    "importChecks": [
+      "qdk_chemistry",
+      "qdk_chemistry.utils.cubegen",
+      "pyscf"
+    ]
+  }
+}
