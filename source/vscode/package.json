@@ -355,10 +355,6 @@
           "when": "false"
         },
         {
-          "command": "qsharp-vscode.learningCheckEnvironment",
-          "when": "qsharp-vscode.learningWorkspaceDetected"
-        },
-        {
           "command": "qsharp-vscode.learningNotebookHint",
           "when": "false"
         },
@@ -403,10 +399,6 @@
         {
           "command": "qsharp-vscode.learningSwitchCourse",
           "when": "view == qsharp-vscode.learningTree && (viewItem == course || viewItem == coursePython)"
-        },
-        {
-          "command": "qsharp-vscode.learningCheckEnvironment",
-          "when": "view == qsharp-vscode.learningTree && viewItem == coursePython"
         },
         {
           "command": "qsharp-vscode.learningResetUnit",
@@ -462,11 +454,6 @@
         }
       ],
       "notebook/toolbar": [
-        {
-          "command": "qsharp-vscode.learningCheckEnvironment",
-          "when": "qsharp-vscode.learningNotebookActive",
-          "group": "navigation@100"
-        },
         {
           "command": "qsharp-vscode.learningResetUnit",
           "when": "qsharp-vscode.learningNotebookActive",
@@ -776,12 +763,6 @@
         "title": "Switch Course",
         "category": "QDK Learning",
         "icon": "$(arrow-swap)"
-      },
-      {
-        "command": "qsharp-vscode.learningCheckEnvironment",
-        "title": "Run Course Diagnostics",
-        "category": "QDK Learning",
-        "icon": "$(pulse)"
       },
       {
         "command": "qsharp-vscode.learningNotebookHint",
@@ -1491,25 +1472,6 @@
               "description": "ID of the course. Omit for the active course."
             }
           },
-          "required": [],
-          "additionalProperties": false
-        }
-      },
-      {
-        "name": "qdk-learning-check-environment",
-        "tags": [
-          "qdk",
-          "qdk-learning",
-          "quantum-katas"
-        ],
-        "toolReferenceName": "qdkLearningCheckEnvironment",
-        "displayName": "QDK Learning: Check Environment",
-        "modelDescription": "Run environment diagnostics for the active learning course. Returns structured checks (Python interpreter, virtual environment, fingerprint, required packages) and whether a one-click environment setup can fix any failures. Q# courses need no environment and pass trivially.",
-        "canBeReferencedInPrompt": true,
-        "icon": "./resources/file-icon-light.svg",
-        "inputSchema": {
-          "type": "object",
-          "properties": {},
           "required": [],
           "additionalProperties": false
         }

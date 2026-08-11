@@ -141,11 +141,6 @@ const toolDefinitions: {
     confirm: async () => learningTools!.confirmInit(),
   },
   {
-    name: "qdk-learning-check-environment",
-    tool: async () => await learningTools!.checkEnvironment(),
-    confirm: async () => learningTools!.confirmInit(),
-  },
-  {
     name: "qdk-learning-next",
     tool: async () => await learningTools!.next(),
     confirm: async () => learningTools!.confirmInit(),

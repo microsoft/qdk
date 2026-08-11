@@ -163,13 +163,6 @@ export function registerLearningCommands(
     ),
 
     vscode.commands.registerCommand(
-      "qsharp-vscode.learningCheckEnvironment",
-      async (node?: LearningProgressNode) => {
-        await runEnvironmentCheckCommand(service, node);
-      },
-    ),
-
-    vscode.commands.registerCommand(
       "qsharp-vscode.learningAskInChat",
       async (node: LearningProgressNode) => {
         const location = nodeToLocation(node);
@@ -439,78 +432,4 @@ async function resolveCourseId(
     { placeHolder: "Select a course" },
   );
   return picked?.id;
-}
-
-/**
- * Run environment diagnostics for a course and present a rich, readable
- * report, offering the fixes the report surfaces (e.g. one-click
- * environment setup, install extensions).
- */
-async function runEnvironmentCheckCommand(
-  service: LearningService,
-  node?: LearningProgressNode,
-): Promise<void> {
-  // TODO (acasey): don't allow overlapping runs.
-  // I think the user can click the button while it's already running from switch-course.
-  if (!service.initialized) {
-    const ok = await service.tryInitialize({ createIfMissing: true });
-    if (!ok) {
-      vscode.window.showWarningMessage("Open a learning workspace first.");
-      return;
-    }
-  }
-  // If invoked on a specific course node, diagnose that course.
-  const courseId = node?.kind === "course" ? node.descriptor.id : undefined;
-  if (courseId && courseId !== service.getActiveCourseId()) {
-    await service.switchCourse(courseId, "tree");
-  }
-
-  const report = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "Running course diagnostics…",
-    },
-    () => service.runEnvironmentCheck(),
-  );
-
-  const icon: Record<string, string> = {
-    ok: "✓",
-    warn: "▲",
-    fail: "✗",
-    skip: "–",
-  };
-  const statusBadge: Record<string, string> = {
-    ok: "✓ OK",
-    warning: "▲ Warning",
-    error: "✗ Error",
-  };
-
-  const lines = report.checks.map((c) => {
-    const head = `${icon[c.status] ?? "•"} ${c.label}`;
-    const detail = c.detail ? `\n    ${c.detail}` : "";
-    const hint = c.hint ? `\n    → ${c.hint}` : "";
-    return `${head}${detail}${hint}`;
-  });
-
-  const body = [
-    `${statusBadge[report.overallStatus] ?? report.overallStatus} · ${report.summary}`,
-    "",
-    ...lines,
-  ].join("\n");
-
-  const actions = report.fixes.map((r) => r.label);
-  // TODO (acasey): this dialog is ugly and unthemed - can we do better?
-  const choice = await vscode.window.showInformationMessage(
-    body,
-    { modal: true },
-    ...actions,
-  );
-  if (!choice) {
-    return;
-  }
-  const fix = report.fixes.find((r) => r.label === choice);
-  if (!fix) {
-    return;
-  }
-  await service.applyEnvironmentCheckFix(fix);
 }

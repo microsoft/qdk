@@ -41,12 +41,12 @@ Mention that they can chat with you at any time for hints, explanations, or guid
 
 Multiple courses may be available. The active course is reported by `get-state` (the `course` field) and is the context for all activity, run, and check operations. The **Quantum Katas** is the default course.
 
-| Intent                                | Tool                | Notes                                                                     |
-| ------------------------------------- | ------------------- | ------------------------------------------------------------------------- |
-| "What courses are available?"         | `list-courses`      | Returns the available courses and the active course id.                   |
-| "Switch to …" / "Open the … course"   | `switch-course`     | Pass the `courseId`. Switching changes the active course and position.    |
-| "Tell me about this course"           | `course-info`       | Returns the a description of the active course.                           |
-| "Diagnose" / "Set up the environment" | `check-environment` | Runs environment diagnostics for the active course (Python courses).      |
+| Intent                                | Tool                | Notes                                                                  |
+| ------------------------------------- | ------------------- | ---------------------------------------------------------------------- |
+| "What courses are available?"         | `list-courses`      | Returns the available courses and the active course id.                |
+| "Switch to …" / "Open the … course"   | `switch-course`     | Pass the `courseId`. Switching changes the active course and position. |
+| "Tell me about this course"           | `course-info`       | Returns the a description of the active course.                        |
+| "Diagnose" / "Set up the environment" | `check-environment` | Runs environment diagnostics for the active course (Python courses).   |
 
 **Handling guidance:**
 

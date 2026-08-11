@@ -8,12 +8,8 @@ import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
 import { ProgramRunStatus, runProgram } from "../run.js";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
 import { createCourseProvider, toDescriptor } from "./courseProvider.js";
-import { courseRootUri, workbookUri } from "./courseLayout.js";
-import { EnvironmentManager } from "./python/environment.js";
-import {
-  checkPythonExtensions,
-  promptInstallPythonExtensions,
-} from "./python/extensionUtils.js";
+import { workbookUri } from "./courseLayout.js";
+import { promptInstallPythonExtensions } from "./python/extensionUtils.js";
 import {
   materializeCourseWorkbooks,
   rematerializeUnitWorkbook,
@@ -37,10 +33,6 @@ import type {
   CatalogUnit,
   CourseDescriptor,
   CurrentActivity,
-  EnvironmentCheckFix,
-  EnvironmentCheckItem,
-  EnvironmentCheckReport,
-  EnvironmentStatus,
   ExerciseContent,
   HintContext,
   LearningState,
@@ -56,7 +48,6 @@ import type {
   UnitProgress,
   UnitSummary,
 } from "./types.js";
-import type { EnvironmentCheckStatus } from "./types.js";
 
 /**
  * How many times {@link LearningService.tryInitialize} will re-evaluate after
@@ -66,23 +57,6 @@ import type { EnvironmentCheckStatus } from "./types.js";
  * that needs creation looping forever.
  */
 const MAX_INIT_ATTEMPTS = 3;
-
-/** Build an {@link EnvironmentCheckItem}. */
-function check(
-  id: string,
-  label: string,
-  status: EnvironmentCheckStatus,
-  extras?: Pick<EnvironmentCheckItem, "detail" | "hint" | "fixes">,
-): EnvironmentCheckItem {
-  return {
-    id,
-    label,
-    status,
-    detail: extras?.detail,
-    hint: extras?.hint,
-    fixes: extras?.fixes,
-  };
-}
 
 /** Returns the first open workspace folder URI, or `undefined`. */
 export function resolveNewWorkspaceRoot(): vscode.Uri | undefined {
@@ -157,7 +131,6 @@ export class LearningService {
   /** Whether {@link _initPromise} was started with `createIfMissing`. */
   private _initCreates = false;
   private readonly _disposables: vscode.Disposable[] = [];
-  private _environment: EnvironmentManager | undefined;
   private _progressLoadingError: string | undefined;
 
   constructor(private readonly extensionUri: vscode.Uri) {
@@ -187,14 +160,6 @@ export class LearningService {
   /** The workspace folder that owns the learning content. */
   get workspaceFolder(): vscode.Uri {
     return this.requireWorkspace().workspaceRoot;
-  }
-
-  /** Lazily-created per-course Python environment manager. */
-  private get environment(): EnvironmentManager {
-    if (!this._environment) {
-      this._environment = new EnvironmentManager();
-    }
-    return this._environment;
   }
 
   /**
@@ -289,7 +254,6 @@ export class LearningService {
     this._onDidChangeState.dispose();
     this._onDidChangeProgress.dispose();
     this._progressFileWatcher?.dispose();
-    this._environment?.dispose();
     for (const d of this._disposables) {
       d.dispose();
     }
@@ -607,226 +571,6 @@ export class LearningService {
   }
 
   /**
-   * Ensure a python-notebook course's per-course environment exists:
-   * create or update the environment and install required packages. No-ops
-   * for Q# courses, on the Web, or when the environment already exists
-   * (unless `force` is set).
-   */
-  async ensureEnvironment(
-    course: CatalogCourse,
-    options?: { force?: boolean },
-  ): Promise<void> {
-    if (course.kind !== "python-notebook") {
-      return;
-    }
-    const env = this.environment;
-    if (!env.supported) {
-      return;
-    }
-    if (!course.sourceDir) {
-      return;
-    }
-    const courseRoot = courseRootUri(course);
-    if (!options?.force && (await env.environmentExists(courseRoot))) {
-      return;
-    }
-    await vscode.window.withProgress(
-      {
-        location: vscode.ProgressLocation.Notification,
-        title: `Setting up the environment for "${course.title}"…`,
-      },
-      async () => {
-        await env.ensureEnvironment(courseRoot);
-      },
-    );
-  }
-
-  /**
-   * Apply a fix surfaced by {@link runEnvironmentCheck}. Centralizes the
-   * mapping from an {@link EnvironmentCheckFix.kind} to a concrete action so
-   * the command and chat tool can offer fixes without duplicating the logic.
-   */
-  async applyEnvironmentCheckFix(fix: EnvironmentCheckFix): Promise<void> {
-    switch (fix.kind) {
-      case "setup":
-        await this.ensureEnvironment(this.activeCourse, { force: true });
-        return;
-      case "install-extensions":
-        await promptInstallPythonExtensions();
-        return;
-    }
-  }
-
-  /**
-   * Run environment diagnostics for the active course and return a rich,
-   * structured report: an ordered list of checks (each `ok`/`warn`/`fail`/
-   * `skip` with detail, a fix hint, and fixes), an overall status, a
-   * one-line summary, and the aggregated fixes the UI can offer.
-   *
-   * Q# courses need no environment and pass trivially.
-   */
-  async runEnvironmentCheck(): Promise<EnvironmentCheckReport> {
-    const course = this.activeCourse;
-
-    if (course.kind !== "python-notebook") {
-      const checks: EnvironmentCheckItem[] = [
-        check("course-kind", "Course type", "ok", {
-          detail: "Q# course — runs on the built-in simulator.",
-        }),
-        check("environment", "Python environment", "skip", {
-          detail: "Not required for Q# courses.",
-        }),
-      ];
-      return this.assembleReport(course, checks);
-    }
-
-    const env = this.environment;
-
-    // Hard stop: environment management can't run on the Web.
-    if (!env.supported) {
-      const checks: EnvironmentCheckItem[] = [
-        check("host", "Desktop VS Code", "fail", {
-          detail: "Python courses require the desktop version of VS Code.",
-          hint: "Open this workspace in desktop VS Code to run Python courses.",
-        }),
-      ];
-      return this.assembleReport(course, checks);
-    }
-
-    // Resolve the course's working root (its source folder); the venv
-    // lives here, beside the authored notebooks.
-    if (!course.sourceDir) {
-      return this.assembleReport(course, [
-        check("course-folder", "Course folder", "fail", {
-          detail: "This course has no source folder on disk.",
-        }),
-      ]);
-    }
-    const courseRoot = courseRootUri(course);
-
-    const checks: EnvironmentCheckItem[] = [];
-
-    // 1. Required extensions (Python + Jupyter).
-    const extMessage = checkPythonExtensions();
-    checks.push(
-      check(
-        "extensions",
-        "Python & Jupyter extensions",
-        extMessage ? "fail" : "ok",
-        {
-          detail: extMessage ?? "Installed.",
-          hint: extMessage
-            ? "Install the Python and Jupyter extensions to run notebook courses."
-            : undefined,
-          fixes: extMessage
-            ? [{ label: "Install extensions", kind: "install-extensions" }]
-            : undefined,
-        },
-      ),
-    );
-
-    // 2. The per-course environment.
-    const envExists = await env.environmentExists(courseRoot);
-    checks.push(
-      check("venv", "Course environment", envExists ? "ok" : "fail", {
-        detail: envExists
-          ? "Environment found."
-          : "No environment found for this course.",
-        hint: envExists
-          ? undefined
-          : "Run environment setup to create the course environment.",
-        fixes: envExists
-          ? undefined
-          : [{ label: "Set up environment", kind: "setup" }],
-      }),
-    );
-
-    // 3. Required packages import in the environment.
-    const importChecks = course.environment?.importChecks ?? [];
-    if (envExists && importChecks.length > 0) {
-      const report = await env.importsReport(courseRoot, importChecks);
-      const missing = report.filter((r) => !r.ok).map((r) => r.module);
-      checks.push(
-        check(
-          "packages",
-          "Required packages",
-          missing.length === 0 ? "ok" : "fail",
-          {
-            detail:
-              missing.length === 0
-                ? report.map((r) => r.module).join(", ")
-                : `Missing or broken: ${missing.join(", ")}`,
-            hint:
-              missing.length === 0
-                ? undefined
-                : "Re-run environment setup to (re)install the course's pinned packages.",
-            fixes:
-              missing.length === 0
-                ? undefined
-                : [{ label: "Set up environment", kind: "setup" }],
-          },
-        ),
-      );
-    } else if (importChecks.length > 0) {
-      checks.push(
-        check("packages", "Required packages", "skip", {
-          detail: "No environment yet.",
-        }),
-      );
-    }
-
-    return this.assembleReport(course, checks);
-  }
-
-  /**
-   * Fold a list of diagnostic checks into an {@link EnvironmentCheckReport}:
-   * compute the overall status, a human summary, and the de-duplicated fix
-   * list.
-   */
-  private assembleReport(
-    course: CatalogCourse,
-    checks: EnvironmentCheckItem[],
-  ): EnvironmentCheckReport {
-    const hasFail = checks.some((c) => c.status === "fail");
-    const hasWarn = checks.some((c) => c.status === "warn");
-    const overallStatus: EnvironmentStatus = hasFail
-      ? "error"
-      : hasWarn
-        ? "warning"
-        : "ok";
-
-    // De-duplicate fixes by kind+label, preserving first-seen order.
-    const fixes: EnvironmentCheckFix[] = [];
-    const seen = new Set<string>();
-    for (const c of checks) {
-      for (const r of c.fixes ?? []) {
-        const key = `${r.kind}:${r.label}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          fixes.push(r);
-        }
-      }
-    }
-
-    const failed = checks.filter((c) => c.status === "fail").length;
-    const warned = checks.filter((c) => c.status === "warn").length;
-    const summary =
-      overallStatus === "ok"
-        ? `"${course.title}" is ready to go.`
-        : overallStatus === "warning"
-          ? `"${course.title}" works, but ${warned} thing${warned === 1 ? "" : "s"} could be improved.`
-          : `"${course.title}" has ${failed} problem${failed === 1 ? "" : "s"} to fix before it will run.`;
-
-    return {
-      courseId: course.id,
-      overallStatus,
-      summary,
-      checks,
-      fixes,
-    };
-  }
-
-  /**
    * Switch the active course, creating its learner-editable files if they
    * don't exist yet, then move the position to the first incomplete
    * activity, persist, and fire change events.
@@ -843,14 +587,7 @@ export class LearningService {
     // window. That's probably fine, but confirm.
     await this.materializeCourse(ws, course);
     if (course.kind === "python-notebook") {
-      // Need to await extension installation since environment setup depends
-      // on the Python Environments extension
       await promptInstallPythonExtensions();
-      this.ensureEnvironment(course).catch((e) => {
-        log.warn(
-          `Failed to set up the environment for "${course.title}": ${String(e)}`,
-        );
-      });
     }
     ws.progressData.position = this.firstIncompletePosition(course);
     await this.saveProgress();

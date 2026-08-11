@@ -8,7 +8,6 @@ import {
   detectLearningWorkspace,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
-  type EnvironmentCheckReport,
   type HintContext,
   type UnitSummary,
   type OverallProgress,
@@ -185,17 +184,6 @@ export class LearningTools {
       const descriptor = courses.find((c) => c.id === courseId);
       return { descriptor };
     });
-  }
-
-  /**
-   * Run environment diagnostics for the active course and return the
-   * structured report (passing/failing checks plus whether a one-click
-   * environment setup is available).
-   */
-  async checkEnvironment(): Promise<EnvironmentCheckReport> {
-    // TODO (acasey): ensure only one can run at a time
-    await this.ensureInitialized();
-    return this.invoke(() => this.service.runEnvironmentCheck());
   }
 
   /**
