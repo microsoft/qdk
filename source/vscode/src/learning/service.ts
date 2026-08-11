@@ -583,8 +583,8 @@ export class LearningService {
     const course = this.requireCourse(ws, courseId);
     // Idempotent: existing workbooks are left alone, so this only writes
     // files the first time the learner opens the course.
-    // TODO (acasey): if materializing fails, you basically have to reload the
-    // window. That's probably fine, but confirm.
+    // Note: if materializing fails, you basically have to reload the window.
+    // That should be rare enough not to matter.
     await this.materializeCourse(ws, course);
     if (course.kind === "python-notebook") {
       await promptInstallPythonExtensions();
@@ -1352,9 +1352,10 @@ export class LearningService {
     if (activity.type === "exercise") {
       // Python-notebook exercises live in the notebook — show their
       // description as lesson text so the panel renders something useful.
-      // TODO (acasey): If we went back to using the lesson panel, we'd probably
-      // need to sanitize activity.description (course author-provided) before
-      // it gets rendered as HTML/markdown.
+      // CONSIDER: It would be nice to sanitize activity.description before
+      // rendering it as HTML/markdown, but the user has to trust the workspace
+      // before our extension even runs.  Also we don't use the learning panel
+      // for notebook courses.
       if (this.activeCourse.kind === "python-notebook") {
         return {
           type: "lesson-text",
