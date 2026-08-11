@@ -709,6 +709,17 @@ impl Simulator for StabilizerSimulator {
     fn state_dump(&self) -> &Self::StateDumpData {
         self.state.clifford()
     }
+
+    fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: QubitID) {
+        let measurement = self.measurements[result_id];
+        let sample = self.rng.random_range(0.0..1.0);
+        let new_measurement = match measurement {
+            MeasurementResult::Zero if sample < p_zero_as_one => MeasurementResult::One,
+            MeasurementResult::One if sample < p_one_as_zero => MeasurementResult::Zero,
+            measurement_result => measurement_result,
+        };
+        self.measurements[result_id] = new_measurement;
+    }
 }
 
 fn unitary_from_normalized_angle(

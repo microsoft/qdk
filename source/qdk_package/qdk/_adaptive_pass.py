@@ -944,6 +944,13 @@ class AdaptiveProfilePass:
                 dst = self._alloc_reg(call, REG_TYPE_BOOL)
                 result_reg = self._resolve_result_operand(call.args[0])
                 self._emit(OP_READ_LOSS, dst=dst, src0=result_reg)
+            case "__quantum__rt__readout_noise":
+                p_zero_as_one = self._resolve_angle_operand(call.args[0])
+                p_one_as_zero = self._resolve_angle_operand(call.args[1])
+                r = self._resolve_result_operand(call.args[2])
+                self._emit(
+                    OP_READOUT_NOISE, aux0=p_zero_as_one, aux1=p_one_as_zero, aux2=r
+                )
             case _ if callee.startswith("__quantum__qis__"):
                 self._emit_quantum_call(call)
             case _ if callee in self._func_to_id:
