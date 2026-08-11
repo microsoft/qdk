@@ -193,6 +193,32 @@ fn real_and_imag_preserve_64_bit_component_width() {
 }
 
 #[test]
+fn imag_rejects_non_complex_input() {
+    check_stmt_kinds(
+        "imag(1.0);",
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [0-10]:
+                    annotations: <empty>
+                    kind: Err
+
+        [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+
+          x There is no valid overload of `imag` for inputs: (const float)
+          | Overloads available are:
+          |     def imag(const complex[float]) -> const float
+           ,-[test:1:1]
+         1 | imag(1.0);
+           : ^^^^^^^^^
+           `----
+        ]"#]],
+    );
+}
+
+#[test]
 fn real_rejects_non_complex_input() {
     check_stmt_kinds(
         "real(1.0);",
@@ -245,6 +271,32 @@ fn imag_rejects_zero_arguments() {
 }
 
 #[test]
+fn real_rejects_zero_arguments() {
+    check_stmt_kinds(
+        "real();",
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [0-7]:
+                    annotations: <empty>
+                    kind: Err
+
+        [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+
+          x There is no valid overload of `real` for inputs: ()
+          | Overloads available are:
+          |     def real(const complex[float]) -> const float
+           ,-[test:1:1]
+         1 | real();
+           : ^^^^^^
+           `----
+        ]"#]],
+    );
+}
+
+#[test]
 fn imag_rejects_multiple_arguments() {
     check_stmt_kinds(
         "imag(1im, 2im);",
@@ -268,6 +320,80 @@ fn imag_rejects_multiple_arguments() {
            : ^^^^^^^^^^^^^^
            `----
         ]"#]],
+    );
+}
+
+#[test]
+fn real_rejects_multiple_arguments() {
+    check_stmt_kinds(
+        "real(1im, 2im);",
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [0-15]:
+                    annotations: <empty>
+                    kind: Err
+
+        [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+
+          x There is no valid overload of `real` for inputs: (const complex[float],
+          | const complex[float])
+          | Overloads available are:
+          |     def real(const complex[float]) -> const float
+           ,-[test:1:1]
+         1 | real(1im, 2im);
+           : ^^^^^^^^^^^^^^
+           `----
+        ]"#]],
+    );
+}
+
+#[test]
+fn imag_rejects_nonconstant_input() {
+    let source = "
+        complex value = 1.0 + 2.0 im;
+        imag(value);
+    ";
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+            Program:
+                version: <none>
+                pragmas: <empty>
+                statements:
+                    Stmt [9-38]:
+                        annotations: <empty>
+                        kind: ClassicalDeclarationStmt [9-38]:
+                            symbol_id: 8
+                            ty_span: [9-16]
+                            ty_exprs: <empty>
+                            init_expr: Expr [25-37]:
+                                ty: complex[float]
+                                kind: BinaryOpExpr:
+                                    op: Add
+                                    lhs: Expr [25-28]:
+                                        ty: const complex[float]
+                                        kind: Lit: Complex(1.0, 0.0)
+                                    rhs: Expr [31-37]:
+                                        ty: const complex[float]
+                                        kind: Lit: Complex(0.0, 2.0)
+                    Stmt [47-59]:
+                        annotations: <empty>
+                        kind: Err
+
+            [Qdk.Qasm.Lowerer.ExprMustBeConst
+
+              x expression must be const
+               ,-[test:3:14]
+             2 |         complex value = 1.0 + 2.0 im;
+             3 |         imag(value);
+               :              ^^^^^
+             4 |     
+               `----
+            ]"#]],
     );
 }
 
