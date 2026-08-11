@@ -1318,7 +1318,7 @@ fn two_call_sites_share_one_ir_function() {
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     // Exactly one definition shared by two call sites.
     assert_eq!(
-        qir.matches("define void @ApplyX(").count(),
+        qir.matches("define internal void @ApplyX(").count(),
         1,
         "expected a single shared IR function definition; got:\n{qir}"
     );
@@ -1397,11 +1397,11 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define void @Op("),
+        qir.contains("define internal void @Op("),
         "expected a body IR function named `Op`; got:\n{qir}"
     );
     assert!(
-        qir.contains("define void @Op__Adj("),
+        qir.contains("define internal void @Op__Adj("),
         "expected an adjoint IR function named `Op__Adj`; got:\n{qir}"
     );
     assert!(
@@ -1494,7 +1494,7 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
     let qir = compile_source_to_qir(source, *CAPABILITIES);
 
     assert!(
-        qir.contains("define void @UseGeneric("),
+        qir.contains("define internal void @UseGeneric("),
         "expected emitted helper function for the specialized call path; got:\n{qir}"
     );
     assert!(
@@ -1502,7 +1502,7 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
         "expected entry point to call emitted specialized helper; got:\n{qir}"
     );
     assert!(
-        qir.contains("define void @\"ApplyGeneric"),
+        qir.contains("define internal void @\"ApplyGeneric"),
         "expected specialized ApplyGeneric IR function definition; got:\n{qir}"
     );
     assert!(
@@ -1587,7 +1587,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES_DYNAMIC_QUBIT_ALLOC);
     assert!(
-        qir.contains("define void @AllocAndX("),
+        qir.contains("define internal void @AllocAndX("),
         "expected a qubit-allocating IR function when DynamicQubitAllocation is enabled; got:\n{qir}"
     );
     assert!(
@@ -1665,7 +1665,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES_DYNAMIC_QUBIT_ALLOC);
     assert!(
-        qir.contains("define void @AllocArrayAndX("),
+        qir.contains("define internal void @AllocArrayAndX("),
         "expected a qubit-array-allocating IR function when DynamicQubitAllocation is enabled; got:\n{qir}"
     );
     assert!(
@@ -1741,7 +1741,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
 fn assert_inlined(qir: &str, callable_name: &str) {
     assert!(
-        !qir.contains(&format!("define void @{callable_name}(")),
+        !qir.contains(&format!("define internal void @{callable_name}(")),
         "expected `{callable_name}` to inline (no IR function definition); got:\n{qir}"
     );
 }
@@ -1788,7 +1788,7 @@ fn tuple_of_scalars_parameter_flattens_to_ir_function() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define void @ApplyPair("),
+        qir.contains("define internal void @ApplyPair("),
         "expected a flattened tuple-of-qubits IR function; got:\n{qir}"
     );
     assert!(
@@ -1885,11 +1885,11 @@ fn controlled_specialization_inlines() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        !qir.contains("define void @Op__Ctl("),
+        !qir.contains("define internal void @Op__Ctl("),
         "expected the controlled specialization to inline; got:\n{qir}"
     );
     assert!(
-        !qir.contains("define void @Op("),
+        !qir.contains("define internal void @Op("),
         "expected no IR function for the uncalled body specialization; got:\n{qir}"
     );
 }
@@ -1981,7 +1981,7 @@ fn cross_package_operation_emits() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define void @X("),
+        qir.contains("define internal void @X("),
         "expected the cross-package `X` operation to emit a standalone IR function; got:\n{qir}"
     );
     assert!(
@@ -2039,7 +2039,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define i64 @Foo("),
+        qir.contains("define internal i64 @Foo("),
         "expected a value-returning IR function named `Foo`; got:\n{qir}"
     );
     assert!(
@@ -2436,7 +2436,7 @@ fn cross_package_library_callable_emits_standalone_define() {
     // The foreign library callable is emitted exactly once as a standalone
     // definition under its bare name, proving it is not inlined.
     assert_eq!(
-        qir.matches("define void @ApplyX(").count(),
+        qir.matches("define internal void @ApplyX(").count(),
         1,
         "expected exactly one standalone IR function for the foreign callable; got:\n{qir}"
     );
@@ -2524,13 +2524,13 @@ fn cross_package_same_name_callables_get_discriminated() {
     let qir = compile_source_to_qir_with_library(lib, user, *CAPABILITIES);
     // Exactly one callable keeps the bare `@Foo` name.
     assert_eq!(
-        qir.matches("define void @Foo(").count(),
+        qir.matches("define internal void @Foo(").count(),
         1,
         "expected exactly one bare `@Foo` definition; got:\n{qir}"
     );
     // The colliding callable is emitted under a package-discriminated name.
     assert_eq!(
-        qir.matches("define void @Foo__p").count(),
+        qir.matches("define internal void @Foo__p").count(),
         1,
         "expected exactly one package-discriminated `@Foo__p...` definition; got:\n{qir}"
     );
@@ -2574,13 +2574,13 @@ fn user_callable_named_like_entry_point_is_discriminated() {
     // The user operation is emitted under a discriminated name, never shadowing
     // the reserved entry symbol.
     assert_eq!(
-        qir.matches("define void @ENTRYPOINT__main__p").count(),
+        qir.matches("define internal void @ENTRYPOINT__main__p").count(),
         1,
         "expected the user callable to be discriminated away from the reserved \
          entry symbol; got:\n{qir}"
     );
     assert!(
-        !qir.contains("define void @ENTRYPOINT__main("),
+        !qir.contains("define internal void @ENTRYPOINT__main("),
         "the user callable must not be emitted under the reserved entry symbol; got:\n{qir}"
     );
     assert!(
@@ -2609,15 +2609,15 @@ fn distinct_lambdas_emit_distinct_ir_functions() {
     // Each lambda is lifted and emitted as its own IR function. Lifted names
     // contain special characters and therefore render as quoted globals.
     assert_eq!(
-        qir.matches("define void @.lambda").count(),
+        qir.matches("define internal void @.lambda").count(),
         2,
         "expected two distinct lifted-lambda IR functions; got:\n{qir}"
     );
     // The two emitted lambda definitions must have different names.
     let names: Vec<&str> = qir
-        .match_indices("define void @.lambda")
+        .match_indices("define internal void @.lambda")
         .map(|(idx, _)| {
-            let rest = &qir[idx + "define void @".len()..];
+            let rest = &qir[idx + "define internal void @".len()..];
             let end = rest.find('(').expect("lambda name should be terminated");
             &rest[..end]
         })
@@ -2687,7 +2687,7 @@ fn cross_package_controlled_call_inlines() {
         }";
     let qir = compile_source_to_qir_with_library(lib, user, *CAPABILITIES);
     assert!(
-        !qir.contains("define void @Op__Ctl("),
+        !qir.contains("define internal void @Op__Ctl("),
         "expected the foreign controlled specialization to inline; got:\n{qir}"
     );
     // The controlled lowering still performs the same controlled intrinsic it
