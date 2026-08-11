@@ -107,7 +107,7 @@ export async function activate(
     registerLanguageModelTools(context, learningService);
     context.subscriptions.push(
       vscode.commands.registerCommand(
-        "qsharp-vscode.createQuantumNotebookVenv",
+        "qsharp-vscode.createQuantumVenv",
         createQuantumVenvCommand,
       ),
     );

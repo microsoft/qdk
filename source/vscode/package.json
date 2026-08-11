@@ -343,7 +343,7 @@
           "when": "false"
         },
         {
-          "command": "qsharp-vscode.createQuantumNotebookVenv",
+          "command": "qsharp-vscode.createQuantumVenv",
           "when": "!isWeb"
         }
       ],
@@ -643,9 +643,9 @@
         "title": "Create a Microsoft Quantum notebook"
       },
       {
-        "command": "qsharp-vscode.createQuantumNotebookVenv",
+        "command": "qsharp-vscode.createQuantumVenv",
         "category": "QDK",
-        "title": "Create a Microsoft Quantum notebook virtual environment"
+        "title": "Create a Microsoft Quantum virtual environment"
       },
       {
         "command": "qsharp-vscode.openPlayground",
