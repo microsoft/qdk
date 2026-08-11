@@ -4525,3 +4525,44 @@ fn parallel_borrow_dirty_qubit_does_not_error_at_par_end() {
         &expect!["()"],
     );
 }
+
+#[test]
+fn parallel_within_use_after_borrow_flag_checks_nonzero_release() {
+    check_expr(
+        "",
+        "{
+             parallel within 1 {
+                 { borrow c = Qubit(); }
+                 { use a = Qubit(); X(a); }
+             }
+         }",
+        &expect![[r#"
+            ReleasedQubitNotZero(
+                0,
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 3480,
+                        hi: 3568,
+                    },
+                },
+            )
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_borrow_of_recycled_qubit_does_not_error_at_par_end() {
+    check_expr(
+        "",
+        "{
+             parallel within 1 {
+                 { use a = Qubit(); }
+                 { borrow b = Qubit(); X(b); }
+             }
+         }",
+        &expect!["()"],
+    );
+}

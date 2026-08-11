@@ -1416,6 +1416,16 @@ impl State {
         let val = match name.as_ref() {
             "__quantum__rt__qubit_allocate" | "__quantum__rt__qubit_borrow" => {
                 if let Some(q) = self.delayed_release_qubits.allocate_delayed_qubit() {
+                    if name.as_ref() == "__quantum__rt__qubit_allocate" {
+                        // This most recent "allocation" is a reuse, but we must ensure that it follows its most recent allocation
+                        // vs borrow when it is eventually released. So we remove it from the dirty qubits set to ensure that it is
+                        // checked to be zero when eventually released.
+                        self.dirty_qubits.remove(&q.0);
+                    } else {
+                        // If instead this is a "borrow" style reuse, we add it to the dirty qubits set to ensure that it is
+                        // not checked to be zero when eventually released.
+                        self.dirty_qubits.insert(q.0);
+                    }
                     Value::Qubit(
                         env.qubits
                             .get(&q)
