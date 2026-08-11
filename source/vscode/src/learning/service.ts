@@ -1093,7 +1093,6 @@ export class LearningService {
         throw err;
       }
       this.startWatcher();
-      // TODO (acasey): make sure we're firing this an appropriate number of times
       sendTelemetryEvent(
         EventType.LearningSessionStarted,
         { isFirstTime: "false" },
@@ -1485,11 +1484,6 @@ export class LearningService {
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
 
-    // TODO (acasey): do we actually want telemetry for other courses?
-    // We need to either drop it so that all telemetry is about the katas
-    // or introduce a new property to distinguish kata telemetry from python telemetry.
-    // We may want to have an allow-list of known python courses and record others
-    // as "other" (unless one-way hashing is allowed).
     const units = this.activeCourse.units;
     const unitIndex = units.findIndex((u) => u.id === location.unitId);
     const unit = unitIndex >= 0 ? units[unitIndex] : undefined;
@@ -1500,7 +1494,10 @@ export class LearningService {
     );
     sendTelemetryEvent(
       EventType.LearningExerciseCompleted,
-      {},
+      {
+        courseId: this.activeCourse.id, // This is OII
+        courseKind: this.activeCourse.kind,
+      },
       {
         unitNumber: unitIndex + 1,
         exerciseNumber: exerciseIndex + 1,
