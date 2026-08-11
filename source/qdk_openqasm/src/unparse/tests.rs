@@ -99,13 +99,70 @@ fn directives_unparse_canonically_without_losing_opaque_payload() {
 }
 
 #[test]
-fn canonical_output_uses_bitwise_operator_precedence() {
-    for expression in ["1 | 2 ^ 3", "1 ^ 2 | 3", "1 ^ 2 & 3", "1 & 2 ^ 3"] {
+fn canonical_output_uses_operator_precedence() {
+    for (input, expected) in [
+        // One expression per precedence tier, already canonical, must emit unchanged.
+        ("1 || 2 && 3", "1 || 2 && 3"),
+        ("1 && 2 | 3", "1 && 2 | 3"),
+        ("1 | 2 ^ 3", "1 | 2 ^ 3"),
+        ("1 ^ 2 & 3", "1 ^ 2 & 3"),
+        ("1 & 2 == 3", "1 & 2 == 3"),
+        ("1 == 2 < 3", "1 == 2 < 3"),
+        ("1 < 2 << 3", "1 < 2 << 3"),
+        ("1 << 2 + 3", "1 << 2 + 3"),
+        ("1 + 2 * 3", "1 + 2 * 3"),
+        ("1 * 2 ** 3", "1 * 2 ** 3"),
+        ("!a == b", "!a == b"),
+        ("-a[0]", "-a[0]"),
+        // Parentheses that change the grouping must be kept.
+        ("(1 + 2) * 3", "(1 + 2) * 3"),
+        ("(1 | 2) & 3", "(1 | 2) & 3"),
+        ("1 - (2 - 3)", "1 - (2 - 3)"),
+        ("-(1 + 2)", "-(1 + 2)"),
+        // Parentheses the precedence table already implies must be dropped.
+        ("(1 + 2) + 3", "1 + 2 + 3"),
+        ("1 + (2 * 3)", "1 + 2 * 3"),
+        ("-(a)", "-a"),
+        ("((1))", "1"),
+    ] {
         assert_eq!(
-            emit(&format!("OPENQASM 3.0; int value = {expression};")),
-            format!("OPENQASM 3.0;\nint value = {expression};\n")
+            emit(&format!("OPENQASM 3.0; int value = {input};")),
+            format!("OPENQASM 3.0;\nint value = {expected};\n")
         );
     }
+}
+
+#[test]
+fn canonical_output_uses_exponent_right_associativity() {
+    for (input, expected) in [
+        ("2 ** 3 ** 4", "2 ** 3 ** 4"),
+        ("2 ** (3 ** 4)", "2 ** 3 ** 4"),
+        ("(2 ** 3) ** 4", "(2 ** 3) ** 4"),
+    ] {
+        assert_eq!(
+            emit(&format!("OPENQASM 3.0; int value = {input};")),
+            format!("OPENQASM 3.0;\nint value = {expected};\n")
+        );
+    }
+}
+
+#[test]
+fn canonical_output_parenthesizes_a_unary_operand_of_a_unary_operator() {
+    // Without these parentheses the emitted text relexes as a different token.
+    for (input, expected) in [("- -1", "-(-1)"), ("!!a", "!(!a)"), ("~~a", "~(~a)")] {
+        assert_eq!(
+            emit(&format!("OPENQASM 3.0; int value = {input};")),
+            format!("OPENQASM 3.0;\nint value = {expected};\n")
+        );
+    }
+}
+
+#[test]
+fn canonical_output_parenthesizes_a_non_atom_index_collection() {
+    assert_eq!(
+        emit("OPENQASM 3.0; int value = (a + b)[0];"),
+        "OPENQASM 3.0;\nint value = (a + b)[0];\n"
+    );
 }
 
 #[test]

@@ -713,6 +713,468 @@ fn prat_parsing_funcall_exp_arg() {
 }
 
 #[test]
+fn pratt_parsing_multiplicative_chain_is_left_associative() {
+    check_expr(
+        "1 * 2 / 3 % 4",
+        &expect![[r#"
+            Expr [0-13]: BinaryOpExpr:
+                op: Mod
+                lhs: Expr [0-9]: BinaryOpExpr:
+                    op: Div
+                    lhs: Expr [0-5]: BinaryOpExpr:
+                        op: Mul
+                        lhs: Expr [0-1]: Lit: Int(1)
+                        rhs: Expr [4-5]: Lit: Int(2)
+                    rhs: Expr [8-9]: Lit: Int(3)
+                rhs: Expr [12-13]: Lit: Int(4)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_additive_chain_is_left_associative() {
+    check_expr(
+        "1 + 2 - 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: Sub
+                lhs: Expr [0-5]: BinaryOpExpr:
+                    op: Add
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [4-5]: Lit: Int(2)
+                rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_shift_chain_is_left_associative() {
+    check_expr(
+        "1 << 2 >> 3",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: Shr
+                lhs: Expr [0-6]: BinaryOpExpr:
+                    op: Shl
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [5-6]: Lit: Int(2)
+                rhs: Expr [10-11]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_comparison_chain_is_left_associative() {
+    check_expr(
+        "1 < 2 <= 3 > 4 >= 5",
+        &expect![[r#"
+            Expr [0-19]: BinaryOpExpr:
+                op: Gte
+                lhs: Expr [0-14]: BinaryOpExpr:
+                    op: Gt
+                    lhs: Expr [0-10]: BinaryOpExpr:
+                        op: Lte
+                        lhs: Expr [0-5]: BinaryOpExpr:
+                            op: Lt
+                            lhs: Expr [0-1]: Lit: Int(1)
+                            rhs: Expr [4-5]: Lit: Int(2)
+                        rhs: Expr [9-10]: Lit: Int(3)
+                    rhs: Expr [13-14]: Lit: Int(4)
+                rhs: Expr [18-19]: Lit: Int(5)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_equality_chain_is_left_associative() {
+    check_expr(
+        "1 == 2 != 3",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: Neq
+                lhs: Expr [0-6]: BinaryOpExpr:
+                    op: Eq
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [5-6]: Lit: Int(2)
+                rhs: Expr [10-11]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_and_chain_is_left_associative() {
+    check_expr(
+        "1 & 2 & 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: AndB
+                lhs: Expr [0-5]: BinaryOpExpr:
+                    op: AndB
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [4-5]: Lit: Int(2)
+                rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_xor_chain_is_left_associative() {
+    check_expr(
+        "1 ^ 2 ^ 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: XorB
+                lhs: Expr [0-5]: BinaryOpExpr:
+                    op: XorB
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [4-5]: Lit: Int(2)
+                rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_or_chain_is_left_associative() {
+    check_expr(
+        "1 | 2 | 3",
+        &expect![[r#"
+            Expr [0-9]: BinaryOpExpr:
+                op: OrB
+                lhs: Expr [0-5]: BinaryOpExpr:
+                    op: OrB
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [4-5]: Lit: Int(2)
+                rhs: Expr [8-9]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_logical_and_chain_is_left_associative() {
+    check_expr(
+        "1 && 2 && 3",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: AndL
+                lhs: Expr [0-6]: BinaryOpExpr:
+                    op: AndL
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [5-6]: Lit: Int(2)
+                rhs: Expr [10-11]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_logical_or_chain_is_left_associative() {
+    check_expr(
+        "1 || 2 || 3",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: OrL
+                lhs: Expr [0-6]: BinaryOpExpr:
+                    op: OrL
+                    lhs: Expr [0-1]: Lit: Int(1)
+                    rhs: Expr [5-6]: Lit: Int(2)
+                rhs: Expr [10-11]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_exp_chain_is_right_associative() {
+    check_expr(
+        "2 ** 3 ** 4",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: Exp
+                lhs: Expr [0-1]: Lit: Int(2)
+                rhs: Expr [5-11]: BinaryOpExpr:
+                    op: Exp
+                    lhs: Expr [5-6]: Lit: Int(3)
+                    rhs: Expr [10-11]: Lit: Int(4)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_exp_binds_tighter_than_prefix_negation() {
+    check_expr(
+        "-2 ** 3",
+        &expect![[r#"
+            Expr [0-7]: UnaryOpExpr:
+                op: Neg
+                expr: Expr [1-7]: BinaryOpExpr:
+                    op: Exp
+                    lhs: Expr [1-2]: Lit: Int(2)
+                    rhs: Expr [6-7]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_exp_accepts_a_negated_exponent() {
+    check_expr(
+        "2 ** -3",
+        &expect![[r#"
+            Expr [0-7]: BinaryOpExpr:
+                op: Exp
+                lhs: Expr [0-1]: Lit: Int(2)
+                rhs: Expr [5-7]: UnaryOpExpr:
+                    op: Neg
+                    expr: Expr [6-7]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_exp_binds_tighter_than_bitwise_not() {
+    check_expr(
+        "~1 ** 2",
+        &expect![[r#"
+            Expr [0-7]: UnaryOpExpr:
+                op: NotB
+                expr: Expr [1-7]: BinaryOpExpr:
+                    op: Exp
+                    lhs: Expr [1-2]: Lit: Int(1)
+                    rhs: Expr [6-7]: Lit: Int(2)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_not_binds_tighter_than_bitwise_and() {
+    check_expr(
+        "~1 & 2",
+        &expect![[r#"
+            Expr [0-6]: BinaryOpExpr:
+                op: AndB
+                lhs: Expr [0-2]: UnaryOpExpr:
+                    op: NotB
+                    expr: Expr [1-2]: Lit: Int(1)
+                rhs: Expr [5-6]: Lit: Int(2)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_logical_not_binds_tighter_than_equality() {
+    check_expr(
+        "!a == b",
+        &expect![[r#"
+            Expr [0-7]: BinaryOpExpr:
+                op: Eq
+                lhs: Expr [0-2]: UnaryOpExpr:
+                    op: NotL
+                    expr: Expr [1-2]: Ident [1-2] "a"
+                rhs: Expr [6-7]: Ident [6-7] "b""#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_addition_binds_tighter_than_shift() {
+    check_expr(
+        "1 << 2 + 3",
+        &expect![[r#"
+            Expr [0-10]: BinaryOpExpr:
+                op: Shl
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [5-10]: BinaryOpExpr:
+                    op: Add
+                    lhs: Expr [5-6]: Lit: Int(2)
+                    rhs: Expr [9-10]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_shift_binds_tighter_than_comparison() {
+    check_expr(
+        "1 < 2 << 3",
+        &expect![[r#"
+            Expr [0-10]: BinaryOpExpr:
+                op: Lt
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [4-10]: BinaryOpExpr:
+                    op: Shl
+                    lhs: Expr [4-5]: Lit: Int(2)
+                    rhs: Expr [9-10]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_comparison_binds_tighter_than_equality() {
+    check_expr(
+        "1 == 2 < 3",
+        &expect![[r#"
+            Expr [0-10]: BinaryOpExpr:
+                op: Eq
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [5-10]: BinaryOpExpr:
+                    op: Lt
+                    lhs: Expr [5-6]: Lit: Int(2)
+                    rhs: Expr [9-10]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_equality_binds_tighter_than_bitwise_and() {
+    check_expr(
+        "1 & 2 == 3",
+        &expect![[r#"
+            Expr [0-10]: BinaryOpExpr:
+                op: AndB
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [4-10]: BinaryOpExpr:
+                    op: Eq
+                    lhs: Expr [4-5]: Lit: Int(2)
+                    rhs: Expr [9-10]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_bitwise_or_binds_tighter_than_logical_and() {
+    check_expr(
+        "1 && 2 | 3",
+        &expect![[r#"
+            Expr [0-10]: BinaryOpExpr:
+                op: AndL
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [5-10]: BinaryOpExpr:
+                    op: OrB
+                    lhs: Expr [5-6]: Lit: Int(2)
+                    rhs: Expr [9-10]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_logical_and_binds_tighter_than_logical_or() {
+    check_expr(
+        "1 || 2 && 3",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: OrL
+                lhs: Expr [0-1]: Lit: Int(1)
+                rhs: Expr [5-11]: BinaryOpExpr:
+                    op: AndL
+                    lhs: Expr [5-6]: Lit: Int(2)
+                    rhs: Expr [10-11]: Lit: Int(3)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_index_binds_tighter_than_prefix_negation() {
+    check_expr(
+        "-foo[1]",
+        &expect![[r#"
+            Expr [0-7]: UnaryOpExpr:
+                op: Neg
+                expr: Expr [1-7]: IndexExpr [1-7]:
+                    collection: Expr [1-4]: Ident [1-4] "foo"
+                    index: IndexList [5-6]:
+                        values:
+                            Expr [5-6]: Lit: Int(1)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_index_binds_tighter_than_exp() {
+    check_expr(
+        "foo[1] ** 2",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: Exp
+                lhs: Expr [0-6]: IndexExpr [0-6]:
+                    collection: Expr [0-3]: Ident [0-3] "foo"
+                    index: IndexList [4-5]:
+                        values:
+                            Expr [4-5]: Lit: Int(1)
+                rhs: Expr [10-11]: Lit: Int(2)"#]],
+    );
+}
+
+#[test]
+fn pratt_parsing_cast_binds_tighter_than_exp() {
+    check_expr(
+        "bit(0) ** 2",
+        &expect![[r#"
+            Expr [0-11]: BinaryOpExpr:
+                op: Exp
+                lhs: Expr [0-6]: Cast [0-6]:
+                    type: ScalarType [0-3]: BitType [0-3]:
+                        size: <none>
+                    arg: Expr [4-5]: Lit: Int(0)
+                rhs: Expr [10-11]: Lit: Int(2)"#]],
+    );
+}
+
+/// The unparser keeps its own copy of the precedence table so that it can emit the
+/// fewest parentheses that still reparse to the same tree. Nothing in the type system
+/// ties that copy to the parser's table, so compare them entry by entry.
+#[test]
+fn parser_and_unparser_precedence_tables_agree() {
+    use crate::lex::cooked::ComparisonOp;
+    use crate::lex::{ClosedBinOp, TokenKind};
+    use crate::parser::ast::BinOp;
+    use crate::unparse::{binary_operator_is_right_associative, binary_operator_precedence};
+
+    // Written as an exhaustive match so that a new `BinOp` variant forces a visit here.
+    fn token(op: BinOp) -> TokenKind {
+        match op {
+            BinOp::Add => TokenKind::ClosedBinOp(ClosedBinOp::Plus),
+            BinOp::AndB => TokenKind::ClosedBinOp(ClosedBinOp::Amp),
+            BinOp::AndL => TokenKind::ClosedBinOp(ClosedBinOp::AmpAmp),
+            BinOp::Div => TokenKind::ClosedBinOp(ClosedBinOp::Slash),
+            BinOp::Eq => TokenKind::ComparisonOp(ComparisonOp::EqEq),
+            BinOp::Exp => TokenKind::ClosedBinOp(ClosedBinOp::StarStar),
+            BinOp::Gt => TokenKind::ComparisonOp(ComparisonOp::Gt),
+            BinOp::Gte => TokenKind::ComparisonOp(ComparisonOp::GtEq),
+            BinOp::Lt => TokenKind::ComparisonOp(ComparisonOp::Lt),
+            BinOp::Lte => TokenKind::ComparisonOp(ComparisonOp::LtEq),
+            BinOp::Mod => TokenKind::ClosedBinOp(ClosedBinOp::Percent),
+            BinOp::Mul => TokenKind::ClosedBinOp(ClosedBinOp::Star),
+            BinOp::Neq => TokenKind::ComparisonOp(ComparisonOp::BangEq),
+            BinOp::OrB => TokenKind::ClosedBinOp(ClosedBinOp::Bar),
+            BinOp::OrL => TokenKind::ClosedBinOp(ClosedBinOp::BarBar),
+            BinOp::Shl => TokenKind::ClosedBinOp(ClosedBinOp::LtLt),
+            BinOp::Shr => TokenKind::ClosedBinOp(ClosedBinOp::GtGt),
+            BinOp::Sub => TokenKind::ClosedBinOp(ClosedBinOp::Minus),
+            BinOp::XorB => TokenKind::ClosedBinOp(ClosedBinOp::Caret),
+        }
+    }
+
+    // Function calls and indexing are absent on purpose: the parser gives them infix
+    // precedence entries, but they are not `BinOp`s and the unparser has no counterpart.
+    for op in [
+        BinOp::Add,
+        BinOp::AndB,
+        BinOp::AndL,
+        BinOp::Div,
+        BinOp::Eq,
+        BinOp::Exp,
+        BinOp::Gt,
+        BinOp::Gte,
+        BinOp::Lt,
+        BinOp::Lte,
+        BinOp::Mod,
+        BinOp::Mul,
+        BinOp::Neq,
+        BinOp::OrB,
+        BinOp::OrL,
+        BinOp::Shl,
+        BinOp::Shr,
+        BinOp::Sub,
+        BinOp::XorB,
+    ] {
+        let Some(parsed) = super::infix_op(super::OpName::Token(token(op))) else {
+            panic!("the parser has no infix operator entry for {op:?}");
+        };
+        let super::OpKind::Binary(parsed_op, assoc) = parsed.kind else {
+            panic!("the parser does not treat {op:?} as a binary operator");
+        };
+
+        assert_eq!(
+            parsed_op, op,
+            "the parser maps the token for {op:?} to a different operator"
+        );
+        assert_eq!(
+            parsed.precedence,
+            binary_operator_precedence(op),
+            "the parser and the unparser disagree on the precedence of {op:?}"
+        );
+        assert_eq!(
+            matches!(assoc, super::Assoc::Right),
+            binary_operator_is_right_associative(op),
+            "the parser and the unparser disagree on the associativity of {op:?}"
+        );
+    }
+}
+
+#[test]
 fn funcall() {
     check_expr(
         "square(2)",

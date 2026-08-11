@@ -821,7 +821,7 @@ impl Emitter {
             }
             ExprKind::BinaryOp(binary) => {
                 let precedence = binary_operator_precedence(binary.op);
-                let right_associative = matches!(binary.op, BinOp::Exp);
+                let right_associative = binary_operator_is_right_associative(binary.op);
                 let lhs_precedence = expression_precedence(&binary.lhs);
                 let rhs_precedence = expression_precedence(&binary.rhs);
                 let lhs = parenthesize(
@@ -1176,7 +1176,7 @@ fn expression_precedence(expression: &Expr) -> u8 {
     }
 }
 
-fn binary_operator_precedence(operator: BinOp) -> u8 {
+pub(crate) fn binary_operator_precedence(operator: BinOp) -> u8 {
     match operator {
         BinOp::Exp => 12,
         BinOp::Mul | BinOp::Div | BinOp::Mod => 10,
@@ -1190,6 +1190,10 @@ fn binary_operator_precedence(operator: BinOp) -> u8 {
         BinOp::AndL => 2,
         BinOp::OrL => 1,
     }
+}
+
+pub(crate) fn binary_operator_is_right_associative(operator: BinOp) -> bool {
+    matches!(operator, BinOp::Exp)
 }
 
 fn binary_operator(operator: BinOp) -> &'static str {
