@@ -1,4 +1,4 @@
-* @billti @idavis @amcasey @swernli
+- @billti @idavis @amcasey @swernli
 
 /.github/ISSUE_TEMPLATE/fuzz_bug_report.md @billti @idavis @swernli
 /.github/workflows/fuzz.yml @billti @idavis @swernli
@@ -10,6 +10,7 @@
 /source/compiler/qsc_partial_eval @idavis @swernli
 /source/compiler/qsc_rca @idavis @swernli
 /source/compiler/qsc_rir @idavis @swernli
+/source/compiler/stim_compiler @billti @joao-boechat @orpuente-MS
 /source/fuzz @billti @idavis @swernli
 /katas @billti @swernli
 /source/jupyterlab @billti @idavis @amcasey
