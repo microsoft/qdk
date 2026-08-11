@@ -605,16 +605,11 @@ export class LearningService {
    */
   private firstIncompletePosition(course: CatalogCourse): ActivityLocation {
     for (const unit of course.units) {
-      // TODO (acasey): reuse firstIncompleteInUnit
-      for (const activity of unit.activities) {
-        const location: ActivityLocation = {
-          courseId: course.id,
-          unitId: unit.id,
-          activityId: activity.id,
-        };
-        if (!this.isComplete(location)) {
-          return location;
-        }
+      const location = this.firstIncompleteInUnit(course, unit);
+      // We need to check this since firstIncompleteInUnit will return
+      // the first activity if all activities are complete
+      if (!this.isComplete(location)) {
+        return location;
       }
     }
     const first = course.units[0];
