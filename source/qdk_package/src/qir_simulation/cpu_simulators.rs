@@ -11,7 +11,7 @@ use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
     MeasurementResult, OutputRecord, Simulator,
     bytecode::{self, runtime::run_shot as adaptive_run_shot},
-    cpu_full_state_simulator::NoisySimulator,
+    cpu_full_state_simulator::FullStateSimulator,
     noise_config::{self, CumulativeNoiseConfig},
     stabilizer_simulator::StabilizerSimulator,
 };
@@ -96,7 +96,7 @@ pub fn run_cpu_full_state<'py>(
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
     let make_simulator = |num_qubits, num_results, seed, noise| {
-        NoisySimulator::new(num_qubits as usize, num_results as usize, seed, noise)
+        FullStateSimulator::new(num_qubits as usize, num_results as usize, seed, noise)
     };
     py_run(
         py,
@@ -306,7 +306,7 @@ pub fn run_cpu_adaptive<'py>(
     };
 
     let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
-        NoisySimulator::new(num_qubits, num_results, seed, noise)
+        FullStateSimulator::new(num_qubits, num_results, seed, noise)
     };
 
     let output = run_adaptive(&program, shots, seed, noise, make_simulator);

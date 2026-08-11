@@ -193,8 +193,8 @@ fn rzz(angle: f64) -> Operation {
     .expect("operation should be valid")
 }
 
-/// A noisy state-vector simulator.
-pub struct NoisySimulator {
+/// A full-state simulator with configurable noise.
+pub struct FullStateSimulator {
     /// The noise configuration for the simulation.
     noise_config: Arc<CumulativeNoiseConfig>,
     /// Random number generator used to sample from [`Self::noise_config`].
@@ -211,7 +211,7 @@ pub struct NoisySimulator {
     time: u32,
 }
 
-impl NoisySimulator {
+impl FullStateSimulator {
     /// Increment the simulation time by one.
     /// This is used to compute the idle noise on qubits.
     pub fn step(&mut self) {
@@ -409,7 +409,7 @@ macro_rules! apply_noise {
     }};
 }
 
-impl Simulator for NoisySimulator {
+impl Simulator for FullStateSimulator {
     type Noise = Arc<CumulativeNoiseConfig>;
     type StateDumpData = noisy_simulator::StateVector;
 
