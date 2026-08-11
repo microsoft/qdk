@@ -1,13 +1,11 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT license.
 
-// State visualization controller for the circuit side panel.
-// Responsible for: ensuring the state panel exists, coordinating async state
-// computation + rendering, suppressing stale renders, and managing the loading
-// spinner/dev toolbar wiring.
+// State visualization controller for the circuit side panel. Responsible for: ensuring the state
+// panel exists, coordinating async state computation + rendering, suppressing stale renders, and
+// managing the loading spinner/dev toolbar wiring.
 
-// Here is a general overview of the flow for the state visualization:
-// panel.ts
+// Here is a general overview of the flow for the state visualization: panel.ts
 //   └─ ensureStateVisualization(...)
 //        └─ stateVizController.ts  (loading spinner, request-id cancellation, retries)
 //             ├─ computeStateVizColumnsFromCurrentModelAsync(...)
@@ -32,8 +30,8 @@ import {
   setStatePanelLoading,
 } from "./stateViz.js";
 
-import { getCurrentCircuitModel } from "../events.js";
-import type { Circuit } from "../circuit.js";
+import { getCurrentCircuitModel } from "../editor/events.js";
+import type { Circuit } from "../data/circuit.js";
 import {
   computeAmpMapForCircuit,
   UnsupportedStateComputeError,
@@ -78,9 +76,9 @@ export function ensureStateVisualization(
     | undefined;
 
   if (existingController) {
-    // Sqore calls createPanel() on every edit (it re-renders the SVG). Keep a
-    // single state-viz controller per panel element so in-flight renders from
-    // previous calls can't toggle loading off underneath new renders.
+    // Sqore calls createPanel() on every edit (it re-renders the SVG). Keep a single state-viz
+    // controller per panel element so in-flight renders from previous calls can't toggle loading
+    // off underneath new renders.
     existingController.setHostContainer(container);
     existingController.setComputeCallback(
       computeStateVizColumnsForCircuitModel,
@@ -89,8 +87,7 @@ export function ensureStateVisualization(
     return;
   }
 
-  // Captured, mutable inputs that can be updated by future calls to
-  // ensureStateVisualization(...).
+  // Captured, mutable inputs that can be updated by future calls to ensureStateVisualization(...).
   let hostContainer: HTMLElement = container;
   let computeCallback: ComputeStateVizColumnsForCircuitModel | undefined =
     computeStateVizColumnsForCircuitModel;
@@ -142,8 +139,8 @@ export function ensureStateVisualization(
       return;
     }
 
-    // Avoid flicker: once visible, keep loading on briefly, and debounce the
-    // hide so rapid successive edits don't flash the spinner.
+    // Avoid flicker: once visible, keep loading on briefly, and debounce the hide so rapid
+    // successive edits don't flash the spinner.
     const minVisibleMs = 250;
     const hideDebounceMs = 150;
     const elapsed = performance.now() - (loadingShownAtMs || 0);
@@ -163,9 +160,8 @@ export function ensureStateVisualization(
     try {
       beginLoadingForRequest(requestId);
 
-      // If we were previously showing a message (e.g., unsupported/too many
-      // qubits), clear it immediately so the loading overlay can be shown while
-      // the new request is computing.
+      // If we were previously showing a message (e.g., unsupported/too many qubits), clear it
+      // immediately so the loading overlay can be shown while the new request is computing.
       if (panel.classList.contains("message")) {
         renderBlankStatePanel(panel);
       }
@@ -187,10 +183,9 @@ export function ensureStateVisualization(
       if (requestId !== renderRequestId) return;
 
       if (columns == null) {
-        // Model isn't ready for this render yet (events not enabled), or the
-        // model corresponds to a different SVG (during a re-render). Keep the
-        // panel blank for non-empty circuits so the loading overlay can show;
-        // show a message state only when the circuit is truly empty.
+        // Model isn't ready for this render yet (events not enabled), or the model corresponds to a
+        // different SVG (during a re-render). Keep the panel blank for non-empty circuits so the
+        // loading overlay can show; show a message state only when the circuit is truly empty.
         const wiresGroup = circuitSvg?.querySelector(".wires");
         const wireCount = wiresGroup ? wiresGroup.children.length : 0;
         if (wireCount <= 0) {
@@ -245,9 +240,9 @@ export function ensureStateVisualization(
     },
   } satisfies StateVizController;
 
-  // Re-render when the circuit model becomes available. The circuit SVG is
-  // replaced before `enableEvents(...)` runs, so computing state immediately in
-  // `createPanel(...)` would otherwise risk using a stale model.
+  // Re-render when the circuit model becomes available. The circuit SVG is replaced before
+  // `enableEvents(...)` runs, so computing state immediately in `createPanel(...)` would otherwise
+  // risk using a stale model.
   try {
     container.addEventListener("qsharp:circuit:modelReady", () => {
       requestRenderState();

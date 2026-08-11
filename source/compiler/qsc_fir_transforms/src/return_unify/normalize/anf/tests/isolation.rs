@@ -39,12 +39,11 @@ fn isolated_anf_lifts_return_in_binop_operand_block() {
 
             // after anf
             function Main() : Int {
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 2;
                     3
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = 1 + __operand_tmp_0;
                 x
             }
             // entry
@@ -102,10 +101,9 @@ fn isolated_anf_lifts_index_target_block() {
 #[test]
 fn isolated_anf_lifts_update_field_receiver_block() {
     // `({ return 7; p }) w/ First <- 9` — the UpdateField receiver operand is a
-    // statement-carrying block burying a `return`. The receiver is eagerly
-    // evaluated before the copy-and-update, so the ANF phase binds the block to
-    // a spine `let __operand_tmp` and rewrites the record slot to read the temp;
-    // the `<- 9` value literal stays inline.
+    // statement-carrying block burying a `return`. The replacement evaluates
+    // first, so the ANF phase pins it before binding the receiver block and
+    // rewrites both slots to read the spine temps.
     check_anf_isolated_q(
         indoc! {r#"
         namespace Test {
@@ -159,10 +157,9 @@ fn isolated_anf_lifts_update_field_receiver_block() {
 #[test]
 fn isolated_anf_lifts_update_field_value_block() {
     // `p w/ First <- { return 7; 9 }` — the UpdateField value operand is a
-    // statement-carrying block burying a `return`. The ANF phase pins the
-    // earlier-sibling receiver `p` to a temp, then binds the value block to a
-    // second spine `let __operand_tmp` and rewrites both slots to read the
-    // temps. (Pinning `p` is harmless: UpdateField produces a new value.)
+    // statement-carrying block burying a `return`. The replacement evaluates
+    // before the record, so the ANF phase binds only the replacement block and
+    // leaves the later record operand inline.
     check_anf_isolated_q(
         indoc! {r#"
         namespace Test {
@@ -199,13 +196,103 @@ fn isolated_anf_lifts_update_field_value_block() {
                     First = 1,
                     Second = 2
                 };
-                let __operand_tmp_0 : __UDT_Item_1__Package_2_ = p;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 7;
                     9
                 };
-                let q : __UDT_Item_1__Package_2_ = __operand_tmp_0 w/::First <- __operand_tmp_1;
+                let q : __UDT_Item_1__Package_2_ = p w/::First <- __operand_tmp_0;
                 q::First
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn earlier_direct_candidate_wins_before_later_nested_candidate() {
+    check_anf_isolated_q(
+        indoc! {r#"
+        namespace Test {
+            function Inner(value : Int) : Int { value }
+            operation Main() : Int {
+                use q = Qubit();
+                let (first, second) = (
+                    { if true { return 1; } q },
+                    Inner({ if true { return 2; } 3 })
+                );
+                second
+            }
+        }
+    "#},
+        "Main",
+        &expect![[r#"
+            // before anf (changed=true)
+            function Inner(value : Int) : Int {
+                value
+            }
+            operation Main() : Int {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let (first : Qubit, second : Int) = ({
+                    if true {
+                        {
+                            let _generated_ident_61 : Int = 1;
+                            __quantum__rt__qubit_release(q);
+                            return _generated_ident_61;
+                        };
+                    }
+
+                    q
+                }, Inner({
+                    if true {
+                        {
+                            let _generated_ident_73 : Int = 2;
+                            __quantum__rt__qubit_release(q);
+                            return _generated_ident_73;
+                        };
+                    }
+
+                    3
+                }));
+                let _generated_ident_85 : Int = second;
+                __quantum__rt__qubit_release(q);
+                _generated_ident_85
+            }
+            // entry
+            Main()
+
+            // after anf
+            function Inner(value : Int) : Int {
+                value
+            }
+            operation Main() : Int {
+                let q : Qubit = __quantum__rt__qubit_allocate();
+                let __operand_tmp_0 : Qubit[] = {
+                    if true {
+                        {
+                            let _generated_ident_61 : Int = 1;
+                            __quantum__rt__qubit_release(q);
+                            return _generated_ident_61;
+                        };
+                    }
+
+                    [q]
+                };
+                let __operand_tmp_1 : Int = {
+                    if true {
+                        {
+                            let _generated_ident_73 : Int = 2;
+                            __quantum__rt__qubit_release(q);
+                            return _generated_ident_73;
+                        };
+                    }
+
+                    3
+                };
+                let (first : Qubit, second : Int) = (__operand_tmp_0[0], Inner(__operand_tmp_1));
+                let _generated_ident_85 : Int = second;
+                __quantum__rt__qubit_release(q);
+                _generated_ident_85
             }
             // entry
             Main()
@@ -360,15 +447,14 @@ fn isolated_anf_lifts_whole_block_with_if_in_binop_operand() {
             // after anf
             function Main() : Int {
                 mutable c : Bool = true;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     if c {
                         return 2;
                     }
 
                     3
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = 1 + __operand_tmp_0;
                 x
             }
             // entry
@@ -423,8 +509,7 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
             // after anf
             function Main() : Int {
                 mutable c : Bool = true;
-                let __operand_tmp_0 : Int = 1;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     while c {
                         c = false;
                         return 2;
@@ -432,7 +517,7 @@ fn isolated_anf_lifts_whole_block_with_while_in_binop_operand() {
 
                     0
                 };
-                let x : Int = __operand_tmp_0 + __operand_tmp_1;
+                let x : Int = 1 + __operand_tmp_0;
                 x
             }
             // entry
@@ -516,20 +601,19 @@ fn isolated_anf_lifts_range_end_block() {
                     return 1;
                     5
                 };
-                r::End
+                r.End
             }
             // entry
             Main()
 
             // after anf
             function Main() : Int {
-                let __operand_tmp_0 : Int = 0;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 1;
                     5
                 };
-                let r : Range = __operand_tmp_0..__operand_tmp_1;
-                r::End
+                let r : Range = 0..__operand_tmp_0;
+                r.End
             }
             // entry
             Main()
@@ -567,12 +651,11 @@ fn isolated_anf_lifts_array_repeat_size_block() {
 
             // after anf
             function Main() : Int {
-                let __operand_tmp_0 : Int = 0;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 1;
                     5
                 };
-                let a : Int[] = [__operand_tmp_0, size = __operand_tmp_1];
+                let a : Int[] = [0, size = __operand_tmp_0];
                 a[0]
             }
             // entry
@@ -633,10 +716,10 @@ fn isolated_anf_lifts_assign_rhs_block() {
 #[test]
 fn isolated_anf_lifts_assignop_rhs_block() {
     // `set x += { return 2; 5 }` — the AssignOp value slot is a statement-
-    // carrying block burying a `return`. The ANF phase binds the value block to
-    // a spine `let __operand_tmp` and rewrites the `+=` value slot to read the
-    // temp. The assignment place `x` is preserved (not pinned to a by-value
-    // copy), so the compound update still lands on the original mutable binding.
+    // carrying block burying a `return`. The ANF phase first snapshots the old
+    // scalar value, then binds the value block to a second spine temp and
+    // replaces the continuation with a plain assignment through the original
+    // mutable place.
     check_anf_isolated_q(
         indoc! {r#"
         namespace Test {
@@ -664,11 +747,12 @@ fn isolated_anf_lifts_assignop_rhs_block() {
             // after anf
             function Main() : Int {
                 mutable x : Int = 10;
-                let __operand_tmp_0 : Int = {
+                let __operand_tmp_0 : Int = x;
+                let __operand_tmp_1 : Int = {
                     return 2;
                     5
                 };
-                x += __operand_tmp_0;
+                x = __operand_tmp_0 + __operand_tmp_1;
                 x
             }
             // entry
@@ -712,12 +796,11 @@ fn isolated_anf_lifts_assignindex_replacement_block() {
             // after anf
             function Main() : Int {
                 mutable arr : Int[] = [1, 2, 3];
-                let __operand_tmp_0 : Int = 0;
-                let __operand_tmp_1 : Int = {
+                let __operand_tmp_0 : Int = {
                     return 3;
                     5
                 };
-                arr w/= __operand_tmp_0 <- __operand_tmp_1;
+                arr w/= 0 <- __operand_tmp_0;
                 arr[0]
             }
             // entry

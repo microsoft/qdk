@@ -646,7 +646,7 @@ fn triple_param_decomposes() {
             BEFORE:
             newtype Triple = (Int, Int, Int);
             function Sum(t : (Int, Int, Int)) : Int {
-                t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
+                (t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >
             }
             function Main() : Int {
                 Sum(1, 2, 3)
@@ -657,7 +657,7 @@ fn triple_param_decomposes() {
             AFTER:
             newtype Triple = (Int, Int, Int);
             function Sum(t_0 : Int, t_1 : Int, t_2 : Int) : Int {
-                t_0 + t_1 + t_2
+                (t_0 + t_1) + t_2
             }
             function Main() : Int {
                 Sum(1, 2, 3)
@@ -1502,7 +1502,7 @@ fn multiple_tuple_params_promotion_behavior() {
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a : (Int, Int), b : (Int, Int)) : Int {
-                a::Item < 0 > + a::Item < 1 > + b::Item < 0 > + b::Item < 1 >
+                ((a::Item < 0 > + a::Item < 1 >) + b::Item < 0 >) + b::Item < 1 >
             }
             function Main() : Int {
                 Add((1, 2), (3, 4))
@@ -1514,7 +1514,7 @@ fn multiple_tuple_params_promotion_behavior() {
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a_0 : Int, a_1 : Int, b_0 : Int, b_1 : Int) : Int {
-                a_0 + a_1 + b_0 + b_1
+                ((a_0 + a_1) + b_0) + b_1
             }
             function Main() : Int {
                 Add(1, 2, 3, 4)
@@ -2815,7 +2815,7 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
                 let a : Int = x::Item < 0 >::Item < 0 >;
                 let b : Int = x::Item < 0 >::Item < 1 >;
                 let c : Int = x::Item < 1 >;
-                a + b + c
+                (a + b) + c
             }
             function Main() : Int {
                 let x : ((Int, Int), Int) = ((10, 20), 30);
@@ -2829,7 +2829,7 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
                 let a : Int = x_0_0;
                 let b : Int = x_0_1;
                 let c : Int = x_1;
-                a + b + c
+                (a + b) + c
             }
             function Main() : Int {
                 let ((x_0_0 : Int, x_0_1 : Int), x_1 : Int) = ((10, 20), 30);
@@ -2858,7 +2858,7 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
                 let b : Int = x::Item < 1 >::Item < 0 >;
                 let c : Int = x::Item < 1 >::Item < 1 >::Item < 0 >;
                 let d : Int = x::Item < 1 >::Item < 1 >::Item < 1 >;
-                a + b + c + d
+                ((a + b) + c) + d
             }
             function Main() : Int {
                 let x : (Int, (Int, (Int, Int))) = (10, (20, (30, 40)));
@@ -2873,7 +2873,7 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
                 let b : Int = x_1_0;
                 let c : Int = x_1_1_0;
                 let d : Int = x_1_1_1;
-                a + b + c + d
+                ((a + b) + c) + d
             }
             function Main() : Int {
                 let (x_0 : Int, (x_1_0 : Int, (x_1_1_0 : Int, x_1_1_1 : Int))) = (10, (20, (30, 40)));
@@ -3018,7 +3018,7 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
                 let b0 : Int = b::Item < 0 >::Item < 0 >;
                 let b1 : Int = b::Item < 0 >::Item < 1 >;
                 let b2 : Int = b::Item < 1 >;
-                a0 + a1 + a2 + b0 + b1 + b2
+                ((((a0 + a1) + a2) + b0) + b1) + b2
             }
             function Main() : Int {
                 Foo((1, (2, 3)), ((4, 5), 6))
@@ -3034,7 +3034,7 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
                 let b0 : Int = b_0_0;
                 let b1 : Int = b_0_1;
                 let b2 : Int = b_1;
-                a0 + a1 + a2 + b0 + b1 + b2
+                ((((a0 + a1) + a2) + b0) + b1) + b2
             }
             function Main() : Int {
                 Foo(1, 2, 3, 4, 5, 6)

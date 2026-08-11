@@ -948,6 +948,16 @@ impl State {
     ) -> Option<(StepResult, Span)> {
         if step == StepAction::Next && current_frame >= self.current_frame_id() {
             let block = globals.get_block((self.package, block).into());
+            // A synthetic block introduced by a desugar (for example the guard
+            // blocks the loop `break`/`continue` desugar emits) carries
+            // `Span::default()`, marking generated code with no source location.
+            // Skip its exit as a step point, matching `check_for_break`'s handling
+            // of generated code. This also avoids underflowing the `u32` offset in
+            // `block.span.hi - 1` below, which would otherwise surface a bogus
+            // end-of-file location when stepping.
+            if block.span == Span::default() {
+                return None;
+            }
             let span = Span {
                 lo: block.span.hi - 1,
                 hi: block.span.hi,

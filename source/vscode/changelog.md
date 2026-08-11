@@ -1,5 +1,204 @@
 # QDK Changelog
 
+## v1.31.0
+
+Below are some of the highlights for the 1.31 release of the QDK.
+
+### Break & Continue
+
+With this release, we have added support for the `break` and `continue` keywords to Q# and OpenQASM. This doesn't unlock any new runtime capabilities (as equivalent logic is expressible with existing loop and conditional constructs) but it does allow for much more concise and natural-looking code. For example in OpenQASM,
+
+```qasm
+int[32] i = 0;
+
+while (i < 10) {
+    i += 1;
+    // continue to the next loop iteration
+    if (i == 2) {
+        continue;
+    }
+
+    // some program
+
+    // break out of loop
+    if (i == 4) {
+        break;
+    }
+
+    // more program
+}
+```
+
+And in Q#,
+
+```qsharp
+operation Foo(q : Qubit[], stopAt : Int) : Unit {
+    let n = Length(q);
+
+    // Break and continue act on the innermost enclosing loop body
+    // They can also appear in while and repeat bodies.
+    for i in 1..n-2 {
+        if i == stopAt {
+            break;
+        }
+        if i % 2 == 0 {
+            continue;
+        }
+        CX(q[0], q[i+1]);
+    }
+}
+```
+
+### Running Q# tests from Python
+
+Q# supports writing unit tests (as operations annotated with `@Test`). Previously, these were only runnable within the VS Code UI. Now you can use the `qdk.test_utils.run_tests` Python API to run all unit tests in your Q# package.
+
+```python
+from qdk import qsharp
+from qdk.test_utils import run_tests
+
+qsharp.eval("""
+import Std.Diagnostics.Fact;
+
+@Test()
+operation MyTest() : Unit {
+    Fact(2 + 2 == 4, "assertion failed");
+}
+""")
+
+run_tests()
+```
+
+### Compile-time configuration
+
+You can now specify a compile-time configuration (as a Python dictionary passed to `qsharp.init` or the `qdk.Context` constructor) and access it in Q# code using `Std.Core.ConfigValue`. Calls to `Std.Core.ConfigValue` will be replaced with the provided values at compilation time.
+
+```python
+from qdk import qsharp, code
+
+qsharp.init(qdk_config={"size": 10, "angle": 2.0})
+
+qsharp.eval("""
+import Std.Core.ConfigValue;
+
+operation Foo() : Result[] {
+    let size = ConfigValue("size", 1);
+    let angle = ConfigValue("angle", 0.0);
+
+    use qs = Qubit[size];
+
+    for q in qs {
+        Rx(angle, q);
+    }
+    MResetEachZ(qs)
+}
+""")
+
+code.Foo()
+```
+
+See the <https://github.com/microsoft/qdk/tree/main/source/qdk_package#configuration-map> documentation for more details.
+
+### New Arithmetic library
+
+A new library for advanced quantum arithmetic operations has been added. The library is available at <https://github.com/microsoft/qdk/tree/main/library/arithmetic>, and can be used by Q# projects as outlined in <https://learn.microsoft.com/en-us/azure/quantum/how-to-work-with-qsharp-projects#configure-the-manifest-files>.
+
+### Determine if running under Resource Estimation
+
+You can now determine whether code is being executed in resource estimation mode via the new `Std.ResourceEstimation.IsResourceEstimating` API. This can be useful if you want different behavior for resource estimation versus running code on a simulator or quantum hardware.
+
+For example, if you have a loop, you can use `Std.ResourceEstimation.RepeatEstimates` in resource estimation mode, and a `for` loop otherwise.
+
+### Classical arithmetic functions
+
+When working on arithmetic algorithms, it can be useful to define an operation that applies a function to a quantum register without implementing it.
+
+Now you can do this in Q# using `Std.ArithmeticTestUtils.ApplyClassicalFunction`. It takes an `n`-qubit quantum register and a Q# function `f : (BigInt) -> BigInt` that represents a bijection on `0..2^n-1`. The effect of this operation is equivalent to applying a unitary operation that maps `|x>` to `|f(x)>`.
+
+We also provide a multi-register version (`Std.ArithmeticTestUtils.ApplyClassicalFunctionN`).
+
+For example, you can represent in-place addition (equivalent to `Std.Arithmetic.IncByLE`) as follows:
+
+```qsharp
+import Std.ArithmeticTestUtils.ApplyClassicalFunctionN;
+operation IncByLE(xs : Qubit[], ys : Qubit[]) : Unit is Ctl {
+    let mod = 1L << Length(ys);
+    ApplyClassicalFunctionN(a -> [a[0], (a[0]+a[1])%mod], [xs, ys]);
+}
+```
+
+### Arithmetic test helpers
+
+When writing tests for arithmetic operations, we typically allocate registers, write inputs to them, apply an operation, and read the outputs. We added a helper `Std.ArithmeticTestUtils.TestArithmeticOp` to do all that, which can be used in Q# unit tests.
+
+We also added a convenient Python wrapper around `TestArithmeticOp`, called `ArithmeticOpTester`, that allows you to write unit tests for arithmetic operations in Python. For example, this is how to write a test for `Std.Arithmetic.IncByLE` that checks this operation on 5 random inputs:
+
+```python
+import random
+from qdk.test_utils import ArithmeticOpTester
+n = 10
+tester = ArithmeticOpTester("Std.Arithmetic.IncByLE", [n, n])
+for _ in range(5):
+    x, y = random.randint(0, 2**n - 1), random.randint(0, 2**n - 1)
+    assert tester.run([x, y]) == [x, (x + y) % (2**n)]
+```
+
+This feature is intended for developing and testing quantum algorithms and is currently supported only by the sparse simulator.
+
+## Other notable changes
+
+- Implement `PostSelectZ` for Clifford simulation by @swernli in [3335](https://github.com/microsoft/qdk/pull/3335)
+- Move openqasm parser out of the compiler by @idavis in [3387](https://github.com/microsoft/qdk/pull/3387)
+- Document Std.Random callables as simulation-only by @amcasey in [3450](https://github.com/microsoft/qdk/pull/3450)
+- Standardize error codes with "Qdk." prefix by @joao-boechat in [3420](https://github.com/microsoft/qdk/pull/3420)
+- Fix Typo in "|0〉, |+〉 or Inconclusive?" Kata by @Advay17 in [3457](https://github.com/microsoft/qdk/pull/3457)
+- Fix unexpected loop variables in partial eval by falling back to static values by @swernli in [3456](https://github.com/microsoft/qdk/pull/3456)
+- Type checking for Python code by @fedimser in [3382](https://github.com/microsoft/qdk/pull/3382)
+- Update prepare/select scoping rules in stim by @joao-boechat in [3454](https://github.com/microsoft/qdk/pull/3454)
+- Send telemetry for wasm panics by @amcasey in [3443](https://github.com/microsoft/qdk/pull/3443)
+- Move VS Code AI files into special folder by @amcasey in [3468](https://github.com/microsoft/qdk/pull/3468)
+- Updated TM grammar by @filipw in [3444](https://github.com/microsoft/qdk/pull/3444)
+- Add Python type annotations by @fedimser in [3467](https://github.com/microsoft/qdk/pull/3467)
+- Paulimer upgrade by @orpuente-MS in [3465](https://github.com/microsoft/qdk/pull/3465)
+- [Context] Use \_get_context_or_default in global APIs by @fedimser in [3429](https://github.com/microsoft/qdk/pull/3429)
+- Running Q# tests from Python by @fedimser in [3423](https://github.com/microsoft/qdk/pull/3423)
+- Arithmetic test utils by @fedimser in [3400](https://github.com/microsoft/qdk/pull/3400)
+- Support negated targets in stim collapsing gates by @joao-boechat in [3455](https://github.com/microsoft/qdk/pull/3455)
+- Handle loss in stim control flow by @joao-boechat in [3459](https://github.com/microsoft/qdk/pull/3459)
+- fix deprecated assign update expression for nested expressions by @HABER7789 in [3482](https://github.com/microsoft/qdk/pull/3482)
+- update deq language by @yuewuo in [3466](https://github.com/microsoft/qdk/pull/3466)
+- Handle corrupt kata progress by @amcasey in [3472](https://github.com/microsoft/qdk/pull/3472)
+- Katas use Auto if Haiku 4.5 unavailable by @amcasey in [3473](https://github.com/microsoft/qdk/pull/3473)
+- Add Std.ResourceEstimation.IsResourceEstimating intrinsic by @fedimser in [3132](https://github.com/microsoft/qdk/pull/3132)
+- switch OpenQASM grammar from variable length to fixed length lookbehind by @filipw in [3480](https://github.com/microsoft/qdk/pull/3480)
+- Avoid spurious out-of-bounds error on iterating over empty array by @swernli in [3490](https://github.com/microsoft/qdk/pull/3490)
+- allow repeat-until loops in functions by @HABER7789 in [3489](https://github.com/microsoft/qdk/pull/3489)
+- Std.Core.ConfigValue by @fedimser in [3486](https://github.com/microsoft/qdk/pull/3486)
+- docs: added link to playground by @dibrinsofor in [3475](https://github.com/microsoft/qdk/pull/3475)
+- Recursive HOF specialization remaps self call to specialization by @idavis in [3458](https://github.com/microsoft/qdk/pull/3458)
+- Add classical output recording to QIR simulators by @orpuente-MS in [3435](https://github.com/microsoft/qdk/pull/3435)
+- Raise Python type checking level to Standard by @fedimser in [3496](https://github.com/microsoft/qdk/pull/3496)
+- Prevent divergent types from flowing out of loop and conjugate exprs by @swernli in [3507](https://github.com/microsoft/qdk/pull/3507)
+- Allow blocks in interpolated string expressions by @HABER7789 in [3503](https://github.com/microsoft/qdk/pull/3503)
+- [Stim] Optimize noise intrinsic emission and support more noise instructions by @joao-boechat in [3484](https://github.com/microsoft/qdk/pull/3484)
+- [STIM] SELECT block improvements + support for REPEAT by @joao-boechat in [3499](https://github.com/microsoft/qdk/pull/3499)
+- Fix a bug in Compiler::new by @fedimser in [3509](https://github.com/microsoft/qdk/pull/3509)
+- Support qdk_config in qsharp.init (and rename qsharp_config to qdk_config) by @fedimser in [3504](https://github.com/microsoft/qdk/pull/3504)
+- Update grammar file by @ScottCarda-MS in [3508](https://github.com/microsoft/qdk/pull/3508)
+- npm fixes by @billti in [3519](https://github.com/microsoft/qdk/pull/3519)
+- Switch from fat to thin lto by @joao-boechat in [3524](https://github.com/microsoft/qdk/pull/3524)
+- Break and continue support by @idavis in [3451](https://github.com/microsoft/qdk/pull/3451)
+- Add arithmetic library by @fedimser in [3523](https://github.com/microsoft/qdk/pull/3523)
+- Reference test_utils in documentation. by @fedimser in [3527](https://github.com/microsoft/qdk/pull/3527)
+
+## New Contributors
+
+- @Advay17 made their first contribution in [3457](https://github.com/microsoft/qdk/pull/3457)
+- @HABER7789 made their first contribution in [3482](https://github.com/microsoft/qdk/pull/3482)
+- @dibrinsofor made their first contribution in [3475](https://github.com/microsoft/qdk/pull/3475)
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.30.0...v1.31.0>
+
 ## v1.30.0
 
 Below are some of the highlights for the 1.30 release of the QDK.

@@ -100,7 +100,7 @@ let re = c.Re;                     // Field access
 ### Control Flow
 
 ```qsharp
-// If-elif-else (expression-based — returns a value)
+// If-elif-else (expression-based: returns a value)
 let abs = if x > 0 { x } else { -x };
 
 // For loops
@@ -110,6 +110,19 @@ for elem in array { }             // Array iteration
 
 // While loops
 while condition { }
+
+// Break and continue act on the innermost enclosing loop body
+for i in 0..n-1 {
+    if i == stopAt {
+        break;
+    }
+    if i % 2 == 0 {
+        continue;
+    }
+}
+
+// Break and continue can also appear in while and repeat bodies.
+// They are not allowed in loop conditions or repeat fixup blocks.
 
 // Repeat-until (quantum retry pattern)
 repeat {
@@ -251,7 +264,7 @@ A standalone `.qs` file works without any project file. Best for simple programs
 
 ### Multi-File Project
 
-```
+```text
 project_root/
 ├── qsharp.json
 └── src/

@@ -600,6 +600,10 @@ impl<'a> Context<'a> {
                 self.typed_holes.push((expr.id, expr.span));
                 converge(self.inferrer.fresh_ty(TySource::not_divergent(expr.span)))
             }
+            // A break or continue expression diverges, like return or fail. Using a
+            // fresh divergent type variable lets it compose in operand position, so
+            // `let x = if c { break } else { 3 };` infers `x : Int`.
+            ExprKind::Break | ExprKind::Continue => self.diverge(),
             ExprKind::Err | ast::ExprKind::Struct(ast::PathKind::Err(_), ..) => converge(Ty::Err),
         };
 

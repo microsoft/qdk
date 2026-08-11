@@ -1,16 +1,79 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! The lifted spine returns the same value as the untransformed program.
+//! Tests that ANF lifting preserves values, effects, and early-return order.
 //!
-//! A `return` buried in an eagerly-evaluated operand short-circuits before the
-//! surrounding operator, access, or sibling operand runs. Each fixture pairs
-//! the buried `return` with a sibling that would fault (index out of range,
-//! array-repeat with an invalid size, divide by zero) if the lift failed to
-//! short-circuit, so an equal Ok/Err result witnesses that the lifted spine
-//! preserves the original early-return value behavior.
+//! Faulting sibling operands make an incorrect short-circuit observable.
 
 use super::*;
+
+#[test]
+fn earlier_local_read_is_pinned_when_a_later_operand_assigns_it() {
+    // A later operand mutates `acc`, so the earlier local read must be pinned;
+    // side-effect freedom alone is not sufficient.
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Add(a : Int, b : Int) : Int { a + b }
+            function Main() : Int {
+                mutable acc = 1;
+                let go = false;
+                let x = Add(acc, {
+                    acc = 99;
+                    if go { return 7; }
+                    5
+                });
+                x * 1000 + acc
+            }
+        }
+    "#});
+}
+
+#[test]
+fn plain_and_field_assignment_preserve_abrupt_rhs_order() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            struct Pair { First : Int, Second : Int }
+            function Main() : Int {
+                mutable trace = 0;
+                mutable x = 0;
+                mutable pair = new Pair { First = 1, Second = 2 };
+                let go = false;
+                set x = {
+                    set trace = trace * 10 + 1;
+                    if go { return 90; }
+                    4
+                };
+                set pair w/= First <- {
+                    set trace = trace * 10 + 2;
+                    if go { return 91; }
+                    6
+                };
+                trace * 100 + x * 10 + pair.First
+            }
+        }
+    "#});
+}
+
+#[test]
+fn return_in_while_condition_remains_per_iteration() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable checks = 0;
+                mutable iterations = 0;
+                let go = false;
+                while {
+                    set checks += 1;
+                    if go { return 99; }
+                    checks <= 3
+                } {
+                    set iterations += 1;
+                }
+                checks * 10 + iterations
+            }
+        }
+    "#});
+}
 
 #[test]
 fn return_in_first_tuple_element_short_circuits_before_sibling_out_of_range() {
@@ -364,6 +427,162 @@ fn nonfiring_return_in_assignop_rhs_preserves_compound_assignment_write() {
 }
 
 #[test]
+fn nonfiring_return_in_scalar_assignop_rhs_uses_pre_rhs_value() {
+    // `x += { x = 20; if go { return 7; } 5 }` with `go` false. Q# reads
+    // a compound assignment's place before its RHS runs, so the RHS's own
+    // `x = 20` must not be visible to the `+`: the write lands as
+    // `10 + 5 = 15`, not `20 + 5 = 25`.
+    //
+    // The equivalence check pins the value. The snapshot pins the mechanism,
+    // which is what makes the value correct: `anf_lift_scalar_assign_op` binds
+    // the pre-RHS read of `x` to its own spine temp *ahead* of the lifted
+    // candidate, so the later `x = 20` cannot reach it. Without that
+    // ordering the two assertions fail together, and the snapshot is what shows
+    // why.
+    let source = indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable x = 10;
+                let go = false;
+                x += {
+                    x = 20;
+                    if go { return 7; }
+                    5
+                };
+                x
+            }
+        }
+    "#};
+    check_no_returns_q(
+        source,
+        &expect![[r#"
+        function Main() : Int {
+            mutable __has_returned : Bool = false;
+            mutable __ret_val : Int = 0;
+            mutable x : Int = 10;
+            let go : Bool = false;
+            let __operand_tmp_0 : Int = x;
+            let __operand_tmp_1 : Int = {
+                x = 20;
+                if go {
+                    {
+                        __ret_val = 7;
+                        __has_returned = true;
+                    };
+                }
+
+                5
+            };
+            if (not __has_returned) {
+                x = __operand_tmp_0 + __operand_tmp_1;
+            };
+            if __has_returned {
+                __ret_val
+            } else {
+                if (not __has_returned) {
+                    x
+                } else {
+                    __ret_val
+                }
+            }
+
+        }
+        // entry
+        Main()
+    "#]],
+    );
+    check_semantic_equivalence(source);
+}
+
+#[test]
+fn nonfiring_return_in_array_assignop_rhs_uses_post_rhs_binding() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int[] {
+                mutable xs = [1];
+                let go = false;
+                set xs += {
+                    set xs = [2];
+                    if go { return [7]; }
+                    [3]
+                };
+                xs
+            }
+        }
+    "#});
+}
+
+#[test]
+fn nonfiring_return_in_indexed_compound_rhs_uses_pre_rhs_element() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable xs = [10];
+                let go = false;
+                set xs[0] += {
+                    set xs w/= 0 <- 20;
+                    if go { return 7; }
+                    5
+                };
+                xs[0]
+            }
+        }
+    "#});
+}
+
+#[test]
+fn short_circuited_and_assign_skips_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = false;
+                set keep and= { return 7; true };
+                if keep { 1 } else { 2 }
+            }
+        }
+    "#});
+}
+
+#[test]
+fn short_circuited_or_assign_skips_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = true;
+                set keep or= { return 7; false };
+                if keep { 1 } else { 2 }
+            }
+        }
+    "#});
+}
+
+#[test]
+fn non_short_circuited_and_assign_runs_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = true;
+                set keep and= { return 7; false };
+                if keep { 1 } else { 2 }
+            }
+        }
+    "#});
+}
+
+#[test]
+fn non_short_circuited_or_assign_runs_return_bearing_rhs() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Main() : Int {
+                mutable keep = false;
+                set keep or= { return 7; true };
+                if keep { 1 } else { 2 }
+            }
+        }
+    "#});
+}
+
+#[test]
 fn nonfiring_return_in_assignfield_value_preserves_field_write() {
     // `set p w/= First <- { if go { return 7; } 9 }` with `go` false — the field
     // update must land, so the trailing read observes `9`, not the stale `1`.
@@ -673,6 +892,44 @@ fn nonfiring_return_in_range_step_preserves_iteration() {
                     set total += i;
                 }
                 total
+            }
+        }
+    "#});
+}
+
+#[test]
+fn effectful_arrow_pin_preserves_initializer_evaluation() {
+    // `GetOp(q)({ if go { return 7; } 5 })` with `go` false — the callee operand
+    // is arrow-typed and its initializer performs an `X(q)`, so
+    // `anf_lift_operand` pins it to an immutable temp. Defunctionalization
+    // keeps its initializer while rewriting the callable read to direct dispatch.
+    //
+    // `flips` witnesses the initializer running exactly once on the non-return
+    // path. Dropping it returns 60 where the untransformed program returns 61;
+    // running it twice also reads 60 but produces a different effect trace.
+    // `check_semantic_equivalence` compares both the ordered trace and value.
+    //
+    // The arrow value comes from a named function (`Inc`) rather than a lambda.
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            function Inc(x : Int) : Int { x + 1 }
+            operation GetOp(q : Qubit) : (Int -> Int) {
+                X(q);
+                Inc
+            }
+            operation Main() : Int {
+                use q = Qubit();
+                let go = false;
+                let x = GetOp(q)({
+                    if go { return 7; }
+                    5
+                });
+                mutable flips = 0;
+                if M(q) == One {
+                    set flips = 1;
+                }
+                Reset(q);
+                x * 10 + flips
             }
         }
     "#});
