@@ -10,9 +10,12 @@
 //! that package's own watermark.
 
 use super::PackageAssigners;
-use crate::test_utils::compile_to_fir;
+use crate::{
+    collapse_simulatable_intrinsics, gc_unreachable,
+    test_utils::{compile_to_fir, compile_to_fir_with_library},
+};
 use qsc_fir::assigner::Assigner;
-use qsc_fir::fir::{PackageId, PackageStore};
+use qsc_fir::fir::{CallableImpl, ItemKind, PackageId, PackageStore};
 
 const SOURCE: &str = "
     operation Helper(x : Int) : Int { x + 1 }
@@ -109,4 +112,75 @@ fn entry_seeded_assigner_minting_into_foreign_package_collides() {
         "an entry-seeded assigner must collide with the larger foreign package's arena, \
          demonstrating the overwrite hazard the per-package pool prevents"
     );
+}
+
+#[test]
+fn eager_seed_preserves_all_foreign_package_watermarks_after_gc() {
+    let library_source = r#"
+        namespace TestLib {
+            @SimulatableIntrinsic()
+            operation ForeignSimulatableIntrinsic(value : (Int, Int)) : Unit {
+                let (left, right) = value;
+                mutable total = left + right;
+                set total += 1;
+            }
+        }
+    "#;
+    let user_source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {}
+        }
+    "#;
+    let (mut store, entry_package_id) = compile_to_fir_with_library(library_source, user_source);
+    let foreign_package_id = store
+        .iter()
+        .find_map(|(package_id, package)| {
+            package
+                .items
+                .values()
+                .any(|item| {
+                    matches!(
+                        &item.kind,
+                        ItemKind::Callable(decl)
+                            if decl.name.name.as_ref() == "ForeignSimulatableIntrinsic"
+                                && matches!(
+                                    decl.implementation,
+                                    CallableImpl::SimulatableIntrinsic(_)
+                                )
+                    )
+                })
+                .then_some(package_id)
+        })
+        .expect("foreign simulatable intrinsic should exist");
+
+    let mut expected = Assigner::from_package(store.get(foreign_package_id));
+    let expected_block = expected.next_block();
+    let expected_expr = expected.next_expr();
+    let expected_pat = expected.next_pat();
+    let expected_stmt = expected.next_stmt();
+    let expected_local = expected.next_local();
+    let expected_item = expected.next_item();
+
+    let mut pool = PackageAssigners::new(&store, entry_package_id);
+    pool.seed_all(&store);
+    collapse_simulatable_intrinsics(&mut store);
+    let removed = gc_unreachable::gc_unreachable(store.get_mut(foreign_package_id));
+    assert!(removed > 0, "simulation body nodes should be collected");
+
+    let mut post_gc = Assigner::from_package(store.get(foreign_package_id));
+    assert_ne!(post_gc.next_block(), expected_block);
+    assert_ne!(post_gc.next_expr(), expected_expr);
+    assert_ne!(post_gc.next_pat(), expected_pat);
+    assert_ne!(post_gc.next_stmt(), expected_stmt);
+    assert_ne!(post_gc.next_local(), expected_local);
+    assert_eq!(post_gc.next_item(), expected_item);
+
+    let seeded = pool.get_mut(&store, foreign_package_id);
+    assert_eq!(seeded.next_block(), expected_block);
+    assert_eq!(seeded.next_expr(), expected_expr);
+    assert_eq!(seeded.next_pat(), expected_pat);
+    assert_eq!(seeded.next_stmt(), expected_stmt);
+    assert_eq!(seeded.next_local(), expected_local);
+    assert_eq!(seeded.next_item(), expected_item);
 }

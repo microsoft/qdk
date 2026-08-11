@@ -60,6 +60,32 @@ fn entry_callee_name_and_generic_arg_count(package: &qsc_fir::fir::Package) -> (
     (decl.name.name.to_string(), generic_args.len())
 }
 
+fn reachable_callables_with_prefix(
+    store: &qsc_fir::fir::PackageStore,
+    pkg_id: qsc_fir::fir::PackageId,
+    prefix: &str,
+) -> Vec<(String, bool)> {
+    let reachable = crate::reachability::collect_reachable_from_entry(store, pkg_id);
+    let mut callables = reachable
+        .iter()
+        .filter_map(|store_item_id| {
+            let package = store.get(store_item_id.package);
+            let item = package.items.get(store_item_id.item)?;
+            let ItemKind::Callable(decl) = &item.kind else {
+                return None;
+            };
+            decl.name.name.starts_with(prefix).then(|| {
+                (
+                    decl.name.name.to_string(),
+                    matches!(decl.implementation, CallableImpl::Intrinsic),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+    callables.sort();
+    callables
+}
+
 /// Compiles Q# source, runs monomorphization, and asserts no
 /// `ExprKind::Var` in the user package still carries generic args.
 fn assert_no_generic_args(source: &str) {
@@ -1057,6 +1083,43 @@ fn mono_cross_package_length() {
 }
 
 #[test]
+fn mono_generic_dump_operation_preserves_literal_name_after_pipeline_collapse() {
+    let source = indoc! {r#"
+                operation Main() : Unit {
+                    use qs = Qubit[1];
+                    Std.Diagnostics.DumpOperation(1, qs => H(qs[0]));
+                }
+            "#};
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to(
+        source,
+        crate::test_utils::PipelineStage::Mono,
+    );
+
+    assert_eq!(
+        reachable_callables_with_prefix(&store, pkg_id, "DumpOperation"),
+        vec![("DumpOperation".to_string(), true)]
+    );
+}
+
+// This is a marker in case we ever need to add tests for intrinsic generics that should not be mangled.
+#[test]
+fn mono_unrelated_generic_intrinsic_still_mangles_name() {
+    let source = indoc! {r#"
+                operation UnrelatedIntrinsic<'T>(value : 'T) : Unit { body intrinsic; }
+                operation Main() : Unit { UnrelatedIntrinsic(42); }
+            "#};
+    let (store, pkg_id) = crate::test_utils::compile_and_run_pipeline_to(
+        source,
+        crate::test_utils::PipelineStage::Mono,
+    );
+
+    assert_eq!(
+        reachable_callables_with_prefix(&store, pkg_id, "UnrelatedIntrinsic"),
+        vec![("UnrelatedIntrinsic<Int>".to_string(), true)]
+    );
+}
+
+#[test]
 fn mono_cross_package_reversed() {
     // Reversed is a cross-package generic callable.
     let source = indoc! {r#"
@@ -1337,9 +1400,8 @@ fn mono_recursive_generic() {
 }
 
 #[test]
-fn mono_generic_with_simulatable_intrinsic() {
-    // A generic function used via a simulatable intrinsic path.
-    // Length is a cross-package intrinsic: verify it's specialized.
+fn mono_generic_with_cross_package_intrinsic() {
+    // A generic function that calls the cross-package Length intrinsic.
     let source = indoc! {r#"
                 operation Wrap<'T>(arr : 'T[]) : Int { Length(arr) }
                 operation Main() : Int {
@@ -2031,41 +2093,6 @@ fn monomorphize_no_entry_panics() {
     crate::test_utils::assert_panics_with("package must have an entry expression", || {
         monomorphize(&mut fir_store, fir_pkg_id, &mut assigners);
     });
-}
-
-#[test]
-fn mono_preserves_simulatable_intrinsic_impl() {
-    // A generic @SimulatableIntrinsic callable should, after monomorphization,
-    // produce a specialization that retains the SimulatableIntrinsic variant.
-    let (mut store, pkg_id) = crate::test_utils::compile_to_fir(indoc! {r#"
-            @SimulatableIntrinsic()
-            operation MySimIntrinsic<'T>(x : 'T) : 'T { x }
-            operation Main() : Int { MySimIntrinsic(42) }
-        "#});
-    let mut assigners = PackageAssigners::new(&store, pkg_id);
-    monomorphize(&mut store, pkg_id, &mut assigners);
-
-    let package = store.get(pkg_id);
-    let mut found_specialized = false;
-    for (_, item) in &package.items {
-        if let ItemKind::Callable(decl) = &item.kind
-            && decl.name.name.as_ref() == "MySimIntrinsic<Int>"
-        {
-            assert!(
-                matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_)),
-                "specialized callable should preserve SimulatableIntrinsic variant"
-            );
-            assert!(
-                decl.generics.is_empty(),
-                "specialized callable should have no generic params"
-            );
-            found_specialized = true;
-        }
-    }
-    assert!(
-        found_specialized,
-        "should find a specialized MySimIntrinsic<Int> callable"
-    );
 }
 
 #[test]

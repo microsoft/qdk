@@ -1281,8 +1281,7 @@ fn resolve_concrete_closure_captures(
 /// inside each specialization body.
 fn walk_callable_impl_bodies<'a>(vis: &mut impl Visitor<'a>, callable_impl: &CallableImpl) {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
-        CallableImpl::SimulatableIntrinsic(spec_decl) => vis.visit_block(spec_decl.block),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             vis.visit_block(spec_impl.body.block);
             for spec in [
@@ -1561,15 +1560,12 @@ pub(crate) fn build_expr_block_lookup(package: &Package) -> FxHashMap<ExprId, (B
     for (_item_id, item) in &package.items {
         if let ItemKind::Callable(decl) = &item.kind {
             match &decl.implementation {
-                CallableImpl::Intrinsic => {}
+                CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
                 CallableImpl::Spec(spec_impl) => {
                     record_block_context(package, spec_impl.body.block, &mut lookup);
                     for spec in crate::fir_builder::functored_specs(spec_impl) {
                         record_block_context(package, spec.block, &mut lookup);
                     }
-                }
-                CallableImpl::SimulatableIntrinsic(spec_decl) => {
-                    record_block_context(package, spec_decl.block, &mut lookup);
                 }
             }
         }
@@ -1820,10 +1816,8 @@ fn remove_write_only_callable_local_from_callable(
 
     let implementation = decl.implementation.clone();
     match implementation {
-        qsc_fir::fir::CallableImpl::Intrinsic => {}
-        qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            remove_write_only_callable_local_from_block(package, spec_decl.block, local_var);
-        }
+        qsc_fir::fir::CallableImpl::Intrinsic
+        | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
         qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
             remove_write_only_callable_local_from_block(package, spec_impl.body.block, local_var);
             for spec in [spec_impl.adj, spec_impl.ctl, spec_impl.ctl_adj]
@@ -2037,10 +2031,8 @@ fn remove_dead_callable_local_from_callable(
 
     let implementation = decl.implementation.clone();
     match implementation {
-        qsc_fir::fir::CallableImpl::Intrinsic => {}
-        qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            remove_dead_callable_local_from_block(package, spec_decl.block, local_var);
-        }
+        qsc_fir::fir::CallableImpl::Intrinsic
+        | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
         qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
             remove_dead_callable_local_from_block(package, spec_impl.body.block, local_var);
             for spec in [spec_impl.adj, spec_impl.ctl, spec_impl.ctl_adj]
@@ -2101,10 +2093,8 @@ fn prune_dead_top_level_callable_locals(package: &mut Package, package_id: Packa
 
     for (_item_id, implementation) in callable_items {
         match implementation {
-            qsc_fir::fir::CallableImpl::Intrinsic => {}
-            qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec_decl) => {
-                prune_dead_callable_locals_in_block(package, package_id, spec_decl.block);
-            }
+            qsc_fir::fir::CallableImpl::Intrinsic
+            | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => {}
             qsc_fir::fir::CallableImpl::Spec(spec_impl) => {
                 prune_dead_callable_locals_in_block(package, package_id, spec_impl.body.block);
                 for spec in [spec_impl.adj, spec_impl.ctl, spec_impl.ctl_adj]

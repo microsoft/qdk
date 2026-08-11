@@ -17,6 +17,7 @@ use miette::Diagnostic;
 use qsc_ast::ast::{self, FieldAccess, Ident, Idents, PathKind};
 use qsc_data_structures::{
     index_map::IndexMap,
+    intrinsic_names::is_codegen_noop_intrinsic,
     span::Span,
     target::{Profile, TargetCapabilityFlags},
 };
@@ -52,6 +53,22 @@ pub(super) enum Error {
     #[diagnostic(help("try declaring the callable as an operation"))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrOnFunction"))]
     InvalidAttrOnFunction(String, #[label] Span),
+    #[error(
+        "the SimulatableIntrinsic attribute cannot be applied to a callable with explicit generic type parameters"
+    )]
+    #[diagnostic(help(
+        "remove the SimulatableIntrinsic attribute or the explicit generic type parameters"
+    ))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidSimulatableIntrinsicOnGenericCallable"))]
+    InvalidSimulatableIntrinsicOnGenericCallable(#[label("explicit generic type parameter")] Span),
+    #[error(
+        "the SimulatableIntrinsic attribute cannot be applied to a callable with an arrow-typed input parameter"
+    )]
+    #[diagnostic(help(
+        "remove the SimulatableIntrinsic attribute or replace the arrow-typed input parameter"
+    ))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidSimulatableIntrinsicArrowParam"))]
+    InvalidSimulatableIntrinsicArrowParam(#[label("arrow-typed input parameter")] Span),
     #[error("missing callable body")]
     #[diagnostic(code("Qdk.Qsc.LowerAst.MissingBody"))]
     MissingBody(#[label] Span),
@@ -506,6 +523,20 @@ impl With<'_> {
         let kind = self.lower_callable_kind(decl.kind, attrs, decl.name.span);
         let name = self.lower_ident(&decl.name);
         let mut input = self.lower_pat(&decl.input);
+
+        if attrs.contains(&hir::Attr::SimulatableIntrinsic) {
+            if let Some(generic) = decl.generics.first() {
+                self.lowerer
+                    .errors
+                    .push(Error::InvalidSimulatableIntrinsicOnGenericCallable(
+                        generic.span,
+                    ));
+            }
+            if !is_codegen_noop_intrinsic(&name.name) {
+                Self::validate_simulatable_intrinsic_input(&input, &mut self.lowerer.errors);
+            }
+        }
+
         let output = convert::ty_from_ast(self.names, &decl.output, &mut Default::default()).0;
         let (generics, errs) = self.synthesize_callable_generics(&decl.generics, &mut input);
         let functors = convert::ast_callable_functors(decl);
@@ -553,6 +584,21 @@ impl With<'_> {
             },
             errs,
         )
+    }
+
+    fn validate_simulatable_intrinsic_input(pat: &hir::Pat, errors: &mut Vec<Error>) {
+        match &pat.kind {
+            hir::PatKind::Tuple(items) => {
+                for item in items {
+                    Self::validate_simulatable_intrinsic_input(item, errors);
+                }
+            }
+            hir::PatKind::Bind(_) | hir::PatKind::Discard | hir::PatKind::Err => {
+                if matches!(pat.ty, Ty::Arrow(_)) {
+                    errors.push(Error::InvalidSimulatableIntrinsicArrowParam(pat.span));
+                }
+            }
+        }
     }
 
     fn check_invalid_attrs_on_function(&mut self, attrs: &[hir::Attr], span: Span) {

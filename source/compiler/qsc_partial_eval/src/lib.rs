@@ -39,6 +39,8 @@ use qsc_fir::{
     },
     ty::{FunctorSetValue, Prim, Ty},
 };
+
+pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
@@ -1914,19 +1916,7 @@ impl<'a> PartialEvaluator<'a> {
             "IsResourceEstimating" => Ok(Value::Bool(false)),
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),
-            "DumpRegister"
-            | "DumpOperation"
-            | "AccountForEstimatesInternal"
-            | "BeginRepeatEstimatesInternal"
-            | "EndRepeatEstimatesInternal"
-            | "EnableMemoryComputeArchitecture"
-            | "Load"
-            | "Store"
-            | "ApplyIdleNoise"
-            | "GlobalPhase"
-            | "Message"
-            | "PostSelectZ"
-            | "Fact" => Ok(Value::unit()),
+            name if is_codegen_noop_intrinsic(name) => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,

@@ -343,24 +343,6 @@ pub(super) fn inject_stale_local_var(
     panic!("no Res::Local expression found to mutate");
 }
 
-pub(super) fn inject_stale_local_var_in_callable(
-    store: &mut PackageStore,
-    pkg_id: qsc_fir::fir::PackageId,
-    callable_name: &str,
-    bad_id: LocalVarId,
-) {
-    let target_id = {
-        let pkg = store.get(pkg_id);
-        find_expr_in_named_callable(pkg, callable_name, |_, _, expr| {
-            matches!(expr.kind, ExprKind::Var(Res::Local(_), _))
-        })
-    };
-
-    let pkg = store.get_mut(pkg_id);
-    let expr = pkg.exprs.get_mut(target_id).expect("expr not found");
-    expr.kind = ExprKind::Var(Res::Local(bad_id), vec![]);
-}
-
 pub(super) fn inject_udt_expr_type_in_callable(
     store: &mut PackageStore,
     pkg_id: qsc_fir::fir::PackageId,

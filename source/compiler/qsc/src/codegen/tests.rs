@@ -86,6 +86,71 @@ fn compile_source_to_qir_result(
     )
 }
 
+#[test]
+fn dump_operation_is_codegen_noop_across_restricted_profiles() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Std.Diagnostics.DumpOperation(1, qs => H(qs[0]));
+            }
+        }
+    "#;
+
+    for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            !qir.contains("DumpOperation"),
+            "expected DumpOperation to emit no call, declaration, or symbol for {profile:?}:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn codegen_noop_intrinsic_preserves_effectful_arguments() {
+    let source = r#"
+        namespace Test {
+            operation CountAfterMeasurement(q : Qubit) : Int {
+                M(q);
+                1
+            }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                Std.Diagnostics.DumpOperation(
+                    CountAfterMeasurement(q),
+                    qs => H(qs[0])
+                );
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::AdaptiveRI.into());
+    assert!(
+        qir.contains("__quantum__qis__m__body"),
+        "expected the effectful DumpOperation argument to remain in generated QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn fact_is_codegen_noop_after_simulatable_intrinsic_collapse() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Std.Diagnostics.Fact(false, "message");
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(
+        !qir.contains("Fact"),
+        "expected Fact to emit no QIR symbol:\n{qir}"
+    );
+}
+
 /// Compiles `lib_source` as a separate library package, then generates QIR for
 /// `user_source` with that library as a dependency. The library's namespaces are
 /// visible to the user program without an alias, so user code can reference them

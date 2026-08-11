@@ -638,10 +638,8 @@ fn build_stmt_block_map_for_callable(
 /// Collects block IDs reachable from a callable's implementation.
 ///
 /// For a `Spec` implementation this includes each specialization's root
-/// block plus every block nested within expressions. `Intrinsic` and
-/// `SimulatableIntrinsic` implementations contribute no spec-level root
-/// block; any blocks nested within a `SimulatableIntrinsic` body are still
-/// picked up by the expression walk.
+/// block plus every block nested within expressions. Intrinsic implementations
+/// contribute no spec-level root blocks.
 pub(crate) fn collect_all_block_ids_in_callable(
     package: &Package,
     item_id: LocalItemId,

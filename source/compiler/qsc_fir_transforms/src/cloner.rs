@@ -145,12 +145,11 @@ impl FirCloner {
         target: &mut Package,
     ) -> CallableImpl {
         match callable_impl {
-            CallableImpl::Intrinsic => CallableImpl::Intrinsic,
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+                CallableImpl::Intrinsic
+            }
             CallableImpl::Spec(spec_impl) => {
                 CallableImpl::Spec(self.clone_spec_impl(source, spec_impl, target))
-            }
-            CallableImpl::SimulatableIntrinsic(spec_decl) => {
-                CallableImpl::SimulatableIntrinsic(self.clone_spec_decl(source, spec_decl, target))
             }
         }
     }

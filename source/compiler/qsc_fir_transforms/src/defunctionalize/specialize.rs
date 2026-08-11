@@ -522,15 +522,12 @@ fn report_excessive_specializations(
 /// callable implementation.
 fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &CallableImpl) {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             refresh_block_types(package, spec_impl.body.block);
             for spec in functored_specs(spec_impl) {
                 refresh_block_types(package, spec.block);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            refresh_block_types(package, spec.block);
         }
     }
 }
@@ -1955,7 +1952,7 @@ fn transform_callable_body(
 ) {
     let mut alias_set = AliasSet::default();
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             transform_block(
                 package,
@@ -2007,19 +2004,6 @@ fn transform_callable_body(
                     assigner,
                 );
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            transform_block(
-                package,
-                package_id,
-                spec_decl.block,
-                param,
-                concrete,
-                concrete_group,
-                &mut alias_set,
-                specialized_capture_targets,
-                assigner,
-            );
         }
     }
 }
@@ -4127,7 +4111,7 @@ fn collect_calls_to_closure_target(
         calls: FxHashSet::default(),
     };
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             collector.visit_block(spec_impl.body.block);
             if let Some(adj) = &spec_impl.adj {
@@ -4139,9 +4123,6 @@ fn collect_calls_to_closure_target(
             if let Some(ctl_adj) = &spec_impl.ctl_adj {
                 collector.visit_block(ctl_adj.block);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            collector.visit_block(spec_decl.block);
         }
     }
     collector.calls
@@ -4212,7 +4193,7 @@ fn rewrite_closure_target_call_args(
     assigner: &mut Assigner,
 ) {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             rewrite_closure_target_call_args_in_block(
                 package,
@@ -4252,16 +4233,6 @@ fn rewrite_closure_target_call_args(
                     assigner,
                 );
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            rewrite_closure_target_call_args_in_block(
-                package,
-                spec_decl.block,
-                package_id,
-                closure_target,
-                capture_bindings,
-                assigner,
-            );
         }
     }
 }
@@ -4662,7 +4633,7 @@ fn prepend_capture_args_to_call(
 fn spec_block_ids(callable_impl: &CallableImpl) -> Vec<qsc_fir::fir::BlockId> {
     let mut ids = Vec::new();
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             ids.push(spec_impl.body.block);
             if let Some(ref adj) = spec_impl.adj {
@@ -4675,7 +4646,6 @@ fn spec_block_ids(callable_impl: &CallableImpl) -> Vec<qsc_fir::fir::BlockId> {
                 ids.push(ctl_adj.block);
             }
         }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => ids.push(spec_decl.block),
     }
     ids
 }
@@ -5042,13 +5012,6 @@ fn remove_nested_callable_param(
                     inner_path,
                 );
             }
-        } else if let CallableImpl::SimulatableIntrinsic(spec_decl) = &decl.implementation {
-            rewrite_destructuring_pat_in_block(
-                package,
-                spec_decl.block,
-                param.param_var,
-                inner_path,
-            );
         }
     }
 }
@@ -5382,15 +5345,12 @@ fn extract_callable_body(source_pkg: &Package, decl: &CallableDecl) -> Package {
     extract_pat(source_pkg, decl.input, &mut body_pkg);
 
     match &decl.implementation {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             extract_spec_decl_body(source_pkg, &spec_impl.body, &mut body_pkg);
             for spec in functored_specs(spec_impl) {
                 extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
         }
     }
 
@@ -5530,19 +5490,22 @@ fn extract_item(source: &Package, item_id: LocalItemId, target: &mut Package) {
         return;
     }
     let item = source.get_item(item_id);
-    target.items.insert(item_id, item.clone());
+    let mut extracted_item = item.clone();
+    if let ItemKind::Callable(decl) = &mut extracted_item.kind
+        && matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_))
+    {
+        decl.implementation = CallableImpl::Intrinsic;
+    }
+    target.items.insert(item_id, extracted_item);
     if let ItemKind::Callable(decl) = &item.kind {
         extract_pat(source, decl.input, target);
         match &decl.implementation {
-            CallableImpl::Intrinsic => {}
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
             CallableImpl::Spec(spec_impl) => {
                 extract_spec_decl_body(source, &spec_impl.body, target);
                 for spec in functored_specs(spec_impl) {
                     extract_spec_decl_body(source, spec, target);
                 }
-            }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                extract_spec_decl_body(source, spec, target);
             }
         }
     }

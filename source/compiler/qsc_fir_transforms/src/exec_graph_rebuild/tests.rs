@@ -24,7 +24,6 @@ enum CallableSpecKind {
     Adj,
     Ctl,
     CtlAdj,
-    SimulatableIntrinsic,
 }
 
 /// Formats the body spec exec graph of the entry callable as a string for
@@ -107,12 +106,7 @@ fn callable_local_names(
                 }
             }
         }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            if let Some(input_pat) = spec.input {
-                collect_pat_names(package, input_pat, &mut names);
-            }
-        }
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
     }
 
     names
@@ -190,7 +184,6 @@ fn format_callable_spec_exec_graph(
             .ctl_adj
             .as_ref()
             .expect("controlled adjoint spec should exist"),
-        (CallableSpecKind::SimulatableIntrinsic, CallableImpl::SimulatableIntrinsic(spec)) => spec,
         _ => panic!("requested spec kind is not present on '{callable_name}'"),
     };
 
@@ -244,8 +237,9 @@ fn format_store_callable_exec_graph(
     let local_names = callable_local_names(package, decl);
     let spec = match &decl.implementation {
         CallableImpl::Spec(spec_impl) => &spec_impl.body,
-        CallableImpl::SimulatableIntrinsic(spec) => spec,
-        CallableImpl::Intrinsic => panic!("callable '{}' should have a body", decl.name.name),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{}' should have a body", decl.name.name)
+        }
     };
 
     format_exec_graph_nodes(
@@ -271,8 +265,9 @@ fn clear_store_callable_exec_graph(
 
     match &mut decl.implementation {
         CallableImpl::Spec(spec_impl) => spec_impl.body.exec_graph = Default::default(),
-        CallableImpl::SimulatableIntrinsic(spec) => spec.exec_graph = Default::default(),
-        CallableImpl::Intrinsic => panic!("callable '{}' should have a body", decl.name.name),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{}' should have a body", decl.name.name)
+        }
     }
 }
 
@@ -292,10 +287,9 @@ fn callable_body_exec_graph_len(
             .exec_graph
             .select_ref(ExecGraphConfig::NoDebug)
             .len(),
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            spec.exec_graph.select_ref(ExecGraphConfig::NoDebug).len()
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{}' should have a body", decl.name.name)
         }
-        CallableImpl::Intrinsic => panic!("callable '{}' should have a body", decl.name.name),
     }
 }
 
@@ -852,34 +846,6 @@ fn controlled_adjoint_spec_exec_graph_rebuilds_semantic_order() {
             9: Call
             10: Unit
             11: Ret"#]],
-    );
-}
-
-#[test]
-fn simulatable_intrinsic_spec_exec_graph_rebuilds_semantic_order() {
-    check_callable_spec_exec_graph(
-        "@SimulatableIntrinsic()
-        operation MyMeasurement(q : Qubit) : Result {
-            H(q);
-            M(q)
-        }
-        @EntryPoint()
-        operation Main() : Result {
-            use q = Qubit();
-            MyMeasurement(q)
-        }",
-        "MyMeasurement",
-        CallableSpecKind::SimulatableIntrinsic,
-        &expect![[r#"
-            0: H
-            1: Store
-            2: Var(q)
-            3: Call
-            4: M
-            5: Store
-            6: Var(q)
-            7: Call
-            8: Ret"#]],
     );
 }
 

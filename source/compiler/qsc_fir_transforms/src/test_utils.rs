@@ -32,7 +32,6 @@ use std::cell::RefCell;
 use qsc_lowerer::map_hir_package_to_fir;
 
 pub(crate) use crate::PipelineStage;
-use crate::package_assigners::PackageAssigners;
 
 fn format_errors<T: ToString>(errors: &[T]) -> String {
     errors
@@ -458,29 +457,35 @@ pub(crate) fn compile_and_run_pipeline_to_with_two_libraries(
     (store, pkg_id)
 }
 
-/// Compiles Q# source through core+std → HIR passes → FIR lowering →
-/// monomorphization.
+/// Compiles Q# source through core+std → HIR passes → FIR lowering, then runs
+/// the canonical FIR pipeline through monomorphization.
 ///
 /// Returns a monomorphized FIR store ready for defunctionalization or later
-/// pipeline stages. Uses default (empty) target capabilities.
+/// pipeline stages. Uses default (empty) target capabilities and asserts that
+/// the pipeline produced no errors.
 #[must_use]
 pub fn compile_to_monomorphized_fir(source: &str) -> (fir::PackageStore, fir::PackageId) {
     compile_to_monomorphized_fir_with_capabilities(source, TargetCapabilityFlags::empty())
 }
 
-/// Compiles Q# source through core+std → HIR passes → FIR lowering →
-/// monomorphization using the given target capabilities.
+/// Compiles Q# source through core+std → HIR passes → FIR lowering, then runs
+/// the canonical FIR pipeline through monomorphization using the given target
+/// capabilities.
 ///
 /// Returns a monomorphized FIR store ready for defunctionalization or later
-/// pipeline stages.
+/// pipeline stages and asserts that the pipeline produced no errors.
 #[must_use]
 pub fn compile_to_monomorphized_fir_with_capabilities(
     source: &str,
     capabilities: TargetCapabilityFlags,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_capabilities(source, capabilities);
-    let mut assigners = PackageAssigners::new(&store, pkg_id);
-    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
+    let result =
+        crate::run_pipeline_to_with_diagnostics(&mut store, pkg_id, PipelineStage::Mono, &[]);
+    assert_no_pipeline_errors(
+        "compile_to_monomorphized_fir_with_capabilities",
+        &result.errors,
+    );
     (store, pkg_id)
 }
 
@@ -494,17 +499,20 @@ pub fn compile_to_fir_with_entry(source: &str, entry: &str) -> (fir::PackageStor
 }
 
 /// Compiles Q# source with an explicit executable entry expression through
-/// core+std → HIR passes → FIR lowering → monomorphization.
+/// core+std → HIR passes → FIR lowering, then runs the canonical FIR pipeline
+/// through monomorphization.
 ///
-/// Returns a monomorphized FIR store ready for later pipeline stages.
+/// Returns a monomorphized FIR store ready for later pipeline stages and
+/// asserts that the pipeline produced no errors.
 #[cfg(test)]
 pub(crate) fn compile_to_monomorphized_fir_with_entry(
     source: &str,
     entry: &str,
 ) -> (fir::PackageStore, fir::PackageId) {
     let (mut store, pkg_id) = compile_to_fir_with_entry(source, entry);
-    let mut assigners = PackageAssigners::new(&store, pkg_id);
-    crate::monomorphize::monomorphize(&mut store, pkg_id, &mut assigners);
+    let result =
+        crate::run_pipeline_to_with_diagnostics(&mut store, pkg_id, PipelineStage::Mono, &[]);
+    assert_no_pipeline_errors("compile_to_monomorphized_fir_with_entry", &result.errors);
     (store, pkg_id)
 }
 
@@ -690,9 +698,8 @@ pub(crate) fn extract_reachable_callable_details(
             )];
 
             match &decl.implementation {
-                CallableImpl::Intrinsic => lines.push("  intrinsic".to_string()),
-                CallableImpl::SimulatableIntrinsic(spec) => {
-                    push_spec_decl_summary(package, pkg_id, "simulatable", spec, &mut lines);
+                CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+                    lines.push("  intrinsic".to_string());
                 }
                 CallableImpl::Spec(spec_impl) => {
                     push_spec_decl_summary(package, pkg_id, "body", &spec_impl.body, &mut lines);
@@ -763,8 +770,9 @@ pub fn assert_callable_body_terminal_expr_matches_block_type(
     };
     let spec = match &decl.implementation {
         CallableImpl::Spec(spec_impl) => &spec_impl.body,
-        CallableImpl::SimulatableIntrinsic(spec) => spec,
-        CallableImpl::Intrinsic => panic!("callable '{callable_name}' should have a body"),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{callable_name}' should have a body")
+        }
     };
 
     let block = package.get_block(spec.block);
@@ -911,9 +919,9 @@ pub(crate) fn callable_id_by_name(package: &Package, callable_name: &str) -> Loc
         .unwrap_or_else(|| panic!("callable {callable_name} should exist"))
 }
 
-/// Finds the body [`BlockId`] of a callable by name. Accepts `Spec` and
-/// `SimulatableIntrinsic` implementations and skips `Intrinsic` ones (which
-/// have no body block). Panics if no matching callable with a body is found.
+/// Finds the body [`BlockId`] of a callable by name. Accepts `Spec`
+/// implementations and skips bodyless intrinsic implementations. Panics if no
+/// matching callable with a body is found.
 #[cfg(test)]
 pub(crate) fn find_callable_body_block(package: &Package, callable_name: &str) -> BlockId {
     for item in package.items.values() {
@@ -922,8 +930,7 @@ pub(crate) fn find_callable_body_block(package: &Package, callable_name: &str) -
         {
             return match &decl.implementation {
                 CallableImpl::Spec(spec_impl) => spec_impl.body.block,
-                CallableImpl::SimulatableIntrinsic(spec) => spec.block,
-                CallableImpl::Intrinsic => continue,
+                CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => continue,
             };
         }
     }
@@ -934,8 +941,9 @@ pub(crate) fn find_callable_body_block(package: &Package, callable_name: &str) -
 fn callable_body_spec<'a>(decl: &'a CallableDecl, callable_name: &str) -> &'a SpecDecl {
     match &decl.implementation {
         CallableImpl::Spec(spec_impl) => &spec_impl.body,
-        CallableImpl::SimulatableIntrinsic(spec) => spec,
-        CallableImpl::Intrinsic => panic!("callable '{callable_name}' should have a body"),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{callable_name}' should have a body")
+        }
     }
 }
 

@@ -368,44 +368,6 @@ callable Main: input_ty=Unit, output_ty=Unit
 }
 
 #[test]
-fn simulatable_intrinsic_body_is_return_unified() {
-    check_structure(
-        indoc! {r#"
-            namespace Test {
-                @SimulatableIntrinsic()
-                operation Foo() : Int {
-                    mutable i = 0;
-                    while i < 3 {
-                        if i == 1 {
-                            return i;
-                        }
-                        i += 1;
-                    }
-                    -1
-                }
-
-                @EntryPoint()
-                operation Main() : Int {
-                    Foo()
-                }
-            }
-        "#},
-        &["Foo", "Main"],
-        &expect![[r#"
-            callable Foo: input_ty=Unit, output_ty=Int
-                simulatable: block_ty=Int
-                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
-                    [1] Local(Mutable, _.ret_val: Int): Lit(Int(0))
-                    [2] Local(Mutable, i: Int): Lit(Int(0))
-                    [3] Expr While[ty=Unit]
-                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Int], else=Block[ty=Int])
-            callable Main: input_ty=Unit, output_ty=Int
-                body: block_ty=Int
-                    [0] Expr Call[ty=Int]"#]],
-    );
-}
-
-#[test]
 fn already_normalized_idempotency() {
     // Running on already-normalized code (no returns) produces no changes.
     let source = indoc! {r#"

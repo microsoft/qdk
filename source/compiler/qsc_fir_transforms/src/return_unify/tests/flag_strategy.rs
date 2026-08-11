@@ -1111,10 +1111,7 @@ fn lowered_reachable_callables_do_not_emit_while_local_initializers() {
                     block_ids.push(spec.block);
                 }
             }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                block_ids.push(spec.block);
-            }
-            CallableImpl::Intrinsic => {}
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         }
 
         for_each_expr_in_callable_impl(package, &decl.implementation, &mut |_expr_id, expr| {

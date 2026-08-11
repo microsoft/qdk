@@ -557,8 +557,8 @@ mod item_dce_contracts {
             if let ItemKind::Callable(callable) = &package.get_item(local_item_id).kind {
                 let spec = match &callable.implementation {
                     qsc_fir::fir::CallableImpl::Spec(spec_impl) => &spec_impl.body,
-                    qsc_fir::fir::CallableImpl::SimulatableIntrinsic(spec) => spec,
-                    qsc_fir::fir::CallableImpl::Intrinsic => continue,
+                    qsc_fir::fir::CallableImpl::Intrinsic
+                    | qsc_fir::fir::CallableImpl::SimulatableIntrinsic(_) => continue,
                 };
 
                 // Collect all statements in the callable body block

@@ -158,7 +158,7 @@ fn collect_callable_specs(
 fn collect_specs_from_impl(implementation: &CallableImpl) -> Vec<SpecInfo> {
     let mut specs = Vec::new();
     match implementation {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             specs.push(SpecInfo {
                 block: spec_impl.body.block,
@@ -182,12 +182,6 @@ fn collect_specs_from_impl(implementation: &CallableImpl) -> Vec<SpecInfo> {
                     kind: CallableSpecKind::CtlAdj,
                 });
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            specs.push(SpecInfo {
-                block: spec.block,
-                kind: CallableSpecKind::SimulatableIntrinsic,
-            });
         }
     }
     specs
@@ -249,10 +243,6 @@ fn get_spec_decl_mut(
         CallableSpecKind::CtlAdj => match &mut decl.implementation {
             CallableImpl::Spec(si) => si.ctl_adj.as_mut().expect("ctl_adj must exist"),
             _ => unreachable!("already verified Spec"),
-        },
-        CallableSpecKind::SimulatableIntrinsic => match &mut decl.implementation {
-            CallableImpl::SimulatableIntrinsic(spec) => spec,
-            _ => unreachable!("already verified SimulatableIntrinsic"),
         },
     }
 }
