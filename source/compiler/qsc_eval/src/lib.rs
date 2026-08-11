@@ -1443,21 +1443,19 @@ impl State {
                     .unwrap_qubit()
                     .try_deref()
                     .ok_or(Error::QubitDoubleRelease(arg_span))?;
-                let is_zero = if self.delayed_release_qubits.delay_release_qubit(*qubit) {
-                    // If the qubit is delayed for release, we don't check if it's zero yet.
-                    // The actual release will be handled later when the parallel section ends.
-                    true
-                } else {
+                // If the qubit is delayed for release, we don't check if it's zero yet.
+                // The actual release will be handled later when the parallel section ends.
+                if !self.delayed_release_qubits.delay_release_qubit(*qubit) {
                     env.qubits.remove(&qubit);
-                    sim.qubit_release(qubit.0, &call_stack)
-                        .map_err(|e| Error::SimulationError(e, callee_span))?
-                };
-                let is_borrowed = self.dirty_qubits.remove(&qubit.0);
-                if is_zero || is_borrowed {
-                    Value::unit()
-                } else {
-                    return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
+                    let is_zero = sim
+                        .qubit_release(qubit.0, &call_stack)
+                        .map_err(|e| Error::SimulationError(e, callee_span))?;
+                    let is_borrowed = self.dirty_qubits.remove(&qubit.0);
+                    if !is_zero && !is_borrowed {
+                        return Err(Error::ReleasedQubitNotZero(qubit.0, arg_span));
+                    }
                 }
+                Value::unit()
             }
             _ => {
                 let val = intrinsic::call(

@@ -4488,3 +4488,40 @@ fn parallel_nested_unlimited_outer_defers_all() {
             Qubit8"#]],
     );
 }
+
+#[test]
+fn early_return_from_parallel_releases_qubits() {
+    check_output(
+        indoc! {r#"
+            operation Inner() : Unit {
+                parallel {
+                    { use q = Qubit(); Message($"{q}"); }
+                    { use q = Qubit(); Message($"{q}"); return (); }
+                }
+            }
+            operation Main() : Unit {
+                Inner();
+                use q = Qubit();
+                Message($"{q}");
+            }
+        "#},
+        "",
+        &expect![[r#"
+            Qubit0
+            Qubit1
+            Qubit0"#]],
+    );
+}
+
+#[test]
+fn parallel_borrow_dirty_qubit_does_not_error_at_par_end() {
+    check_expr(
+        "",
+        "{
+             use a = Qubit(); X(a);
+             parallel { borrow q = Qubit(); X(q); }
+             Reset(a);
+         }",
+        &expect!["()"],
+    );
+}

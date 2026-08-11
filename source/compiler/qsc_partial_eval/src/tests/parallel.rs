@@ -384,3 +384,37 @@ fn parallel_forces_loop_unrolling_with_adaptive() {
                 Return"#]],
     );
 }
+
+#[test]
+fn after_early_return_from_parallel_qubit_ids_reused() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            operation Inner() : Unit {
+                parallel {
+                    { use q = Qubit(); X(q); }
+                    { use q = Qubit(); X(q); if true { return (); }}
+                }
+            }
+            @EntryPoint()
+            operation Main() : Unit {
+                Inner();
+                use q = Qubit();
+                X(q);
+            }
+        }
+        "#,
+    });
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(2), args( Qubit(1), )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
