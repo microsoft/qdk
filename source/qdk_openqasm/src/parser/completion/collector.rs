@@ -106,7 +106,8 @@ impl ValidWordCollector {
         }
     }
 
-    /// The parser is interpreting the cursor as a directive-specific position.
+    /// The parser has entered a region that the given context applies to. The region is
+    /// only reported as the cursor's context if the parser reaches the cursor while it's active.
     pub fn expect_context(&mut self, context: CompletionContext) {
         self.active_context = Some(context);
         if self.state == State::AtCursor {
