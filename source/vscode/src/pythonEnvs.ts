@@ -17,12 +17,54 @@ const toolPackages = ["qdk[jupyter]", "ipympl", "ipykernel"];
 
 // All packages offered in the command palette picker.
 const packagePickItems: vscode.QuickPickItem[] = [
-  { label: "qdk", picked: true },
-  { label: "qdk[azure]", picked: false },
-  { label: "qdk[jupyter]", picked: true },
-  { label: "qdk-chemistry", picked: false },
-  { label: "ipykernel", picked: true },
-  { label: "ipympl", picked: true },
+  {
+    label: "qdk",
+    description: "Quantum Development Kit (core)",
+    detail: "Compile, simulate, and estimate resources for quantum programs",
+    picked: true,
+  },
+  {
+    label: "qdk[azure]",
+    description: "QDK optional support for Azure Quantum",
+    detail: "Submit jobs to Azure Quantum hardware and cloud simulators",
+    picked: false,
+  },
+  {
+    label: "qdk[cirq]",
+    description: "QDK optional support for Cirq",
+    detail: "Interop with Cirq via qdk.cirq",
+    picked: false,
+  },
+  {
+    label: "qdk[jupyter]",
+    description: "QDK optional support for Jupyter notebooks",
+    detail: "Enable magic commands and rich output in Jupyter notebooks",
+    picked: true,
+  },
+  {
+    label: "qdk[qiskit]",
+    description: "QDK optional support for Qiskit",
+    detail: "Interop with Qiskit via qdk.cirq",
+    picked: false,
+  },
+  {
+    label: "qdk-chemistry",
+    description: "Microsoft Quantum Development Kit for Chemistry",
+    detail: "End-to-end toolkit for quantum chemistry",
+    picked: false,
+  },
+  {
+    label: "ipykernel",
+    description: "Jupyter kernel",
+    detail: "Enable Jupyter notebook functionality in VS Code",
+    picked: true,
+  },
+  {
+    label: "ipympl",
+    description: "Interactive Matplotlib widgets",
+    detail: "Enable interactive plots in Jupyter notebooks",
+    picked: true,
+  },
 ];
 
 // Merge selected qdk extras (e.g. qdk + qdk[azure] + qdk[jupyter]) into one specifier.
