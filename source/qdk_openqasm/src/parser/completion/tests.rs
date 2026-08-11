@@ -11,7 +11,7 @@ fn get_source_and_cursor(input: &str) -> (String, u32) {
     let mut cursor = -1;
     let mut source = String::new();
     for c in input.chars() {
-        if c == '|' {
+        if c == '↘' {
             cursor = i32::try_from(source.len()).expect("input length should fit into u32");
         } else {
             source.push(c);
@@ -124,7 +124,7 @@ fn directive_value_completion_includes_directive_identity() {
 
 #[test]
 fn directive_context_does_not_cross_physical_line_boundary() {
-    let (input, cursor) = get_source_and_cursor("@qdk.qir.profile Base\n|");
+    let (input, cursor) = get_source_and_cursor("@qdk.qir.profile Base\n↘");
     let completion = completion_at_offset_in_source(&input, cursor);
     assert_eq!(completion.context, None);
 }
