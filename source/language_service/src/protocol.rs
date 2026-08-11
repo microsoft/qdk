@@ -63,7 +63,7 @@ pub struct DocumentStatusDiagnostic {
 #[derive(Debug)]
 pub struct DiagnosticUpdate {
     pub uri: String,
-    pub version: Option<u32>,
+    pub version: Option<u32>, // No version if not open
     pub errors: Vec<ErrorKind>,
 }
 
