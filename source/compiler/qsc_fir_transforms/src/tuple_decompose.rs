@@ -580,6 +580,12 @@ fn replace_expr_in_expr(expr: &mut Expr, old_expr_id: ExprId, new_expr_id: ExprI
         ExprKind::While(cond, _) => {
             replace_expr_id(cond, old_expr_id, new_expr_id);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                replace_expr_id(l, old_expr_id, new_expr_id);
+            }
+            replace_expr_id(body, old_expr_id, new_expr_id);
+        }
         // No direct child `ExprId` edges to patch. This function only rewrites
         // the `ExprId`s a node stores in its own `ExprKind`; it does not recurse
         // (the caller `replace_expr_references` visits every expr and every

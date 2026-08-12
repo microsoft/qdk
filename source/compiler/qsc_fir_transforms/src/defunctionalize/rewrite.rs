@@ -1947,6 +1947,12 @@ fn remove_write_only_callable_local_from_expr(
                 remove_write_only_callable_local_from_expr(package, field.value, local_var);
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                remove_write_only_callable_local_from_expr(package, limit, local_var);
+            }
+            remove_write_only_callable_local_from_expr(package, body, local_var);
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -2325,6 +2331,12 @@ fn prune_dead_callable_locals_in_expr(
             prune_dead_callable_locals_in_expr(package, package_id, cond);
             prune_dead_callable_locals_in_block(package, package_id, block_id);
         }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(l) = limit {
+                prune_dead_callable_locals_in_expr(package, package_id, l);
+            }
+            prune_dead_callable_locals_in_expr(package, package_id, expr);
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -2417,6 +2429,12 @@ fn remove_dead_callable_local_from_expr(
         ExprKind::While(cond, block_id) => {
             remove_dead_callable_local_from_expr(package, cond, local_var);
             remove_dead_callable_local_from_block(package, block_id, local_var);
+        }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(l) = limit {
+                remove_dead_callable_local_from_expr(package, l, local_var);
+            }
+            remove_dead_callable_local_from_expr(package, expr, local_var);
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }

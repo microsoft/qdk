@@ -15,6 +15,7 @@ mod lambdas;
 mod loops;
 mod measurements;
 mod overrides;
+mod parallel;
 mod qubits;
 mod return_unify_interactions;
 mod strings;

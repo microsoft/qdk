@@ -2075,6 +2075,24 @@ fn collect_compound_capture_substitutions_into(
                 );
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit_id) = limit {
+                collect_compound_capture_substitutions_into(
+                    pkg,
+                    state,
+                    param_substitutions,
+                    *limit_id,
+                    substitutions,
+                );
+            }
+            collect_compound_capture_substitutions_into(
+                pkg,
+                state,
+                param_substitutions,
+                *body,
+                substitutions,
+            );
+        }
         ExprKind::Assign(..)
         | ExprKind::AssignOp(..)
         | ExprKind::AssignField(..)
@@ -2180,6 +2198,10 @@ fn compound_literal_has_residual_leak(
             .into_iter()
             .flatten()
             .any(|&part| compound_literal_has_residual_leak(pkg, substitutions, part)),
+        ExprKind::Parallel(limit, body) => {
+            limit.is_some_and(|limit| compound_literal_has_residual_leak(pkg, substitutions, limit))
+                || compound_literal_has_residual_leak(pkg, substitutions, *body)
+        }
         // A non-pure `Call` (operation callee) and every other un-remappable
         // kind is kept verbatim by the clone, so it leaks if it references any
         // producer local.
@@ -3455,6 +3477,19 @@ fn analyze_expr_flow(
                     analyze_expr_flow(pkg, store, *e, state, package_id, recorder.as_deref_mut());
                 }
             }
+        }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(l) = limit {
+                analyze_expr_flow(pkg, store, *l, state, package_id, recorder.as_deref_mut());
+            }
+            analyze_expr_flow(
+                pkg,
+                store,
+                *expr,
+                state,
+                package_id,
+                recorder.as_deref_mut(),
+            );
         }
         // Leaves: no nested expressions to analyze.
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
