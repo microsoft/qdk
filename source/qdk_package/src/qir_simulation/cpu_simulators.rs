@@ -279,8 +279,8 @@ fn run_shot<S: Simulator>(instructions: &[QirInstruction], sim: &mut S) -> Vec<O
             QirInstruction::ThreeQubitGate(..) => {
                 panic!("unsupported instruction: {qir_inst:?}")
             }
-            QirInstruction::ReadoutNoise(_id, p_zero_as_one, p_one_as_zero, qubit) => {
-                sim.apply_readout_noise(*p_zero_as_one, *p_one_as_zero, *qubit as usize);
+            QirInstruction::ReadoutNoise(_id, p_zero_as_one, p_one_as_zero, result_id) => {
+                sim.apply_readout_noise(*p_zero_as_one, *p_one_as_zero, *result_id as usize);
             }
         }
     }

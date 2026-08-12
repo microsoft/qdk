@@ -448,10 +448,10 @@ entry:
 
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_readout_noise_flips_measurement_results():
-        check_result(
-                READOUT_NOISE_QIR,
-                "10",
-                extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
-                num_qubits=2,
-                num_results=2,
-        )
+    check_result(
+        READOUT_NOISE_QIR,
+        "10",
+        extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
+        num_qubits=2,
+        num_results=2,
+    )

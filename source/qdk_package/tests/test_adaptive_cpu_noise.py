@@ -424,11 +424,11 @@ entry:
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_readout_noise_flips_measurement_results(sim_type):
-        check_result(
-                READOUT_NOISE_QIR,
-                "10",
-                extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
-                num_qubits=2,
-                num_results=2,
-                sim_type=sim_type,
-        )
+    check_result(
+        READOUT_NOISE_QIR,
+        "10",
+        extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
+        num_qubits=2,
+        num_results=2,
+        sim_type=sim_type,
+    )

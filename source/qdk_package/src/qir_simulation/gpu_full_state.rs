@@ -496,10 +496,10 @@ fn map_instruction(qir_inst: &QirInstruction) -> Option<Op> {
         QirInstruction::CorrelatedNoise(_, table_id, qubit_args) => {
             Op::new_correlated_noise_gate(*table_id, qubit_args)
         }
-        QirInstruction::ReadoutNoise(_, p_zero_as_one, p_one_as_zero, qubit) => {
+        QirInstruction::ReadoutNoise(_, p_zero_as_one, p_one_as_zero, result_id) => {
             #[allow(clippy::cast_possible_truncation)]
             // probabilities are within [0,1], so f32 is sufficient.
-            Op::new_readout_noise_gate(*p_zero_as_one as f32, *p_one_as_zero as f32, *qubit)
+            Op::new_readout_noise_gate(*p_zero_as_one as f32, *p_one_as_zero as f32, *result_id)
         }
     };
     Some(op)
