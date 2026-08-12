@@ -8,7 +8,7 @@ The exercise model
 Learners solve an exercise by implementing a function decorated with ``@exercise``.
 
 A unit registers a checker for each exercise *by function name* (see
-``register_value_exercise`` / ``register_circuit_exercise``). When the learner
+``register_value_exercise`` / ``register_exercise``). When the learner
 runs their decorated cell, ``exercise`` looks up the matching checker, calls the
 learner's function, validates the result and renders a pass/fail banner and other
 relevant visuals or output.

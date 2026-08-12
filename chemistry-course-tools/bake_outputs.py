@@ -13,20 +13,26 @@ from pathlib import Path
 import nbformat
 from nbclient import NotebookClient
 
-COURSE = Path.home() / "qdk-chem/qdk-learning/courses/chemistry-active-space"
+COURSE = (
+    Path(__file__).resolve().parent.parent
+    / "source/vscode/test/suites/learning/test-workspace"
+    / "qdk-learning/courses/chemistry-active-space"
+)
 NOTEBOOKS = {
     "02": "01-describe-molecule/describe_molecule.ipynb",
     "03": "02-active-space/active_space.ipynb",
+    "04": "03-map-to-qubits/map_to_qubits.ipynb",
     "05": "04-trial-state/trial_state.ipynb",
 }
 NOTEBOOK = COURSE / NOTEBOOKS[sys.argv[1] if len(sys.argv) > 1 else "03"]
-
+# Defaults to the interpreter running this script, so no kernel needs registering.
+KERNEL = sys.argv[2] if len(sys.argv) > 2 else "python3"
 nb = nbformat.read(NOTEBOOK, as_version=4)
 NotebookClient(
     nb,
     timeout=1800,
     allow_errors=True,
-    kernel_name="qdk-chem-course",
+    kernel_name=KERNEL,
     resources={"metadata": {"path": str(NOTEBOOK.parent)}},
 ).execute()
 
@@ -38,6 +44,11 @@ for cell in raw["cells"]:
     if cell["cell_type"] != "code":
         continue
     if "exercise" in cell.get("metadata", {}).get("tags", []):
+        cell["outputs"] = []
+        cell["execution_count"] = None
+        continue
+    # The environment check reports on the machine that ran it, so it must not ship.
+    if "check_env" in "".join(cell["source"]):
         cell["outputs"] = []
         cell["execution_count"] = None
         continue

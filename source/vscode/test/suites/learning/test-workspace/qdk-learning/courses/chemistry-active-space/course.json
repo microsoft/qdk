@@ -5,6 +5,11 @@
   "shortDescription": "Port of the QDK/Chemistry ground-state QPE tutorial to the QDK Learning notebook format.",
   "units": [
     {
+      "id": "overview",
+      "title": "Tutorial Overview",
+      "dir": "overview"
+    },
+    {
       "id": "energy-and-accuracy",
       "title": "Energy and Accuracy",
       "dir": "00-energy-and-accuracy"
@@ -21,7 +26,7 @@
     },
     {
       "id": "map-to-qubits",
-      "title": "Putting the Problem on Qubits",
+      "title": "Mapping the Problem to Qubits",
       "dir": "03-map-to-qubits"
     },
     {

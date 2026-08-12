@@ -26,6 +26,7 @@ __pycache__/
 *.so
 samples/scratch/
 qdk-learning/
+!/source/vscode/test/suites/learning/test-workspace/qdk-learning/
 qdk-learning.json
 *.pyd
 /python_doc/

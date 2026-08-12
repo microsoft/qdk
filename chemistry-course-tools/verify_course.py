@@ -5,7 +5,11 @@ from pathlib import Path
 
 import nbformat
 
-COURSE = Path.home() / "qdk-chem/qdk-learning/courses/chemistry-active-space"
+COURSE = (
+    Path(__file__).resolve().parent.parent
+    / "source/vscode/test/suites/learning/test-workspace"
+    / "qdk-learning/courses/chemistry-active-space"
+)
 
 manifest = json.loads((COURSE / "course.json").read_text())
 print(f"{manifest['title']}  ({len(manifest['units'])} units)")
