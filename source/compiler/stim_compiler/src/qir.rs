@@ -321,46 +321,23 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("{instruction} must appear inside a SELECT block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
+    InstructionOutsideSelectBlock {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("{instruction} instruction must start a block")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InstructionWithoutBlock"))]
+    InstructionWithoutBlock {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("unsupported argument in instruction: {instruction}")]
     #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedArgument"))]
     UnsupportedArgument {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("unsupported target in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedTarget"))]
-    UnsupportedTarget {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("missing target in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MissingTarget"))]
-    MissingTarget {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("measurement record target in an unsupported position in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
-    MisplacedMeasurementRecord {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("target cannot be negated in instruction: {instruction}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NegatedTarget"))]
-    NegatedTarget {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error(
-        "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
-    )]
-    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordWithoutQubit"))]
-    MeasurementRecordWithoutQubit {
         instruction: String,
         #[label]
         span: Span,
@@ -381,6 +358,45 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("instruction {instruction} accepts at most {expected} arguments")]
+    #[diagnostic(code("Qdk.Stim.Compiler.TooManyArgs"))]
+    TooManyArgs {
+        instruction: String,
+        expected: usize,
+        #[label]
+        span: Span,
+    },
+    #[error(
+        "readout noise probability in instruction {instruction} must be between 0 and 1, but found {probability}"
+    )]
+    #[diagnostic(code("Qdk.Stim.Compiler.InvalidReadoutNoiseProbability"))]
+    InvalidReadoutNoiseProbability {
+        instruction: String,
+        probability: f64,
+        #[label]
+        span: Span,
+    },
+    #[error("unsupported target in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.UnsupportedTarget"))]
+    UnsupportedTarget {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("missing target in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MissingTarget"))]
+    MissingTarget {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("target cannot be negated in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.NegatedTarget"))]
+    NegatedTarget {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("instruction {instruction} requires an even number of targets")]
     #[diagnostic(code("Qdk.Stim.Compiler.OddTargetCount"))]
     OddTargetCount {
@@ -388,11 +404,19 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("measurement record target in an unsupported position in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
+    MisplacedMeasurementRecord {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error(
-        "else_correlated_error must be preceded by a correlated_error or else_correlated_error instruction"
+        "controlled instruction {instruction} requires a qubit target, but both targets are measurement records"
     )]
-    #[diagnostic(code("Qdk.Stim.Compiler.OrphanedElseCorrelatedError"))]
-    OrphanedElseCorrelatedError {
+    #[diagnostic(code("Qdk.Stim.Compiler.MeasurementRecordWithoutQubit"))]
+    MeasurementRecordWithoutQubit {
+        instruction: String,
         #[label]
         span: Span,
     },
@@ -409,17 +433,11 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("{instruction} must appear inside a SELECT block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InstructionOutsideSelectBlock"))]
-    InstructionOutsideSelectBlock {
-        instruction: String,
-        #[label]
-        span: Span,
-    },
-    #[error("{instruction} instruction must start a block")]
-    #[diagnostic(code("Qdk.Stim.Compiler.InstructionWithoutBlock"))]
-    InstructionWithoutBlock {
-        instruction: String,
+    #[error(
+        "else_correlated_error must be preceded by a correlated_error or else_correlated_error instruction"
+    )]
+    #[diagnostic(code("Qdk.Stim.Compiler.OrphanedElseCorrelatedError"))]
+    OrphanedElseCorrelatedError {
         #[label]
         span: Span,
     },
