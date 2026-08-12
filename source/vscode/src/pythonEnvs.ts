@@ -106,37 +106,55 @@ async function getWorkspaceRootEnv(
   api: PythonEnvironmentApi,
   root: vscode.Uri,
 ): Promise<PythonEnvironment | undefined> {
+  log.trace(`Searching for existing venvs in ${root.fsPath}`);
+
   await api.refreshEnvironments(root);
 
   // This can return the global environment, for example, so we have to check
   // whether it's actually
   const activeEnv = await api.getEnvironment(root);
   if (activeEnv && isInWorkspaceRoot(activeEnv, root)) {
-    log.info(`Using active environment: ${activeEnv.environmentPath}`);
+    log.trace(`Preferring active venv in ${activeEnv.environmentPath.fsPath}`);
     return activeEnv;
   }
 
   const allEnvs = await api.getEnvironments(root);
   const matchingEnvs = allEnvs.filter((env) => isInWorkspaceRoot(env, root));
   if (matchingEnvs.length == 0) {
+    log.trace(`Found no venvs in ${root.fsPath}`);
     return undefined;
   }
 
   if (matchingEnvs.length > 1) {
     log.warn(
-      `Multiple environments found under ${root}; using ${matchingEnvs[0].environmentPath}`,
+      `Found multiple venvs in ${root.fsPath} - using ${matchingEnvs[0].environmentPath}`,
     );
   }
 
+  log.trace(
+    `Found existing venv in ${root.fsPath} - using ${matchingEnvs[0].environmentPath}`,
+  );
   return matchingEnvs[0];
 }
 
 function getActiveWorkspaceRoot(): vscode.Uri | undefined {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders) {
+    return undefined;
+  }
+  if (workspaceFolders.length == 1) {
+    return workspaceFolders[0].uri;
+  }
+
   const activeUri = vscode.window.activeTextEditor?.document.uri;
   const fromEditor = activeUri
     ? vscode.workspace.getWorkspaceFolder(activeUri)
     : undefined;
-  return (fromEditor ?? vscode.workspace.workspaceFolders?.[0])?.uri;
+  const result = (fromEditor ?? workspaceFolders[0])?.uri;
+  log.warn(
+    `Found multiple workspace roots while searching for existing venvs - preferring ${result.fsPath}${fromEditor ? " based on the active editor" : ""}`,
+  );
+  return result;
 }
 
 export async function getExistingQuantumVenv(): Promise<
@@ -160,6 +178,8 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
     throw new CopilotToolError(pythonEnvsNotInstalledMsg);
   }
 
+  // There's no obvious way to propagate the path from getExistingQuantumVenv to here
+  // so just parallel the logic.
   const root = getActiveWorkspaceRoot();
   if (!root) {
     throw new CopilotToolError("No workspace folder is open.");
@@ -174,6 +194,8 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
 
   const existingEnv = await getWorkspaceRootEnv(api, root);
   if (existingEnv) {
+    // Copilot should already have confirmed that the user is willing to update
+    // the existing workspace
     try {
       await api.managePackages(existingEnv, {
         install: packagesToInstall,
