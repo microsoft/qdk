@@ -370,6 +370,7 @@ impl<'a> LoopNormalize<'a> {
             // Recursion leaves: statement-carrying constructs are lifted whole
             // by their parent (never descended here), and the remaining kinds
             // carry no operand slot.
+            ExprKind::Parallel(Some(limit), _) => self.lift_operands(vec![limit.as_mut()]),
             ExprKind::Block(_)
             | ExprKind::Break
             | ExprKind::Closure(_, _)
@@ -380,7 +381,8 @@ impl<'a> LoopNormalize<'a> {
             | ExprKind::Lit(_)
             | ExprKind::Repeat(_, _, _)
             | ExprKind::Var(_, _)
-            | ExprKind::While(_, _) => None,
+            | ExprKind::While(_, _)
+            | ExprKind::Parallel(None, _) => None,
         }
     }
 

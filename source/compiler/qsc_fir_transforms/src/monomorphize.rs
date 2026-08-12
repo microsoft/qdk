@@ -48,6 +48,8 @@ use qsc_fir::fir::{
     LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageStore, PatId, PatKind, Res,
     StmtId, StmtKind, StoreItemId, Visibility,
 };
+
+pub use qsc_data_structures::intrinsic_names::must_preserve_intrinsic_name;
 use qsc_fir::ty::{Arrow, FunctorSet, GenericArg, ParamId, Ty, TypeParameter};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::collections::VecDeque;
@@ -385,11 +387,13 @@ fn mono_key(source: StoreItemId, args: &[GenericArg]) -> String {
 /// concrete generic arguments to the base name using `<Arg1, Arg2>` notation.
 ///
 /// Functor set arguments use compact identifiers (`Empty`, `Adj`, `Ctl`,
-/// `AdjCtl`) instead of the user-facing display forms. The intrinsic `Length`
-/// is exempt because downstream passes match on that name literally.
+/// `AdjCtl`) instead of the user-facing display forms. A bounded set of
+/// intrinsic names is exempt because downstream FIR consumers recognize them
+/// by literal name.
 fn mono_name(decl: &CallableDecl, args: &[GenericArg]) -> Rc<str> {
     use std::fmt::Write;
-    if matches!(decl.implementation, CallableImpl::Intrinsic) && decl.name.name.as_ref() == "Length"
+    if matches!(decl.implementation, CallableImpl::Intrinsic)
+        && must_preserve_intrinsic_name(&decl.name.name)
     {
         return Rc::clone(&decl.name.name);
     }
@@ -1065,15 +1069,12 @@ fn extract_callable_body(source_pkg: &Package, decl: &CallableDecl) -> Package {
     extract_pat(source_pkg, decl.input, &mut body_pkg);
 
     match &decl.implementation {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             extract_spec_decl_body(source_pkg, &spec_impl.body, &mut body_pkg);
             for spec in functored_specs(spec_impl) {
                 extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
         }
     }
 
@@ -1193,6 +1194,12 @@ fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
             extract_expr(source, *cond, target);
             extract_block(source, *block, target);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                extract_expr(source, *l, target);
+            }
+            extract_expr(source, *body, target);
+        }
         ExprKind::Closure(_, local_item_id) => {
             extract_item(source, *local_item_id, target);
         }
@@ -1208,21 +1215,24 @@ fn extract_item(source: &Package, item_id: LocalItemId, target: &mut Package) {
         return;
     }
     let item = source.get_item(item_id);
-    target.items.insert(item_id, item.clone());
+    let mut extracted_item = item.clone();
+    if let ItemKind::Callable(decl) = &mut extracted_item.kind
+        && matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_))
+    {
+        decl.implementation = CallableImpl::Intrinsic;
+    }
+    target.items.insert(item_id, extracted_item);
     if let ItemKind::Callable(decl) = &item.kind {
         // Extract all nodes transitively referenced by this callable into
         // the target body package.
         extract_pat(source, decl.input, target);
         match &decl.implementation {
-            CallableImpl::Intrinsic => {}
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
             CallableImpl::Spec(spec_impl) => {
                 extract_spec_decl_body(source, &spec_impl.body, target);
                 for spec in functored_specs(spec_impl) {
                     extract_spec_decl_body(source, spec, target);
                 }
-            }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                extract_spec_decl_body(source, spec, target);
             }
         }
     }

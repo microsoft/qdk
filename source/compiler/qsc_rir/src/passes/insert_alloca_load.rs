@@ -89,6 +89,27 @@ fn add_alloca_load_to_block(
                 *next_var_id = next_var_id.successor();
                 continue;
             }
+            Instruction::StoreArray(operands, var) => {
+                vars_to_alloca.insert(var.variable_id, *var);
+                let new_operands = operands
+                    .iter()
+                    .map(|operand| {
+                        map_or_load_operand(
+                            operand,
+                            &mut var_map,
+                            &mut block.0,
+                            next_var_id,
+                            should_load_operand(operand, vars_to_alloca),
+                        )
+                    })
+                    .collect();
+                block.0.push(Instruction::StoreArray(new_operands, *var));
+                // Drop the cached load for this variable so a later read in this
+                // block reloads the freshly stored value instead of a stale one.
+                var_map.remove(&var.variable_id);
+                *next_var_id = next_var_id.successor();
+                continue;
+            }
 
             // Replace any arguments with the new values of stored variables.
             Instruction::Call(_, args, _, _) => {

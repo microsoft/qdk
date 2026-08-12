@@ -23,6 +23,7 @@ mod tests;
 
 use compilation::Compilation;
 use futures::channel::mpsc::{TryRecvError, UnboundedReceiver, UnboundedSender, unbounded};
+use futures::channel::oneshot;
 use futures_util::StreamExt;
 use log::{trace, warn};
 use protocol::{
@@ -35,7 +36,11 @@ use qsc::{
 };
 use qsc_project::JSProjectHost;
 use state::{CompilationState, CompilationStateUpdater};
-use std::{cell::RefCell, fmt::Debug, rc::Rc};
+use std::{
+    cell::{Cell, RefCell},
+    fmt::Debug,
+    rc::Rc,
+};
 
 pub struct LanguageService {
     /// All [`Position`]s and [`Range`]s will be mapped using this encoding.
@@ -48,6 +53,62 @@ pub struct LanguageService {
     state: Rc<RefCell<CompilationState>>,
     /// Channel for compilation state update messages coming from the client.
     state_updater: Option<UnboundedSender<Update>>,
+    /// Callers parked in [`LanguageService::wait_for_document_version`].
+    version_waiters: Rc<VersionWaiters>,
+}
+
+/// The outcome of waiting for a specific version of a document to be compiled.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VersionWaitResult {
+    /// The compilation state reflects exactly the requested version.
+    Ready,
+    /// The document has already moved past the requested version. That version was
+    /// coalesced away and will never be compiled, so it can no longer be answered for.
+    Superseded,
+    /// Indicates that the language service has been shutdown and the awaited version
+    /// will never be compiled.
+    Never,
+}
+
+/// Callers parked in [`LanguageService::wait_for_document_version`], waiting for the
+/// next batch of updates to be applied so they can re-inspect the compilation state.
+#[derive(Default)]
+struct VersionWaiters {
+    parked: RefCell<Vec<oneshot::Sender<()>>>,
+    is_shut_down: Cell<bool>,
+}
+
+impl VersionWaiters {
+    /// Returns `None` once the update handler has stopped, since no further version
+    /// will ever be compiled and nothing would arrive to wake the caller.
+    fn park(&self) -> Option<oneshot::Receiver<()>> {
+        if self.is_shut_down.get() {
+            return None;
+        }
+        let (send, recv) = oneshot::channel();
+        let mut parked = self.parked.borrow_mut();
+        // Backstop for callers that gave up; `wake_all` collects the rest on the next update.
+        parked.retain(|sender| !sender.is_canceled());
+        parked.push(send);
+        Some(recv)
+    }
+
+    fn wake_all(&self) {
+        // Taken rather than drained in place: a woken caller may immediately re-park,
+        // and that would re-enter the borrow if it were still held here.
+        let parked = std::mem::take(&mut *self.parked.borrow_mut());
+        for waiter in parked {
+            let _ = waiter.send(());
+        }
+    }
+
+    /// Releases everyone currently parked and rejects any that arrive later. Dropping
+    /// the senders is what lets parked callers observe the shutdown.
+    fn shut_down(&self) {
+        self.is_shut_down.set(true);
+        let parked = std::mem::take(&mut *self.parked.borrow_mut());
+        drop(parked);
+    }
 }
 
 impl LanguageService {
@@ -57,6 +118,7 @@ impl LanguageService {
             position_encoding,
             state: Rc::default(),
             state_updater: Option::default(),
+            version_waiters: Rc::default(),
         }
     }
 
@@ -64,7 +126,7 @@ impl LanguageService {
     /// to the update channel and apply them, sequentially, to the compilation state.
     ///
     /// This method *must* be called for the language service to do any work.
-    /// The caller needs to start the handler by calling `.run()` .
+    /// The caller needs to start the handler by calling `.run()` with a yield function.
     pub fn create_update_handler<'a>(
         &mut self,
         diagnostics_receiver: impl Fn(DiagnosticUpdate) + 'a,
@@ -84,6 +146,7 @@ impl LanguageService {
                 self.position_encoding,
             ),
             recv,
+            version_waiters: self.version_waiters.clone(),
         };
         self.state_updater = Some(send);
         handler
@@ -181,6 +244,49 @@ impl LanguageService {
         self.send_update(Update::CloseNotebookDocument {
             notebook_uri: notebook_uri.into(),
         });
+    }
+
+    /// Waits until the compilation state reflects exactly `version` of `uri`, reporting
+    /// [`VersionWaitResult::Superseded`] if the document moves past it first, or
+    /// [`VersionWaitResult::Never`] if the language service stops updating before the
+    /// version can arrive. Whether a superseded version is still usable is left to the caller.
+    ///
+    /// The returned future is independent of `&self` so that callers can hold it across
+    /// await points without keeping the language service borrowed. The `use<>` bound is
+    /// precise capturing, which is what keeps the input lifetimes out of the future.
+    pub fn wait_for_document_version(
+        &self,
+        uri: &str,
+        version: u32,
+    ) -> impl std::future::Future<Output = VersionWaitResult> + 'static + use<> {
+        let state = self.state.clone();
+        let waiters = self.version_waiters.clone();
+        let uri = uri.to_string();
+
+        async move {
+            loop {
+                // Scoped so the borrow is released before awaiting. Holding it across an
+                // await would break the updater, which needs mutable access.
+                let receiver = {
+                    let state = state.borrow();
+                    match state.get_open_document_version(&uri) {
+                        Some(current) if current == version => return VersionWaitResult::Ready,
+                        Some(current) if current > version => return VersionWaitResult::Superseded,
+                        // Either behind, or the document hasn't been processed at all yet.
+                        _ => match waiters.park() {
+                            Some(receiver) => receiver,
+                            // The update handler is gone, so the version will never arrive.
+                            None => return VersionWaitResult::Never,
+                        },
+                    }
+                };
+
+                if receiver.await.is_err() {
+                    // The update handler shut down while we were parked.
+                    return VersionWaitResult::Never;
+                }
+            }
+        }
     }
 
     #[must_use]
@@ -336,6 +442,7 @@ impl LanguageService {
 pub struct UpdateHandler<'a> {
     updater: CompilationStateUpdater<'a>,
     recv: UnboundedReceiver<Update>,
+    version_waiters: Rc<VersionWaiters>,
 }
 
 impl UpdateHandler<'_> {
@@ -346,10 +453,38 @@ impl UpdateHandler<'_> {
     /// language service has explicitly closed the message
     /// channel, in `stop_update_handler()`.
     ///
-    pub async fn run(&mut self) {
+    /// `yield_to_host` gives the host event loop a turn. Applying an update blocks that
+    /// loop, so input events that arrive while one is in flight aren't delivered until
+    /// we yield. Without yielding, the channel looks empty and each event ends up being
+    /// processed on its own instead of being coalesced with the others.
+    pub async fn run<F, Fut>(&mut self, yield_to_host: F)
+    where
+        F: Fn() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
         while let Some(update) = self.recv.next().await {
-            self.apply_this_and_pending(vec![update]).await;
+            let mut updates = vec![update];
+
+            // We could consider yielding more than once, but empirically, that doesn't
+            // obviously result in more batching.
+            yield_to_host().await;
+
+            let batch_before = updates.len();
+            let drained = self.drain_pending(&mut updates);
+
+            // Every drained update either claims a new slot in the batch or merges
+            // into an existing one, and each merge discards one update.
+            let dropped = drained - (updates.len() - batch_before);
+            if dropped > 0 {
+                trace!("drained {drained} update(s), merging dropped {dropped} as redundant");
+            }
+
+            self.apply(updates).await;
         }
+
+        // Not just left to `drop`, so waiters are released as soon as the loop ends even
+        // if the handler itself is kept alive.
+        self.version_waiters.shut_down();
     }
 
     /// Convenience method to apply *only* the pending updates
@@ -361,19 +496,31 @@ impl UpdateHandler<'_> {
     /// if `run()` has been called.
     #[cfg(test)]
     async fn apply_pending(&mut self) {
-        self.apply_this_and_pending(vec![]).await;
+        let mut updates = Vec::new();
+        self.drain_pending(&mut updates);
+        self.apply(updates).await;
     }
 
-    async fn apply_this_and_pending(&mut self, mut updates: Vec<Update>) {
-        // Consume any backed up messages in the channel as well.
+    /// Drains everything currently queued into `updates`, returning the number of
+    /// messages received. A closed channel reports zero, since `Closed` means empty
+    /// *and* closed: messages already buffered are still handed over first.
+    ///
+    /// The count is of messages received rather than the length of `updates`, because
+    /// [`push_update`] merges redundant updates in place and so may not grow it.
+    fn drain_pending(&mut self, updates: &mut Vec<Update>) -> usize {
+        let mut received = 0;
         loop {
             match self.recv.try_recv() {
-                Ok(update) => push_update(&mut updates, update),
-                Err(TryRecvError::Closed) => return, // channel has been closed, don't bother with updates.
-                Err(TryRecvError::Empty) => break,
+                Ok(update) => {
+                    push_update(updates, update);
+                    received += 1;
+                }
+                Err(TryRecvError::Empty | TryRecvError::Closed) => return received,
             }
         }
+    }
 
+    async fn apply(&mut self, mut updates: Vec<Update>) {
         trace!("applying {} updates", updates.len());
         if updates.len() > 100 {
             // This indicates that we're not keeping up with incoming updates.
@@ -389,6 +536,17 @@ impl UpdateHandler<'_> {
             apply_update(&mut self.updater, update).await;
         }
         trace!("end applying updates");
+
+        // Let anyone waiting on a particular version re-check where the state landed.
+        self.version_waiters.wake_all();
+    }
+}
+
+impl Drop for UpdateHandler<'_> {
+    /// Covers every way the handler can go away, including `run` never being called or
+    /// its future being cancelled, not just the loop exiting normally.
+    fn drop(&mut self) {
+        self.version_waiters.shut_down();
     }
 }
 
@@ -486,4 +644,21 @@ enum Update {
     CloseNotebookDocument {
         notebook_uri: String,
     },
+}
+
+impl Update {
+    #[cfg(test)]
+    fn summary(&self) -> String {
+        match self {
+            Update::Configuration { .. } => "Configuration".to_string(),
+            Update::Document { uri, version, .. } => format!("Document({uri}, {version})"),
+            Update::CloseDocument { uri, .. } => format!("CloseDocument({uri})"),
+            Update::NotebookDocument { notebook_uri, .. } => {
+                format!("NotebookDocument({notebook_uri})")
+            }
+            Update::CloseNotebookDocument { notebook_uri } => {
+                format!("CloseNotebookDocument({notebook_uri})")
+            }
+        }
+    }
 }

@@ -9,6 +9,7 @@ use qsc_fir::{
 use rustc_hash::FxHashMap;
 
 use crate::fir_builder::alloc_expr_stmt;
+use crate::test_utils::frontend_error_codes;
 
 use super::*;
 
@@ -611,10 +612,10 @@ fn defaultable_type_with_early_return_succeeds() {
 
 #[test]
 fn recursive_udt_early_return_fails_before_return_unify() {
-    // Recursive UDTs (e.g. `newtype Tree = (Int, Tree[])`) are definable
-    // in Q# but produce a compile error at the frontend before reaching
-    // return_unify. This documents that L7 (recursive-UDT defaultability)
-    // is covered by language-level rejection.
+    // A recursive UDT is rejected by the Q# type checker, so it never reaches this crate.
+    // That is what lets `return_unify` and the other transforms expand UDT definitions
+    // structurally without a visited set. The diagnostic itself is pinned by the
+    // `recursive_udt_*` tests in `qsc_frontend::typeck::tests`.
     let source = indoc! {r#"
         namespace Test {
             newtype Tree = (Data : Int, Children : Tree[]);
@@ -630,23 +631,10 @@ fn recursive_udt_early_return_fails_before_return_unify() {
         }
     "#};
 
-    let (_store, _pkg_id, result) =
-        compile_and_run_pipeline_to_with_errors(source, PipelineStage::ReturnUnify);
-
-    // The program should either fail at the frontend (cyclic UDT) or
-    // succeed if the frontend resolves it. Either way, it should not
-    // panic in return_unify.
-    // If errors exist, they should not be return_unify panics.
-    for err in &result.errors {
-        if let crate::PipelineError::ReturnUnify(ru_err) = err {
-            // Any return_unify error is acceptable (diagnostic, not panic).
-            // We just verify it didn't panic.
-            assert!(
-                !format!("{ru_err:?}").contains("panic"),
-                "return_unify should not panic on recursive UDT: {ru_err:?}"
-            );
-        }
-    }
+    assert_eq!(
+        frontend_error_codes(source),
+        vec!["Qdk.Qsc.TypeCk.RecursiveUdt".to_string()]
+    );
 }
 
 #[test]

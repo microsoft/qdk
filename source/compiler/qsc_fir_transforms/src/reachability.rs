@@ -164,9 +164,8 @@ fn walk_callable_impl(
         // **not** descend its simulation body. As a result, items referenced *only*
         // from a simulation body are not kept reachable and are pruned by item DCE,
         // rather than being monomorphized, type-erased, and processed as if they were
-        // part of the generated program. The simulation body itself is left intact in
-        // the FIR; partial evaluation still classically evaluates it through the
-        // separate `qsc_eval` interpreter path when a call is purely classical.
+        // part of the generated program. Reachability treats the simulation body as
+        // opaque.
         return;
     }
     let pkg = store.get(pkg_id);
