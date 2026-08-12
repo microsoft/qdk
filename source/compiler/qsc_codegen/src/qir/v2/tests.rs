@@ -300,7 +300,7 @@ fn ir_function_program() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define void @ApplyX(ptr %var_0) {
+        define internal void @ApplyX(ptr %var_0) {
         block_0:
           call void @__quantum__qis__x__body(ptr %var_0)
           ret void
@@ -431,12 +431,12 @@ fn distinct_ir_function_names_render_as_distinct_globals() {
     let qir = program.to_qir(&program);
     // Each callable renders exactly once under its own distinct global symbol.
     assert_eq!(
-        qir.matches("define void @Foo(").count(),
+        qir.matches("define internal void @Foo(").count(),
         1,
         "expected exactly one bare `@Foo` definition; got:\n{qir}"
     );
     assert_eq!(
-        qir.matches("define void @Foo__p1(").count(),
+        qir.matches("define internal void @Foo__p1(").count(),
         1,
         "expected exactly one discriminated `@Foo__p1` definition; got:\n{qir}"
     );
@@ -512,7 +512,7 @@ fn ir_function_name_with_special_characters_is_quoted() {
 
     let qir = program.to_qir(&program);
     assert!(
-        qir.contains("define void @\"ApplyGeneric<Qubit, AdjCtl>{X}\"(ptr %var_0)"),
+        qir.contains("define internal void @\"ApplyGeneric<Qubit, AdjCtl>{X}\"(ptr %var_0)"),
         "expected quoted IR-function definition for special-character name; got:\n{qir}"
     );
     assert!(
@@ -588,7 +588,7 @@ fn scalar_ir_function_program() {
     program.num_results = 0;
     expect![[r#"
 
-        define i64 @Increment(i64 %var_0) {
+        define internal i64 @Increment(i64 %var_0) {
         block_0:
           %var_1 = add i64 %var_0, 1
           ret i64 %var_1

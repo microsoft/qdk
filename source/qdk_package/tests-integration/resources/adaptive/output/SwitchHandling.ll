@@ -103,7 +103,7 @@ block_20:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @X(ptr %var_7) {
+define internal void @X(ptr %var_7) {
 block_21:
   call void @__quantum__qis__x__body(ptr %var_7)
   ret void
@@ -115,7 +115,7 @@ declare void @__quantum__qis__m__body(ptr, ptr) #1
 
 declare i1 @__quantum__rt__read_result(ptr)
 
-define void @Reset(ptr %var_24) {
+define internal void @Reset(ptr %var_24) {
 block_22:
   call void @__quantum__qis__reset__body(ptr %var_24)
   ret void
@@ -123,18 +123,18 @@ block_22:
 
 declare void @__quantum__qis__reset__body(ptr) #1
 
-define void @ApplyGlobalPhase(double %var_27) {
+define internal void @ApplyGlobalPhase(double %var_27) {
 block_23:
   call void @ControllableGlobalPhase(double %var_27)
   ret void
 }
 
-define void @ControllableGlobalPhase(double %var_28) {
+define internal void @ControllableGlobalPhase(double %var_28) {
 block_24:
   ret void
 }
 
-define void @Ry(double %var_30, ptr %var_31) {
+define internal void @Ry(double %var_30, ptr %var_31) {
 block_25:
   call void @__quantum__qis__ry__body(double %var_30, ptr %var_31)
   ret void
@@ -142,7 +142,7 @@ block_25:
 
 declare void @__quantum__qis__ry__body(double, ptr)
 
-define void @Rz(double %var_33, ptr %var_34) {
+define internal void @Rz(double %var_33, ptr %var_34) {
 block_26:
   call void @__quantum__qis__rz__body(double %var_33, ptr %var_34)
   ret void
@@ -150,7 +150,7 @@ block_26:
 
 declare void @__quantum__qis__rz__body(double, ptr)
 
-define void @Rx(double %var_35, ptr %var_36) {
+define internal void @Rx(double %var_35, ptr %var_36) {
 block_27:
   call void @__quantum__qis__rx__body(double %var_35, ptr %var_36)
   ret void

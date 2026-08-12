@@ -86,7 +86,7 @@ fn nested_for_over_qubit_slice_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @X(ptr %var_1) {
+        define internal void @X(ptr %var_1) {
         block_9:
           call void @__quantum__qis__x__body(ptr %var_1)
           ret void
@@ -94,7 +94,7 @@ fn nested_for_over_qubit_slice_succeeds() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define void @CNOT(ptr %var_9, ptr %var_10) {
+        define internal void @CNOT(ptr %var_9, ptr %var_10) {
         block_10:
           call void @__quantum__qis__cx__body(ptr %var_9, ptr %var_10)
           ret void
@@ -202,7 +202,7 @@ fn constant_folding_pattern_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @X(ptr %var_1) {
+        define internal void @X(ptr %var_1) {
         block_9:
           call void @__quantum__qis__x__body(ptr %var_1)
           ret void
@@ -210,7 +210,7 @@ fn constant_folding_pattern_succeeds() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define void @CNOT(ptr %var_9, ptr %var_10) {
+        define internal void @CNOT(ptr %var_9, ptr %var_10) {
         block_10:
           call void @__quantum__qis__cx__body(ptr %var_9, ptr %var_10)
           ret void
@@ -346,7 +346,7 @@ fn three_qubit_repetition_code_pattern_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @X(ptr %var_1) {
+        define internal void @X(ptr %var_1) {
         block_12:
           call void @__quantum__qis__x__body(ptr %var_1)
           ret void
@@ -354,7 +354,7 @@ fn three_qubit_repetition_code_pattern_succeeds() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define void @CNOT(ptr %var_9, ptr %var_10) {
+        define internal void @CNOT(ptr %var_9, ptr %var_10) {
         block_13:
           call void @__quantum__qis__cx__body(ptr %var_9, ptr %var_10)
           ret void
@@ -362,7 +362,7 @@ fn three_qubit_repetition_code_pattern_succeeds() {
 
         declare void @__quantum__qis__cx__body(ptr, ptr)
 
-        define void @Rx(double %var_16, ptr %var_17) {
+        define internal void @Rx(double %var_16, ptr %var_17) {
         block_14:
           call void @__quantum__qis__rx__body(double %var_16, ptr %var_17)
           ret void
@@ -455,7 +455,7 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @CNOT(ptr %var_7, ptr %var_8) {
+        define internal void @CNOT(ptr %var_7, ptr %var_8) {
         block_7:
           call void @__quantum__qis__cx__body(ptr %var_7, ptr %var_8)
           ret void
@@ -659,7 +659,7 @@ fn result_array_while_loop_dynamic_index_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @H(ptr %var_1) {
+        define internal void @H(ptr %var_1) {
         block_6:
           call void @__quantum__qis__h__body(ptr %var_1)
           ret void
@@ -735,7 +735,7 @@ fn mutable_result_variable_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @H(ptr %var_0) {
+        define internal void @H(ptr %var_0) {
         block_3:
           call void @__quantum__qis__h__body(ptr %var_0)
           ret void
@@ -747,7 +747,7 @@ fn mutable_result_variable_succeeds() {
 
         declare i1 @__quantum__rt__read_result(ptr)
 
-        define void @X(ptr %var_4) {
+        define internal void @X(ptr %var_4) {
         block_4:
           call void @__quantum__qis__x__body(ptr %var_4)
           ret void
@@ -839,7 +839,7 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @H(ptr %var_5) {
+        define internal void @H(ptr %var_5) {
         block_7:
           call void @__quantum__qis__h__body(ptr %var_5)
           ret void
@@ -849,7 +849,7 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        define void @Reset(ptr %var_11) {
+        define internal void @Reset(ptr %var_11) {
         block_8:
           call void @__quantum__qis__reset__body(ptr %var_11)
           ret void
@@ -915,7 +915,7 @@ fn measure_each_z_static_qubits_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @X(ptr %var_1) {
+        define internal void @X(ptr %var_1) {
         block_1:
           call void @__quantum__qis__x__body(ptr %var_1)
           ret void
@@ -923,7 +923,7 @@ fn measure_each_z_static_qubits_succeeds() {
 
         declare void @__quantum__qis__x__body(ptr)
 
-        define void @H(ptr %var_2) {
+        define internal void @H(ptr %var_2) {
         block_2:
           call void @__quantum__qis__h__body(ptr %var_2)
           ret void
@@ -1103,7 +1103,7 @@ fn nested_emit_while_loops_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @H(ptr %var_3) {
+        define internal void @H(ptr %var_3) {
         block_7:
           call void @__quantum__qis__h__body(ptr %var_3)
           ret void
@@ -1195,7 +1195,7 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @H(ptr %var_7) {
+        define internal void @H(ptr %var_7) {
         block_6:
           call void @__quantum__qis__h__body(ptr %var_7)
           ret void
@@ -1317,13 +1317,13 @@ fn simple_void_operation_emits_ir_function() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @ApplyX(ptr %var_0) {
+        define internal void @ApplyX(ptr %var_0) {
         block_1:
           call void @X(ptr %var_0)
           ret void
         }
 
-        define void @X(ptr %var_1) {
+        define internal void @X(ptr %var_1) {
         block_2:
           call void @__quantum__qis__x__body(ptr %var_1)
           ret void
@@ -1370,7 +1370,7 @@ fn two_call_sites_share_one_ir_function() {
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     // Exactly one definition shared by two call sites.
     assert_eq!(
-        qir.matches("define void @ApplyX(").count(),
+        qir.matches("define internal void @ApplyX(").count(),
         1,
         "expected a single shared IR function definition; got:\n{qir}"
     );
@@ -1397,13 +1397,13 @@ fn two_call_sites_share_one_ir_function() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @ApplyX(ptr %var_0) {
+        define internal void @ApplyX(ptr %var_0) {
         block_1:
           call void @X(ptr %var_0)
           ret void
         }
 
-        define void @X(ptr %var_1) {
+        define internal void @X(ptr %var_1) {
         block_2:
           call void @__quantum__qis__x__body(ptr %var_1)
           ret void
@@ -1449,11 +1449,11 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define void @Op("),
+        qir.contains("define internal void @Op("),
         "expected a body IR function named `Op`; got:\n{qir}"
     );
     assert!(
-        qir.contains("define void @Op__Adj("),
+        qir.contains("define internal void @Op__Adj("),
         "expected an adjoint IR function named `Op__Adj`; got:\n{qir}"
     );
     assert!(
@@ -1474,13 +1474,13 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @Op(ptr %var_0) {
+        define internal void @Op(ptr %var_0) {
         block_1:
           call void @Rx(double 1.0, ptr %var_0)
           ret void
         }
 
-        define void @Rx(double %var_1, ptr %var_2) {
+        define internal void @Rx(double %var_1, ptr %var_2) {
         block_2:
           call void @__quantum__qis__rx__body(double %var_1, ptr %var_2)
           ret void
@@ -1488,13 +1488,13 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
 
         declare void @__quantum__qis__rx__body(double, ptr)
 
-        define void @Op__Adj(ptr %var_3) {
+        define internal void @Op__Adj(ptr %var_3) {
         block_3:
           call void @Rx__Adj(double 1.0, ptr %var_3)
           ret void
         }
 
-        define void @Rx__Adj(double %var_4, ptr %var_5) {
+        define internal void @Rx__Adj(double %var_4, ptr %var_5) {
         block_4:
           %var_6 = fmul double -1.0, %var_4
           call void @Rx(double %var_6, ptr %var_5)
@@ -1546,7 +1546,7 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
     let qir = compile_source_to_qir(source, *CAPABILITIES);
 
     assert!(
-        qir.contains("define void @UseGeneric("),
+        qir.contains("define internal void @UseGeneric("),
         "expected emitted helper function for the specialized call path; got:\n{qir}"
     );
     assert!(
@@ -1554,7 +1554,7 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
         "expected entry point to call emitted specialized helper; got:\n{qir}"
     );
     assert!(
-        qir.contains("define void @\"ApplyGeneric"),
+        qir.contains("define internal void @\"ApplyGeneric"),
         "expected specialized ApplyGeneric IR function definition; got:\n{qir}"
     );
     assert!(
@@ -1582,19 +1582,19 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @UseGeneric(ptr %var_0) {
+        define internal void @UseGeneric(ptr %var_0) {
         block_1:
           call void @"ApplyGeneric<Qubit, AdjCtl>{X}"(ptr %var_0)
           ret void
         }
 
-        define void @"ApplyGeneric<Qubit, AdjCtl>{X}"(ptr %var_1) {
+        define internal void @"ApplyGeneric<Qubit, AdjCtl>{X}"(ptr %var_1) {
         block_2:
           call void @X(ptr %var_1)
           ret void
         }
 
-        define void @X(ptr %var_2) {
+        define internal void @X(ptr %var_2) {
         block_3:
           call void @__quantum__qis__x__body(ptr %var_2)
           ret void
@@ -1639,7 +1639,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES_DYNAMIC_QUBIT_ALLOC);
     assert!(
-        qir.contains("define void @AllocAndX("),
+        qir.contains("define internal void @AllocAndX("),
         "expected a qubit-allocating IR function when DynamicQubitAllocation is enabled; got:\n{qir}"
     );
     assert!(
@@ -1659,7 +1659,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @AllocAndX() {
+        define internal void @AllocAndX() {
         block_1:
           %var_0 = call ptr @__quantum__rt__qubit_allocate()
           call void @X(ptr %var_0)
@@ -1669,7 +1669,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
 
         declare ptr @__quantum__rt__qubit_allocate()
 
-        define void @X(ptr %var_2) {
+        define internal void @X(ptr %var_2) {
         block_2:
           call void @__quantum__qis__x__body(ptr %var_2)
           ret void
@@ -1717,7 +1717,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES_DYNAMIC_QUBIT_ALLOC);
     assert!(
-        qir.contains("define void @AllocArrayAndX("),
+        qir.contains("define internal void @AllocArrayAndX("),
         "expected a qubit-array-allocating IR function when DynamicQubitAllocation is enabled; got:\n{qir}"
     );
     assert!(
@@ -1745,7 +1745,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @AllocArrayAndX() {
+        define internal void @AllocArrayAndX() {
         block_1:
           %var_1 = call ptr @__quantum__rt__qubit_allocate()
           %var_2 = call ptr @__quantum__rt__qubit_allocate()
@@ -1758,7 +1758,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
         declare ptr @__quantum__rt__qubit_allocate()
 
-        define void @X(ptr %var_3) {
+        define internal void @X(ptr %var_3) {
         block_2:
           call void @__quantum__qis__x__body(ptr %var_3)
           ret void
@@ -1793,7 +1793,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
 fn assert_inlined(qir: &str, callable_name: &str) {
     assert!(
-        !qir.contains(&format!("define void @{callable_name}(")),
+        !qir.contains(&format!("define internal void @{callable_name}(")),
         "expected `{callable_name}` to inline (no IR function definition); got:\n{qir}"
     );
 }
@@ -1840,7 +1840,7 @@ fn tuple_of_scalars_parameter_flattens_to_ir_function() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define void @ApplyPair("),
+        qir.contains("define internal void @ApplyPair("),
         "expected a flattened tuple-of-qubits IR function; got:\n{qir}"
     );
     assert!(
@@ -1860,14 +1860,14 @@ fn tuple_of_scalars_parameter_flattens_to_ir_function() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @ApplyPair(ptr %var_0, ptr %var_1) {
+        define internal void @ApplyPair(ptr %var_0, ptr %var_1) {
         block_1:
           call void @X(ptr %var_0)
           call void @X(ptr %var_1)
           ret void
         }
 
-        define void @X(ptr %var_4) {
+        define internal void @X(ptr %var_4) {
         block_2:
           call void @__quantum__qis__x__body(ptr %var_4)
           ret void
@@ -1937,11 +1937,11 @@ fn controlled_specialization_inlines() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        !qir.contains("define void @Op__Ctl("),
+        !qir.contains("define internal void @Op__Ctl("),
         "expected the controlled specialization to inline; got:\n{qir}"
     );
     assert!(
-        !qir.contains("define void @Op("),
+        !qir.contains("define internal void @Op("),
         "expected no IR function for the uncalled body specialization; got:\n{qir}"
     );
 }
@@ -1976,7 +1976,7 @@ fn recursive_operation_emits_to_ir_function() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @Recurse(i64 %var_0, ptr %var_1) {
+        define internal void @Recurse(i64 %var_0, ptr %var_1) {
         block_1:
           %var_2 = icmp sgt i64 %var_0, 0
           br i1 %var_2, label %block_2, label %block_3
@@ -1989,7 +1989,7 @@ fn recursive_operation_emits_to_ir_function() {
           ret void
         }
 
-        define void @X(ptr %var_3) {
+        define internal void @X(ptr %var_3) {
         block_4:
           call void @__quantum__qis__x__body(ptr %var_3)
           ret void
@@ -2033,7 +2033,7 @@ fn cross_package_operation_emits() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define void @X("),
+        qir.contains("define internal void @X("),
         "expected the cross-package `X` operation to emit a standalone IR function; got:\n{qir}"
     );
     assert!(
@@ -2091,7 +2091,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     assert!(
-        qir.contains("define i64 @Foo("),
+        qir.contains("define internal i64 @Foo("),
         "expected a value-returning IR function named `Foo`; got:\n{qir}"
     );
     assert!(
@@ -2099,56 +2099,56 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
         "expected the ir_functions module flag; got:\n{qir}"
     );
     expect![[r#"
-            @0 = internal constant [4 x i8] c"0_i\00"
+        @0 = internal constant [4 x i8] c"0_i\00"
 
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-              call void @__quantum__rt__initialize(ptr null)
-              %var_7 = call i64 @Foo(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__int_record_output(i64 %var_7, ptr @0)
-              ret i64 0
-            }
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          %var_7 = call i64 @Foo(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__int_record_output(i64 %var_7, ptr @0)
+          ret i64 0
+        }
 
-            declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__rt__initialize(ptr)
 
-            define i64 @Foo(ptr %var_2) {
-            block_1:
-              %var_3 = alloca i64
-              store i64 1, ptr %var_3
-              call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
-              %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %var_4, label %block_2, label %block_3
-            block_2:
-              store i64 2, ptr %var_3
-              br label %block_3
-            block_3:
-              %var_9 = load i64, ptr %var_3
-              ret i64 %var_9
-            }
+        define internal i64 @Foo(ptr %var_2) {
+        block_1:
+          %var_3 = alloca i64
+          store i64 1, ptr %var_3
+          call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
+          %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_4, label %block_2, label %block_3
+        block_2:
+          store i64 2, ptr %var_3
+          br label %block_3
+        block_3:
+          %var_9 = load i64, ptr %var_3
+          ret i64 %var_9
+        }
 
-            declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+        declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-            declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr)
 
-            declare void @__quantum__rt__int_record_output(i64, ptr)
+        declare void @__quantum__rt__int_record_output(i64, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-            attributes #1 = { "irreversible" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
 
-            ; module flags
+        ; module flags
 
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
 
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-            !8 = !{i32 1, !"ir_functions", i1 true}
-        "#]].assert_eq(&qir);
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
 }
 
 /// A value-returning IR function whose returned mutable is read, updated,
@@ -2176,59 +2176,59 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
         }";
     let qir = compile_source_to_qir(source, *CAPABILITIES);
     expect![[r#"
-            @0 = internal constant [4 x i8] c"0_i\00"
+        @0 = internal constant [4 x i8] c"0_i\00"
 
-            define i64 @ENTRYPOINT__main() #0 {
-            block_0:
-              call void @__quantum__rt__initialize(ptr null)
-              %var_8 = call i64 @Foo(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__int_record_output(i64 %var_8, ptr @0)
-              ret i64 0
-            }
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          call void @__quantum__rt__initialize(ptr null)
+          %var_8 = call i64 @Foo(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__int_record_output(i64 %var_8, ptr @0)
+          ret i64 0
+        }
 
-            declare void @__quantum__rt__initialize(ptr)
+        declare void @__quantum__rt__initialize(ptr)
 
-            define i64 @Foo(ptr %var_2) {
-            block_1:
-              %var_3 = alloca i64
-              store i64 0, ptr %var_3
-              call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
-              %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-              br i1 %var_4, label %block_2, label %block_3
-            block_2:
-              store i64 5, ptr %var_3
-              br label %block_3
-            block_3:
-              %var_10 = load i64, ptr %var_3
-              %var_7 = add i64 %var_10, 1
-              store i64 %var_7, ptr %var_3
-              %var_12 = load i64, ptr %var_3
-              ret i64 %var_12
-            }
+        define internal i64 @Foo(ptr %var_2) {
+        block_1:
+          %var_3 = alloca i64
+          store i64 0, ptr %var_3
+          call void @__quantum__qis__mresetz__body(ptr %var_2, ptr inttoptr (i64 0 to ptr))
+          %var_4 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_4, label %block_2, label %block_3
+        block_2:
+          store i64 5, ptr %var_3
+          br label %block_3
+        block_3:
+          %var_10 = load i64, ptr %var_3
+          %var_7 = add i64 %var_10, 1
+          store i64 %var_7, ptr %var_3
+          %var_12 = load i64, ptr %var_3
+          ret i64 %var_12
+        }
 
-            declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
+        declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-            declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr)
 
-            declare void @__quantum__rt__int_record_output(i64, ptr)
+        declare void @__quantum__rt__int_record_output(i64, ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
-            attributes #1 = { "irreversible" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="1" }
+        attributes #1 = { "irreversible" }
 
-            ; module flags
+        ; module flags
 
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
 
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-            !8 = !{i32 1, !"ir_functions", i1 true}
-        "#]]
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]]
         .assert_eq(&qir);
 }
 
@@ -2389,7 +2389,7 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @S__Adj(ptr %var_3) {
+        define internal void @S__Adj(ptr %var_3) {
         block_1:
           call void @__quantum__qis__s__adj(ptr %var_3)
           ret void
@@ -2397,7 +2397,7 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__qis__s__adj(ptr)
 
-        define void @H(ptr %var_4) {
+        define internal void @H(ptr %var_4) {
         block_2:
           call void @__quantum__qis__h__body(ptr %var_4)
           ret void
@@ -2405,7 +2405,7 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__qis__h__body(ptr)
 
-        define void @Rz(double %var_7, ptr %var_8) {
+        define internal void @Rz(double %var_7, ptr %var_8) {
         block_3:
           call void @__quantum__qis__rz__body(double %var_7, ptr %var_8)
           ret void
@@ -2413,13 +2413,13 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__qis__rz__body(double, ptr)
 
-        define void @H__Adj(ptr %var_9) {
+        define internal void @H__Adj(ptr %var_9) {
         block_4:
           call void @__quantum__qis__h__body(ptr %var_9)
           ret void
         }
 
-        define void @S(ptr %var_10) {
+        define internal void @S(ptr %var_10) {
         block_5:
           call void @__quantum__qis__s__body(ptr %var_10)
           ret void
@@ -2427,7 +2427,7 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         declare void @__quantum__qis__s__body(ptr)
 
-        define void @CNOT__Adj(ptr %var_15, ptr %var_16) {
+        define internal void @CNOT__Adj(ptr %var_15, ptr %var_16) {
         block_6:
           call void @__quantum__qis__cx__body(ptr %var_15, ptr %var_16)
           ret void
@@ -2488,7 +2488,7 @@ fn cross_package_library_callable_emits_standalone_define() {
     // The foreign library callable is emitted exactly once as a standalone
     // definition under its bare name, proving it is not inlined.
     assert_eq!(
-        qir.matches("define void @ApplyX(").count(),
+        qir.matches("define internal void @ApplyX(").count(),
         1,
         "expected exactly one standalone IR function for the foreign callable; got:\n{qir}"
     );
@@ -2514,13 +2514,13 @@ fn cross_package_library_callable_emits_standalone_define() {
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @ApplyX(ptr %var_0) {
+        define internal void @ApplyX(ptr %var_0) {
         block_1:
           call void @X(ptr %var_0)
           ret void
         }
 
-        define void @X(ptr %var_1) {
+        define internal void @X(ptr %var_1) {
         block_2:
           call void @__quantum__qis__x__body(ptr %var_1)
           ret void
@@ -2576,13 +2576,13 @@ fn cross_package_same_name_callables_get_discriminated() {
     let qir = compile_source_to_qir_with_library(lib, user, *CAPABILITIES);
     // Exactly one callable keeps the bare `@Foo` name.
     assert_eq!(
-        qir.matches("define void @Foo(").count(),
+        qir.matches("define internal void @Foo(").count(),
         1,
         "expected exactly one bare `@Foo` definition; got:\n{qir}"
     );
     // The colliding callable is emitted under a package-discriminated name.
     assert_eq!(
-        qir.matches("define void @Foo__p").count(),
+        qir.matches("define internal void @Foo__p").count(),
         1,
         "expected exactly one package-discriminated `@Foo__p...` definition; got:\n{qir}"
     );
@@ -2626,13 +2626,14 @@ fn user_callable_named_like_entry_point_is_discriminated() {
     // The user operation is emitted under a discriminated name, never shadowing
     // the reserved entry symbol.
     assert_eq!(
-        qir.matches("define void @ENTRYPOINT__main__p").count(),
+        qir.matches("define internal void @ENTRYPOINT__main__p")
+            .count(),
         1,
         "expected the user callable to be discriminated away from the reserved \
          entry symbol; got:\n{qir}"
     );
     assert!(
-        !qir.contains("define void @ENTRYPOINT__main("),
+        !qir.contains("define internal void @ENTRYPOINT__main("),
         "the user callable must not be emitted under the reserved entry symbol; got:\n{qir}"
     );
     assert!(
@@ -2661,15 +2662,15 @@ fn distinct_lambdas_emit_distinct_ir_functions() {
     // Each lambda is lifted and emitted as its own IR function. Lifted names
     // contain special characters and therefore render as quoted globals.
     assert_eq!(
-        qir.matches("define void @.lambda").count(),
+        qir.matches("define internal void @.lambda").count(),
         2,
         "expected two distinct lifted-lambda IR functions; got:\n{qir}"
     );
     // The two emitted lambda definitions must have different names.
     let names: Vec<&str> = qir
-        .match_indices("define void @.lambda")
+        .match_indices("define internal void @.lambda")
         .map(|(idx, _)| {
-            let rest = &qir[idx + "define void @".len()..];
+            let rest = &qir[idx + "define internal void @".len()..];
             let end = rest.find('(').expect("lambda name should be terminated");
             &rest[..end]
         })
@@ -2739,7 +2740,7 @@ fn cross_package_controlled_call_inlines() {
         }";
     let qir = compile_source_to_qir_with_library(lib, user, *CAPABILITIES);
     assert!(
-        !qir.contains("define void @Op__Ctl("),
+        !qir.contains("define internal void @Op__Ctl("),
         "expected the foreign controlled specialization to inline; got:\n{qir}"
     );
     // The controlled lowering still performs the same controlled intrinsic it

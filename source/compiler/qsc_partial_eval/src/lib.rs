@@ -39,6 +39,8 @@ use qsc_fir::{
     },
     ty::{FunctorSetValue, Prim, Ty},
 };
+
+pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::map_fir_package_to_hir;
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
@@ -59,7 +61,7 @@ pub use qsc_rir::{
     },
 };
 use rustc_hash::{FxHashMap, FxHashSet};
-use std::{collections::hash_map::Entry, rc::Rc, result::Result};
+use std::{collections::hash_map::Entry, mem::take, rc::Rc, result::Result};
 use thiserror::Error;
 
 /// Partially evaluates a program with the specified entry expression.
@@ -215,6 +217,10 @@ struct PartialEvaluator<'a> {
     config: PartialEvalConfig,
     dbg_context: DbgContext,
 }
+
+// The resolved arguments of a callable invocation, including the resolved argument values, the optional
+// resolved control qubits, and any array arguments with dynamic content of type `Value::Var`.
+type ResolvedArguments = (Vec<Arg>, Option<Arg>, Vec<Rc<Vec<Value>>>);
 
 #[derive(Clone, Copy)]
 pub struct PartialEvalConfig {
@@ -932,6 +938,7 @@ impl<'a> PartialEvaluator<'a> {
         bin_op: BinOp,
         lhs_eval_var: Var,
         rhs_expr_id: ExprId,
+        bin_op_expr_span: PackageSpan,
     ) -> Result<EvalControlFlow, Error> {
         let result_var = match bin_op {
             BinOp::Eq | BinOp::Neq => {
@@ -940,12 +947,12 @@ impl<'a> PartialEvaluator<'a> {
             BinOp::AndL => {
                 // Logical AND Boolean operations short-circuit on false.
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
-                self.eval_logical_bool_bin_op(false, lhs_rir_var, rhs_expr_id)?
+                self.eval_logical_bool_bin_op(false, lhs_rir_var, rhs_expr_id, bin_op_expr_span)?
             }
             BinOp::OrL => {
                 // Logical OR Boolean operations short-circuit on true.
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
-                self.eval_logical_bool_bin_op(true, lhs_rir_var, rhs_expr_id)?
+                self.eval_logical_bool_bin_op(true, lhs_rir_var, rhs_expr_id, bin_op_expr_span)?
             }
             _ => panic!("invalid Boolean operator {bin_op:?}"),
         };
@@ -1003,7 +1010,10 @@ impl<'a> PartialEvaluator<'a> {
         short_circuit_on_true: bool,
         lhs_rir_var: rir::Variable,
         rhs_expr_id: ExprId,
+        bin_op_expr_span: PackageSpan,
     ) -> Result<Var, Error> {
+        self.fail_if_in_parallel_expr(bin_op_expr_span)?;
+
         // Create the variable where we will store the result of the Boolean operation and store a default value in it,
         // which will only be changed inside the conditional block where the RHS expression is evaluated.
         let result_var_id = self.resource_manager.next_var();
@@ -1195,9 +1205,12 @@ impl<'a> PartialEvaluator<'a> {
         bin_op_expr_span: PackageSpan, // For diagnostic purposes only.
     ) -> Result<EvalControlFlow, Error> {
         match lhs_eval_var.ty {
-            VarTy::Boolean => {
-                self.eval_bin_op_with_lhs_dynamic_bool_operand(bin_op, lhs_eval_var, rhs_expr_id)
-            }
+            VarTy::Boolean => self.eval_bin_op_with_lhs_dynamic_bool_operand(
+                bin_op,
+                lhs_eval_var,
+                rhs_expr_id,
+                bin_op_expr_span,
+            ),
             VarTy::Integer => {
                 let lhs_rir_var = map_eval_var_to_rir_var(lhs_eval_var);
                 let lhs_operand = Operand::Variable(lhs_rir_var);
@@ -1350,6 +1363,9 @@ impl<'a> PartialEvaluator<'a> {
                 "literal should have been classically evaluated".to_string(),
                 expr_package_span,
             )),
+            ExprKind::Parallel(limit_id, expr_id) => {
+                self.eval_expr_parallel(*expr_id, limit_id.as_ref())
+            }
             ExprKind::Range(start, step, end) => {
                 self.eval_expr_range(*start, *step, *end, expr_package_span)
             }
@@ -1598,7 +1614,7 @@ impl<'a> PartialEvaluator<'a> {
             );
             None
         };
-        let (args, ctls_arg) = self.resolve_args(
+        let (args, ctls_arg, arrays) = self.resolve_args(
             (store_item_id.package, callable_decl.input).into(),
             args_value.clone(),
             Some(args_span),
@@ -1612,9 +1628,12 @@ impl<'a> PartialEvaluator<'a> {
         // parameters, so the operand mapping below cannot encounter composite values.
         let ir_function_arg_operands = if matches!(self.get_expr_compute_kind(call_expr_id),
             ComputeKind::Dynamic {runtime_features, ..} if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
+            || self.in_parallel_expr()
         {
             // A call site that has the `MustBeInlined` runtime feature flag set is not eligible to be emitted as an IR function
-            // based on Runtime Capabilities Analysis, so we fall through to the inline path.
+            // based on Runtime Capabilities Analysis, so we fall through to the inline path
+            // OR we are currently in a parrallel expression which requires that all calls are inlined to ensure the whole parallel
+            // ends up in a single block.
             None
         } else {
             spec_decl
@@ -1655,6 +1674,7 @@ impl<'a> PartialEvaluator<'a> {
             Some((store_item_id.item, functor_app)),
             args,
             ctls_arg,
+            arrays,
         );
 
         self.check_unresolved_call_capabilities(call_expr_id, callee_expr_id, &call_scope)?;
@@ -1794,7 +1814,7 @@ impl<'a> PartialEvaluator<'a> {
             panic!("global call to intrinsic function not supported");
         };
 
-        let (args, ctls_arg) = self.resolve_args(
+        let (args, ctls_arg, arrays) = self.resolve_args(
             (store_item_id.package, callable_decl.input).into(),
             args,
             None,
@@ -1806,6 +1826,7 @@ impl<'a> PartialEvaluator<'a> {
             Some((store_item_id.item, FunctorApp::default())),
             args,
             ctls_arg,
+            arrays,
         );
 
         // We generate instructions differently depending on whether we are calling an intrinsic or a specialization
@@ -1920,19 +1941,7 @@ impl<'a> PartialEvaluator<'a> {
             "IsResourceEstimating" => Ok(Value::Bool(false)),
             // The following intrinsic operations and functions are no-ops.
             "BeginEstimateCaching" => Ok(Value::Bool(true)),
-            "DumpRegister"
-            | "DumpOperation"
-            | "AccountForEstimatesInternal"
-            | "BeginRepeatEstimatesInternal"
-            | "EndRepeatEstimatesInternal"
-            | "EnableMemoryComputeArchitecture"
-            | "Load"
-            | "Store"
-            | "ApplyIdleNoise"
-            | "GlobalPhase"
-            | "Message"
-            | "PostSelectZ"
-            | "Fact" => Ok(Value::unit()),
+            name if is_codegen_noop_intrinsic(name) => Ok(Value::unit()),
             "CheckZero" => Err(Error::UnsupportedSimulationIntrinsic(
                 "CheckZero".to_string(),
                 callee_expr_span,
@@ -2023,7 +2032,7 @@ impl<'a> PartialEvaluator<'a> {
         let callable_id = self.get_or_insert_callable(callable);
 
         // Resolve the call arguments, create the call instruction and insert it to the current block.
-        let (args, ctls_arg) = self
+        let (args, ctls_arg, _) = self
             .resolve_args(
                 (store_item_id.package, callable_decl.input).into(),
                 args_value,
@@ -2079,6 +2088,39 @@ impl<'a> PartialEvaluator<'a> {
         spec_decl: &SpecDecl,
     ) -> Result<Value, Error> {
         self.eval_context.push_scope(call_scope);
+
+        // Some arguments may include arrays with dynamic content, which we want to allow later instructions to index into.
+        // To support this, we treat these as locally constant arrays and emit an RIR instruction to store their contents into a new
+        // variable. Later instructions can then refer to this argument array based on it's Rc pointer and emit index instructions
+        // with dynamic indices into that array. We know this is safe for arrays passed as arguments because they are read-only
+        // by definition.
+        let mut local_constant_arrays = take(&mut self.eval_context.get_current_scope_mut().arrays);
+        for (array, var_id) in &mut local_constant_arrays {
+            let new_var_id = self.resource_manager.next_var();
+            *var_id = Some(new_var_id);
+            let operands = array
+                .iter()
+                .map(|value| self.map_eval_value_to_rir_operand(value))
+                .collect::<Vec<_>>();
+            let rir::Ty::Prim(elem_ty) = operands
+                .first()
+                .expect("array should have at least one element")
+                .get_type()
+            else {
+                panic!("array element type should be a primitive type");
+            };
+            self.get_current_rir_block_mut()
+                .0
+                .push(Instruction::StoreArray(
+                    operands,
+                    rir::Variable {
+                        variable_id: new_var_id,
+                        ty: rir::Ty::Array(array.len(), elem_ty),
+                    },
+                ));
+        }
+        self.eval_context.get_current_scope_mut().arrays = local_constant_arrays;
+
         let block_value = self.try_eval_block(spec_decl.block)?.into_value();
         let popped_scope = self.eval_context.pop_scope();
         assert!(
@@ -2423,6 +2465,7 @@ impl<'a> PartialEvaluator<'a> {
             Some((store_item_id.item, functor_app)),
             body_args,
             None,
+            Vec::new(),
         );
         self.eval_context.push_block_node(BlockNode {
             id: body_block_id,
@@ -2483,6 +2526,7 @@ impl<'a> PartialEvaluator<'a> {
         // At this point the condition value is not classical, so we need to generate a branching instruction.
         // First, we pop the current block node and generate a new one which the new branches will jump to when their
         // instructions end.
+        self.fail_if_in_parallel_expr(self.get_expr_package_span(if_expr_id))?;
         let current_block_node = self.eval_context.pop_block_node();
         let continuation_block_node_id = self.create_program_block();
         let continuation_block_node = BlockNode {
@@ -3034,6 +3078,8 @@ impl<'a> PartialEvaluator<'a> {
             let _ = self.eval_context.pop_block_node();
             return Ok(EvalControlFlow::Continue(Value::unit()));
         }
+
+        self.fail_if_in_parallel_expr(self.get_expr_package_span(loop_expr_id))?;
 
         // Otherwise, branch to either the body block or the continuation block.
         let body_block_node_id = self.create_program_block();
@@ -3769,7 +3815,7 @@ impl<'a> PartialEvaluator<'a> {
         args_span: Option<PackageSpan>,
         ctls: Option<(StorePatId, u8)>,
         fixed_args: Option<Rc<[Value]>>,
-    ) -> Result<(Vec<Arg>, Option<Arg>), Error> {
+    ) -> Result<ResolvedArguments, Error> {
         let mut value = value;
         let ctls_arg = if let Some((ctls_pat_id, ctls_count)) = ctls {
             let mut ctls = vec![];
@@ -3812,15 +3858,23 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         let pat = self.package_store.get_pat(store_pat_id);
-        let args = match &pat.kind {
-            PatKind::Discard => vec![Arg::Discard(value)],
+        let (args, arrays) = match &pat.kind {
+            PatKind::Discard => (vec![Arg::Discard(value)], Vec::new()),
             PatKind::Bind(ident) => {
+                let arrays = if let Value::Array(array) = &value {
+                    // If the value is an array, recursively check if any of the contents are variables, which would
+                    // make the array a dynamic content array, and add them to the list of tracked arrays
+                    // that we want to emit store instructions for.
+                    get_arrays_with_dynamic_content(array)
+                } else {
+                    Vec::new()
+                };
                 let variable = Variable {
                     name: ident.name.clone(),
                     value,
                     span: ident.span,
                 };
-                vec![Arg::Var(ident.id, variable)]
+                (vec![Arg::Var(ident.id, variable)], arrays)
             }
             PatKind::Tuple(pats) => {
                 let values = value.unwrap_tuple();
@@ -3830,10 +3884,11 @@ impl<'a> PartialEvaluator<'a> {
                     "pattern tuple and value tuple have different arity"
                 );
                 let mut args = Vec::new();
+                let mut arrays = Vec::new();
                 let pat_value_tuples = pats.iter().zip(values.to_vec());
                 for (pat_id, value) in pat_value_tuples {
                     // At this point we should no longer have control qubits so pass None.
-                    let (mut element_args, None) = self
+                    let (mut element_args, None, mut elem_arrays) = self
                         .resolve_args(
                             (store_pat_id.package, *pat_id).into(),
                             value,
@@ -3846,11 +3901,12 @@ impl<'a> PartialEvaluator<'a> {
                         panic!("no control qubits are expected");
                     };
                     args.append(&mut element_args);
+                    arrays.append(&mut elem_arrays);
                 }
-                args
+                (args, arrays)
             }
         };
-        Ok((args, ctls_arg))
+        Ok((args, ctls_arg, arrays))
     }
 
     fn try_eval_block(&mut self, block_id: BlockId) -> Result<EvalControlFlow, Error> {
@@ -4667,22 +4723,59 @@ impl<'a> PartialEvaluator<'a> {
         array_package_span: PackageSpan,
         array_elem_ty: &Ty,
     ) -> Result<Value, Error> {
-        let array_literal = convert_to_array_literal(array, array_package_span, array_elem_ty)?;
-        let array_elem_ty = array_literal.ty;
-
-        let const_array_id = if let Some(idx) = self
-            .program
-            .array_literals
+        let (array_operand, array_elem_ty) = if let Some((_, var_id)) = self
+            .eval_context
+            .get_current_scope()
+            .arrays
             .iter()
-            .position(|a| a == &array_literal)
+            .find(|(stored_array, _)| Rc::ptr_eq(stored_array, array))
         {
-            idx
+            // The array being indexed matches one of the dynamic content arrays tracked as a locally constant argument
+            // to the current scope. This means we can emit an index instruction pointed at the variable created on entry
+            // to the current scope.
+            let Some(var_id) = var_id else {
+                panic!("array variable ID not found in current scope");
+            };
+            let Ok(rir::Ty::Prim(elem_rir_prim_ty)) = map_fir_type_to_rir_type(array_elem_ty)
+            else {
+                return Err(Error::Unexpected(
+                    "array with non-primitive RIR type".to_string(),
+                    array_package_span,
+                ));
+            };
+            (
+                Operand::Variable(rir::Variable {
+                    variable_id: *var_id,
+                    ty: rir::Ty::Array(array.len(), elem_rir_prim_ty),
+                }),
+                elem_rir_prim_ty,
+            )
         } else {
-            let idx = self.program.array_literals.len();
-            self.program.array_literals.push(array_literal);
-            idx
-        };
+            // The array being indexed is not one tracked by the scope, so try to convert it into a static array literal
+            // that will be stored in the global section of the program. If it matches an existing array literal, we can
+            // reuse that identifier, otherwise a new one is generated and stored into the program.
+            // The index instruction will then be emitted to index into that array literal.
+            let array_literal = convert_to_array_literal(array, array_package_span, array_elem_ty)?;
+            let array_elem_ty = array_literal.ty;
 
+            let const_array_id = if let Some(idx) = self
+                .program
+                .array_literals
+                .iter()
+                .position(|a| a == &array_literal)
+            {
+                idx
+            } else {
+                let idx = self.program.array_literals.len();
+                self.program.array_literals.push(array_literal);
+                idx
+            };
+
+            (
+                Operand::Literal(Literal::Array(const_array_id)),
+                array_elem_ty,
+            )
+        };
         let variable_id = self.resource_manager.next_var();
         let rir_variable = rir::Variable {
             variable_id,
@@ -4690,7 +4783,7 @@ impl<'a> PartialEvaluator<'a> {
         };
 
         self.get_current_rir_block_mut().0.push(Instruction::Index(
-            Operand::Literal(Literal::Array(const_array_id)),
+            array_operand,
             Operand::Variable(map_eval_var_to_rir_var(var)),
             rir_variable,
         ));
@@ -4746,6 +4839,53 @@ impl<'a> PartialEvaluator<'a> {
                 end: exprs[2],
             },
         ))))
+    }
+
+    fn eval_expr_parallel(
+        &mut self,
+        expr_id: ExprId,
+        limit_id: Option<&ExprId>,
+    ) -> Result<EvalControlFlow, Error> {
+        let limit = if let Some(&limit_id) = limit_id {
+            let limit_control_flow = self.try_eval_expr(limit_id)?;
+            let EvalControlFlow::Continue(limit_value) = limit_control_flow else {
+                return Err(Error::Unexpected(
+                    "embedded return in parallel limit expression".to_string(),
+                    self.get_expr_package_span(limit_id),
+                ));
+            };
+            let limit = limit_value.unwrap_int();
+            if limit < 0 {
+                return Err(EvalError::InvalidNegativeInt(
+                    limit,
+                    self.get_expr_package_span(limit_id),
+                )
+                .into());
+            }
+            #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+            Some(limit as usize)
+        } else {
+            None
+        };
+
+        self.resource_manager.start_delayed_release_layer(limit);
+        let result = self.try_eval_expr(expr_id)?;
+        self.resource_manager.end_delayed_release_layer();
+        Ok(result)
+    }
+
+    fn fail_if_in_parallel_expr(&self, span: PackageSpan) -> Result<(), Error> {
+        if self.resource_manager.is_delaying_release() {
+            return Err(Error::Unimplemented(
+                "dynamic branching within parallel expression".to_string(),
+                span,
+            ));
+        }
+        Ok(())
+    }
+
+    fn in_parallel_expr(&self) -> bool {
+        self.resource_manager.is_delaying_release()
     }
 }
 
@@ -5154,4 +5294,24 @@ fn convert_to_array_literal(
         contents: elem_literals,
         ty: elem_rir_prim_ty,
     })
+}
+
+/// Recursively traverse the given array to collect any arrays with dynamic contents (arrays that contain RIR variables),
+/// including the given array itself, and collect any into a flat vector. This allows them to be tracked as locally
+/// constant arrays used as arguments to the current scope.
+fn get_arrays_with_dynamic_content(array: &Rc<Vec<Value>>) -> Vec<Rc<Vec<Value>>> {
+    let mut arrays_with_dynamic_content = Vec::new();
+    for elem in array.iter() {
+        match elem {
+            Value::Array(inner) => {
+                arrays_with_dynamic_content.append(&mut get_arrays_with_dynamic_content(inner));
+            }
+            Value::Var(_) => {
+                arrays_with_dynamic_content.push(Rc::clone(array));
+                break;
+            }
+            _ => {}
+        }
+    }
+    arrays_with_dynamic_content
 }

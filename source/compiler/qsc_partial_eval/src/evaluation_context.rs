@@ -10,7 +10,7 @@ use qsc_fir::fir::{LocalItemId, LocalVarId, PackageId};
 use qsc_rca::{ComputeKind, RuntimeFeatureFlags, ValueKind};
 use qsc_rir::rir::{BlockId, Literal, VariableId};
 use rustc_hash::FxHashMap;
-use std::collections::hash_map::Entry;
+use std::{collections::hash_map::Entry, rc::Rc};
 
 use crate::{ScopeDbgContext, is_static_value};
 
@@ -24,7 +24,7 @@ pub struct EvaluationContext {
 impl EvaluationContext {
     /// Creates a new evaluation context.
     pub fn new(package_id: PackageId, initial_block: BlockId) -> Self {
-        let entry_callable_scope = Scope::new(package_id, None, Vec::new(), None);
+        let entry_callable_scope = Scope::new(package_id, None, Vec::new(), None, Vec::new());
         Self {
             active_blocks: vec![BlockNode {
                 id: initial_block,
@@ -118,6 +118,9 @@ pub struct Scope {
     active_block_count: usize,
     /// Debug context, used for generating debug metadata.
     pub(crate) dbg_context: ScopeDbgContext,
+    /// Any locally constant arrays associated with this scope, along with the variable ID
+    /// they are assigned (which happens after the scope is created).
+    pub(crate) arrays: Vec<(Rc<Vec<Value>>, Option<VariableId>)>,
 }
 
 impl Scope {
@@ -127,6 +130,7 @@ impl Scope {
         callable: Option<(LocalItemId, FunctorApp)>,
         args: Vec<Arg>,
         ctls_arg: Option<Arg>,
+        arrays: Vec<Rc<Vec<Value>>>,
     ) -> Self {
         // Create the environment for the classical evaluator.
         // A default classical evaluator environment is created with one scope. However, we need to push an additional
@@ -184,6 +188,7 @@ impl Scope {
             hybrid_vars,
             static_vars: FxHashMap::default(),
             dbg_context: ScopeDbgContext::default(),
+            arrays: arrays.into_iter().map(|array| (array, None)).collect(),
         }
     }
 

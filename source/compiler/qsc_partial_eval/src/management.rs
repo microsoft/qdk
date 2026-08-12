@@ -7,6 +7,7 @@ use num_bigint::BigUint;
 use num_complex::Complex;
 use qsc_data_structures::index_map::IndexMap;
 use qsc_eval::{
+    DelayedQubitReleaseStack,
     backend::Backend,
     val::{Qubit, QubitRef, Result, Value},
 };
@@ -19,6 +20,7 @@ pub struct ResourceManager {
     qubits_in_use: Vec<bool>,
     qubit_id_map: IndexMap<usize, usize>,
     qubit_tracker: FxHashSet<Rc<Qubit>>,
+    delayed_release_qubits: DelayedQubitReleaseStack,
     next_callable: CallableId,
     next_block: BlockId,
     next_result_register: usize,
@@ -46,6 +48,14 @@ impl ResourceManager {
 
     /// Allocates a qubit by favoring available qubit IDs before using new ones.
     pub fn allocate_qubit(&mut self) -> QubitRef {
+        if let Some(qubit) = self.delayed_release_qubits.allocate_delayed_qubit() {
+            return self
+                .qubit_tracker
+                .get(&qubit)
+                .expect("qubit should be in map")
+                .into();
+        }
+
         let qubit = if let Some(qubit) = self.qubits_in_use.iter().position(|in_use| !in_use) {
             self.qubits_in_use[qubit] = true;
             qubit
@@ -70,12 +80,30 @@ impl ResourceManager {
 
     /// Releases a qubit ID for future use.
     pub fn release_qubit(&mut self, q: &QubitRef) {
-        let qubit = self.map_qubit(q);
-        self.qubits_in_use[qubit] = false;
-
         let q = q.deref();
-        self.qubit_id_map.remove(q.0);
-        self.qubit_tracker.remove(&q);
+        if !self.delayed_release_qubits.delay_release_qubit(*q) {
+            self.free_qubit_id(*q);
+        }
+    }
+
+    pub fn start_delayed_release_layer(&mut self, limit: Option<usize>) {
+        self.delayed_release_qubits.add_layer(limit);
+    }
+
+    pub fn end_delayed_release_layer(&mut self) {
+        for qubit in self.delayed_release_qubits.remove_layer() {
+            self.free_qubit_id(qubit);
+        }
+    }
+
+    fn free_qubit_id(&mut self, qubit: Qubit) {
+        self.qubits_in_use[self.qubit_id_map[qubit.0]] = false;
+        self.qubit_id_map.remove(qubit.0);
+        self.qubit_tracker.remove(&qubit);
+    }
+
+    pub fn is_delaying_release(&self) -> bool {
+        !self.delayed_release_qubits.is_empty()
     }
 
     /// Gets the next block ID.

@@ -535,20 +535,20 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @phase_by(i64 %var_1, i64 %var_2, ptr %var_3) {
+        define internal void @phase_by(i64 %var_1, i64 %var_2, ptr %var_3) {
         block_1:
           call void @rz(i64 %var_1, i64 %var_2, ptr %var_3)
           ret void
         }
 
-        define void @rz(i64 %var_4, i64 %var_5, ptr %var_6) {
+        define internal void @rz(i64 %var_4, i64 %var_5, ptr %var_6) {
         block_2:
           %var_43 = call double @AngleAsDouble(i64 %var_4, i64 %var_5)
           call void @Rz(double %var_43, ptr %var_6)
           ret void
         }
 
-        define double @AngleAsDouble(i64 %var_7, i64 %var_8) {
+        define internal double @AngleAsDouble(i64 %var_7, i64 %var_8) {
         block_3:
           %var_10 = alloca i64
           %var_15 = alloca i64
@@ -634,7 +634,7 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           ret double %var_42
         }
 
-        define void @Rz(double %var_45, ptr %var_46) {
+        define internal void @Rz(double %var_45, ptr %var_46) {
         block_17:
           call void @__quantum__qis__rz__body(double %var_45, ptr %var_46)
           ret void

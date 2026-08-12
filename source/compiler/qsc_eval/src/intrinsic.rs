@@ -119,6 +119,10 @@ pub(crate) fn call<B: Backend>(
             Ok(()) => Ok(Value::unit()),
             Err(_) => Err(Error::OutputFail(name_span)),
         },
+        // Codegen transforms collapse `Fact`'s simulatable body, so evaluating
+        // transformed FIR reaches intrinsic dispatch. Untransformed simulation
+        // still executes the Q# body and preserves its assertion behavior.
+        "Fact" => Ok(Value::unit()),
         "CheckZero" => Ok(Value::Bool(
             sim.qubit_is_zero(
                 arg.unwrap_qubit()
