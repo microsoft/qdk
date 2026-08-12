@@ -276,8 +276,10 @@ function hasExpectedKind(cell: RawCell, tag: AuthoringTag): boolean {
 // ─── Field derivation ───
 
 /**
- * Title and description for an exercise, taken from the markdown cell that
- * introduces it: the nearest preceding markdown cell that isn't itself tagged.
+ * Title and description for an exercise, taken from a nearby preceding
+ * markdown cell. Walks back up to three markdown cells looking for one
+ * that contains a heading; stops at non-markdown cells, `exercise`-tagged
+ * cells, or authoring-tagged cells.
  *
  * The cell's last heading becomes the title (dropping a leading "Exercise:",
  * which reads naturally in the notebook but is redundant in the progress tree);
@@ -288,6 +290,7 @@ function precedingPrompt(
   exerciseIndex: number,
   id: string,
 ): { title: string; description: string } {
+  let checked = 0;
   for (let i = exerciseIndex - 1; i >= 0; i--) {
     const cell = cells[i];
     const tags = cellTags(cell);
@@ -298,9 +301,15 @@ function precedingPrompt(
       break;
     }
     if (cellKind(cell) !== "markdown") {
-      continue;
+      break;
     }
-    return splitPrompt(cellSource(cell), id);
+    const result = splitPrompt(cellSource(cell), id);
+    if (result.title !== id) {
+      return result;
+    }
+    if (++checked >= 3) {
+      break;
+    }
   }
   return { title: id, description: "" };
 }
