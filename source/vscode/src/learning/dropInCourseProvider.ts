@@ -209,8 +209,8 @@ export class DropInCourseProvider implements CourseProvider {
       .filter(
         (e) =>
           e.type === vscode.FileType.File &&
-          e.name.toLowerCase().endsWith(".ipynb") &&
-          !e.name.toLowerCase().endsWith(WORKBOOK_SUFFIX),
+          e.name.endsWith(".ipynb") &&
+          !e.name.endsWith(WORKBOOK_SUFFIX),
       )
       .sort((a, b) => a.name.localeCompare(b.name));
     let notebookEntry: (typeof notebookEntries)[number];
