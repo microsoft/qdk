@@ -228,6 +228,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Store(operand, variable) => {
                 store_to_qir(*operand, *variable, program)
             }
+            rir::Instruction::StoreArray(operands, variable) => {
+                store_array_to_qir(operands, *variable, program)
+            }
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }
@@ -289,6 +292,41 @@ fn store_to_qir(operand: rir::Operand, variable: rir::Variable, program: &rir::P
         get_value_as_str(&operand, program),
         ToQir::<String>::to_qir(&variable.variable_id, program)
     )
+}
+
+fn store_array_to_qir(
+    operands: &[rir::Operand],
+    variable: rir::Variable,
+    program: &rir::Program,
+) -> String {
+    // Since SSA variables cannot be used in array literals, we cannot store the whole
+    // array into the alloca'ed space in one instruction. Instead, iterate through the array
+    // and create temporary variables for each memory location via getelementptr, then store
+    // the corresponding value into the array.
+    // This expands the single `StoreArray` instruction into 2N instructions, where N is the
+    // number of elements in the array.
+    let var_ty = get_variable_ty(variable);
+    let mut qir = String::new();
+    let var_str = ToQir::<String>::to_qir(&variable.variable_id, program);
+    let final_operand_idx = operands.len() - 1;
+    for (i, operand) in operands.iter().enumerate() {
+        let temp_var = format!("{var_str}_{i}");
+        writeln!(
+            qir,
+            "  {temp_var} = getelementptr {var_ty}, ptr {var_str}, i64 0, i64 {i}"
+        )
+        .expect("writing to string should succeed");
+        write!(
+            qir,
+            "  store {}, ptr {temp_var}",
+            ToQir::<String>::to_qir(operand, program)
+        )
+        .expect("writing to string should succeed");
+        if i != final_operand_idx {
+            writeln!(qir).expect("writing to string should succeed");
+        }
+    }
+    qir
 }
 
 fn load_to_qir(var_from: rir::Variable, var_to: rir::Variable, program: &rir::Program) -> String {

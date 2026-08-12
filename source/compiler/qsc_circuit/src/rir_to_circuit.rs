@@ -423,6 +423,7 @@ fn process_variables(
             store_expr_in_variable(&mut state.variables, *variable, expr)?;
         }
         instruction @ (Instruction::Store(..)
+        | Instruction::StoreArray(..)
         | Instruction::BitwiseNot(..)
         | Instruction::Alloca(..)
         | Instruction::Load(..)
