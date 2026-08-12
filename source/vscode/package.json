@@ -645,7 +645,7 @@
       {
         "command": "qsharp-vscode.createQuantumVenv",
         "category": "QDK",
-        "title": "Create a Microsoft Quantum virtual environment"
+        "title": "Create a Microsoft Quantum Python virtual environment"
       },
       {
         "command": "qsharp-vscode.openPlayground",
@@ -1541,7 +1541,7 @@
           "venv"
         ],
         "toolReferenceName": "qdkCreateNotebookVenv",
-        "displayName": "Create Quantum Notebook Virtual Environment",
+        "displayName": "Create Quantum Python Virtual Environment",
         "modelDescription": "Creates or updates a Python virtual environment in the workspace root with packages for quantum notebook development (qdk[jupyter], ipympl, ipykernel). If a venv already exists it will be updated. Requires the Python Environments extension (ms-python.vscode-python-envs).",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
