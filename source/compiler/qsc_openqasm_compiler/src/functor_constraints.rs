@@ -14,7 +14,7 @@
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use qdk_openqasm_parser::semantic::{
+use qdk_openqasm::semantic::{
     ast::{GateCall, GateModifierKind, Program, QuantumGateDefinition},
     symbols::SymbolId,
     visit::{Visitor, walk_gate_call_stmt, walk_quantum_gate_definition},

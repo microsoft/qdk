@@ -3,13 +3,12 @@
 
 use std::sync::Arc;
 
-use crate::openqasm::get_reference_locations;
-use crate::qsc_utils::into_range;
+use crate::openqasm::{get_reference_locations, into_range};
 use log::trace;
 
-use qsc::Span;
 use qsc::line_column::{Encoding, Position, Range};
 use qsc::location::Location;
+use qsc::openqasm::span::Span;
 
 pub fn prepare_rename(
     sources: &[(Arc<str>, Arc<str>)],

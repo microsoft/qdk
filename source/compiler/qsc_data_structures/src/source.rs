@@ -1,6 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 
 #[derive(Clone, Debug, Default)]
@@ -40,7 +43,7 @@ impl SourceMap {
         // Each source has a name, which is a string. The project root dir is calculated as the
         // common prefix of all of the sources.
         // Calculate the common prefix.
-        let common_prefix: String = longest_common_prefix(
+        let common_prefix: String = longest_common_folder_prefix(
             &offset_sources
                 .iter()
                 .map(|source| source.name.as_ref())
@@ -84,7 +87,7 @@ impl SourceMap {
             .iter()
             .rev()
             .chain(&self.entry)
-            .find(|source| offset >= source.offset)
+            .find(|source| source.contains_offset(offset))
     }
 
     #[must_use]
@@ -128,37 +131,90 @@ pub struct Source {
     pub offset: u32,
 }
 
+impl Source {
+    #[must_use]
+    pub fn contains_offset(&self, offset: u32) -> bool {
+        let end = self
+            .offset
+            .checked_add(
+                u32::try_from(self.contents.len()).expect("contents length should fit into u32"),
+            )
+            .expect("source end should fit into u32");
+        (self.offset..=end).contains(&offset)
+    }
+}
+
 pub type SourceName = Arc<str>;
 
 pub type SourceContents = Arc<str>;
 
+/// Returns the shared path prefix of the supplied source names.
+///
+/// * An empty slice returns an empty string.
+/// * A single source name returns its containing path: the name truncated
+///   through its last path separator (`/` or `\`), or through its last `:` if
+///   it has neither, or an empty string if it has none of them.
+/// * Two or more source names return the text they all share. That text is
+///   truncated the same way, unless the first name is a prefix of every other
+///   name, in which case the whole first name is returned. Identical source
+///   names are the common case of that exception.
+///
+/// Truncating is what keeps the result from ending in a partial path component.
+///
+/// Comparison is bytewise and linear in the compared input. This is UTF-8 safe
+/// because returned slices end only after an ASCII path separator or at the end
+/// of the first source name.
 #[must_use]
-pub fn longest_common_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
+pub fn longest_common_folder_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
+    // The fold below has nothing to disagree with a lone name, so it would hand
+    // back that whole name, file component included, instead of a prefix.
     if strs.len() == 1 {
         return truncate_to_path_separator(strs[0]);
     }
 
-    let Some(common_prefix_so_far) = strs.first() else {
+    // Only an empty slice reaches this, because the single-name case returned above.
+    let Some(first) = strs.first() else {
         return "";
     };
 
-    for (i, character) in common_prefix_so_far.char_indices() {
-        for string in strs {
-            if string.chars().nth(i) != Some(character) {
-                let prefix = &common_prefix_so_far[0..i];
-                // Find the last occurrence of the path separator in the prefix
-                return truncate_to_path_separator(prefix);
-            }
-        }
+    // Carry forward the shortest prefix shared with `first`. A mismatch
+    // shortens the prefix to its byte offset; if `zip` reaches the end of
+    // either input without a mismatch, the shorter input bounds the prefix.
+    let common_prefix_len = strs.iter().skip(1).fold(first.len(), |prefix_len, string| {
+        first.as_bytes()[..prefix_len]
+            .iter()
+            .zip(string.as_bytes())
+            .position(|(left, right)| left != right)
+            .unwrap_or_else(|| prefix_len.min(string.len()))
+    });
+
+    // Nothing contradicted `first`, so it is a prefix of every other name and
+    // truncating it would discard a component they genuinely share.
+    if common_prefix_len == first.len() {
+        first
+    } else {
+        truncate_to_path_separator_at(first, common_prefix_len)
     }
-    common_prefix_so_far
 }
 
+/// Truncates a source name through its final path separator.
 fn truncate_to_path_separator(prefix: &str) -> &str {
-    let last_separator_index = prefix
-        .rfind('/')
-        .or_else(|| prefix.rfind('\\'))
-        .or_else(|| prefix.rfind(':'));
+    truncate_to_path_separator_at(prefix, prefix.len())
+}
+
+/// Truncates the first `end` bytes through the final path separator.
+///
+/// `end` may fall within a multibyte character. The returned boundary remains
+/// valid UTF-8 because each recognized separator is a single-byte ASCII
+/// character.
+fn truncate_to_path_separator_at(prefix: &str, end: usize) -> &str {
+    let bytes = &prefix.as_bytes()[..end];
+    let last_separator_index = bytes
+        .iter()
+        .rposition(|byte| matches!(*byte, b'/' | b'\\'))
+        // A `:` separates a drive or scheme from what follows it, so it bounds a
+        // path only when the name has no path separator of its own, as in `C:a.qasm`.
+        .or_else(|| bytes.iter().rposition(|byte| *byte == b':'));
     if let Some(last_separator_index) = last_separator_index {
         // Return the prefix up to and including the last path separator
         return &prefix[0..=last_separator_index];

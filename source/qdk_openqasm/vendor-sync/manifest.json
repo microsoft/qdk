@@ -1,0 +1,65 @@
+{
+  "comment": "Provenance for the compiler files vendored into qdk_openqasm. See README.md for why the copies exist and what to do when the check fails. A copy pair needs no recorded hash, because the check compares the two files directly. A fork pair records the origin hash it was last reviewed against; re-pin it with check_vendor_sync.py --update once the origin change has been reviewed.",
+  "pairs": [
+    {
+      "name": "index_map.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/index_map.rs",
+      "origin": "source/index_map/src/lib.rs",
+      "tier": "copy",
+      "public": false
+    },
+    {
+      "name": "display.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/display.rs",
+      "origin": "source/compiler/qsc_data_structures/src/display.rs",
+      "tier": "copy",
+      "public": false
+    },
+    {
+      "name": "display/core.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/display/core.rs",
+      "origin": "source/compiler/qsc_data_structures/src/display/core.rs",
+      "tier": "copy",
+      "public": false
+    },
+    {
+      "name": "span.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/span.rs",
+      "origin": "source/compiler/qsc_data_structures/src/span.rs",
+      "tier": "copy",
+      "public": true
+    },
+    {
+      "name": "source.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/source.rs",
+      "origin": "source/compiler/qsc_data_structures/src/source.rs",
+      "tier": "copy",
+      "public": true
+    },
+    {
+      "name": "source/tests.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/source/tests.rs",
+      "origin": "source/compiler/qsc_data_structures/src/source/tests.rs",
+      "tier": "copy",
+      "public": false
+    },
+    {
+      "name": "error.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/error.rs",
+      "origin": "source/compiler/qsc_data_structures/src/error.rs",
+      "origin_sha256": "e1ed05600d31e7836e8aa55b3783b80e5e8714a12925276b0a51b38a191bf554",
+      "tier": "fork",
+      "public": true,
+      "divergence": "Span resolution is fallible here rather than panicking, and it adds SourceSnapshotSourceCode so diagnostics can render against a parser source snapshot. Copying the origin over this file would discard both."
+    },
+    {
+      "name": "error/tests.rs",
+      "vendored": "source/qdk_openqasm/src/vendor/error/tests.rs",
+      "origin": "source/compiler/qsc_data_structures/src/error/tests.rs",
+      "origin_sha256": "1c40a02945261970a9b9807da493fb9f7287212cae764f2ff9edfe577478868b",
+      "tier": "fork",
+      "public": false,
+      "divergence": "Covers the forked behavior in error.rs, so it tests cases the origin's tests do not have."
+    }
+  ]
+}

@@ -5,7 +5,7 @@
 mod integration_tests;
 
 use super::{FileSystemAsync, Project};
-use qdk_openqasm_parser::parser::ast::{PathKind, Program, StmtKind};
+use qdk_openqasm::parser::ast::{PathKind, Program, StmtKind};
 use qsc_data_structures::target::Profile;
 use rustc_hash::FxHashSet;
 use std::{path::Path, str::FromStr as _, sync::Arc};
@@ -27,9 +27,10 @@ where
     let path = Arc::from(path.as_ref().to_string_lossy().as_ref());
     match source {
         Some(source) => {
-            let (program, _errors) = qdk_openqasm_parser::parser::parse(source.as_ref());
-            target_profile = get_first_profile_pragma(&program);
-            let includes = get_includes(&program, &path);
+            let program = qdk_openqasm::parse(source.clone());
+            let program = program.program();
+            target_profile = get_first_profile_pragma(program);
+            let includes = get_includes(program, &path);
             pending_includes.extend(includes);
             loaded_files.insert(path.clone());
             sources.push((path.clone(), source.clone()));
@@ -38,9 +39,10 @@ where
             match project_host.read_file(Path::new(path.as_ref())).await {
                 Ok((file, source)) => {
                     // load the root file
-                    let (program, _errors) = qdk_openqasm_parser::parser::parse(source.as_ref());
-                    target_profile = get_first_profile_pragma(&program);
-                    let includes = get_includes(&program, &file);
+                    let program = qdk_openqasm::parse(source.clone());
+                    let program = program.program();
+                    target_profile = get_first_profile_pragma(program);
+                    let includes = get_includes(program, &file);
                     pending_includes.extend(includes);
                     loaded_files.insert(file.clone());
                     sources.push((file, source.clone()));
@@ -92,8 +94,8 @@ where
             .read_file(Path::new(resolved_path.as_ref()))
             .await
         {
-            let (program, _errors) = qdk_openqasm_parser::parser::parse(source.as_ref());
-            let includes = get_includes(&program, &file);
+            let program = qdk_openqasm::parse(source.clone());
+            let includes = get_includes(program.program(), &file);
             pending_includes.extend(includes);
             loaded_files.insert(file.clone());
             sources.push((file, source.clone()));

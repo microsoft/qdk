@@ -329,6 +329,21 @@ if npm_install_needed:
     step_end()
 
 if args.check:
+    step_start("Checking vendored file provenance")
+    # Stdlib only, so it runs on the ambient interpreter without a venv.
+    subprocess.run(
+        [
+            sys.executable,
+            os.path.join(
+                root_dir, "source", "qdk_openqasm", "vendor-sync", "check_vendor_sync.py"
+            ),
+        ],
+        check=True,
+        text=True,
+        cwd=root_dir,
+    )
+    step_end()
+
     step_start("Running eslint and prettier checks")
     try:
         subprocess.run([npm_cmd, "run", "check"], check=True, text=True, cwd=root_dir)
