@@ -64,6 +64,13 @@ export function initLearning(
           if (typeof cellId !== "string") {
             continue;
           }
+          // We're relying on a bit of magic here: another event listener
+          // updates the active unit (i.e. notebook) when a workbook notebook
+          // is opened and we're relying on that to be correct, rather than
+          // using the URL from the event.
+          // If it turns out there's a way to get events about a notebook
+          // other than the active one, the only negative consequence will
+          // be not registering completion.
           void learningService.goToExerciseByCellId(cellId, "notebook");
           if (change.executionSummary.success) {
             void learningService.markExerciseCompleteByCellId(cellId);
