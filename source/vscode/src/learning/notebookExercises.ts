@@ -335,11 +335,11 @@ function splitPrompt(
     .replace(/^exercise\s*[:—-]\s*/i, "")
     .trim();
 
+  const descLine = lines
+    .slice(headingIndex + 1)
+    .find((l) => l.trim().length > 0);
   return {
     title: title || id,
-    description: lines
-      .slice(headingIndex + 1)
-      .join("\n")
-      .trim(),
+    description: descLine ? descLine.trim().slice(0, 100) : "",
   };
 }
