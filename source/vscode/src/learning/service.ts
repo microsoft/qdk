@@ -1511,7 +1511,7 @@ export class LearningService {
     try {
       bytes = await vscode.workspace.fs.readFile(ws.learningFile);
     } catch {
-      // In this case, leave ws (and, in particular, ws.ProgressData)
+      // In this case, leave ws (and, in particular, ws.progressData)
       // untouched, since it's either the last known state or the default.
       return;
     }
