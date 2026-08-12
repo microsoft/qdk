@@ -12,10 +12,7 @@ import { CopilotToolError } from "./gh-copilot/types.js";
 
 const pythonEnvsNotInstalledMsg = `The Python Environments extension (${EXTENSION_ID}) is not installed or is disabled.`;
 
-// Fixed set for the Copilot tool.
-const toolPackages = ["qdk[jupyter]", "ipympl", "ipykernel"];
-
-// All packages offered in the command palette picker.
+// All packages offered in the command palette picker (in display order)
 const packagePickItems: vscode.QuickPickItem[] = [
   {
     label: "qdk",
@@ -97,13 +94,41 @@ async function getPythonEnvsApi(): Promise<PythonEnvironmentApi | undefined> {
   }
 }
 
-function isUnderWorkspaceRoot(
-  env: PythonEnvironment,
-  root: vscode.Uri,
-): boolean {
-  const envStr = env.environmentPath.toString();
+function isInWorkspaceRoot(env: PythonEnvironment, root: vscode.Uri): boolean {
+  const envStr = vscode.Uri.file(env.sysPrefix).toString();
   const rootStr = root.toString();
-  return envStr === rootStr || envStr.startsWith(rootStr + "/");
+  return envStr.startsWith(rootStr + "/");
+}
+
+// Look for an environment in the workspace root.
+// Prefer the active environment if it's in the root.
+async function getWorkspaceRootEnv(
+  api: PythonEnvironmentApi,
+  root: vscode.Uri,
+): Promise<PythonEnvironment | undefined> {
+  await api.refreshEnvironments(root);
+
+  // This can return the global environment, for example, so we have to check
+  // whether it's actually
+  const activeEnv = await api.getEnvironment(root);
+  if (activeEnv && isInWorkspaceRoot(activeEnv, root)) {
+    log.info(`Using active environment: ${activeEnv.environmentPath}`);
+    return activeEnv;
+  }
+
+  const allEnvs = await api.getEnvironments(root);
+  const matchingEnvs = allEnvs.filter((env) => isInWorkspaceRoot(env, root));
+  if (matchingEnvs.length == 0) {
+    return undefined;
+  }
+
+  if (matchingEnvs.length > 1) {
+    log.warn(
+      `Multiple environments found under ${root}; using ${matchingEnvs[0].environmentPath}`,
+    );
+  }
+
+  return matchingEnvs[0];
 }
 
 function getActiveWorkspaceRoot(): vscode.Uri | undefined {
@@ -114,14 +139,19 @@ function getActiveWorkspaceRoot(): vscode.Uri | undefined {
   return (fromEditor ?? vscode.workspace.workspaceFolders?.[0])?.uri;
 }
 
-export async function findWorkspaceVenv(): Promise<boolean> {
+export async function getExistingQuantumVenv(): Promise<
+  vscode.Uri | undefined
+> {
   const api = await getPythonEnvsApi();
-  if (!api) return false;
+  if (!api) {
+    return undefined;
+  }
   const root = getActiveWorkspaceRoot();
-  if (!root) return false;
-  await api.refreshEnvironments(root);
-  const envs = await api.getEnvironments(root);
-  return envs.some((env) => isUnderWorkspaceRoot(env, root));
+  if (!root) {
+    return undefined;
+  }
+  const env = await getWorkspaceRootEnv(api, root);
+  return env?.environmentPath;
 }
 
 export async function createQuantumVenv(): Promise<{ action: string }> {
@@ -135,16 +165,18 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
     throw new CopilotToolError("No workspace folder is open.");
   }
 
-  await api.refreshEnvironments(root);
-  const existingEnvs = await api.getEnvironments(root);
-  const existingEnv = existingEnvs.find((env) =>
-    isUnderWorkspaceRoot(env, root),
+  // Don't interrupt the chat by showing a picker - just use the defaults
+  const selectedPackages = packagePickItems.filter((item) => item.picked);
+
+  const packagesToInstall = coalesceQdkExtras(
+    selectedPackages.map((item) => item.label),
   );
 
+  const existingEnv = await getWorkspaceRootEnv(api, root);
   if (existingEnv) {
     try {
       await api.managePackages(existingEnv, {
-        install: toolPackages,
+        install: packagesToInstall,
         upgrade: true,
       });
     } catch (e: any) {
@@ -158,7 +190,10 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
   let env;
   try {
     // Quick create so the user isn't prompted
-    env = await api.createEnvironment(root, { quickCreate: true });
+    env = await api.createEnvironment(root, {
+      quickCreate: true,
+      additionalPackages: packagesToInstall,
+    });
   } catch (e: any) {
     throw new CopilotToolError(
       `Failed to create environment: ${e.message ?? e}`,
@@ -167,16 +202,11 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
   if (!env) {
     throw new CopilotToolError("Environment creation was cancelled or failed.");
   }
-  try {
-    await api.managePackages(env, { install: toolPackages });
-  } catch (e: any) {
-    throw new CopilotToolError(`Failed to install packages: ${e.message ?? e}`);
-  }
   return { action: "created" };
 }
 
 // Command palette handler — includes interactive prompt for existing venvs.
-export async function createQuantumVenvCommand(): Promise<void> {
+export async function createQuantumVenvForCommand(): Promise<void> {
   const api = await getPythonEnvsApi();
   if (!api) {
     vscode.window.showErrorMessage(pythonEnvsNotInstalledMsg);
@@ -188,6 +218,7 @@ export async function createQuantumVenvCommand(): Promise<void> {
     vscode.window.showErrorMessage("No workspace folder is open.");
     return;
   }
+
   let root: vscode.Uri;
   if (folders.length === 1) {
     root = folders[0].uri;
@@ -195,16 +226,13 @@ export async function createQuantumVenvCommand(): Promise<void> {
     const picked = await vscode.window.showWorkspaceFolderPick({
       placeHolder: "Select the workspace folder for the virtual environment",
     });
-    if (!picked) return;
+    if (!picked) {
+      return;
+    }
     root = picked.uri;
   }
 
-  await api.refreshEnvironments(root);
-  const existingEnvs = await api.getEnvironments(root);
-  const existingEnv = existingEnvs.find((env) =>
-    isUnderWorkspaceRoot(env, root),
-  );
-
+  const existingEnv = await getWorkspaceRootEnv(api, root);
   if (existingEnv) {
     const choice = await vscode.window.showQuickPick(
       ["Update existing environment", "Cancel"],
@@ -212,7 +240,9 @@ export async function createQuantumVenvCommand(): Promise<void> {
         placeHolder: "A virtual environment already exists at this workspace.",
       },
     );
-    if (choice !== "Update existing environment") return;
+    if (choice !== "Update existing environment") {
+      return;
+    }
   }
 
   const selectedPackages = await vscode.window.showQuickPick(
@@ -222,7 +252,9 @@ export async function createQuantumVenvCommand(): Promise<void> {
       placeHolder: "Select packages to install",
     },
   );
-  if (!selectedPackages || selectedPackages.length === 0) return;
+  if (!selectedPackages || selectedPackages.length === 0) {
+    return;
+  }
 
   const packagesToInstall = coalesceQdkExtras(
     selectedPackages.map((item) => item.label),

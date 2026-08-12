@@ -38,7 +38,7 @@ import {
   registerChangelogCommand,
 } from "./changelog.js";
 import { getPlatformEnv, toVsCodeRange } from "./common.js";
-import { createQuantumVenvCommand } from "./pythonEnvs.js";
+import { createQuantumVenvForCommand } from "./pythonEnvs.js";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -108,7 +108,7 @@ export async function activate(
     context.subscriptions.push(
       vscode.commands.registerCommand(
         "qsharp-vscode.createQuantumVenv",
-        createQuantumVenvCommand,
+        createQuantumVenvForCommand,
       ),
     );
   }
