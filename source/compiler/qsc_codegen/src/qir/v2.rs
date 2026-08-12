@@ -593,8 +593,8 @@ fn get_value_as_str(value: &rir::Operand, program: &rir::Program) -> String {
             }
             rir::Literal::Integer(i) => format!("{i}"),
             rir::Literal::NullPointer => "null".to_string(),
-            rir::Literal::Qubit(q) => format!("{q}"),
-            rir::Literal::Result(r) => format!("{r}"),
+            rir::Literal::Qubit(q) => format!("inttoptr (i64 {q} to ptr)"),
+            rir::Literal::Result(r) => format!("inttoptr (i64 {r} to ptr)"),
             rir::Literal::Array(idx) => {
                 format!("@array{idx}")
             }

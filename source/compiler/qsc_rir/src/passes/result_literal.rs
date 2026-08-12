@@ -5,6 +5,9 @@ use crate::{
     rir::{CallableId, Instruction, Literal, Operand, Program},
 };
 
+#[cfg(test)]
+mod tests;
+
 /// Transforms result literals in the program.
 /// Since result literals are not supported in QIR, this function attempts to handle them as best as possible.
 /// A result literal of `Zero` (or false) will be replaced with an additional result id that is never measured into,
@@ -105,14 +108,16 @@ pub fn transform_result_literals(program: &mut Program) {
                 None,
             ));
         }
-        instructions.append(&mut entry_block.0);
-        entry_block.0 = instructions;
-    }
-
-    if replaced_one {
-        program.num_results += 2;
-    } else if replaced_zero {
-        program.num_results += 1;
+        // Add the calls to write_result near the beginning of the block, after the call to initialize.
+        let init_call_idx = entry_block
+            .0
+            .iter()
+            .position(|instr| matches!(instr, Instruction::Call(CallableId(1), _, _, _)))
+            .expect("entry block should have a call to initialize");
+        for instr in instructions.into_iter().rev() {
+            entry_block.0.insert(init_call_idx + 1, instr);
+        }
+        program.num_results += if replaced_one { 2 } else { 1 };
     }
 }
 
