@@ -219,9 +219,7 @@ export type WebviewToHostMessage =
   /** Focus the learning progress tree view in the sidebar. */
   | { command: "focusProgress" }
   /** Switch to a different course. */
-  | { command: "switchCourse"; courseId: string }
-  /** Show README/info for a course (defaults to the active course). */
-  | { command: "courseInfo"; courseId?: string };
+  | { command: "switchCourse"; courseId: string };
 
 // ─── Catalog ───
 //
