@@ -215,20 +215,25 @@ export async function createQuantumVenvCommand(): Promise<void> {
     if (choice !== "Update existing environment") return;
   }
 
-  const selected = await vscode.window.showQuickPick(
+  const selectedPackages = await vscode.window.showQuickPick(
     packagePickItems.map((item) => ({ ...item })),
     {
       canPickMany: true,
       placeHolder: "Select packages to install",
     },
   );
-  if (!selected || selected.length === 0) return;
+  if (!selectedPackages || selectedPackages.length === 0) return;
 
-  const install = coalesceQdkExtras(selected.map((item) => item.label));
+  const packagesToInstall = coalesceQdkExtras(
+    selectedPackages.map((item) => item.label),
+  );
 
   try {
     if (existingEnv) {
-      await api.managePackages(existingEnv, { install, upgrade: true });
+      await api.managePackages(existingEnv, {
+        install: packagesToInstall,
+        upgrade: true,
+      });
       vscode.window.showInformationMessage(
         "Quantum notebook packages updated in existing environment.",
       );
@@ -236,7 +241,10 @@ export async function createQuantumVenvCommand(): Promise<void> {
     }
 
     // Quick create so the user isn't prompted
-    const env = await api.createEnvironment(root, { quickCreate: true });
+    const env = await api.createEnvironment(root, {
+      quickCreate: true,
+      additionalPackages: packagesToInstall,
+    });
     if (!env) {
       log.warn(
         `Failed to create a Python environment in ${root.fsPath}. ` +
@@ -244,7 +252,6 @@ export async function createQuantumVenvCommand(): Promise<void> {
       );
       return;
     }
-    await api.managePackages(env, { install });
     vscode.window.showInformationMessage(
       "Quantum notebook virtual environment created.",
     );
