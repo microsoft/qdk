@@ -4,12 +4,11 @@
 #[cfg(test)]
 mod tests;
 
+use crate::parser::*;
+use miette::Diagnostic;
 use qdk_simulators::noise_config::{
     LossPolicy, NoiseConfig, NoiseTable, PauliAndLossString, encode_pauli,
 };
-
-use crate::parser::*;
-use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
@@ -61,6 +60,19 @@ impl QirWriter {
             let params = vec!["ptr"; ids.len()].join(", ");
             format!("declare void @{intrinsic}({params})")
         });
+    }
+
+    fn write_readout_noise_call(&mut self, probability: f64, result_id: u32) {
+        let name = "__quantum__rt__readout_noise";
+        writeln!(
+            self,
+            "  call void @{name}(double {probability:?}, double {probability:?}, ptr inttoptr (i64 {result_id} to ptr))"
+        );
+
+        self.declare(name, || {
+            format!("declare void @{name}(double, double, ptr) #2")
+        });
+        self.has_noise_intrinsic = true;
     }
 
     /// `noise_intrinsic_{id}`
@@ -1228,39 +1240,43 @@ impl<'noise> Compiler<'noise> {
             }
 
             // Collapsing Gates
-            "M" | "MZ" => self.broadcast_measure(instruction, |s, q, invert| {
-                s.op_measure("m", q, invert);
-            }),
+            "M" | "MZ" => {
+                self.broadcast_measure(instruction, |s, q, invert| s.op_measure("m", q, invert))
+            }
             "MR" | "MRZ" => self.broadcast_measure(instruction, |s, q, invert| {
-                s.op_measure_reset("mresetz", q, invert);
+                s.op_measure_reset("mresetz", q, invert)
             }),
             "MRX" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; R 0; H 0
                 s.op("h", q); // X -> Z
-                s.op_measure_reset("mresetz", q, invert); // MRZ
+                let result_id = s.op_measure_reset("mresetz", q, invert); // MRZ
                 s.op("h", q); // Z -> X
+                result_id
             }),
             "MRY" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; R 0; H 0; S 0
                 s.op_adj("s", q); // Y -> X
                 s.op("h", q); // X -> Z
-                s.op_measure_reset("mresetz", q, invert); // MRZ
+                let result_id = s.op_measure_reset("mresetz", q, invert); // MRZ
                 s.op("h", q); // Z -> X
                 s.op("s", q); // X -> Y
+                result_id
             }),
             "MX" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; M 0; H 0
                 s.op("h", q); // X -> Z
-                s.op_measure("m", q, invert); // MZ
+                let result_id = s.op_measure("m", q, invert); // MZ
                 s.op("h", q); // Z -> X
+                result_id
             }),
             "MY" => self.broadcast_measure(instruction, |s, q, invert| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 0; S 0; H 0; M 0; H 0; S 0
                 s.op_adj("s", q); // Y -> X
                 s.op("h", q); // X -> Z
-                s.op_measure("m", q, invert); // MZ
+                let result_id = s.op_measure("m", q, invert); // MZ
                 s.op("h", q); // Z -> X
                 s.op("s", q); // X -> Y
+                result_id
             }),
             "R" | "RZ" => self.broadcast(instruction, |s, q| s.op("reset", q)),
             "RX" => self.broadcast(instruction, |s, q| {
@@ -1280,9 +1296,10 @@ impl<'noise> Compiler<'noise> {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; H 0; M 0; H 0; CX 0 1
                 s.op_2("cx", q0, q1);
                 s.op("h", q0);
-                s.op_measure("m", q0, invert);
+                let result_id = s.op_measure("m", q0, invert);
                 s.op("h", q0);
                 s.op_2("cx", q0, q1);
+                result_id
             }),
             "MYY" => self.broadcast_pair_measure(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): S 0; S 1; CX 0 1; H 0; M 0; S 1; S 1; H 0; CX 0 1; S 0; S 1
@@ -1290,18 +1307,20 @@ impl<'noise> Compiler<'noise> {
                 s.op("s", q1);
                 s.op_2("cx", q0, q1);
                 s.op("h", q0);
-                s.op_measure("m", q0, invert);
+                let result_id = s.op_measure("m", q0, invert);
                 s.op("z", q1);
                 s.op("h", q0);
                 s.op_2("cx", q0, q1);
                 s.op("s", q0);
                 s.op("s", q1);
+                result_id
             }),
             "MZZ" => self.broadcast_pair_measure(instruction, |s, q0, q1, invert| {
                 // Stim decomposition (into H, S, CX, M, R): CX 0 1; M 1; CX 0 1
                 s.op_2("cx", q0, q1);
-                s.op_measure("m", q1, invert);
+                let result_id = s.op_measure("m", q1, invert);
                 s.op_2("cx", q0, q1);
+                result_id
             }),
 
             // Generalized Pauli Product Gates
@@ -1353,10 +1372,15 @@ impl<'noise> Compiler<'noise> {
     fn broadcast_measure(
         &mut self,
         instruction: &Instruction,
-        f: impl FnMut(&mut Self, u32, bool),
+        mut measure: impl FnMut(&mut Self, u32, bool) -> u32,
     ) {
-        self.unsupported_args(instruction);
-        self.for_each_negated_qubit(instruction, f);
+        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
+            return;
+        };
+        self.for_each_negated_qubit(instruction, |s, q, negated| {
+            let result_id = measure(s, q, negated);
+            s.op_readout_noise(readout_noise, result_id);
+        });
     }
 
     fn broadcast_noise(
@@ -1455,10 +1479,15 @@ impl<'noise> Compiler<'noise> {
     fn broadcast_pair_measure(
         &mut self,
         instruction: &Instruction,
-        f: impl FnMut(&mut Self, u32, u32, bool),
+        mut measure: impl FnMut(&mut Self, u32, u32, bool) -> u32,
     ) {
-        self.unsupported_args(instruction);
-        self.for_each_negated_pair(instruction, f);
+        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
+            return;
+        };
+        self.for_each_negated_pair(instruction, |s, q0, q1, negated| {
+            let result_id = measure(s, q0, q1, negated);
+            s.op_readout_noise(readout_noise, result_id);
+        });
     }
 
     fn broadcast_pair_noise(
@@ -1572,7 +1601,7 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_adj_call(intrinsic, &[q]);
     }
 
-    fn op_measure(&mut self, intrinsic: &str, qubit: u32, invert: bool) {
+    fn op_measure(&mut self, intrinsic: &str, qubit: u32, invert: bool) -> u32 {
         let q = self.id_map.allocate_qubit(qubit);
         if invert {
             self.writer.write_qis_call("x", &[q]);
@@ -1582,15 +1611,17 @@ impl<'noise> Compiler<'noise> {
         if invert {
             self.writer.write_qis_call("x", &[q]);
         }
+        r
     }
 
-    fn op_measure_reset(&mut self, intrinsic: &str, qubit: u32, invert: bool) {
+    fn op_measure_reset(&mut self, intrinsic: &str, qubit: u32, invert: bool) -> u32 {
         let q = self.id_map.allocate_qubit(qubit);
         if invert {
             self.writer.write_qis_call("x", &[q]);
         }
         let r = self.id_map.allocate_record();
         self.writer.write_qis_call(intrinsic, &[q, r]);
+        r
     }
 
     fn op_2(&mut self, intrinsic: &str, q0: u32, q1: u32) {
@@ -1627,6 +1658,12 @@ impl<'noise> Compiler<'noise> {
             .collect();
         let name = self.noise_accumulator.get_or_insert_intrinsic(table);
         self.writer.write_noise_call(&name, &ids);
+    }
+
+    fn op_readout_noise(&mut self, probability: f64, result_id: u32) {
+        if probability > 0.0 {
+            self.writer.write_readout_noise_call(probability, result_id);
+        }
     }
 
     fn compile_require(&mut self, instruction: &Instruction) {
@@ -1892,6 +1929,30 @@ impl<'noise> Compiler<'noise> {
             return None;
         }
         Some(instruction.targets.chunks(2))
+    }
+
+    fn expect_readout_noise(&mut self, instruction: &Instruction) -> Option<f64> {
+        if instruction.args.len() > 1 {
+            self.push_error(Error::TooManyArgs {
+                instruction: instruction.name.clone(),
+                expected: 1,
+                span: instruction.span,
+            });
+            return None;
+        }
+        if instruction.args.is_empty() {
+            return Some(0.0);
+        }
+        let arg = instruction.args[0];
+        if !(0.0..=1.0).contains(&arg) {
+            self.push_error(Error::InvalidReadoutNoiseProbability {
+                instruction: instruction.name.clone(),
+                probability: arg,
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(arg)
     }
 
     fn unsupported(&mut self, instruction: &Instruction) {
