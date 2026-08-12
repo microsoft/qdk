@@ -57,7 +57,7 @@ from qodec.circuits._common import BlockLayout, ObservableTerm, parse_observable
 
 from qodec.circuits import Program
 
-from ..profile.propagation.pauli import Pauli
+from .._analysis.propagation.pauli import Pauli
 from .compilers.recursive_lowering import _build_namespaced_remap, _remap_call
 from .._qodec_compat import (
     _readout_equation,

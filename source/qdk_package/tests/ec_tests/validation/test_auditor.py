@@ -1,4 +1,4 @@
-"""Tests for the `qdk.ec.audit` framework and built-in rules.
+"""Tests for the `qdk.ec.lint` framework and built-in rules.
 
 Inputs come from the vendored, current-model ``repetition3`` qodec
 (``tests/analysis/audit/fixtures/repetition3.qodec.yaml``, exposed by the
@@ -10,12 +10,12 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 
 import qodec
-from qdk.ec.audit import (
+from qdk.ec.lint import (
     Auditor,
     Diagnostic,
     Phase,
     Severity,
-    audit,
+    diagnose as audit,
 )
 
 

@@ -1,11 +1,7 @@
 """Tests for gadget action profiling and equivalence."""
 import qodec
-from qdk.ec.profile import (
-    LogicalAction,
-    gadgets_equivalent,
-    logical_action_of,
-    why_not_equivalent,
-)
+from qdk.ec.action import LogicalAction, logical_action_of
+from qdk.ec.equivalence import gadgets_equivalent, why_not_equivalent
 
 
 def test_gadget_is_equivalent_to_itself(translation: qodec.Layer) -> None:

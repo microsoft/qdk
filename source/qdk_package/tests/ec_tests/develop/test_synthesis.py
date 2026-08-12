@@ -1,4 +1,4 @@
-"""``qdk.ec.develop.qodec_from_code`` — synthesizing a qodec from a code.
+"""``qdk.ec.qodec_from_code`` — synthesizing a qodec from a code.
 
 The suite is organised around what synthesis promises: a *structurally* valid
 qodec, whose gadgets are *semantically* verified, that *round-trips*, and that
@@ -15,8 +15,9 @@ import qodec
 from ec_tests.testing import code_catalog as catalog
 from ec_tests.testing.optional import requires_stim
 from ec_tests.testing.qodecs import c4
-from qdk.ec import audit, develop, profile
-from qdk.ec.develop import qodec_from_code, synthesis_notes
+import qdk.ec as ec
+from qdk.ec import action, distance, lint
+from qdk.ec import qodec_from_code, synthesis_notes
 
 #: Codes for which every instruction is expected to synthesize. Each entry is
 #: (label, factory, physical qubits, logical qubits).
@@ -178,7 +179,7 @@ def test_flag_outcomes_are_discovered_as_deterministic_checks(
 
 def test_a_weight_two_stabilizer_carries_no_flag() -> None:
     """Flag brackets must stay nested, which a weight-2 stabilizer cannot host."""
-    from qdk.ec.develop.synthesis import _flag_capacity
+    from qdk.ec._synthesis import _flag_capacity
 
     assert _flag_capacity(2) == 0
     assert _flag_capacity(3) == 1
@@ -260,9 +261,9 @@ def test_every_gadget_realizes_the_action_it_declares(label: str, factory) -> No
     built = qodec_from_code(_code(label, factory))
 
     mismatched = {
-        mnemonic: profile.gadget_action_mismatch(gadget)
+        mnemonic: action.gadget_action_mismatch(gadget)
         for mnemonic, gadget in built.layers[0].gadgets.items()
-        if profile.gadget_action_mismatch(gadget) is not None
+        if action.gadget_action_mismatch(gadget) is not None
     }
     assert mismatched == {}
 
@@ -300,9 +301,9 @@ def test_idle_checks_reference_both_boundaries(steane: qodec.Qodec) -> None:
 def test_synthesized_code_keeps_its_distance() -> None:
     built = qodec_from_code(_code("steane", catalog.make_steane_code))
 
-    distance, _ = profile.code_distance_of(built.codes["steane"])
+    code_distance, _ = distance.code_distance_of(built.codes["steane"])
 
-    assert distance == 3
+    assert code_distance == 3
 
 
 # ── Audit ───────────────────────────────────────────────────────────────────
@@ -324,7 +325,7 @@ def test_audit_reports_no_unexpected_errors(label: str, factory) -> None:
 
     unexpected = [
         f"{d.rule}: {d.summary}"
-        for d in audit.audit(built).errors()
+        for d in lint.diagnose(built).errors()
         if d.rule != _KNOWN_AUDIT_RULE
     ]
     assert unexpected == []
@@ -337,7 +338,7 @@ def test_the_known_audit_rule_also_fires_on_the_hand_authored_fixture() -> None:
     rules = {
         d.rule
         for gadget in fixture.layers[0].gadgets.values()
-        for d in audit.Auditor().audit_gadget(gadget, codec=fixture).errors()
+        for d in lint.Auditor().audit_gadget(gadget, codec=fixture).errors()
     }
     assert _KNOWN_AUDIT_RULE in rules
 
@@ -346,7 +347,7 @@ def test_the_known_audit_rule_also_fires_on_the_hand_authored_fixture() -> None:
 
 
 def test_synthesized_qodec_round_trips_through_yaml(steane: qodec.Qodec) -> None:
-    restored = develop.from_yaml(develop.to_yaml(steane))
+    restored = ec.from_yaml(ec.to_yaml(steane))
 
     assert restored.name == steane.name
     assert sorted(restored.layers[0].gadgets) == sorted(steane.layers[0].gadgets)
@@ -355,8 +356,8 @@ def test_synthesized_qodec_round_trips_through_yaml(steane: qodec.Qodec) -> None
 def test_synthesized_qodec_round_trips_through_disk(
     steane: qodec.Qodec, tmp_path: Path
 ) -> None:
-    develop.save(steane, tmp_path / "bundle")
-    restored = develop.load(tmp_path / "bundle")
+    ec.save(steane, tmp_path / "bundle")
+    restored = ec.load(tmp_path / "bundle")
 
     assert restored.name == steane.name
     assert sorted(restored.codes) == sorted(steane.codes)
@@ -365,7 +366,7 @@ def test_synthesized_qodec_round_trips_through_disk(
 def test_completion_is_idempotent_on_a_synthesized_qodec(
     steane: qodec.Qodec,
 ) -> None:
-    recompleted = develop.complete_qodec(steane)
+    recompleted = ec.complete_qodec(steane)
 
     for mnemonic, gadget in steane.layers[0].gadgets.items():
         before = {frozenset(str(a) for a in c) for c in gadget.checks}
@@ -447,7 +448,7 @@ def test_logical_pauli_gadgets_are_verified_for_a_large_k_code() -> None:
     }
     assert len(pauli_gadgets) == 12
     assert all(
-        profile.gadget_action_mismatch(gadget) is None
+        action.gadget_action_mismatch(gadget) is None
         for gadget in pauli_gadgets.values()
     )
 
@@ -566,7 +567,7 @@ def test_synthesized_circuit_distance_equals_the_code_distance(
     built = qodec_from_code(_code(label, factory))
 
     measured = targets.circuit_distance_of(
-        built, develop.memory_program(built), max_weight=6
+        built, ec.memory_program(built), max_weight=6
     )
 
     assert measured == distance
@@ -594,10 +595,10 @@ def test_the_naive_circuit_loses_distance_and_flags_recover_it(
     flagged = qodec_from_code(code, name=f"{label}_flagged")
 
     naive_distance = targets.circuit_distance_of(
-        naive, develop.memory_program(naive), max_weight=6
+        naive, ec.memory_program(naive), max_weight=6
     )
     flagged_distance = targets.circuit_distance_of(
-        flagged, develop.memory_program(flagged), max_weight=6
+        flagged, ec.memory_program(flagged), max_weight=6
     )
 
     assert naive_distance < distance
@@ -615,7 +616,7 @@ def test_extra_rounds_do_not_rescue_the_naive_circuit() -> None:
 
     by_rounds = {
         rounds: targets.circuit_distance_of(
-            naive, develop.memory_program(naive, rounds=rounds), max_weight=6
+            naive, ec.memory_program(naive, rounds=rounds), max_weight=6
         )
         for rounds in (1, 2, 3)
     }
@@ -651,7 +652,7 @@ def test_memory_program_composes_into_a_well_formed_circuit(
     from qdk.ec import targets
 
     circuit = targets.StimEmitter(steane, noise=None).build_circuit(
-        develop.memory_program(steane, rounds=2)
+        ec.memory_program(steane, rounds=2)
     )
 
     circuit.detector_error_model()  # raises if any detector is non-deterministic
@@ -661,11 +662,11 @@ def test_memory_program_reports_missing_instructions() -> None:
     built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
 
     with pytest.raises(ValueError, match="missing"):
-        develop.memory_program(built)
+        ec.memory_program(built)
 
 
 def test_memory_program_has_the_expected_shape(steane: qodec.Qodec) -> None:
-    program = develop.memory_program(steane, rounds=3)
+    program = ec.memory_program(steane, rounds=3)
 
     assert [call.mnemonic for call in program.instructions] == [
         "prepare_z",

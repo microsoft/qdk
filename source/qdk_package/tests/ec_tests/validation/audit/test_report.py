@@ -1,7 +1,7 @@
-"""Tests for `qdk.ec.audit.Report`."""
+"""Tests for `qdk.ec.lint.Report`."""
 from __future__ import annotations
 
-from qdk.ec.audit import Diagnostic, Phase, Report, Severity
+from qdk.ec.lint import Diagnostic, Phase, Report, Severity
 
 
 def _make(rule: str, severity: Severity, where: str = "x") -> Diagnostic:

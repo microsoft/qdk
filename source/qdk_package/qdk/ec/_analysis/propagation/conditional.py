@@ -29,7 +29,7 @@ def conditional_choi_state(
     codespace_projector: Sequence[Pauli] = (),
     aux_origin: int | None = None,
 ) -> ConditionalChoiResult:
-    from ..check_discovery import simulate_program
+    from ..._analysis.check_discovery import simulate_program
 
     relevant_qubits: set[int] = set(range(program.qubit_count))
     relevant_qubits.update(input_qubits)

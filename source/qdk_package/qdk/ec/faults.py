@@ -9,14 +9,14 @@ from typing import Any
 import qodec
 from qodec.circuits import Program
 
-from .._qodec_compat import (
+from ._qodec_compat import (
     check_outcomes,
     observables_as_xor_map,
     realization,
 )
-from .propagation.interpreter import propagate_faults
-from .propagation.pauli import Pauli, PauliCharacter
-from .propagation.pauli_remap import (
+from ._analysis.propagation.interpreter import propagate_faults
+from ._analysis.propagation.pauli import Pauli, PauliCharacter
+from ._analysis.propagation.pauli_remap import (
     encoding_qubit_relocation,
     remap_to_global,
 )

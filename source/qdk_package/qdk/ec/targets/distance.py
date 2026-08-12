@@ -9,15 +9,15 @@ import qodec
 from qodec.circuits import Program
 
 from .._qodec_compat import realization
-from ..profile.distance_solvers import (
+from .._analysis.distance_solvers import (
     BoundsSolver,
     ExactSolver,
     ExhaustiveSolverOptions,
     MwpfSolverOptions,
 )
-from ..profile.faults import FaultEffect, fault_profile_of
-from ..profile.odd_cycles import OddCycles
-from ..profile.propagation.pauli import characters_of
+from ..faults import FaultEffect, fault_profile_of
+from .._analysis.odd_cycles import OddCycles
+from .._analysis.propagation.pauli import characters_of
 from .model import TargetModel
 
 

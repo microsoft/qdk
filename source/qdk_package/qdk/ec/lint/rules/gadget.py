@@ -14,15 +14,15 @@ from ..._qodec_compat import (
     parse_stabilizer_atom,
     realization,
 )
-from ...profile.circuit_action import (
+from ..._analysis.circuit_action import (
     gadget_objective_action_of,
     gadget_realization_action_of,
 )
-from ...profile.objective import lift_objective
-from ..diagnostic import Diagnostic, Phase
-from ..readout_check import readout_disagreements
-from ..rule import Rule
-from ..severity import Severity
+from ..._analysis.objective import lift_objective
+from ...lint._diagnostic import Diagnostic, Phase
+from ...lint._readout_check import readout_disagreements
+from ...lint._rule import Rule
+from ...lint._severity import Severity
 
 
 def _where(gadget: qodec.Gadget) -> str:

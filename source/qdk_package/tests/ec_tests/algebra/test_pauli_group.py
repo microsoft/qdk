@@ -1,7 +1,7 @@
 from typing import Sequence
 from paulimer import PauliGroup
 
-from qdk.ec.profile.propagation.pauli import Pauli
+from qdk.ec._analysis.propagation.pauli import Pauli
 
 
 def test_intersection_of() -> None:

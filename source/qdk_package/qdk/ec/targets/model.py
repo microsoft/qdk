@@ -8,8 +8,8 @@ from typing import Protocol, runtime_checkable
 
 from qodec.circuits import Program
 
-from ..profile import Fault
-from ..profile.propagation.pauli import Pauli
+from ..faults import Fault
+from .._analysis.propagation.pauli import Pauli
 
 
 @runtime_checkable

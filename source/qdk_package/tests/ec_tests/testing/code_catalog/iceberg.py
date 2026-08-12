@@ -1,6 +1,6 @@
 from more_itertools import interleave
-from qdk.ec.profile.propagation.pauli import Pauli
-from qdk.ec.profile.stabilizer_code import StabilizerCode
+from qdk.ec._analysis.propagation.pauli import Pauli
+from qdk.ec._analysis.stabilizer_code import StabilizerCode
 
 
 def make_422_code() -> StabilizerCode:

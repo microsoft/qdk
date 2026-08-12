@@ -1,8 +1,8 @@
 from itertools import product
-from qdk.ec.profile.stabilizer_code import StabilizerCode
+from qdk.ec._analysis.stabilizer_code import StabilizerCode
 from typing import cast
 
-from qdk.ec.profile.propagation.pauli import Pauli, PauliCharacter
+from qdk.ec._analysis.propagation.pauli import Pauli, PauliCharacter
 
 Coordinate = tuple[float, float]
 

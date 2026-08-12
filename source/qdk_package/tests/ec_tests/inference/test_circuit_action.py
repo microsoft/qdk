@@ -3,19 +3,21 @@ from __future__ import annotations
 
 import qodec
 
-from qdk.ec.profile import (
+from qdk.ec.action import (
     CircuitAction,
     action_of,
-    are_equivalent_mod_paulis,
-    are_outcome_equivalent,
     gadget_action_mismatch,
-    gadget_objective_action_of,
     input_qubits_of,
 )
-from qdk.ec.profile.propagation import Program
+from qdk.ec.action import declared_action_of as gadget_objective_action_of
+from qdk.ec.equivalence import (
+    actions_equivalent_mod_pauli as are_equivalent_mod_paulis,
+    actions_outcome_equivalent as are_outcome_equivalent,
+)
+from qdk.ec._analysis.propagation import Program
 from qdk.ec._qodec_compat import realization
-from qdk.ec.profile.propagation.frames import FrameGroup, PauliFrame
-from qdk.ec.profile.propagation.pauli import Pauli
+from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
+from qdk.ec._analysis.propagation.pauli import Pauli
 
 
 def _action_of_gadget(gadget: qodec.Gadget) -> CircuitAction:

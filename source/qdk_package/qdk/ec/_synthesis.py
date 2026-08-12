@@ -42,9 +42,9 @@ measures 2. Pass ``flags=0`` to get that naive circuit deliberately, and
 refuse one that falls short.
 
 Checks and readouts are *not* hand-derived: each synthesized gadget is a draft
-that :func:`~qdk.ec.develop.completion.complete_gadget` finishes by exact
+that :func:`~qdk.ec._completion.complete_gadget` finishes by exact
 simulation. Every finished gadget is then verified with
-:func:`~qdk.ec.profile.action.gadget_action_mismatch`, so an instruction
+:func:`~qdk.ec.action.gadget_action_mismatch`, so an instruction
 survives only if its circuit provably realizes the action it declares. See
 :ref:`unsupported-instructions` below.
 
@@ -93,10 +93,10 @@ from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 
-from ..profile.action import gadget_action_mismatch
-from ..profile.distance import code_distance_of
-from ..profile.propagation.pauli import Pauli, characters_of
-from .completion import complete_gadget
+from .action import gadget_action_mismatch
+from .distance import code_distance_of
+from ._analysis.propagation.pauli import Pauli, characters_of
+from ._completion import complete_gadget
 
 if TYPE_CHECKING:
     from qodec.circuits import Program
@@ -155,7 +155,7 @@ def _physical_isa() -> InstructionSet:
     Deliberately small: reset, Hadamard, the two controlled Paulis syndrome
     extraction needs, destructive measurement, and the two Pauli gates logical
     Pauli gadgets need. Each carries the action that makes it simulable by
-    :mod:`qdk.ec.profile.propagation`.
+    :mod:`qdk.ec._analysis.propagation`.
     """
 
     def operand() -> BlockOperand:
@@ -759,7 +759,7 @@ def qodec_from_code(
     metadata: dict[str, object] = {
         _METADATA_KEY: {
             "synthesis": {
-                "source": "qdk.ec.develop.qodec_from_code",
+                "source": "qdk.ec.qodec_from_code",
                 "code": code.name,
                 "physical_qubits": data_width,
                 "logical_qubits": logical_count,
@@ -784,7 +784,7 @@ def qodec_from_code(
     )
 
     if verify_distance:
-        from ..targets.distance import circuit_distance_of
+        from .targets.distance import circuit_distance_of
 
         if code_distance is None:
             code_distance, _ = code_distance_of(code)

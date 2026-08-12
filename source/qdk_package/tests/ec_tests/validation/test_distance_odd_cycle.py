@@ -1,13 +1,12 @@
 """Tests for the ``OddCycles`` distance engine and its solver backends."""
 from __future__ import annotations
 
-from qdk.ec.profile.distance import (
+from qdk.ec._analysis.distance_solvers import (
     CustomExactSolver,
     ExhaustiveSolverOptions,
     MwpfSolverOptions,
-    OddCycles,
-    unique_non_empty_elements_of,
 )
+from qdk.ec._analysis.odd_cycles import OddCycles, unique_non_empty_elements_of
 from ec_tests.testing.optional import requires_mwpf
 
 

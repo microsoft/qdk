@@ -1,6 +1,6 @@
 """Tests for the simulator-to-frame-group snapshot.
 
-These exercise :func:`qdk.ec.profile.propagation.frame_group_of`
+These exercise :func:`qdk.ec._analysis.propagation.frame_group_of`
 without committing to paulimer's specific choice of stabiliser representation
 (which depends on internal basis choices). What we can pin down:
 
@@ -13,9 +13,9 @@ from __future__ import annotations
 
 from paulimer import OutcomeCompleteSimulation, SparsePauli, UnitaryOpcode
 
-from qdk.ec.profile.propagation import frame_group_of
-from qdk.ec.profile.propagation.frames import FrameGroup
-from qdk.ec.profile.propagation.pauli import Pauli
+from qdk.ec._analysis.propagation import frame_group_of
+from qdk.ec._analysis.propagation.frames import FrameGroup
+from qdk.ec._analysis.propagation.pauli import Pauli
 
 
 def _fresh(qubit_count: int) -> OutcomeCompleteSimulation:

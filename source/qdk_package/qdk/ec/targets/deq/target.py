@@ -14,7 +14,7 @@ import qodec
 from deq.noise import inject_biased, inject_si1000
 from qodec.circuits import Program
 
-from ..base import Target
+from ...targets.base import Target
 from .interchange import to_deq_source
 from .options import DeqOptions
 

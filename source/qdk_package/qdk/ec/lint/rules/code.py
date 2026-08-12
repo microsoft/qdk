@@ -4,7 +4,7 @@ No built-in code rules are registered yet; qodec performs the current structural
 code validation.
 """
 
-from ..rule import Rule
+from ...lint._rule import Rule
 
 RULES: tuple[Rule, ...] = ()
 

@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from .severity import Severity
+from ._severity import Severity
 
 
 class Phase(Enum):

@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from qdk.ec.profile.propagation import Program
+from qdk.ec._analysis.propagation import Program
 from qdk.ec._qodec_compat import realization
 import qodec
 

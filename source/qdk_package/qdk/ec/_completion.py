@@ -6,8 +6,8 @@ from collections.abc import Mapping, Sequence
 
 import qodec
 
-from .._qodec_compat import set_gadget_readouts
-from ..profile.checks import profile_of
+from ._qodec_compat import set_gadget_readouts
+from .checks import profile_of
 
 
 def _references(values: Sequence[object]) -> list[str]:

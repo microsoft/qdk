@@ -1,4 +1,14 @@
-"""Characteristics of :class:`qodec.Code` objects."""
+"""Characteristics of :class:`qodec.Code` objects.
+
+A code is a static object — a list of stabilizers and logical operators. These
+functions read its structure: the syndrome an error produces
+(:func:`syndrome_of`), the logical Pauli it induces (:func:`logical_effect_of`),
+a basis for its unfixed gauge degrees of freedom (:func:`gauge_basis_of`), and a
+Clifford circuit that encodes into it (:func:`encoding_clifford_of`).
+
+Distance lives in :mod:`qdk.ec.distance`; comparing two codes lives in
+:mod:`qdk.ec.equivalence`.
+"""
 
 from __future__ import annotations
 
@@ -7,9 +17,9 @@ from collections.abc import Sequence
 import qodec
 from paulimer import CliffordUnitary
 
-from .propagation.pauli import Pauli
-from .code_algebra import SubsystemCode
-from .code_algebra import encoding_clifford_of as _encoding_clifford_of
+from ._analysis.propagation.pauli import Pauli
+from ._analysis.code_algebra import SubsystemCode
+from ._analysis.code_algebra import encoding_clifford_of as _encoding_clifford_of
 
 
 def _view(code: qodec.Code) -> SubsystemCode:

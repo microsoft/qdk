@@ -2,8 +2,8 @@ from itertools import product
 from paulimer import centralizer_of
 from paulimer import PauliGroup
 
-from qdk.ec.profile.propagation.pauli import Pauli
-from qdk.ec.profile.code_algebra import SubsystemCode
+from qdk.ec._analysis.propagation.pauli import Pauli
+from qdk.ec._analysis.code_algebra import SubsystemCode
 
 
 def center_of(group: PauliGroup) -> PauliGroup:

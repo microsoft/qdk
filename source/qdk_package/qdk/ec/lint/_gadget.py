@@ -3,7 +3,7 @@
 import qodec
 
 from .._qodec_compat import realization
-from .auditor import Auditor
+from ._auditor import Auditor
 
 
 def why_not_valid(gadget: qodec.Gadget) -> str:

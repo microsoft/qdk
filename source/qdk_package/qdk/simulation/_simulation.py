@@ -45,7 +45,7 @@ from .._adaptive_pass import (
 )
 
 if TYPE_CHECKING:
-    import qodec as _qodec
+    import qodec
     from .._native import GpuShotResults  # This is in the pyi file only
 
 
@@ -784,7 +784,7 @@ def run_qir(
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
     type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
-    qodec: Optional["_qodec.Qodec"] = None,
+    qodec: Optional["qodec.Qodec"] = None,
 ) -> List:
     """
     Simulate the given QIR source.

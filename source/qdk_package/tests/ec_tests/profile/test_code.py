@@ -2,7 +2,8 @@
 import qodec
 from paulimer import SparsePauli
 
-from qdk.ec.profile import code_distance_of, syndrome_of
+from qdk.ec.code import syndrome_of
+from qdk.ec.distance import code_distance_of
 
 
 def repetition_code() -> qodec.Code:
