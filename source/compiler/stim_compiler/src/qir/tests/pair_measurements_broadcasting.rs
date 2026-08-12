@@ -109,7 +109,9 @@ fn mxx_with_negated_target_yields_correct_qir() {
 
 #[test]
 fn mxx_with_readout_noise_yields_correct_qir() {
-    check("MXX(0.01) 0 1 2 3", &expect![[r#"
+    check(
+        "MXX(0.01) 0 1 2 3",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -155,7 +157,8 @@ fn mxx_with_readout_noise_yields_correct_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -287,7 +290,9 @@ fn myy_with_negated_target_yields_correct_qir() {
 
 #[test]
 fn myy_with_readout_noise_yields_correct_qir() {
-    check("MYY(0.01) 0 1 2 3", &expect![[r#"
+    check(
+        "MYY(0.01) 0 1 2 3",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__s__body(ptr inttoptr (i64 0 to ptr))
@@ -345,7 +350,8 @@ fn myy_with_readout_noise_yields_correct_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
@@ -443,7 +449,9 @@ fn mzz_with_negated_target_yields_correct_qir() {
 
 #[test]
 fn mzz_with_readout_noise_yields_correct_qir() {
-    check("MZZ(0.01) 0 1 2 3", &expect![[r#"
+    check(
+        "MZZ(0.01) 0 1 2 3",
+        &expect![[r#"
         define i64 @ENTRYPOINT__main() #0 {
           call void @__quantum__rt__initialize(ptr null)
           call void @__quantum__qis__cx__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
@@ -484,7 +492,8 @@ fn mzz_with_readout_noise_yields_correct_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]]);
+    "#]],
+    );
 }
 
 #[test]
