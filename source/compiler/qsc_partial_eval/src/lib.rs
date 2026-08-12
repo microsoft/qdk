@@ -1616,9 +1616,12 @@ impl<'a> PartialEvaluator<'a> {
         // parameters, so the operand mapping below cannot encounter composite values.
         let ir_function_arg_operands = if matches!(self.get_expr_compute_kind(call_expr_id),
             ComputeKind::Dynamic {runtime_features, ..} if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
+            || self.in_parallel_expr()
         {
             // A call site that has the `MustBeInlined` runtime feature flag set is not eligible to be emitted as an IR function
-            // based on Runtime Capabilities Analysis, so we fall through to the inline path.
+            // based on Runtime Capabilities Analysis, so we fall through to the inline path
+            // OR we are currently in a parrallel expression which requires that all calls are inlined to ensure the whole parallel
+            // ends up in a single block.
             None
         } else {
             spec_decl
@@ -4789,6 +4792,10 @@ impl<'a> PartialEvaluator<'a> {
             ));
         }
         Ok(())
+    }
+
+    fn in_parallel_expr(&self) -> bool {
+        self.resource_manager.is_delaying_release()
     }
 }
 

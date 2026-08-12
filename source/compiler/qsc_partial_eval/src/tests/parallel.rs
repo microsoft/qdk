@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::too_many_lines)]
+
 use super::{assert_blocks, get_rir_program, get_rir_program_with_capabilities};
+use crate::tests::get_rir_program_with_adaptive_profile;
 use expect_test::expect;
 use indoc::indoc;
 use qsc_data_structures::target::Profile;
@@ -377,12 +380,102 @@ fn parallel_forces_loop_unrolling_with_adaptive() {
                 Variable(0, Integer) = Store Integer(1)
                 Call id(2), args( Qubit(1), )
                 Variable(0, Integer) = Store Integer(2)
-                Call id(4), args( Integer(0), Tag(0, 3), )
-                Return Integer(0)
-            Block 1:Block:
-                Call id(3), args( Variable(1, Qubit), )
-                Return"#]],
+                Call id(3), args( Integer(0), Tag(0, 3), )
+                Return Integer(0)"#]],
     );
+}
+
+#[test]
+fn parallel_forces_inlining() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {"
+        namespace Test {
+            operation Inner(q : Qubit) : Unit {
+                X(q);
+            }
+            operation Main() : Unit {
+                use q = Qubit();
+                Inner(q);
+                parallel {
+                    Inner(q);
+                    Inner(q);
+                };
+                Inner(q);
+            }
+        }
+    "});
+
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: Inner
+                    call_type: Regular
+                    input_type:
+                        [0]: Qubit
+                    input_vars:
+                        [0]: 0
+                    output_type: <VOID>
+                    body: 1
+                Callable 3: Callable:
+                    name: X
+                    call_type: Regular
+                    input_type:
+                        [0]: Qubit
+                    input_vars:
+                        [0]: 1
+                    output_type: <VOID>
+                    body: 2
+                Callable 4: Callable:
+                    name: __quantum__qis__x__body
+                    call_type: Regular
+                    input_type:
+                        [0]: Qubit
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 5: Callable:
+                    name: __quantum__rt__tuple_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Call id(2), args( Qubit(0), )
+                    Call id(4), args( Qubit(0), )
+                    Call id(4), args( Qubit(0), )
+                    Call id(2), args( Qubit(0), )
+                    Call id(5), args( Integer(0), Tag(0, 3), )
+                    Return Integer(0)
+                Block 1: Block:
+                    Call id(3), args( Variable(0, Qubit), )
+                    Return
+                Block 2: Block:
+                    Call id(4), args( Variable(1, Qubit), )
+                    Return
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
+            num_qubits: 1
+            num_results: 0
+            tags:
+                [0]: 0_t
+    "#]].assert_eq(&program.to_string());
 }
 
 #[test]
