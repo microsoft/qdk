@@ -44,7 +44,7 @@ const packagePickItems: vscode.QuickPickItem[] = [
   {
     label: "qdk[qiskit]",
     description: "QDK optional support for Qiskit",
-    detail: "Interop with Qiskit via qdk.cirq",
+    detail: "Interop with Qiskit via qdk.qiskit",
     picked: false,
   },
   {
