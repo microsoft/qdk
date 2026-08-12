@@ -12,6 +12,7 @@ import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js"
 import { registerNotebookSync } from "./notebookSync.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
+import { WORKBOOK_SUFFIX } from "./constants.js";
 import { registerLearningWelcomeView } from "./welcomeView.js";
 
 export function initLearning(
@@ -49,7 +50,8 @@ export function initLearning(
       // mark complete.
       if (
         !learningService.initialized ||
-        learningService.getActiveCourseInfo().kind !== "python-notebook"
+        learningService.getActiveCourseInfo().kind !== "python-notebook" ||
+        !e.notebook.uri.path.endsWith(WORKBOOK_SUFFIX)
       ) {
         return;
       }
