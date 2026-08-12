@@ -93,6 +93,7 @@ const OPID_PAULI_NOISE_1Q = 128u;
 const OPID_PAULI_NOISE_2Q = 129u;
 const OPID_LOSS_NOISE = 130u;
 const OPID_CORRELATED_NOISE = 131u;
+const OPID_READOUT_NOISE = 133u;
 
 // If the application of noise results in a custom matrix, it will have been stored in the shot buffer
 // These OPIDs indicate to use that matrix and for how many qubits. (The qubit ids are in the original Op)
@@ -181,6 +182,7 @@ const OP_RESET:         u32 = 0x12;
 const OP_READ_RESULT:   u32 = 0x13;
 const OP_RECORD_OUTPUT: u32 = 0x14;
 const OP_READ_LOSS:     u32 = 0x15;
+const OP_READOUT_NOISE: u32 = 0x17;
 
 // -- Integer Arithmetic -------------------------------------------------------
 const OP_ADD:           u32 = 0x20;
@@ -2389,6 +2391,24 @@ fn prepare_op_base_impl(shot_idx: u32) {
         return;
     }
 
+    if (op.id == OPID_READOUT_NOISE) {
+        let result_id = op.q1;
+        let p_zero_as_one = op.unitary[0].x;
+        let p_one_as_zero = op.unitary[0].y;
+        let result_idx = shot_idx * RESULT_COUNT + result_id;
+        let result = atomicLoad(&results[result_idx]);
+        let sample = shot.rand_measure;
+        if (result == 0u && sample < p_zero_as_one) {
+            atomicStore(&results[result_idx], 1u);
+        } else if (result == 1u && sample < p_one_as_zero) {
+            atomicStore(&results[result_idx], 0u);
+        }
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        shot.qubits_updated_last_op_mask = 0u;
+        return;
+    }
+
     // Before doing further work, if any qubit for the gate is lost, dispatch
     // the gate's configured loss policy (stamped on op.policy).
     let has_lost_operand = gate_has_lost_operand(shot_idx, op_idx, op.q1, op.q2);
@@ -2880,6 +2900,27 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let result_id = instr.src0;
                 let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
+                pc++;
+            }
+
+            // READOUT_NOISE: Simulates readout noise on a prior measurement result.
+            // That is, it flips the result with a probability that depends on the original value:
+            //   - If the result was 0, it flips to 1 with probability p_zero_as_one.
+            //   - If the result was 1, it flips to 0 with probability p_one_as_zero.
+            case OP_READOUT_NOISE {
+                let p_zero_as_one = resolve_f32(shot_idx, instr.aux0, flags, 3u);
+                let p_one_as_zero = resolve_f32(shot_idx, instr.aux1, flags, 4u);
+                let result_id = resolve_u32(shot_idx, instr.aux2, flags, 5u);
+                let result_idx = shot_idx * RESULT_COUNT + result_id;
+                let result = atomicLoad(&results[result_idx]);
+                let sample = next_rand_f32(shot_idx);
+
+                if ((result == 0u && sample < p_zero_as_one)) {
+                    atomicStore(&results[result_idx], 1u);
+                } else if ((result == 1u && sample < p_one_as_zero)) {
+                    atomicStore(&results[result_idx], 0u);
+                }
+
                 pc++;
             }
 

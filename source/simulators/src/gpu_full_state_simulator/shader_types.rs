@@ -164,6 +164,7 @@ pub enum OpID {
     PauliNoise2Q = 129,
     LossNoise = 130,
     CorrelatedNoise = 131,
+    ReadoutNoise = 133,
 }
 
 impl OpID {
@@ -218,6 +219,7 @@ impl TryFrom<u32> for OpID {
             129 => Ok(Self::PauliNoise2Q),
             130 => Ok(Self::LossNoise),
             131 => Ok(Self::CorrelatedNoise),
+            133 => Ok(Self::ReadoutNoise),
             invalid => Err(invalid),
         }
     }
@@ -259,6 +261,7 @@ pub mod ops {
     pub const PAULI_NOISE_2Q: u32 = super::OpID::PauliNoise2Q.as_u32();
     pub const LOSS_NOISE: u32 = super::OpID::LossNoise.as_u32();
     pub const CORRELATED_NOISE: u32 = super::OpID::CorrelatedNoise.as_u32();
+    pub const READOUT_NOISE: u32 = super::OpID::ReadoutNoise.as_u32();
 
     #[must_use]
     pub fn is_1q_op(op_id: u32) -> bool {
@@ -932,6 +935,14 @@ impl Op {
                 _ => panic!("More than 32 qubits passed to the correlated noise operation"), // Limited to 32 qubits
             }
         }
+        op
+    }
+
+    #[must_use]
+    pub fn new_readout_noise_gate(p_zero_as_one: f32, p_one_as_zero: f32, result_id: u32) -> Self {
+        let mut op = Self::new_1q_gate(ops::READOUT_NOISE, result_id);
+        op.r00 = p_zero_as_one;
+        op.i00 = p_one_as_zero;
         op
     }
 
