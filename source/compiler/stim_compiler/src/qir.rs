@@ -380,7 +380,7 @@ pub enum Error {
         #[label]
         span: Span,
     },
-    #[error("instruction {instruction} accepts at most {expected} arguments")]
+    #[error("too many arguments for instruction {instruction}; expected at most {expected}")]
     #[diagnostic(code("Qdk.Stim.Compiler.TooManyArgs"))]
     TooManyArgs {
         instruction: String,
@@ -389,7 +389,7 @@ pub enum Error {
         span: Span,
     },
     #[error(
-        "readout noise probability in instruction {instruction} must be between 0 and 1, but found {probability}"
+        "readout noise probability for {instruction} must be between 0 and 1; found {probability}"
     )]
     #[diagnostic(code("Qdk.Stim.Compiler.InvalidReadoutNoiseProbability"))]
     InvalidReadoutNoiseProbability {
