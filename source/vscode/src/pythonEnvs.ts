@@ -38,7 +38,8 @@ const packagePickItems: vscode.QuickPickItem[] = [
   {
     label: "qdk[jupyter]",
     description: "QDK optional support for Jupyter notebooks",
-    detail: "Enable magic commands and rich output in Jupyter notebooks",
+    detail:
+      "Enable Q# code cells and interactive quantum widgets in Jupyter notebooks",
     picked: true,
   },
   {
