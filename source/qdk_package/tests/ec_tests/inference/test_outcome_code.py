@@ -1,6 +1,6 @@
 """Tests for outcome-code profiling."""
-from qdk.ec.profile import OutcomeCode, outcome_code_of
-from qdk.ec.profile.propagation import Program
+from qdk.ec.checks import OutcomeCode, outcome_code_of
+from qdk.ec._analysis.propagation import Program
 from qdk.ec._qodec_compat import realization
 import qodec
 

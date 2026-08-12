@@ -1,5 +1,5 @@
 """Tests for the single-gadget audit convenience API."""
-from qdk.ec.audit import why_not_valid
+from qdk.ec.lint import why_not_valid
 import qodec
 
 

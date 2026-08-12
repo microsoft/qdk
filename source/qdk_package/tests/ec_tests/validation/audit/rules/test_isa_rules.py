@@ -10,8 +10,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import qodec
-from qdk.ec.audit import Diagnostic, Severity
-from qdk.ec.audit.rules.instruction_set import UnreferencedBlockRule
+from qdk.ec.lint import Diagnostic, Severity
+from qdk.ec.lint.rules.instruction_set import UnreferencedBlockRule
 
 
 def _placeholder_codec() -> qodec.Qodec:

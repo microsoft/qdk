@@ -1,4 +1,4 @@
-"""Smoke tests for check discovery through `qdk.ec.profile`.
+"""Smoke tests for check discovery through `qdk.ec.checks`.
 
 The module's heavy logic is exercised through `audit` and the C4 demo;
 this file pins the public surface (`profile_of`, `simulate_channel`,
@@ -6,8 +6,8 @@ this file pins the public surface (`profile_of`, `simulate_channel`,
 """
 from __future__ import annotations
 
-from qdk.ec.profile import Profile, profile_of
-from qdk.ec.profile.propagation import simulate_channel
+from qdk.ec.checks import Profile, profile_of
+from qdk.ec._analysis.propagation import simulate_channel
 from qdk.ec._qodec_compat import realization
 from ec_tests.testing.qodecs import c4
 

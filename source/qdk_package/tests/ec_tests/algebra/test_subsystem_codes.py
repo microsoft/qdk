@@ -3,7 +3,7 @@ from itertools import zip_longest, product
 import pytest
 from more_itertools import interleave, chunked
 from paulimer import SparsePauli as RustSparsePauli
-from qdk.ec.profile.code_algebra import (
+from qdk.ec._analysis.code_algebra import (
     encoding_clifford_of,
     SubsystemCode,
     clifford_images_of,
@@ -12,7 +12,7 @@ from qdk.ec.profile.code_algebra import (
 from ec_tests.testing import code_catalog
 from paulimer import PauliGroup
 
-from qdk.ec.profile.propagation.pauli import Pauli, PauliEnumerator, identity
+from qdk.ec._analysis.propagation.pauli import Pauli, PauliEnumerator, identity
 
 
 bacon_shor_codes = [

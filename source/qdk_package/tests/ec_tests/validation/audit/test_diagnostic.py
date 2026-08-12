@@ -5,7 +5,7 @@ import dataclasses
 
 import pytest
 
-from qdk.ec.audit import Diagnostic, Phase, Severity
+from qdk.ec.lint import Diagnostic, Phase, Severity
 
 
 def test_severity_enum_values() -> None:

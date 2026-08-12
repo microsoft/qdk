@@ -51,7 +51,7 @@ from qodec.circuits._common import (
     transversal_cx_pairs,
 )
 
-from ..profile.propagation.pauli import Pauli
+from .._analysis.propagation.pauli import Pauli
 from ._coerce import coerce_program
 from .results import Batch
 

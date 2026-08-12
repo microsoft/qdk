@@ -1,14 +1,10 @@
-"""Public package-tree contract."""
+"""Public package-tree contract.
+
+The exhaustive surface lives in ``test_api_surface.py``; this covers the
+structural properties that do not belong to any one module.
+"""
+
 import qdk.ec
-
-
-def test_root_exports_only_agreed_packages() -> None:
-    assert set(qdk.ec.__all__) == {
-        "audit",
-        "develop",
-        "profile",
-        "targets",
-    }
 
 
 def test_target_contracts_load_without_a_backend() -> None:
@@ -33,7 +29,7 @@ def test_target_contracts_load_without_a_backend() -> None:
 
 def test_exact_propagation_is_not_a_target_package() -> None:
     from qdk.ec import targets
-    from qdk.ec.profile import propagation
+    from qdk.ec._analysis import propagation
 
     assert propagation is not None
     assert "simulation" not in targets.__all__

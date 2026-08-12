@@ -7,10 +7,10 @@ from dataclasses import replace
 
 import qodec
 
-from .diagnostic import Diagnostic, Phase
-from .report import Report
-from .rule import Rule, filter_rules
-from .severity import Severity
+from ._diagnostic import Diagnostic, Phase
+from ._report import Report
+from ._rule import Rule, filter_rules
+from ._severity import Severity
 
 
 class Auditor:

@@ -2,7 +2,7 @@
 
 from collections.abc import Iterator
 
-from ..rule import Rule
+from ...lint._rule import Rule
 from .code import RULES as CODE_RULES
 from .gadget import RULES as GADGET_RULES
 from .instruction_set import RULES as INSTRUCTION_SET_RULES

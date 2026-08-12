@@ -2,8 +2,8 @@
 
 from dataclasses import dataclass, field
 
-from .diagnostic import Diagnostic
-from .severity import Severity
+from ._diagnostic import Diagnostic
+from ._severity import Severity
 
 
 @dataclass(frozen=True)

@@ -1,7 +1,7 @@
 from typing import Any, Optional, Callable
 from hypothesis import strategies
 from ec_tests.strategies.sparse_phases import sparse_phases
-from qdk.ec.profile.propagation.pauli import Pauli, identity
+from qdk.ec._analysis.propagation.pauli import Pauli, identity
 
 
 def pauli_characters() -> strategies.SearchStrategy[str]:

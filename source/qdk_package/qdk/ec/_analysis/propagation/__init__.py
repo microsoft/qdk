@@ -8,10 +8,10 @@ from typing import Any
 from qodec.circuits import Program
 
 _EXPORTS = {
-    "ChannelSimulation": ("qdk.ec.profile.check_discovery", "ChannelSimulation"),
-    "ProgramSimulation": ("qdk.ec.profile.check_discovery", "ProgramSimulation"),
-    "simulate_channel": ("qdk.ec.profile.check_discovery", "simulate_channel"),
-    "simulate_program": ("qdk.ec.profile.check_discovery", "simulate_program"),
+    "ChannelSimulation": ("qdk.ec._analysis.check_discovery", "ChannelSimulation"),
+    "ProgramSimulation": ("qdk.ec._analysis.check_discovery", "ProgramSimulation"),
+    "simulate_channel": ("qdk.ec._analysis.check_discovery", "simulate_channel"),
+    "simulate_program": ("qdk.ec._analysis.check_discovery", "simulate_program"),
     "ConditionalChoiResult": (".conditional", "ConditionalChoiResult"),
     "conditional_choi_state": (".conditional", "conditional_choi_state"),
     "FrameGroup": (".frames", "FrameGroup"),

@@ -10,16 +10,16 @@ import qodec
 from qodec.circuits import Program
 
 from .._qodec_compat import observables_as_xor_map, realization
-from ..profile.circuit_action import realization_codes_of
-from ..profile.check_discovery import _objective_logical_chars, _pauli_xor
-from ..profile.propagation.conditional import (
+from .._analysis.circuit_action import realization_codes_of
+from .._analysis.check_discovery import _objective_logical_chars, _pauli_xor
+from .._analysis.propagation.conditional import (
     ConditionalChoiResult,
     conditional_choi_state,
 )
-from ..profile.propagation.frames import FrameGroup
-from ..profile.propagation.isa_actions import parse_basis_index
-from ..profile.propagation.pauli import Pauli, PauliCharacter
-from ..profile.propagation.pauli_remap import encoding_qubit_relocation
+from .._analysis.propagation.frames import FrameGroup
+from .._analysis.propagation.isa_actions import parse_basis_index
+from .._analysis.propagation.pauli import Pauli, PauliCharacter
+from .._analysis.propagation.pauli_remap import encoding_qubit_relocation
 
 
 @dataclass(frozen=True)

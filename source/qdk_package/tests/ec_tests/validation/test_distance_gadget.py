@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import qodec
-from qdk.ec.profile import FaultEffect
-from qdk.ec.profile.distance import MwpfSolverOptions
+from qdk.ec.faults import FaultEffect
+from qdk.ec.distance import MwpfSolverOptions
 from qdk.ec.targets import (
     GadgetDistanceData,
     depolarizing,

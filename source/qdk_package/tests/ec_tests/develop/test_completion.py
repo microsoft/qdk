@@ -5,7 +5,7 @@ from collections.abc import Mapping, Sequence
 
 import qodec
 
-from qdk.ec.develop import complete_gadget
+from qdk.ec import complete_gadget
 
 
 def _readout(

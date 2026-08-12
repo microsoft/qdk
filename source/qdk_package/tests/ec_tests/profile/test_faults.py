@@ -3,7 +3,7 @@ import qodec
 from qodec.circuits import Program
 
 from qdk.ec._qodec_compat import realization
-from qdk.ec.profile import Fault, FaultEffect, FaultProfile, fault_profile_of
+from qdk.ec.faults import Fault, FaultEffect, FaultProfile, fault_profile_of
 from qdk.ec.targets import depolarizing
 
 

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import qodec
-from qdk.ec.profile import lift_objective, logical_action_of
+from qdk.ec.action import lift_objective, logical_action_of
 from ec_tests.testing.qodecs import c4
 
 

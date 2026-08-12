@@ -31,15 +31,15 @@ pip install "qdk[ec,ec-backends]"   # ... plus the stim / mwpf backends
 
 ### Develop
 
-`qdk.ec.develop` moves qodecs between disk, memory, and YAML text, and finishes
-drafts that a human should not have to finish by hand.
+`qdk.ec` moves qodecs between disk, memory, and YAML text, and finishes drafts
+that a human should not have to finish by hand.
 
 ```python
-from qdk.ec import develop
+import qdk.ec as ec
 
-codec = develop.load("protocol.qodec.yaml")
-completed = develop.complete_qodec(codec)   # or complete_gadget(one_gadget)
-develop.save(completed, "out/")
+codec = ec.load("protocol.qodec.yaml")
+completed = ec.complete_qodec(codec)   # or complete_gadget(one_gadget)
+ec.save(completed, "out/")
 ```
 
 `complete_gadget` discovers checks and Pauli-bearing readouts by exact simulation,
@@ -52,7 +52,7 @@ verified circuit behind each of its instructions:
 
 ```python
 import qodec
-from qdk.ec.develop import qodec_from_code, synthesis_notes
+from qdk.ec import qodec_from_code, synthesis_notes
 
 code = qodec.Code(
     "steane",
@@ -68,43 +68,47 @@ Every synthesized gadget is completed *and* verified against the action it decla
 so an instruction ships only if its circuit provably implements it. Syndrome
 extraction uses flag qubits, so the artifact inherits the code's distance rather
 than losing it to hook errors; pass `verify_distance=True` to have that measured
-and enforced. See `qdk.ec.develop.synthesis` for the construction and its limits.
+and enforced.
 
 ### Test
 
-`qdk.ec.profile` computes typed facts about a qodec. `qdk.ec.audit` applies
-expectations to those facts and produces policy-bearing diagnostics.
+One module per question computes typed facts about a qodec — `action`, `checks`,
+`code`, `distance`, `faults`, `readouts`. `qdk.ec.equivalence` compares two
+artifacts, and `qdk.ec.lint` applies expectations and produces policy-bearing
+diagnostics.
 
 ```python
-from qdk.ec import audit, develop, profile, targets
+import qdk.ec as ec
+from qdk.ec import action, equivalence, lint, targets
 
-codec = develop.load("protocol.qodec.yaml")
+codec = ec.load("protocol.qodec.yaml")
 gadget = codec.layers[0].gadgets["idle"]
 
-expected = profile.declared_action_of(gadget)
-actual = profile.realized_action_of(gadget)
-report = audit.audit(codec)
+expected = action.declared_action_of(gadget)
+actual = action.realized_action_of(gadget)
+report = lint.diagnose(codec)
 
 distance, witness = targets.gadget_distance_of(gadget, targets.depolarizing(0.001))
 ```
 
-Audit reports stable rule IDs, severities, locations, summaries, and details.
+Diagnostics carry stable rule IDs, severities, locations, summaries, and details.
 Structural errors prevent dependent semantic rules from running.
 
 ### Deploy
 
 `qdk.ec.targets` evaluates, adapts, and executes qodec programs under external
-assumptions. Exact noiseless propagation used for intrinsic discovery lives under
-`profile.propagation`; target simulation is reserved for noise, shots, and backend
-semantics.
+assumptions. Exact noiseless propagation used for intrinsic discovery is internal
+to the profiling modules; target simulation is reserved for noise, shots, and
+backend semantics.
 
 ```python
 import qodec
 from qodec.circuits import Program
 
-from qdk.ec import develop, targets
+import qdk.ec as ec
+from qdk.ec import targets
 
-codec = develop.load("protocol.qodec.yaml")
+codec = ec.load("protocol.qodec.yaml")
 program = Program(
     [
         qodec.instructions.InstructionCall("prepare", outputs={"0": "q"}),
@@ -126,8 +130,8 @@ into ordinary results:
 
 ```python
 import qdk
+import qdk.ec as ec
 from qdk import qsharp
-from qdk.ec import develop
 from qdk.simulation import NoiseConfig, run_qir
 
 qsharp.init(target_profile=qdk.TargetProfile.Adaptive)
@@ -136,7 +140,7 @@ qir = qsharp.compile("{ use q = Qubit(); X(q); MResetZ(q) }")
 noise = NoiseConfig()
 noise.x.x = 0.05
 
-codec = develop.load("c4.qodec.yaml")
+codec = ec.load("c4.qodec.yaml")
 run_qir(qir, shots=100, type="clifford", noise=noise, qodec=codec)
 ```
 
@@ -147,15 +151,25 @@ results may come back — that is what an error-*detecting* code buys. See
 
 ## Layout
 
+The API is flat: develop, profile, and test are *groupings* of the surface, not
+packages you import.
+
 ```text
 qdk/ec/
-├── develop/             load, save, and complete qodec objects
-├── profile/             actions, checks, readouts, faults, and code distance
-│   └── propagation/     exact noiseless semantic propagation
-├── audit/               rules, diagnostics, reports, equivalence, audit policy
+├── __init__.py          load / save / from_yaml / to_yaml,
+│                        complete_gadget / complete_qodec / qodec_from_code
+├── action.py            declared vs realized gadget action
+├── checks.py            deterministic parity structure of outcomes
+├── code.py              characteristics of qodec.Code objects
+├── distance.py          code distance, exact and bounded
+├── faults.py            fault propagation to the gadget boundary
+├── readouts.py          what measurement outcomes mean
+├── equivalence.py       does one artifact match another?
+├── lint/                rules, diagnostics, reports, diagnose()
+├── _analysis/           private engines (propagation, algebra, solvers)
 └── targets/
     ├── model.py         target fault-model boundary
-    ├── distance.py      target-conditioned gadget distance
+    ├── distance.py      target-conditioned and circuit-level distance
     ├── dem.py           target-conditioned detector error models
     ├── compilers/       lowering and relocation
     ├── deq/             decoded execution and qodec/deq interchange
@@ -169,24 +183,26 @@ The dependency direction is:
 
 ```text
 qodec + paulimer
-       |
-    profile
-   /  |   \
-develop audit targets
-          |
-       target model + backend
+        |
+    _analysis
+        |
+  profiling modules (action, checks, code, distance, faults, readouts)
+   /         |          \
+develop   equivalence   targets
+functions  + lint          |
+                    target model + backend
 
 qodec -> targets.compilers -> targets.{stim, qdk_sim, deq}
 ```
 
 Public functions accept qodec objects directly. `qodec.Code` is the public code
-type; code characteristics such as syndrome, logical effect, distance, and an
-encoding Clifford are functions under `qdk.ec.profile`.
+type; code characteristics such as syndrome, logical effect, and an encoding
+Clifford live in `qdk.ec.code`, with distance in `qdk.ec.distance`.
 
 ## Optional backends
 
-The `ec` extra installs the qodec-facing profiling and audit surface. Backend and
-solver dependencies are isolated:
+The `ec` extra installs the qodec-facing profiling and linting surface. Backend
+and solver dependencies are isolated:
 
 - `stim` — stim emission, sampling, and target-conditioned detector error models
 - `mwpf` — MWPF-backed distance bounds

@@ -9,8 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from qdk.ec.profile.propagation.frames import FrameGroup, PauliFrame
-from qdk.ec.profile.propagation.pauli import Pauli, identity
+from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
+from qdk.ec._analysis.propagation.pauli import Pauli, identity
 
 
 def _z(qubit: int) -> Pauli:

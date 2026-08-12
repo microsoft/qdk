@@ -5,7 +5,7 @@ from __future__ import annotations
 import qodec
 
 from ec_tests.testing.qodecs import c4
-from qdk.ec.develop import complete_qodec
+from qdk.ec import complete_qodec
 
 
 def _stripped(codec: qodec.Qodec) -> qodec.Qodec:

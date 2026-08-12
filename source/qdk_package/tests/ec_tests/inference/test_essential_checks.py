@@ -1,10 +1,8 @@
 """Tests for essential-check profiling."""
 import qodec
 from qdk.ec._qodec_compat import check_outcomes, realization
-from qdk.ec.profile import (
-    essential_checks_of,
-    outcomes_flipped_by_anti_observables_of,
-)
+from qdk.ec.checks import essential_checks_of
+from qdk.ec.readouts import outcomes_flipped_by_anti_observables_of
 
 
 def test_anti_observable_flips_one_per_logical_basis_element(idle_gadget: qodec.Gadget) -> None:

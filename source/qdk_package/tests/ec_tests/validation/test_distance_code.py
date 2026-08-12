@@ -4,10 +4,10 @@ from typing import Iterable
 import operator
 from functools import reduce
 import pytest
-from qdk.ec.profile.stabilizer_code import StabilizerCode
+from qdk.ec._analysis.stabilizer_code import StabilizerCode
 from ec_tests.testing import code_catalog as catalog
-from qdk.ec.profile.propagation.pauli import Pauli
-from qdk.ec.profile.distance import (
+from qdk.ec._analysis.propagation.pauli import Pauli
+from qdk.ec.distance import (
     MwpfSolverOptions,
     code_distance_bounds_of,
     code_distance_of,

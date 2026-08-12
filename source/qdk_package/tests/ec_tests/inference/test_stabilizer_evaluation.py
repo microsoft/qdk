@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import qodec
 
-from qdk.ec.profile.propagation import (
+from qdk.ec._analysis.propagation import (
     Program,
     evolution_of,
     stabilizer_group_of,
@@ -11,7 +11,7 @@ from qdk.ec.profile.propagation import (
 from qdk.ec._qodec_compat import realization
 from paulimer import PauliGroup
 
-from qdk.ec.profile.propagation.frames import PauliFrame
+from qdk.ec._analysis.propagation.frames import PauliFrame
 
 
 def test_stabilizer_group_of_idle_channel(idle_gadget: qodec.Gadget) -> None:

@@ -1,4 +1,18 @@
-"""Code and gadget distance characteristics and witnesses."""
+"""Code distance: how much protection a code actually provides.
+
+:func:`code_distance_of` computes the exact distance together with a witness —
+a minimum-weight logical operator that realizes it. :func:`code_distance_bounds_of`
+returns bounds instead, which is what you want for codes too large to solve
+exactly.
+
+Both accept ``**options`` selecting a solver: :class:`ExhaustiveSolverOptions`
+for an exact search, or :class:`MwpfSolverOptions` for the matching-based
+bound (needs the ``mwpf`` backend).
+
+The *circuit-level* analogue — the distance a compiled circuit achieves, which
+is the number that says whether an artifact inherits its code's protection —
+lives in :mod:`qdk.ec.targets`.
+"""
 
 from __future__ import annotations
 
@@ -6,13 +20,13 @@ from typing import Any
 
 import qodec
 
-from .code_algebra import SubsystemCode
-from .code_distance import (
+from ._analysis.code_algebra import SubsystemCode
+from ._analysis.code_distance import (
     CodeDistanceData,
     code_distance_bounds_of_view,
     code_distance_of_view,
 )
-from .distance_solvers import (
+from ._analysis.distance_solvers import (
     BoundsSolver,
     CustomBoundsSolver,
     CustomExactSolver,
@@ -20,12 +34,8 @@ from .distance_solvers import (
     ExhaustiveSolverOptions,
     MwpfSolverOptions,
 )
-from .odd_cycles import (
-    OddCycles,
-    cycle_labels,
-    unique_non_empty_elements_of,
-)
-from .propagation.pauli import Pauli
+from ._analysis.odd_cycles import OddCycles
+from ._analysis.propagation.pauli import Pauli
 
 
 def _code_view(code: object) -> SubsystemCode:
@@ -57,8 +67,7 @@ __all__ = [
     "ExhaustiveSolverOptions",
     "MwpfSolverOptions",
     "OddCycles",
+    "SubsystemCode",
     "code_distance_bounds_of",
     "code_distance_of",
-    "cycle_labels",
-    "unique_non_empty_elements_of",
 ]

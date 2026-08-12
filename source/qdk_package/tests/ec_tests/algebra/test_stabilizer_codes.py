@@ -3,8 +3,8 @@ import pytest
 from paulimer import DensePauli
 from paulimer import PauliGroup
 
-from qdk.ec.profile.propagation.pauli import Pauli, PauliEnumerator, identity
-from qdk.ec.profile.stabilizer_code import StabilizerCode
+from qdk.ec._analysis.propagation.pauli import Pauli, PauliEnumerator, identity
+from qdk.ec._analysis.stabilizer_code import StabilizerCode
 from ec_tests.testing import code_catalog
 from ec_tests.algebra.test_subsystem_codes import (
     assert_encoding_clifford_of,

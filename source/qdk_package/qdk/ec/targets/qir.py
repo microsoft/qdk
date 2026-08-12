@@ -521,7 +521,7 @@ def run_qir_encoded(
         OutputRecordingPass,
         preprocess_simulation_input,
     )
-    from ..targets.stim import StimSampler
+    from .stim import StimSampler
 
     module, shots, _, seed = preprocess_simulation_input(input, shots, None, seed)
     gates, qubit_count = _extract_gates(module)

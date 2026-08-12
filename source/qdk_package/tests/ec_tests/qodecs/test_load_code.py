@@ -4,8 +4,8 @@ import pytest
 
 from ec_tests.testing import code_catalog
 from ec_tests.testing.qodecs import c4
-from qdk.ec.profile.propagation.pauli import Pauli
-from qdk.ec.profile.code_algebra import SubsystemCode
+from qdk.ec._analysis.propagation.pauli import Pauli
+from qdk.ec._analysis.code_algebra import SubsystemCode
 
 
 qodec = pytest.importorskip("qodec")

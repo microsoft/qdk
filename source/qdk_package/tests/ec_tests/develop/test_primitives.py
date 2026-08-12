@@ -1,4 +1,4 @@
-"""``qdk.ec.develop`` primitives: load, save, from_yaml, to_yaml."""
+"""``qdk.ec`` primitives: load, save, from_yaml, to_yaml."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 import qodec
 
 from ec_tests.testing.qodecs import c4
-from qdk.ec import develop
+import qdk.ec as develop
 
 
 def test_to_yaml_round_trips_through_from_yaml() -> None:

@@ -1,11 +1,11 @@
-"""``qdk.ec.profile.readouts`` — what a gadget's measurement outcomes mean."""
+"""``qdk.ec.readouts`` — what a gadget's measurement outcomes mean."""
 
 from __future__ import annotations
 
 import qodec
 
-from qdk.ec.profile import checks as checks_module
-from qdk.ec.profile import readouts
+from qdk.ec import checks as checks_module
+from qdk.ec import readouts
 
 
 def test_profile_of_discovers_the_observable_bindings(
@@ -20,8 +20,9 @@ def test_profile_of_discovers_the_observable_bindings(
     )
 
 
-def test_readouts_of_is_profile_of() -> None:
-    assert readouts.readouts_of is readouts.profile_of
+def test_checks_and_readouts_share_one_discovery_pass() -> None:
+    """Both views come from the same simulation, so they cannot disagree."""
+    assert readouts.profile_of is checks_module.profile_of
 
 
 def test_outcome_profile_agrees_with_the_discovered_profile(

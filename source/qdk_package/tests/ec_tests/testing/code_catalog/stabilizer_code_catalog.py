@@ -1,7 +1,7 @@
 from typing import Iterable
 from itertools import combinations
-from qdk.ec.profile.propagation.pauli import Pauli, PauliCharacter
-from qdk.ec.profile.stabilizer_code import StabilizerCode
+from qdk.ec._analysis.propagation.pauli import Pauli, PauliCharacter
+from qdk.ec._analysis.stabilizer_code import StabilizerCode
 
 
 def make_repetition_code(

@@ -10,17 +10,16 @@ The predicates come in two strengths:
   with :func:`why_not_equivalent` explaining a negative gadget answer.
 * :func:`actions_equivalent_mod_pauli` / :func:`actions_outcome_equivalent`
   compare two already-computed
-  :class:`~qdk.ec.profile.action.CircuitAction` objects, ignoring Pauli frames
+  :class:`~qdk.ec.action.CircuitAction` objects, ignoring Pauli frames
   and comparing only measurement outcomes respectively.
 """
 
-from ..profile.action import (
-    actions_equivalent_mod_pauli,
-    actions_outcome_equivalent,
-    gadgets_equivalent,
-    why_not_equivalent,
+from ._analysis.circuit_action import (
+    are_equivalent_mod_paulis as actions_equivalent_mod_pauli,
+    are_outcome_equivalent as actions_outcome_equivalent,
 )
-from ..profile.code import codes_equivalent
+from ._analysis.equivalence import gadgets_equivalent, why_not_equivalent
+from .code import codes_equivalent
 
 __all__ = [
     "actions_equivalent_mod_pauli",

@@ -1,6 +1,7 @@
 """Tests for outcome-profile computation."""
 from qdk.ec._qodec_compat import check_outcomes, observables_as_xor_map
-from qdk.ec.profile import OutcomeProfile, essential_checks_of, outcome_profile_of
+from qdk.ec.checks import essential_checks_of
+from qdk.ec.readouts import OutcomeProfile, outcome_profile_of
 import qodec
 
 
