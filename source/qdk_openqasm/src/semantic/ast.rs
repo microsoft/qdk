@@ -838,6 +838,8 @@ impl Expr {
         }
     }
 
+    /// `output` is `None` for the built-in functions that are allowed to be
+    /// evaluated at runtime, namely `real` and `imag` applied to non-const values.
     #[must_use]
     pub fn builtin_funcall(
         name: &str,
@@ -845,7 +847,7 @@ impl Expr {
         fn_name_span: Span,
         function_ty: Type,
         args: &[Expr],
-        output: LiteralKind,
+        output: Option<LiteralKind>,
     ) -> Self {
         let Type::Function(_, ty) = &function_ty else {
             unreachable!("if we hit this there is a bug in the builtin functions implementation");
@@ -863,7 +865,7 @@ impl Expr {
                 function_ty,
             })),
             ty,
-            const_value: Some(output),
+            const_value: output,
         }
     }
 
@@ -1204,9 +1206,10 @@ impl Display for EvaluatedDurationofExpr {
 }
 
 /// The information in this struct is aimed to be consumed
-/// by the language service. The result of the computation
-/// is already stored in the [`Expr::const_value`] field by
-/// the time the `Expr` is created.
+/// by the language service. When the call can be folded at
+/// compile time, the result of the computation is already
+/// stored in the [`Expr::const_value`] field by the time the
+/// `Expr` is created.
 #[derive(Clone, Debug)]
 pub struct BuiltinFunctionCall {
     pub span: Span,

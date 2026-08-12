@@ -21,7 +21,7 @@ use crate::{
         build_call_stmt_no_params, build_call_with_param, build_call_with_params,
         build_classical_decl, build_complex_from_expr, build_continue_stmt,
         build_convert_call_expr, build_convert_cast_call_by_name, build_end_stmt,
-        build_expr_array_expr, build_for_stmt, build_function_or_operation,
+        build_expr_array_expr, build_field_expr, build_for_stmt, build_function_or_operation,
         build_functor_from_constraints, build_gate_call_param_expr,
         build_gate_call_with_params_and_callee, build_if_expr_then_block,
         build_if_expr_then_block_else_block, build_if_expr_then_block_else_expr,
@@ -1214,6 +1214,22 @@ impl QasmCompiler {
         }
     }
 
+    /// Compiles the built-in calls that survive lowering without a const value.
+    /// Only `real` and `imag` on non-const complex values can reach this point.
+    fn compile_runtime_builtin_function_call_expr(
+        &mut self,
+        call: &semast::BuiltinFunctionCall,
+        span: qdk_openqasm::span::Span,
+    ) -> qsast::Expr {
+        let field = match &*call.name {
+            "real" => "Real",
+            "imag" => "Imag",
+            _ => unreachable!("only `real` and `imag` can be evaluated at runtime"),
+        };
+        let operand = self.compile_expr(&call.args[0]);
+        build_field_expr(operand, field, span.to_qsharp())
+    }
+
     fn compile_runtime_sizeof_expr(&mut self, expr: &semast::RuntimeSizeofExpr) -> qsast::Expr {
         let span = expr.span.to_qsharp();
         let name_span = expr.fn_name_span.to_qsharp();
@@ -1800,12 +1816,12 @@ impl QasmCompiler {
             semast::ExprKind::ResolvedFunctionCall(function_call) => {
                 self.compile_resolved_function_call_expr(function_call)
             }
-            semast::ExprKind::BuiltinFunctionCall(_) => {
-                let Some(value) = expr.get_const_value() else {
-                    unreachable!("builtin function call exprs are only lowered if they succeed");
-                };
-
-                self.compile_literal_expr(&value, expr.span)
+            semast::ExprKind::BuiltinFunctionCall(call) => {
+                if let Some(value) = expr.get_const_value() {
+                    self.compile_literal_expr(&value, expr.span)
+                } else {
+                    self.compile_runtime_builtin_function_call_expr(call, expr.span)
+                }
             }
             semast::ExprKind::Cast(cast) => self.compile_cast_expr(cast),
             semast::ExprKind::IndexedExpr(index_expr) => self.compile_indexed_expr(index_expr),

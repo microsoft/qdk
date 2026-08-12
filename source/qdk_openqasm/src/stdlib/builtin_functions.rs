@@ -78,7 +78,7 @@ fn dispatch(
                             name_span,
                             signature.clone(),
                             inputs,
-                            output,
+                            Some(output),
                         ));
                     }
                     Err(err) => {
@@ -778,28 +778,36 @@ fn complex_component(
         Some(Type::Complex(width, _)) => *width,
         _ => None,
     };
-    let signature = fun(&[Type::Complex(width, true)], Type::Float(width, true));
+
+    // Unlike the built-in constant expression functions, `real` and `imag` are also
+    // defined on non-const complex values, in which case the call is evaluated at runtime.
+    let is_const = inputs.iter().all(|input| input.ty.is_const());
+    let signature = fun(
+        &[Type::Complex(width, is_const)],
+        Type::Float(width, is_const),
+    );
     let fn_table: FnTable = vec![(
-        signature,
-        Box::new(move |inputs, _| {
+        signature.clone(),
+        Box::new(move |inputs: &[Expr], _| {
             unwrap_lit!(inputs[0], LiteralKind::Complex(value));
             Ok(LiteralKind::Float(component(value)))
         }),
     )];
 
-    if inputs
-        .iter()
-        .any(|input| !input.ty.is_const() || input.const_value.is_none())
-    {
-        return None;
-    }
-
-    if inputs.len() == 1 && !matches!(inputs[0].ty, Type::Complex(_, _)) {
+    if inputs.len() != 1 || !matches!(inputs[0].ty, Type::Complex(..)) {
         ctx.push_const_eval_error(no_valid_overload_error(name, call_span, inputs, &fn_table));
         return None;
     }
 
-    dispatch(name, name_span, call_span, inputs, &fn_table, ctx)
+    if is_const {
+        // Bail out if const evaluating the argument failed; the error was already reported.
+        inputs[0].const_value.as_ref()?;
+        return dispatch(name, name_span, call_span, inputs, &fn_table, ctx);
+    }
+
+    Some(Expr::builtin_funcall(
+        name, call_span, name_span, signature, inputs, None,
+    ))
 }
 
 // ----------------------------------

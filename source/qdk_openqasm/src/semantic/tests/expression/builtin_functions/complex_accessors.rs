@@ -351,7 +351,7 @@ fn real_rejects_multiple_arguments() {
 }
 
 #[test]
-fn imag_rejects_nonconstant_input() {
+fn imag_accepts_nonconstant_input() {
     let source = "
         complex value = 1.0 + 2.0 im;
         imag(value);
@@ -360,45 +360,37 @@ fn imag_rejects_nonconstant_input() {
     check_stmt_kinds(
         source,
         &expect![[r#"
-            Program:
-                version: <none>
-                pragmas: <empty>
-                statements:
-                    Stmt [9-38]:
-                        annotations: <empty>
-                        kind: ClassicalDeclarationStmt [9-38]:
-                            symbol_id: 8
-                            ty_span: [9-16]
-                            ty_exprs: <empty>
-                            init_expr: Expr [25-37]:
-                                ty: complex[float]
-                                kind: BinaryOpExpr:
-                                    op: Add
-                                    lhs: Expr [25-28]:
-                                        ty: const complex[float]
-                                        kind: Lit: Complex(1.0, 0.0)
-                                    rhs: Expr [31-37]:
-                                        ty: const complex[float]
-                                        kind: Lit: Complex(0.0, 2.0)
-                    Stmt [47-59]:
-                        annotations: <empty>
-                        kind: Err
-
-            [Qdk.Qasm.Lowerer.ExprMustBeConst
-
-              x expression must be const
-               ,-[test:3:14]
-             2 |         complex value = 1.0 + 2.0 im;
-             3 |         imag(value);
-               :              ^^^^^
-             4 |     
-               `----
-            ]"#]],
+        ClassicalDeclarationStmt [9-38]:
+            symbol_id: 8
+            ty_span: [9-16]
+            ty_exprs: <empty>
+            init_expr: Expr [25-37]:
+                ty: complex[float]
+                kind: BinaryOpExpr:
+                    op: Add
+                    lhs: Expr [25-28]:
+                        ty: const complex[float]
+                        kind: Lit: Complex(1.0, 0.0)
+                    rhs: Expr [31-37]:
+                        ty: const complex[float]
+                        kind: Lit: Complex(0.0, 2.0)
+        ExprStmt [47-59]:
+            expr: Expr [47-58]:
+                ty: float
+                kind: BuiltinFunctionCall [47-58]:
+                    fn_name_span: [47-51]
+                    name: imag
+                    function_ty: def (complex[float]) -> float
+                    args:
+                        Expr [52-57]:
+                            ty: complex[float]
+                            kind: SymbolId(8)
+    "#]],
     );
 }
 
 #[test]
-fn real_rejects_nonconstant_input() {
+fn real_accepts_nonconstant_input() {
     let source = "
         complex value = 1.0 + 2.0 im;
         real(value);
@@ -407,39 +399,250 @@ fn real_rejects_nonconstant_input() {
     check_stmt_kinds(
         source,
         &expect![[r#"
-            Program:
-                version: <none>
-                pragmas: <empty>
-                statements:
-                    Stmt [9-38]:
-                        annotations: <empty>
-                        kind: ClassicalDeclarationStmt [9-38]:
-                            symbol_id: 8
-                            ty_span: [9-16]
-                            ty_exprs: <empty>
-                            init_expr: Expr [25-37]:
-                                ty: complex[float]
-                                kind: BinaryOpExpr:
-                                    op: Add
-                                    lhs: Expr [25-28]:
-                                        ty: const complex[float]
-                                        kind: Lit: Complex(1.0, 0.0)
-                                    rhs: Expr [31-37]:
-                                        ty: const complex[float]
-                                        kind: Lit: Complex(0.0, 2.0)
-                    Stmt [47-59]:
-                        annotations: <empty>
-                        kind: Err
+        ClassicalDeclarationStmt [9-38]:
+            symbol_id: 8
+            ty_span: [9-16]
+            ty_exprs: <empty>
+            init_expr: Expr [25-37]:
+                ty: complex[float]
+                kind: BinaryOpExpr:
+                    op: Add
+                    lhs: Expr [25-28]:
+                        ty: const complex[float]
+                        kind: Lit: Complex(1.0, 0.0)
+                    rhs: Expr [31-37]:
+                        ty: const complex[float]
+                        kind: Lit: Complex(0.0, 2.0)
+        ExprStmt [47-59]:
+            expr: Expr [47-58]:
+                ty: float
+                kind: BuiltinFunctionCall [47-58]:
+                    fn_name_span: [47-51]
+                    name: real
+                    function_ty: def (complex[float]) -> float
+                    args:
+                        Expr [52-57]:
+                            ty: complex[float]
+                            kind: SymbolId(8)
+    "#]],
+    );
+}
 
-            [Qdk.Qasm.Lowerer.ExprMustBeConst
+#[test]
+fn real_and_imag_preserve_component_width_of_nonconstant_input() {
+    let source = "
+        complex[float[32]] value = 3.5 + 4.25 im;
+        real(value);
+        imag(value);
+    ";
 
-              x expression must be const
-               ,-[test:3:14]
-             2 |         complex value = 1.0 + 2.0 im;
-             3 |         real(value);
-               :              ^^^^^
-             4 |     
-               `----
-            ]"#]],
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+        ClassicalDeclarationStmt [9-50]:
+            symbol_id: 8
+            ty_span: [9-27]
+            ty_exprs:
+                Expr [23-25]:
+                    ty: const uint
+                    const_value: Int(32)
+                    kind: Lit: Int(32)
+            init_expr: Expr [36-49]:
+                ty: complex[float[32]]
+                kind: Cast [36-49]:
+                    ty: complex[float[32]]
+                    ty_exprs: <empty>
+                    expr: Expr [36-49]:
+                        ty: const complex[float]
+                        kind: BinaryOpExpr:
+                            op: Add
+                            lhs: Expr [36-39]:
+                                ty: const complex[float]
+                                kind: Lit: Complex(3.5, 0.0)
+                            rhs: Expr [42-49]:
+                                ty: const complex[float]
+                                kind: Lit: Complex(0.0, 4.25)
+                    kind: Implicit
+        ExprStmt [59-71]:
+            expr: Expr [59-70]:
+                ty: float[32]
+                kind: BuiltinFunctionCall [59-70]:
+                    fn_name_span: [59-63]
+                    name: real
+                    function_ty: def (complex[float[32]]) -> float[32]
+                    args:
+                        Expr [64-69]:
+                            ty: complex[float[32]]
+                            kind: SymbolId(8)
+        ExprStmt [80-92]:
+            expr: Expr [80-91]:
+                ty: float[32]
+                kind: BuiltinFunctionCall [80-91]:
+                    fn_name_span: [80-84]
+                    name: imag
+                    function_ty: def (complex[float[32]]) -> float[32]
+                    args:
+                        Expr [85-90]:
+                            ty: complex[float[32]]
+                            kind: SymbolId(8)
+    "#]],
+    );
+}
+
+#[test]
+fn real_and_imag_of_nonconstant_input_are_usable_in_runtime_expressions() {
+    let source = "
+        complex value = 1.0 + 2.0 im;
+        float sum = real(value) + imag(value);
+    ";
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+        ClassicalDeclarationStmt [9-38]:
+            symbol_id: 8
+            ty_span: [9-16]
+            ty_exprs: <empty>
+            init_expr: Expr [25-37]:
+                ty: complex[float]
+                kind: BinaryOpExpr:
+                    op: Add
+                    lhs: Expr [25-28]:
+                        ty: const complex[float]
+                        kind: Lit: Complex(1.0, 0.0)
+                    rhs: Expr [31-37]:
+                        ty: const complex[float]
+                        kind: Lit: Complex(0.0, 2.0)
+        ClassicalDeclarationStmt [47-85]:
+            symbol_id: 9
+            ty_span: [47-52]
+            ty_exprs: <empty>
+            init_expr: Expr [59-84]:
+                ty: float
+                kind: BinaryOpExpr:
+                    op: Add
+                    lhs: Expr [59-70]:
+                        ty: float
+                        kind: BuiltinFunctionCall [59-70]:
+                            fn_name_span: [59-63]
+                            name: real
+                            function_ty: def (complex[float]) -> float
+                            args:
+                                Expr [64-69]:
+                                    ty: complex[float]
+                                    kind: SymbolId(8)
+                    rhs: Expr [73-84]:
+                        ty: float
+                        kind: BuiltinFunctionCall [73-84]:
+                            fn_name_span: [73-77]
+                            name: imag
+                            function_ty: def (complex[float]) -> float
+                            args:
+                                Expr [78-83]:
+                                    ty: complex[float]
+                                    kind: SymbolId(8)
+    "#]],
+    );
+}
+
+#[test]
+fn real_of_nonconstant_input_cannot_initialize_a_const_declaration() {
+    let source = "
+        complex value = 1.0 + 2.0 im;
+        const float part = real(value);
+    ";
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [9-38]:
+                    annotations: <empty>
+                    kind: ClassicalDeclarationStmt [9-38]:
+                        symbol_id: 8
+                        ty_span: [9-16]
+                        ty_exprs: <empty>
+                        init_expr: Expr [25-37]:
+                            ty: complex[float]
+                            kind: BinaryOpExpr:
+                                op: Add
+                                lhs: Expr [25-28]:
+                                    ty: const complex[float]
+                                    kind: Lit: Complex(1.0, 0.0)
+                                rhs: Expr [31-37]:
+                                    ty: const complex[float]
+                                    kind: Lit: Complex(0.0, 2.0)
+                Stmt [47-78]:
+                    annotations: <empty>
+                    kind: ClassicalDeclarationStmt [47-78]:
+                        symbol_id: 9
+                        ty_span: [53-58]
+                        ty_exprs: <empty>
+                        init_expr: Expr [66-77]:
+                            ty: float
+                            kind: BuiltinFunctionCall [66-77]:
+                                fn_name_span: [66-70]
+                                name: real
+                                function_ty: def (complex[float]) -> float
+                                args:
+                                    Expr [71-76]:
+                                        ty: complex[float]
+                                        kind: SymbolId(8)
+
+        [Qdk.Qasm.Lowerer.ExprMustBeConst
+
+          x const decl init expr must be a const expression
+           ,-[test:3:28]
+         2 |         complex value = 1.0 + 2.0 im;
+         3 |         const float part = real(value);
+           :                            ^^^^^^^^^^^
+         4 |     
+           `----
+        ]"#]],
+    );
+}
+
+#[test]
+fn imag_rejects_nonconstant_non_complex_input() {
+    let source = "
+        float value = 1.0;
+        imag(value);
+    ";
+
+    check_stmt_kinds(
+        source,
+        &expect![[r#"
+        Program:
+            version: <none>
+            pragmas: <empty>
+            statements:
+                Stmt [9-27]:
+                    annotations: <empty>
+                    kind: ClassicalDeclarationStmt [9-27]:
+                        symbol_id: 8
+                        ty_span: [9-14]
+                        ty_exprs: <empty>
+                        init_expr: Expr [23-26]:
+                            ty: float
+                            kind: Lit: Float(1.0)
+                Stmt [36-48]:
+                    annotations: <empty>
+                    kind: Err
+
+        [Qdk.Qasm.Lowerer.NoValidOverloadForBuiltinFunction
+
+          x There is no valid overload of `imag` for inputs: (float)
+          | Overloads available are:
+          |     def imag(complex[float]) -> float
+           ,-[test:3:9]
+         2 |         float value = 1.0;
+         3 |         imag(value);
+           :         ^^^^^^^^^^^
+         4 |     
+           `----
+        ]"#]],
     );
 }

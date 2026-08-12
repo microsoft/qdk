@@ -6,10 +6,10 @@ use std::rc::Rc;
 use num_bigint::BigInt;
 
 use qsc_ast::ast::{
-    self, Attr, Block, CallableBody, CallableDecl, CallableKind, Expr, ExprKind, FieldAssign,
-    FunctorExpr, FunctorExprKind, Ident, ImportKind, ImportOrExportDecl, ImportOrExportItem, Item,
-    ItemKind, Lit, Mutability, NodeId, Pat, PatKind, Path, PathKind, QubitInit, QubitInitKind,
-    QubitSource, Stmt, StmtKind, TopLevelNode, Ty, TyKind,
+    self, Attr, Block, CallableBody, CallableDecl, CallableKind, Expr, ExprKind, FieldAccess,
+    FieldAssign, FunctorExpr, FunctorExprKind, Ident, ImportKind, ImportOrExportDecl,
+    ImportOrExportItem, Item, ItemKind, Lit, Mutability, NodeId, Pat, PatKind, Path, PathKind,
+    QubitInit, QubitInitKind, QubitSource, Stmt, StmtKind, TopLevelNode, Ty, TyKind,
 };
 use qsc_data_structures::span::Span;
 
@@ -223,6 +223,15 @@ pub(crate) fn build_complex_from_expr(expr: Expr) -> Expr {
     let img = build_lit_double_expr(0.0, Span::default());
     let span = expr.span;
     build_math_call_from_exprs("Complex", vec![expr, img], span)
+}
+
+pub(crate) fn build_field_expr(expr: Expr, field: &str, span: Span) -> Expr {
+    let field = FieldAccess::Ok(Box::new(build_ident(field)));
+    Expr {
+        id: NodeId::default(),
+        span,
+        kind: Box::new(ExprKind::Field(Box::new(expr), field)),
+    }
 }
 
 pub(crate) fn build_binary_expr(

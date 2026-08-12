@@ -2169,10 +2169,22 @@ impl Lowerer {
 
         let name_span = expr.name.span;
         let call_span = expr.span;
+
+        // `real` and `imag` are not constant expression functions: they are also defined
+        // on non-const complex values, so const evaluating their argument is best-effort.
+        let requires_const_args = !matches!(builtin_fn, Real | Imag);
+
         let inputs: Vec<_> = expr
             .args
             .iter()
-            .map(|e| self.lower_expr(e).with_const_value(self))
+            .map(|e| {
+                let arg = self.lower_expr(e);
+                if requires_const_args || arg.ty.is_const() {
+                    arg.with_const_value(self)
+                } else {
+                    arg
+                }
+            })
             .collect();
 
         let output = match builtin_fn {
