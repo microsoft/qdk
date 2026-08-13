@@ -5,6 +5,7 @@ use super::{
     CompilationContext, check_callable_compute_properties, check_last_statement_compute_properties,
 };
 use expect_test::expect;
+use qsc_data_structures::target::Profile;
 
 #[test]
 fn check_rca_for_parallel_expr_with_static_body() {
@@ -424,6 +425,46 @@ fn check_rca_for_parallel_with_dynamic_arg_to_rotation_does_not_branch() {
                         runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicDouble | QubitAllocation)
                         value_kind: Constant
                     dynamic_param_applications: <empty>
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn check_rca_for_callable_with_parallel_loop_invoking_stdlib_callable_with_inner_loop() {
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
+    compilation_context.update(
+        r#"
+        operation ParallelJointMeasure(qs: Qubit[]) : Unit {
+            parallel for i in 0..2..Length(qs)-1 {
+                let _ = MeasureAllZ(qs[i..i+1]);
+            }
+        }
+        "#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        package_store_compute_properties,
+        "ParallelJointMeasure",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Array] ArrayParamApplication:
+                            constant_content: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                value_kind: Constant
+                            static_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                value_kind: Constant
+                            dynamic_size: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicPauli | UseOfDynamicRange | UseOfDynamicQubit | UseOfDynamicArray | UseOfDynamicallySizedArray | MeasurementWithinDynamicScope | UseOfDynamicIndex | LoopWithDynamicCondition | UseOfDynamicResult | QubitAllocation | UseOfDynamicBranchingInParallelExpr)
+                                value_kind: Constant
                 adj: <none>
                 ctl: <none>
                 ctl-adj: <none>"#]],

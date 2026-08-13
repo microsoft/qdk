@@ -34,7 +34,8 @@ fn body_arity(context: &CompilationContext, callable_name: &str) -> usize {
         .fir_store
         .find_callable_id_by_name(callable_name)
         .unwrap_or_else(|| panic!("callable {callable_name} should exist"));
-    let ItemComputeProperties::Callable(props) = context.get_compute_properties().get_item(id)
+    let ItemComputeProperties::Callable(props) =
+        context.get_compute_properties().get_item(id, false)
     else {
         panic!("{callable_name} should be a callable item");
     };
@@ -269,8 +270,9 @@ fn dynamic_return_pipeline_passes_strict_invariant() {
         .fir_store
         .find_callable_id_by_name("DynReturnStrict")
         .expect("DynReturnStrict should exist after pipeline lowering");
-    let ItemComputeProperties::Callable(props) =
-        context.get_compute_properties().get_item(dyn_return_id)
+    let ItemComputeProperties::Callable(props) = context
+        .get_compute_properties()
+        .get_item(dyn_return_id, false)
     else {
         panic!("DynReturnStrict should be a callable item");
     };
