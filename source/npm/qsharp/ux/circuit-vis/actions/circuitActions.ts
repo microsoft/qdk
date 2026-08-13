@@ -17,6 +17,8 @@ import {
 } from "./circuit-actions/ancestors.js";
 import {
   applyClassicalRefRemap,
+  encodeClassicalResultTokens,
+  decodeClassicalResultTokens,
   findLocationByRef,
   collectExternalProducerLocations,
   collectMeasurementConsumers,
@@ -167,6 +169,22 @@ const moveOperation = (
     model.ensureQubitCount(targetWire);
   }
 
+  // Before shifting anything, give every classical register on the move's affected wires a stable
+  // identity (a unique negative token) so producer→consumer links survive the wire-shift and the
+  // result-renumber. `decodeClassicalResultTokens` rebuilds real indices at the tail. Scoped to group
+  // moves (the bare-measurement path has its own reconciliation); a no-op when the subtree carries no
+  // measurements. `originalOperation` is still in the grid here and is skipped; the clone is walked
+  // directly.
+  const usingResultTokens = newSourceOperation.children != null;
+  if (usingResultTokens) {
+    encodeClassicalResultTokens(
+      model.componentGrid,
+      originalOperation,
+      newSourceOperation,
+      targetWire - sourceWire,
+    );
+  }
+
   // Update operation's targets and controls
   moveY(newSourceOperation, sourceWire, targetWire, movingControl);
 
@@ -202,6 +220,14 @@ const moveOperation = (
     },
     destAncestorChain,
   );
+
+  // Rebuild real, contiguous result indices on the tokenized wires and repoint every tokenized
+  // consumer at its producer's final `(qubit, result)`. Runs after span resolution (document order
+  // settled) and before the sweep below, which re-asserts the same producer numbering and refreshes
+  // counters.
+  if (usingResultTokens) {
+    decodeClassicalResultTokens(model.componentGrid);
+  }
 
   // Refresh per-wire `numResults` counters for every wire that may have gained or lost a
   // measurement. `addOp` / `removeOp` only fire this for TOP-LEVEL measurements; a measurement

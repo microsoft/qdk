@@ -159,6 +159,254 @@ test("moveOperation: moving a group whose internal measurement produces the clas
   );
 });
 
+test("moveOperation: unit-moving a group with TWO internal producers onto a wire that already has a measurement reindexes both", () => {
+  // The group holds two internal producers M_a and M_b, each with its own consumer. Landing on wire
+  // 6 (which already has M_ext) makes document order M_ext, M_a, M_b, so M_a → r1 and M_b → r2; each
+  // consumer must track its own producer.
+  const model = build(
+    circuit(10, [
+      [meas(6, { result: 0 })],
+      [
+        group("G", [
+          [meas(4, { result: 0 })],
+          [gate("X", 5, { ctrls: [{ q: 4, r: 0 }], conditional: true })],
+          [meas(4, { result: 1 })],
+          [gate("Y", 5, { ctrls: [{ q: 4, r: 1 }], conditional: true })],
+        ]),
+      ],
+    ]),
+  );
+
+  const moved = moveOperation(model, "1,0", "1,0", 4, 6, false, false);
+  assert.ok(moved, "unit-move must succeed");
+
+  const mA = moved.children[0].components[0];
+  const consumerA = moved.children[1].components[0];
+  const mB = moved.children[2].components[0];
+  const consumerB = moved.children[3].components[0];
+  const external = at(model, "0,0");
+
+  // All three measurements now live on wire 6, ordered M_ext(r0), M_a(r1), M_b(r2).
+  assert.equal(external.results[0].result, 0, "external stays r0");
+  assert.equal(mA.results[0].qubit, 6);
+  assert.equal(mA.results[0].result, 1, "M_a becomes r1");
+  assert.equal(mB.results[0].qubit, 6);
+  assert.equal(mB.results[0].result, 2, "M_b becomes r2");
+
+  // Each consumer must track its OWN producer to the new index.
+  assert.equal(consumerA.controls[0].qubit, 6);
+  assert.equal(
+    consumerA.controls[0].result,
+    mA.results[0].result,
+    `consumer A must track M_a: refs r${consumerA.controls[0].result}, M_a is r${mA.results[0].result}`,
+  );
+  assert.equal(consumerB.controls[0].qubit, 6);
+  assert.equal(
+    consumerB.controls[0].result,
+    mB.results[0].result,
+    `consumer B must track M_b: refs r${consumerB.controls[0].result}, M_b is r${mB.results[0].result}`,
+  );
+});
+
+// ---------------------------------------------------------------------------
+// A 3-wire producer/consumer lattice, moved once, asserted from many angles.
+//
+// On every wire: M0 → C0(reads M0) → [group G] → M1 → C1(reads M1) → C2(reads M0). Group G spans
+// q0–q1; on each of its wires: MG → CG0(reads MG) → CG1(reads the external M0). Moving G by +1 (to
+// q1–q2) frees an MG slot on q0 (M1 r2→r1) and inserts one on q2 (M1 r1→r2); q1 is unchanged. CG0
+// follows its MG onto the new wire; CG1 stays anchored to the M0 it originally read (now a
+// cross-wire control, shown @qN).
+//
+//   Legend:  Mx(n) = producer Mx, result index n      Cx→My = consumer Cx reads producer My
+//            @qN   = classical control anchored to a producer on a different wire qN
+//
+//   BEFORE  (G spans q0–q1):
+//                         ┌─────── group G ───────┐
+//     q0   M0(0)   C0→M0  │ MG(1)  CG0→MG  CG1→M0 │   M1(2)   C1→M1   C2→M0
+//     q1   M0(0)   C0→M0  │ MG(1)  CG0→MG  CG1→M0 │   M1(2)   C1→M1   C2→M0
+//                         └─────── group G ───────┘
+//     q2   M0(0)   C0→M0                              M1(1)   C1→M1   C2→M0
+//
+//   AFTER  (+1 → G spans q1–q2):
+//     q0   M0(0)   C0→M0                                 M1(1)   C1→M1   C2→M0   (M1: r2→r1)
+//                         ┌───────── group G ────────┐
+//     q1   M0(0)   C0→M0  │ MG(1)  CG0→MG  CG1→M0@q0 │   M1(2)   C1→M1   C2→M0
+//     q2   M0(0)   C0→M0  │ MG(1)  CG0→MG  CG1→M0@q1 │   M1(2)   C1→M1   C2→M0   (M1: r1→r2)
+//                         └───────── group G ────────┘
+//
+// Each test below shares this exact setup + move (via `buildLatticeAndMove`) and asserts one slice
+// of the resulting producer/consumer graph, so a failure names precisely which invariant broke.
+// ---------------------------------------------------------------------------
+
+/**
+ * Build the 3-wire lattice above and slide group G from q0–q1 down to q1–q2 (delta +1). Returns the
+ * model, the moved group, and lookup helpers (`measOn`/`gateOn` for top-level ops by gate name and
+ * wire; `innerMeasOn`/`innerGateOn` for the moved group's children by inner-column and wire).
+ */
+const buildLatticeAndMove = () => {
+  const model = build(
+    circuit(3, [
+      [
+        meas(0, { gate: "M0", result: 0 }),
+        meas(1, { gate: "M0", result: 0 }),
+        meas(2, { gate: "M0", result: 0 }),
+      ],
+      [
+        gate("C0", 0, { ctrls: [{ q: 0, r: 0 }], conditional: true }),
+        gate("C0", 1, { ctrls: [{ q: 1, r: 0 }], conditional: true }),
+        gate("C0", 2, { ctrls: [{ q: 2, r: 0 }], conditional: true }),
+      ],
+      [
+        group("G", [
+          [
+            meas(0, { gate: "MG", result: 1 }),
+            meas(1, { gate: "MG", result: 1 }),
+          ],
+          [
+            gate("CG0", 0, { ctrls: [{ q: 0, r: 1 }], conditional: true }),
+            gate("CG0", 1, { ctrls: [{ q: 1, r: 1 }], conditional: true }),
+          ],
+          [
+            gate("CG1", 0, { ctrls: [{ q: 0, r: 0 }], conditional: true }),
+            gate("CG1", 1, { ctrls: [{ q: 1, r: 0 }], conditional: true }),
+          ],
+        ]),
+      ],
+      [
+        meas(0, { gate: "M1", result: 2 }),
+        meas(1, { gate: "M1", result: 2 }),
+        meas(2, { gate: "M1", result: 1 }),
+      ],
+      [
+        gate("C1", 0, { ctrls: [{ q: 0, r: 2 }], conditional: true }),
+        gate("C1", 1, { ctrls: [{ q: 1, r: 2 }], conditional: true }),
+        gate("C1", 2, { ctrls: [{ q: 2, r: 1 }], conditional: true }),
+      ],
+      [
+        gate("C2", 0, { ctrls: [{ q: 0, r: 0 }], conditional: true }),
+        gate("C2", 1, { ctrls: [{ q: 1, r: 0 }], conditional: true }),
+        gate("C2", 2, { ctrls: [{ q: 2, r: 0 }], conditional: true }),
+      ],
+    ]),
+  );
+
+  const moved = moveOperation(model, "2,0", "2,0", 0, 1, false, false);
+  assert.ok(moved, "precondition: the unit-move must succeed");
+
+  const top = () => model.componentGrid.flatMap((c) => c.components);
+  const measOn = (name, w) =>
+    top().find((op) => op.gate === name && op.qubits?.[0]?.qubit === w);
+  const gateOn = (name, w) =>
+    top().find((op) => op.gate === name && op.targets?.[0]?.qubit === w);
+  const innerMeasOn = (col, w) =>
+    moved.children[col].components.find((op) => op.qubits?.[0]?.qubit === w);
+  const innerGateOn = (col, w) =>
+    moved.children[col].components.find((op) => op.targets?.[0]?.qubit === w);
+
+  return { model, moved, measOn, gateOn, innerMeasOn, innerGateOn };
+};
+
+/**
+ * Render a classical leg (`{ qubit, result }`) as `qNrM` for readable failure messages.
+ * @param {any} reg
+ */
+const legStr = (reg) =>
+  reg == null ? "<none>" : `q${reg.qubit}r${reg.result}`;
+
+/**
+ * Assert that `consumer`'s classical control points at `producer`'s result register — i.e. the
+ * producer→consumer link survived the move — with a message that spells out both endpoints.
+ * @param {any} consumer  op with a classical `.controls[0]`
+ * @param {any} producer  measurement with a `.results[0]`
+ * @param {string} label  human name for the link, e.g. "C1 on q0 → M1"
+ */
+const assertLinked = (consumer, producer, label) => {
+  const c = consumer?.controls?.[0];
+  const p = producer?.results?.[0];
+  assert.deepEqual(
+    { qubit: c?.qubit, result: c?.result },
+    { qubit: p?.qubit, result: p?.result },
+    `${label}: consumer control is ${legStr(c)} but its producer sits at ${legStr(p)}`,
+  );
+};
+
+test("moveOperation: [lattice] producer result indices reindex on the source and destination wires", () => {
+  const { measOn, innerMeasOn } = buildLatticeAndMove();
+
+  // q0 lost its MG, so M1 slides down one slot; q1 is untouched; q2 gained an MG, so M1 slides up.
+  assert.equal(
+    measOn("M1", 0).results[0].result,
+    1,
+    `M1 on q0 must decrement r2→r1 once MG leaves q0, got ${legStr(measOn("M1", 0).results[0])}`,
+  );
+  assert.equal(
+    measOn("M1", 1).results[0].result,
+    2,
+    `M1 on q1 must stay r2 (q1's measurement column is unchanged), got ${legStr(measOn("M1", 1).results[0])}`,
+  );
+  assert.equal(
+    measOn("M1", 2).results[0].result,
+    2,
+    `M1 on q2 must increment r1→r2 once MG lands on q2, got ${legStr(measOn("M1", 2).results[0])}`,
+  );
+
+  // Each MG rode the move onto the next wire and keeps its position-1 index (M0 is r0 ahead of it).
+  assert.equal(
+    innerMeasOn(0, 1).results[0].result,
+    1,
+    `MG landing on q1 must be r1 (behind M0 r0), got ${legStr(innerMeasOn(0, 1).results[0])}`,
+  );
+  assert.equal(
+    innerMeasOn(0, 2).results[0].result,
+    1,
+    `MG landing on q2 must be r1 (behind M0 r0), got ${legStr(innerMeasOn(0, 2).results[0])}`,
+  );
+});
+
+test("moveOperation: [lattice] consumers of the never-moved M0 (C0, C2) keep their references", () => {
+  const { measOn, gateOn } = buildLatticeAndMove();
+
+  // M0 never moves and stays r0 on every wire, so both of its consumers are untouched.
+  for (const w of [0, 1, 2]) {
+    assertLinked(gateOn("C0", w), measOn("M0", w), `C0 on q${w} → M0`);
+    assertLinked(gateOn("C2", w), measOn("M0", w), `C2 on q${w} → M0`);
+  }
+});
+
+test("moveOperation: [lattice] consumers of M1 (C1) follow M1's reindex on every wire", () => {
+  const { measOn, gateOn } = buildLatticeAndMove();
+
+  // C1 reads M1, whose index shifted on q0 and q2; the consumer must track it.
+  for (const w of [0, 1, 2]) {
+    assertLinked(gateOn("C1", w), measOn("M1", w), `C1 on q${w} → M1`);
+  }
+});
+
+test("moveOperation: [lattice] group-internal consumer CG0 follows its producer MG onto the new wire", () => {
+  const { innerMeasOn, innerGateOn } = buildLatticeAndMove();
+
+  // CG0 and its producer MG both live in the group, so CG0 rides down onto q1/q2 with it.
+  assertLinked(innerGateOn(1, 1), innerMeasOn(0, 1), "CG0 on q1 → MG");
+  assertLinked(innerGateOn(1, 2), innerMeasOn(0, 2), "CG0 on q2 → MG");
+});
+
+test("moveOperation: [lattice] group-internal consumer CG1 stays anchored to its external producer M0", () => {
+  const { measOn, innerGateOn } = buildLatticeAndMove();
+
+  // CG1 depends on the external M0. Its target rides down (q0→q1, q1→q2) but the classical control
+  // stays anchored to the ORIGINAL M0 (q0, then q1), which never moved — a cross-wire control.
+  assertLinked(
+    innerGateOn(2, 1),
+    measOn("M0", 0),
+    "CG1 (target now q1) → M0 anchored on q0",
+  );
+  assertLinked(
+    innerGateOn(2, 2),
+    measOn("M0", 1),
+    "CG1 (target now q2) → M0 anchored on q1",
+  );
+});
+
 test("moveOperation: unit-moving a multi-target gate with an external classical control anchors that control", () => {
   // Multi-target gates take the same rigid unit-shift path as groups.
   // External M produces the classical reg, so the quantum targets
