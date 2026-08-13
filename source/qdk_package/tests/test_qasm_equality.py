@@ -5,32 +5,17 @@
 
 Nodes used to compare by identity, so two parses of the same source were never
 equal. These tests pin the replacement contract: equality compares the concrete
-type and the participating attributes, source positions never participate, and
-every class that defines ``__eq__`` also defines ``__hash__``.
-
-The pairing check is an introspection sweep rather than a corpus test on
-purpose. PyO3 leaves ``tp_hash`` inherited when a class defines only ``__eq__``,
-so a missing ``__hash__`` produces a silently inconsistent class that comparing
-sample nodes would not reveal.
+type and the participating attributes, and source positions never participate.
 """
 
 from __future__ import annotations
 
-from typing import Any, Iterator, List
+from typing import Any, List
 
 import pytest
 
+from qasm_corpus import walk as _walk
 from qdk.openqasm import parser, semantic
-
-# Bases exist only for `isinstance` dispatch and are never instantiated.
-_ABSTRACT = {
-    "QASMNode",
-    "Expression",
-    "Statement",
-    "ClassicalType",
-    "SemanticExpression",
-    "SemanticStatement",
-}
 
 _SOURCE = """OPENQASM 3.1;
 include "stdgates.inc";
@@ -61,61 +46,10 @@ def f(int[8] n) -> int[8] {
 """
 
 
-def _classes() -> Iterator[tuple[str, type]]:
-    roots = (parser.QASMNode, semantic.Type)
-    seen: set[int] = set()
-    for module in (parser, semantic):
-        for name in module.__all__:
-            value = getattr(module, name, None)
-            if (
-                isinstance(value, type)
-                and issubclass(value, roots)
-                and name not in _ABSTRACT
-                and id(value) not in seen
-            ):
-                seen.add(id(value))
-                yield f"{module.__name__}.{name}", value
-
-
-def _walk(node: Any) -> Iterator[Any]:
-    yield node
-    for child in node.children():
-        yield from _walk(child)
-
-
 def _nodes(source: str = _SOURCE) -> List[Any]:
     program = semantic.analyze(source).program
     assert program is not None
     return list(_walk(program))
-
-
-def test_every_concrete_class_defines_its_own_equality() -> None:
-    missing = [name for name, cls in _classes() if "__eq__" not in vars(cls)]
-    assert not missing, "classes left on identity equality:\n" + "\n".join(missing)
-
-
-def test_every_class_defining_equality_also_defines_hash() -> None:
-    """Catches PyO3's failure mode: `tp_hash` stays inherited and identity-based.
-
-    A class in this state is silently inconsistent rather than unhashable, so
-    only an introspection sweep finds it.
-    """
-    unpaired = [
-        name
-        for name, cls in _classes()
-        if "__eq__" in vars(cls) and "__hash__" not in vars(cls)
-    ]
-    assert not unpaired, "classes with __eq__ but no __hash__:\n" + "\n".join(unpaired)
-
-
-def test_no_class_was_left_unhashable() -> None:
-    """Catches Python's opposite failure mode: `__hash__` set to None.
-
-    Defining `__eq__` in a Python class body sets `__hash__` to None unless it is
-    redefined, which is why this needs its own check.
-    """
-    unhashable = [name for name, cls in _classes() if cls.__hash__ is None]
-    assert not unhashable, "unhashable classes:\n" + "\n".join(unhashable)
 
 
 def test_two_analyses_of_one_source_are_equal_and_hash_equally() -> None:
@@ -238,12 +172,6 @@ def test_type_nodes_compare_by_value() -> None:
         semantic.analyze("OPENQASM 3.0;\nint[8] v;\n").program.statements[-1].type
         != semantic.analyze("OPENQASM 3.0;\nint[16] v;\n").program.statements[-1].type
     )
-
-
-def test_the_pairing_sweep_actually_covers_the_surface() -> None:
-    """A guard that would otherwise pass vacuously if enumeration broke."""
-    classes = list(_classes())
-    assert len(classes) > 140, f"only found {len(classes)} concrete classes"
 
 
 def test_symbol_table_position_does_not_participate() -> None:

@@ -26,7 +26,7 @@ Syntax and semantic node, symbol, and diagnostic spans are global half-open
 UTF-8 byte ranges resolved through the owning result's ``SourceDocument``.
 """
 
-from .._native import (  # type: ignore
+from ._native_syntax import (
     Position,
     PositionEncoding,
     ResolutionStatus,

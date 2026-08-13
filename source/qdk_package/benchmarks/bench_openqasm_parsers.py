@@ -615,6 +615,15 @@ def provision_environment(
             pass
 
     if venv_dir.exists():
+        # Only reclaim a directory recognizable as a virtual environment. The
+        # path comes from the command line, so an unguarded removal would
+        # silently destroy whatever the user pointed at.
+        if not (venv_dir / "pyvenv.cfg").is_file():
+            raise SystemExit(
+                f"refusing to remove {venv_dir}: it exists but is not a virtual "
+                "environment (no pyvenv.cfg). Choose a different path or remove "
+                "it yourself."
+            )
         shutil.rmtree(venv_dir)
 
     print(f"creating {venv_dir}")

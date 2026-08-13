@@ -18,6 +18,7 @@ from typing import Any, Iterator
 
 import pytest
 
+from qasm_corpus import walk as _walk
 from qdk.openqasm import parser, semantic
 
 # `=Some(` style Rust option debug in a field position.
@@ -49,12 +50,6 @@ _CORPUS = (
     "OPENQASM 3.1; int x = 1; switch (x) { case 1 { } default { } }",
     "",
 )
-
-
-def _walk(node: Any) -> Iterator[Any]:
-    yield node
-    for child in node.children():
-        yield from _walk(child)
 
 
 def _reprs_under_test() -> Iterator[tuple[str, str]]:

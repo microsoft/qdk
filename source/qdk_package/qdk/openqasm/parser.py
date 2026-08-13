@@ -91,18 +91,21 @@ programs and does not retain comments or original spelling.
 from __future__ import annotations
 
 from time import monotonic
-from typing import Callable, Dict, Optional, TextIO, Union
+from typing import Callable, Optional, TextIO
 
-from .._native import (  # type: ignore
+from ._native_syntax import (
     AccessControl,
     AliasStatement,
     AngleType,
     Annotation,
+    ArrayLiteral,
     ArrayType,
     BinaryExpression,
     BinaryOperator,
     BitType,
+    BitstringLiteral,
     BoolType,
+    BooleanLiteral,
     Box,
     BranchingStatement,
     BreakStatement,
@@ -122,8 +125,7 @@ from .._native import (  # type: ignore
     DelayInstruction,
     Diagnostic,
     DiscreteSet,
-    GateModifierName,
-    IOKeyword,
+    DurationLiteral,
     DurationOf,
     DurationType,
     DynArrayReferenceType,
@@ -134,27 +136,23 @@ from .._native import (  # type: ignore
     Expression,
     ExpressionStatement,
     ExternDeclaration,
+    FloatLiteral,
     FloatType,
     ForInLoop,
     FunctionCall,
+    GateModifierName,
     HardwareQubit,
     IODeclaration,
+    IOKeyword,
     Identifier,
+    ImaginaryLiteral,
     Include,
     IndexExpression,
     IndexList,
     IndexedIdentifier,
     IntType,
-    Label,
-    ArrayLiteral,
-    BitstringLiteral,
-    BooleanLiteral,
-    DurationLiteral,
-    FloatLiteral,
-    ImaginaryLiteral,
     IntegerLiteral,
-    StringLiteral,
-    TimeUnit,
+    Label,
     ParenExpression,
     ParseResult,
     Position,
@@ -162,8 +160,6 @@ from .._native import (  # type: ignore
     Pragma,
     Program,
     QASMNode,
-    QubitDeclaration,
-    QubitType,
     QuantumBarrier,
     QuantumGate,
     QuantumGateDefinition,
@@ -172,22 +168,26 @@ from .._native import (  # type: ignore
     QuantumMeasurementStatement,
     QuantumPhase,
     QuantumReset,
+    QubitDeclaration,
+    QubitType,
     RangeDefinition,
-    ReturnStatement,
     ResolutionStatus,
+    ReturnStatement,
     Severity,
     SourceDocument,
     SourceFile,
     SourceMap,
     SourceRange,
     Span,
-    StaticArrayReferenceType,
     Statement,
+    StaticArrayReferenceType,
     StretchType,
-    SubroutineParameter,
+    StringLiteral,
     SubroutineDefinition,
+    SubroutineParameter,
     SwitchCase,
     SwitchStatement,
+    TimeUnit,
     UintType,
     UnaryExpression,
     UnaryOperator,
@@ -196,7 +196,7 @@ from .._native import (  # type: ignore
     parse as _parse,
     qasm_dumps as _qasm_dumps,
 )
-from .._native import _semantic  # type: ignore
+from ._native_semantic import Program as _SemanticProgram
 from .. import telemetry_events
 from ._layers import SyntaxNode, register_layer as _register_layer
 from ._visitor import QASMVisitor
@@ -392,7 +392,7 @@ def parse(
     source: str,
     *,
     path: str = "<source>",
-    includes: Optional[Union[Dict[str, str], Callable[[str], Optional[str]]]] = None,
+    includes: IncludeResolver = None,
 ) -> ParseResult:
     """Parse OpenQASM source text into a syntax tree.
 
@@ -498,7 +498,7 @@ def _require_syntax_program(program: object) -> None:
         actual = f"{kind.__module__}.{kind.__qualname__}"
     expected = f"{Program.__module__}.{Program.__qualname__}"
     message = f"expected a {expected}, got {actual}"
-    if isinstance(program, _semantic.Program):
+    if isinstance(program, _SemanticProgram):
         message += (
             "; a semantic program carries analysis results rather than syntax, "
             "so parse the source with parse() and serialize that program instead"

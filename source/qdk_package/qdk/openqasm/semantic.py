@@ -92,26 +92,20 @@ produced it. Use ``isinstance(node, SemanticNode)`` to ask.
 tree is registered against it at import time, and
 :class:`qdk.openqasm.parser.SyntaxNode` is the counterpart for the other tree.
 Resolved types count, even though they are not ``QASMNode``\\ s, because
-``IntType`` and its siblings are exactly the names that collide. Reach for the
-predicate at an API boundary that must reject the wrong tree, or while
-diagnosing where a node came from; it resolves through
-``ABCMeta.__instancecheck__``, which is not what you want inside a traversal
-loop.
+``IntType`` and its siblings are exactly the names that collide.
 
-Four classes answer ``False`` to both questions: :class:`QASMNode`,
-:class:`Expression`, :class:`Statement`, and :class:`Annotation`. Both trees use
-them, so asking which tree one came from has no answer, and claiming either
-would be false. Everything an analysis actually produces is a
-:class:`SemanticNode`.
+Everything an analysis produces is a :class:`SemanticNode`, except the four
+classes both trees share: :class:`QASMNode`, :class:`Expression`,
+:class:`Statement`, and :class:`Annotation` answer ``False`` to both questions.
+:mod:`qdk.openqasm.parser` explains why that is the right answer, and when the
+predicate is the wrong tool to reach for.
 """
 
 from __future__ import annotations
 
 from time import monotonic
-from typing import Callable, Dict, Optional, Union
 
-from .._native import (  # type: ignore
-    AnalysisResult,
+from ._native_syntax import (
     Annotation,
     BinaryOperator,
     Diagnostic,
@@ -124,118 +118,109 @@ from .._native import (  # type: ignore
     Statement,
     TimeUnit,
     UnaryOperator,
-    analyze as _analyze,
 )
-from .._native import _semantic  # type: ignore
+from ._native_semantic import (
+    AnalysisResult,
+    analyze as _analyze,
+    # Category bases and projections.
+    SemanticExpression,
+    SemanticStatement,
+    Program,
+    Type,
+    Symbol,
+    SymbolTable,
+    CastKind,
+    IOKind,
+    HardwareQubit,
+    QuantumGateModifier,
+    RangeDefinition,
+    DiscreteSet,
+    SwitchCase,
+    SubroutineParameter,
+    GateParameter,
+    # Constant values carried by `const_value`.
+    Angle,
+    Duration,
+    # are not `QASMNode` instances.
+    IntType,
+    UintType,
+    FloatType,
+    AngleType,
+    ComplexType,
+    BitType,
+    BoolType,
+    DurationType,
+    StretchType,
+    QubitType,
+    HardwareQubitType,
+    BitArrayType,
+    QubitArrayType,
+    ArrayType,
+    StaticArrayReferenceType,
+    DynArrayReferenceType,
+    GateType,
+    FunctionType,
+    RangeType,
+    SetType,
+    VoidType,
+    ErrorType,
+    # Expression leaf nodes.
+    ErrorExpression,
+    Identifier,
+    CapturedIdentifier,
+    UnaryExpression,
+    BinaryExpression,
+    LiteralExpression,
+    FunctionCall,
+    BuiltinFunctionCall,
+    Cast,
+    IndexExpression,
+    ParenExpression,
+    QuantumMeasurement,
+    RuntimeSizeof,
+    DurationOf,
+    Concatenation,
+    # Statement leaf nodes.
+    AliasStatement,
+    ClassicalAssignment,
+    QuantumBarrier,
+    Box,
+    CompoundStatement,
+    BreakStatement,
+    CalibrationStatement,
+    CalibrationGrammarDeclaration,
+    ClassicalDeclaration,
+    ContinueStatement,
+    SubroutineDefinition,
+    CalibrationDefinition,
+    DelayInstruction,
+    EndStatement,
+    ExpressionStatement,
+    ExternDeclaration,
+    ForInLoop,
+    QuantumGate,
+    BranchingStatement,
+    IndexedClassicalAssignment,
+    InputDeclaration,
+    OutputDeclaration,
+    Pragma,
+    QuantumGateDefinition,
+    QubitDeclaration,
+    QubitArrayDeclaration,
+    QuantumReset,
+    ReturnStatement,
+    SwitchStatement,
+    WhileLoop,
+    ErrorStatement,
+)
 from .. import telemetry_events
 from ._layers import SemanticNode, register_layer as _register_layer
 from ._visitor import QASMVisitor
-
-# The semantic node classes present clean, un-prefixed Python names from the
-# `qdk._native._semantic` native submodule. Each class keeps its `Sem`-prefixed
-# Rust identifier (for example `SemGateCall`) but is exposed here without the
-# prefix (`QuantumGate`). Isolating the family in a submodule avoids colliding
-# with the syntactic layer's `openqasm3`-parity names in the flat `qdk._native`.
-
-# Category bases and projections.
-SemanticExpression = _semantic.SemanticExpression
-SemanticStatement = _semantic.SemanticStatement
-Program = _semantic.Program
-Type = _semantic.Type
-Symbol = _semantic.Symbol
-SymbolTable = _semantic.SymbolTable
-CastKind = _semantic.CastKind
-IOKind = _semantic.IOKind
-HardwareQubit = _semantic.HardwareQubit
-QuantumGateModifier = _semantic.QuantumGateModifier
-RangeDefinition = _semantic.RangeDefinition
-DiscreteSet = _semantic.DiscreteSet
-SwitchCase = _semantic.SwitchCase
-SubroutineParameter = _semantic.SubroutineParameter
-GateParameter = _semantic.GateParameter
-
-# Constant values carried by `const_value`.
-Angle = _semantic.Angle
-Duration = _semantic.Duration
-
-# Resolved type nodes. `Type` is the base; dispatch over the concrete kinds with
-# `isinstance`. These are analysis results, not syntax, so they carry no span and
-# are not `QASMNode` instances.
-IntType = _semantic.IntType
-UintType = _semantic.UintType
-FloatType = _semantic.FloatType
-AngleType = _semantic.AngleType
-ComplexType = _semantic.ComplexType
-BitType = _semantic.BitType
-BoolType = _semantic.BoolType
-DurationType = _semantic.DurationType
-StretchType = _semantic.StretchType
-QubitType = _semantic.QubitType
-HardwareQubitType = _semantic.HardwareQubitType
-BitArrayType = _semantic.BitArrayType
-QubitArrayType = _semantic.QubitArrayType
-ArrayType = _semantic.ArrayType
-StaticArrayReferenceType = _semantic.StaticArrayReferenceType
-DynArrayReferenceType = _semantic.DynArrayReferenceType
-GateType = _semantic.GateType
-FunctionType = _semantic.FunctionType
-RangeType = _semantic.RangeType
-SetType = _semantic.SetType
-VoidType = _semantic.VoidType
-ErrorType = _semantic.ErrorType
-
-# Expression leaf nodes.
-ErrorExpression = _semantic.ErrorExpression
-Identifier = _semantic.Identifier
-CapturedIdentifier = _semantic.CapturedIdentifier
-UnaryExpression = _semantic.UnaryExpression
-BinaryExpression = _semantic.BinaryExpression
-LiteralExpression = _semantic.LiteralExpression
-FunctionCall = _semantic.FunctionCall
-BuiltinFunctionCall = _semantic.BuiltinFunctionCall
-Cast = _semantic.Cast
-IndexExpression = _semantic.IndexExpression
-ParenExpression = _semantic.ParenExpression
-QuantumMeasurement = _semantic.QuantumMeasurement
-RuntimeSizeof = _semantic.RuntimeSizeof
-DurationOf = _semantic.DurationOf
-Concatenation = _semantic.Concatenation
-
-# Statement leaf nodes.
-AliasStatement = _semantic.AliasStatement
-ClassicalAssignment = _semantic.ClassicalAssignment
-QuantumBarrier = _semantic.QuantumBarrier
-Box = _semantic.Box
-CompoundStatement = _semantic.CompoundStatement
-BreakStatement = _semantic.BreakStatement
-CalibrationStatement = _semantic.CalibrationStatement
-CalibrationGrammarDeclaration = _semantic.CalibrationGrammarDeclaration
-ClassicalDeclaration = _semantic.ClassicalDeclaration
-ContinueStatement = _semantic.ContinueStatement
-SubroutineDefinition = _semantic.SubroutineDefinition
-CalibrationDefinition = _semantic.CalibrationDefinition
-DelayInstruction = _semantic.DelayInstruction
-EndStatement = _semantic.EndStatement
-ExpressionStatement = _semantic.ExpressionStatement
-ExternDeclaration = _semantic.ExternDeclaration
-ForInLoop = _semantic.ForInLoop
-QuantumGate = _semantic.QuantumGate
-BranchingStatement = _semantic.BranchingStatement
-IndexedClassicalAssignment = _semantic.IndexedClassicalAssignment
-InputDeclaration = _semantic.InputDeclaration
-OutputDeclaration = _semantic.OutputDeclaration
-Pragma = _semantic.Pragma
-QuantumGateDefinition = _semantic.QuantumGateDefinition
-QubitDeclaration = _semantic.QubitDeclaration
-QubitArrayDeclaration = _semantic.QubitArrayDeclaration
-QuantumReset = _semantic.QuantumReset
-ReturnStatement = _semantic.ReturnStatement
-SwitchStatement = _semantic.SwitchStatement
-WhileLoop = _semantic.WhileLoop
-ErrorStatement = _semantic.ErrorStatement
+from .parser import IncludeResolver
 
 __all__ = [
     "analyze",
+    "IncludeResolver",
     "QASMVisitor",
     "SemanticNode",
     "AnalysisResult",
@@ -349,7 +334,7 @@ def analyze(
     source: str,
     *,
     path: str = "<source>",
-    includes: Optional[Union[Dict[str, str], Callable[[str], Optional[str]]]] = None,
+    includes: IncludeResolver = None,
 ) -> AnalysisResult:
     """Parse and semantically analyze OpenQASM source text.
 

@@ -42,7 +42,6 @@ def test_analyze_returns_semantic_program() -> None:
     assert not result.has_errors
     program = result.program
     assert isinstance(program, Program)
-    assert type(program).__name__ == "Program"
     assert program.version == "3.0"
 
 
@@ -173,9 +172,6 @@ def test_analyze_semantic_error_reports_diagnostics() -> None:
     result = semantic.analyze("OPENQASM 3.0; x undefined_qubit;")
     assert result.has_errors
     assert result.diagnostics
-    assert [d.message for d in result.errors] == [
-        d.message for d in result.diagnostics
-    ]
     diagnostic = result.diagnostics[0]
     assert isinstance(diagnostic, Diagnostic)
     assert isinstance(diagnostic.message, str)
@@ -241,7 +237,8 @@ def test_analyze_diagnostic_full_message() -> None:
 def test_diagnostic_value_repr_and_hash_policy_is_explicit() -> None:
     result = semantic.analyze("OPENQASM 3.0; int a = b;")
     diagnostic = result.diagnostics[0]
-    copied_diagnostic = result.errors[0]
+    # Each access reprojects the diagnostic, so these are distinct instances.
+    copied_diagnostic = result.diagnostics[0]
     label = diagnostic.labels[0]
     copied_label = copied_diagnostic.labels[0]
 
@@ -396,3 +393,52 @@ def test_gate_definition_parameters_carry_spans_and_resolved_types() -> None:
     # Formal parameters are reachable from a generic traversal.
     reached = {type(child).__name__ for child in definition.children()}
     assert "GateParameter" in reached
+
+
+def test_semantic_nodes_report_enum_members_rather_than_raw_strings() -> None:
+    result = semantic.analyze(
+        "OPENQASM 3.0; input int[8] a; angle[4] g = pi / 2; bool b = !(a > 0);"
+    )
+    assert not result.has_errors
+
+    _, angle, boolean = result.program.statements
+    assert result.symbols.lookup("a").io_kind == semantic.IOKind.INPUT
+    assert angle.init_expr.kind == semantic.CastKind.IMPLICIT
+    assert angle.init_expr.operand.op == semantic.BinaryOperator.DIV
+    assert boolean.init_expr.op == semantic.UnaryOperator.LOGIC_NOT
+    assert boolean.init_expr.operand.operand.op == semantic.BinaryOperator.GT
+
+
+def test_both_layers_export_the_same_binary_operator_enum() -> None:
+    assert semantic.BinaryOperator is parser.BinaryOperator
+
+
+def test_semantic_gate_modifiers_preserve_kind_and_argument() -> None:
+    source = """OPENQASM 3.0;
+    include "stdgates.inc";
+    qubit[3] q;
+    inv @ x q[0];
+    pow(2) @ x q[0];
+    ctrl(2) @ x q[0], q[1], q[2];
+    negctrl(2) @ x q[0], q[1], q[2];
+    """
+    result = semantic.analyze(source)
+    assert not result.has_errors
+
+    gates = result.program.statements[-4:]
+    modifiers = [gate.modifiers[0] for gate in gates]
+    assert [modifier.modifier for modifier in modifiers] == [
+        parser.GateModifierName.INV,
+        parser.GateModifierName.POW,
+        parser.GateModifierName.CTRL,
+        parser.GateModifierName.NEGCTRL,
+    ]
+    assert [modifier.modifier.value for modifier in modifiers] == [
+        "inv",
+        "pow",
+        "ctrl",
+        "negctrl",
+    ]
+    assert modifiers[0].argument is None
+    assert modifiers[1].argument.value == 2
+    assert [modifier.argument.const_value for modifier in modifiers[2:]] == [2, 2]

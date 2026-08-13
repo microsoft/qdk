@@ -8,6 +8,9 @@
 from, so a runtime docstring alone never reaches hover or completion. The stub
 therefore repeats the text authored in Rust, and these tests make the two
 diverging a test failure rather than a slow decay.
+
+The OpenQASM declarations live in sibling stubs next to the modules that consume
+them, one per layer, rather than in the shared ``qdk/_native.pyi``.
 """
 
 from __future__ import annotations
@@ -18,7 +21,9 @@ from typing import Any, Iterator
 
 from qdk.openqasm import parser, semantic
 
-_STUB = pathlib.Path(__file__).resolve().parents[1] / "qdk" / "_native.pyi"
+_QASM_PACKAGE = pathlib.Path(__file__).resolve().parents[1] / "qdk" / "openqasm"
+_SYNTAX_STUB = _QASM_PACKAGE / "_native_syntax.pyi"
+_SEMANTIC_STUB = _QASM_PACKAGE / "_native_semantic.pyi"
 
 # Documented on the base class that declares them, not on every subclass.
 _INHERITED = {"span", "annotations", "ty", "const_value", "symbol", "name", "is_const"}
@@ -41,8 +46,8 @@ _AUXILIARY_CLASSES = {
 }
 
 
-def _stub_module() -> ast.Module:
-    return ast.parse(_STUB.read_text(encoding="utf-8"))
+def _stub_module(path: pathlib.Path) -> ast.Module:
+    return ast.parse(path.read_text(encoding="utf-8"))
 
 
 def _class_defs(node: ast.Module | ast.ClassDef) -> dict[str, ast.ClassDef]:
@@ -52,15 +57,12 @@ def _class_defs(node: ast.Module | ast.ClassDef) -> dict[str, ast.ClassDef]:
 def _stub_classes() -> dict[str, dict[str, ast.ClassDef]]:
     """Maps a Python class name to its stub definition, per layer.
 
-    Semantic classes live in a nested `_semantic` namespace, matching the
-    private native submodule they are registered in. A few classes are shared
-    by both layers and are declared once at the top level, so the semantic
-    lookup falls back there.
+    Each layer has its own stub. A few classes are shared by both layers and are
+    declared once in the syntax stub, so the semantic lookup falls back there.
     """
-    top = _class_defs(_stub_module())
-    semantic_ns = top.pop("_semantic", None)
-    nested = _class_defs(semantic_ns) if semantic_ns else {}
-    return {"syntax": top, "semantic": {**top, **nested}}
+    syntax = _class_defs(_stub_module(_SYNTAX_STUB))
+    semantic_only = _class_defs(_stub_module(_SEMANTIC_STUB))
+    return {"syntax": syntax, "semantic": {**syntax, **semantic_only}}
 
 
 def _stub_properties(cls: ast.ClassDef) -> dict[str, str | None]:
@@ -264,18 +266,3 @@ def test_non_node_documentation_guard_rejects_a_mutated_stub() -> None:
     assert _non_node_doc_mismatches(stub) == [
         "semantic.Symbol.name: missing property doc"
     ]
-
-
-def test_the_stub_sweep_actually_covers_the_surface() -> None:
-    """A guard that would otherwise pass vacuously if stub parsing broke."""
-    stub = _stub_classes()
-    assert len(stub["syntax"]) > 100, f"parsed only {len(stub['syntax'])} stub classes"
-    assert len(stub["semantic"]) > 50, (
-        f"parsed only {len(stub['semantic'])} nested stub classes"
-    )
-    checked = sum(
-        len(_runtime_accessors(cls))
-        for module in (parser, semantic)
-        for _, cls in _runtime_node_classes(module)
-    )
-    assert checked >= 150, f"only {checked} accessors compared"

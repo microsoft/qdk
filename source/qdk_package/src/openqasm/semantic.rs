@@ -709,7 +709,7 @@ fn access_control(is_mutable: bool) -> AccessControl {
 /// A read-only view of a resolved symbol.
 #[pyclass(name = "Symbol", module = "qdk.openqasm.semantic", frozen)]
 pub(crate) struct SemSymbol {
-    /// The symbol's unique id within the [`SemSymbolTable`].
+    /// The symbol's unique id within the containing :class:`SymbolTable`.
     #[pyo3(get)]
     id: u32,
     /// The symbol's name.
@@ -721,6 +721,9 @@ pub(crate) struct SemSymbol {
     /// The symbol's resolved type.
     #[pyo3(get)]
     ty: Py<PyAny>,
+    /// The span covering the type as written in the source.
+    #[pyo3(get)]
+    ty_span: Span,
     /// Whether the symbol is a program input, a program output, or neither.
     #[pyo3(get)]
     io_kind: IOKind,
@@ -741,8 +744,8 @@ impl SemSymbol {
     // `id` is excluded for the same reason the node-level `symbol_id` accessor
     // was removed: it is a position in the analysis table, so including it
     // would make two structurally identical subtrees compare unequal whenever
-    // the declarations preceding them differ. `span` is excluded for the
-    // matching reason: it is a source position, not structure.
+    // the declarations preceding them differ. `span` and `ty_span` are excluded
+    // for the matching reason: they are source positions, not structure.
     fn __eq__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         crate::openqasm::eq::structural_eq(
             slf.as_any(),
@@ -771,7 +774,7 @@ impl SemSymbolTable {
     fn __len__(&self) -> usize {
         self.symbols.len()
     }
-    /// Iterates over the [`SemSymbol`] views in the table.
+    /// Iterates over the :class:`Symbol` views in the table.
     fn __iter__(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = PyList::new(py, self.symbols.iter().map(|symbol| symbol.clone_ref(py)))?;
         Ok(list.as_any().try_iter()?.into_any().unbind())
@@ -793,7 +796,7 @@ impl SemSymbolTable {
             .map(|symbol| symbol.clone_ref(py))
     }
 
-    /// All [`SemSymbol`] views in the table, in id order.
+    /// All :class:`Symbol` views in the table, in id order.
     fn symbols(&self, py: Python<'_>) -> Vec<Py<SemSymbol>> {
         self.symbols
             .iter()
@@ -822,6 +825,7 @@ fn build_sem_symbol(
             name: symbol.name.clone(),
             span: symbol.span.into(),
             ty: build_type(py, ctx, &symbol.ty)?,
+            ty_span: symbol.ty_span.into(),
             io_kind: IOKind::from(symbol.io_kind),
             const_value: literal_value(py, symbol.get_const_value().as_ref())?,
         },
@@ -1018,17 +1022,14 @@ impl SemProgram {
     }
 }
 
+// Named per the module-level convention: the Rust identifier keeps its `Sem`
+// prefix while Python sees the un-prefixed `HardwareQubit`.
 /// A hardware-qubit gate operand (for example `$0`).
 ///
-/// This extends [`SemExpr`] so that an operand answers `ty` whether it was
-/// written as a declared qubit or as a hardware qubit. It carries no const value
-/// and no symbol, because a hardware qubit is a physical reference rather than a
-/// declaration.
-///
-/// The Rust identifier stays `SemHardwareQubit`, but the class is presented to
-/// Python as `HardwareQubit` in the `qdk.openqasm.semantic` module so the
-/// semantic family can use clean, un-prefixed names without colliding with the
-/// syntax layer in `qdk._native`.
+/// This extends the semantic expression base so that an operand answers `ty`
+/// whether it was written as a declared qubit or as a hardware qubit. It carries
+/// no const value and no symbol, because a hardware qubit is a physical
+/// reference rather than a declaration.
 #[pyclass(
     extends = SemExpr,
     frozen,
@@ -1070,6 +1071,8 @@ qasm_node!(@aux SemQuantumGateModifier = "QuantumGateModifier", doc = "A semanti
     modifier: val GateModifierName,
     /// The modifier's argument, such as a `pow` exponent or a control count.
     argument: opt,
+    /// The span covering the modifier keyword.
+    modifier_keyword_span: span,
 });
 qasm_node!(@aux SemRangeDefinition = "RangeDefinition", doc = "A semantic range, as written in a slice or ``for`` loop." {
     /// The range's resolved type, which is always `RangeType`.
@@ -1148,12 +1151,16 @@ qasm_node!(@expr SemFunctionCall = "FunctionCall" {
     name: val Option<String>,
     /// The call arguments, in source order.
     args: list,
+    /// The span covering the callee's name.
+    fn_name_span: span,
 });
 qasm_node!(@expr SemBuiltinFunctionCall = "BuiltinFunctionCall" {
     /// The built-in function's name.
     name: val String,
     /// The call arguments, in source order.
     args: list,
+    /// The span covering the function's name.
+    fn_name_span: span,
 });
 qasm_node!(@expr SemCast = "Cast" {
     /// The expression being cast.
@@ -1174,6 +1181,8 @@ qasm_node!(@expr SemParen = "ParenExpression" {
 qasm_node!(@expr SemMeasure = "QuantumMeasurement" {
     /// The qubits being measured.
     qubits: list,
+    /// The span covering the `measure` keyword.
+    measure_token_span: span,
 });
 qasm_node!(@expr SemRuntimeSizeof = "RuntimeSizeof" {
     /// The array whose size is being taken.
@@ -1182,10 +1191,14 @@ qasm_node!(@expr SemRuntimeSizeof = "RuntimeSizeof" {
     dimension: node,
     /// The array's number of dimensions.
     array_rank: val u32,
+    /// The span covering the `sizeof` keyword.
+    fn_name_span: span,
 });
 qasm_node!(@expr SemEvaluatedDurationof = "DurationOf" {
     /// The statements whose duration was measured.
     body: list,
+    /// The span covering the `durationof` keyword.
+    fn_name_span: span,
 });
 qasm_node!(@expr SemConcat = "Concatenation" {
     /// The operands joined by `++`, in source order.
@@ -1238,6 +1251,8 @@ qasm_node!(@stmt SemClassicalDecl = "ClassicalDeclaration" {
     r#type: val Py<PyAny>,
     /// The initializer, defaulted by analysis when the source omitted one.
     init_expr: node,
+    /// The span covering the type as written in the source.
+    ty_span: span,
 });
 qasm_node!(@stmt SemContinue = "ContinueStatement" {});
 qasm_node!(@stmt SemDef = "SubroutineDefinition" {
@@ -1249,6 +1264,8 @@ qasm_node!(@stmt SemDef = "SubroutineDefinition" {
     return_type: val Py<PyAny>,
     /// The statements making up the subroutine body.
     body: list,
+    /// The span covering the return type as written in the source.
+    return_type_span: span,
 });
 qasm_node!(@stmt SemDefCal = "CalibrationDefinition" {
     /// The `defcal` block's raw text, which analysis does not interpret.
@@ -1292,6 +1309,8 @@ qasm_node!(@stmt SemGateCall = "QuantumGate" {
     qubits: list,
     /// The gate's declared duration, when written.
     duration: opt,
+    /// The span covering the gate's name.
+    gate_name_span: span,
 });
 qasm_node!(@stmt SemIfStmt = "BranchingStatement" {
     /// The branch condition.
@@ -1322,6 +1341,8 @@ qasm_node!(@stmt SemOutputDeclaration = "OutputDeclaration" {
     r#type: val Py<PyAny>,
     /// The default value analysis assigned to the output.
     init_expr: node,
+    /// The span covering the type as written in the source.
+    ty_span: span,
 });
 qasm_node!(@stmt SemPragma = "Pragma" {
     /// The pragma's full text after the keyword.
@@ -1330,6 +1351,10 @@ qasm_node!(@stmt SemPragma = "Pragma" {
     name: val Option<String>,
     /// The remaining text after the identifier, when present.
     value: val Option<String>,
+    /// The span covering the full command text after the keyword.
+    command_span: span,
+    /// The span covering the text after the identifier, when there is any.
+    value_span: optspan,
 });
 qasm_node!(@stmt SemGateDefinition = "QuantumGateDefinition" {
     /// The gate's name, when analysis resolved one.
@@ -1340,6 +1365,8 @@ qasm_node!(@stmt SemGateDefinition = "QuantumGateDefinition" {
     qubits: list,
     /// The statements making up the gate body.
     body: list,
+    /// The span covering the gate's name.
+    name_span: span,
 });
 qasm_node!(@stmt SemQubitDecl = "QubitDeclaration" {
     /// The qubit's name, when analysis resolved one.
@@ -1350,10 +1377,14 @@ qasm_node!(@stmt SemQubitArrayDecl = "QubitArrayDeclaration" {
     name: val Option<String>,
     /// The register width.
     size: node,
+    /// The span covering the width as written in the source.
+    size_span: span,
 });
 qasm_node!(@stmt SemReset = "QuantumReset" {
     /// The qubits being reset.
     qubits: list,
+    /// The span covering the `reset` keyword.
+    reset_token_span: span,
 });
 qasm_node!(@stmt SemReturn = "ReturnStatement" {
     /// The returned expression, when the subroutine returns a value.
@@ -1587,7 +1618,15 @@ fn build_pragma(py: Python<'_>, pragma: &sem::Pragma) -> PyResult<Py<PyAny>> {
     let command = pragma.command.to_string();
     let name = pragma.identifier.as_ref().map(PathKind::as_string);
     let value = pragma.value.as_ref().map(ToString::to_string);
-    let init = SemPragma::init(Span::from(pragma.span), Vec::new(), command, name, value);
+    let init = SemPragma::init(
+        Span::from(pragma.span),
+        Vec::new(),
+        command,
+        name,
+        value,
+        Span::from(pragma.command_span),
+        pragma.value_span.map(Span::from),
+    );
     Ok(Py::new(py, init)?.into_any())
 }
 
@@ -1637,7 +1676,14 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, ctx: &BuildContext<'_>) -> PyRes
             let name = symbol_name(ctx, s.symbol_id);
             Py::new(
                 py,
-                SemClassicalDecl::init(span, annotations, name, r#type, init_expr),
+                SemClassicalDecl::init(
+                    span,
+                    annotations,
+                    name,
+                    r#type,
+                    init_expr,
+                    Span::from(s.ty_span),
+                ),
             )?
             .into_any()
         }
@@ -1665,7 +1711,15 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, ctx: &BuildContext<'_>) -> PyRes
             let name = symbol_name(ctx, s.symbol_id);
             Py::new(
                 py,
-                SemDef::init(span, annotations, name, params, return_type, body),
+                SemDef::init(
+                    span,
+                    annotations,
+                    name,
+                    params,
+                    return_type,
+                    body,
+                    Span::from(s.return_type_span),
+                ),
             )?
             .into_any()
         }
@@ -1711,7 +1765,16 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, ctx: &BuildContext<'_>) -> PyRes
             let name = symbol_name(ctx, s.symbol_id);
             Py::new(
                 py,
-                SemGateCall::init(span, annotations, name, modifiers, args, qubits, duration),
+                SemGateCall::init(
+                    span,
+                    annotations,
+                    name,
+                    modifiers,
+                    args,
+                    qubits,
+                    duration,
+                    Span::from(s.gate_name_span),
+                ),
             )?
             .into_any()
         }
@@ -1756,7 +1819,14 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, ctx: &BuildContext<'_>) -> PyRes
             let name = symbol_name(ctx, s.symbol_id);
             Py::new(
                 py,
-                SemOutputDeclaration::init(span, annotations, name, r#type, init_expr),
+                SemOutputDeclaration::init(
+                    span,
+                    annotations,
+                    name,
+                    r#type,
+                    init_expr,
+                    Span::from(s.ty_span),
+                ),
             )?
             .into_any()
         }
@@ -1764,7 +1834,19 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, ctx: &BuildContext<'_>) -> PyRes
             let command = s.command.to_string();
             let name = s.identifier.as_ref().map(PathKind::as_string);
             let value = s.value.as_ref().map(ToString::to_string);
-            Py::new(py, SemPragma::init(span, annotations, command, name, value))?.into_any()
+            Py::new(
+                py,
+                SemPragma::init(
+                    span,
+                    annotations,
+                    command,
+                    name,
+                    value,
+                    Span::from(s.command_span),
+                    s.value_span.map(Span::from),
+                ),
+            )?
+            .into_any()
         }
         StmtKind::QuantumGateDefinition(s) => {
             let params = gate_parameter_list(py, ctx, &s.params)?;
@@ -1773,7 +1855,15 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, ctx: &BuildContext<'_>) -> PyRes
             let name = symbol_name(ctx, s.symbol_id);
             Py::new(
                 py,
-                SemGateDefinition::init(span, annotations, name, params, qubits, body),
+                SemGateDefinition::init(
+                    span,
+                    annotations,
+                    name,
+                    params,
+                    qubits,
+                    body,
+                    Span::from(s.name_span),
+                ),
             )?
             .into_any()
         }
@@ -1784,12 +1874,20 @@ fn build_stmt(py: Python<'_>, stmt: &sem::Stmt, ctx: &BuildContext<'_>) -> PyRes
         StmtKind::QubitArrayDecl(s) => {
             let size = build_expr(py, &s.size, ctx)?;
             let name = symbol_name(ctx, s.symbol_id);
-            Py::new(py, SemQubitArrayDecl::init(span, annotations, name, size))?.into_any()
+            Py::new(
+                py,
+                SemQubitArrayDecl::init(span, annotations, name, size, Span::from(s.size_span)),
+            )?
+            .into_any()
         }
         StmtKind::Reset(s) => {
             let mut qubits = Vec::new();
             collect_gate_operand(py, &mut qubits, &s.operand, ctx)?;
-            Py::new(py, SemReset::init(span, annotations, qubits))?.into_any()
+            Py::new(
+                py,
+                SemReset::init(span, annotations, qubits, Span::from(s.reset_token_span)),
+            )?
+            .into_any()
         }
         StmtKind::Return(s) => {
             let value = build_opt_expr(py, s.expr.as_deref(), ctx)?;
@@ -1906,7 +2004,15 @@ fn build_expr(py: Python<'_>, expr: &sem::Expr, ctx: &BuildContext<'_>) -> PyRes
             let name = symbol_name(ctx, e.callee_id);
             Py::new(
                 py,
-                SemFunctionCall::init(span, ty, const_value, symbol, name, args),
+                SemFunctionCall::init(
+                    span,
+                    ty,
+                    const_value,
+                    symbol,
+                    name,
+                    args,
+                    Span::from(e.fn_name_span),
+                ),
             )?
             .into_any()
         }
@@ -1914,7 +2020,15 @@ fn build_expr(py: Python<'_>, expr: &sem::Expr, ctx: &BuildContext<'_>) -> PyRes
             let args = expr_list(py, &e.args, ctx)?;
             Py::new(
                 py,
-                SemBuiltinFunctionCall::init(span, ty, const_value, None, e.name.to_string(), args),
+                SemBuiltinFunctionCall::init(
+                    span,
+                    ty,
+                    const_value,
+                    None,
+                    e.name.to_string(),
+                    args,
+                    Span::from(e.fn_name_span),
+                ),
             )?
             .into_any()
         }
@@ -1942,14 +2056,34 @@ fn build_expr(py: Python<'_>, expr: &sem::Expr, ctx: &BuildContext<'_>) -> PyRes
         ExprKind::Measure(e) => {
             let mut qubits = Vec::new();
             collect_gate_operand(py, &mut qubits, &e.operand, ctx)?;
-            Py::new(py, SemMeasure::init(span, ty, const_value, None, qubits))?.into_any()
+            Py::new(
+                py,
+                SemMeasure::init(
+                    span,
+                    ty,
+                    const_value,
+                    None,
+                    qubits,
+                    Span::from(e.measure_token_span),
+                ),
+            )?
+            .into_any()
         }
         ExprKind::RuntimeSizeof(e) => {
             let array = build_expr(py, &e.array, ctx)?;
             let dimension = build_expr(py, &e.dimension, ctx)?;
             Py::new(
                 py,
-                SemRuntimeSizeof::init(span, ty, const_value, None, array, dimension, e.array_rank),
+                SemRuntimeSizeof::init(
+                    span,
+                    ty,
+                    const_value,
+                    None,
+                    array,
+                    dimension,
+                    e.array_rank,
+                    Span::from(e.fn_name_span),
+                ),
             )?
             .into_any()
         }
@@ -1957,7 +2091,14 @@ fn build_expr(py: Python<'_>, expr: &sem::Expr, ctx: &BuildContext<'_>) -> PyRes
             let body = stmt_list(py, &e.scope.stmts, ctx)?;
             Py::new(
                 py,
-                SemEvaluatedDurationof::init(span, ty, const_value, None, body),
+                SemEvaluatedDurationof::init(
+                    span,
+                    ty,
+                    const_value,
+                    None,
+                    body,
+                    Span::from(e.fn_name_span),
+                ),
             )?
             .into_any()
         }
@@ -2024,7 +2165,16 @@ fn build_scalar_gate_call(
     let name = symbol_name(ctx, call.symbol_id);
     Ok(Py::new(
         py,
-        SemGateCall::init(span, annotations, name, modifiers, args, qubits, duration),
+        SemGateCall::init(
+            span,
+            annotations,
+            name,
+            modifiers,
+            args,
+            qubits,
+            duration,
+            Span::from(call.gate_name_span),
+        ),
     )?
     .into_any())
 }
@@ -2145,7 +2295,12 @@ fn build_modifier(
     };
     Ok(Py::new(
         py,
-        SemQuantumGateModifier::init(Span::from(modifier.span), name, argument),
+        SemQuantumGateModifier::init(
+            Span::from(modifier.span),
+            name,
+            argument,
+            Span::from(modifier.modifier_keyword_span),
+        ),
     )?
     .into_any())
 }

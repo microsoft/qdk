@@ -13,15 +13,15 @@ use crate::{
     fs::file_system,
     generic_estimator::register_generic_estimator_submodule,
     interop::{
-        create_filesystem_from_py, get_operation_name, get_output_semantics, get_program_type,
-        get_search_path, sanitize_name,
+        compile_stim_to_qir, create_filesystem_from_py, get_operation_name, get_output_semantics,
+        get_program_type, get_search_path, sanitize_name,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
-    openqasm::register_openqasm_submodule,
+    openqasm::register_openqasm_types,
     qir_simulation::{
         IdleNoiseParams, LossPolicy, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{
@@ -151,8 +151,10 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     register_generic_estimator_submodule(m)?;
     register_qre_submodule(m)?;
     m.add("StimError", py.get_type::<StimError>())?;
+    m.add_function(wrap_pyfunction!(compile_stim_to_qir, m)?)?;
+    m.add_function(wrap_pyfunction!(compile_visual_circuit_to_qsharp, m)?)?;
     // QASM interop
-    register_openqasm_submodule(py, m)?;
+    register_openqasm_types(py, m)?;
     Ok(())
 }
 

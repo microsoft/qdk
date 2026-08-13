@@ -87,7 +87,7 @@ impl Annotation {
 ///
 /// This class has no Python constructor; attempting to instantiate it directly
 /// raises `TypeError`. It exists so callers can dispatch on `isinstance` and
-/// read the source [`Span`] common to all nodes.
+/// read the source :class:`Span` common to all nodes.
 #[pyclass(subclass, frozen, module = "qdk.openqasm")]
 pub(crate) struct QASMNode {
     pub span: Span,

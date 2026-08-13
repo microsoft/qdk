@@ -6,8 +6,9 @@
 //! Every semantic node is an owned, frozen value that holds already-built
 //! children (`Py<PyAny>`) plus a few scalar fields. Rather than hand-writing the
 //! `#[pyclass]`, getters, `children()` traversal, `__repr__`, initializer chain,
-//! and `Send + Sync` assertions for each of the ~46 variants, the [`qasm_node!`]
-//! macro generates all of that from a compact per-variant description.
+//! and `Send + Sync` assertions for every syntactic and semantic variant, the
+//! [`qasm_node!`] macro generates all of that from a compact per-variant
+//! description.
 //!
 //! # Field kinds
 //!
@@ -17,6 +18,13 @@
 //!
 //! * `name: val <Type>,` is a scalar value (for example `String`, `u32`,
 //!   `Option<String>`). Exposed via `#[pyo3(get)]`; never part of `children()`.
+//! * `name: span,` and `name: optspan,` are secondary source positions, such as
+//!   the span of a keyword or of one part of a compound construct, carrying
+//!   `Span` and `Option<Span>` respectively. Both are exposed via `#[pyo3(get)]`
+//!   but excluded from `children()`, `__eq__`, `__hash__`, and `__repr__`, so
+//!   the same construct at two source offsets still compares and renders the
+//!   same. Use `name: val Span,` instead when a position should participate,
+//!   which no node currently wants.
 //! * `name: node,` is a single child node (`Py<PyAny>`). Included in
 //!   `children()`.
 //! * `name: opt,` is an optional child node (`Option<Py<PyAny>>`). Included in
@@ -85,9 +93,10 @@ macro_rules! qasm_repr_field {
 /// Expands to the participating attribute list for structural equality.
 ///
 /// The base's attributes come first, then the class's own in declaration order.
-/// Source positions never appear: `span` is inherited and omitted here, and no
-/// generated class declares a `Span`-typed field. This is an expression macro
-/// because `#[pymethods]` does not accept a macro in item position.
+/// Source positions never appear: `span` is inherited and omitted here, and a
+/// `span`-kind field is deliberately kept out of the accumulator this reads.
+/// This is an expression macro because `#[pymethods]` does not accept a macro
+/// in item position.
 macro_rules! qasm_eq_fields {
     ({ $($base:literal),* }, { $(($rk:ident, $rn:ident),)* }) => {
         &[
@@ -178,6 +187,43 @@ macro_rules! qasm_node {
             ctor { $($ctor)* $f, },
             nodes { $($n)* }, opts { $($o)* }, lists { $($l)* },
             rf { $($rf)* (val, $f), };
+            $($rest)*);
+    };
+
+    // ---- munch: secondary source span ----
+    // Deliberately does not extend `rf`, which is the single accumulator that
+    // feeds `__repr__`, `__eq__`, and `__hash__`. That omission is the whole
+    // point of this kind: a source position is reachable but never structural.
+    (@munch $cat:ident, $name:ident,
+        meta { $($meta:tt)* }, disp { $($disp:tt)* },
+        sf { $($sf:tt)* }, param { $($param:tt)* }, ctor { $($ctor:tt)* },
+        nodes { $($n:tt)* }, opts { $($o:tt)* }, lists { $($l:tt)* }, rf { $($rf:tt)* };
+        $(#[$fmeta:meta])* $f:ident : span , $($rest:tt)*
+    ) => {
+        qasm_node!(@munch $cat, $name,
+            meta { $($meta)* }, disp { $($disp)* },
+            sf { $($sf)* $(#[$fmeta])* #[pyo3(get)] $f: Span, },
+            param { $($param)* $f: Span, },
+            ctor { $($ctor)* $f, },
+            nodes { $($n)* }, opts { $($o)* }, lists { $($l)* },
+            rf { $($rf)* };
+            $($rest)*);
+    };
+
+    // ---- munch: optional secondary source span ----
+    (@munch $cat:ident, $name:ident,
+        meta { $($meta:tt)* }, disp { $($disp:tt)* },
+        sf { $($sf:tt)* }, param { $($param:tt)* }, ctor { $($ctor:tt)* },
+        nodes { $($n:tt)* }, opts { $($o:tt)* }, lists { $($l:tt)* }, rf { $($rf:tt)* };
+        $(#[$fmeta:meta])* $f:ident : optspan , $($rest:tt)*
+    ) => {
+        qasm_node!(@munch $cat, $name,
+            meta { $($meta)* }, disp { $($disp)* },
+            sf { $($sf)* $(#[$fmeta])* #[pyo3(get)] $f: Option<Span>, },
+            param { $($param)* $f: Option<Span>, },
+            ctor { $($ctor)* $f, },
+            nodes { $($n)* }, opts { $($o)* }, lists { $($l)* },
+            rf { $($rf)* };
             $($rest)*);
     };
 
@@ -287,6 +333,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(
                 span: Span,
                 ty: Py<PyAny>,
@@ -350,6 +397,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(
                 span: Span,
                 annotations: Vec<Py<Annotation>>,
@@ -408,6 +456,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(
                 span: Span,
                 $($param)*
@@ -468,6 +517,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(
                 span: Span,
                 annotations: Vec<Py<Annotation>>,
@@ -526,6 +576,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(span: Span, $($param)*) -> PyClassInitializer<Self> {
                 PyClassInitializer::from(QASMNode { span }).add_subclass($name { $($ctor)* })
             }
@@ -580,6 +631,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(span: Span, $($param)*) -> PyClassInitializer<Self> {
                 PyClassInitializer::from(QASMNode { span }).add_subclass($name { $($ctor)* })
             }
@@ -634,6 +686,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(span: Span, $($param)*) -> PyClassInitializer<Self> {
                 PyClassInitializer::from(QASMNode { span }).add_subclass($name { $($ctor)* })
             }
@@ -688,6 +741,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(span: Span, $($param)*) -> PyClassInitializer<Self> {
                 PyClassInitializer::from(QASMNode { span }).add_subclass($name { $($ctor)* })
             }
@@ -742,6 +796,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(span: Span, $($param)*) -> PyClassInitializer<Self> {
                 syntax_type_base(span).add_subclass($name { $($ctor)* })
             }
@@ -799,6 +854,7 @@ macro_rules! qasm_node {
         }
 
         impl $name {
+            #[allow(clippy::too_many_arguments)]
             pub(crate) fn init(name: String, is_const: bool, $($param)*)
                 -> PyClassInitializer<Self>
             {

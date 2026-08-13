@@ -48,9 +48,9 @@ use syntax::build_program;
 use crate::{
     interop::{
         circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
-        compile_stim_to_qir, resource_estimate_qasm_program, run_qasm_program,
+        resource_estimate_qasm_program, run_qasm_program,
     },
-    interpreter::{QasmError, compile_visual_circuit_to_qsharp},
+    interpreter::QasmError,
 };
 
 create_exception!(
@@ -60,7 +60,7 @@ create_exception!(
     "An internal checked OpenQASM serialization error."
 );
 
-/// The result of a syntactic [`parse`].
+/// The result of a syntactic :func:`parse`.
 #[pyclass(module = "qdk.openqasm.parser", frozen)]
 pub(crate) struct ParseResult {
     program: Py<Program>,
@@ -87,12 +87,6 @@ impl ParseResult {
         self.document.clone_ref(py)
     }
 
-    /// Alias for [`ParseResult::diagnostics`].
-    #[getter]
-    fn errors(&self) -> Vec<Diagnostic> {
-        self.diagnostics.clone()
-    }
-
     fn __repr__(&self) -> String {
         format!(
             "ParseResult(has_errors={}, diagnostics={})",
@@ -102,7 +96,7 @@ impl ParseResult {
     }
 }
 
-/// The result of a semantic [`analyze`].
+/// The result of a semantic :func:`analyze`.
 #[pyclass(module = "qdk.openqasm.semantic", frozen)]
 pub(crate) struct AnalysisResult {
     program: Py<SemProgram>,
@@ -136,12 +130,6 @@ impl AnalysisResult {
         self.symbols.clone_ref(py)
     }
 
-    /// Alias for [`AnalysisResult::diagnostics`].
-    #[getter]
-    fn errors(&self) -> Vec<Diagnostic> {
-        self.diagnostics.clone()
-    }
-
     fn __repr__(&self) -> String {
         format!(
             "AnalysisResult(has_errors={}, diagnostics={})",
@@ -162,7 +150,7 @@ fn resolver_for(py: Python<'_>, includes: Option<Bound<'_, PyAny>>) -> PySourceR
 /// Parses `OpenQASM` source text into a syntax tree.
 ///
 /// This performs lexing and parsing only. Diagnostics are collected on the
-/// returned [`ParseResult`] rather than raised.
+/// returned :class:`ParseResult` rather than raised.
 #[pyfunction]
 #[pyo3(signature = (source, path = "<source>", includes = None))]
 fn parse(
@@ -198,9 +186,10 @@ fn project_parse_result(
 
 /// Parses and semantically analyzes `OpenQASM` source text.
 ///
-/// Diagnostics are collected on the returned [`AnalysisResult`] rather than
-/// raised. The returned program is a semantic tree rooted at [`SemProgram`],
-/// and the resolved symbol table is exposed via [`AnalysisResult::symbols`].
+/// Diagnostics are collected on the returned :class:`AnalysisResult` rather
+/// than raised. The returned program is a semantic tree rooted at the semantic
+/// :class:`Program`, and the resolved symbol table is available as
+/// ``AnalysisResult.symbols``.
 #[pyfunction]
 #[pyo3(signature = (source, path = "<source>", includes = None))]
 fn analyze(
@@ -233,13 +222,13 @@ fn analyze(
 
 /// Canonically serializes a syntactic program from its immutable entry source.
 ///
-/// `program` is used as a handle to its [`SourceDocument`], not as the tree to
+/// `program` is used as a handle to its :class:`SourceDocument`, not as the tree to
 /// walk: the entry source is reparsed and the fresh syntax tree is unparsed.
 /// The Python nodes are eagerly materialized copies, so no Rust tree survives
 /// the original parse to serialize. Trees are immutable, so the reparse always
 /// reproduces the caller's program, but it does cost one parse per call.
 ///
-/// Only a syntactic [`Program`] is accepted. Serializing a statement, an
+/// Only a syntactic :class:`Program` is accepted. Serializing a statement, an
 /// expression, or a semantic tree would need an emitter that walks the Python
 /// nodes, which does not exist yet; the parameter may widen once one does.
 #[pyfunction]
@@ -373,10 +362,11 @@ fn unparse_error(
 }
 
 /// Registers the `qdk.openqasm` native AST classes and functions on `_native`.
-pub(crate) fn register_openqasm_submodule<'a>(
-    py: Python<'a>,
-    m: &Bound<'a, PyModule>,
-) -> PyResult<()> {
+///
+/// These land on the flat native module rather than a submodule of their own,
+/// so the name says register-on rather than register-a-submodule. The one
+/// genuine submodule is the private semantic namespace registered below.
+pub(crate) fn register_openqasm_types(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("QasmError", py.get_type::<QasmError>())?;
     m.add_class::<QASMNode>()?;
     m.add_class::<Expression>()?;
@@ -404,8 +394,6 @@ pub(crate) fn register_openqasm_submodule<'a>(
     m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_stim_to_qir, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_visual_circuit_to_qsharp, m)?)?;
     Ok(())
 }
 
@@ -413,7 +401,7 @@ pub(crate) fn register_openqasm_submodule<'a>(
 ///
 /// The semantic family keeps its `Sem`-prefixed Rust identifiers but is exposed
 /// to Python without the prefix (for example Rust `SemGateCall` ->
-/// Python `GateCall`). Isolating it in a submodule avoids colliding with
+/// Python `QuantumGate`). Isolating it in a submodule avoids colliding with
 /// the syntax layer's `openqasm3`-parity names in the flat `qdk._native`
 /// module. Each class advertises the importable `qdk.openqasm.semantic` module,
 /// which publicly re-exports these native class objects.

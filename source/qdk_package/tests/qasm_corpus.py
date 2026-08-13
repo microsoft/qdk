@@ -1,42 +1,29 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""The shared OpenQASM source corpus used by the node-surface guards.
+"""The shared OpenQASM source corpus and the traversal helper the guards use.
 
-The corpus exists to cover exported node classes, not the OpenQASM grammar.
-Adding a construct is only warranted when it reaches a class nothing else
-reaches. ``test_qasm_reachability`` uses it to prove every exported class is
-producible; ``test_qasm_unparse`` uses it to pin the canonical text ``dumps``
-emits for each source.
+``test_qasm_unparse`` parses each corpus source and compares ``dumps`` against
+the canonical text pinned for it, so the corpus is what protects the emitter
+from silent output changes. Adding a construct is warranted when it renders in
+a way nothing else in the corpus renders.
+
+``walk`` lives here rather than in each guard because it defines what "every
+node" means. Copies would let that definition drift silently between the files
+that depend on agreeing about it.
 """
 
 from __future__ import annotations
 
-# Abstract bases exist only for `isinstance` dispatch and are never instantiated.
-ABSTRACT = {
-    "QASMNode",
-    "Expression",
-    "Statement",
-    "ClassicalType",
-    "SemanticExpression",
-    "SemanticStatement",
-}
+from typing import Any, Iterator
 
-# Recovery placeholders. Each stands in for a subtree the parser or lowerer could
-# not build, so they are reachable only from malformed input. The corpus is
-# deliberately well-formed except where a source is listed in
-# `SOURCES_WITH_EXPECTED_ERRORS`, so these may legitimately go unseen.
-UNPRODUCIBLE = {
-    "ErrorExpression": "parser recovery placeholder for an unparsable expression",
-    "ErrorStatement": "parser recovery placeholder for an unparsable statement",
-    "ErrorType": "parser recovery placeholder for an unparsable type",
-}
 
-# Sources that intentionally carry a semantic error, because the class they cover
-# is only reachable through a construct the lowerer rejects.
-SOURCES_WITH_EXPECTED_ERRORS = {
-    "string_literal": "the syntax layer parses string literals; the lowerer rejects them",
-}
+def walk(node: Any) -> Iterator[Any]:
+    """Yields a node and every descendant it reports through ``children()``."""
+    yield node
+    for child in node.children():
+        yield from walk(child)
+
 
 CORPUS: dict[str, str] = {
     "gates": """OPENQASM 3.0;
