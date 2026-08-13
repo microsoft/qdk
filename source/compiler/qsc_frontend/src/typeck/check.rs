@@ -15,11 +15,12 @@ use qsc_ast::{
     visit::{self, Visitor},
 };
 use qsc_data_structures::index_map::IndexMap;
+use qsc_data_structures::span::Span;
 use qsc_hir::{
     hir::{self, ItemId, PackageId},
-    ty::{FunctorSetValue, Scheme, Ty, Udt},
+    ty::{FunctorSetValue, Scheme, Ty, Udt, UdtDef, UdtDefKind},
 };
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use std::vec;
 
 pub(crate) struct GlobalTable {
@@ -136,7 +137,12 @@ impl Checker {
     }
 
     pub(crate) fn check_package(&mut self, names: &Names, package: &ast::Package) {
-        ItemCollector::new(self, names).visit_package(package);
+        let local_udts = {
+            let mut collector = ItemCollector::new(self, names);
+            collector.visit_package(package);
+            collector.local_udts
+        };
+        self.check_recursive_udts(&local_udts);
         ItemChecker::new(self, names).visit_package(package);
 
         if let Some(entry) = &package.entry {
@@ -159,6 +165,26 @@ impl Checker {
                 ));
             }
         }
+    }
+
+    /// Rejects any user-defined type declared in this package that can reach itself through
+    /// its own field types. Q# has no indirection primitive, so a cycle through an array or a
+    /// callable type is just as unrepresentable as a direct one: downstream passes expand UDT
+    /// definitions structurally without a visited set, and a cyclic type has no finite expansion.
+    fn check_recursive_udts(&mut self, local_udts: &[ItemId]) {
+        let mut errors = Vec::new();
+        for &id in local_udts {
+            let Some(udt) = self.table.udts.get(&id) else {
+                continue;
+            };
+            if let Some(span) = cycle_span(&self.table.udts, id, &udt.definition) {
+                errors.push(Error(ErrorKind::RecursiveUdt {
+                    name: udt.name.to_string(),
+                    span,
+                }));
+            }
+        }
+        self.errors.append(&mut errors);
     }
 
     fn check_callable_decl(&mut self, names: &Names, decl: &ast::CallableDecl) {
@@ -238,11 +264,19 @@ impl Checker {
 struct ItemCollector<'a> {
     checker: &'a mut Checker,
     names: &'a Names,
+    /// UDTs declared by the package being collected, in declaration order. Scoped to this
+    /// collector so it cannot accumulate across the incremental compiler's repeated
+    /// `check_package` calls, and ordered so diagnostics do not depend on `FxHashMap` order.
+    local_udts: Vec<ItemId>,
 }
 
 impl<'a> ItemCollector<'a> {
     fn new(checker: &'a mut Checker, names: &'a Names) -> Self {
-        Self { checker, names }
+        Self {
+            checker,
+            names,
+            local_udts: Vec::new(),
+        }
     }
 }
 
@@ -282,6 +316,7 @@ impl Visitor<'_> for ItemCollector<'_> {
                         definition: udt_def,
                     },
                 );
+                self.local_udts.push(item);
                 self.checker.globals.insert(item, cons);
             }
             ast::ItemKind::Struct(decl) => {
@@ -307,6 +342,7 @@ impl Visitor<'_> for ItemCollector<'_> {
                         definition: udt_def,
                     },
                 );
+                self.local_udts.push(item);
                 self.checker.globals.insert(item, cons);
             }
             _ => {}
@@ -338,4 +374,64 @@ impl Visitor<'_> for ItemChecker<'_> {
 
     // We do not typecheck attributes, as they are verified during lowering.
     fn visit_attr(&mut self, _: &ast::Attr) {}
+}
+
+/// Finds the innermost field definition within `def` whose type can reach `target`, and returns
+/// its span. Returns `None` when no field closes a cycle back to `target`. Since every outgoing
+/// edge in the UDT graph originates at a leaf field, this is exactly the "is `target` recursive"
+/// predicate as well as the label selector.
+fn cycle_span(udts: &FxHashMap<ItemId, Udt>, target: ItemId, def: &UdtDef) -> Option<Span> {
+    match &def.kind {
+        UdtDefKind::Field(field) => {
+            ty_reaches(udts, target, &field.ty, &mut FxHashSet::default()).then_some(def.span)
+        }
+        UdtDefKind::Tuple(defs) => defs.iter().find_map(|def| cycle_span(udts, target, def)),
+    }
+}
+
+/// Whether `target` is reachable from `ty` by descending through arrays, tuples, callable
+/// signatures, and the definitions of the UDTs encountered along the way. `visited` bounds the
+/// walk so it terminates on cyclic input.
+fn ty_reaches(
+    udts: &FxHashMap<ItemId, Udt>,
+    target: ItemId,
+    ty: &Ty,
+    visited: &mut FxHashSet<ItemId>,
+) -> bool {
+    match ty {
+        Ty::Udt(_, hir::Res::Item(id)) => {
+            if *id == target {
+                return true;
+            }
+            if !visited.insert(*id) {
+                return false;
+            }
+            // A missing entry means name resolution already failed; a second error would be noise.
+            udts.get(id)
+                .is_some_and(|udt| def_reaches(udts, target, &udt.definition, visited))
+        }
+        Ty::Array(item) => ty_reaches(udts, target, item, visited),
+        Ty::Tuple(items) => items
+            .iter()
+            .any(|item| ty_reaches(udts, target, item, visited)),
+        Ty::Arrow(arrow) => {
+            ty_reaches(udts, target, &arrow.input.borrow(), visited)
+                || ty_reaches(udts, target, &arrow.output.borrow(), visited)
+        }
+        _ => false,
+    }
+}
+
+fn def_reaches(
+    udts: &FxHashMap<ItemId, Udt>,
+    target: ItemId,
+    def: &UdtDef,
+    visited: &mut FxHashSet<ItemId>,
+) -> bool {
+    match &def.kind {
+        UdtDefKind::Field(field) => ty_reaches(udts, target, &field.ty, visited),
+        UdtDefKind::Tuple(defs) => defs
+            .iter()
+            .any(|def| def_reaches(udts, target, def, visited)),
+    }
 }

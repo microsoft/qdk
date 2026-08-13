@@ -3,6 +3,7 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
+import { isNotebookCourse } from "./courseLayout.js";
 import { LessonPanelManager } from "./panel.js";
 import type { LearningService } from "./service.js";
 import type { ActivityLocation } from "./types.js";
@@ -128,7 +129,7 @@ export function registerLearningCommands(
         // targets the unit as a whole (the position lands on its first
         // activity), so start the learner at the top of the notebook rather
         // than jumping straight to an exercise.
-        if (service.getActiveCourseInfo().kind === "python-notebook") {
+        if (isNotebookCourse(service.getActiveCourseInfo())) {
           await openCourseNotebook(service, {
             reveal: node.kind === "unit" ? "top" : "exercise",
           });
@@ -144,50 +145,21 @@ export function registerLearningCommands(
     vscode.commands.registerCommand(
       "qsharp-vscode.learningSwitchCourse",
       async (node?: LearningProgressNode) => {
-        const courseId = await resolveCourseId(service, node);
+        const courseId =
+          node?.kind === "course" ? node.descriptor.id : undefined;
         if (!courseId) {
-          // This may simply indicate that the user declined to pick a course
           return;
         }
         await service.switchCourse(courseId, "tree");
 
-        // python-notebook courses don't use the lesson panel. For a course
-        // that hasn't been started yet, show the README so there's something
-        // to read while the environment is set up in the background;
-        // otherwise pick up where the learner left off.
-        if (service.getActiveCourseInfo().kind === "python-notebook") {
-          if (service.getProgress().stats.completedActivities === 0) {
-            // TODO (acasey): the readme serves as a sort of splash screen while things are set up.
-            // Ideally, we would close it once you navigate away.
-            // Alternatively, we could go back to using a panel, which would have the advantage of
-            // being able to include a "Get Started" button (even greyed out while not ready?).
-            await showCourseInfo(service, courseId);
-          } else {
-            await openCourseNotebook(service);
-          }
+        // python-notebook courses don't use the lesson panel — open the
+        // notebook directly and pick up where the learner left off.
+        if (isNotebookCourse(service.getActiveCourseInfo())) {
+          await openCourseNotebook(service);
           return;
         }
 
         await panelManager.show();
-      },
-    ),
-
-    vscode.commands.registerCommand(
-      "qsharp-vscode.learningCourseInfo",
-      async (node?: LearningProgressNode) => {
-        const courseId = await resolveCourseId(service, node);
-        if (!courseId) {
-          // This may simply indicate that the user declined to pick a course
-          return;
-        }
-        await showCourseInfo(service, courseId);
-      },
-    ),
-
-    vscode.commands.registerCommand(
-      "qsharp-vscode.learningCheckEnvironment",
-      async (node?: LearningProgressNode) => {
-        await runEnvironmentCheckCommand(service, node);
       },
     ),
 
@@ -221,7 +193,7 @@ export function registerLearningCommands(
         }
 
         const courseInfo = service.getActiveCourseInfo();
-        if (courseInfo.kind !== "python-notebook") {
+        if (!isNotebookCourse(courseInfo)) {
           return;
         }
 
@@ -246,7 +218,7 @@ export function registerLearningCommands(
         }
 
         const courseInfo = service.getActiveCourseInfo();
-        if (courseInfo.kind !== "python-notebook") {
+        if (!isNotebookCourse(courseInfo)) {
           return;
         }
 
@@ -427,136 +399,4 @@ function nodeToLocation(
       };
     }
   }
-}
-
-/**
- * Resolve a target course id from a tree node, or prompt the user with a
- * quick pick when invoked without one (e.g. from the command palette).
- */
-async function resolveCourseId(
-  service: LearningService,
-  node?: LearningProgressNode,
-): Promise<string | undefined> {
-  if (node?.kind === "course") {
-    return node.descriptor.id;
-  }
-  if (!service.initialized) {
-    const ok = await service.tryInitialize({ createIfMissing: true });
-    if (!ok) {
-      return undefined;
-    }
-  }
-  const courses = service.getCourses();
-  if (courses.length === 0) {
-    return undefined;
-  }
-  const activeId = service.getActiveCourseId();
-  const picked = await vscode.window.showQuickPick(
-    courses.map((c) => ({
-      label: c.title,
-      description: c.id === activeId ? "current" : undefined,
-      detail: c.shortDescription,
-      id: c.id,
-    })),
-    { placeHolder: "Select a course" },
-  );
-  return picked?.id;
-}
-
-/** Show a course's README in a markdown preview, or a fallback message. */
-async function showCourseInfo(
-  service: LearningService,
-  courseId: string,
-): Promise<void> {
-  const courses = service.getCourses();
-  const descriptor = courses.find((c) => c.id === courseId);
-  if (!descriptor) {
-    log.warn(`Unable to show course info for unknown course ${courseId}`);
-    return;
-  }
-  if (descriptor.readmePath) {
-    const uri = vscode.Uri.parse(descriptor.readmePath);
-    await vscode.commands.executeCommand("markdown.showPreview", uri);
-    return;
-  }
-  const detail = descriptor.shortDescription
-    ? `\n\n${descriptor.shortDescription}`
-    : "";
-  await vscode.window.showInformationMessage(`${descriptor.title}${detail}`, {
-    modal: false,
-  });
-}
-
-/**
- * Run environment diagnostics for a course and present a rich, readable
- * report, offering the fixes the report surfaces (e.g. one-click
- * environment setup, install extensions).
- */
-async function runEnvironmentCheckCommand(
-  service: LearningService,
-  node?: LearningProgressNode,
-): Promise<void> {
-  // TODO (acasey): don't allow overlapping runs.
-  // I think the user can click the button while it's already running from switch-course.
-  if (!service.initialized) {
-    const ok = await service.tryInitialize({ createIfMissing: true });
-    if (!ok) {
-      vscode.window.showWarningMessage("Open a learning workspace first.");
-      return;
-    }
-  }
-  // If invoked on a specific course node, diagnose that course.
-  const courseId = node?.kind === "course" ? node.descriptor.id : undefined;
-  if (courseId && courseId !== service.getActiveCourseId()) {
-    await service.switchCourse(courseId, "tree");
-  }
-
-  const report = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: "Running course diagnostics…",
-    },
-    () => service.runEnvironmentCheck(),
-  );
-
-  const icon: Record<string, string> = {
-    ok: "✓",
-    warn: "▲",
-    fail: "✗",
-    skip: "–",
-  };
-  const statusBadge: Record<string, string> = {
-    ok: "✓ OK",
-    warning: "▲ Warning",
-    error: "✗ Error",
-  };
-
-  const lines = report.checks.map((c) => {
-    const head = `${icon[c.status] ?? "•"} ${c.label}`;
-    const detail = c.detail ? `\n    ${c.detail}` : "";
-    const hint = c.hint ? `\n    → ${c.hint}` : "";
-    return `${head}${detail}${hint}`;
-  });
-
-  const body = [
-    `${statusBadge[report.overallStatus] ?? report.overallStatus} · ${report.summary}`,
-    "",
-    ...lines,
-  ].join("\n");
-
-  const actions = report.fixes.map((r) => r.label);
-  // TODO (acasey): this dialog is ugly and unthemed - can we do better?
-  const choice = await vscode.window.showInformationMessage(
-    body,
-    { modal: true },
-    ...actions,
-  );
-  if (!choice) {
-    return;
-  }
-  const fix = report.fixes.find((r) => r.label === choice);
-  if (!fix) {
-    return;
-  }
-  await service.applyEnvironmentCheckFix(fix);
 }

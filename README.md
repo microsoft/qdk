@@ -10,8 +10,8 @@ This repository contains tooling for the Q# language, specifically:
 - **[language_service](./source/language_service/)**: Q# language service and editor features
 - **[library](./library/)**: Q# standard library
 - **[npm](./source/npm/)**: Q# npm package
-- **[pip](./source/pip/)**: Q# Python pip package
 - **[playground](./source/playground/)**: simple website for interacting with Q#
+- **[qdk_package](./source/qdk_package/)**: The `qdk` Python package (core Q# Python API with native Rust extension)
 - **[resource_estimator](./source/resource_estimator)**: Implementation for the Microsoft Quantum Resource Estimator
 - **[vscode](./source/vscode/)**: Visual Studio Code extension
 - **[wasm](./source/wasm/)**: The bindings and logic for the WebAssembly module
@@ -58,8 +58,8 @@ To see instructions for building the playground, refer to [Building the Playgrou
 
 ### Python
 
-When building the Python packages (`pip` and `jupyterlab`), if the build script does not detect
-a current Python virtual environment, it will automatically create one under `source/pip/.venv` or
+When building the Python packages (`qdk` and `jupyterlab`), if the build script does not detect
+a current Python virtual environment, it will automatically create one under `source/qdk_package/.venv` or
 `source/jupyterlab/.venv`. When developing locally, you can use these virtual environments to run the
 tests by running `source .venv/bin/activate` (Linux/MacOS) or `.venv/Scripts/activate.bat` (Windows).
 

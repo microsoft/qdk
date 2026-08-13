@@ -12,7 +12,9 @@ import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js"
 import { registerNotebookSync } from "./notebookSync.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
+import { WORKBOOK_SUFFIX } from "./constants.js";
 import { registerLearningWelcomeView } from "./welcomeView.js";
+import { isNotebookCourse } from "./courseLayout.js";
 
 export function initLearning(
   context: vscode.ExtensionContext,
@@ -43,15 +45,14 @@ export function initLearning(
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeNotebookDocument((e) => {
-      // TODO (acasey): move to notebookSync.ts?
-
       // When a cell finishes executing (executionSummary changes), auto-save
       // the notebook, check if it corresponds to an exercise in the active
       // python-notebook course and update focus. If execution succeeded,
       // mark complete.
       if (
         !learningService.initialized ||
-        learningService.getActiveCourseInfo().kind !== "python-notebook"
+        !isNotebookCourse(learningService.getActiveCourseInfo()) ||
+        !e.notebook.uri.path.endsWith(WORKBOOK_SUFFIX)
       ) {
         return;
       }
@@ -64,6 +65,13 @@ export function initLearning(
           if (typeof cellId !== "string") {
             continue;
           }
+          // We're relying on a bit of magic here: another event listener
+          // updates the active unit (i.e. notebook) when a workbook notebook
+          // is opened and we're relying on that to be correct, rather than
+          // using the URL from the event.
+          // If it turns out there's a way to get events about a notebook
+          // other than the active one, the only negative consequence will
+          // be not registering completion.
           void learningService.goToExerciseByCellId(cellId, "notebook");
           if (change.executionSummary.success) {
             void learningService.markExerciseCompleteByCellId(cellId);
@@ -90,7 +98,6 @@ export type {
   CourseDescriptor,
   CourseKind,
   CurrentActivity,
-  EnvironmentCheckReport,
   HintContext,
   OverallProgress,
   RunResult,
@@ -98,6 +105,7 @@ export type {
   UnitSummary,
 } from "./types.js";
 export { LEARNING_WORKSPACE_FOLDER } from "./constants.js";
+export { isNotebookCourse } from "./courseLayout.js";
 export {
   detectLearningWorkspace,
   LearningService,

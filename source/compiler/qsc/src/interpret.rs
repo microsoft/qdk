@@ -641,7 +641,7 @@ impl Interpreter {
     /// Returns the [`fir::StoreItemId`] for the `Std.OpenQASM.Angle.Angle` UDT.
     ///
     /// This function intended to be used from
-    /// `source/pip/src/interpreter/data_interop.rs::pyobj_to_value`
+    /// `source/qdk_package/src/interpreter/data_interop.rs::pyobj_to_value`
     /// to tag the angles coming from Python with the correct `StoreItemId`.
     pub fn get_angle_id(&self) -> fir::StoreItemId {
         if let Some(id) = &*self.angle_ty_cache.borrow() {
@@ -677,7 +677,7 @@ impl Interpreter {
     /// Returns the [`fir::StoreItemId`] for the `Std.Math.Complex` UDT.
     ///
     /// This function intended to be used from
-    /// `source/pip/src/interpreter/data_interop.rs::pyobj_to_value`
+    /// `source/qdk_package/src/interpreter/data_interop.rs::pyobj_to_value`
     /// to tag the complex numbers coming from Python with the correct
     /// `StoreItemId`.
     pub fn get_complex_id(&self) -> crate::fir::StoreItemId {

@@ -65,7 +65,7 @@ async function syncActiveNotebook(
  * path: `<workspace folder>/qdk-learning/courses/**\/*.workbook.ipynb`.
  *
  * Does no I/O and doesn't consult the service, so it is safe to call before
- * the learning workspace has been loaded. Drop-in courses are only ever
+ * the learning workspace has been loaded. Notebook courses are only ever
  * discovered under that folder pair, and only python-notebook courses
  * produce `*.workbook.ipynb` files, so a match can never be a Q# artifact.
  */

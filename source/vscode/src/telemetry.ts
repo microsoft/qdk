@@ -14,6 +14,7 @@ import {
   isQsharpDocument,
   getPlatformEnv,
 } from "./common";
+import type { CourseKind } from "./learning/types";
 
 export enum EventType {
   InitializePlugin = "Qsharp.InitializePlugin",
@@ -349,7 +350,9 @@ type EventTypes = {
     measurements: Empty;
   };
   [EventType.LearningExerciseCompleted]: {
-    properties: Empty;
+    properties: {
+      courseKind: CourseKind;
+    };
     measurements: {
       unitNumber: number;
       exerciseNumber: number;

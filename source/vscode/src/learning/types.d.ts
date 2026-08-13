@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import type { Uri } from "vscode";
+
 /**
  * Shared types for the QDK Learning feature.
  *
@@ -219,11 +221,7 @@ export type WebviewToHostMessage =
   /** Focus the learning progress tree view in the sidebar. */
   | { command: "focusProgress" }
   /** Switch to a different course. */
-  | { command: "switchCourse"; courseId: string }
-  /** Show README/info for a course (defaults to the active course). */
-  | { command: "courseInfo"; courseId?: string }
-  /** Open the course picker to browse and switch courses. */
-  | { command: "browseCourses" };
+  | { command: "switchCourse"; courseId: string };
 
 // ─── Catalog ───
 //
@@ -289,11 +287,13 @@ export interface CatalogUnit {
    * notebook's cell tags. Used by chat LM tools for hints/solutions.
    */
   notebookExercises?: NotebookExerciseInfo[];
-  /**
-   * Path (relative to the course source dir) of the notebook for this
-   * unit. Set for python-notebook courses.
-   */
-  sourceNotebookRel?: string;
+  /** URI of the authored notebook for this unit. Set for python-notebook courses. */
+  sourceNotebookUri?: Uri;
+}
+
+export interface NotebookCatalogUnit extends CatalogUnit {
+  notebookExercises: NotebookExerciseInfo[];
+  sourceNotebookUri: Uri;
 }
 
 /** The execution model for a course's activities. */
@@ -314,14 +314,19 @@ export interface CatalogCourse {
   kind: CourseKind;
   units: CatalogUnit[];
   /**
-   * URI string of the folder the course was loaded from (drop-in courses
+   * URI string of the folder the course was loaded from (notebook courses
    * only). Used to locate notebooks and other assets for materialization.
    */
   sourceDir?: string;
-  /** Optional path (URI string) to a README rendered for "Course info". */
-  readmePath?: string;
   /** Environment requirements (python-notebook courses). */
   environment?: CourseEnvironment;
+}
+
+export interface NotebookCatalogCourse extends CatalogCourse {
+  kind: "python-notebook";
+  units: NotebookCatalogUnit[];
+  sourceDir: string;
+  // environment actually is optional
 }
 
 /**
@@ -336,8 +341,6 @@ export interface CourseDescriptor {
   title: string;
   shortDescription?: string;
   kind: CourseKind;
-  /** Optional path (URI string) to a README rendered for "Course info". */
-  readmePath?: string;
   /** Optional environment requirements (used by python-notebook courses). */
   environment?: CourseEnvironment;
 }
@@ -362,52 +365,4 @@ export interface UnitSummary {
   completedCount: number;
   /** True if this is the first unit that hasn't been fully completed. */
   firstIncomplete: boolean;
-}
-
-// ─── Environment check (environment diagnostics) ───
-
-/** Severity of a single {@link EnvironmentCheckItem}. */
-export type EnvironmentCheckStatus = "ok" | "warn" | "fail" | "skip";
-
-/** A suggested fix attached to a failing {@link EnvironmentCheckItem}. */
-export interface EnvironmentCheckFix {
-  /** Short label for the action (e.g. "Set up environment"). */
-  label: string;
-  /**
-   * What the fix does when chosen:
-   * - `setup`: run the per-course environment setup.
-   * - `install-extensions`: prompt to install Python/Jupyter.
-   */
-  kind: "setup" | "install-extensions";
-}
-
-/** One diagnostic in an {@link EnvironmentCheckReport}. */
-export interface EnvironmentCheckItem {
-  /** Stable identifier for the check (e.g. `"venv"`). */
-  id: string;
-  /** Human-readable label. */
-  label: string;
-  /** Pass/warn/fail/skip. */
-  status: EnvironmentCheckStatus;
-  /** Extra detail (a path, version, or error message). */
-  detail?: string;
-  /** Guidance on how to fix a non-ok check. */
-  hint?: string;
-  /** Optional fixes the UI can offer for this check. */
-  fixes?: EnvironmentCheckFix[];
-}
-
-/** Overall status for an {@link EnvironmentCheckReport}. */
-export type EnvironmentStatus = "ok" | "warning" | "error";
-
-/** Structured result of running environment diagnostics for a course. */
-export interface EnvironmentCheckReport {
-  courseId: string;
-  /** Overall status across all checks. */
-  overallStatus: EnvironmentStatus;
-  /** One-line human summary of the overall status. */
-  summary: string;
-  checks: EnvironmentCheckItem[];
-  /** Distinct fixes aggregated from all failing checks, in priority order. */
-  fixes: EnvironmentCheckFix[];
 }

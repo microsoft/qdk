@@ -3,34 +3,34 @@
 
 import * as vscode from "vscode";
 import { WORKBOOK_SUFFIX } from "./constants.js";
-import type { CatalogCourse, CatalogUnit } from "./types.js";
+import type {
+  CatalogCourse,
+  NotebookCatalogCourse,
+  NotebookCatalogUnit,
+} from "./types.js";
 
 // Where a course's files live on disk. `sourceNotebookUri` is authored
 // content that ships with the course; `workbookUri` is the learner's
 // editable copy, which exists only once the course has been materialized.
 
-/** Root folder a course was loaded from. Drop-in courses only. */
-export function courseRootUri(course: CatalogCourse): vscode.Uri {
-  if (!course.sourceDir) {
-    throw new Error(`Course "${course.id}" has no source folder.`);
-  }
-  return vscode.Uri.parse(course.sourceDir);
-}
+type CourseWithKind = Pick<CatalogCourse, "kind">;
 
-/** The units of a course that have an authored notebook. */
-export function notebookUnits(course: CatalogCourse): CatalogUnit[] {
-  return course.units.filter((u) => u.sourceNotebookRel !== undefined);
+export function isNotebookCourse(
+  course: CatalogCourse,
+): course is NotebookCatalogCourse;
+export function isNotebookCourse<Course extends CourseWithKind>(
+  course: Course,
+): course is Course & { kind: "python-notebook" };
+export function isNotebookCourse(course: CourseWithKind): boolean {
+  return course.kind === "python-notebook";
 }
 
 /** The authored notebook that a unit's workbook is derived from. */
 export function sourceNotebookUri(
-  course: CatalogCourse,
-  unit: CatalogUnit,
+  _course: NotebookCatalogCourse,
+  unit: NotebookCatalogUnit,
 ): vscode.Uri {
-  return vscode.Uri.joinPath(
-    courseRootUri(course),
-    requireSourceNotebookRel(course, unit),
-  );
+  return unit.sourceNotebookUri;
 }
 
 /**
@@ -42,24 +42,9 @@ export function sourceNotebookUri(
  * URI whether or not the file exists yet.
  */
 export function workbookUri(
-  course: CatalogCourse,
-  unit: CatalogUnit,
+  _course: NotebookCatalogCourse,
+  unit: NotebookCatalogUnit,
 ): vscode.Uri {
-  const rel = requireSourceNotebookRel(course, unit);
-  return vscode.Uri.joinPath(
-    courseRootUri(course),
-    rel.replace(/\.ipynb$/i, WORKBOOK_SUFFIX),
-  );
-}
-
-function requireSourceNotebookRel(
-  course: CatalogCourse,
-  unit: CatalogUnit,
-): string {
-  if (!unit.sourceNotebookRel) {
-    throw new Error(
-      `Unit "${unit.id}" in course "${course.id}" has no notebook.`,
-    );
-  }
-  return unit.sourceNotebookRel;
+  const src = unit.sourceNotebookUri;
+  return src.with({ path: src.path.replace(/\.ipynb$/i, WORKBOOK_SUFFIX) });
 }

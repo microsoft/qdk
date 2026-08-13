@@ -110,12 +110,6 @@ print("Npm version: {}".format(npm_version))
 print("VS Code version: {}".format(version_triple))
 
 update_file(
-    os.path.join(source_dir, "pip/pyproject.toml"),
-    r'version = "0.0.0"',
-    r'version = "{}"'.format(pip_version),
-)
-
-update_file(
     os.path.join(source_dir, "qdk_package/qdk/telemetry.py"),
     r'QSHARP_VERSION = "0.0.0.dev0"',
     r'QSHARP_VERSION = "{}"'.format(pip_version),
@@ -141,16 +135,6 @@ update_file(
     r'version = "{}"'.format(pip_version),
 )
 
-update_file(
-    os.path.join(source_dir, "pip/pyproject.toml"),
-    r"qdk>=0.0.0",
-    r"qdk>={}".format(pip_version),
-)
-update_file(
-    qdk_pyproject,
-    r"qsharp==0.0.0",
-    r"qsharp=={}".format(pip_version),
-)
 update_file(
     qdk_pyproject,
     r"qsharp-widgets==0.0.0",

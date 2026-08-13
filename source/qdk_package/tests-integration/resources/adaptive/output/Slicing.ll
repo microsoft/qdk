@@ -57,7 +57,7 @@ block_6:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @X(ptr %var_5) {
+define internal void @X(ptr %var_5) {
 block_7:
   call void @__quantum__qis__x__body(ptr %var_5)
   ret void
@@ -67,7 +67,7 @@ declare void @__quantum__qis__x__body(ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-define void @Reset(ptr %var_12) {
+define internal void @Reset(ptr %var_12) {
 block_8:
   call void @__quantum__qis__reset__body(ptr %var_12)
   ret void

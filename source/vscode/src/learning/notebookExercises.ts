@@ -33,10 +33,10 @@ import type { NotebookExerciseInfo } from "./types.js";
  */
 
 /** Tag marking the code cell a learner edits. */
-export const EXERCISE_TAG = "exercise";
+const EXERCISE_TAG = "exercise";
 
 /** Tags marking author-only cells, removed from the learner's working copy. */
-export const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
+const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
 
 type AuthoringTag = (typeof AUTHORING_TAGS)[number];
 
@@ -102,15 +102,12 @@ export function parseNotebookExercises(
         }
 
         // This is a terrible fallback name, but it shouldn't actually happen
-        const { title, description } = precedingPrompt(
-          cells,
-          i,
-          `Cell ${cellId}`,
-        );
+        const title =
+          extractTitleFromPrecedingCell(cells, i) ?? `Cell ${cellId}`;
         const exercise = {
           cellId: cellId,
           title,
-          description,
+          description: "", // Not actually used for notebook exercises
           hints: [],
           solutions: [],
           solutionExplanation: "",
@@ -276,18 +273,20 @@ function hasExpectedKind(cell: RawCell, tag: AuthoringTag): boolean {
 // ─── Field derivation ───
 
 /**
- * Title and description for an exercise, taken from the markdown cell that
- * introduces it: the nearest preceding markdown cell that isn't itself tagged.
+ * Title and description for an exercise, taken from a nearby preceding
+ * markdown cell. Walks back up to three markdown cells looking for one
+ * that contains a heading; stops at non-markdown cells, `exercise`-tagged
+ * cells, or authoring-tagged cells.
  *
  * The cell's last heading becomes the title (dropping a leading "Exercise:",
  * which reads naturally in the notebook but is redundant in the progress tree);
  * the remaining prose becomes the description.
  */
-function precedingPrompt(
+function extractTitleFromPrecedingCell(
   cells: RawCell[],
   exerciseIndex: number,
-  id: string,
-): { title: string; description: string } {
+): string | undefined {
+  let checked = 0;
   for (let i = exerciseIndex - 1; i >= 0; i--) {
     const cell = cells[i];
     const tags = cellTags(cell);
@@ -298,17 +297,20 @@ function precedingPrompt(
       break;
     }
     if (cellKind(cell) !== "markdown") {
-      continue;
+      break;
     }
-    return splitPrompt(cellSource(cell), id);
+    const title = extractTitleFromHeader(cellSource(cell));
+    if (title) {
+      return title;
+    }
+    if (++checked >= 3) {
+      break;
+    }
   }
-  return { title: id, description: "" };
+  return undefined;
 }
 
-function splitPrompt(
-  markdown: string,
-  id: string,
-): { title: string; description: string } {
+function extractTitleFromHeader(markdown: string): string | undefined {
   const lines = markdown.split(/\r?\n/);
   let headingIndex = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -317,20 +319,13 @@ function splitPrompt(
     }
   }
   if (headingIndex < 0) {
-    return { title: id, description: markdown.trim() };
+    return undefined;
   }
 
   const title = lines[headingIndex]
     .replace(/^\s{0,3}#{1,6}\s+/, "")
     .replace(/\s+#*\s*$/, "")
-    .replace(/^exercise\s*[:—-]\s*/i, "")
     .trim();
 
-  return {
-    title: title || id,
-    description: lines
-      .slice(headingIndex + 1)
-      .join("\n")
-      .trim(),
-  };
+  return title;
 }

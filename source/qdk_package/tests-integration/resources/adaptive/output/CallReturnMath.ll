@@ -10,7 +10,7 @@ block_0:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define i64 @A(ptr %var_2, ptr %var_3) {
+define internal i64 @A(ptr %var_2, ptr %var_3) {
 block_1:
   %var_10 = alloca i64
   %var_13 = alloca i64
@@ -34,7 +34,7 @@ block_4:
   ret i64 %var_16
 }
 
-define i64 @B(ptr %var_4) {
+define internal i64 @B(ptr %var_4) {
 block_5:
   %var_8 = alloca i64
   call void @X(ptr %var_4)
@@ -52,7 +52,7 @@ block_8:
   ret i64 %var_24
 }
 
-define void @X(ptr %var_5) {
+define internal void @X(ptr %var_5) {
 block_9:
   call void @__quantum__qis__x__body(ptr %var_5)
   ret void

@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import * as vscode from "vscode";
+import { isNotebookCourse } from "./courseLayout.js";
 import type { LearningService } from "./service.js";
 
 /**
@@ -48,7 +49,7 @@ class LearningCellStatusBarProvider
     }
 
     const courseInfo = service.getActiveCourseInfo();
-    if (courseInfo.kind !== "python-notebook") {
+    if (!isNotebookCourse(courseInfo)) {
       return [];
     }
 

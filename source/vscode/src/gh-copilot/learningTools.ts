@@ -6,9 +6,9 @@ import {
   LearningService,
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
+  isNotebookCourse,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
-  type EnvironmentCheckReport,
   type HintContext,
   type UnitSummary,
   type OverallProgress,
@@ -172,42 +172,19 @@ export class LearningTools {
   }
 
   /**
-   * Return descriptor and README content (if any) for a course. Defaults
-   * to the active course when no id is provided.
+   * Return the descriptor for a course. Defaults to the active course
+   * when no id is provided.
    */
   async courseInfo(input?: { courseId?: string }): Promise<{
     descriptor: CourseDescriptor | undefined;
-    readme?: string;
   }> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const courseId = input?.courseId ?? this.service.getActiveCourseId();
       const courses = await this.service.getCourses();
       const descriptor = courses.find((c) => c.id === courseId);
-      let readme: string | undefined;
-      if (descriptor?.readmePath) {
-        try {
-          const bytes = await vscode.workspace.fs.readFile(
-            vscode.Uri.parse(descriptor.readmePath),
-          );
-          readme = new TextDecoder().decode(bytes);
-        } catch {
-          readme = undefined;
-        }
-      }
-      return { descriptor, readme };
+      return { descriptor };
     });
-  }
-
-  /**
-   * Run environment diagnostics for the active course and return the
-   * structured report (passing/failing checks plus whether a one-click
-   * environment setup is available).
-   */
-  async checkEnvironment(): Promise<EnvironmentCheckReport> {
-    // TODO (acasey): ensure only one can run at a time
-    await this.ensureInitialized();
-    return this.invoke(() => this.service.runEnvironmentCheck());
   }
 
   /**
@@ -218,11 +195,19 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
-      if (this.service.getActiveCourseInfo().kind === "python-notebook") {
-        return {
-          code: "", // TODO (acasey): can/should we get the code in the active cell?
-          filePath: uri.fsPath,
-        };
+      if (isNotebookCourse(this.service.getActiveCourseInfo())) {
+        let code = "";
+        // Prefer the cell the user actually has focused in the editor.
+        const editor = vscode.window.activeNotebookEditor;
+        const selection = editor?.selections[0];
+        if (
+          selection && // Implies editor
+          editor.notebook.uri.toString() === uri.toString()
+        ) {
+          const cell = editor.notebook.cellAt(selection.start);
+          code = cell.document.getText();
+        }
+        return { code, filePath: uri.fsPath };
       }
       const code = await this.service.readUserCode();
       return { code, filePath: uri.fsPath };

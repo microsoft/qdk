@@ -221,7 +221,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Srem(lhs, rhs, variable) => {
                 binop_to_qir("srem", lhs, rhs, *variable, program)
             }
-            rir::Instruction::Store(_, _) => unimplemented!("store should be removed by pass"),
+            rir::Instruction::Store(_, _) | rir::Instruction::StoreArray(_, _) => {
+                unimplemented!("store should be removed by pass")
+            }
             rir::Instruction::Sub(lhs, rhs, variable) => {
                 binop_to_qir("sub", lhs, rhs, *variable, program)
             }

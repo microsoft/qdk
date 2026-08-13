@@ -290,6 +290,22 @@ fn unknown_annotation_raises_error() {
 }
 
 #[test]
+fn annotation_on_broadcast_gate_call_raises_one_error() {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[2] q;
+        @SimulatableIntrinsic
+        x q;
+    "#;
+
+    let Err(errors) = compile_qasm_to_qsharp(source) else {
+        panic!("Expected an error");
+    };
+    assert_eq!(errors.len(), 1);
+    expect!["annotations only valid on def and gate statements"].assert_eq(&errors[0].to_string());
+}
+
+#[test]
 fn annotation_without_target_in_global_scope_raises_error() {
     let source = r#"
         int i;
