@@ -531,6 +531,7 @@ if build_qdk:
     step_end()
 
     if args.check or run_tests:
+        step_start("Installing qdk and its test dependencies for checks and tests")
         # The API surface check and the test suite both import the freshly
         # built qdk in-process, which requires the package (with its native
         # extension) and its runtime dependencies to be installed. In editable
@@ -541,6 +542,7 @@ if build_qdk:
         install_python_test_requirements(qdk_python_src, python_bin)
         if not args.editable:
             install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
+        step_end()
 
     if args.check:
         step_start("Checking qdk public API surface for private type leakage")
