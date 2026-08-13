@@ -98,7 +98,6 @@ export type {
   CourseDescriptor,
   CourseKind,
   CurrentActivity,
-  EnvironmentCheckReport,
   HintContext,
   OverallProgress,
   RunResult,
