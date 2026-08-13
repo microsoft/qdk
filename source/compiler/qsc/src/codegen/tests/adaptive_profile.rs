@@ -109,7 +109,7 @@ fn nested_for_over_qubit_slice_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -120,6 +120,7 @@ fn nested_for_over_qubit_slice_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -229,7 +230,7 @@ fn constant_folding_pattern_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -240,6 +241,7 @@ fn constant_folding_pattern_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -381,7 +383,7 @@ fn three_qubit_repetition_code_pattern_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -392,6 +394,7 @@ fn three_qubit_repetition_code_pattern_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -474,7 +477,7 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -485,6 +488,7 @@ fn for_over_qubit_slice_inside_dynamic_while_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -570,7 +574,7 @@ fn result_array_dynamic_index_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -581,6 +585,7 @@ fn result_array_dynamic_index_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -678,7 +683,7 @@ fn result_array_while_loop_dynamic_index_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -689,6 +694,7 @@ fn result_array_while_loop_dynamic_index_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -762,7 +768,7 @@ fn mutable_result_variable_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -773,6 +779,7 @@ fn mutable_result_variable_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -849,7 +856,7 @@ fn result_variables_with_default_values_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -860,6 +867,7 @@ fn result_variables_with_default_values_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -951,7 +959,7 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -962,6 +970,7 @@ fn for_loop_over_qubits_with_reset_all_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -1029,7 +1038,7 @@ fn measure_each_z_static_qubits_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1040,6 +1049,7 @@ fn measure_each_z_static_qubits_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -1113,7 +1123,7 @@ fn static_while_inside_emit_while_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1124,6 +1134,7 @@ fn static_while_inside_emit_while_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -1205,7 +1216,7 @@ fn nested_emit_while_loops_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1216,6 +1227,7 @@ fn nested_emit_while_loops_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -1301,7 +1313,7 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1312,6 +1324,7 @@ fn for_loop_over_qubits_with_dynamic_exit_succeeds() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
             .assert_eq(&qir);
 }
@@ -1425,7 +1438,7 @@ fn simple_void_operation_emits_ir_function() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1436,6 +1449,7 @@ fn simple_void_operation_emits_ir_function() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -1505,7 +1519,7 @@ fn two_call_sites_share_one_ir_function() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1516,6 +1530,7 @@ fn two_call_sites_share_one_ir_function() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -1595,7 +1610,7 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1606,6 +1621,7 @@ fn body_and_adjoint_emit_distinct_ir_functions() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -1696,7 +1712,7 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1707,6 +1723,7 @@ fn defunctionalized_monomorphized_helper_emits_ir_function() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -1773,7 +1790,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1784,6 +1801,7 @@ fn qubit_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -1862,7 +1880,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1873,6 +1891,7 @@ fn qubit_array_allocating_callable_emits_ir_function_when_dynamic_alloc_enabled(
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -1969,7 +1988,7 @@ fn tuple_of_scalars_parameter_flattens_to_ir_function() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -1980,6 +1999,7 @@ fn tuple_of_scalars_parameter_flattens_to_ir_function() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -2091,7 +2111,7 @@ fn recursive_operation_emits_to_ir_function() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -2102,6 +2122,7 @@ fn recursive_operation_emits_to_ir_function() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -2224,7 +2245,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -2235,6 +2256,7 @@ fn value_returning_ir_function_with_dynamic_store_return_is_defined() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
@@ -2304,7 +2326,7 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -2315,6 +2337,7 @@ fn value_returning_ir_function_reloads_after_same_block_store() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
         .assert_eq(&qir);
 }
@@ -2533,7 +2556,7 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -2544,6 +2567,7 @@ fn preparepurestated_cyclic_library_calls_generate_correct_qir() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]]
     .assert_eq(&qir);
 }
@@ -2622,7 +2646,7 @@ fn cross_package_library_callable_emits_standalone_define() {
 
         ; module flags
 
-        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
         !0 = !{i32 1, !"qir_major_version", i32 2}
         !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -2633,6 +2657,7 @@ fn cross_package_library_callable_emits_standalone_define() {
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
         !8 = !{i32 1, !"ir_functions", i1 true}
+        !9 = !{i32 1, !"writable_results", i1 true}
     "#]].assert_eq(&qir);
 }
 
