@@ -33,9 +33,29 @@ fn parse_file_with_contents<P: AsRef<Path>>(
     };
     let result = qdk_openqasm::analyze_all(&sources);
     (
-        test_file.as_ref().display().to_string().as_str().into(),
+        test_file
+            .as_ref()
+            .to_string_lossy()
+            .replace('\\', "/")
+            .into(),
         result,
     )
+}
+
+#[test]
+#[cfg(windows)]
+fn logical_paths_use_forward_slashes() {
+    assert_eq!(
+        super::logical_path(Path::new(r"C:\project\include.qasm")).as_ref(),
+        "C:/project/include.qasm"
+    );
+}
+
+#[test]
+#[cfg(unix)]
+fn logical_paths_preserve_backslashes() {
+    let path = r"/path/folder\ with\ spaces/file.qasm";
+    assert_eq!(super::logical_path(Path::new(path)).as_ref(), path);
 }
 
 #[test]
@@ -76,7 +96,7 @@ fn test_real_file_with_includes() {
     let expected_include_path = test_dir.join("included.qasm");
     assert_eq!(
         included_file.path().as_ref(),
-        expected_include_path.to_string_lossy()
+        expected_include_path.to_string_lossy().replace('\\', "/")
     );
 
     // verify that the included file content is present
@@ -224,7 +244,7 @@ fn unsaved_files_cannot_ref_relative_includes() {
          3 |     include "stdgates.inc";
          4 |     include "nonexistent.qasm";
            :     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-         5 | 
+         5 |
            `----
         ]"#]]
     .assert_eq(&format!(
