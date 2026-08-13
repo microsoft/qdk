@@ -157,7 +157,7 @@ export class NotebookCourseProvider implements CourseProvider {
         );
         continue;
       }
-      const { activities, notebookExercises, sourceNotebookRel } =
+      const { activities, notebookExercises, sourceNotebookRelativePath } =
         await this.parseNotebookUnit(unitDir, manifestUnit);
       if (activities.length === 0) {
         log.warn(
@@ -169,7 +169,7 @@ export class NotebookCourseProvider implements CourseProvider {
         title: manifestUnit.title,
         activities,
         notebookExercises,
-        sourceNotebookRel,
+        sourceNotebookRelativePath,
       });
     }
 
@@ -199,7 +199,7 @@ export class NotebookCourseProvider implements CourseProvider {
   ): Promise<{
     activities: CatalogActivity[];
     notebookExercises?: NotebookExerciseInfo[];
-    sourceNotebookRel?: string;
+    sourceNotebookRelativePath?: string;
   }> {
     // Find the source notebook file in the unit dir. Materialized working
     // copies (`*.workbook.ipynb`) sit beside the source and must be ignored
@@ -231,7 +231,7 @@ export class NotebookCourseProvider implements CourseProvider {
         break;
     }
 
-    const sourceNotebookRel = `${unit.dir}/${notebookEntry.name}`;
+    const sourceNotebookRelativePath = `${unit.dir}/${notebookEntry.name}`;
 
     const activities: CatalogActivity[] = [];
 
@@ -262,7 +262,7 @@ export class NotebookCourseProvider implements CourseProvider {
       }
     }
 
-    return { activities, notebookExercises, sourceNotebookRel };
+    return { activities, notebookExercises, sourceNotebookRelativePath };
   }
 }
 

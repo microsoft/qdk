@@ -489,7 +489,7 @@ export class LearningService {
         continue;
       }
       for (const unit of course.units) {
-        if (!unit.sourceNotebookRel) {
+        if (!unit.sourceNotebookRelativePath) {
           continue;
         }
         const workbook = workbookUri(course, unit);
@@ -793,7 +793,7 @@ export class LearningService {
     // Python-notebook courses: the "code" is the notebook itself.
     if (this.activeCourse.kind === "python-notebook") {
       const { unit } = this.findCurrentActivity();
-      if (unit.sourceNotebookRel) {
+      if (unit.sourceNotebookRelativePath) {
         return workbookUri(this.activeCourse, unit);
       }
       return undefined;
@@ -818,7 +818,7 @@ export class LearningService {
     if (this.activeCourse.kind === "python-notebook") {
       const { unit } = this.findCurrentActivity();
       // Close any open notebook tabs for this unit.
-      if (unit.sourceNotebookRel) {
+      if (unit.sourceNotebookRelativePath) {
         await this.closeNotebookTab(workbookUri(this.activeCourse, unit));
       }
       // Re-materialize the unit from source.

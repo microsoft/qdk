@@ -289,7 +289,7 @@ export interface CatalogUnit {
    * Path (relative to the course source dir) of the notebook for this
    * unit. Set for python-notebook courses.
    */
-  sourceNotebookRel?: string;
+  sourceNotebookRelativePath?: string;
 }
 
 /** The execution model for a course's activities. */

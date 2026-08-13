@@ -19,7 +19,7 @@ export function courseRootUri(course: CatalogCourse): vscode.Uri {
 
 /** The units of a course that have an authored notebook. */
 export function notebookUnits(course: CatalogCourse): CatalogUnit[] {
-  return course.units.filter((u) => u.sourceNotebookRel !== undefined);
+  return course.units.filter((u) => u.sourceNotebookRelativePath !== undefined);
 }
 
 /** The authored notebook that a unit's workbook is derived from. */
@@ -29,7 +29,7 @@ export function sourceNotebookUri(
 ): vscode.Uri {
   return vscode.Uri.joinPath(
     courseRootUri(course),
-    requireSourceNotebookRel(course, unit),
+    requireSourceNotebookRelativePath(course, unit),
   );
 }
 
@@ -45,21 +45,21 @@ export function workbookUri(
   course: CatalogCourse,
   unit: CatalogUnit,
 ): vscode.Uri {
-  const rel = requireSourceNotebookRel(course, unit);
+  const rel = requireSourceNotebookRelativePath(course, unit);
   return vscode.Uri.joinPath(
     courseRootUri(course),
     rel.replace(/\.ipynb$/i, WORKBOOK_SUFFIX),
   );
 }
 
-function requireSourceNotebookRel(
+function requireSourceNotebookRelativePath(
   course: CatalogCourse,
   unit: CatalogUnit,
 ): string {
-  if (!unit.sourceNotebookRel) {
+  if (!unit.sourceNotebookRelativePath) {
     throw new Error(
       `Unit "${unit.id}" in course "${course.id}" has no notebook.`,
     );
   }
-  return unit.sourceNotebookRel;
+  return unit.sourceNotebookRelativePath;
 }
