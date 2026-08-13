@@ -23,6 +23,7 @@ NOTEBOOKS = {
     "03": "02-active-space/active_space.ipynb",
     "04": "03-map-to-qubits/map_to_qubits.ipynb",
     "05": "04-trial-state/trial_state.ipynb",
+    "06": "05-iterative-phase-estimation/iterative_phase_estimation.ipynb",
 }
 NOTEBOOK = COURSE / NOTEBOOKS[sys.argv[1] if len(sys.argv) > 1 else "03"]
 # Defaults to the interpreter running this script, so no kernel needs registering.

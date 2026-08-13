@@ -33,6 +33,11 @@
       "id": "trial-state",
       "title": "Preparing the Trial State",
       "dir": "04-trial-state"
+    },
+    {
+      "id": "iterative-phase-estimation",
+      "title": "Iterative Quantum Phase Estimation",
+      "dir": "05-iterative-phase-estimation"
     }
   ],
   "environment": {

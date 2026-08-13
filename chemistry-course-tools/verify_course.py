@@ -1,15 +1,22 @@
-"""Check every unit in the course loads, validates, and carries what the tree needs."""
+"""Check every unit in the course loads, validates, and carries what the tree needs.
+
+Usage:  python verify_course.py [course-directory]
+"""
 
 import json
+import sys
 from pathlib import Path
 
 import nbformat
 
-COURSE = (
+DEFAULT_COURSE = (
     Path(__file__).resolve().parent.parent
     / "source/vscode/test/suites/learning/test-workspace"
     / "qdk-learning/courses/chemistry-active-space"
 )
+COURSE = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_COURSE
+if not (COURSE / "course.json").is_file():
+    sys.exit(f"no course.json under {COURSE}")
 
 manifest = json.loads((COURSE / "course.json").read_text())
 print(f"{manifest['title']}  ({len(manifest['units'])} units)")

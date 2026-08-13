@@ -295,6 +295,7 @@ RECIPES = {
                 "cells": [
                     (
                         "md",
+                        "### Pauli term preview\n\n"
                         "The chapter prints its Pauli preview from a helper that sits outside its "
                         "excerpts. The two functions above are that helper; this cell is the "
                         "preview the chapter describes.",
@@ -313,6 +314,7 @@ RECIPES = {
                 "cells": [
                     (
                         "md",
+                        "### Recording the results\n\n"
                         "The quantities the chapter asks you to record come from a reporting "
                         "function outside its excerpts, so they are printed here from the values "
                         "the cells above computed.",
@@ -430,6 +432,7 @@ RECIPES = {
                     ),
                     (
                         "md",
+                        "### Choosing the determinant count\n\n"
                         "The two excerpts that follow are one pass of the script's loop over one, "
                         "two, and four determinants. Fix the count here so they can run as "
                         "ordinary cells.",
@@ -442,6 +445,7 @@ RECIPES = {
                 "cells": [
                     (
                         "md",
+                        "### Circuit cost\n\n"
                         "The chapter reports the circuit cost from a printing function that sits "
                         "outside its excerpts, so the numbers it discusses are shown here.",
                     ),
@@ -502,13 +506,148 @@ RECIPES = {
             }
         ],
     },
+    "06": {
+        "rst": "06_iterative_phase_estimation.rst.txt",
+        "py": "tutorial_run_iqpe.py",
+        "unit_dir": "05-iterative-phase-estimation",
+        "notebook": "iterative_phase_estimation.ipynb",
+        "skip_sections": ["Example download"],
+        # Every marked region here only defines a function, so the pieces that
+        # actually run the calculation are imported from the shipped scripts.
+        "pre_code": "from tutorial_prepare_trial_state import circuit_statistics\n"
+        "from tutorial_run_iqpe import (\n"
+        "    prepare_iqpe_problem,\n"
+        "    print_iqpe_results,\n"
+        "    run_iqpe_workflow,\n"
+        ")",
+        # The chapter sends the reader to a separate notebook for the circuit
+        # viewer and to a terminal for the run; both happen in cells here.
+        "drop_blocks": [
+            "Before running the simulator, open",
+            "Record the evidence you used in the Jupyter notebook",
+            "run the script from the Visual Studio Code integrated terminal",
+            "python tutorial_run_iqpe.py",
+        ],
+        "rewrites": [
+            (
+                "## IQPE circuit visualization",
+                "## IQPE circuit visualization\n\nThe cells below build the six "
+                "iteration circuits and render the shortest one. No quantum "
+                "simulation runs here.",
+            ),
+            (
+                "## The complete workflow",
+                "## The complete workflow\n\nThe cell below runs the complete "
+                "workflow. It is the long step in this chapter and reports progress "
+                "after each complete run.",
+            ),
+        ],
+        "extra_regions": [],
+        "inserts": [
+            {
+                "section": "IQPE circuit visualization",
+                "cells": [
+                    (
+                        "code",
+                        "import json\n\n"
+                        "from IPython.display import Markdown, display\n"
+                        "from qdk.widgets import Circuit\n\n"
+                        "problem = prepare_iqpe_problem()\n\n"
+                        "circuit_powers = [32, 16, 8, 4, 2, 1]\n\n"
+                        "circuit_rows = [\n"
+                        "    (power, *circuit_statistics(circuit)[:2])\n"
+                        "    for power, circuit in zip(\n"
+                        "        circuit_powers, problem.iteration_circuits, strict=True\n"
+                        "    )\n"
+                        "]\n\n"
+                        "table_rows = [\n"
+                        '    "| Controlled power | Logical qubits | Decomposed logical gates |",\n'
+                        '    "|---:|---:|---:|",\n'
+                        "]\n\n"
+                        "for power, qubits, gates in circuit_rows:\n"
+                        '    table_rows.append(f"| {power} | {qubits} | {gates:,} |")\n\n'
+                        'display(Markdown("\\n".join(table_rows)))\n\n'
+                        "shortest_circuit = problem.iteration_circuits[-1]\n"
+                        "num_qubits, num_gates, gate_counts = circuit_statistics(shortest_circuit)\n",
+                    ),
+                    (
+                        "md",
+                        "## Register roles\n\n"
+                        "The circuit viewer numbers wires from top to bottom:\n\n"
+                        "- **q0** is the readout ancilla. Its H gates, feedback rotation, "
+                        "controlled evolution, and measurement extract one phase bit.\n"
+                        "- **q1 to q12** are the compute register. They hold the encoded "
+                        "molecular trial state and receive the controlled Hamiltonian "
+                        "evolution.\n\n"
+                        "The readout ancilla is algorithm workspace; it is not a thirteenth "
+                        "molecular spin orbital.",
+                    ),
+                    (
+                        "md",
+                        "## Render the shortest circuit\n\n"
+                        "The complete decomposed circuit is long because it contains one state "
+                        "preparation and one controlled first-order Trotter sequence for a "
+                        "247-term Hamiltonian. Use the viewer's pan and zoom controls to inspect "
+                        "the ancilla operations and the controlled gates connecting q0 to the "
+                        "compute register.",
+                    ),
+                    ("code", "display(Circuit(shortest_circuit.get_qsharp_circuit()))\n"),
+                ],
+            },
+            {
+                "section": "The complete workflow",
+                "cells": [
+                    (
+                        "code",
+                        "iqpe_result = run_iqpe_workflow()\n"
+                        "print_iqpe_results(iqpe_result)\n",
+                    ),
+                ],
+            },
+        ],
+        "exercises": [
+            {
+                "section": "Molecular energy reconstruction",
+                "prompt": "## Read a phase off the grid\n\n"
+                "Each complete run returns a six-bit string. That string is the binary "
+                "representation of a grid index $k$, and the estimated phase is "
+                "$\\varphi_k = k / 2^{6}$.\n\n"
+                "Complete `measured_phase` so it converts the measured bitstring into "
+                "its phase fraction.",
+                "code": "from _unit import exercise\n\n"
+                'measured_bitstring = "010000"\n\n\n'
+                "@exercise\n"
+                "def measured_phase():\n"
+                "    return 0.0\n",
+                "hint": "`int(measured_bitstring, 2)` reads a binary string as an integer. The "
+                "grid has $2^{n}$ points for `n` bits, and `len(measured_bitstring)` gives "
+                "you `n`.",
+                "solution": "```python\n@exercise\ndef measured_phase():\n"
+                "    return int(measured_bitstring, 2) / 2 ** len(measured_bitstring)\n```\n\n"
+                "The selected grid point `010000` is $k=16$, so $\\varphi = 16/64 = 0.25$.",
+            }
+        ],
+    },
 }
 
-QUIZ_OPEN = (
-    '<div style="border-left:4px solid var(--vscode-textLink-foreground, #5aa9e6);'
-    "background:var(--vscode-textBlockQuote-background, rgba(90,169,230,0.10));"
-    'padding:0.2em 1em;margin:1em 0;border-radius:4px;">'
-)
+# Accent colours match the published tutorial's callout styling. Bodies use an
+# alpha tint so they stay readable over both light and dark editor themes.
+ADMONITION_ACCENTS = {
+    "chapter-focus": "#6d3f8c",
+    "lab-notebook-assignment": "#005a8d",
+}
+QUIZ_ACCENT = "#8c4a00"
+
+
+def callout(title, body, accent, icon=""):
+    return (
+        f'<div style="border-left:4px solid {accent};background:{accent}1a;'
+        'border-radius:4px;margin:1em 0;">'
+        f'<div style="background:{accent};color:#ffffff;padding:0.35em 0.8em;'
+        'font-weight:600;">'
+        f"{icon}{title}</div>\n\n"
+        f'<div style="padding:0.1em 1em;">\n\n{body}\n\n</div>\n\n</div>'
+    )
 
 # ─── Inline markup ───
 
@@ -567,21 +706,22 @@ def inline(text):
 # ─── Block parsing ───
 
 UNDERLINE = re.compile(r"^([#=\-~^\"'+*])\1{2,}\s*$")
-DIRECTIVE = re.compile(r"^\.\. ([a-z-]+):: ?(.*)$")
+DIRECTIVE = re.compile(r"^([ \t]*)\.\. ([a-z-]+):: ?(.*)$")
 ANCHOR = re.compile(r"^\.\. _[\w-]+:\s*$")
 
 
-def _body(lines, start):
+def _body(lines, start, indent=0):
     """Collect the indented body of a directive starting after line `start`."""
     options, body, i = {}, [], start
+    pad = " " * (indent + 3)
     while i < len(lines) and re.match(r"^\s+:[\w-]+:", lines[i]):
         key, _, value = lines[i].strip().lstrip(":").partition(":")
         options[key.strip()] = value.strip()
         i += 1
     while i < len(lines) and not lines[i].strip():
         i += 1
-    while i < len(lines) and (not lines[i].strip() or lines[i].startswith("   ")):
-        body.append(lines[i][3:] if lines[i].startswith("   ") else "")
+    while i < len(lines) and (not lines[i].strip() or lines[i].startswith(pad)):
+        body.append(lines[i][len(pad):] if lines[i].startswith(pad) else "")
         i += 1
     while body and not body[-1].strip():
         body.pop()
@@ -602,8 +742,8 @@ def parse(text):
             continue
         directive = DIRECTIVE.match(line)
         if directive:
-            name, argument = directive.group(1), directive.group(2)
-            options, body, i = _body(lines, i + 1)
+            indent, name, argument = directive.group(1), directive.group(2), directive.group(3)
+            options, body, i = _body(lines, i + 1, len(indent.expandtabs()))
             blocks.append(("directive", name, argument, options, body))
             continue
         if line.strip():
@@ -723,7 +863,45 @@ def render_directive(name, argument, options, body):
         return f"```{argument or 'text'}\n" + "\n".join(body).strip() + "\n```"
     if name == "admonition":
         title = inline(argument)
+        accent = ADMONITION_ACCENTS.get(options.get("class", ""))
+        if accent:
+            return callout(title, text.strip(), accent)
         return f"**{title}**\n\n" + "\n".join("> " + ln if ln else ">" for ln in text.splitlines())
+    if name == "toctree":
+        return ""
+    if name == "list-table":
+        rows, current = [], None
+        for ln in body:
+            stripped = ln.strip()
+            if stripped.startswith("* -"):
+                if current:
+                    rows.append(current)
+                current = [stripped[3:].strip()]
+            elif stripped.startswith("-") and current is not None:
+                current.append(stripped[1:].strip())
+            elif stripped and current:
+                current[-1] = (current[-1] + " " + stripped).strip()
+        if current:
+            rows.append(current)
+        if not rows:
+            return text
+        width = max(len(r) for r in rows)
+        rows = [r + [""] * (width - len(r)) for r in rows]
+        headed = bool(options.get("header-rows"))
+        head = rows[0] if headed else [""] * width
+        rest = rows[1:] if headed else rows
+        out = ["| " + " | ".join(inline(c) for c in head) + " |", "|" + "---|" * width]
+        out += ["| " + " | ".join(inline(c) for c in r) + " |" for r in rest]
+        caption = inline(argument).strip()
+        table = "\n".join(out)
+        block = f"{table}\n\n*{caption}*" if caption else table
+        if options.get("align") == "center":
+            # A flex column centres the table itself, which text-align cannot do.
+            return (
+                '<div style="display:flex;flex-direction:column;align-items:center;">'
+                f"\n\n{block}\n\n</div>"
+            )
+        return block
     if name in ("figure", "image", "graphviz"):
         filename = Path(argument.strip()).name
         if name == "graphviz":
@@ -731,16 +909,76 @@ def render_directive(name, argument, options, body):
         alt = inline(options.get("alt", "")).strip() or filename
         image = f"![{alt}](attachment:{filename})"
         caption = inline(options["caption"]).strip() if "caption" in options else text.strip()
-        return f"{image}\n\n*{caption}*" if caption else image
+        centred = f"{image}\n\n*{caption}*" if caption else image
+        return f'<div style="text-align:center;">\n\n{centred}\n\n</div>'
     return text
 
 
 def quiz(question, body):
+    answer = "\n".join(inline(ln) for ln in body).strip()
     return (
-        f"{QUIZ_OPEN}\n<details>\n<summary>&#10067;&nbsp; <b>{inline(question)}</b></summary>\n\n"
-        + "\n".join(inline(ln) for ln in body).strip()
-        + "\n\n</details>\n</div>"
+        f'<div style="border-left:4px solid {QUIZ_ACCENT};background:{QUIZ_ACCENT}1a;'
+        'border-radius:4px;margin:1em 0;">'
+        "<details>"
+        f'<summary style="background:{QUIZ_ACCENT};color:#ffffff;padding:0.35em 0.8em;'
+        'cursor:pointer;font-weight:600;">'
+        f"&#10067;&nbsp;{inline(question)}</summary>\n\n"
+        f'<div style="padding:0.1em 1em;">\n\n{answer}\n\n</div>\n\n'
+        "</details></div>"
     )
+
+
+AUTHORING_TAGS = {"hint", "solution", "exercise"}
+
+
+def merge_markdown_runs(cells):
+    """Collapse each section's prose, figures and quizzes into one markdown cell so the
+    heading stays next to the code that follows it. Section starts break the run."""
+    merged = []
+    for cell in cells:
+        previous = merged[-1] if merged else None
+        tags = set(cell["metadata"].get("tags", []))
+        previous_tags = set(previous["metadata"].get("tags", [])) if previous else set()
+        if (
+            previous is not None
+            and previous["cell_type"] == "markdown"
+            and cell["cell_type"] == "markdown"
+            and not any(t.startswith("section") for t in tags)
+            and not (tags & AUTHORING_TAGS)
+            and not (previous_tags & AUTHORING_TAGS)
+        ):
+            previous["source"] = (
+                previous["source"].rstrip("\n") + "\n\n" + cell["source"].lstrip("\n")
+            )
+            attachments = {**previous.get("attachments", {}), **cell.get("attachments", {})}
+            if attachments:
+                previous["attachments"] = attachments
+            continue
+        merged.append(cell)
+    return merged
+
+
+def merge_code_runs(cells):
+    """The progress tree names a code cell after the heading above it, so a run of
+    adjacent code cells would repeat one name. Join each run into a single cell."""
+    merged = []
+    for cell in cells:
+        previous = merged[-1] if merged else None
+        if (
+            previous is not None
+            and previous["cell_type"] == "code"
+            and cell["cell_type"] == "code"
+            and not previous["metadata"].get("tags")
+            and not cell["metadata"].get("tags")
+            and not previous.get("outputs")
+            and not cell.get("outputs")
+        ):
+            body = previous["source"].rstrip("\n") + "\n\n" + cell["source"].lstrip("\n")
+            previous["source"] = body
+            previous["id"] = "c-" + hashlib.sha256(body.encode()).hexdigest()[:12]
+            continue
+        merged.append(cell)
+    return merged
 
 
 def convert(key):
@@ -815,17 +1053,6 @@ def convert(key):
             else:
                 print(f"WARNING missing include {included}")
             continue
-        if name == "include":
-            included = DOCS / argument.strip().lstrip("/")
-            if included.exists():
-                for sub in parse(included.read_text(encoding="utf-8")):
-                    if sub[0] == "directive":
-                        buffer.append(rewrite(render_directive(sub[1], sub[2], sub[3], sub[4])))
-                    elif sub[0] == "prose":
-                        buffer.append(rewrite(render_prose(sub)))
-            else:
-                print(f"WARNING missing include {included}")
-            continue
         if name in ("figure", "image", "graphviz"):
             picture = DOCS / argument.strip().lstrip("/")
             if name == "graphviz":
@@ -842,7 +1069,7 @@ def convert(key):
             buffer.append(rewrite(text))
     flush()
 
-    setup = [] if not py_text else [
+    before_you_begin = [
         (
             "Before you begin",
             md(
@@ -854,6 +1081,8 @@ def convert(key):
             ),
         ),
         ("Before you begin", code("from _unit import check_env\n\ncheck_env()")),
+    ]
+    setup = before_you_begin if not py_text else before_you_begin + [
         (
             "Setting up",
             md(
@@ -896,6 +1125,8 @@ def convert(key):
             ],
         )
 
+    cells = merge_markdown_runs(cells)
+    cells = merge_code_runs(cells)
     out = COURSE / recipe["unit_dir"] / recipe["notebook"]
     out.parent.mkdir(parents=True, exist_ok=True)
     notebook = {
