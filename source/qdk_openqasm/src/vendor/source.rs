@@ -43,7 +43,7 @@ impl SourceMap {
         // Each source has a name, which is a string. The project root dir is calculated as the
         // common prefix of all of the sources.
         // Calculate the common prefix.
-        let common_prefix: String = longest_common_prefix(
+        let common_prefix: String = longest_common_folder_prefix(
             &offset_sources
                 .iter()
                 .map(|source| source.name.as_ref())
@@ -165,7 +165,7 @@ pub type SourceContents = Arc<str>;
 /// because returned slices end only after an ASCII path separator or at the end
 /// of the first source name.
 #[must_use]
-pub fn longest_common_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
+pub fn longest_common_folder_prefix<'a>(strs: &'a [&'a str]) -> &'a str {
     // The fold below has nothing to disagree with a lone name, so it would hand
     // back that whole name, file component included, instead of a prefix.
     if strs.len() == 1 {

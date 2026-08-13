@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::sync::Arc;
+use std::{path::Path, sync::Arc};
 
 use crate::io::InMemorySourceResolver;
 use crate::io::SourceResolver;
@@ -10,7 +10,7 @@ use crate::tests::assert_panics_with;
 
 use super::ast::StmtKind;
 use super::parse_source;
-use super::{ParseResult, SourceStatus};
+use super::{ParseResult, SourceStatus, logical_path};
 use miette::Report;
 
 use super::prim::FinalSep;
@@ -401,6 +401,14 @@ include "uri.inc";"#;
             .resolve("https://example.test/uri.inc")
             .map(|file| file.id),
         Some(files[2].id)
+    );
+}
+
+#[test]
+fn logical_paths_use_forward_slashes() {
+    assert_eq!(
+        logical_path(Path::new(r"root\nested\file.inc")),
+        "root/nested/file.inc"
     );
 }
 

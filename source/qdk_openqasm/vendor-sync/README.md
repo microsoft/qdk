@@ -55,9 +55,9 @@ internal:
   published, because nothing here has a package to qualify a span with and the
   type would invite a meaning it does not have.
 - `qdk_openqasm::source` publishes `Source`, `SourceContents`, `SourceMap`,
-  `SourceName`, and `longest_common_prefix` from the vendored file. The rest of
-  that module is the crate's own: the `line_column` coordinate types have no
-  vendored origin and nothing here governs them.
+  `SourceName`, and `longest_common_folder_prefix` from the vendored file. The
+  rest of that module is the crate's own: the `line_column` coordinate types have
+  no vendored origin and nothing here governs them.
 - `qdk_openqasm::error::SourceSnapshotSourceCode` comes from the forked `error`
   module.
 

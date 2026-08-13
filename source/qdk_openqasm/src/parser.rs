@@ -413,6 +413,12 @@ fn resolve_path(base: &Path, path: &Path) -> miette::Result<PathBuf> {
     Ok(normalized)
 }
 
+/// Converts a platform-native path into a logical source resolver path.
+/// Logical paths always use forward slashes so resolver keys are portable.
+fn logical_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 /// Parse a QASM file and return the parse result using the provided resolver.
 /// Returns `Err` if the resolver cannot resolve the file.
 /// Returns `Ok` otherwise. Any parse errors will be included in the result.
@@ -434,7 +440,7 @@ where
         let target_path = Path::new(path.as_ref());
 
         match resolve_path(parent_dir, target_path) {
-            Ok(resolved_path) => Arc::from(resolved_path.display().to_string()),
+            Ok(resolved_path) => Arc::from(logical_path(&resolved_path)),
             Err(_) => path.clone(),
         }
     } else {

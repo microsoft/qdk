@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::{SourceMap, longest_common_prefix};
+use super::{SourceMap, longest_common_folder_prefix};
 
 #[test]
 fn longest_common_prefix_preserves_separator_behavior() {
@@ -30,7 +30,7 @@ fn longest_common_prefix_preserves_separator_behavior() {
     ];
 
     for (sources, expected) in cases {
-        assert_eq!(longest_common_prefix(sources), expected);
+        assert_eq!(longest_common_folder_prefix(sources), expected);
     }
 }
 
@@ -52,7 +52,7 @@ fn longest_common_prefix_truncates_at_the_last_separator_of_either_kind() {
     ];
 
     for (sources, expected) in cases {
-        assert_eq!(longest_common_prefix(sources), expected);
+        assert_eq!(longest_common_folder_prefix(sources), expected);
     }
 }
 
@@ -69,7 +69,7 @@ fn longest_common_prefix_handles_multibyte_boundaries() {
     ];
 
     for (sources, expected) in cases {
-        assert_eq!(longest_common_prefix(sources), expected);
+        assert_eq!(longest_common_folder_prefix(sources), expected);
     }
 }
 

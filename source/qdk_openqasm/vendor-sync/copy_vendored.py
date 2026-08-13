@@ -43,7 +43,7 @@ def select(pairs: list[dict], name: str | None) -> list[dict]:
             f"{name} is a fork, not a copy, so there is nothing to copy from the "
             f"origin: {pair['divergence']}\n"
             "Port the origin's change by hand, then re-pin with "
-            "`check_vendor_sync.py --update`."
+            "`python3 source/qdk_openqasm/vendor-sync/check_vendor_sync.py --update`."
         )
     return [pair]
 
