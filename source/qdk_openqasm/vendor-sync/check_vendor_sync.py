@@ -20,7 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = Path(__file__).resolve().parent / "manifest.json"
-REGENERATE = "source/qdk_openqasm/vendor-sync/copy_vendored.py"
+REGENERATE = "python3 source/qdk_openqasm/vendor-sync/copy_vendored.py"
 
 
 def sha256(path: Path) -> str:
@@ -79,7 +79,7 @@ def check_fork(pair: dict) -> str | None:
         f"    this file is a deliberate fork, so nothing is copied automatically: "
         f"{pair['divergence']}\n"
         "    read the origin's change, port it by hand if it applies, then re-pin "
-        "with `check_vendor_sync.py --update`"
+        "with `python3 source/qdk_openqasm/vendor-sync/check_vendor_sync.py --update`"
     )
 
 
