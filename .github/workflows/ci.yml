@@ -146,7 +146,7 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
-        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk
+        run: python ./build.py --no-check --wasm --npm --vscode --play --widgets --jupyterlab --qdk
 
   unit-tests:
     name: Rust Unit tests
@@ -218,7 +218,7 @@ jobs:
           Run integration tests
           # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
           # which requires a display to run
-        run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
+        run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --widgets --qdk --integration-tests
 
   status-check:
     name: Status Check
