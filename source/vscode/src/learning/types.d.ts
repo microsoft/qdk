@@ -310,7 +310,7 @@ export interface CatalogCourse {
   kind: CourseKind;
   units: CatalogUnit[];
   /**
-   * URI string of the folder the course was loaded from (drop-in courses
+   * URI string of the folder the course was loaded from (notebook courses
    * only). Used to locate notebooks and other assets for materialization.
    */
   sourceDir?: string;

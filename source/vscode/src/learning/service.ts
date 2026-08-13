@@ -935,7 +935,7 @@ export class LearningService {
 
     const exercise = this.resolveExercise();
     const userCode = await this.readUserCode();
-    // Drop-in courses carry their own verification sources inline; the
+    // Notebook courses carry their own verification sources inline; the
     // built-in katas resolve them from the bundled content by `sourceIds`.
     const exerciseSources = await getExerciseSources(
       // CatalogExercise is structurally incompatible with Exercise (different

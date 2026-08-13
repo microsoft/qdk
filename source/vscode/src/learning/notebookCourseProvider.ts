@@ -48,8 +48,8 @@ interface CourseLocation {
 }
 
 /**
- * Loads "drop-in" courses authored as folders on disk. A course is a
- * folder containing a `course.json` manifest plus per-unit subfolders.
+ * Loads Python notebook courses authored as folders on disk. A course is
+ * a folder containing a `course.json` manifest plus per-unit subfolders.
  * Each unit is a Python notebook (`*.ipynb`) whose exercise metadata is
  * marked up with cell tags.
  *
@@ -57,8 +57,8 @@ interface CourseLocation {
  * workspace. Malformed courses are skipped with a warning rather than
  * failing the whole load.
  */
-export class DropInCourseProvider implements CourseProvider {
-  readonly id = "drop-in-provider";
+export class NotebookCourseProvider implements CourseProvider {
+  readonly id = "notebook-provider";
 
   constructor(private readonly workspaceRoot: vscode.Uri) {}
 
@@ -72,7 +72,7 @@ export class DropInCourseProvider implements CourseProvider {
       }
       if (seen.has(course.id)) {
         log.warn(
-          `Duplicate drop-in course id "${course.id}" ignored at ${loc.dir.toString()}`,
+          `Duplicate notebook course id "${course.id}" ignored at ${loc.dir.toString()}`,
         );
         continue;
       }
@@ -126,7 +126,7 @@ export class DropInCourseProvider implements CourseProvider {
         manifestString(parsed.title) === undefined
       ) {
         log.warn(
-          `Ignoring drop-in course at ${dir.toString()}: "id" and "title" are required.`,
+          `Ignoring notebook course at ${dir.toString()}: "id" and "title" are required.`,
         );
         return undefined;
       }

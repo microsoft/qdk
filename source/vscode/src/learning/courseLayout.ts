@@ -9,7 +9,7 @@ import type { CatalogCourse, CatalogUnit } from "./types.js";
 // content that ships with the course; `workbookUri` is the learner's
 // editable copy, which exists only once the course has been materialized.
 
-/** Root folder a course was loaded from. Drop-in courses only. */
+/** Root folder a course was loaded from. Notebook courses only. */
 export function courseRootUri(course: CatalogCourse): vscode.Uri {
   if (!course.sourceDir) {
     throw new Error(`Course "${course.id}" has no source folder.`);

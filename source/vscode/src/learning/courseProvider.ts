@@ -3,7 +3,7 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
-import { DropInCourseProvider } from "./dropInCourseProvider.js";
+import { NotebookCourseProvider } from "./notebookCourseProvider.js";
 import { KatasProvider } from "./katasProvider.js";
 import type { CatalogCourse, CourseDescriptor } from "./types.js";
 
@@ -81,7 +81,7 @@ export function createCourseProvider(
 ): CompositeCourseProvider {
   return new CompositeCourseProvider([
     new KatasProvider(),
-    new DropInCourseProvider(workspaceRoot),
+    new NotebookCourseProvider(workspaceRoot),
   ]);
 }
 
