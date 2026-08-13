@@ -172,7 +172,8 @@ pub const CONDITIONALBRANCHING_EXPECT_DEBUG: Expect = expect![[r#"
 pub const CONDITIONALBRANCHING_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 0"];
 pub const CONDITIONALBRANCHING_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 960"];
-pub const CONDITIONALBRANCHING_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1035"];
+pub const CONDITIONALBRANCHING_EXPECT_QIR_ADAPTIVE: Expect =
+    expect!["generated QIR of length 1035"];
 pub const COPYANDUPDATEOPERATOR_EXPECT: Expect = expect![[r#"
     Updated array: [10, 11, 100, 13]
     Updated array: [10, 100, 12, 200]
