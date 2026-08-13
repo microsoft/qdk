@@ -68,6 +68,15 @@ impl PackageAssigners {
         Self { map }
     }
 
+    /// Seeds assigners for every package from its current ID watermarks.
+    pub(crate) fn seed_all(&mut self, store: &PackageStore) {
+        for (package_id, package) in store {
+            self.map
+                .entry(package_id)
+                .or_insert_with(|| Assigner::from_package(package));
+        }
+    }
+
     /// Returns a mutable reference to the assigner for `package_id`, lazily
     /// seeding it from the package's current id watermark when absent.
     ///

@@ -1,0 +1,1017 @@
+// Copyright (c) Microsoft Corporation.
+// Licensed under the MIT License.
+
+//! The second lexing phase "cooks" a raw token stream, transforming them into tokens that directly
+//! correspond to components in the `OpenQASM` grammar. Keywords are treated as identifiers, except `and`
+//! and `or`, which are cooked into [`BinaryOperator`] so that `and=` and `or=` are lexed correctly.
+//!
+//! Whitespace and comment tokens are discarded; this means that cooked tokens are not necessarily
+//! contiguous, so they include both a starting and ending byte offset.
+//!
+//! Tokens never contain substrings from the original input, but are simply labels that refer back
+//! to regions in the input. Lexing never fails, but may produce error tokens.
+
+#[cfg(test)]
+mod tests;
+
+use super::{
+    Delim, Radix,
+    raw::{self, Number, Single, is_identifier_continue, is_identifier_start},
+};
+use crate::keyword::Keyword;
+use crate::span::Span;
+use enum_iterator::Sequence;
+use miette::Diagnostic;
+use std::{
+    collections::VecDeque,
+    fmt::{self, Display, Formatter},
+    iter::Peekable,
+    str::FromStr,
+};
+use thiserror::Error;
+
+const MAX_PENDING_DIRECTIVE_TOKENS: usize = 2;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct Token {
+    pub(crate) kind: TokenKind,
+    pub(crate) span: Span,
+}
+
+#[derive(Clone, Copy, Debug, Diagnostic, Eq, Error, PartialEq)]
+pub enum Error {
+    #[error("expected {0} to complete {1}, found {2}")]
+    #[diagnostic(code("Qdk.Qasm.Lex.Incomplete"))]
+    Incomplete(raw::TokenKind, TokenKind, raw::TokenKind, #[label] Span),
+
+    #[error("expected {0} to complete {1}, found EOF")]
+    #[diagnostic(code("Qdk.Qasm.Lex.IncompleteEof"))]
+    IncompleteEof(raw::TokenKind, TokenKind, #[label] Span),
+
+    #[error("unterminated string literal")]
+    #[diagnostic(code("Qdk.Qasm.Lex.UnterminatedString"))]
+    UnterminatedString(#[label] Span),
+
+    #[error("unterminated block comment")]
+    #[diagnostic(code("Qdk.Qasm.Lex.UnterminatedBlockComment"))]
+    UnterminatedBlockComment(#[label] Span),
+
+    #[error("invalid string literal")]
+    #[diagnostic(code("Qdk.Qasm.Lex.InvalidStringLiteral"))]
+    InvalidStringLiteral(#[label] Span),
+
+    #[error("string literal with an invalid escape sequence")]
+    #[diagnostic(code("Qdk.Qasm.Lex.InvalidEscapeSequence"))]
+    InvalidEscapeSequence(#[label] Span),
+
+    #[error("unrecognized character `{0}`")]
+    #[diagnostic(code("Qdk.Qasm.Lex.UnknownChar"))]
+    Unknown(char, #[label] Span),
+}
+
+impl Error {
+    pub(crate) fn with_offset(self, offset: u32) -> Self {
+        match self {
+            Self::Incomplete(expected, token, actual, span) => {
+                Self::Incomplete(expected, token, actual, span + offset)
+            }
+            Self::IncompleteEof(expected, token, span) => {
+                Self::IncompleteEof(expected, token, span + offset)
+            }
+            Self::UnterminatedString(span) => Self::UnterminatedString(span + offset),
+            Self::UnterminatedBlockComment(span) => Self::UnterminatedBlockComment(span + offset),
+            Self::InvalidStringLiteral(span) => Self::InvalidStringLiteral(span + offset),
+            Self::InvalidEscapeSequence(span) => Self::InvalidEscapeSequence(span + offset),
+            Self::Unknown(c, span) => Self::Unknown(c, span + offset),
+        }
+    }
+}
+
+/// A token kind.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
+pub enum TokenKind {
+    /// `@` when it introduces an annotation.
+    Annotation,
+    /// `pragma` or `#pragma` when it introduces a pragma.
+    Pragma,
+    /// The opaque value following an annotation path.
+    DirectiveValue,
+    /// The complete opaque command following a pragma introducer.
+    DirectiveCommand,
+    /// The zero-width end of a physical-line directive.
+    DirectiveEnd,
+    Keyword(Keyword),
+    Type(Type),
+
+    // Builtin identifiers and operations
+    GPhase,
+    DurationOf,
+
+    Literal(Literal),
+
+    // Symbols
+    /// `{[(`
+    Open(Delim),
+    /// `}])`
+    Close(Delim),
+
+    // Punctuation
+    /// `:`
+    Colon,
+    /// `;`
+    Semicolon,
+    /// `.`
+    Dot,
+    /// `,`
+    Comma,
+    /// `++`
+    PlusPlus,
+    /// `->`
+    Arrow,
+    /// `@`
+    At,
+
+    // Operators,
+    ClosedBinOp(ClosedBinOp),
+    BinOpEq(ClosedBinOp),
+    ComparisonOp(ComparisonOp),
+    /// `=`
+    Eq,
+    /// `!`
+    Bang,
+    /// `~`
+    Tilde,
+
+    Identifier,
+    HardwareQubit,
+    /// End of file.
+    Eof,
+}
+
+impl Display for TokenKind {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        match self {
+            TokenKind::Annotation => write!(f, "annotation"),
+            TokenKind::Pragma => write!(f, "pragma"),
+            TokenKind::DirectiveValue => write!(f, "annotation value"),
+            TokenKind::DirectiveCommand => write!(f, "pragma command"),
+            TokenKind::DirectiveEnd => write!(f, "end of directive"),
+            TokenKind::Keyword(keyword) => write!(f, "keyword `{keyword}`"),
+            TokenKind::Type(type_) => write!(f, "keyword `{type_}`"),
+            TokenKind::GPhase => write!(f, "gphase"),
+            TokenKind::DurationOf => write!(f, "durationof"),
+            TokenKind::Literal(literal) => write!(f, "literal `{literal}`"),
+            TokenKind::Open(Delim::Brace) => write!(f, "`{{`"),
+            TokenKind::Open(Delim::Bracket) => write!(f, "`[`"),
+            TokenKind::Open(Delim::Paren) => write!(f, "`(`"),
+            TokenKind::Close(Delim::Brace) => write!(f, "`}}`"),
+            TokenKind::Close(Delim::Bracket) => write!(f, "`]`"),
+            TokenKind::Close(Delim::Paren) => write!(f, "`)`"),
+            TokenKind::Colon => write!(f, "`:`"),
+            TokenKind::Semicolon => write!(f, "`;`"),
+            TokenKind::Dot => write!(f, "`.`"),
+            TokenKind::Comma => write!(f, "`,`"),
+            TokenKind::PlusPlus => write!(f, "`++`"),
+            TokenKind::Arrow => write!(f, "`->`"),
+            TokenKind::At => write!(f, "`@`"),
+            TokenKind::ClosedBinOp(op) => write!(f, "`{op}`"),
+            TokenKind::BinOpEq(op) => write!(f, "`{op}=`"),
+            TokenKind::ComparisonOp(op) => write!(f, "`{op}`"),
+            TokenKind::Eq => write!(f, "`=`"),
+            TokenKind::Bang => write!(f, "`!`"),
+            TokenKind::Tilde => write!(f, "`~`"),
+            TokenKind::Identifier => write!(f, "identifier"),
+            TokenKind::HardwareQubit => write!(f, "hardware bit"),
+            TokenKind::Eof => f.write_str("EOF"),
+        }
+    }
+}
+
+impl From<Number> for TokenKind {
+    fn from(value: Number) -> Self {
+        match value {
+            Number::Float => Self::Literal(Literal::Float),
+            Number::Int(radix) => Self::Literal(Literal::Integer(radix)),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
+pub enum Type {
+    Input,
+    Output,
+    Const,
+    Readonly,
+    Mutable,
+
+    QReg,
+    Qubit,
+
+    CReg,
+    Bool,
+    Bit,
+    Int,
+    UInt,
+    Float,
+    Angle,
+    Complex,
+    Array,
+    Void,
+
+    Duration,
+    Stretch,
+}
+
+impl Display for Type {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Type::Input => "input",
+            Type::Output => "output",
+            Type::Const => "const",
+            Type::Readonly => "readonly",
+            Type::Mutable => "mutable",
+            Type::QReg => "qreg",
+            Type::Qubit => "qubit",
+            Type::CReg => "creg",
+            Type::Bool => "bool",
+            Type::Bit => "bit",
+            Type::Int => "int",
+            Type::UInt => "uint",
+            Type::Float => "float",
+            Type::Angle => "angle",
+            Type::Complex => "complex",
+            Type::Array => "array",
+            Type::Void => "void",
+            Type::Duration => "duration",
+            Type::Stretch => "stretch",
+        })
+    }
+}
+
+impl FromStr for Type {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "input" => Ok(Type::Input),
+            "output" => Ok(Type::Output),
+            "const" => Ok(Type::Const),
+            "readonly" => Ok(Type::Readonly),
+            "mutable" => Ok(Type::Mutable),
+            "qreg" => Ok(Type::QReg),
+            "qubit" => Ok(Type::Qubit),
+            "creg" => Ok(Type::CReg),
+            "bool" => Ok(Type::Bool),
+            "bit" => Ok(Type::Bit),
+            "int" => Ok(Type::Int),
+            "uint" => Ok(Type::UInt),
+            "float" => Ok(Type::Float),
+            "angle" => Ok(Type::Angle),
+            "complex" => Ok(Type::Complex),
+            "array" => Ok(Type::Array),
+            "void" => Ok(Type::Void),
+            "duration" => Ok(Type::Duration),
+            "stretch" => Ok(Type::Stretch),
+            _ => Err(()),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
+pub enum Literal {
+    Bitstring,
+    Float,
+    Imaginary,
+    Integer(Radix),
+    String,
+    Timing(TimingLiteralKind),
+}
+
+impl Display for Literal {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Literal::Bitstring => "bitstring",
+            Literal::Float => "float",
+            Literal::Imaginary => "imaginary",
+            Literal::Integer(_) => "integer",
+            Literal::String => "string",
+            Literal::Timing(_) => "timing",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
+pub enum TimingLiteralKind {
+    /// Timing literal: Backend-dependent unit.
+    /// Equivalent to the duration of one waveform sample on the backend.
+    Dt,
+    /// Timing literal: Nanoseconds.
+    Ns,
+    /// Timing literal: Microseconds.
+    Us,
+    /// Timing literal: Milliseconds.
+    Ms,
+    /// Timing literal: Seconds.
+    S,
+}
+
+/// A binary operator that returns the same type as the type of its first operand; in other words,
+/// the domain of the first operand is closed under this operation. These are candidates for
+/// compound assignment operators, like `+=`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
+pub enum ClosedBinOp {
+    /// `&`
+    Amp,
+    /// `&&`
+    AmpAmp,
+    /// `|`
+    Bar,
+    /// `||`
+    BarBar,
+    /// `^`
+    Caret,
+    /// `>>`
+    GtGt,
+    /// `<<`
+    LtLt,
+    /// `-`
+    Minus,
+    /// `%`
+    Percent,
+    /// `+`
+    Plus,
+    /// `/`
+    Slash,
+    /// `*`
+    Star,
+    /// `**`
+    StarStar,
+    // Note: Missing Tilde according to qasm3Lexer.g4 to be able to express ~=
+    //       But this is this a bug in the official qasm lexer?
+}
+
+impl Display for ClosedBinOp {
+    fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+        f.write_str(match self {
+            ClosedBinOp::Amp => "&",
+            ClosedBinOp::AmpAmp => "&&",
+            ClosedBinOp::Bar => "|",
+            ClosedBinOp::BarBar => "||",
+            ClosedBinOp::Caret => "^",
+            ClosedBinOp::GtGt => ">>",
+            ClosedBinOp::LtLt => "<<",
+            ClosedBinOp::Minus => "-",
+            ClosedBinOp::Percent => "%",
+            ClosedBinOp::Plus => "+",
+            ClosedBinOp::Slash => "/",
+            ClosedBinOp::Star => "*",
+            ClosedBinOp::StarStar => "**",
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
+pub enum ComparisonOp {
+    /// `!=`
+    BangEq,
+    /// `==`
+    EqEq,
+    /// `>`
+    Gt,
+    /// `>=`
+    GtEq,
+    /// `<`
+    Lt,
+    /// `<=`
+    LtEq,
+}
+
+impl Display for ComparisonOp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            ComparisonOp::BangEq => "!=",
+            ComparisonOp::EqEq => "==",
+            ComparisonOp::Gt => ">",
+            ComparisonOp::GtEq => ">=",
+            ComparisonOp::Lt => "<",
+            ComparisonOp::LtEq => "<=",
+        })
+    }
+}
+
+pub(crate) struct Lexer<'a> {
+    input: &'a str,
+    len: u32,
+
+    // This uses a `Peekable` iterator over the raw lexer, which allows for one token lookahead.
+    tokens: Peekable<raw::Lexer<'a>>,
+
+    directive: Option<DirectiveMode>,
+    pending: VecDeque<Token>,
+
+    /// This flag is used to detect annotations at the
+    /// beginning of a file. Normally annotations are
+    /// detected because there is a Newline followed by an `@`,
+    /// but there is no newline at the beginning of a file.
+    beginning_of_file: bool,
+}
+
+impl<'a> Lexer<'a> {
+    pub(crate) fn new(input: &'a str) -> Self {
+        Self {
+            input,
+            len: input
+                .len()
+                .try_into()
+                .expect("input length should fit into u32"),
+            tokens: raw::Lexer::new(input).peekable(),
+            directive: None,
+            pending: VecDeque::with_capacity(MAX_PENDING_DIRECTIVE_TOKENS),
+            beginning_of_file: true,
+        }
+    }
+
+    fn begin_directive(
+        &mut self,
+        kind: DirectiveKind,
+        introducer_span: Span,
+        content_start: u32,
+    ) -> Token {
+        let line_end = physical_line_end(self.input, content_start);
+        self.tokens =
+            raw::Lexer::new_with_starting_offset(&self.input[line_end as usize..], line_end)
+                .peekable();
+        self.directive = Some(DirectiveMode::new(kind, content_start, line_end));
+        Token {
+            kind: match kind {
+                DirectiveKind::Annotation => TokenKind::Annotation,
+                DirectiveKind::Pragma => TokenKind::Pragma,
+            },
+            span: introducer_span,
+        }
+    }
+
+    fn fill_pending_directive_tokens(&mut self) {
+        let Some(directive) = &mut self.directive else {
+            return;
+        };
+        let (token, finished) = directive.next_token(self.input);
+        assert!(
+            self.pending.len() < MAX_PENDING_DIRECTIVE_TOKENS,
+            "directive token queue should remain bounded"
+        );
+        self.pending.push_back(token);
+        if finished {
+            self.directive = None;
+        }
+    }
+
+    fn offset(&mut self) -> u32 {
+        self.tokens.peek().map_or_else(|| self.len, |t| t.offset)
+    }
+
+    fn next_if_eq_single(&mut self, single: Single) -> bool {
+        self.next_if_eq(raw::TokenKind::Single(single))
+    }
+
+    fn next_if_eq(&mut self, tok: raw::TokenKind) -> bool {
+        self.tokens.next_if(|t| t.kind == tok).is_some()
+    }
+
+    fn expect(&mut self, tok: raw::TokenKind, complete: TokenKind) -> Result<(), Error> {
+        if self.next_if_eq(tok) {
+            Ok(())
+        } else if let Some(&raw::Token { kind, offset }) = self.tokens.peek() {
+            let mut tokens = self.tokens.clone();
+            let hi = tokens.nth(1).map_or_else(|| self.len, |t| t.offset);
+            let span = Span { lo: offset, hi };
+            Err(Error::Incomplete(tok, complete, kind, span))
+        } else {
+            let lo = self.len;
+            let span = Span { lo, hi: lo };
+            Err(Error::IncompleteEof(tok, complete, span))
+        }
+    }
+
+    /// Returns the first token ahead of the cursor without consuming it. This operation is fast,
+    /// but if you know you want to consume the token if it matches, use [`next_if_eq`] instead.
+    fn first(&mut self) -> Option<raw::TokenKind> {
+        self.tokens.peek().map(|i| i.kind)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn cook(&mut self, token: &raw::Token) -> Result<Option<Token>, Error> {
+        let kind = match token.kind {
+            raw::TokenKind::Bitstring { terminated: true } => {
+                Ok(Some(TokenKind::Literal(Literal::Bitstring)))
+            }
+            raw::TokenKind::Bitstring { terminated: false } => {
+                Err(Error::UnterminatedString(Span {
+                    lo: token.offset,
+                    hi: token.offset,
+                }))
+            }
+            raw::TokenKind::Comment(_) | raw::TokenKind::Whitespace => Ok(None),
+            raw::TokenKind::UnterminatedBlockComment => {
+                Err(Error::UnterminatedBlockComment(Span {
+                    lo: token.offset,
+                    hi: self.offset(),
+                }))
+            }
+            raw::TokenKind::Newline => {
+                // AnnotationKeyword: '@' Identifier ('.' Identifier)* ->  pushMode(EAT_TO_LINE_END);
+                self.next_if_eq(raw::TokenKind::Whitespace);
+                match self.tokens.peek() {
+                    Some(token) if token.kind == raw::TokenKind::Single(Single::At) => {
+                        let token = self.tokens.next().expect("self.tokens.peek() was Some(_)");
+                        let hi = token.offset + 1;
+                        return Ok(Some(self.begin_directive(
+                            DirectiveKind::Annotation,
+                            Span {
+                                lo: token.offset,
+                                hi,
+                            },
+                            hi,
+                        )));
+                    }
+                    _ => Ok(None),
+                }
+            }
+            raw::TokenKind::Ident => {
+                let ident = &self.input[(token.offset as usize)..(self.offset() as usize)];
+                let cooked_ident = Self::ident(ident);
+                match cooked_ident {
+                    TokenKind::Keyword(Keyword::Pragma) => {
+                        let hi = self.offset();
+                        return Ok(Some(self.begin_directive(
+                            DirectiveKind::Pragma,
+                            Span {
+                                lo: token.offset,
+                                hi,
+                            },
+                            hi,
+                        )));
+                    }
+                    _ => Ok(Some(cooked_ident)),
+                }
+            }
+            raw::TokenKind::HardwareQubit => Ok(Some(TokenKind::HardwareQubit)),
+            raw::TokenKind::LiteralFragment(_) => {
+                // if a literal fragment does not appear after a decimal
+                // or a float, treat it as an identifier.
+                Ok(Some(TokenKind::Identifier))
+            }
+            raw::TokenKind::Number(number) => {
+                // after reading a decimal number or a float there could be a whitespace
+                // followed by a fragment, which will change the type of the literal.
+                let numeric_part_hi = self.offset();
+                self.next_if_eq(raw::TokenKind::Whitespace);
+
+                if let Some(raw::TokenKind::LiteralFragment(fragment)) = self.first() {
+                    use self::Literal::{Imaginary, Timing};
+                    use TokenKind::Literal;
+
+                    // Consume the fragment.
+                    self.next();
+
+                    Ok(Some(match fragment {
+                        raw::LiteralFragmentKind::Imag => Literal(Imaginary),
+                        raw::LiteralFragmentKind::Dt => Literal(Timing(TimingLiteralKind::Dt)),
+                        raw::LiteralFragmentKind::Ns => Literal(Timing(TimingLiteralKind::Ns)),
+                        raw::LiteralFragmentKind::Us => Literal(Timing(TimingLiteralKind::Us)),
+                        raw::LiteralFragmentKind::Ms => Literal(Timing(TimingLiteralKind::Ms)),
+                        raw::LiteralFragmentKind::S => Literal(Timing(TimingLiteralKind::S)),
+                    }))
+                } else {
+                    let kind: TokenKind = number.into();
+                    let span = Span {
+                        lo: token.offset,
+                        hi: numeric_part_hi,
+                    };
+                    return Ok(Some(Token { kind, span }));
+                }
+            }
+            raw::TokenKind::Single(Single::Sharp) => {
+                self.expect(raw::TokenKind::Ident, TokenKind::Identifier)?;
+                let ident = &self.input[(token.offset as usize + 1)..(self.offset() as usize)];
+                match Self::ident(ident) {
+                    TokenKind::Keyword(Keyword::Dim) => Ok(Some(TokenKind::Keyword(Keyword::Dim))),
+                    TokenKind::Keyword(Keyword::Pragma) => {
+                        let hi = self.offset();
+                        return Ok(Some(self.begin_directive(
+                            DirectiveKind::Pragma,
+                            Span {
+                                lo: token.offset,
+                                hi,
+                            },
+                            hi,
+                        )));
+                    }
+                    _ => {
+                        let span = Span {
+                            lo: token.offset,
+                            hi: self.offset(),
+                        };
+                        Err(Error::Incomplete(
+                            raw::TokenKind::Ident,
+                            TokenKind::Pragma,
+                            raw::TokenKind::Ident,
+                            span,
+                        ))
+                    }
+                }
+            }
+            raw::TokenKind::Single(single) => self.single(single).map(Some),
+            raw::TokenKind::String { terminated: true } => {
+                Ok(Some(TokenKind::Literal(Literal::String)))
+            }
+            raw::TokenKind::String { terminated: false } => Err(Error::UnterminatedString(Span {
+                lo: token.offset,
+                hi: token.offset,
+            })),
+            raw::TokenKind::InvalidString { terminated: false } => {
+                Err(Error::UnterminatedString(Span {
+                    lo: token.offset,
+                    hi: self.offset(),
+                }))
+            }
+            raw::TokenKind::InvalidString { terminated: true } => {
+                Err(Error::InvalidStringLiteral(Span {
+                    lo: token.offset,
+                    hi: self.offset(),
+                }))
+            }
+            raw::TokenKind::Unknown => {
+                let c = self.input[(token.offset as usize)..]
+                    .chars()
+                    .next()
+                    .expect("token offset should be the start of a character");
+                let span = Span {
+                    lo: token.offset,
+                    hi: self.offset(),
+                };
+                Err(Error::Unknown(c, span))
+            }
+        }?;
+
+        Ok(kind.map(|kind| {
+            let span = Span {
+                lo: token.offset,
+                hi: self.offset(),
+            };
+            Token { kind, span }
+        }))
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn single(&mut self, single: Single) -> Result<TokenKind, Error> {
+        match single {
+            Single::Amp => {
+                if self.next_if_eq_single(Single::Amp) {
+                    Ok(TokenKind::ClosedBinOp(ClosedBinOp::AmpAmp))
+                } else {
+                    Ok(self.closed_bin_op(ClosedBinOp::Amp))
+                }
+            }
+            Single::At => {
+                if self.beginning_of_file {
+                    unreachable!("annotations at the beginning of a file are handled in cook")
+                } else {
+                    Ok(TokenKind::At)
+                }
+            }
+            Single::Bang => {
+                if self.next_if_eq_single(Single::Eq) {
+                    Ok(TokenKind::ComparisonOp(ComparisonOp::BangEq))
+                } else {
+                    Ok(TokenKind::Bang)
+                }
+            }
+            Single::Bar => {
+                if self.next_if_eq_single(Single::Bar) {
+                    Ok(TokenKind::ClosedBinOp(ClosedBinOp::BarBar))
+                } else {
+                    Ok(self.closed_bin_op(ClosedBinOp::Bar))
+                }
+            }
+            Single::Caret => Ok(self.closed_bin_op(ClosedBinOp::Caret)),
+            Single::Close(delim) => Ok(TokenKind::Close(delim)),
+            Single::Colon => Ok(TokenKind::Colon),
+            Single::Comma => Ok(TokenKind::Comma),
+            Single::Dot => Ok(TokenKind::Dot),
+            Single::Eq => {
+                if self.next_if_eq_single(Single::Eq) {
+                    Ok(TokenKind::ComparisonOp(ComparisonOp::EqEq))
+                } else {
+                    Ok(TokenKind::Eq)
+                }
+            }
+            Single::Gt => {
+                if self.next_if_eq_single(Single::Eq) {
+                    Ok(TokenKind::ComparisonOp(ComparisonOp::GtEq))
+                } else if self.next_if_eq_single(Single::Gt) {
+                    Ok(self.closed_bin_op(ClosedBinOp::GtGt))
+                } else {
+                    Ok(TokenKind::ComparisonOp(ComparisonOp::Gt))
+                }
+            }
+            Single::Lt => {
+                if self.next_if_eq_single(Single::Eq) {
+                    Ok(TokenKind::ComparisonOp(ComparisonOp::LtEq))
+                } else if self.next_if_eq_single(Single::Lt) {
+                    Ok(self.closed_bin_op(ClosedBinOp::LtLt))
+                } else {
+                    Ok(TokenKind::ComparisonOp(ComparisonOp::Lt))
+                }
+            }
+            Single::Minus => {
+                if self.next_if_eq_single(Single::Gt) {
+                    Ok(TokenKind::Arrow)
+                } else {
+                    Ok(self.closed_bin_op(ClosedBinOp::Minus))
+                }
+            }
+            Single::Open(delim) => Ok(TokenKind::Open(delim)),
+            Single::Percent => Ok(self.closed_bin_op(ClosedBinOp::Percent)),
+            Single::Plus => {
+                if self.next_if_eq_single(Single::Plus) {
+                    Ok(TokenKind::PlusPlus)
+                } else {
+                    Ok(self.closed_bin_op(ClosedBinOp::Plus))
+                }
+            }
+            Single::Semi => Ok(TokenKind::Semicolon),
+            Single::Sharp => unreachable!(),
+            Single::Slash => Ok(self.closed_bin_op(ClosedBinOp::Slash)),
+            Single::Star => {
+                if self.next_if_eq_single(Single::Star) {
+                    Ok(self.closed_bin_op(ClosedBinOp::StarStar))
+                } else {
+                    Ok(self.closed_bin_op(ClosedBinOp::Star))
+                }
+            }
+            Single::Tilde => Ok(TokenKind::Tilde),
+        }
+    }
+
+    fn closed_bin_op(&mut self, op: ClosedBinOp) -> TokenKind {
+        if self.next_if_eq_single(Single::Eq) {
+            TokenKind::BinOpEq(op)
+        } else {
+            TokenKind::ClosedBinOp(op)
+        }
+    }
+
+    fn ident(ident: &str) -> TokenKind {
+        match ident {
+            "gphase" => TokenKind::GPhase,
+            "durationof" => TokenKind::DurationOf,
+            ident => {
+                if let Ok(keyword) = ident.parse::<Keyword>() {
+                    TokenKind::Keyword(keyword)
+                } else if let Ok(type_) = ident.parse::<Type>() {
+                    TokenKind::Type(type_)
+                } else {
+                    TokenKind::Identifier
+                }
+            }
+        }
+    }
+}
+
+impl Iterator for Lexer<'_> {
+    type Item = Result<Token, Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.pending.is_empty() && self.directive.is_some() {
+            self.fill_pending_directive_tokens();
+        }
+        if let Some(token) = self.pending.pop_front() {
+            return Some(Ok(token));
+        }
+
+        while let Some(token) = self.tokens.next() {
+            if token.kind == raw::TokenKind::Single(Single::At) && self.beginning_of_file {
+                let hi = token.offset + 1;
+                let token = self.begin_directive(
+                    DirectiveKind::Annotation,
+                    Span {
+                        lo: token.offset,
+                        hi,
+                    },
+                    hi,
+                );
+                self.beginning_of_file = false;
+                return Some(Ok(token));
+            }
+            match self.cook(&token) {
+                Ok(None) => {}
+                Ok(Some(token)) => {
+                    self.beginning_of_file = false;
+                    return Some(Ok(token));
+                }
+                Err(err) => {
+                    self.beginning_of_file = false;
+                    return Some(Err(err));
+                }
+            }
+        }
+
+        None
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DirectiveKind {
+    Annotation,
+    Pragma,
+}
+
+enum DirectiveMode {
+    Annotation {
+        cursor: u32,
+        line_end: u32,
+        state: AnnotationState,
+    },
+    Pragma {
+        cursor: u32,
+        line_end: u32,
+        command_emitted: bool,
+    },
+}
+
+impl DirectiveMode {
+    fn new(kind: DirectiveKind, cursor: u32, line_end: u32) -> Self {
+        match kind {
+            DirectiveKind::Annotation => Self::Annotation {
+                cursor,
+                line_end,
+                state: AnnotationState::Segment,
+            },
+            DirectiveKind::Pragma => Self::Pragma {
+                cursor,
+                line_end,
+                command_emitted: false,
+            },
+        }
+    }
+
+    fn next_token(&mut self, input: &str) -> (Token, bool) {
+        match self {
+            Self::Annotation {
+                cursor,
+                line_end,
+                state,
+            } => next_annotation_token(input, cursor, *line_end, state),
+            Self::Pragma {
+                cursor,
+                line_end,
+                command_emitted,
+            } => {
+                if !*command_emitted {
+                    *cursor = skip_horizontal_space(input, *cursor, *line_end);
+                    if *cursor < *line_end {
+                        *command_emitted = true;
+                        return (
+                            Token {
+                                kind: TokenKind::DirectiveCommand,
+                                span: Span {
+                                    lo: *cursor,
+                                    hi: *line_end,
+                                },
+                            },
+                            false,
+                        );
+                    }
+                }
+                (
+                    Token {
+                        kind: TokenKind::DirectiveEnd,
+                        span: Span {
+                            lo: *line_end,
+                            hi: *line_end,
+                        },
+                    },
+                    true,
+                )
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum AnnotationState {
+    Segment,
+    Separator,
+    Value,
+    End,
+}
+
+fn next_annotation_token(
+    input: &str,
+    cursor: &mut u32,
+    line_end: u32,
+    state: &mut AnnotationState,
+) -> (Token, bool) {
+    match state {
+        AnnotationState::Segment => {
+            let start = *cursor;
+            let Some(first) = input[start as usize..line_end as usize].chars().next() else {
+                *state = AnnotationState::End;
+                return next_annotation_token(input, cursor, line_end, state);
+            };
+            if !is_identifier_start(first) {
+                *state = AnnotationState::Value;
+                return next_annotation_token(input, cursor, line_end, state);
+            }
+            *cursor +=
+                u32::try_from(first.len_utf8()).expect("character length should fit into u32");
+            while *cursor < line_end {
+                let next = input[*cursor as usize..line_end as usize]
+                    .chars()
+                    .next()
+                    .expect("cursor should be before line end");
+                if !is_identifier_continue(next) {
+                    break;
+                }
+                *cursor +=
+                    u32::try_from(next.len_utf8()).expect("character length should fit into u32");
+            }
+            *state = AnnotationState::Separator;
+            (
+                Token {
+                    kind: Lexer::ident(&input[start as usize..*cursor as usize]),
+                    span: Span {
+                        lo: start,
+                        hi: *cursor,
+                    },
+                },
+                false,
+            )
+        }
+        AnnotationState::Separator => {
+            if input.as_bytes().get(*cursor as usize) == Some(&b'.') && *cursor < line_end {
+                let start = *cursor;
+                *cursor += 1;
+                *state = AnnotationState::Segment;
+                return (
+                    Token {
+                        kind: TokenKind::Dot,
+                        span: Span {
+                            lo: start,
+                            hi: *cursor,
+                        },
+                    },
+                    false,
+                );
+            }
+            *state = AnnotationState::Value;
+            next_annotation_token(input, cursor, line_end, state)
+        }
+        AnnotationState::Value => {
+            *cursor = skip_horizontal_space(input, *cursor, line_end);
+            if *cursor < line_end {
+                let token = Token {
+                    kind: TokenKind::DirectiveValue,
+                    span: Span {
+                        lo: *cursor,
+                        hi: line_end,
+                    },
+                };
+                *cursor = line_end;
+                *state = AnnotationState::End;
+                (token, false)
+            } else {
+                *state = AnnotationState::End;
+                next_annotation_token(input, cursor, line_end, state)
+            }
+        }
+        AnnotationState::End => (
+            Token {
+                kind: TokenKind::DirectiveEnd,
+                span: Span {
+                    lo: line_end,
+                    hi: line_end,
+                },
+            },
+            true,
+        ),
+    }
+}
+
+fn physical_line_end(input: &str, from: u32) -> u32 {
+    input[from as usize..]
+        .char_indices()
+        .find_map(|(offset, character)| {
+            matches!(character, '\r' | '\n')
+                .then(|| from + u32::try_from(offset).expect("line offset should fit into u32"))
+        })
+        .unwrap_or_else(|| u32::try_from(input.len()).expect("input length should fit into u32"))
+}
+
+fn skip_horizontal_space(input: &str, mut cursor: u32, line_end: u32) -> u32 {
+    while cursor < line_end && matches!(input.as_bytes()[cursor as usize], b' ' | b'\t') {
+        cursor += 1;
+    }
+    cursor
+}

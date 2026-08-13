@@ -110,6 +110,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                     assignments.insert(var.variable_id, (block_id, idx));
                 }
                 Instruction::Store(_, var)
+                | Instruction::StoreArray(_, var)
                 | Instruction::Alloca(var)
                 | Instruction::Load(_, var)
                 | Instruction::Index(_, _, var) => {
@@ -152,6 +153,18 @@ pub(crate) fn map_variable_use_in_block(
                     // this operand corresponds to at this point in the block. This makes the new variable respect a point-in-time
                     // copy of the operand.
                     var_map.insert(var.variable_id, operand.mapped(var_map));
+                    continue;
+                }
+            }
+            Instruction::StoreArray(operand, var) => {
+                if var_stor_to_keep.contains(&var.variable_id) {
+                    // Only keep stores to variables that are in the set to keep.
+                    *operand = operand
+                        .iter()
+                        .map(|op| op.mapped(var_map))
+                        .collect::<Vec<_>>();
+                } else {
+                    // Otherwise drop the store array by continuing the loop.
                     continue;
                 }
             }

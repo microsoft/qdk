@@ -193,228 +193,8 @@ fn rzz(angle: f64) -> Operation {
     .expect("operation should be valid")
 }
 
-/// A noiseless state-vector simulator.
-pub struct NoiselessSimulator {
-    /// The current state of the simulation.
-    state: StateVectorSimulator,
-    /// Measurement results.
-    measurements: Vec<MeasurementResult>,
-}
-
-impl NoiselessSimulator {
-    /// Records a z-measurement on the given `target`.
-    fn record_mz(&mut self, target: QubitID, result_id: QubitID) {
-        let measurement = self.mz_impl(target);
-        self.measurements[result_id] = measurement;
-    }
-
-    /// Records a z-measurement on the given `target` and reset the qubit to the zero state.
-    fn record_mresetz(&mut self, target: QubitID, result_id: QubitID) {
-        let measurement = self.mresetz_impl(target);
-        self.measurements[result_id] = measurement;
-    }
-
-    /// Measures a Z observable on the given `target`.
-    fn mz_impl(&mut self, target: QubitID) -> MeasurementResult {
-        // MZ on `target`.
-        let r = self
-            .state
-            .apply_instrument(&MZ, &[target])
-            .expect("apply_instrument should succeed");
-
-        if r == 1 {
-            MeasurementResult::One
-        } else {
-            MeasurementResult::Zero
-        }
-    }
-
-    /// Measures a Z observable on the given `target` and reset the qubit to the zero state.
-    fn mresetz_impl(&mut self, target: QubitID) -> MeasurementResult {
-        // MZ on `target`.
-        let r = self
-            .state
-            .apply_instrument(&MZ, &[target])
-            .expect("apply_instrument should succeed");
-
-        if r == 1 {
-            // Reset `target` to zero state.
-            self.state
-                .apply_operation(&X, &[target])
-                .expect("apply_operation should succeed");
-            MeasurementResult::One
-        } else {
-            MeasurementResult::Zero
-        }
-    }
-}
-
-impl Simulator for NoiselessSimulator {
-    type Noise = ();
-    type StateDumpData = noisy_simulator::StateVector;
-
-    fn new(num_qubits: usize, num_results: usize, seed: u32, _noise: Self::Noise) -> Self {
-        Self {
-            state: StateVectorSimulator::new_with_seed(num_qubits, seed.into()),
-            measurements: vec![MeasurementResult::Zero; num_results],
-        }
-    }
-
-    fn x(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&X, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn y(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&Y, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn z(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&Z, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn h(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&H, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn s(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&S, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn s_adj(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&S_ADJ, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn sx(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&SX, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn sx_adj(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&SX_ADJ, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn t(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&T, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn t_adj(&mut self, target: QubitID) {
-        self.state
-            .apply_operation(&T_ADJ, &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn rx(&mut self, angle: f64, target: QubitID) {
-        self.state
-            .apply_operation(&rx(angle), &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn ry(&mut self, angle: f64, target: QubitID) {
-        self.state
-            .apply_operation(&ry(angle), &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn rz(&mut self, angle: f64, target: QubitID) {
-        self.state
-            .apply_operation(&rz(angle), &[target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn cx(&mut self, control: QubitID, target: QubitID) {
-        self.state
-            .apply_operation(&CX, &[control, target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn cy(&mut self, control: QubitID, target: QubitID) {
-        self.state
-            .apply_operation(&CY, &[control, target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn cz(&mut self, control: QubitID, target: QubitID) {
-        self.state
-            .apply_operation(&CZ, &[control, target])
-            .expect("apply_operation should succeed");
-    }
-
-    fn rxx(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        self.state
-            .apply_operation(&rxx(angle), &[q1, q2])
-            .expect("apply_operation should succeed");
-    }
-
-    fn ryy(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        self.state
-            .apply_operation(&ryy(angle), &[q1, q2])
-            .expect("apply_operation should succeed");
-    }
-
-    fn rzz(&mut self, angle: f64, q1: QubitID, q2: QubitID) {
-        self.state
-            .apply_operation(&rzz(angle), &[q1, q2])
-            .expect("apply_operation should succeed");
-    }
-
-    fn swap(&mut self, q1: QubitID, q2: QubitID) {
-        self.state
-            .apply_operation(&SWAP, &[q1, q2])
-            .expect("apply_operation should succeed");
-    }
-
-    fn mz(&mut self, target: QubitID, result_id: QubitID) {
-        self.record_mz(target, result_id);
-    }
-
-    fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
-        self.record_mresetz(target, result_id);
-    }
-
-    fn resetz(&mut self, target: QubitID) {
-        self.mresetz_impl(target);
-    }
-
-    fn measurements(&self) -> &[MeasurementResult] {
-        &self.measurements
-    }
-
-    fn take_measurements(&mut self) -> Vec<MeasurementResult> {
-        std::mem::take(&mut self.measurements)
-    }
-
-    fn mov(&mut self, _target: QubitID) {
-        // MOV instruction is a no-op for the noiseless simulator.
-    }
-
-    fn correlated_noise_intrinsic(&mut self, _intrinsic_id: IntrinsicID, _targets: &[usize]) {
-        // Noise is a no-op for the noiseless simulator.
-    }
-
-    fn state_dump(&self) -> &Self::StateDumpData {
-        self.state.state().expect("state should be valid")
-    }
-}
-
-/// A noisy state-vector simulator.
-pub struct NoisySimulator {
+/// A full-state simulator with configurable noise.
+pub struct FullStateSimulator {
     /// The noise configuration for the simulation.
     noise_config: Arc<CumulativeNoiseConfig>,
     /// Random number generator used to sample from [`Self::noise_config`].
@@ -431,7 +211,7 @@ pub struct NoisySimulator {
     time: u32,
 }
 
-impl NoisySimulator {
+impl FullStateSimulator {
     /// Increment the simulation time by one.
     /// This is used to compute the idle noise on qubits.
     pub fn step(&mut self) {
@@ -629,7 +409,7 @@ macro_rules! apply_noise {
     }};
 }
 
-impl Simulator for NoisySimulator {
+impl Simulator for FullStateSimulator {
     type Noise = Arc<CumulativeNoiseConfig>;
     type StateDumpData = noisy_simulator::StateVector;
 

@@ -2242,43 +2242,6 @@ fn aggregate_argument_expression_is_bound_once_before_field_projection() {
 }
 
 #[test]
-fn simulatable_intrinsic_tuple_parameter_is_not_promoted() {
-    // A `@SimulatableIntrinsic` callable with a UDT parameter is skipped by
-    // arg_promote and keeps its signature. Like a regular `body intrinsic`,
-    // it has no FIR-usable body (it is codegen-only), so the full pipeline
-    // rejects such a signature in the intrinsic precheck before arg_promote
-    // runs. This drives arg_promote directly on the FIR to prove the pass
-    // itself leaves the signature untouched (and never hits the intrinsic
-    // gate's `unreachable!()` arms).
-    let source = "struct Pair { X : Int, Y : Int }
-        @SimulatableIntrinsic()
-        operation MeasurePair(p : Pair) : Int {
-            p.X + p.Y
-        }
-        @EntryPoint()
-        operation Main() : Int {
-            let pair = new Pair { X = 1, Y = 2 };
-            MeasurePair(pair)
-        }";
-
-    let (mut store, pkg_id) = compile_to_fir(source);
-
-    let mut assigners = PackageAssigners::new(&store, pkg_id);
-    arg_promote(&mut store, pkg_id, &mut assigners);
-
-    let package = store.get(pkg_id);
-    // Signature unchanged: parameter stays a single whole binding.
-    assert_eq!(
-        callable_input_binding_names(package, "MeasurePair"),
-        vec!["p"]
-    );
-
-    // Call site keeps the whole argument (not flattened into projections).
-    let call_shapes = extract_call_shapes(&store, pkg_id, "Main");
-    expect!["MeasurePair(pair)"].assert_eq(&call_shapes);
-}
-
-#[test]
 fn regular_intrinsic_tuple_parameter_is_not_promoted() {
     // A regular `body intrinsic` callable with a tuple parameter is skipped by
     // arg_promote and keeps its tuple signature. The full pipeline rejects such
@@ -2301,17 +2264,13 @@ fn regular_intrinsic_tuple_parameter_is_not_promoted() {
 #[test]
 fn intrinsic_nested_tuple_parameter_is_not_promoted() {
     // An intrinsic callable with a *nested* (depth >= 2) tuple parameter is
-    // skipped by arg_promote regardless of intrinsic flavor: both a
-    // `@SimulatableIntrinsic` and a regular `body intrinsic` keep their
-    // tuple-shaped signature, and their call sites keep the whole nested-tuple
-    // argument (never decomposed into multi-index leaf projections). This also
-    // guards the `unreachable!()` arms behind the intrinsic gate, proving the
-    // gate still excludes intrinsics upstream (no panic).
-    //
-    // Like a regular `body intrinsic`, a simulatable intrinsic has no
-    // FIR-usable body (codegen-only), so the full pipeline rejects these
-    // signatures in the intrinsic precheck before arg_promote runs. This drives
-    // arg_promote directly on the FIR to exercise the pass in isolation.
+    // skipped by arg_promote: a regular `body intrinsic` keeps its tuple-shaped
+    // signature, and its call site keeps the whole nested-tuple argument (never
+    // decomposed into multi-index leaf projections). This also guards the
+    // `unreachable!()` arms behind the intrinsic gate, proving the gate still
+    // excludes intrinsics upstream (no panic). The full pipeline rejects this
+    // signature in the intrinsic precheck before arg_promote runs, so this
+    // drives arg_promote directly on the FIR to exercise the pass in isolation.
     fn assert_nested_tuple_param_untouched(source: &str, callable: &str, expected_call: &str) {
         let (mut store, pkg_id) = compile_to_fir(source);
 
@@ -2336,24 +2295,6 @@ fn intrinsic_nested_tuple_parameter_is_not_promoted() {
         );
     }
 
-    // `@SimulatableIntrinsic` flavor: signature and call site both untouched.
-    assert_nested_tuple_param_untouched(
-        "@SimulatableIntrinsic()
-        operation MeasureNested(p : (Int, (Int, Int))) : Int {
-            let (a, (b, c)) = p;
-            a + b + c
-        }
-        @EntryPoint()
-        operation Main() : Int {
-            let nested = (1, (2, 3));
-            MeasureNested(nested)
-        }",
-        "MeasureNested",
-        "MeasureNested(nested)",
-    );
-
-    // Regular `body intrinsic` flavor: same skip behavior on a literal nested
-    // tuple argument.
     assert_nested_tuple_param_untouched(
         "operation Foo(p : (Int, (Int, Int))) : Unit { body intrinsic; }
         @EntryPoint()

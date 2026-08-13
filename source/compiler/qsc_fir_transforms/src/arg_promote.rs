@@ -456,10 +456,9 @@ fn find_param_binds_in_pat(
 /// Classifies every use of `local_id` across all specialization bodies of the
 /// callable, returning the flat list of [`ParamUse`] classifications.
 ///
-/// Only `CallableImpl::Spec` callables ever reach this function: the intrinsic
-/// gate in `find_promotion_candidates` skips both `Intrinsic` and
-/// `SimulatableIntrinsic` callables before any candidate is constructed, so the
-/// non-`Spec` arms are unreachable.
+/// Only `CallableImpl::Spec` callables normally reach this function: the
+/// intrinsic gate in `find_promotion_candidates` skips bodyless callables
+/// before any candidate is constructed.
 fn classify_param_uses(
     package: &Package,
     decl: &CallableDecl,
@@ -467,18 +466,7 @@ fn classify_param_uses(
 ) -> Vec<ParamUse> {
     match &decl.implementation {
         CallableImpl::Spec(spec_impl) => classify_uses_in_spec_impl(package, spec_impl, local_id),
-        // Dead arm: gated by the intrinsic skip in `find_promotion_candidates`
-        CallableImpl::Intrinsic => unreachable!(
-            "intrinsic callables are skipped by the intrinsic gate in \
-             find_promotion_candidates before any candidate reaches \
-             classify_param_uses"
-        ),
-        // Dead arm: same intrinsic gate as the `Intrinsic` arm above.
-        CallableImpl::SimulatableIntrinsic(_) => unreachable!(
-            "simulatable-intrinsic callables are skipped by the intrinsic gate in \
-             find_promotion_candidates before any candidate reaches \
-             classify_param_uses"
-        ),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => Vec::new(),
     }
 }
 
@@ -996,8 +984,7 @@ fn refresh_spec_input_types(package: &mut Package, item_id: LocalItemId) {
                 .filter_map(|spec| spec.input)
                 .chain(spec_impl.body.input)
                 .collect(),
-            CallableImpl::SimulatableIntrinsic(spec) => spec.input.into_iter().collect(),
-            CallableImpl::Intrinsic => Vec::new(),
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => Vec::new(),
         }
     };
     for pat_id in spec_input_pats {

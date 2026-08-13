@@ -24,11 +24,22 @@ env:
   RUST_TOOLCHAIN_COMPONENTS: rustfmt clippy
 
 jobs:
+  vendor-sync:
+    name: Check vendored files
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Check vendored file provenance
+        run: python source/qdk_openqasm/vendor-sync/check_vendor_sync.py
+
   format:
     name: Format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -43,7 +54,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -51,7 +62,7 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/bin/
@@ -67,7 +78,7 @@ jobs:
     name: Format Q# Files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -82,10 +93,10 @@ jobs:
     name: Check web files
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: "true"
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ env.NODE_VERSION }}
       - name: npm install
@@ -97,8 +108,8 @@ jobs:
     name: Python static checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
       - name: Run python static checks
@@ -109,7 +120,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -117,13 +128,13 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/bin/
@@ -135,14 +146,14 @@ jobs:
       - name: Prereqs
         run: python ./prereqs.py --install
       - name: Build and Test
-        run: python ./build.py --no-check --wasm --npm --vscode --play --pip --widgets --jupyterlab --qdk
+        run: python ./build.py --no-check --wasm --npm --vscode --play --widgets --jupyterlab --qdk
 
   unit-tests:
     name: Rust Unit tests
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -150,13 +161,13 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/bin/
@@ -174,9 +185,11 @@ jobs:
     name: Integration tests
     timeout-minutes: 40
     runs-on: ubuntu-latest
+    env:
+      QDK_LIB_OVERRIDE_MICROSOFT_QDK: ${{ github.workspace }}
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           submodules: "true"
       - name: Setup rust toolchain
@@ -184,13 +197,13 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN_VERSION }}
           components: ${{ env.RUST_TOOLCHAIN_COMPONENTS }}
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: ${{ env.PYTHON_VERSION }}
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: ${{ env.NODE_VERSION }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: |
             ~/.cargo/bin/
@@ -205,12 +218,13 @@ jobs:
           Run integration tests
           # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
           # which requires a display to run
-        run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --pip --widgets --qdk --integration-tests
+        run: xvfb-run -a python ./build.py --no-check --no-test --wasm --npm --vscode --widgets --qdk --integration-tests
 
   status-check:
     name: Status Check
     needs:
       [
+        vendor-sync,
         format,
         clippy,
         web-check,

@@ -17,6 +17,7 @@
 mod ast_builder;
 pub mod compiler;
 mod functor_constraints;
+mod parser_types;
 mod types;
 
 #[cfg(test)]
@@ -27,7 +28,7 @@ pub use functor_constraints::{FunctorConstraintSolver, FunctorConstraints};
 use std::{fmt::Write, sync::Arc};
 
 use miette::Diagnostic;
-use qdk_openqasm_parser::semantic::QasmSemanticParseResult;
+use qdk_openqasm::semantic::AnalysisResult;
 use qsc_ast::ast::Package;
 use qsc_data_structures::{error::WithSource, source::SourceMap, target::Profile};
 use thiserror::Error;
@@ -49,12 +50,13 @@ impl Error {
     }
 }
 
-pub(crate) fn get_semantic_errors_from_lowering_result(
-    res: &QasmSemanticParseResult,
+pub(crate) fn get_errors_from_analysis_result(
+    res: &AnalysisResult,
+    source_map: &SourceMap,
 ) -> Vec<WithSource<crate::Error>> {
-    res.errors
-        .iter()
-        .map(|e| WithSource::from_map(&res.source_map, e.clone().into_error().into()))
+    res.all_errors()
+        .into_iter()
+        .map(|e| WithSource::from_map(source_map, e.into_error().into()))
         .collect()
 }
 
@@ -73,11 +75,11 @@ pub enum ErrorKind {
     Compiler(#[from] crate::compiler::error::Error),
     #[error(transparent)]
     #[diagnostic(transparent)]
-    Parser(#[from] qdk_openqasm_parser::error::Error),
+    Parser(#[from] qdk_openqasm::error::Error),
 }
 
-impl From<qdk_openqasm_parser::error::Error> for crate::Error {
-    fn from(error: qdk_openqasm_parser::error::Error) -> Self {
+impl From<qdk_openqasm::error::Error> for crate::Error {
+    fn from(error: qdk_openqasm::error::Error) -> Self {
         Self(ErrorKind::Parser(error))
     }
 }

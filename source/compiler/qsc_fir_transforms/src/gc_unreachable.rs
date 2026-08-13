@@ -1,7 +1,10 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-//! FIR arena garbage collection — runs immediately after item-level DCE, as
+//! FIR arena garbage collection.
+//!
+//! The transform pipeline runs this after simulatable-intrinsic collapse to
+//! discard their orphaned override bodies, and again after item-level DCE as
 //! the last cleanup before exec graph rebuild.
 //!
 //! Tombstones blocks, stmts, exprs, and pats in a package's `IndexMap` arenas
