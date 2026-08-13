@@ -156,9 +156,9 @@ export class NotebookCourseProvider implements CourseProvider {
         );
         continue;
       }
-      const { notebookExercises, sourceNotebookRelativePath } =
+      const { notebookExercises, sourceNotebookUri } =
         await this.parseNotebookUnit(unitDir, manifestUnit);
-      if (!sourceNotebookRelativePath) {
+      if (!sourceNotebookUri) {
         log.warn(
           `Skipping unit "${manifestUnit.id}" in course "${id}": notebook not found.`,
         );
@@ -193,7 +193,7 @@ export class NotebookCourseProvider implements CourseProvider {
         title: manifestUnit.title,
         activities,
         notebookExercises,
-        sourceNotebookRelativePath,
+        sourceNotebookUri,
       });
     }
 
@@ -222,7 +222,7 @@ export class NotebookCourseProvider implements CourseProvider {
     unit: ManifestUnit,
   ): Promise<{
     notebookExercises?: NotebookExerciseInfo[];
-    sourceNotebookRelativePath?: string;
+    sourceNotebookUri?: vscode.Uri;
   }> {
     // Find the source notebook file in the unit dir. Materialized working
     // copies (`*.workbook.ipynb`) sit beside the source and must be ignored
@@ -254,18 +254,16 @@ export class NotebookCourseProvider implements CourseProvider {
         break;
     }
 
-    const sourceNotebookRelativePath = `${unit.dir}/${notebookEntry.name}`;
+    const sourceNotebookUri = vscode.Uri.joinPath(unitDir, notebookEntry.name);
 
     // Exercise metadata lives in the authored notebook, marked up with cell
     // tags. Read it here so it's available before materialization.
-    const notebookText = await tryReadText(
-      vscode.Uri.joinPath(unitDir, notebookEntry.name),
-    );
+    const notebookText = await tryReadText(sourceNotebookUri);
     const notebookExercises = notebookText
       ? parseNotebookExercises(notebookText, unit.id)
       : undefined;
 
-    return { notebookExercises, sourceNotebookRelativePath };
+    return { notebookExercises, sourceNotebookUri };
   }
 }
 

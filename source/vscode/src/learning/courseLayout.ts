@@ -25,18 +25,12 @@ export function isNotebookCourse(course: CourseWithKind): boolean {
   return course.kind === "python-notebook";
 }
 
-/** Root folder a course was loaded from. Notebook courses only. */
-function courseRootUri(course: NotebookCatalogCourse): vscode.Uri {
-  return vscode.Uri.parse(course.sourceDir);
-}
-
 /** The authored notebook that a unit's workbook is derived from. */
 export function sourceNotebookUri(
-  course: NotebookCatalogCourse,
+  _course: NotebookCatalogCourse,
   unit: NotebookCatalogUnit,
 ): vscode.Uri {
-  const rel = unit.sourceNotebookRelativePath;
-  return vscode.Uri.joinPath(courseRootUri(course), rel);
+  return unit.sourceNotebookUri;
 }
 
 /**
@@ -48,12 +42,9 @@ export function sourceNotebookUri(
  * URI whether or not the file exists yet.
  */
 export function workbookUri(
-  course: NotebookCatalogCourse,
+  _course: NotebookCatalogCourse,
   unit: NotebookCatalogUnit,
 ): vscode.Uri {
-  const rel = unit.sourceNotebookRelativePath;
-  return vscode.Uri.joinPath(
-    courseRootUri(course),
-    rel.replace(/\.ipynb$/i, WORKBOOK_SUFFIX),
-  );
+  const src = unit.sourceNotebookUri;
+  return src.with({ path: src.path.replace(/\.ipynb$/i, WORKBOOK_SUFFIX) });
 }

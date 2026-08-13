@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import type { Uri } from "vscode";
+
 /**
  * Shared types for the QDK Learning feature.
  *
@@ -285,16 +287,13 @@ export interface CatalogUnit {
    * notebook's cell tags. Used by chat LM tools for hints/solutions.
    */
   notebookExercises?: NotebookExerciseInfo[];
-  /**
-   * Path (relative to the course source dir) of the notebook for this
-   * unit. Set for python-notebook courses.
-   */
-  sourceNotebookRelativePath?: string;
+  /** URI of the authored notebook for this unit. Set for python-notebook courses. */
+  sourceNotebookUri?: Uri;
 }
 
 export interface NotebookCatalogUnit extends CatalogUnit {
   notebookExercises: NotebookExerciseInfo[];
-  sourceNotebookRelativePath: string;
+  sourceNotebookUri: Uri;
 }
 
 /** The execution model for a course's activities. */
