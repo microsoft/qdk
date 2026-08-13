@@ -71,7 +71,7 @@ jobs:
             --title "CI failure: ${{ matrix.platform }} (${{ github.run_id }})" \
             --body "See the corresponding [**workflow run**](${{ env.WORKFLOW_RUN_URL }}) for failure details, update the issue with any relevant information, and assign to the appropriate team member(s)." \
             --label ci_failure \
-            --assignee swernli,idavis,minestarks,billti)"
+            --assignee swernli,idavis,amcasey,billti)"
           number="$(gh issue view "$url" --json number --jq .number)"
           echo "url=$url" >> "$GITHUB_OUTPUT"
           echo "number=$number" >> "$GITHUB_OUTPUT"
