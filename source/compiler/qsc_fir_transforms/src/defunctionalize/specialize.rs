@@ -522,15 +522,12 @@ fn report_excessive_specializations(
 /// callable implementation.
 fn refresh_rewritten_value_types(package: &mut Package, callable_impl: &CallableImpl) {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             refresh_block_types(package, spec_impl.body.block);
             for spec in functored_specs(spec_impl) {
                 refresh_block_types(package, spec.block);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            refresh_block_types(package, spec.block);
         }
     }
 }
@@ -680,6 +677,15 @@ fn refresh_expr_types(package: &mut Package, expr_id: ExprId) -> Ty {
                 let _ = refresh_expr_types(package, field.value);
             }
             expr.ty
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                // Limit expressions must always be integers, so refresh inner sub-expressions but leave
+                // the limit itself unchanged.
+                let _ = refresh_expr_types(package, limit);
+            }
+            // The type of a parallel expression is the same as the type of its body, so refresh that and return it.
+            refresh_expr_types(package, body)
         }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {
             expr.ty
@@ -1921,6 +1927,8 @@ fn callable_input_contains_arrow(package: &Package, callable: LocalItemId) -> bo
 /// A residual `Ty::Udt` (one [`resolve_udt_ty`] could not expand, e.g. a
 /// foreign or non-`Ty` item) conservatively counts as containing an arrow so an
 /// unknown shape is never misclassified as arrow-free.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
     match resolve_udt_ty(package, ty) {
         Ty::Arrow(_) | Ty::Udt(_) => true,
@@ -1953,7 +1961,7 @@ fn transform_callable_body(
 ) {
     let mut alias_set = AliasSet::default();
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             transform_block(
                 package,
@@ -2005,19 +2013,6 @@ fn transform_callable_body(
                     assigner,
                 );
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            transform_block(
-                package,
-                package_id,
-                spec_decl.block,
-                param,
-                concrete,
-                concrete_group,
-                &mut alias_set,
-                specialized_capture_targets,
-                assigner,
-            );
         }
     }
 }
@@ -2627,6 +2622,12 @@ fn transform_expr(
             // index stays valid; a single non-array value is substituted in
             // place.
             substitute_forwarded_callable(package, expr_id, concrete, concrete_group, assigner);
+        }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                refresh_expr_types(package, *limit);
+            }
+            refresh_expr_types(package, *body);
         }
         // When a closure captures the callable parameter being specialized,
         // propagate the specialization into the closure's target callable and
@@ -4125,7 +4126,7 @@ fn collect_calls_to_closure_target(
         calls: FxHashSet::default(),
     };
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             collector.visit_block(spec_impl.body.block);
             if let Some(adj) = &spec_impl.adj {
@@ -4137,9 +4138,6 @@ fn collect_calls_to_closure_target(
             if let Some(ctl_adj) = &spec_impl.ctl_adj {
                 collector.visit_block(ctl_adj.block);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            collector.visit_block(spec_decl.block);
         }
     }
     collector.calls
@@ -4210,7 +4208,7 @@ fn rewrite_closure_target_call_args(
     assigner: &mut Assigner,
 ) {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             rewrite_closure_target_call_args_in_block(
                 package,
@@ -4250,16 +4248,6 @@ fn rewrite_closure_target_call_args(
                     assigner,
                 );
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            rewrite_closure_target_call_args_in_block(
-                package,
-                spec_decl.block,
-                package_id,
-                closure_target,
-                capture_bindings,
-                assigner,
-            );
         }
     }
 }
@@ -4572,6 +4560,26 @@ fn rewrite_closure_target_call_args_in_expr(
                 );
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                rewrite_closure_target_call_args_in_expr(
+                    package,
+                    limit,
+                    package_id,
+                    closure_target,
+                    capture_bindings,
+                    assigner,
+                );
+            }
+            rewrite_closure_target_call_args_in_expr(
+                package,
+                body,
+                package_id,
+                closure_target,
+                capture_bindings,
+                assigner,
+            );
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -4660,7 +4668,7 @@ fn prepend_capture_args_to_call(
 fn spec_block_ids(callable_impl: &CallableImpl) -> Vec<qsc_fir::fir::BlockId> {
     let mut ids = Vec::new();
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             ids.push(spec_impl.body.block);
             if let Some(ref adj) = spec_impl.adj {
@@ -4673,7 +4681,6 @@ fn spec_block_ids(callable_impl: &CallableImpl) -> Vec<qsc_fir::fir::BlockId> {
                 ids.push(ctl_adj.block);
             }
         }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => ids.push(spec_decl.block),
     }
     ids
 }
@@ -5040,13 +5047,6 @@ fn remove_nested_callable_param(
                     inner_path,
                 );
             }
-        } else if let CallableImpl::SimulatableIntrinsic(spec_decl) = &decl.implementation {
-            rewrite_destructuring_pat_in_block(
-                package,
-                spec_decl.block,
-                param.param_var,
-                inner_path,
-            );
         }
     }
 }
@@ -5341,6 +5341,8 @@ fn remove_ty_at_nested_path(package: &Package, ty: &Ty, path: &[usize]) -> Ty {
 /// structural view that analysis used so a path like `cfg::Inner::Op` can remove the arrow
 /// field from the specialized callable's input type. Non-UDT leaves are preserved, and nested
 /// tuples, arrays, and arrows are rebuilt with any UDTs inside them expanded as well.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
     match ty {
         Ty::Udt(Res::Item(item_id)) => {
@@ -5378,15 +5380,12 @@ fn extract_callable_body(source_pkg: &Package, decl: &CallableDecl) -> Package {
     extract_pat(source_pkg, decl.input, &mut body_pkg);
 
     match &decl.implementation {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             extract_spec_decl_body(source_pkg, &spec_impl.body, &mut body_pkg);
             for spec in functored_specs(spec_impl) {
                 extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            extract_spec_decl_body(source_pkg, spec, &mut body_pkg);
         }
     }
 
@@ -5513,6 +5512,12 @@ fn extract_expr(source: &Package, expr_id: ExprId, target: &mut Package) {
         ExprKind::Closure(_, target_item) => {
             extract_item(source, *target_item, target);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit) = limit {
+                extract_expr(source, *limit, target);
+            }
+            extract_expr(source, *body, target);
+        }
         ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -5526,19 +5531,22 @@ fn extract_item(source: &Package, item_id: LocalItemId, target: &mut Package) {
         return;
     }
     let item = source.get_item(item_id);
-    target.items.insert(item_id, item.clone());
+    let mut extracted_item = item.clone();
+    if let ItemKind::Callable(decl) = &mut extracted_item.kind
+        && matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_))
+    {
+        decl.implementation = CallableImpl::Intrinsic;
+    }
+    target.items.insert(item_id, extracted_item);
     if let ItemKind::Callable(decl) = &item.kind {
         extract_pat(source, decl.input, target);
         match &decl.implementation {
-            CallableImpl::Intrinsic => {}
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
             CallableImpl::Spec(spec_impl) => {
                 extract_spec_decl_body(source, &spec_impl.body, target);
                 for spec in functored_specs(spec_impl) {
                     extract_spec_decl_body(source, spec, target);
                 }
-            }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                extract_spec_decl_body(source, spec, target);
             }
         }
     }

@@ -17,6 +17,7 @@ use miette::Diagnostic;
 use qsc_ast::ast::{self, FieldAccess, Ident, Idents, PathKind};
 use qsc_data_structures::{
     index_map::IndexMap,
+    intrinsic_names::is_codegen_noop_intrinsic,
     span::Span,
     target::{Profile, TargetCapabilityFlags},
 };
@@ -52,6 +53,22 @@ pub(super) enum Error {
     #[diagnostic(help("try declaring the callable as an operation"))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrOnFunction"))]
     InvalidAttrOnFunction(String, #[label] Span),
+    #[error(
+        "the SimulatableIntrinsic attribute cannot be applied to a callable with explicit generic type parameters"
+    )]
+    #[diagnostic(help(
+        "remove the SimulatableIntrinsic attribute or the explicit generic type parameters"
+    ))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidSimulatableIntrinsicOnGenericCallable"))]
+    InvalidSimulatableIntrinsicOnGenericCallable(#[label("explicit generic type parameter")] Span),
+    #[error(
+        "the SimulatableIntrinsic attribute cannot be applied to a callable with an arrow-typed input parameter"
+    )]
+    #[diagnostic(help(
+        "remove the SimulatableIntrinsic attribute or replace the arrow-typed input parameter"
+    ))]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidSimulatableIntrinsicArrowParam"))]
+    InvalidSimulatableIntrinsicArrowParam(#[label("arrow-typed input parameter")] Span),
     #[error("missing callable body")]
     #[diagnostic(code("Qdk.Qsc.LowerAst.MissingBody"))]
     MissingBody(#[label] Span),
@@ -506,6 +523,20 @@ impl With<'_> {
         let kind = self.lower_callable_kind(decl.kind, attrs, decl.name.span);
         let name = self.lower_ident(&decl.name);
         let mut input = self.lower_pat(&decl.input);
+
+        if attrs.contains(&hir::Attr::SimulatableIntrinsic) {
+            if let Some(generic) = decl.generics.first() {
+                self.lowerer
+                    .errors
+                    .push(Error::InvalidSimulatableIntrinsicOnGenericCallable(
+                        generic.span,
+                    ));
+            }
+            if !is_codegen_noop_intrinsic(&name.name) {
+                Self::validate_simulatable_intrinsic_input(&input, &mut self.lowerer.errors);
+            }
+        }
+
         let output = convert::ty_from_ast(self.names, &decl.output, &mut Default::default()).0;
         let (generics, errs) = self.synthesize_callable_generics(&decl.generics, &mut input);
         let functors = convert::ast_callable_functors(decl);
@@ -553,6 +584,21 @@ impl With<'_> {
             },
             errs,
         )
+    }
+
+    fn validate_simulatable_intrinsic_input(pat: &hir::Pat, errors: &mut Vec<Error>) {
+        match &pat.kind {
+            hir::PatKind::Tuple(items) => {
+                for item in items {
+                    Self::validate_simulatable_intrinsic_input(item, errors);
+                }
+            }
+            hir::PatKind::Bind(_) | hir::PatKind::Discard | hir::PatKind::Err => {
+                if matches!(pat.ty, Ty::Arrow(_)) {
+                    errors.push(Error::InvalidSimulatableIntrinsicArrowParam(pat.span));
+                }
+            }
+        }
     }
 
     fn check_invalid_attrs_on_function(&mut self, attrs: &[hir::Attr], span: Span) {
@@ -801,6 +847,11 @@ impl With<'_> {
                 self.lower_lambda(lambda, expr.span)
             }
             ast::ExprKind::Lit(lit) => self.lower_lit(lit),
+            ast::ExprKind::Parallel(limit, body) => {
+                let limit = limit.as_ref().map(|limit| Box::new(self.lower_expr(limit)));
+                let body = self.lower_expr(body);
+                self.lower_parallel(limit, body)
+            }
             ast::ExprKind::Paren(_) => unreachable!("parentheses should be removed earlier"),
             ast::ExprKind::Path(PathKind::Ok(path)) => {
                 let args = self
@@ -1181,6 +1232,34 @@ impl With<'_> {
                 hir::ExprKind::String(vec![hir::StringComponent::Lit(Rc::clone(value))])
             }
         }
+    }
+
+    fn lower_parallel(&mut self, limit: Option<Box<hir::Expr>>, expr: hir::Expr) -> hir::ExprKind {
+        // We lower the target expression of `parallel` into a block if it isn't already one.
+        // This gives it a convenient scope for later transformations.
+        let expr = if matches!(expr.kind, hir::ExprKind::Block(_)) {
+            expr
+        } else {
+            let ty = expr.ty.clone();
+            let stmt = hir::Stmt {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                kind: hir::StmtKind::Expr(expr),
+            };
+            let block = hir::Block {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                ty: ty.clone(),
+                stmts: vec![stmt],
+            };
+            hir::Expr {
+                id: self.assigner.next_node(),
+                span: Span::default(),
+                ty,
+                kind: hir::ExprKind::Block(block),
+            }
+        };
+        hir::ExprKind::Parallel(limit, Box::new(expr))
     }
 }
 

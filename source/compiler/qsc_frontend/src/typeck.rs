@@ -240,6 +240,16 @@ enum ErrorKind {
         span: Span,
         name: String,
     },
+    #[error("user-defined type `{name}` is recursive")]
+    #[help(
+        "a user-defined type cannot contain itself, directly or through other types; arrays and callable types do not break the cycle, so `{name}[]` and `{name} -> _` are recursive as well"
+    )]
+    #[diagnostic(code("Qdk.Qsc.TypeCk.RecursiveUdt"))]
+    RecursiveUdt {
+        name: String,
+        #[label]
+        span: Span,
+    },
     #[error("expected {expected} parameters for constraint, found {found}")]
     #[diagnostic(code("Qdk.Qsc.TypeCk.IncorrectNumberOfConstraintParameters"))]
     IncorrectNumberOfConstraintParameters {
