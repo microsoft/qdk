@@ -15,7 +15,7 @@
 mod line_column;
 
 pub use crate::vendor::source::{
-    Source, SourceContents, SourceMap, SourceName, longest_common_prefix,
+    Source, SourceContents, SourceMap, SourceName, longest_common_folder_prefix,
 };
 pub use line_column::{
     Position, PositionEncoding, PositionError, Range, byte_offset, position_at, range_from_span,
