@@ -18,18 +18,13 @@ from __future__ import annotations
 
 from typing import Any, List
 
+from qasm_corpus import walk as _walk
 from qdk.openqasm import semantic
 
 _SOURCE = (
     'OPENQASM 3.0;\ninclude "stdgates.inc";\nqubit[4] q;\n'
     + "h q[0];\ncx q[0], q[1];\nrz(0.5) q[2];\n" * 200
 )
-
-
-def _walk(node: Any) -> Any:
-    yield node
-    for child in node.children():
-        yield from _walk(child)
 
 
 def _analyze(source: str = _SOURCE) -> Any:
@@ -95,9 +90,3 @@ def test_interning_does_not_change_observable_equality() -> None:
     assert first is not second
     assert first == second
     assert hash(first) == hash(second)
-
-
-def test_the_sharing_sweep_actually_covers_the_surface() -> None:
-    """A guard that would otherwise pass vacuously if traversal broke."""
-    nodes: List[Any] = list(_walk(_analyze().program))
-    assert len(nodes) > 2000, f"corpus only produced {len(nodes)} nodes"

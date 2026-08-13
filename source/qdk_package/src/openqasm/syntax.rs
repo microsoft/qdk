@@ -653,7 +653,7 @@ impl Program {
 
 /// A quantum gate modifier (for example `ctrl @`, `inv @`, or `pow(2) @`).
 ///
-/// This extends [`QASMNode`] directly, mirroring the `openqasm3`
+/// This extends :class:`QASMNode` directly, mirroring the `openqasm3`
 /// `QuantumGateModifier` node, which is neither an expression nor a statement.
 #[pyclass(extends = QASMNode, frozen, module = "qdk.openqasm.parser")]
 pub(crate) struct QuantumGateModifier {
@@ -664,6 +664,9 @@ pub(crate) struct QuantumGateModifier {
     /// optional control count for `ctrl` / `negctrl`).
     #[pyo3(get)]
     argument: Option<Py<PyAny>>,
+    /// The span covering the modifier keyword.
+    #[pyo3(get)]
+    modifier_keyword_span: Span,
 }
 
 #[pymethods]
@@ -680,6 +683,7 @@ impl QuantumGateModifier {
         format!("QuantumGateModifier(modifier={})", self.modifier.__repr__())
     }
 
+    // `modifier_keyword_span` is excluded: source position never participates.
     fn __eq__(slf: &Bound<'_, Self>, other: &Bound<'_, PyAny>) -> PyResult<bool> {
         crate::openqasm::eq::structural_eq(slf.as_any(), other, &["modifier", "argument"])
     }
@@ -695,9 +699,13 @@ impl QuantumGateModifier {
         span: Span,
         modifier: GateModifierName,
         argument: Option<Py<PyAny>>,
+        modifier_keyword_span: Span,
     ) -> PyResult<Py<PyAny>> {
-        let init = PyClassInitializer::from(QASMNode { span })
-            .add_subclass(QuantumGateModifier { modifier, argument });
+        let init = PyClassInitializer::from(QASMNode { span }).add_subclass(QuantumGateModifier {
+            modifier,
+            argument,
+            modifier_keyword_span,
+        });
         Ok(Py::new(py, init)?.into_any())
     }
 }
@@ -715,6 +723,8 @@ qasm_node!(@sexpr IndexedIdentifier {
     name: node,
     /// The index lists applied to the identifier, outermost first.
     indices: list,
+    /// The span covering the bracketed indices, excluding the identifier.
+    index_span: span,
 });
 qasm_node!(@sexpr HardwareQubit {
     /// The hardware qubit's identifier text, including the leading `$`.
@@ -796,6 +806,8 @@ qasm_node!(@sexpr ParenExpression {
 qasm_node!(@sexpr DurationOf {
     /// The statements whose duration is being measured.
     body: list,
+    /// The span covering the `durationof` keyword.
+    name_span: span,
 });
 qasm_node!(@sexpr Concatenation {
     /// The operands joined by `++`, in source order.
@@ -804,6 +816,8 @@ qasm_node!(@sexpr Concatenation {
 qasm_node!(@sexpr QuantumMeasurement {
     /// The qubits being measured.
     qubits: list,
+    /// The span covering the `measure` keyword.
+    measure_token_span: span,
 });
 qasm_node!(@saux RangeDefinition, doc = "A range used in an index or a `for` loop." {
     /// The inclusive start of the range, when written.
@@ -1035,6 +1049,8 @@ qasm_node!(@sstmt QuantumPhase {
     qubits: list,
     /// The declared duration, when written.
     duration: opt,
+    /// The span covering the `gphase` keyword.
+    gphase_token_span: span,
 });
 qasm_node!(@sstmt Include {
     /// The included file's path as written in the source.
@@ -1061,6 +1077,10 @@ qasm_node!(@sstmt Pragma {
     name: val Option<String>,
     /// The remaining text after the identifier, when present.
     value: val Option<String>,
+    /// The span covering the full command text after the keyword.
+    command_span: span,
+    /// The span covering the text after the identifier, when there is any.
+    value_span: optspan,
 });
 qasm_node!(@sstmt QuantumGateDefinition {
     /// The identifier naming the gate.
@@ -1075,6 +1095,8 @@ qasm_node!(@sstmt QuantumGateDefinition {
 qasm_node!(@sstmt QuantumReset {
     /// The qubits being reset.
     qubits: list,
+    /// The span covering the `reset` keyword.
+    reset_token_span: span,
 });
 qasm_node!(@sstmt ReturnStatement {
     /// The returned expression, when the subroutine returns a value.
@@ -1475,7 +1497,15 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             let duration = opt_expr(py, s.duration.as_ref())?;
             Py::new(
                 py,
-                QuantumPhase::init(span, annotations, modifiers, args, qubits, duration),
+                QuantumPhase::init(
+                    span,
+                    annotations,
+                    modifiers,
+                    args,
+                    qubits,
+                    duration,
+                    Span::from(s.gphase_token_span),
+                ),
             )?
             .into_any()
         }
@@ -1514,7 +1544,19 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
             let command = s.command.to_string();
             let name = s.identifier.as_ref().map(PathKind::as_string);
             let value = s.value.as_ref().map(ToString::to_string);
-            Py::new(py, Pragma::init(span, annotations, command, name, value))?.into_any()
+            Py::new(
+                py,
+                Pragma::init(
+                    span,
+                    annotations,
+                    command,
+                    name,
+                    value,
+                    Span::from(s.command_span),
+                    s.value_span.map(Span::from),
+                ),
+            )?
+            .into_any()
         }
         ast::StmtKind::QuantumGateDefinition(s) => {
             let name = build_identifier(py, &s.ident)?;
@@ -1535,7 +1577,11 @@ fn build_stmt(py: Python<'_>, stmt: &ast::Stmt) -> PyResult<Py<PyAny>> {
         ast::StmtKind::Reset(s) => {
             let mut qubits = Vec::new();
             collect_gate_operand(py, &mut qubits, &s.operand)?;
-            Py::new(py, QuantumReset::init(span, annotations, qubits))?.into_any()
+            Py::new(
+                py,
+                QuantumReset::init(span, annotations, qubits, Span::from(s.reset_token_span)),
+            )?
+            .into_any()
         }
         ast::StmtKind::Return(s) => {
             let value = match s.expr.as_deref() {
@@ -1631,7 +1677,7 @@ fn build_expr(py: Python<'_>, expr: &ast::Expr) -> PyResult<Py<PyAny>> {
         }
         ast::ExprKind::DurationOf(d) => {
             let body = stmt_list(py, &d.scope.stmts)?;
-            Py::new(py, DurationOf::init(span, body))?.into_any()
+            Py::new(py, DurationOf::init(span, body, Span::from(d.name_span)))?.into_any()
         }
     };
     Ok(obj)
@@ -1653,7 +1699,12 @@ fn build_ident_or_indexed(py: Python<'_>, ident: &ast::IdentOrIndexedIdent) -> P
             for index in &indexed.indices {
                 indices.push(build_index(py, index)?);
             }
-            let init = IndexedIdentifier::init(Span::from(indexed.span), name, indices);
+            let init = IndexedIdentifier::init(
+                Span::from(indexed.span),
+                name,
+                indices,
+                Span::from(indexed.index_span),
+            );
             Ok(Py::new(py, init)?.into_any())
         }
     }
@@ -1671,7 +1722,11 @@ fn build_value_expr(py: Python<'_>, value: &ast::ValueExpr) -> PyResult<Py<PyAny
         ast::ValueExpr::Measurement(measure) => {
             let mut qubits = Vec::new();
             collect_gate_operand(py, &mut qubits, &measure.operand)?;
-            let init = QuantumMeasurement::init(Span::from(measure.span), qubits);
+            let init = QuantumMeasurement::init(
+                Span::from(measure.span),
+                qubits,
+                Span::from(measure.measure_token_span),
+            );
             Ok(Py::new(py, init)?.into_any())
         }
     }
@@ -1884,7 +1939,13 @@ fn build_modifier(py: Python<'_>, modifier: &ast::QuantumGateModifier) -> PyResu
             opt_expr(py, expr.as_ref())?
         }
     };
-    QuantumGateModifier::build(py, span, name, argument)
+    QuantumGateModifier::build(
+        py,
+        span,
+        name,
+        argument,
+        Span::from(modifier.modifier_keyword_span),
+    )
 }
 
 fn gate_operand_list(py: Python<'_>, operands: &[ast::GateOperand]) -> PyResult<Vec<Py<PyAny>>> {

@@ -22,8 +22,21 @@ def test_package_discovery_example() -> None:
     assert not analyzed.has_errors
 
 
+def test_the_package_root_re_exports_both_entry_points_and_the_visitor() -> None:
+    """Mirrors the qdk.openqasm docstring: no layer import needed to get started."""
+    import qdk.openqasm as openqasm
+
+    assert openqasm.parse is parser.parse
+    assert openqasm.analyze is semantic.analyze
+    assert openqasm.dumps is parser.dumps
+    assert openqasm.QASMVisitor is QASMVisitor
+
+    for name in ("parse", "analyze", "dumps", "dump", "QASMVisitor"):
+        assert name in openqasm.__all__
+
+
 def test_parse_and_source_navigation_example() -> None:
-    # Mirrors README and skill: Parse and navigate sources.
+    # Mirrors README, parser.py, and skill: parse with an include resolver.
     # Mirrors parser.py: parse entry point and immutable source document.
     parsed = parser.parse(
         'OPENQASM 3.0; include "defs.inc"; qubit q;',
@@ -41,7 +54,7 @@ def test_parse_and_source_navigation_example() -> None:
 
 
 def test_semantic_analysis_and_diagnostics_example() -> None:
-    # Mirrors README and skill: Analyze symbols and diagnostics.
+    # Mirrors README, semantic.py, and skill: analyze reports diagnostics.
     # Mirrors semantic.py: result diagnostics and global spans.
     analysis = semantic.analyze(
         'OPENQASM 3.0; include "stdgates.inc"; qubit q; h q; int value = missing;',
@@ -62,7 +75,7 @@ def test_semantic_analysis_and_diagnostics_example() -> None:
 
 
 def test_logical_resolver_and_case_sensitive_keys_example() -> None:
-    # Mirrors README and skill: Resolve includes and Include resolver contract.
+    # Mirrors parser.py, semantic.py, and skill: include resolver contract.
     resolved = parser.parse(
         'OPENQASM 3.0; include "./Case.inc"; include "case.inc";',
         path="memory://workspace/main.qasm",
@@ -78,7 +91,7 @@ def test_logical_resolver_and_case_sensitive_keys_example() -> None:
 
 
 def test_qdk_include_intrinsics_example() -> None:
-    # Mirrors README, parser.py, semantic.py, and skill: qdk.inc intrinsics.
+    # Mirrors parser.py, semantic.py, and skill: qdk.inc intrinsics.
     analysis = semantic.analyze(
         'OPENQASM 3.0; include "qdk.inc"; qubit q; '
         "int result = mresetz_checked(q); postselectz(0, q);"
@@ -88,7 +101,7 @@ def test_qdk_include_intrinsics_example() -> None:
 
 
 def test_resolver_failures_are_result_diagnostics() -> None:
-    # Mirrors README, parser.py, semantic.py, and skill: resolver failures.
+    # Mirrors parser.py, semantic.py, and skill: resolver failures.
     def failing_resolver(path: str) -> str | None:
         raise RuntimeError(f"cannot resolve {path}")
 
@@ -114,8 +127,29 @@ def test_resolver_failures_are_result_diagnostics() -> None:
     )
 
 
+def test_a_wrong_typed_resolver_return_becomes_a_diagnostic() -> None:
+    # Mirrors parser.py, semantic.py, and skill: resolver failures. Raising and
+    # returning nothing are covered above; returning the wrong type is the third
+    # documented failure mode.
+    def wrong_typed_resolver(path: str) -> str | None:
+        return 42  # type: ignore[return-value]
+
+    result = parser.parse(
+        'OPENQASM 3.0; include "callback.inc";',
+        path="memory://workspace/main.qasm",
+        includes=wrong_typed_resolver,
+    )
+
+    assert result.has_errors
+    assert any("str" in diagnostic.message for diagnostic in result.diagnostics)
+    assert (
+        result.document.source_map.get(1).resolution_status
+        == ResolutionStatus.UNRESOLVED
+    )
+
+
 def test_visitor_context_example() -> None:
-    # Mirrors README and skill: Visit syntax and semantic trees.
+    # Mirrors parser.py and skill: visit syntax and semantic trees.
     class GateNames(QASMVisitor):
         def visit_QuantumGate(self, node: object, context: list[str]) -> None:
             context.append(node.name.name)  # type: ignore[attr-defined]
@@ -129,7 +163,7 @@ def test_visitor_context_example() -> None:
 
 
 def test_canonical_dump_and_writer_example() -> None:
-    # Mirrors README and skill: Write canonical source and serialize syntax.
+    # Mirrors README, parser.py, and skill: write canonical source.
     program = parser.parse_program("OPENQASM 3.0; qubit q; x q;")
     canonical = parser.dumps(program)
     stream = io.StringIO()
@@ -140,7 +174,7 @@ def test_canonical_dump_and_writer_example() -> None:
 
 
 def test_canonical_dump_failure_contract() -> None:
-    # Mirrors README, parser.py, and skill: canonical serialization failures.
+    # Mirrors parser.py and skill: canonical serialization failures.
     recovered = parser.parse("OPENQASM 3.0; int value = ;").program
     with pytest.raises(parser.QASMUnparseError) as caught:
         parser.dumps(recovered)
@@ -160,7 +194,7 @@ def test_canonical_dump_failure_contract() -> None:
 
 
 def test_resolved_types_and_constant_values_example() -> None:
-    # Mirrors README, semantic.py, and skill: read resolved types and constants.
+    # Mirrors semantic.py and skill: read resolved types and constants.
     analysis = semantic.analyze(
         "OPENQASM 3.0; array[int[8], 2, 3] grid; const duration wait = 100ns;"
     )
@@ -179,7 +213,7 @@ def test_resolved_types_and_constant_values_example() -> None:
 
 
 def test_resolved_type_is_not_a_traversed_node_example() -> None:
-    # Mirrors README and semantic.py: a resolved type has no span and no children.
+    # Mirrors semantic.py: a resolved type has no span and no children.
     analysis = semantic.analyze("OPENQASM 3.0; int[8] value = 1;")
     declaration = analysis.program.statements[0]
 

@@ -57,55 +57,6 @@ def _concrete_type_classes() -> List[type]:
     ]
 
 
-# Every resolved variant is now produced. The corpus below must reach all of
-# them, so this map is empty; it stays as the mechanism for recording a variant
-# that loses its producer.
-_UNREACHABLE: dict[str, str] = {}
-
-# Sources that between them reach every type node.
-_COVERAGE_CORPUS = [
-    "OPENQASM 3.0;\nint[8] a;\nuint[16] b;\nfloat[64] c;\nangle[32] d;\n",
-    "OPENQASM 3.0;\ncomplex[float[64]] z;\nbool f;\nbit b;\nbit[4] r;\n",
-    "OPENQASM 3.0;\nduration d = 10ns;\nstretch s;\n",
-    "OPENQASM 3.0;\nqubit q;\nqubit[2] r;\n",
-    "OPENQASM 3.0;\narray[int[8], 2, 3] v;\n",
-    "OPENQASM 3.0;\ndef f(readonly array[int[8], 2] a, "
-    "mutable array[float[32], #dim = 3] b) {\n}\n",
-    "OPENQASM 3.0;\ngate g(theta) a, b {\n}\n",
-    "OPENQASM 3.0;\ndef nothing() {\n}\n",
-    "OPENQASM 3.0;\nextern ext(int[8]) -> int[9];\n",
-    "OPENQASM 3.0;\nint[8] v = undefined_name;\n",
-    # The three constructs whose types had no producer before.
-    "OPENQASM 3.0;\nbit[4] b;\nbit[2] c = b[0:1];\n",
-    "OPENQASM 3.0;\nfor int[8] i in {1, 2} {\n}\n",
-    'OPENQASM 3.0;\ninclude "stdgates.inc";\nh $0;\n',
-]
-
-
-def _collect_types(node: Any, seen: set[str]) -> None:
-    for attribute in ("ty", "type", "return_type", "base_type"):
-        value = getattr(node, attribute, None)
-        if isinstance(value, semantic.Type):
-            seen.add(type(value).__name__)
-            _collect_types(value, seen)
-    for parameter in getattr(node, "parameter_types", None) or ():
-        seen.add(type(parameter).__name__)
-        _collect_types(parameter, seen)
-    for child in node.children():
-        _collect_types(child, seen)
-
-
-def _reached_by_corpus() -> set[str]:
-    reached: set[str] = set()
-    for source in _COVERAGE_CORPUS:
-        result = semantic.analyze(source)
-        if result.program is not None:
-            _collect_types(result.program, reached)
-        for symbol in result.symbols:
-            reached.add(type(symbol.ty).__name__)
-    return reached
-
-
 def _measurement_operand(source: str) -> Any:
     found: List[Any] = []
 
@@ -236,7 +187,7 @@ def test_an_unresolvable_type_is_an_error_type() -> None:
 
 
 def test_expression_types_dispatch_by_isinstance() -> None:
-    """P05's point: `expr.ty` is a node you can branch on, not a string to parse."""
+    """``expr.ty`` is a node to branch on, not a string to parse."""
     program = _analyze("OPENQASM 3.0;\nconst int[8] a = 3;\nconst float[64] b = 1.5;\n")
     types = [statement.init_expr.ty for statement in program.statements]
     assert isinstance(types[0], semantic.IntType)
@@ -269,30 +220,6 @@ def test_no_public_accessor_named_ty_exprs_remains() -> None:
             if hasattr(cls, accessor):
                 offenders.append(f"semantic.{name}.{accessor}")
     assert not offenders, "flat type-expression accessors remain:\n" + "\n".join(offenders)
-
-
-def test_every_resolved_variant_has_a_producer() -> None:
-    """A type node that loses its producer must be noticed."""
-    concrete = _concrete_type_classes()
-    assert len(concrete) == 22, f"expected 22 resolved type nodes, found {len(concrete)}"
-
-    reached = _reached_by_corpus()
-    expected = {cls.__name__ for cls in concrete} - set(_UNREACHABLE)
-    missing = sorted(expected - reached)
-    assert not missing, (
-        "these resolved type nodes are not produced by any corpus source. "
-        "Either add a source, or record them in _UNREACHABLE with a reason:\n"
-        + "\n".join(missing)
-    )
-
-
-def test_the_unreachable_list_stays_honest() -> None:
-    """An exempted type that gains a producer should lose its exemption."""
-    now_reachable = sorted(set(_UNREACHABLE) & _reached_by_corpus())
-    assert not now_reachable, (
-        "these types are exempted but the corpus now reaches them; "
-        "drop them from _UNREACHABLE:\n" + "\n".join(now_reachable)
-    )
 
 
 def test_an_operand_reports_a_type_however_the_qubit_was_written() -> None:

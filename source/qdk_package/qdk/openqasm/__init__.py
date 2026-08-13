@@ -35,9 +35,12 @@ Key exports:
 - :mod:`~qdk.openqasm.semantic` provides the resolved semantic AST:
   :func:`analyze` and the richly-typed, clean-named node classes it produces
   (for example :class:`~qdk.openqasm.semantic.QuantumGate` and
-  :class:`~qdk.openqasm.semantic.BinaryExpression`).
-- :class:`~qdk.openqasm.parser.QASMVisitor` is a read-only visitor base for
-  walking either the syntactic or semantic AST.
+  :class:`~qdk.openqasm.semantic.BinaryExpression`). Both entry points are also
+  re-exported here, so ``qdk.openqasm.parse`` and ``qdk.openqasm.analyze`` work
+  without importing the layer module first.
+- :class:`~qdk.openqasm.QASMVisitor` is a read-only visitor base for
+  walking either the syntactic or semantic AST. Like the shared node classes
+  below it belongs to neither layer, so it is re-exported here and from both.
 - :class:`~qdk.openqasm.QASMNode`, :class:`~qdk.openqasm.Expression`,
   :class:`~qdk.openqasm.Statement`, and :class:`~qdk.openqasm.Annotation` are
   the classes both layers use. They live here rather than in either layer's
@@ -54,12 +57,15 @@ Key exports:
 
 from . import parser, semantic, source
 from .parser import (
-  QASM3ParsingError,
-  QASMUnparseError,
-  dump,
-  dumps,
-  parse_program,
+    QASM3ParsingError,
+    QASMUnparseError,
+    QASMVisitor,
+    dump,
+    dumps,
+    parse,
+    parse_program,
 )
+from .semantic import analyze
 from .source import Position, PositionEncoding, SourceRange
 from ._circuit import circuit
 from ._compile import compile
@@ -67,11 +73,11 @@ from ._estimate import estimate
 from ._import import import_openqasm
 from ._run import run
 from .._native import ProgramType, OutputSemantics, QasmError  # type: ignore
-from .._native import (  # type: ignore
-  Annotation,
-  Expression,
-  QASMNode,
-  Statement,
+from ._native_syntax import (
+    Annotation,
+    Expression,
+    QASMNode,
+    Statement,
 )
 
 __all__ = [
@@ -80,11 +86,14 @@ __all__ = [
     "estimate",
     "import_openqasm",
     "run",
+    "analyze",
+    "parse",
     "dumps",
     "dump",
     "parse_program",
     "QASM3ParsingError",
     "QASMUnparseError",
+    "QASMVisitor",
     "parser",
     "semantic",
     "source",

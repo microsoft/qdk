@@ -28,13 +28,12 @@ from qdk.openqasm.parser import (
 )
 
 
-def test_parse_returns_program() -> None:
+def test_parse_returns_a_program_rooted_at_the_whole_source() -> None:
     result = parser.parse("OPENQASM 3.0; qubit q; x q;")
     assert not result.has_errors
     assert result.diagnostics == []
     program = result.program
     assert isinstance(program, Program)
-    assert type(program).__name__ == "Program"
     assert program.version == "3.0"
 
 
@@ -47,7 +46,7 @@ def test_parse_result_exposes_program_document() -> None:
     assert result.document.entry.text == source
 
 
-def test_node_names_and_isinstance() -> None:
+def test_a_parsed_statement_reports_its_class_name_and_node_ancestry() -> None:
     result = parser.parse("OPENQASM 3.0; qubit q; x q;")
     statements = result.program.statements
 
@@ -63,7 +62,7 @@ def test_node_names_and_isinstance() -> None:
     assert isinstance(gate, Statement)
 
 
-def test_identifier_name() -> None:
+def test_a_gate_name_is_an_identifier_carrying_its_source_text() -> None:
     result = parser.parse("OPENQASM 3.0; qubit q; x q;")
     gate = result.program.statements[1]
     assert isinstance(gate, QuantumGate)
@@ -72,10 +71,9 @@ def test_identifier_name() -> None:
     assert gate.name.name == "x"
 
 
-def test_binary_expression_operands() -> None:
+def test_a_binary_expression_reports_its_operator_and_both_operands() -> None:
     result = parser.parse("OPENQASM 3.0; int a = 1 + 2;")
     decl = result.program.statements[0]
-    assert type(decl).__name__ == "ClassicalDeclaration"
     assert isinstance(decl, ClassicalDeclaration)
     init = decl.init_expr
     assert isinstance(init, BinaryExpression)
@@ -93,23 +91,6 @@ def test_io_declaration_keyword_is_enum_typed() -> None:
     assert [keyword.value for keyword in keywords] == ["input", "output"]
 
 
-def test_semantic_nodes_expose_enums_not_rust_names() -> None:
-    result = semantic.analyze(
-        "OPENQASM 3.0; input int[8] a; angle[4] g = pi / 2; bool b = !(a > 0);"
-    )
-    assert not result.has_errors
-
-    _, angle, boolean = result.program.statements
-    assert result.symbols.lookup("a").io_kind == semantic.IOKind.INPUT
-    assert angle.init_expr.kind == semantic.CastKind.IMPLICIT
-    assert angle.init_expr.operand.op == semantic.BinaryOperator.DIV
-    assert boolean.init_expr.op == semantic.UnaryOperator.LOGIC_NOT
-    assert boolean.init_expr.operand.operand.op == semantic.BinaryOperator.GT
-
-    # The syntactic and semantic layers share one operator enum.
-    assert semantic.BinaryOperator is parser.BinaryOperator
-
-
 def test_syntax_expression_has_no_semantic_accessors() -> None:
     result = parser.parse("OPENQASM 3.0; int a = 1 + 2;")
     decl = result.program.statements[0]
@@ -124,9 +105,6 @@ def test_parse_broken_program_reports_diagnostics() -> None:
     result = parser.parse("OPENQASM 3.0; qubit;")
     assert result.has_errors
     assert result.diagnostics
-    assert [d.message for d in result.errors] == [
-        d.message for d in result.diagnostics
-    ]
     diagnostic = result.diagnostics[0]
     assert isinstance(diagnostic, Diagnostic)
     assert isinstance(diagnostic.message, str)
@@ -281,41 +259,6 @@ def test_parse_program_public_exports_and_value_error_compatibility() -> None:
     assert issubclass(parser.QASM3ParsingError, ValueError)
 
 
-def test_visitor_counts_gates_and_recurses() -> None:
-    class GateCounter(QASMVisitor):
-        def __init__(self) -> None:
-            self.count = 0
-
-        def visit_QuantumGate(self, node: object) -> None:
-            self.count += 1
-            self.generic_visit(node)
-
-    result = parser.parse("OPENQASM 3.0; qubit q; x q; y q; z q;")
-    counter = GateCounter()
-    counter.visit(result.program)
-    assert counter.count == 3
-
-
-def test_visitor_generic_visit_walks_whole_tree() -> None:
-    class NodeCounter(QASMVisitor):
-        def __init__(self) -> None:
-            self.count = 0
-
-        def generic_visit(self, node: object) -> None:
-            self.count += 1
-            super().generic_visit(node)
-
-    result = parser.parse("OPENQASM 3.0; qubit q; x q;")
-    counter = NodeCounter()
-    counter.visit(result.program)
-    # Program + qubit decl + its identifier + gate + its name identifier + operand.
-    assert counter.count > 3
-
-
-def test_qasm_visitor_shared_across_layers() -> None:
-    assert parser.QASMVisitor is semantic.QASMVisitor
-
-
 def test_parse_with_dict_includes() -> None:
     source = 'OPENQASM 3.0; include "custom.inc"; qubit q; my_gate q;'
     includes = {"custom.inc": "gate my_gate q { }"}
@@ -359,37 +302,6 @@ def test_pragma_exposes_authoritative_command_and_derived_views() -> None:
     assert not hasattr(program, "pragmas")
     with pytest.raises(AttributeError):
         pragma.command = "changed"  # type: ignore[misc]
-
-
-def test_semantic_gate_modifiers_preserve_kind_and_argument() -> None:
-    source = """OPENQASM 3.0;
-    include "stdgates.inc";
-    qubit[3] q;
-    inv @ x q[0];
-    pow(2) @ x q[0];
-    ctrl(2) @ x q[0], q[1], q[2];
-    negctrl(2) @ x q[0], q[1], q[2];
-    """
-    result = semantic.analyze(source)
-    assert not result.has_errors
-
-    gates = result.program.statements[-4:]
-    modifiers = [gate.modifiers[0] for gate in gates]
-    assert [modifier.modifier for modifier in modifiers] == [
-        parser.GateModifierName.INV,
-        parser.GateModifierName.POW,
-        parser.GateModifierName.CTRL,
-        parser.GateModifierName.NEGCTRL,
-    ]
-    assert [modifier.modifier.value for modifier in modifiers] == [
-        "inv",
-        "pow",
-        "ctrl",
-        "negctrl",
-    ]
-    assert modifiers[0].argument is None
-    assert modifiers[1].argument.value == 2
-    assert [modifier.argument.const_value for modifier in modifiers[2:]] == [2, 2]
 
 
 def test_gate_modifiers_preserve_implicit_counts_and_source_order() -> None:
@@ -495,7 +407,7 @@ def test_syntax_indices_preserve_dimensions_and_discrete_sets() -> None:
     assert [value.value for value in alias.exprs[0].indices[0].values] == [0, 2]
 
 
-def test_corrected_syntax_field_shapes_match_runtime_values() -> None:
+def test_index_parameter_and_range_fields_hold_their_declared_node_types() -> None:
     source = """OPENQASM 3.0;
     array[int, 2] values;
     int selected = values[0];

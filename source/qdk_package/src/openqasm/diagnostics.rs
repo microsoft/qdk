@@ -22,7 +22,7 @@ use qdk_openqasm::{error::SourceSnapshotSourceCode, parser::SourceSnapshot};
 use std::fmt;
 use std::io::IsTerminal;
 
-/// The severity of a [`Diagnostic`].
+/// The severity of a :class:`Diagnostic`.
 #[pyclass(
     module = "qdk.openqasm.parser",
     eq,
@@ -73,7 +73,7 @@ impl Severity {
     }
 }
 
-/// A labeled region of source associated with a [`Diagnostic`].
+/// A labeled region of source associated with a :class:`Diagnostic`.
 #[pyclass(module = "qdk.openqasm.parser", frozen, eq, hash, skip_from_py_object)]
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub(crate) struct Label {
