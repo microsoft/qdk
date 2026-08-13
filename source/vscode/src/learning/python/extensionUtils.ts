@@ -20,27 +20,6 @@ function getMissingExtensions(): { id: string; name: string }[] {
 }
 
 /**
- * Soft-check that the Python and Jupyter extensions are available. On
- * VS Code for the Web (where they can't run) returns a desktop-only
- * message. Returns `undefined` when everything required is present.
- */
-export function checkPythonExtensions(): string | undefined {
-  if (vscode.env.uiKind === vscode.UIKind.Web) {
-    return (
-      "Python notebook courses require the desktop version of VS Code " +
-      "with the Python and Jupyter extensions."
-    );
-  }
-  const missing = getMissingExtensions();
-  if (missing.length === 0) {
-    return undefined;
-  }
-  return `This course needs the ${missing
-    .map((m) => m.name)
-    .join(" and ")} extension${missing.length > 1 ? "s" : ""}.`;
-}
-
-/**
  * Prompt the user to install any missing required extensions. Safe to
  * call when nothing is missing (it no-ops).
  */

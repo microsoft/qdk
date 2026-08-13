@@ -33,10 +33,10 @@ import type { NotebookExerciseInfo } from "./types.js";
  */
 
 /** Tag marking the code cell a learner edits. */
-export const EXERCISE_TAG = "exercise";
+const EXERCISE_TAG = "exercise";
 
 /** Tags marking author-only cells, removed from the learner's working copy. */
-export const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
+const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
 
 type AuthoringTag = (typeof AUTHORING_TAGS)[number];
 
