@@ -6,6 +6,7 @@ import {
   LearningService,
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
+  isNotebookCourse,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
   type HintContext,
@@ -194,7 +195,7 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
-      if (this.service.getActiveCourseInfo().kind === "python-notebook") {
+      if (isNotebookCourse(this.service.getActiveCourseInfo())) {
         let code = "";
         // Prefer the cell the user actually has focused in the editor.
         const editor = vscode.window.activeNotebookEditor;

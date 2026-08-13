@@ -13,11 +13,10 @@ import type { CourseProvider } from "./courseProvider.js";
 import { uriExists } from "./fsUtils.js";
 import { parseNotebookExercises } from "./notebookExercises.js";
 import type {
-  CatalogActivity,
-  CatalogCourse,
   CatalogExercise,
-  CatalogUnit,
   CourseEnvironment,
+  NotebookCatalogCourse,
+  NotebookCatalogUnit,
   NotebookExerciseInfo,
 } from "./types.js";
 
@@ -62,8 +61,8 @@ export class NotebookCourseProvider implements CourseProvider {
 
   constructor(private readonly workspaceRoot: vscode.Uri) {}
 
-  async listCourses(): Promise<CatalogCourse[]> {
-    const courses: CatalogCourse[] = [];
+  async listCourses(): Promise<NotebookCatalogCourse[]> {
+    const courses: NotebookCatalogCourse[] = [];
     const seen = new Set<string>();
     for (const loc of await this.discover()) {
       const course = await this.parseCourse(loc);
@@ -141,14 +140,14 @@ export class NotebookCourseProvider implements CourseProvider {
 
   private async parseCourse(
     loc: CourseLocation,
-  ): Promise<CatalogCourse | undefined> {
+  ): Promise<NotebookCatalogCourse | undefined> {
     const id = manifestString(loc.manifest.id);
     const title = manifestString(loc.manifest.title);
     if (id === undefined || title === undefined) {
       return undefined;
     }
 
-    const units: CatalogUnit[] = [];
+    const units: NotebookCatalogUnit[] = [];
     for (const manifestUnit of manifestUnits(loc.manifest.units, loc.dir)) {
       const unitDir = vscode.Uri.joinPath(loc.dir, manifestUnit.dir);
       if (!(await uriExists(unitDir))) {
@@ -157,13 +156,38 @@ export class NotebookCourseProvider implements CourseProvider {
         );
         continue;
       }
-      const { activities, notebookExercises, sourceNotebookRelativePath } =
+      const { notebookExercises, sourceNotebookRelativePath } =
         await this.parseNotebookUnit(unitDir, manifestUnit);
-      if (activities.length === 0) {
+      if (!sourceNotebookRelativePath) {
         log.warn(
-          `Unit "${manifestUnit.id}" in course "${id}" has no activities.`,
+          `Skipping unit "${manifestUnit.id}" in course "${id}": notebook not found.`,
         );
+        continue;
       }
+      if (!notebookExercises) {
+        log.warn(
+          `Skipping unit "${manifestUnit.id}" in course "${id}": unit has no activities.`,
+        );
+        continue;
+      }
+
+      // Surface each notebook exercise as a catalog activity so it appears
+      // in the progress tree and can be navigated to.
+      const activities = notebookExercises.map(
+        (ex) =>
+          ({
+            type: "exercise",
+            id: ex.cellId,
+            title: ex.title,
+            description: ex.description,
+            placeholderCode: "",
+            sourceIds: [],
+            hints: ex.hints,
+            solutionCodes: ex.solutions,
+            solutionExplanation: ex.solutionExplanation,
+          }) satisfies CatalogExercise,
+      );
+
       units.push({
         id: manifestUnit.id,
         title: manifestUnit.title,
@@ -197,7 +221,6 @@ export class NotebookCourseProvider implements CourseProvider {
     unitDir: vscode.Uri,
     unit: ManifestUnit,
   ): Promise<{
-    activities: CatalogActivity[];
     notebookExercises?: NotebookExerciseInfo[];
     sourceNotebookRelativePath?: string;
   }> {
@@ -219,7 +242,7 @@ export class NotebookCourseProvider implements CourseProvider {
         log.warn(
           `Unit "${unit.id}" has no .ipynb notebook in ${unitDir.fsPath}.`,
         );
-        return { activities: [] };
+        return {};
       case 1:
         notebookEntry = notebookEntries[0];
         break;
@@ -233,8 +256,6 @@ export class NotebookCourseProvider implements CourseProvider {
 
     const sourceNotebookRelativePath = `${unit.dir}/${notebookEntry.name}`;
 
-    const activities: CatalogActivity[] = [];
-
     // Exercise metadata lives in the authored notebook, marked up with cell
     // tags. Read it here so it's available before materialization.
     const notebookText = await tryReadText(
@@ -244,25 +265,7 @@ export class NotebookCourseProvider implements CourseProvider {
       ? parseNotebookExercises(notebookText, unit.id)
       : undefined;
 
-    // Surface each notebook exercise as a catalog activity so it appears
-    // in the progress tree and can be navigated to.
-    if (notebookExercises) {
-      for (const ex of notebookExercises) {
-        activities.push({
-          type: "exercise",
-          id: ex.cellId,
-          title: ex.title,
-          description: ex.description,
-          placeholderCode: "",
-          sourceIds: [],
-          hints: ex.hints,
-          solutionCodes: ex.solutions,
-          solutionExplanation: ex.solutionExplanation,
-        } satisfies CatalogExercise);
-      }
-    }
-
-    return { activities, notebookExercises, sourceNotebookRelativePath };
+    return { notebookExercises, sourceNotebookRelativePath };
   }
 }
 

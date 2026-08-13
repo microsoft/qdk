@@ -8,7 +8,7 @@ import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
 import { ProgramRunStatus, runProgram } from "../run.js";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
 import { createCourseProvider, toDescriptor } from "./courseProvider.js";
-import { workbookUri } from "./courseLayout.js";
+import { isNotebookCourse, workbookUri } from "./courseLayout.js";
 import { promptInstallPythonExtensions } from "./python/extensionUtils.js";
 import {
   materializeCourseWorkbooks,
@@ -47,6 +47,8 @@ import type {
   TelemetrySource,
   UnitProgress,
   UnitSummary,
+  NotebookCatalogCourse,
+  NotebookCatalogUnit,
 } from "./types.js";
 
 /**
@@ -381,7 +383,7 @@ export class LearningService {
     cellId: string,
     source?: TelemetrySource,
   ): Promise<boolean> {
-    if (this.activeCourse.kind !== "python-notebook") {
+    if (!isNotebookCourse(this.activeCourse)) {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
@@ -413,7 +415,7 @@ export class LearningService {
    * Fires the state-change event so the treeview updates.
    */
   async markExerciseCompleteByCellId(cellId: string): Promise<boolean> {
-    if (this.activeCourse.kind !== "python-notebook") {
+    if (!isNotebookCourse(this.activeCourse)) {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
@@ -482,16 +484,13 @@ export class LearningService {
    */
   private resolveWorkbookLocation(
     uri: vscode.Uri,
-  ): { course: CatalogCourse; unit: CatalogUnit } | undefined {
+  ): { course: NotebookCatalogCourse; unit: NotebookCatalogUnit } | undefined {
     const target = uri.toString();
     for (const course of this.requireWorkspace().courses.values()) {
-      if (course.kind !== "python-notebook" || !course.sourceDir) {
+      if (!isNotebookCourse(course) || !course.sourceDir) {
         continue;
       }
       for (const unit of course.units) {
-        if (!unit.sourceNotebookRelativePath) {
-          continue;
-        }
         const workbook = workbookUri(course, unit);
         if (workbook.toString() === target) {
           return { course, unit };
@@ -532,7 +531,7 @@ export class LearningService {
    * course or there are no exercises.
    */
   isExerciseCellId(cellId: string): boolean {
-    if (this.activeCourse.kind !== "python-notebook") {
+    if (!isNotebookCourse(this.activeCourse)) {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
@@ -545,7 +544,7 @@ export class LearningService {
    * python-notebook course or the activity has no associated cell.
    */
   getCurrentExerciseCellId(): string | undefined {
-    if (this.activeCourse.kind !== "python-notebook") {
+    if (!isNotebookCourse(this.activeCourse)) {
       return undefined;
     }
     const { activity } = this.findCurrentActivity();
@@ -586,7 +585,7 @@ export class LearningService {
     // Note: if materializing fails, you basically have to reload the window.
     // That should be rare enough not to matter.
     await this.materializeCourse(ws, course);
-    if (course.kind === "python-notebook") {
+    if (isNotebookCourse(course)) {
       await promptInstallPythonExtensions();
     }
     ws.progressData.position = this.firstIncompletePosition(course);
@@ -791,12 +790,10 @@ export class LearningService {
 
   getCurrentCodeFileUri(): vscode.Uri | undefined {
     // Python-notebook courses: the "code" is the notebook itself.
-    if (this.activeCourse.kind === "python-notebook") {
-      const { unit } = this.findCurrentActivity();
-      if (unit.sourceNotebookRelativePath) {
-        return workbookUri(this.activeCourse, unit);
-      }
-      return undefined;
+    const course = this.activeCourse;
+    if (isNotebookCourse(course)) {
+      const unit = this.findCourseUnit(course, this.position.unitId);
+      return workbookUri(course, unit);
     }
     const { activity } = this.findCurrentActivity();
     if (activity.type === "exercise") {
@@ -815,17 +812,16 @@ export class LearningService {
   async resetExercise(source?: TelemetrySource): Promise<void> {
     // Python-notebook courses: close the notebook, re-copy the entire unit
     // from source, and clear completion.
-    if (this.activeCourse.kind === "python-notebook") {
-      const { unit } = this.findCurrentActivity();
+    const course = this.activeCourse;
+    if (isNotebookCourse(course)) {
+      const unit = this.findCourseUnit(course, this.position.unitId);
       // Close any open notebook tabs for this unit.
-      if (unit.sourceNotebookRelativePath) {
-        await this.closeNotebookTab(workbookUri(this.activeCourse, unit));
-      }
+      await this.closeNotebookTab(workbookUri(course, unit));
       // Re-materialize the unit from source.
-      await rematerializeUnitWorkbook(this.activeCourse, unit.id);
+      await rematerializeUnitWorkbook(course, unit);
       // Clear completion for every activity in the unit, not just the
       // current one, since the whole unit was re-materialized.
-      this.markUnitIncomplete(this.activeCourse.id, unit);
+      this.markUnitIncomplete(course.id, unit);
       await this.saveProgress();
       this._onDidChangeState.fire(this.getState());
       if (source) {
@@ -870,7 +866,7 @@ export class LearningService {
     }
 
     // Python-notebook courses use native VS Code notebook execution.
-    if (this.activeCourse.kind === "python-notebook") {
+    if (isNotebookCourse(this.activeCourse)) {
       return {
         result: {
           success: false,
@@ -919,7 +915,7 @@ export class LearningService {
     // Python-notebook courses verify in the notebook itself: running an
     // exercise cell runs its checker, and the extension records completion
     // from the cell's execution result rather than through this method.
-    if (this.activeCourse.kind === "python-notebook") {
+    if (isNotebookCourse(this.activeCourse)) {
       return {
         result: {
           passed: false,
@@ -1356,7 +1352,7 @@ export class LearningService {
       // rendering it as HTML/markdown, but the user has to trust the workspace
       // before our extension even runs.  Also we don't use the learning panel
       // for notebook courses.
-      if (this.activeCourse.kind === "python-notebook") {
+      if (isNotebookCourse(this.activeCourse)) {
         return {
           type: "lesson-text",
           content: activity.description,
@@ -1471,7 +1467,14 @@ export class LearningService {
   }
 
   private findUnit(unitId: string): CatalogUnit {
-    const kata = this.activeCourse.units.find((k) => k.id === unitId);
+    return this.findCourseUnit(this.activeCourse, unitId);
+  }
+
+  private findCourseUnit<Unit extends CatalogUnit>(
+    course: { units: Unit[] },
+    unitId: string,
+  ): Unit {
+    const kata = course.units.find((k) => k.id === unitId);
     if (!kata) {
       throw new Error(`Unit not found: ${unitId}`);
     }
@@ -1746,7 +1749,7 @@ export class LearningService {
     ws: WorkspaceState,
     course: CatalogCourse,
   ): Promise<void> {
-    if (course.kind === "python-notebook") {
+    if (isNotebookCourse(course)) {
       // Copy the course's notebooks into the workspace working copy so the
       // learner edits a stable location, then surface any missing tooling.
       await materializeCourseWorkbooks(course);

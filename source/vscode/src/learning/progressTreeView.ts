@@ -12,6 +12,7 @@ import type {
 } from "./types.js";
 import type { LearningService } from "./service.js";
 import { LEARNING_TREE_VIEW_ID } from "./constants.js";
+import { isNotebookCourse } from "./courseLayout.js";
 
 /**
  * Wire up the QDK Learning progress panel, a `TreeView` of
@@ -78,13 +79,13 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       );
       item.description =
         totalUnits > 0 ? `${completedUnits}/${totalUnits}` : undefined;
-      item.iconPath =
-        descriptor.kind === "python-notebook" ? iconPython : iconCourse;
+      item.iconPath = isNotebookCourse(descriptor) ? iconPython : iconCourse;
       // The context value drives which package.json menu actions appear.
       // Python courses get a distinct value so Python-only actions (the
       // environment check) can be scoped to them.
-      item.contextValue =
-        descriptor.kind === "python-notebook" ? "coursePython" : "course";
+      item.contextValue = isNotebookCourse(descriptor)
+        ? "coursePython"
+        : "course";
       item.tooltip = `${descriptor.title}${
         descriptor.shortDescription ? `\n${descriptor.shortDescription}` : ""
       }`;
@@ -209,7 +210,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       // The "Up next" shortcut targets the active course's saved position.
       // Notebook courses don't have a meaningful per-activity position, so the
       // shortcut is only shown for Q# courses.
-      if (isActive && descriptor.kind !== "python-notebook") {
+      if (isActive && !isNotebookCourse(descriptor)) {
         const { courseId, unitId, activityId } = progress.currentPosition;
         const unit = progress.units.find((u) => u.id === unitId);
         const activity = unit?.activities.find((a) => a.id === activityId);

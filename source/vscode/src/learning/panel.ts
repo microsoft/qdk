@@ -11,6 +11,7 @@ import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "../common.js";
 import { LEARNING_FILE, LEARNING_TREE_VIEW_ID } from "./constants.js";
+import { isNotebookCourse } from "./courseLayout.js";
 import type { LearningService } from "./service.js";
 import type { LearningState, TelemetrySource } from "./types.js";
 import type {
@@ -56,7 +57,7 @@ export class LessonPanelManager {
   private get isPythonNotebook(): boolean {
     return (
       this.service.initialized &&
-      this.service.getActiveCourseInfo().kind === "python-notebook"
+      isNotebookCourse(this.service.getActiveCourseInfo())
     );
   }
 

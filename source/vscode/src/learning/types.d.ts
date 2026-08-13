@@ -292,6 +292,11 @@ export interface CatalogUnit {
   sourceNotebookRelativePath?: string;
 }
 
+export interface NotebookCatalogUnit extends CatalogUnit {
+  notebookExercises: NotebookExerciseInfo[];
+  sourceNotebookRelativePath: string;
+}
+
 /** The execution model for a course's activities. */
 export type CourseKind = "qsharp" | "python-notebook";
 
@@ -316,6 +321,13 @@ export interface CatalogCourse {
   sourceDir?: string;
   /** Environment requirements (python-notebook courses). */
   environment?: CourseEnvironment;
+}
+
+export interface NotebookCatalogCourse extends CatalogCourse {
+  kind: "python-notebook";
+  units: NotebookCatalogUnit[];
+  sourceDir: string;
+  // environment actually is optional
 }
 
 /**

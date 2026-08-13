@@ -3,6 +3,7 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
+import { isNotebookCourse } from "./courseLayout.js";
 import { LessonPanelManager } from "./panel.js";
 import type { LearningService } from "./service.js";
 import type { ActivityLocation } from "./types.js";
@@ -128,7 +129,7 @@ export function registerLearningCommands(
         // targets the unit as a whole (the position lands on its first
         // activity), so start the learner at the top of the notebook rather
         // than jumping straight to an exercise.
-        if (service.getActiveCourseInfo().kind === "python-notebook") {
+        if (isNotebookCourse(service.getActiveCourseInfo())) {
           await openCourseNotebook(service, {
             reveal: node.kind === "unit" ? "top" : "exercise",
           });
@@ -153,7 +154,7 @@ export function registerLearningCommands(
 
         // python-notebook courses don't use the lesson panel — open the
         // notebook directly and pick up where the learner left off.
-        if (service.getActiveCourseInfo().kind === "python-notebook") {
+        if (isNotebookCourse(service.getActiveCourseInfo())) {
           await openCourseNotebook(service);
           return;
         }
@@ -192,7 +193,7 @@ export function registerLearningCommands(
         }
 
         const courseInfo = service.getActiveCourseInfo();
-        if (courseInfo.kind !== "python-notebook") {
+        if (!isNotebookCourse(courseInfo)) {
           return;
         }
 
@@ -217,7 +218,7 @@ export function registerLearningCommands(
         }
 
         const courseInfo = service.getActiveCourseInfo();
-        if (courseInfo.kind !== "python-notebook") {
+        if (!isNotebookCourse(courseInfo)) {
           return;
         }
 

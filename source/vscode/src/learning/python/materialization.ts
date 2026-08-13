@@ -3,14 +3,10 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
-import {
-  notebookUnits,
-  sourceNotebookUri,
-  workbookUri,
-} from "../courseLayout.js";
+import { sourceNotebookUri, workbookUri } from "../courseLayout.js";
 import { ensureParentDir, uriExists } from "../fsUtils.js";
 import { stripAuthoringCells } from "../notebookExercises.js";
-import type { CatalogCourse } from "../types.js";
+import type { NotebookCatalogCourse, NotebookCatalogUnit } from "../types.js";
 
 /**
  * Materialize the working copy for every unit in the course: derive each
@@ -18,9 +14,9 @@ import type { CatalogCourse } from "../types.js";
  * are never overwritten, preserving learner edits.
  */
 export async function materializeCourseWorkbooks(
-  course: CatalogCourse,
+  course: NotebookCatalogCourse,
 ): Promise<void> {
-  for (const unit of notebookUnits(course)) {
+  for (const unit of course.units) {
     const dest = workbookUri(course, unit);
     if (await uriExists(dest)) {
       continue;
@@ -34,13 +30,9 @@ export async function materializeCourseWorkbooks(
  * with a fresh copy derived from the authored notebook.
  */
 export async function rematerializeUnitWorkbook(
-  course: CatalogCourse,
-  unitId: string,
+  course: NotebookCatalogCourse,
+  unit: NotebookCatalogUnit,
 ): Promise<void> {
-  const unit = course.units.find((u) => u.id === unitId);
-  if (!unit) {
-    throw new Error(`Unit "${unitId}" not found in course "${course.id}".`);
-  }
   await materializeNotebook(
     sourceNotebookUri(course, unit),
     workbookUri(course, unit),

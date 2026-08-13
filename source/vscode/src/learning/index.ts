@@ -14,6 +14,7 @@ import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
 import { WORKBOOK_SUFFIX } from "./constants.js";
 import { registerLearningWelcomeView } from "./welcomeView.js";
+import { isNotebookCourse } from "./courseLayout.js";
 
 export function initLearning(
   context: vscode.ExtensionContext,
@@ -50,7 +51,7 @@ export function initLearning(
       // mark complete.
       if (
         !learningService.initialized ||
-        learningService.getActiveCourseInfo().kind !== "python-notebook" ||
+        !isNotebookCourse(learningService.getActiveCourseInfo()) ||
         !e.notebook.uri.path.endsWith(WORKBOOK_SUFFIX)
       ) {
         return;
@@ -105,6 +106,7 @@ export type {
   UnitSummary,
 } from "./types.js";
 export { LEARNING_WORKSPACE_FOLDER } from "./constants.js";
+export { isNotebookCourse } from "./courseLayout.js";
 export {
   detectLearningWorkspace,
   LearningService,
