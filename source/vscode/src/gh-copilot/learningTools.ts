@@ -9,10 +9,10 @@ import {
   isNotebookCourse,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
+  type CurrentActivity,
   type HintContext,
   type UnitSummary,
   type OverallProgress,
-  type CurrentActivity,
   type RunResult,
   type SolutionCheckResult,
 } from "../learning/index.js";
@@ -376,9 +376,14 @@ export class LearningTools {
       ? progress.units.find((u) => u.id === cur)
       : undefined;
 
+    // The notebook activity will be undefined if we're not in a notebook
+    // or if we couldn't identify the current cell for some reason.
+    // In that case, we fall back to the current progress position.
+    const position = this.notebookCurrentActivity() ?? state.position;
+
     return {
       course: this.service.getActiveCourseInfo(),
-      position: state.position,
+      position,
       progress: {
         totalActivities: progress.stats.totalActivities,
         completedActivities: progress.stats.completedActivities,
@@ -386,5 +391,29 @@ export class LearningTools {
         currentUnitTotal: currentUnit?.total ?? 0,
       },
     };
+  }
+
+  /**
+   * For notebook courses, build CurrentActivity from the selected cell
+   * rather than from the service's stored position.
+   */
+  private notebookCurrentActivity(): CurrentActivity | undefined {
+    const editor = vscode.window.activeNotebookEditor;
+    const selection = editor?.selections[0];
+    if (!selection || !editor) {
+      return undefined;
+    }
+
+    const cell = editor.notebook.cellAt(selection.start);
+    const cellId = cell.metadata?.id;
+    if (typeof cellId !== "string") {
+      return undefined;
+    }
+
+    return this.service.getCurrentActivityForCell(
+      cellId,
+      cell.document.getText(),
+      editor.notebook.uri.toString(),
+    );
   }
 }

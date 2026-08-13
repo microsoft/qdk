@@ -539,6 +539,56 @@ export class LearningService {
   }
 
   /**
+   * Build a CurrentActivity for the given notebook cell.
+   * Returns `undefined` when the active course isn't a notebook course.
+   */
+  getCurrentActivityForCell(
+    cellId: string,
+    cellText: string,
+    notebookUri: string,
+  ): CurrentActivity | undefined {
+    if (!isNotebookCourse(this.activeCourse)) {
+      return undefined;
+    }
+    const unit = this.findUnit(this.position.unitId);
+    const exerciseInfo = unit.notebookExercises?.find(
+      (ex) => ex.cellId === cellId,
+    );
+    const isExercise = this.isExerciseCellId(cellId);
+
+    const location: ActivityLocation = {
+      courseId: this.activeCourse.id,
+      unitId: unit.id,
+      activityId: cellId,
+    };
+
+    let content: ActivityContent;
+    if (isExercise && exerciseInfo) {
+      content = {
+        type: "exercise",
+        id: cellId,
+        title: exerciseInfo.title,
+        description: exerciseInfo.description,
+        filePath: `${notebookUri}#${cellId}`,
+        isComplete: false,
+        hasMultipleSolutions: exerciseInfo.solutions.length > 1,
+      } satisfies ExerciseContent;
+    } else {
+      content = {
+        type: "lesson-text",
+        content: cellText,
+      } satisfies LessonTextContent;
+    }
+
+    return {
+      location,
+      unitTitle: unit.title,
+      activityTitle: exerciseInfo?.title ?? "",
+      content,
+    };
+  }
+
+  /**
    * The notebook cell ID backing the current activity — the inverse of
    * {@link goToExerciseByCellId}. `undefined` when the course isn't a
    * python-notebook course or the activity has no associated cell.
