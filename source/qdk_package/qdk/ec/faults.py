@@ -9,11 +9,8 @@ from typing import Any
 import qodec
 from qodec.circuits import Program
 
-from ._qodec_compat import (
-    check_outcomes,
-    observables_as_xor_map,
-    realization,
-)
+from ._readouts import observables_as_xor_map
+from ._references import outcome_indices
 from ._analysis.propagation.interpreter import propagate_faults
 from ._analysis.propagation.pauli import Pauli, PauliCharacter
 from ._analysis.propagation.pauli_remap import (
@@ -35,7 +32,7 @@ class FaultEffect:
 
     flipped_checks: frozenset[int] = field(default_factory=frozenset)
     flipped_observables: frozenset[int] = field(default_factory=frozenset)
-    residuals: dict[str, Pauli] = field(default_factory=dict)
+    residuals: dict[int, Pauli] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -58,17 +55,16 @@ def fault_profile_of(gadget: qodec.Gadget, basis: Sequence[Fault]) -> FaultProfi
     if not fault_basis:
         return FaultProfile((), ())
 
-    channel = realization(gadget)
-    program = Program(channel.instructions, channel.isa)
-    checks = [check_outcomes(atoms) for atoms in gadget.checks]
+    program = Program(gadget.circuit.instructions, gadget.circuit.isa)
+    checks = [outcome_indices(atoms) for atoms in gadget.checks]
     observable_map = observables_as_xor_map(gadget)
     observables = list(observable_map.values())
     flag_names = set(gadget.implements.flags)
     flag_indices = {
         index for index, name in enumerate(observable_map) if name in flag_names
     }
-    z_probes, z_layout = _build_basis_probes(channel.encoding_out, "Z")
-    x_probes, x_layout = _build_basis_probes(channel.encoding_out, "X")
+    z_probes, z_layout = _build_basis_probes(gadget.outputs, "Z")
+    x_probes, x_layout = _build_basis_probes(gadget.outputs, "X")
     deltas, hidden_count, outcome_count = propagate_faults(
         program, fault_basis, z_probes + x_probes
     )
@@ -107,7 +103,7 @@ def fault_profile_of(gadget: qodec.Gadget, basis: Sequence[Fault]) -> FaultProfi
                 flipped_checks,
                 flipped_observables,
                 _combine_residual_passes(
-                    channel.encoding_out,
+                    gadget.outputs,
                     z_flips,
                     z_layout,
                     x_flips,
@@ -124,15 +120,15 @@ def fault_effects_of(gadget: qodec.Gadget, basis: Sequence[Fault]) -> list[Fault
 
 
 def _build_basis_probes(
-    encodings: Sequence[qodec.gadgets.Encoding], basis: str
-) -> tuple[list[Pauli], list[tuple[str, int]]]:
+    encodings: Sequence[qodec.Encoding], basis: str
+) -> tuple[list[Pauli], list[tuple[int, int]]]:
     probes = []
     layout = []
-    for encoding in encodings:
+    for entry, encoding in enumerate(encodings):
         relocation = encoding_qubit_relocation(encoding)
         for index, characters in enumerate(_logical_chars(encoding.code, basis)):
             probes.append(remap_to_global(characters, relocation))
-            layout.append((encoding.operand, index))
+            layout.append((entry, index))
     return probes, layout
 
 
@@ -161,16 +157,16 @@ def _pauli_string_to_chars(
 
 
 def _combine_residual_passes(
-    encodings: Sequence[qodec.gadgets.Encoding],
+    encodings: Sequence[qodec.Encoding],
     z_flips: set[int],
-    z_layout: list[tuple[str, int]],
+    z_layout: list[tuple[int, int]],
     x_flips: set[int],
-    x_layout: list[tuple[str, int]],
-) -> dict[str, Pauli]:
-    residuals: dict[str, dict[int, PauliCharacter]] = {
-        encoding.operand: {} for encoding in encodings
+    x_layout: list[tuple[int, int]],
+) -> dict[int, Pauli]:
+    residuals: dict[int, dict[int, PauliCharacter]] = {
+        entry: {} for entry in range(len(encodings))
     }
-    flips: dict[tuple[str, int], dict[str, bool]] = {}
+    flips: dict[tuple[int, int], dict[str, bool]] = {}
     for index, key in enumerate(z_layout):
         if index in z_flips:
             flips.setdefault(key, {})["x"] = True

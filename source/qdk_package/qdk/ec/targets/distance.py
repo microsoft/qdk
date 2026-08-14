@@ -8,7 +8,6 @@ from typing import Optional
 import qodec
 from qodec.circuits import Program
 
-from .._qodec_compat import realization
 from .._analysis.distance_solvers import (
     BoundsSolver,
     ExactSolver,
@@ -26,9 +25,9 @@ def _logical_indicators(
 ) -> list[frozenset[int]]:
     named = {index for effect in effects for index in effect.flipped_observables}
     offset = max(named) + 1 if named else 0
-    slots: dict[tuple[str, int, str], int] = {}
+    slots: dict[tuple[int, int, str], int] = {}
 
-    def slot(operand: str, logical: int, basis: str) -> int:
+    def slot(operand: int, logical: int, basis: str) -> int:
         key = (operand, logical, basis)
         if key not in slots:
             slots[key] = offset + len(slots)
@@ -54,8 +53,7 @@ class GadgetDistanceData:
 
     @staticmethod
     def of(gadget: qodec.Gadget, target_model: TargetModel) -> "GadgetDistanceData":
-        channel = realization(gadget)
-        program = Program(channel.instructions, channel.isa)
+        program = Program(gadget.circuit.instructions, gadget.circuit.isa)
         profile = fault_profile_of(gadget, target_model.fault_basis_of(program))
         effects = list(profile.effects)
         return GadgetDistanceData(

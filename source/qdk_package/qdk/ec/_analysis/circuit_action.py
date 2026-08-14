@@ -11,7 +11,6 @@ from paulimer import PauliGroup, symplectic_form_of
 from qodec.actions import Stabilize
 from qodec.circuits import Program
 
-from .._qodec_compat import EncodingView, realization
 from .propagation.conditional import conditional_choi_state
 from .propagation.frames import FrameGroup, PauliFrame
 from .propagation.groups import subgroup_of
@@ -457,10 +456,9 @@ def _objective_isa(
 
 
 def _objective_logical_counts(gadget: qodec.Gadget) -> tuple[int, int]:
-    channel = realization(gadget)
     return (
-        sum(len(list(encoding.code.x)) for encoding in channel.encoding_in),
-        sum(len(list(encoding.code.x)) for encoding in channel.encoding_out),
+        sum(len(list(encoding.code.x)) for encoding in gadget.inputs),
+        sum(len(list(encoding.code.x)) for encoding in gadget.outputs),
     )
 
 
@@ -489,21 +487,19 @@ def _identity_codes_over(qubit_indices: Sequence[int] | range) -> SeparableCode:
 
 
 def realization_program_of(gadget: qodec.Gadget) -> Program:
-    channel = realization(gadget)
-    return Program(channel.instructions, channel.isa)
+    return Program(gadget.circuit.instructions, gadget.circuit.isa)
 
 
 def realization_codes_of(
     gadget: qodec.Gadget,
 ) -> tuple[SeparableCode, SeparableCode]:
-    channel = realization(gadget)
     return (
-        _stack_encodings(channel.encoding_in),
-        _stack_encodings(channel.encoding_out),
+        _stack_encodings(gadget.inputs),
+        _stack_encodings(gadget.outputs),
     )
 
 
-def _stack_encodings(encodings: Sequence[EncodingView]) -> SeparableCode:
+def _stack_encodings(encodings: Sequence[qodec.Encoding]) -> SeparableCode:
     blocks = []
     for encoding in encodings:
         code = SubsystemCode.from_qodec(encoding.code)

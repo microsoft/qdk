@@ -28,7 +28,6 @@ import qodec
 from ..._typed_ir import value_to_string as _value_to_string
 from ..._typed_ir import value_tokens as _value_tokens
 
-from ..._qodec_compat import realization
 from qodec.circuits import Program
 
 from .compiler import CompileResult
@@ -91,7 +90,7 @@ def _apply_translation(
             )
         gadget = gadgets[call.mnemonic]
         remap = _build_namespaced_remap(gadget, call, call.mnemonic)
-        for body_call in realization(gadget).instructions:
+        for body_call in gadget.circuit.instructions:
             lowered.append(_remap_call(body_call, remap))
     return Program(lowered, target_isa)
 
@@ -118,9 +117,8 @@ def _build_namespaced_remap(
     per-call-instance prefix when ``namespace_internal_blocks`` is set.
     """
     remap: dict[int, str] = {}
-    channel = realization(gadget)
-    pairs = list(zip(channel.encoding_in, call.inputs.values())) + list(
-        zip(channel.encoding_out, call.outputs.values())
+    pairs = list(zip(gadget.inputs, call.inputs.values())) + list(
+        zip(gadget.outputs, call.outputs.values())
     )
     for encoding, block_value in pairs:
         block_name = str(block_value)
@@ -139,7 +137,7 @@ def _build_namespaced_remap(
         instance_prefix = (
             mnemonic + ":" + "+".join(sorted({str(value) for value in block_values}))
         )
-        for body_call in channel.instructions:
+        for body_call in gadget.circuit.instructions:
             operand_values = (
                 *body_call.inputs.values(),
                 *body_call.outputs.values(),

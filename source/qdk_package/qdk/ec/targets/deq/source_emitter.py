@@ -18,13 +18,8 @@ import stim
 import qodec
 from qodec.actions import Observe
 
-from qdk.ec._qodec_compat import (
-    Channel,
-    observe_count,
-    outcome_indices,
-    realization,
-    _readout_equation,
-)
+from qdk.ec._readouts import observe_count, readout_equation
+from qdk.ec._references import outcome_indices
 
 
 def to_deq_source(
@@ -145,8 +140,7 @@ def _primary_code_name(gadget: qodec.Gadget) -> str | None:
     pass-throughs), else the input encoding's code (measurements).
     Returns ``None`` for a gadget with no encodings.
     """
-    channel = realization(gadget)
-    for enc in list(channel.encoding_out) + list(channel.encoding_in):
+    for enc in list(gadget.outputs) + list(gadget.inputs):
         return str(enc.code.name)
     return None
 
@@ -159,7 +153,7 @@ def _is_stim_emittable(gadget: qodec.Gadget) -> bool:
     representation, so :func:`to_deq` skips them rather than emit garbage.
     """
     try:
-        stim.Circuit(realization(gadget).body)
+        stim.Circuit(gadget.circuit.source)
     except ValueError:
         return False
     return True
@@ -300,21 +294,20 @@ def _emit_gadget(
     gadget: qodec.Gadget,
     expected_flags: dict[str, int] | None = None,
 ) -> None:
-    channel = realization(gadget)
     body_lines = [
         stripped
-        for line in channel.body.splitlines()
+        for line in gadget.circuit.source.splitlines()
         if (stripped := line.strip()) and not stripped.startswith("#")
     ]
     measurement_count = sum(_stim_measurement_delta(line) for line in body_lines)
-    check_lines = _check_lines(gadget, channel, measurement_count)
+    check_lines = _check_lines(gadget, measurement_count)
 
     if check_lines:
         out.write('@CHECKS("manual", verify=0)\n')
     out.write(f"GADGET {name} {{\n")
-    for enc in channel.encoding_in:
+    for enc in gadget.inputs:
         out.write(f"    INPUT {enc.code.name} {_qubit_list(enc.support)}\n")
-    if channel.encoding_in:
+    if gadget.inputs:
         out.write("\n")
 
     for line in body_lines:
@@ -325,7 +318,7 @@ def _emit_gadget(
     for line in _readout_lines(gadget, measurement_count):
         out.write(f"    {line}\n")
 
-    for enc in channel.encoding_out:
+    for enc in gadget.outputs:
         out.write(f"    OUTPUT {enc.code.name} {_qubit_list(enc.support)}\n")
     # CHECK statements come after OUTPUT so deq's running record count includes
     # the output-virtual stabilizer measurements they may reference.
@@ -334,9 +327,7 @@ def _emit_gadget(
     out.write("}\n\n")
 
 
-def _check_lines(
-    gadget: qodec.Gadget, channel: Channel, measurement_count: int
-) -> list[str] | None:
+def _check_lines(gadget: qodec.Gadget, measurement_count: int) -> list[str] | None:
     """Render the gadget's checks as deq ``CHECK rec[-k]`` statements.
 
     deq models each input/output boundary stabilizer as a *virtual*
@@ -365,8 +356,8 @@ def _check_lines(
     qodec checks are authoritative, so deq trusts them rather than requiring
     they match its own discovery basis.
     """
-    in_stabs = [len(enc.code.stabilizers) for enc in channel.encoding_in]
-    out_stabs = [len(enc.code.stabilizers) for enc in channel.encoding_out]
+    in_stabs = [len(enc.code.stabilizers) for enc in gadget.inputs]
+    out_stabs = [len(enc.code.stabilizers) for enc in gadget.outputs]
     num_input = sum(in_stabs)
     ov_start = num_input + measurement_count
     total = ov_start + sum(out_stabs)
@@ -447,15 +438,14 @@ def _emit_compose(
     gadget applications — no ``CHECK`` / ``READOUT`` lines.
     """
     out.write(f"COMPOSE {deq_name} {{\n")
-    channel = realization(gadget)
-    for enc in channel.encoding_in:
+    for enc in gadget.inputs:
         out.write(f"    INPUT {enc.code.name} {_qubit_list(enc.support)}\n")
     for call in gadget.circuit.instructions:
         target = resolve_name(translation_index + 1, call.mnemonic)
         blocks = _body_call_blocks(call)
         line = f"    {target} {_qubit_list(blocks)}".rstrip()
         out.write(f"{line}\n")
-    for enc in channel.encoding_out:
+    for enc in gadget.outputs:
         out.write(f"    OUTPUT {enc.code.name} {_qubit_list(enc.support)}\n")
     out.write("}\n\n")
 
@@ -496,7 +486,7 @@ def _stim_measurement_delta(stim_line: str) -> int:
     """Return how many measurement records ``stim_line`` produces.
 
     Used to track the measurement count emitted so far within a gadget,
-    which we need to translate ``body.readouts[i]`` references into
+    which we need to translate ``circuit.readouts[i]`` references into
     ``rec[-N]`` offsets at the end of the gadget body.
     """
     tokens = stim_line.split()
@@ -555,14 +545,14 @@ def _index_to_rec(i: int, measurement_count: int) -> str:
 
 
 def _readout_to_rec(reference: str, measurement_count: int) -> str:
-    """Translate a single-index ``body.readouts[i]`` (or ``body.readouts.i``)
-    reference to stim's ``rec[-N]`` syntax. Used at call sites that expect
-    exactly one record per reference (e.g. PRESELECT clauses)."""
+    """Translate a single-index ``circuit.readouts[i]`` reference to stim's
+    ``rec[-N]`` syntax. Used at call sites that expect exactly one record per
+    reference (e.g. PRESELECT clauses)."""
     indices = outcome_indices([reference])
     if len(indices) != 1:
         raise ValueError(
             f"cannot translate readout reference {reference!r}: "
-            "expected a single-index 'body.readouts[i]'"
+            "expected a single-index 'circuit.readouts[i]'"
         )
     return _index_to_rec(indices[0], measurement_count)
 
@@ -600,7 +590,7 @@ def _preselect_lines(
                 f"gadget {gadget.implements.mnemonic!r}: flag {flag_name!r} "
                 f"is declared but not bound to a readout"
             )
-        equation = _readout_equation(flag_readouts[flag_index])
+        equation = readout_equation(flag_readouts[flag_index])
         if len(equation) != 1:
             raise NotImplementedError(
                 f"gadget {gadget.implements.mnemonic!r}: flag {flag_name!r} "

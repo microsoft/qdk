@@ -59,12 +59,8 @@ from qodec.circuits import Program
 
 from .._analysis.propagation.pauli import Pauli
 from .compilers.recursive_lowering import _build_namespaced_remap, _remap_call
-from .._qodec_compat import (
-    _readout_equation,
-    observe_count,
-    outcome_indices,
-    realization,
-)
+from .._readouts import observe_count, readout_equation
+from .._references import outcome_indices
 from .results import Batch
 from ._coerce import coerce_program
 from .base import ComposableTarget, CompositeTarget, Target
@@ -179,7 +175,7 @@ def _lower_one(translation: qodec.Qodec, program: Program) -> tuple[Program, lis
             gadget, call, call.mnemonic, namespace_internal_blocks=True
         )
         width = 0
-        for body_call in realization(gadget).instructions:
+        for body_call in gadget.circuit.instructions:
             lowered.append(_remap_call(body_call, remap))
             width += _readout_width(target, body_call)
         widths.append(width)
@@ -253,7 +249,7 @@ def _readout_columns(
     columns: list[npt.NDArray[np.bool_]] = []
     for equation in gadget.readouts[: observe_count(gadget)]:
         column = np.zeros(bits.shape[0], dtype=np.bool_)
-        for index in outcome_indices(_readout_equation(equation)):
+        for index in outcome_indices(readout_equation(equation)):
             column ^= bits[:, offset + index]
         columns.append(column)
     return columns
@@ -287,7 +283,7 @@ def _flag_columns(
     columns: dict[str, npt.NDArray[np.bool_]] = {}
     for index, name in enumerate(gadget.implements.flags):
         column = np.zeros(bits.shape[0], dtype=np.bool_)
-        for record in outcome_indices(_readout_equation(gadget.readouts[base + index])):
+        for record in outcome_indices(readout_equation(gadget.readouts[base + index])):
             column ^= bits[:, offset + record]
         columns[name] = column
     return columns

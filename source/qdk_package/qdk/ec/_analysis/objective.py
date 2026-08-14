@@ -8,13 +8,7 @@ from typing import Any, cast
 
 import qodec
 
-from .._qodec_compat import (
-    Channel,
-    EncodingView,
-    observable_names,
-    observe_count,
-    realization,
-)
+from .._readouts import observable_names, observe_count
 from .propagation.pauli import Pauli, PauliCharacter
 from .propagation.pauli_remap import (
     encoding_qubit_relocation,
@@ -36,9 +30,8 @@ def lift_objective(gadget: qodec.Gadget) -> ObjectiveLift:
     from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 
     instruction = gadget.implements
-    channel = realization(gadget)
-    inputs = flat_logical_paulis(channel.encoding_in)
-    output_probes = flat_logical_paulis(channel.encoding_out)
+    inputs = flat_logical_paulis(gadget.inputs)
+    output_probes = flat_logical_paulis(gadget.outputs)
     names = observable_names(gadget)
     index_by_name = {name: index for index, name in enumerate(names)}
     expected_observables: list[Pauli | None] = [None] * len(names)
@@ -74,7 +67,7 @@ def lift_objective(gadget: qodec.Gadget) -> ObjectiveLift:
                     missing_observables.append(name)
                 else:
                     expected_observables[index_by_name[name]] = (
-                        _resolve_objective_pauli(observable.pauli, channel)
+                        _resolve_objective_pauli(observable.pauli, gadget)
                     )
             continue
         unsupported.append(type(action).__name__)
@@ -90,9 +83,8 @@ def lift_objective(gadget: qodec.Gadget) -> ObjectiveLift:
 
     image_paulis = _expected_image_paulis(
         inputs=inputs,
-        encoding_in=list(channel.encoding_in),
         clifford_actions=cliffords,
-        realization=channel,
+        gadget=gadget,
     )
     images = []
     for image in image_paulis:
@@ -112,8 +104,8 @@ def lift_objective(gadget: qodec.Gadget) -> ObjectiveLift:
         )
     return ObjectiveLift(
         LogicalAction(
-            _encoding_signature(channel.encoding_in),
-            _encoding_signature(channel.encoding_out),
+            _encoding_signature(gadget.inputs),
+            _encoding_signature(gadget.outputs),
             tuple(images),
         ),
         bound_flags=tuple(bound_flags),
@@ -123,26 +115,25 @@ def lift_objective(gadget: qodec.Gadget) -> ObjectiveLift:
 def _expected_image_paulis(
     *,
     inputs: list[Pauli],
-    encoding_in: list[EncodingView],
     clifford_actions: list[Any],
-    realization: Channel,
+    gadget: qodec.Gadget,
 ) -> list[Pauli]:
     if not clifford_actions:
         return list(inputs)
-    images = _flat_input_generator_names(encoding_in)
+    images = _flat_input_generator_names(gadget.inputs)
     for clifford in clifford_actions:
         images = [
             _apply_clifford_to_pauli_string(image, clifford.generators)
             for image in images
         ]
     return [
-        _resolve_objective_pauli(image, realization) if image.strip() else Pauli({})
+        _resolve_objective_pauli(image, gadget) if image.strip() else Pauli({})
         for image in images
     ]
 
 
 def _flat_input_generator_names(
-    encodings: Sequence[EncodingView],
+    encodings: Sequence[qodec.Encoding],
 ) -> list[str]:
     names: list[str] = []
     flat = 0
@@ -161,10 +152,10 @@ def _apply_clifford_to_pauli_string(pauli_str: str, generators: dict[str, str]) 
     )
 
 
-def _resolve_objective_pauli(pauli_str: str, channel: Channel) -> Pauli:
+def _resolve_objective_pauli(pauli_str: str, gadget: qodec.Gadget) -> Pauli:
     flat_map = [
         (encoding, local)
-        for encoding in list(channel.encoding_in) + list(channel.encoding_out)
+        for encoding in list(gadget.inputs) + list(gadget.outputs)
         for local in range(len(list(encoding.code.x)))
     ]
     characters: dict[int, PauliCharacter] = {}

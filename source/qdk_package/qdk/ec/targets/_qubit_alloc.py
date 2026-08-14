@@ -18,34 +18,36 @@ import stim
 import qodec
 
 
-def _channel_qubit_table(
-    channel: qodec.Channel,
+def _gadget_qubit_table(
+    gadget: qodec.Gadget,
 ) -> dict[int, list[tuple[str, int]]]:
     """Map each source qubit index → the list of ``(operand_name,
-    position)`` identities it carries across ``channel``'s encodings.
+    position)`` identities it carries across ``gadget``'s encodings.
 
-    Each ``Encoding`` lists the literal source-qubit labels that belong
-    to its operand; the label's index within ``support`` gives the
-    operand-local position. Source qubits not appearing in any encoding
-    are gadget-internal ancillas and are absent from the returned map.
+    Encodings are positional, so the operand name is the entry's index in
+    ``inputs`` / ``outputs`` rendered as a string. Each ``Encoding`` lists the
+    literal source-qubit labels that belong to its operand; the label's index
+    within ``support`` gives the operand-local position. Source qubits not
+    appearing in any encoding are gadget-internal ancillas and are absent from
+    the returned map.
 
     A single source qubit may carry more than one identity: a gadget
     that merges two operands into one block (lattice-surgery merge) or
     splits a block back into separate operands binds the same physical
-    wire to both an ``encoding_in`` identity and an ``encoding_out``
-    identity. Those identities are aliases of one physical wire, and the
-    allocator unifies them; the conflict is the linkage, not an error.
+    wire to both an input and an output identity. Those identities are
+    aliases of one physical wire, and the allocator unifies them; the
+    conflict is the linkage, not an error.
     """
     table: dict[int, list[tuple[str, int]]] = {}
-    for encoding_list in (channel.encoding_in, channel.encoding_out):
-        for encoding in encoding_list:
-            name = encoding.operand
+    for encodings in (gadget.inputs, gadget.outputs):
+        for entry, encoding in enumerate(encodings):
+            name = str(entry)
             for position, label in enumerate(encoding.support):
                 try:
                     source_qubit = int(label)
                 except ValueError as exc:
                     raise ValueError(
-                        f"channel encoding for operand {name!r} has a "
+                        f"gadget encoding for operand {name!r} has a "
                         f"non-integer support label {label!r}; stim sources "
                         "are indexed by integer qubit identifiers"
                     ) from exc
@@ -62,8 +64,8 @@ class PhysicalQubitAllocator:
 
     Two distinct allocation modes:
 
-    * **Block-bound** qubits — those reachable through a channel's
-      ``encoding_in``/``encoding_out`` — are keyed by
+    * **Block-bound** qubits — those reachable through a gadget's
+      ``inputs``/``outputs`` — are keyed by
       ``(block_name, position_within_block)``. Identical keys re-use
       the same physical index across calls, so a "qubit 0 of block X"
       that appears in call N and call M lands on the same physical
@@ -153,7 +155,7 @@ def _resolve_block_name(operand_binding: object) -> str:
 
 def remap_call_source(
     source_circuit: stim.Circuit,
-    channel: qodec.Channel,
+    gadget: qodec.Gadget,
     call: qodec.instructions.InstructionCall,
     allocator: PhysicalQubitAllocator,
 ) -> stim.Circuit:
@@ -161,7 +163,7 @@ def remap_call_source(
     rewritten via ``allocator`` so that the resulting circuit can be
     concatenated into a global combined circuit alongside other calls.
 
-    Source qubits reachable through the channel's encodings are
+    Source qubits reachable through the gadget's encodings are
     rewritten to block-bound physical indices (stable across calls).
     Any other source qubits are treated as gadget-internal ancillas
     and given fresh per-call physical indices.
@@ -169,10 +171,10 @@ def remap_call_source(
     Non-qubit targets (measurement-record references, sweep-bits,
     ``rec[…]``) are passed through unchanged.
     """
-    layout = _channel_qubit_table(channel)
+    layout = _gadget_qubit_table(gadget)
 
     # Encodings are positional: the i-th input encoding carries operand name
-    # ``str(i)`` (see ``_channel_qubit_table``), so bind it to the i-th value
+    # ``str(i)`` (see ``_gadget_qubit_table``), so bind it to the i-th value
     # the call supplies in ``inputs`` (then ``outputs``), matching by position.
     bindings: dict[str, object] = {}
     for entry, value in enumerate(call.inputs.values()):

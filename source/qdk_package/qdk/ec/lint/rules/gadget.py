@@ -7,13 +7,8 @@ from dataclasses import dataclass
 
 import qodec
 
-from ..._qodec_compat import (
-    observable_names,
-    observe_count,
-    parse_encoding_atom,
-    parse_stabilizer_atom,
-    realization,
-)
+from ..._readouts import observable_names, observe_count
+from ..._references import parse_encoding_atom, parse_stabilizer_atom
 from ..._analysis.circuit_action import (
     gadget_objective_action_of,
     gadget_realization_action_of,
@@ -208,8 +203,8 @@ def _declared_out_frames(gadget: qodec.Gadget) -> set[tuple[int, int]]:
 
 def _required_out_frames(gadget: qodec.Gadget) -> set[tuple[int, int]]:
     return {
-        (int(encoding.operand), index)
-        for encoding in realization(gadget).encoding_out
+        (entry, index)
+        for entry, encoding in enumerate(gadget.outputs)
         for index in range(len(list(encoding.code.stabilizers)))
     }
 

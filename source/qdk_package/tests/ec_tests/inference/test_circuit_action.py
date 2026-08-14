@@ -1,4 +1,5 @@
 """Tests for circuit-action profiling."""
+
 from __future__ import annotations
 
 import qodec
@@ -15,20 +16,20 @@ from qdk.ec.equivalence import (
     actions_outcome_equivalent as are_outcome_equivalent,
 )
 from qdk.ec._analysis.propagation import Program
-from qdk.ec._qodec_compat import realization
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
 
 
+def _program_of(gadget: qodec.Gadget) -> Program:
+    return Program(gadget.circuit.instructions, gadget.circuit.isa)
+
+
 def _action_of_gadget(gadget: qodec.Gadget) -> CircuitAction:
-    channel = realization(gadget)
-    program = Program(channel.instructions, channel.isa)
-    return action_of(program)
+    return action_of(_program_of(gadget))
 
 
 def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qodec.Gadget) -> None:
-    channel = realization(idle_gadget)
-    program = Program(channel.instructions, channel.isa)
+    program = _program_of(idle_gadget)
     inputs = input_qubits_of(program)
     assert isinstance(inputs, frozenset)
     assert all(isinstance(qubit, int) for qubit in inputs)
@@ -69,9 +70,7 @@ def test_sign_flipped_action_is_mod_paulis_equivalent_but_not_outcome(
     action = _action_of_gadget(idle_gadget)
     if not action.mapping:
         return
-    flipped_mapping = {
-        key: value * -1 for key, value in action.mapping.items()
-    }
+    flipped_mapping = {key: value * -1 for key, value in action.mapping.items()}
     flipped = CircuitAction(action.observables, action.stabilizers, flipped_mapping)
     assert are_equivalent_mod_paulis(action, flipped)
     assert flipped.is_equivalent_to(action, modulo_paulis=True)
