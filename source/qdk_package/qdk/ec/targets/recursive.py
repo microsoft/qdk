@@ -34,8 +34,8 @@ import numpy as np
 
 import qodec as qc
 
-from .._readouts import observable_names, observe_count
-from .._references import outcome_indices
+from .._readouts import observable_slots
+from .._references import outcomes_of
 from qodec.circuits import Program
 from .compilers import RecursiveLowering
 from .results import Batch
@@ -67,16 +67,15 @@ def _parity_lift(
     offset = 0
     for call in upper_program.instructions:
         gadget = layer.gadgets[call.mnemonic]
-        for atoms in gadget.readouts[: observe_count(gadget)]:
-            indices = outcome_indices(str(atom) for atom in atoms)
+        for slot in observable_slots(gadget):
             column = np.zeros(shots, dtype=np.bool_)
-            for index in indices:
+            for index in outcomes_of(slot.equation):
                 column ^= lower_bits[:, offset + index]
             columns.append(column)
         for body_call in gadget.circuit.instructions:
             body_gadget = below.gadgets.get(body_call.mnemonic)
             if body_gadget is not None:
-                offset += len(observable_names(body_gadget))
+                offset += len(observable_slots(body_gadget))
 
     if not columns:
         return [[] for _ in range(shots)]

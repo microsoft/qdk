@@ -23,7 +23,7 @@ from ._analysis.essential_checks import (
     outcomes_flipped_by_anti_observables_of,
 )
 from ._readouts import observables_as_xor_map
-from ._references import outcome_indices
+from ._references import outcomes_of, parse_equations
 
 
 @dataclass(frozen=True)
@@ -34,11 +34,11 @@ class OutcomeProfile:
     observables: tuple[tuple[int, frozenset[int]], ...]
 
 
-def outcome_profile_of(
-    gadget: qc.Gadget, *, essential: bool = True
-) -> OutcomeProfile:
+def outcome_profile_of(gadget: qc.Gadget, *, essential: bool = True) -> OutcomeProfile:
     """Return ``gadget``'s declared check and observable parity structure."""
-    declared = tuple(frozenset(outcome_indices(atoms)) for atoms in gadget.checks)
+    declared = tuple(
+        frozenset(outcomes_of(check)) for check in parse_equations(gadget.checks)
+    )
     checks = essential_checks_of(gadget, checks=declared) if essential else declared
     observables = tuple(
         (index, frozenset(outcomes))

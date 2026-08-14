@@ -29,6 +29,16 @@ from qodec.codes import Code
 from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 
+from ..._references import (
+    Atom,
+    LogicalSign,
+    Outcome,
+    Side,
+    StabilizerSign,
+    as_references,
+    stabilizer_signs_of,
+)
+
 from deq.circuit import model as deq_model
 from deq.circuit.parser import parse
 
@@ -252,11 +262,10 @@ def _build_checks(
     Inverse of ``to_deq``'s check emission: deq's record stream is
     ``[input-virtual | real | output-virtual]``, so each ``rec[-k]`` resolves
     (relative to the running record count at the statement's position) to a
-    global index that maps back to ``in[p].stabilizers[k]``,
-    ``circuit.readouts[i]``, or ``out[p].stabilizers[k]``. Single-record checks
-    on one output-virtual stabilizer are the coverage checks ``to_deq``
-    synthesizes for deterministic preparations; qodec represents that
-    implicitly, so they are dropped.
+    global index that maps back to one check atom. Single-record checks on one
+    output-virtual stabilizer are the coverage checks ``to_deq`` synthesizes for
+    deterministic preparations; qodec represents that implicitly, so they are
+    dropped.
     """
     in_counts = [len(codes[p.code_name].stabilizers) for p in definition.input_ports]
     out_counts = [len(codes[p.code_name].stabilizers) for p in definition.output_ports]
@@ -265,17 +274,17 @@ def _build_checks(
     in_offsets = [sum(in_counts[:i]) for i in range(len(in_counts))]
     out_offsets = [sum(out_counts[:i]) for i in range(len(out_counts))]
 
-    def to_reference(global_index: int) -> str:
+    def to_atom(global_index: int) -> Atom:
         if global_index < num_input:
             port = max(
                 p for p in range(len(in_counts)) if in_offsets[p] <= global_index
             )
-            return f"in[{port}].stabilizers[{global_index - in_offsets[port]}]"
+            return StabilizerSign("in", port, global_index - in_offsets[port])
         if global_index < ov_start:
-            return f"circuit.readouts[{global_index - num_input}]"
+            return Outcome(global_index - num_input)
         relative = global_index - ov_start
         port = max(p for p in range(len(out_counts)) if out_offsets[p] <= relative)
-        return f"out[{port}].stabilizers[{relative - out_offsets[port]}]"
+        return StabilizerSign("out", port, relative - out_offsets[port])
 
     checks: list[list[qc.ReferenceLike]] = []
     running = 0
@@ -285,14 +294,14 @@ def _build_checks(
         elif isinstance(statement, deq_model.Instruction):
             running += _instruction_measurements(statement)
         elif isinstance(statement, deq_model.CheckStatement):
-            references = [
-                to_reference(running - target.offset)
+            atoms = [
+                to_atom(running - target.offset)
                 for target in statement.targets
                 if isinstance(target, deq_model.MeasurementRecordTarget)
             ]
-            if len(references) == 1 and references[0].startswith("out["):
+            if len(atoms) == 1 and stabilizer_signs_of(atoms, side="out"):
                 continue
-            checks.append(list(references))
+            checks.append(as_references(atoms))
     return checks
 
 
@@ -316,17 +325,17 @@ def _build_gadget(
         for port in definition.output_ports
     ]
 
-    boundary = "in" if inputs else "out"
+    boundary: Side = "in" if inputs else "out"
     measurement_count = _measurement_count(definition)
     readouts: list[qc.ReadoutLike] = []
     for index, statement in enumerate(_readout_statements(definition)):
-        references: list[qc.ReferenceLike] = [
-            f"circuit.readouts[{measurement_count - target.offset}]"
+        atoms: list[Atom] = [
+            Outcome(measurement_count - target.offset)
             for target in statement.targets
             if isinstance(target, deq_model.MeasurementRecordTarget)
         ]
-        references.append(f"{boundary}[0].z[{index}]")
-        readouts.append(references)
+        atoms.append(LogicalSign(boundary, 0, "z", index))
+        readouts.append(as_references(atoms))
 
     return qc.Gadget(
         implements=logical_isa.instruction(definition.name),

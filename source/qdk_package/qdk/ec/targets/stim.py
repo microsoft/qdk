@@ -27,21 +27,24 @@ from .compilers.recursive_lowering import (
     _remap_call,
 )
 from .results import Batch
-from .._readouts import observable_names, readout_equation
-from .._references import outcome_indices
+from .._readouts import observable_slots, readout_slots
+from .._references import (
+    Equation,
+    logical_signs_of,
+    outcomes_of,
+    parse_equations,
+    stabilizer_signs_of,
+)
 from ._coerce import coerce_program
 from ._qubit_alloc import PhysicalQubitAllocator, remap_call_source
 from ._recursive_emit import (
+    LogicalFrames,
+    StabilizerFrames,
     _RecursiveEmitState,
     _call_readout_prov,
     _has_out_stab,
-    _observe_names,
-    _parse_logical_in_atom,
-    _parse_logical_out_atom,
-    _parse_stab_in_atom,
-    _parse_stab_out_atom,
-    _resolve_atoms_records,
-    _update_frame_map_recursive,
+    _resolve_equation_records,
+    _update_frame_maps_recursive,
 )
 from .base import Target
 
@@ -400,10 +403,10 @@ class StimEmitter:
                     f"multi-layer emitter does not yet compose flag "
                     f"observables across translations"
                 )
-            for name in observable_names(gadget):
-                records = readout_prov[name]
+            for slot in observable_slots(gadget):
                 targets = [
-                    stim.target_rec(-(state.global_rec - r)) for r in sorted(records)
+                    stim.target_rec(-(state.global_rec - record))
+                    for record in sorted(readout_prov[slot.name])
                 ]
                 state.combined.append("OBSERVABLE_INCLUDE", targets, observable_offset)
                 observable_offset += 1
@@ -464,15 +467,15 @@ class StimEmitter:
                 child_call = _remap_call(body_call, remap)
                 child_prov = self._emit_call(state, child_call, level + 1)
                 child_gadget = child_translation.gadgets[child_call.mnemonic]
-                for name in _observe_names(child_gadget):
-                    body_prov.append(child_prov[name])
+                for slot in observable_slots(child_gadget):
+                    body_prov.append(child_prov[slot.name])
 
         frame_map = state.frame_maps[level]
         logical_frame_map = state.logical_frame_maps[level]
         self._emit_recursive_detectors(
             state, gadget, body_prov, frame_map, logical_frame_map
         )
-        _update_frame_map_recursive(gadget, frame_map, logical_frame_map, body_prov)
+        _update_frame_maps_recursive(gadget, frame_map, logical_frame_map, body_prov)
         return _call_readout_prov(gadget, body_prov, frame_map, logical_frame_map)
 
     def _emit_recursive_detectors(
@@ -480,13 +483,13 @@ class StimEmitter:
         state: "_RecursiveEmitState",
         gadget: qc.Gadget,
         body_prov: list[frozenset[int]],
-        frame_map: dict[tuple[int, int], frozenset[int]],
-        logical_frame_map: dict[tuple[int, str, int], frozenset[int]],
+        frame_map: StabilizerFrames,
+        logical_frame_map: LogicalFrames,
     ) -> None:
-        for check in gadget.checks:
+        for check in parse_equations(gadget.checks):
             if _has_out_stab(check):
                 continue
-            records = _resolve_atoms_records(
+            records = _resolve_equation_records(
                 check, body_prov, frame_map, logical_frame_map, gadget
             )
             targets = [
@@ -585,13 +588,11 @@ def _build_logical_observable_mask(
         if gadget is None:
             continue
         # Every observe outcome is a logical (Pauli-bearing) observable; the
-        # trailing readout entries are the flags (non-logical).
-        observables = observable_names(gadget)
-        for _name in observables:
-            mask.append(True)
-        if emit_flags:
-            for _ in list(gadget.readouts)[len(observables) :]:
-                mask.append(False)
+        # trailing flag entries are not.
+        for slot in readout_slots(gadget):
+            if slot.is_flag and not emit_flags:
+                continue
+            mask.append(not slot.is_flag)
     return np.array(mask, dtype=np.bool_)
 
 
@@ -619,7 +620,9 @@ def _reject_source_metadata(circuit: stim.Circuit, mnemonic: str) -> None:
 
 def _emitted_detector_count(gadget: qc.Gadget) -> int:
     """Number of DETECTORs this target emits for the gadget."""
-    return sum(1 for check in gadget.checks if not _has_out_stab(check))
+    return sum(
+        1 for check in parse_equations(gadget.checks) if not _has_out_stab(check)
+    )
 
 
 @dataclass(frozen=True)
@@ -639,8 +642,8 @@ class _FrameContext:
     into a stim relative ``rec[-k]`` target.
     """
 
-    frame_map: dict[tuple[int, int], frozenset[int]]
-    logical_frame_map: dict[tuple[int, str, int], frozenset[int]]
+    frame_map: StabilizerFrames
+    logical_frame_map: LogicalFrames
     body_base: int
     global_measurement_count: int
 
@@ -657,207 +660,117 @@ def _append_gadget_directives(
     n = channel_measurement_count
     stab_offset_from_end = _stab_offset_from_end_map(gadget)
 
-    for check in gadget.checks:
+    for check in parse_equations(gadget.checks):
         if _has_out_stab(check):
             continue
-        targets: list[stim.GateTarget] = []
-        for outcome in outcome_indices(check):
-            targets.append(stim.target_rec(-(n - outcome)))
-        for atom in check:
-            ref = _parse_stab_in_atom(atom)
-            if ref is None:
-                continue
-            if ref in frames.frame_map:
+        targets: list[stim.GateTarget] = [
+            stim.target_rec(-(n - outcome)) for outcome in outcomes_of(check)
+        ]
+        for sign in stabilizer_signs_of(check, side="in"):
+            if sign.key in frames.frame_map:
                 # Cross-gadget frame: this stabilizer's value is carried by
                 # the XOR of these absolute measurement records, which may
                 # live in any earlier gadget (not just the adjacent one).
-                for absolute in sorted(frames.frame_map[ref]):
-                    targets.append(
-                        stim.target_rec(-(frames.global_measurement_count - absolute))
-                    )
+                targets.extend(
+                    stim.target_rec(-(frames.global_measurement_count - absolute))
+                    for absolute in sorted(frames.frame_map[sign.key])
+                )
             else:
                 # Backward-compatible positional fallback: reach into the
                 # immediately preceding gadget's records (padded by MPAD).
-                offset = stab_offset_from_end[ref]
-                targets.append(stim.target_rec(-(n + 1 + offset)))
+                targets.append(
+                    stim.target_rec(-(n + 1 + stab_offset_from_end[sign.key]))
+                )
         combined.append("DETECTOR", targets)
 
-    new_observable_count = 0
-    observables = observable_names(gadget)
-    for position, _name in enumerate(observables):
-        readout_records = _resolve_observable_records(
-            readout_equation(gadget.readouts[position]), frames
-        )
-        rec_targets = [
-            stim.target_rec(-(frames.global_measurement_count - record))
-            for record in sorted(readout_records)
-        ]
+    # Flags are emitted as observables too, so the sampled column layout matches
+    # the gadget's own readout order: observables first, then flags.
+    emitted = [slot for slot in readout_slots(gadget) if emit_flags or not slot.is_flag]
+    for offset, slot in enumerate(emitted):
+        records = _resolve_observable_records(slot.equation, frames)
         combined.append(
             "OBSERVABLE_INCLUDE",
-            rec_targets,
-            observable_offset + new_observable_count,
-        )
-        new_observable_count += 1
-
-    if emit_flags:
-        # Flags are the trailing readout entries (after the observe outcomes):
-        # decoder-blind side-channel bits, emitted as observables so the sampled
-        # column layout matches observable_names() followed by the flags.
-        for flag_readout in list(gadget.readouts)[len(observables) :]:
-            flag_records = _resolve_observable_records(
-                readout_equation(flag_readout), frames
-            )
-            rec_targets = [
+            [
                 stim.target_rec(-(frames.global_measurement_count - record))
-                for record in sorted(flag_records)
-            ]
-            combined.append(
-                "OBSERVABLE_INCLUDE",
-                rec_targets,
-                observable_offset + new_observable_count,
-            )
-            new_observable_count += 1
+                for record in sorted(records)
+            ],
+            observable_offset + offset,
+        )
 
-    _update_frame_map(gadget, frames.frame_map, frames.body_base)
-    _update_logical_frame_map(
-        gadget, frames.frame_map, frames.logical_frame_map, frames.body_base
-    )
-
-    return new_observable_count
+    _update_frame_maps(gadget, frames)
+    return len(emitted)
 
 
-def _resolve_observable_records(atoms: list[str], frames: _FrameContext) -> set[int]:
-    """Absolute records whose XOR carries an observable readout's value.
+def _resolve_observable_records(equation: Equation, frames: _FrameContext) -> set[int]:
+    """Absolute records whose XOR carries an equation's value.
 
-    Resolves three atom kinds: ``circuit.readouts[k]`` (this gadget's own
-    measurement, at ``body_base + k``); ``in.<op>.stabilizers[i]`` (via the
-    stabilizer frame map); and ``in.<op>.(x|z)[i]`` (via the logical frame
-    map — the accumulated Pauli frame of a rotating logical). An unseeded
-    logical reference resolves to the empty set (deterministic +1).
+    An outcome resolves to this gadget's own record at ``body_base + k``; an
+    ``in`` stabilizer sign via the stabilizer frame map; an ``in`` logical sign
+    via the logical frame map — the accumulated Pauli frame of a rotating
+    logical. An unseeded logical sign resolves to the empty set (deterministic
+    ``+1``).
     """
     records: set[int] = set()
-    for index in outcome_indices(atoms):
+    for index in outcomes_of(equation):
         records ^= {frames.body_base + index}
-    for atom in atoms:
-        stab_ref = _parse_stab_in_atom(atom)
-        if stab_ref is not None:
-            records ^= set(frames.frame_map.get(stab_ref, frozenset()))
-            continue
-        logical_ref = _parse_logical_in_atom(atom)
-        if logical_ref is not None:
-            records ^= set(frames.logical_frame_map.get(logical_ref, frozenset()))
+    for sign in stabilizer_signs_of(equation, side="in"):
+        records ^= set(frames.frame_map.get(sign.key, frozenset()))
+    for sign in logical_signs_of(equation, side="in"):
+        records ^= set(frames.logical_frame_map.get(sign.key, frozenset()))
     return records
 
 
-def _update_logical_frame_map(
-    gadget: qc.Gadget,
-    frame_map: dict[tuple[int, int], frozenset[int]],
-    logical_frame_map: dict[tuple[int, str, int], frozenset[int]],
-    body_base: int,
-) -> None:
-    """Apply this gadget's ``out[entry].(x|z)[i]`` logical frame declarations.
+def _update_frame_maps(gadget: qc.Gadget, frames: _FrameContext) -> None:
+    """Apply this gadget's ``out[...]`` sign declarations to the frame maps.
 
-    Logical frames are *replaced* (full XOR of the declared source atoms),
-    exactly like stabilizer frames: when a gadget re-expresses a rotating
-    logical's representative, the new record-set carrying its sign is fully
-    determined by that round's source atoms. A check carrying an
-    ``out[entry].(x|z)[i]`` atom is such a declaration; its sources are the
-    check's body readouts, referenced stabilizer frames, and other logical
-    frames. Static-logical qodecs (c4, surface) declare no out-logical
-    atoms, so this leaves ``logical_frame_map`` untouched.
+    A declaration names the new record set carrying an output sign as the XOR
+    (symmetric difference of record sets) of the gadget's own body readouts and
+    any referenced input frames. Signs the gadget does not declare keep their
+    existing frame, so a gadget that re-measures only part of the code carries
+    the rest forward.
+
+    A stabilizer declaration with neither readouts nor an input frame — a
+    preparation asserting a deterministic sign — is left unset, so downstream
+    references fall back to the positional virtual-record model. This preserves
+    legacy behaviour for qodecs that do not yet declare their preparation
+    frames; the recursive path seeds such a frame to the empty record set
+    instead. The fallback is slated for removal once those qodecs declare prep
+    frames, at which point an unseeded ``in`` frame becomes a hard error.
     """
-    new_entries: dict[tuple[int, str, int], frozenset[int]] = {}
-    for check in gadget.checks:
-        logical_outs = [
-            ref
-            for ref in (_parse_logical_out_atom(atom) for atom in check)
-            if ref is not None
-        ]
-        if not logical_outs:
+    checks = parse_equations(gadget.checks)
+    new_stabilizers: StabilizerFrames = {}
+    for check in checks:
+        outs = stabilizer_signs_of(check, side="out")
+        if not outs:
             continue
-        records: set[int] = set()
-        for index in outcome_indices(check):
-            records ^= {body_base + index}
-        for atom in check:
-            stab_ref = _parse_stab_in_atom(atom)
-            if stab_ref is not None:
-                records ^= set(frame_map.get(stab_ref, frozenset()))
-                continue
-            logical_ref = _parse_logical_in_atom(atom)
-            if logical_ref is not None:
-                records ^= set(logical_frame_map.get(logical_ref, frozenset()))
-        frozen = frozenset(records)
-        for out_ref in logical_outs:
-            new_entries[out_ref] = frozen
-    logical_frame_map.update(new_entries)
-
-
-def _update_frame_map(
-    gadget: qc.Gadget,
-    frame_map: dict[tuple[int, int], frozenset[int]],
-    body_base: int,
-) -> None:
-    """Apply this gadget's frame-propagation declarations to ``frame_map``.
-
-    A frame declares the new record-set carrying an output stabilizer's
-    sign as the XOR (symmetric difference of record sets) of the gadget's
-    own body readouts and any referenced input stabilizer frames.
-    Stabilizers the gadget does not declare keep their existing frame,
-    giving carry-forward across gadgets that only re-measure part of the
-    code.
-
-    Output-stabilizer frames are declared by ``gadget.checks`` entries that
-    carry an ``out[entry].stabilizers[i]`` atom (the ``state-passing`` check
-    idiom); each such check's other atoms (body readouts and ``in`` frames)
-    XOR to the new frame value.
-    """
-    new_entries: dict[tuple[int, int], frozenset[int]] = {}
-
-    def record_declaration(
-        out_refs: list[tuple[int, int]],
-        outcomes: list[int],
-        in_refs: list[tuple[int, int]],
-    ) -> None:
-        if not out_refs:
-            return
-        if not outcomes and not in_refs:
-            # A pure deterministic declaration (e.g. a preparation asserting
-            # ``out.block.stabilizers[i]`` with no measured body readout and no
-            # carried-forward input frame). The agreed model (Q2) is to seed
-            # such a frame to the empty record set (an empty XOR is
-            # deterministic ``+1``) — which the recursive emitter does in
-            # ``_update_frame_map_recursive``. This flat path instead leaves the
-            # frame unset so downstream references fall back to the positional
-            # virtual-record model, preserving legacy behaviour for qodecs that
-            # do not yet declare their preparation frames. This fallback is
-            # slated for removal once those qodecs declare prep frames, at which
-            # point an unseeded ``in`` frame becomes a hard error.
-            return
+        outcomes = outcomes_of(check)
+        stabilizer_ins = stabilizer_signs_of(check, side="in")
+        if not outcomes and not stabilizer_ins:
+            continue
         records: set[int] = set()
         for outcome in outcomes:
-            records ^= {body_base + outcome}
-        for in_ref in in_refs:
-            records ^= set(frame_map.get(in_ref, frozenset()))
-        frozen = frozenset(records)
-        for out_ref in out_refs:
-            new_entries[out_ref] = frozen
+            records ^= {frames.body_base + outcome}
+        for sign in stabilizer_ins:
+            records ^= set(frames.frame_map.get(sign.key, frozenset()))
+        for sign in outs:
+            new_stabilizers[sign.key] = frozenset(records)
+    frames.frame_map.update(new_stabilizers)
 
-    for check in gadget.checks:
-        out_refs = [
-            ref
-            for ref in (_parse_stab_out_atom(atom) for atom in check)
-            if ref is not None
-        ]
-        if not out_refs:
+    # Logical frames resolve against the stabilizer frames this gadget just
+    # declared, so they are computed after the update above. They are replaced
+    # rather than accumulated: when a gadget re-expresses a rotating logical's
+    # representative, the check's source atoms fully determine the new record
+    # set. Static-logical qodecs (c4, surface) declare no out-logical atoms, so
+    # this leaves the map untouched.
+    new_logicals: LogicalFrames = {}
+    for check in checks:
+        outs_logical = logical_signs_of(check, side="out")
+        if not outs_logical:
             continue
-        in_refs = [
-            ref
-            for ref in (_parse_stab_in_atom(atom) for atom in check)
-            if ref is not None
-        ]
-        record_declaration(out_refs, list(outcome_indices(check)), in_refs)
-
-    frame_map.update(new_entries)
+        records_logical = frozenset(_resolve_observable_records(check, frames))
+        for sign in outs_logical:
+            new_logicals[sign.key] = records_logical
+    frames.logical_frame_map.update(new_logicals)
 
 
 def _stab_offset_from_end_map(gadget: qc.Gadget) -> dict[tuple[int, int], int]:

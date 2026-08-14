@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import qodec as qc
 
-from .._readouts import observable_names, observe_count
+from .._readouts import flag_slots, observable_slots
 from .propagation.pauli import Pauli, PauliCharacter
 from .propagation.pauli_remap import (
     encoding_qubit_relocation,
@@ -32,7 +32,7 @@ def lift_objective(gadget: qc.Gadget) -> ObjectiveLift:
     instruction = gadget.implements
     inputs = flat_logical_paulis(gadget.inputs)
     output_probes = flat_logical_paulis(gadget.outputs)
-    names = observable_names(gadget)
+    names = [slot.name for slot in observable_slots(gadget)]
     index_by_name = {name: index for index, name in enumerate(names)}
     expected_observables: list[Pauli | None] = [None] * len(names)
     missing_observables: list[str] = []
@@ -41,7 +41,7 @@ def lift_objective(gadget: qc.Gadget) -> ObjectiveLift:
     bound_flags: list[str] = []
     cliffords: list[Clifford] = []
 
-    bound_flag_slots = max(0, len(gadget.readouts) - observe_count(gadget))
+    bound_flag_slots = len(flag_slots(gadget))
     for index, flag_name in enumerate(instruction.flags):
         (bound_flags if index < bound_flag_slots else missing_flags).append(flag_name)
 
