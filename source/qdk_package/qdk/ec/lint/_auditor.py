@@ -37,12 +37,10 @@ class Auditor:
         return self._rules
 
     def audit(self, qodec: qc.Qodec) -> Report:
-        return self._run(qodec, self._iter_qodec_targets(qodec))
+        return self._run(qodec, self._qodec_targets(qodec))
 
-    def audit_code(
-        self, code: qc.Code, *, qodec: qc.Qodec | None = None
-    ) -> Report:
-        return self._run(qodec or _placeholder_qodec(), [(qc.Code, code)])
+    def audit_code(self, code: qc.Code, *, qodec: qc.Qodec | None = None) -> Report:
+        return self._run(qodec or _placeholder_qodec(), [code])
 
     def audit_instruction_set(
         self,
@@ -50,7 +48,7 @@ class Auditor:
         *,
         qodec: qc.Qodec | None = None,
     ) -> Report:
-        return self._run(qodec or _placeholder_qodec(), [(qc.InstructionSet, isa)])
+        return self._run(qodec or _placeholder_qodec(), [isa])
 
     def audit_gadget(
         self,
@@ -58,7 +56,7 @@ class Auditor:
         *,
         qodec: qc.Qodec | None = None,
     ) -> Report:
-        return self._run(qodec or _placeholder_qodec(), [(qc.Gadget, gadget)])
+        return self._run(qodec or _placeholder_qodec(), [gadget])
 
     def audit_layer(
         self,
@@ -66,15 +64,13 @@ class Auditor:
         *,
         qodec: qc.Qodec | None = None,
     ) -> Report:
-        targets = [(qc.Layer, layer)] + [
-            (qc.Gadget, gadget) for gadget in layer.gadgets.values()
-        ]
+        targets = [layer, *layer.gadgets.values()]
         return self._run(qodec or _placeholder_qodec(), targets)
 
     def _run(
         self,
         qodec: qc.Qodec,
-        targets: Iterable[tuple[type, object]],
+        targets: Iterable[object],
     ) -> Report:
         target_list = list(targets)
         diagnostics = list(self._run_phase(qodec, target_list, Phase.STRUCTURAL))
@@ -96,26 +92,22 @@ class Auditor:
     def _run_phase(
         self,
         qodec: qc.Qodec,
-        targets: list[tuple[type, object]],
+        targets: list[object],
         phase: Phase,
     ) -> Iterator[Diagnostic]:
         for rule in filter_rules(self._rules, phase=phase, disabled=self._disabled):
-            for target_type, target in targets:
-                if rule.target is target_type:
+            for target in targets:
+                if isinstance(target, rule.target):
                     yield from rule(target, qodec=qodec)
 
     @staticmethod
-    def _iter_qodec_targets(
-        qodec: qc.Qodec,
-    ) -> list[tuple[type, object]]:
-        targets: list[tuple[type, object]] = [(qc.Qodec, qodec)]
-        targets.extend(
-            (qc.InstructionSet, isa) for isa in qodec.instruction_sets.values()
-        )
-        targets.extend((qc.Code, code) for code in qodec.codes.values())
+    def _qodec_targets(qodec: qc.Qodec) -> list[object]:
+        targets: list[object] = [qodec]
+        targets.extend(qodec.instruction_sets.values())
+        targets.extend(qodec.codes.values())
         for layer in qodec.layers[:-1]:
-            targets.append((qc.Layer, layer))
-            targets.extend((qc.Gadget, gadget) for gadget in layer.gadgets.values())
+            targets.append(layer)
+            targets.extend(layer.gadgets.values())
         return targets
 
 

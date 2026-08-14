@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any
 
 import qodec as qc
 
@@ -13,8 +12,9 @@ from ._references import outcomes_of, parse_equations
 from ._analysis.propagation.interpreter import program_of, propagate_faults
 from ._analysis.propagation.pauli import Pauli, PauliCharacter
 from ._analysis.propagation.pauli_remap import (
-    characters_of_string,
+    Basis,
     encoding_qubit_relocation,
+    logical_chars,
     remap_to_global,
 )
 
@@ -120,28 +120,16 @@ def fault_effects_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> list[FaultEff
 
 
 def _build_basis_probes(
-    encodings: Sequence[qc.Encoding], basis: str
+    encodings: Sequence[qc.Encoding], basis: Basis
 ) -> tuple[list[Pauli], list[tuple[int, int]]]:
     probes = []
     layout = []
     for entry, encoding in enumerate(encodings):
         relocation = encoding_qubit_relocation(encoding)
-        for index, characters in enumerate(_logical_chars(encoding.code, basis)):
+        for index, characters in enumerate(logical_chars(encoding.code, basis)):
             probes.append(remap_to_global(characters, relocation))
             layout.append((entry, index))
     return probes, layout
-
-
-def _logical_chars(code: Any, basis: str) -> Iterator[dict[int, "PauliCharacter"]]:
-    x_operators = getattr(code, "x", None)
-    z_operators = getattr(code, "z", None)
-    if x_operators is not None and z_operators is not None:
-        for operator in x_operators if basis == "X" else z_operators:
-            yield characters_of_string(str(operator))
-        return
-    offset = 0 if basis == "X" else 1
-    for index in range(code.logical_qubit_count):
-        yield code.logical_basis[2 * index + offset].characters
 
 
 def _combine_residual_passes(

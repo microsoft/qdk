@@ -79,6 +79,21 @@ def as_literals(string: str) -> Iterator[PauliCharacter]:
     yield from map(as_literal, string)
 
 
+def parse_term(token: str) -> tuple[PauliCharacter, int]:
+    """Split one ``"<basis>_<index>"`` operator token; a bare letter is qubit 0."""
+    basis, _, index = token.partition("_")
+    return as_literal(basis), int(index) if index else 0
+
+
+def characters_of_string(text: str) -> dict[int, PauliCharacter]:
+    """Parse a ``"X_0 Z_2"`` operator string into ``{qubit: character}``."""
+    characters: dict[int, PauliCharacter] = {}
+    for token in text.split():
+        basis, index = parse_term(token)
+        characters[index] = basis
+    return characters
+
+
 class PauliEnumerator:
     """Enumerate sparse Paulis by support and weight."""
 

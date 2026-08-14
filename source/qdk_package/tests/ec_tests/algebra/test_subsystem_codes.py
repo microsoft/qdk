@@ -1,19 +1,21 @@
 from typing import Sequence
-from itertools import zip_longest, product
+from itertools import zip_longest, product, chain
 import pytest
 from more_itertools import interleave, chunked
 from paulimer import SparsePauli as RustSparsePauli
 from qdk.ec._analysis.code_algebra import (
     encoding_clifford_of,
     SubsystemCode,
+    are_mutually_commutative,
     clifford_images_of,
-    _validate_anti_stabilizers,
+    is_symplectic_basis,
+    why_not_symplectic_basis,
 )
+from qdk.ec._analysis.propagation.groups import is_stabilizer_group
 from ec_tests.testing import code_catalog
 from paulimer import PauliGroup
 
 from qdk.ec._analysis.propagation.pauli import Pauli, PauliEnumerator, identity
-
 
 bacon_shor_codes = [
     code_catalog.make_bacon_shor_code(number_of_rows, number_of_columns)
@@ -87,10 +89,9 @@ def assert_encoding_clifford_of(code: SubsystemCode) -> None:
     )
     for preimage, image in zip_longest(preimages, images):
         dense_image = encoding_clifford.image_of(preimage)
-        remapped = (
-            Pauli({support[i]: dense_image[i] for i in dense_image.support})
-            * identity(dense_image.phase)
-        )
+        remapped = Pauli(
+            {support[i]: dense_image[i] for i in dense_image.support}
+        ) * identity(dense_image.phase)
         assert image == remapped
 
 
@@ -124,6 +125,19 @@ def assert_valid_representatives(code: SubsystemCode) -> None:
 
 
 def assert_anti_generators(code: SubsystemCode) -> None:
-    _validate_anti_stabilizers(
-        code.anti_stabilizers, code.stabilizers, code.logical_basis
+    anti_stabilizers = code.anti_stabilizers
+    stabilizers = code.stabilizers
+    assert len(anti_stabilizers) == len(stabilizers)
+    interleaved = list(chain(*zip(stabilizers, anti_stabilizers)))
+    assert is_symplectic_basis(interleaved), why_not_symplectic_basis(interleaved)
+    assert all(
+        not first.commutes_with(second) for first, second in chunked(interleaved, 2)
+    )
+    for index, (stabilizer, anti) in enumerate(chunked(interleaved, 2)):
+        rest = interleaved[2 * index + 2 :]
+        assert all(stabilizer.commutes_with(element) for element in rest)
+        assert all(anti.commutes_with(element) for element in rest)
+    assert is_stabilizer_group(PauliGroup(anti_stabilizers))
+    assert are_mutually_commutative(
+        PauliGroup(code.logical_basis), PauliGroup(anti_stabilizers)
     )

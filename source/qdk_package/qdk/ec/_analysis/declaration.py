@@ -9,7 +9,7 @@ from typing import Any, cast
 import qodec as qc
 
 from .._readouts import flag_slots, observable_slots
-from .propagation.pauli import Pauli, PauliCharacter
+from .propagation.pauli import Pauli, PauliCharacter, parse_term
 from .propagation.pauli_remap import (
     encoding_qubit_relocation,
     flat_logical_paulis,
@@ -157,8 +157,7 @@ def _resolve_declared_pauli(pauli_str: str, gadget: qc.Gadget) -> Pauli:
     flat_map = flat_logical_slots(list(gadget.inputs) + list(gadget.outputs))
     characters: dict[int, PauliCharacter] = {}
     for token in pauli_str.split():
-        basis, _, index_text = token.partition("_")
-        flat_index = int(index_text) if index_text else 0
+        basis, flat_index = parse_term(token)
         if flat_index >= len(flat_map):
             raise ValueError(
                 f"declared Pauli {pauli_str!r} references flat logical "
@@ -179,13 +178,12 @@ def _resolve_declared_pauli(pauli_str: str, gadget: qc.Gadget) -> Pauli:
         relocation = encoding_qubit_relocation(encoding)
         for logical in logicals:
             for sub_token in str(logical).split():
-                sub_basis, _, sub_index = sub_token.partition("_")
-                if sub_index:
-                    qubit = relocation[int(sub_index)]
-                    characters[qubit] = _multiply_basis(
-                        characters.get(qubit),
-                        cast(PauliCharacter, sub_basis),
-                    )
+                sub_basis, sub_index = parse_term(sub_token)
+                qubit = relocation[sub_index]
+                characters[qubit] = _multiply_basis(
+                    characters.get(qubit),
+                    sub_basis,
+                )
     final: dict[int, PauliCharacter] = {
         qubit: basis for qubit, basis in characters.items() if basis != "I"
     }

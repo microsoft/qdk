@@ -14,8 +14,7 @@ from qodec.circuits import Program
 from .._readouts import flag_slots, observables_as_xor_map, observe_count_of
 from .._references import Atom, Equation, Outcome, StabilizerSign, outcomes_of
 from .propagation.interpreter import program_of, walk_program
-from .propagation.isa_actions import parse_basis_index
-from .propagation.pauli import Pauli, PauliCharacter
+from .propagation.pauli import Pauli, PauliCharacter, parse_term
 from .propagation.pauli_remap import encoding_qubit_relocation, flat_logical_slots
 
 
@@ -340,7 +339,7 @@ def _declared_observable_probes(
         for observable in action.observables:
             characters: dict[int, PauliCharacter] = {}
             for token in observable.pauli.split():
-                basis, flat_index = parse_basis_index(token)
+                basis, flat_index = parse_term(token)
                 encoding, local_index = flat_map[flat_index]
                 relocation = encoding_qubit_relocation(encoding)
                 for local, character in _declared_logical_chars(
@@ -380,9 +379,9 @@ def _declared_logical_chars(
         raise ValueError(f"unsupported declared Pauli basis {basis!r}")
     for operator in operators:
         for token in str(operator).split():
-            character, index = parse_basis_index(token)
+            character, index = parse_term(token)
             if character != "I":
-                yield index, cast(PauliCharacter, character)
+                yield index, character
 
 
 def _pauli_xor(left: PauliCharacter, right: PauliCharacter) -> PauliCharacter:

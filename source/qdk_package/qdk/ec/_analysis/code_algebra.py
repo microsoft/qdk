@@ -57,6 +57,7 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         self._support = frozenset(self._stabilizer.support) | frozenset(
             self._logical.support
         )
+        self._declared_gauge: Optional[PauliGroup] = None
         if gauge_basis is not None:
             _validate_basis(
                 gauge_basis,
@@ -64,7 +65,7 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
                 name="Gauge",
             )
             self._support |= frozenset(PauliGroup(gauge_basis).support)
-            self.gauge = PauliGroup(gauge_basis)
+            self._declared_gauge = PauliGroup(gauge_basis)
 
     @property
     def stabilizer(self) -> PauliGroup:
@@ -82,8 +83,15 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     def anti_stabilizers(self) -> Sequence[Pauli]:
         return self.anti_stabilizer.generators
 
-    @cached_property
+    @property
     def gauge(self) -> PauliGroup:
+        """The gauge group as declared, or derived when none was declared."""
+        if self._declared_gauge is not None:
+            return self._declared_gauge
+        return self._derived_gauge
+
+    @cached_property
+    def _derived_gauge(self) -> PauliGroup:
         group = PauliGroup(
             logical_basis_of(self._stabilizer, supported_by=tuple(self.support))
         )
@@ -344,58 +352,10 @@ def _validate_basis(
         )
 
 
-def _validate_anti_stabilizers(
-    anti_stabilizers: Sequence[Pauli],
-    stabilizers: Sequence[Pauli],
-    logical_basis: Sequence[Pauli],
-) -> None:
-    if len(anti_stabilizers) != len(stabilizers):
-        raise ValueError(
-            f"Anti-stabilizer count ({len(anti_stabilizers)}) does not match "
-            f"stabilizer count ({len(stabilizers)})"
-        )
-    interleaved = list(chain(*zip(stabilizers, anti_stabilizers)))
-    if not is_symplectic_basis(interleaved):
-        raise ValueError(
-            "Anti-stabilizers do not form a symplectic basis with the "
-            f"stabilizers: {why_not_symplectic_basis(interleaved)}."
-        )
-    if not _logical_pairs_anticommute(interleaved):
-        raise ValueError(
-            "Anti-stabilizers do not anti-commute with corresponding stabilizers."
-        )
-    if not _logical_ops_on_diff_qubits_commute(interleaved):
-        raise ValueError(
-            "Stabilizer/anti-stabilizer pairs acting on different qubits do not commute."
-        )
-    if not is_stabilizer_group(PauliGroup(anti_stabilizers)):
-        raise ValueError("Anti-stabilizers do not form a stabilizer group.")
-    if not are_mutually_commutative(
-        PauliGroup(logical_basis), PauliGroup(anti_stabilizers)
-    ):
-        raise ValueError("Anti-stabilizers do not commute with logical operators.")
-
-
 def _logical_basis_centralizes(
     logical_basis: Sequence[Pauli], generators: Sequence[Pauli]
 ) -> bool:
     return are_mutually_commutative(PauliGroup(logical_basis), PauliGroup(generators))
-
-
-def _logical_pairs_anticommute(logical_basis: Sequence[Pauli]) -> bool:
-    return all(
-        not first.commutes_with(second) for first, second in chunked(logical_basis, 2)
-    )
-
-
-def _logical_ops_on_diff_qubits_commute(logical_basis: Sequence[Pauli]) -> bool:
-    for index, (logical_x, logical_z) in enumerate(chunked(logical_basis, 2)):
-        if not all(
-            logical_x.commutes_with(element) and logical_z.commutes_with(element)
-            for element in logical_basis[2 * index + 2 :]
-        ):
-            return False
-    return True
 
 
 def _anti_stabilizers_of(code: SubsystemCode) -> Sequence[Pauli]:
