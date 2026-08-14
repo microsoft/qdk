@@ -10,7 +10,7 @@ import {
   WORKBOOK_SUFFIX,
 } from "./constants.js";
 import type { CourseProvider } from "./courseProvider.js";
-import { uriExists } from "./fsUtils.js";
+import { ensureParentDir, uriExists } from "./fsUtils.js";
 import { parseNotebookExercises } from "./notebookExercises.js";
 import type {
   CatalogExercise,
@@ -20,13 +20,15 @@ import type {
   NotebookExerciseInfo,
 } from "./types.js";
 
+/** Bundled courses live under this path inside the extension. */
+const EXTENSION_COURSES_PATH = ["resources", "qdk-learning", "courses"];
+
 /**
  * On-disk shape of a `course.json` manifest. Author-controlled, so every
  * field is validated before use.
  */
 interface CourseManifest {
   schemaVersion?: number;
-  id?: unknown;
   title?: unknown;
   shortDescription?: unknown;
   units?: unknown;
@@ -43,6 +45,8 @@ interface ManifestUnit {
 interface CourseLocation {
   /** Folder that contains `course.json`. */
   dir: vscode.Uri;
+  /** Basename of the folder — also used as the course ID. */
+  folderName: string;
   manifest: CourseManifest;
 }
 
@@ -59,33 +63,65 @@ interface CourseLocation {
 export class NotebookCourseProvider implements CourseProvider {
   readonly id = "notebook-provider";
 
-  constructor(private readonly workspaceRoot: vscode.Uri) {}
+  constructor(
+    private readonly workspaceRoot: vscode.Uri,
+    private readonly extensionUri: vscode.Uri,
+  ) {}
 
   async listCourses(): Promise<NotebookCatalogCourse[]> {
+    await this.seedBundledCourses();
+
     const courses: NotebookCatalogCourse[] = [];
-    const seen = new Set<string>();
     for (const loc of await this.discover()) {
       const course = await this.parseCourse(loc);
-      if (!course) {
+      if (course) {
+        courses.push(course);
+      }
+    }
+    return courses;
+  }
+
+  // ─── Seeding bundled courses ───
+
+  /** Copy bundled course folders into `qdk-learning/courses/`, skipping folders that already exist. */
+  private async seedBundledCourses(): Promise<void> {
+    const bundledRoot = vscode.Uri.joinPath(
+      this.extensionUri,
+      ...EXTENSION_COURSES_PATH,
+    );
+    const coursesRoot = vscode.Uri.joinPath(
+      this.workspaceRoot,
+      LEARNING_WORKSPACE_FOLDER,
+      LEARNING_COURSES_SUBDIR,
+    );
+
+    for (const child of await readDirSafe(bundledRoot)) {
+      if (child.type !== vscode.FileType.Directory) {
         continue;
       }
-      if (seen.has(course.id)) {
-        log.warn(
-          `Duplicate notebook course id "${course.id}" ignored at ${loc.dir.toString()}`,
+      const target = vscode.Uri.joinPath(coursesRoot, child.name);
+      if (await uriExists(target)) {
+        log.info(
+          `Bundled course folder "${child.name}" already present in workspace.`,
         );
         continue;
       }
-      seen.add(course.id);
-      courses.push(course);
+      const source = vscode.Uri.joinPath(bundledRoot, child.name);
+      try {
+        await ensureParentDir(target);
+        await vscode.workspace.fs.copy(source, target);
+        log.info(`Seeded bundled course "${child.name}" into workspace.`);
+      } catch (e) {
+        log.warn(`Failed to seed bundled course "${child.name}": ${String(e)}`);
+      }
     }
-    return courses;
   }
 
   // ─── Discovery ───
 
   /** Enumerate candidate course folders and parse their manifests. */
   private async discover(): Promise<CourseLocation[]> {
-    const dirs: vscode.Uri[] = [];
+    const dirs: { uri: vscode.Uri; name: string }[] = [];
 
     // The well-known in-workspace courses folder.
     const coursesRoot = vscode.Uri.joinPath(
@@ -95,15 +131,18 @@ export class NotebookCourseProvider implements CourseProvider {
     );
     for (const child of await readDirSafe(coursesRoot)) {
       if (child.type === vscode.FileType.Directory) {
-        dirs.push(vscode.Uri.joinPath(coursesRoot, child.name));
+        dirs.push({
+          uri: vscode.Uri.joinPath(coursesRoot, child.name),
+          name: child.name,
+        });
       }
     }
 
     const locations: CourseLocation[] = [];
-    for (const dir of dirs) {
-      const manifest = await this.readManifest(dir);
+    for (const { uri, name } of dirs) {
+      const manifest = await this.readManifest(uri);
       if (manifest) {
-        locations.push({ dir, manifest });
+        locations.push({ dir: uri, folderName: name, manifest });
       }
     }
     return locations;
@@ -120,12 +159,9 @@ export class NotebookCourseProvider implements CourseProvider {
     }
     try {
       const parsed = JSON.parse(text) as CourseManifest;
-      if (
-        manifestString(parsed.id) === undefined ||
-        manifestString(parsed.title) === undefined
-      ) {
+      if (manifestString(parsed.title) === undefined) {
         log.warn(
-          `Ignoring notebook course at ${dir.toString()}: "id" and "title" are required.`,
+          `Ignoring notebook course at ${dir.toString()}: "title" is required.`,
         );
         return undefined;
       }
@@ -141,9 +177,9 @@ export class NotebookCourseProvider implements CourseProvider {
   private async parseCourse(
     loc: CourseLocation,
   ): Promise<NotebookCatalogCourse | undefined> {
-    const id = manifestString(loc.manifest.id);
+    const id = loc.folderName;
     const title = manifestString(loc.manifest.title);
-    if (id === undefined || title === undefined) {
+    if (title === undefined) {
       return undefined;
     }
 

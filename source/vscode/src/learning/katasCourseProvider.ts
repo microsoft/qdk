@@ -12,7 +12,7 @@ import type {
 } from "./types.js";
 
 /** Provider for the built-in Quantum Katas course. */
-export class KatasProvider implements CourseProvider {
+export class KatasCourseProvider implements CourseProvider {
   readonly id = "katas-provider";
 
   async listCourses(): Promise<CatalogCourse[]> {

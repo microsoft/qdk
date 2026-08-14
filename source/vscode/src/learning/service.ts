@@ -1193,7 +1193,10 @@ export class LearningService {
   ): Promise<void> {
     const learningFile = vscode.Uri.joinPath(workspaceRoot, LEARNING_FILE);
 
-    const courseProvider = createCourseProvider(workspaceRoot);
+    const courseProvider = createCourseProvider(
+      workspaceRoot,
+      this.extensionUri,
+    );
 
     // Load every course up front so the tree view can show unit counts and
     // progress badges, and so a saved position naming any course resolves.

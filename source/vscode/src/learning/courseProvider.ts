@@ -4,7 +4,7 @@
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { NotebookCourseProvider } from "./notebookCourseProvider.js";
-import { KatasProvider } from "./katasProvider.js";
+import { KatasCourseProvider } from "./katasCourseProvider.js";
 import type { CatalogCourse, CourseDescriptor } from "./types.js";
 
 /**
@@ -78,10 +78,11 @@ export class CompositeCourseProvider implements CourseProvider {
  */
 export function createCourseProvider(
   workspaceRoot: vscode.Uri,
+  extensionUri: vscode.Uri,
 ): CompositeCourseProvider {
   return new CompositeCourseProvider([
-    new KatasProvider(),
-    new NotebookCourseProvider(workspaceRoot),
+    new KatasCourseProvider(),
+    new NotebookCourseProvider(workspaceRoot, extensionUri),
   ]);
 }
 
