@@ -46,11 +46,11 @@ operation JointMeasure(qs : Qubit[]) : Unit {
     // each iteration of the loop will allocate the same ancilla, forcing
     // the execution of the loop to be sequential.
     for i in 0..2..Length(qs)-1 {
-        let _ = MeasureAllZ(qs[i..i+1]);
+        let _ = MeasureAllZ(qs[i..i + 1]);
     }
 }
 
-operation ParallelJointMeasure(qs: Qubit[]) : Unit {
+operation ParallelJointMeasure(qs : Qubit[]) : Unit {
     // Jointly measures each pair of qubits in the given array.
     // Because this loop is part of a `parallel` expression,
     // released qubits will not be reused and each call to `MeasureAllZ`
@@ -59,6 +59,6 @@ operation ParallelJointMeasure(qs: Qubit[]) : Unit {
     // Once the `parallel` expression ends, all released qubits from that
     // scope will be available for reuse by later allocations.
     parallel for i in 0..2..Length(qs)-1 {
-        let _ = MeasureAllZ(qs[i..i+1]);
+        let _ = MeasureAllZ(qs[i..i + 1]);
     }
 }
