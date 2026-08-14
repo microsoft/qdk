@@ -10,10 +10,10 @@ root.
 
 Core submodules (always available):
 
-- :mod:`qdk.qsharp` — Q# interpreter and core operations
+- :mod:`qdk.qsharp`: Q# interpreter and core operations
   (:func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.eval`, :func:`~qdk.qsharp.run`,
   :func:`~qdk.qsharp.compile`, :func:`~qdk.qsharp.circuit`, etc.).
-- :mod:`qdk.openqasm` — compile, run, and estimate OpenQASM programs.
+- :mod:`qdk.openqasm`: compile, run, and estimate OpenQASM programs.
   Its :mod:`qdk.openqasm.parser` and :mod:`qdk.openqasm.semantic` modules expose
   recovery-oriented parsing, source documents, read-only visitors, semantic
   analysis, and checked canonical serialization::
@@ -24,12 +24,12 @@ Core submodules (always available):
       analyzed = semantic.analyze("OPENQASM 3.0; const int value = 1 + 2;")
       assert not parsed.has_errors
       assert not analyzed.has_errors
-- :mod:`qdk.simulation` — noise-aware quantum simulators and the
+- :mod:`qdk.simulation`: noise-aware quantum simulators and the
   ``NeutralAtomDevice``.
-- :mod:`qdk.estimator` — the legacy Microsoft Resource Estimator API.
-- :mod:`qdk.qre` — the next-generation Resource Estimator (QRE v3).
-- :mod:`qdk.code` — namespace populated with user-defined Q# and OpenQASM callables.
-- :mod:`qdk.test_utils` — utilities for testing Q# code.
+- :mod:`qdk.estimator`: the legacy Microsoft Resource Estimator API.
+- :mod:`qdk.qre`: the next-generation Resource Estimator (QRE v3).
+- :mod:`qdk.code`: namespace populated with user-defined Q# and OpenQASM callables.
+- :mod:`qdk.test_utils`: utilities for testing Q# code.
 
 Frequently used utilities are also re-exported at the package root for
 convenience: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.dump_machine`,
@@ -42,11 +42,11 @@ convenience: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.dump_machine`,
 
 Optional extras enable additional submodules:
 
-- ``qdk[azure]`` — Azure Quantum job submission and management
+- ``qdk[azure]``: Azure Quantum job submission and management
   (:mod:`qdk.azure`).
-- ``qdk[qiskit]`` — Qiskit interoperability (:mod:`qdk.qiskit`).
-- ``qdk[cirq]`` — Cirq interoperability (:mod:`qdk.cirq`).
-- ``qdk[jupyter]`` — interactive Jupyter widgets and JupyterLab integration
+- ``qdk[qiskit]``: Qiskit interoperability (:mod:`qdk.qiskit`).
+- ``qdk[cirq]``: Cirq interoperability (:mod:`qdk.cirq`).
+- ``qdk[jupyter]``: interactive Jupyter widgets and JupyterLab integration
   (``qdk.widgets``).
 """
 
