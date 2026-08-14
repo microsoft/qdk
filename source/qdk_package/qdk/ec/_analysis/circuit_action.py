@@ -14,15 +14,22 @@ from qodec.circuits import Program
 from .propagation.conditional import conditional_choi_state
 from .propagation.frames import FrameGroup, PauliFrame
 from .propagation.groups import subgroup_of
+from .propagation.interpreter import program_of
 from .propagation.isa_actions import (
     block_operands,
     block_strides,
     build_qubit_map,
     remap_pauli,
 )
-from .propagation.pauli import Pauli, characters_of, identity
+from .propagation.pauli import (
+    Pauli,
+    complex_conjugate_of,
+    identity,
+    relabel,
+    restrict,
+)
 from .propagation.pauli_remap import encoding_qubit_relocation
-from .code_algebra import SubsystemCode
+from .code_algebra import SubsystemCode, subsystem_code_of
 from .separable_code import SeparableCode
 from .stabilizer_code import StabilizerCode
 
@@ -145,7 +152,7 @@ def _assemble_action(
                 for qubit in set(pauli.support) & auxiliary
             }
         ) * identity(pauli.phase)
-        return _complex_conjugate_of(relabeled)
+        return complex_conjugate_of(relabeled)
 
     logicals = logicals % (stabilizers_in | stabilizers_out)
     to_input = _abs_restricting_to(auxiliary)
@@ -221,11 +228,6 @@ def _phase_of(pauli: Pauli, *, within: PauliGroup) -> Pauli:
     return phases[0]
 
 
-def _complex_conjugate_of(pauli: Pauli) -> Pauli:
-    y_count = sum(character == "Y" for character in characters_of(pauli).values())
-    return pauli * identity((-1) ** (y_count % 2))
-
-
 def _abs_restricting_to(support: Iterable[int]) -> Callable[[Pauli], Pauli]:
     support_set = frozenset(support)
     return lambda pauli: Pauli(
@@ -235,13 +237,7 @@ def _abs_restricting_to(support: Iterable[int]) -> Callable[[Pauli], Pauli]:
 
 def _restricting_to(support: Iterable[int]) -> Callable[[Pauli], Pauli]:
     support_set = frozenset(support)
-
-    def restrict(pauli: Pauli) -> Pauli:
-        return Pauli(
-            {qubit: pauli[qubit] for qubit in set(pauli.support) & support_set}
-        ) * identity(pauli.phase)
-
-    return restrict
+    return lambda pauli: restrict(pauli, support_set)
 
 
 def _logical_form_of(
@@ -288,12 +284,6 @@ def _validate_group(group: PauliGroup, *, against: SubsystemCode) -> None:
         )
     if not against.support >= set(group.support):
         raise ValueError("Code support does not include the circuit support.")
-
-
-def _shuffled(pauli: Pauli, mapping: Mapping[int, int]) -> Pauli:
-    return Pauli(
-        {mapping.get(qubit, qubit): pauli[qubit] for qubit in pauli.support}
-    ) * identity(pauli.phase)
 
 
 def _standard_form_of(
@@ -346,7 +336,7 @@ def _indicators_of(
     base = max(group.support) + 1 if group.support else 0
     primary_map = {qubit: qubit for qubit in group.support}
     generators = [
-        _shuffled(generator, primary_map) * Pauli({base + index: "Z"})
+        relabel(generator, primary_map) * Pauli({base + index: "Z"})
         for index, generator in enumerate(group.generators)
     ]
     for generator in transformed_by(generators):
@@ -426,10 +416,10 @@ def _outcome_items(
     return items
 
 
-def objective_program_of(gadget: qc.Gadget) -> Program:
+def declared_program_of(gadget: qc.Gadget) -> Program:
     instruction = gadget.implements
-    input_count, output_count = _objective_logical_counts(gadget)
-    unit = qc.instructions.BlockOperand("objective")
+    input_count, output_count = _declared_logical_counts(gadget)
+    unit = qc.instructions.BlockOperand("declared")
     synthetic = qc.Instruction(
         mnemonic=instruction.mnemonic,
         inputs=[unit for _ in range(input_count)],
@@ -437,7 +427,7 @@ def objective_program_of(gadget: qc.Gadget) -> Program:
         flags=list(instruction.flags),
         action=list(instruction.action),
     )
-    isa = _objective_isa(synthetic)
+    isa = _declared_isa(synthetic)
     binding = [*range(input_count), *range(output_count)]
     call = qc.instructions.InstructionCall(
         instruction.mnemonic,
@@ -446,26 +436,26 @@ def objective_program_of(gadget: qc.Gadget) -> Program:
     return Program([call], isa)
 
 
-def _objective_isa(
+def _declared_isa(
     instruction: qc.Instruction,
 ) -> qc.InstructionSet:
-    block = qc.instructions.Block("objective", encodes=1)
+    block = qc.instructions.Block("declared", encodes=1)
     return qc.InstructionSet(
-        name="objective", blocks=[block], instructions=[instruction]
+        name="declared", blocks=[block], instructions=[instruction]
     )
 
 
-def _objective_logical_counts(gadget: qc.Gadget) -> tuple[int, int]:
+def _declared_logical_counts(gadget: qc.Gadget) -> tuple[int, int]:
     return (
         sum(len(list(encoding.code.x)) for encoding in gadget.inputs),
         sum(len(list(encoding.code.x)) for encoding in gadget.outputs),
     )
 
 
-def objective_codes_of(
+def declared_codes_of(
     gadget: qc.Gadget,
 ) -> tuple[SeparableCode, SeparableCode]:
-    input_count, output_count = _objective_logical_counts(gadget)
+    input_count, output_count = _declared_logical_counts(gadget)
     return (
         _identity_codes_over(range(input_count)),
         _identity_codes_over(range(output_count)),
@@ -486,11 +476,7 @@ def _identity_codes_over(qubit_indices: Sequence[int] | range) -> SeparableCode:
     return SeparableCode(*blocks)
 
 
-def realization_program_of(gadget: qc.Gadget) -> Program:
-    return Program(gadget.circuit.instructions, gadget.circuit.isa)
-
-
-def realization_codes_of(
+def realized_codes_of(
     gadget: qc.Gadget,
 ) -> tuple[SeparableCode, SeparableCode]:
     return (
@@ -502,35 +488,35 @@ def realization_codes_of(
 def _stack_encodings(encodings: Sequence[qc.Encoding]) -> SeparableCode:
     blocks = []
     for encoding in encodings:
-        code = SubsystemCode.from_qodec(encoding.code)
+        code = subsystem_code_of(encoding.code)
         blocks.append(code.relocated(encoding_qubit_relocation(encoding)))
     return SeparableCode(*blocks)
 
 
-def gadget_objective_action_of(gadget: qc.Gadget) -> CircuitAction:
-    codes_in, codes_out = objective_codes_of(gadget)
+def declared_action_of(gadget: qc.Gadget) -> CircuitAction:
+    codes_in, codes_out = declared_codes_of(gadget)
     return action_of(
-        objective_program_of(gadget),
+        declared_program_of(gadget),
         with_respect_to=(codes_in, codes_out),
     )
 
 
-def gadget_realization_action_of(gadget: qc.Gadget) -> CircuitAction:
-    codes_in, codes_out = realization_codes_of(gadget)
+def realized_action_of(gadget: qc.Gadget) -> CircuitAction:
+    codes_in, codes_out = realized_codes_of(gadget)
     return action_of(
-        realization_program_of(gadget),
+        program_of(gadget),
         with_respect_to=(codes_in, codes_out),
     )
 
 
 def gadget_action_mismatch(gadget: qc.Gadget) -> str | None:
-    expected = gadget_objective_action_of(gadget)
-    actual = gadget_realization_action_of(gadget)
+    expected = declared_action_of(gadget)
+    actual = realized_action_of(gadget)
     if expected.is_equivalent_to(actual):
         return None
     if expected.is_equivalent_to(actual, modulo_paulis=True):
         return "logical action matches up to Pauli signs but not outcome-wise"
-    return "logical action differs between objective and realisation"
+    return "logical action differs between declared and realized"
 
 
 __all__ = [
@@ -539,11 +525,10 @@ __all__ = [
     "are_equivalent_mod_paulis",
     "are_outcome_equivalent",
     "gadget_action_mismatch",
-    "gadget_objective_action_of",
-    "gadget_realization_action_of",
+    "declared_action_of",
+    "realized_action_of",
     "input_qubits_of",
-    "objective_codes_of",
-    "objective_program_of",
-    "realization_codes_of",
-    "realization_program_of",
+    "declared_codes_of",
+    "declared_program_of",
+    "realized_codes_of",
 ]

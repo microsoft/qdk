@@ -5,7 +5,7 @@ from __future__ import annotations
 from itertools import chain
 from typing import Mapping
 
-from .propagation.pauli import Pauli, identity
+from .propagation.pauli import relabel
 from .code_algebra import SubsystemCode
 from .stabilizer_code import StabilizerCode
 
@@ -62,15 +62,9 @@ def _are_disjoint(*blocks: SubsystemCode) -> bool:
     return len(support) == sum(map(len, supports))
 
 
-def _remap_pauli(pauli: Pauli, mapping: Mapping[int, int]) -> Pauli:
-    return Pauli(
-        {mapping.get(qubit, qubit): pauli[qubit] for qubit in pauli.support}
-    ) * identity(pauli.phase)
-
-
 def _relocate(code: SubsystemCode, *, by: Mapping[int, int]) -> SubsystemCode:
-    generators = tuple(_remap_pauli(generator, by) for generator in code.stabilizers)
-    logicals = tuple(_remap_pauli(generator, by) for generator in code.logical_basis)
+    generators = tuple(relabel(generator, by) for generator in code.stabilizers)
+    logicals = tuple(relabel(generator, by) for generator in code.logical_basis)
     return StabilizerCode(generators, logical_basis=logicals)
 
 

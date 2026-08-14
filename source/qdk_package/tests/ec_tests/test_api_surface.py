@@ -112,9 +112,9 @@ def test_documented_attribute_is_reachable(module_name: str, attribute: str) -> 
     module = importlib.import_module(module_name)
 
     assert hasattr(module, attribute), f"{module_name}.{attribute} is missing"
-    assert attribute in getattr(module, "__all__", ()), (
-        f"{module_name}.{attribute} is not exported via __all__"
-    )
+    assert attribute in getattr(
+        module, "__all__", ()
+    ), f"{module_name}.{attribute} is not exported via __all__"
 
 
 @pytest.mark.parametrize("name", _SUBMODULES)
@@ -133,14 +133,20 @@ def test_conceptual_headings_are_not_modules(name: str) -> None:
         importlib.import_module(f"qdk.ec.{name}")
 
 
-def test_importing_qdk_ec_does_not_import_the_submodules() -> None:
+def test_importing_qdk_ec_does_not_import_the_optional_backends() -> None:
+    """``pip install qdk[ec]`` must work without the ``ec-backends`` extra.
+
+    The submodules themselves are cheap to import; what has to stay deferred is
+    the optional third-party backends that only :mod:`qdk.ec.targets` needs.
+    """
     # Run in a fresh interpreter: purging ``sys.modules`` in-process would give
     # the rest of the suite duplicate module objects.
     script = (
         "import sys, qdk.ec;"
-        "assert 'qdk.ec.targets' not in sys.modules, 'targets imported eagerly';"
-        "assert qdk.ec.targets is not None;"
-        "assert 'qdk.ec.targets' in sys.modules"
+        "loaded = {'stim', 'mwpf', 'deq'} & {m.split('.')[0] for m in sys.modules};"
+        "assert not loaded, f'backends imported eagerly: {sorted(loaded)}';"
+        "assert qdk.ec.targets.StimSampler is not None;"
+        "assert 'stim' in sys.modules, 'backend not loaded on first use'"
     )
 
     result = subprocess.run(

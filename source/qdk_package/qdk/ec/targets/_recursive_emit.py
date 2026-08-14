@@ -12,7 +12,7 @@ no import cycle.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import stim
 
@@ -40,70 +40,99 @@ def _has_out_stab(check: Equation) -> bool:
     return bool(stabilizer_signs_of(check, side="out"))
 
 
+@dataclass(frozen=True)
+class Provenance:
+    """Which physical records carry each of a gadget body's readouts.
+
+    This is the only thing that differs between emitting a single lowering edge
+    and composing a whole layer chain. On a single edge a gadget's ``k``-th
+    readout *is* its own ``k``-th record; composed, it is whatever set of
+    physical records the layer below folded up into it. Everything else about
+    resolving a parity equation is identical, which is why it is the one thing
+    :func:`resolve_records` and :func:`update_frame_maps` take.
+    """
+
+    records: tuple[frozenset[int], ...]
+
+    @staticmethod
+    def own_records(base: int, count: int) -> "Provenance":
+        """A body whose readouts are its own records, starting at ``base``."""
+        return Provenance(tuple(frozenset({base + index}) for index in range(count)))
+
+    def __len__(self) -> int:
+        return len(self.records)
+
+    def __getitem__(self, index: int) -> frozenset[int]:
+        return self.records[index]
+
+
+@dataclass
+class FrameMaps:
+    """The boundary signs in flight, as the record sets currently carrying them."""
+
+    stabilizers: StabilizerFrames = field(default_factory=dict)
+    logicals: LogicalFrames = field(default_factory=dict)
+
+
 @dataclass
 class _RecursiveEmitState:
-    """Mutable state threaded through recursive multi-layer emission.
+    """Mutable state threaded through layer-composing emission.
 
-    ``frame_maps`` holds one ``(operand, stab index) -> {record indices}``
-    map per translation level (frames at level *L* span level *L*'s
-    gadgets); ``logical_frame_maps`` is the analogous per-level
-    ``(operand, basis, index) -> {record indices}`` map for logical
-    observable signs (``basis`` is ``"x"`` or ``"z"``), carrying a
-    rotating logical's accumulated Pauli frame across a level's gadgets.
-    ``global_rec`` is the absolute count of physical records appended so
-    far.
+    ``frames`` holds one :class:`FrameMaps` per lowering edge, since a frame at
+    level *L* spans level *L*'s gadgets. ``global_rec`` is the absolute count of
+    physical records appended so far.
     """
 
     combined: stim.Circuit
     allocator: PhysicalQubitAllocator
     global_rec: int
-    frame_maps: list[StabilizerFrames]
-    logical_frame_maps: list[LogicalFrames]
+    frames: list[FrameMaps]
     noise: dict[str, float]
 
 
-def _resolve_equation_records(
+def resolve_records(
     equation: Equation,
-    body_prov: list[frozenset[int]],
-    frame_map: StabilizerFrames,
-    logical_frame_map: LogicalFrames,
+    provenance: Provenance,
+    frames: FrameMaps,
     gadget: qc.Gadget,
+    *,
+    strict: bool = False,
 ) -> set[int]:
-    """XOR-resolve a parity equation to a set of physical record indices.
+    """XOR-resolve a parity equation to the physical records carrying its value.
 
-    An :class:`Outcome` maps to ``body_prov[k]``; an ``in`` stabilizer sign maps
-    to the frame currently carrying that stabilizer's sign; an ``in`` logical
-    sign maps to the frame carrying that observable's sign (empty when unseeded,
-    i.e. a deterministic ``+1`` representative). An ``in`` stabilizer sign with
-    no seeded frame is unsupported here (the flat path's positional fallback
-    does not apply once surfaces compose explicitly).
+    An outcome maps through ``provenance``; an ``in`` stabilizer or logical sign
+    maps to the frame currently carrying that sign.
+
+    With ``strict``, an ``in`` stabilizer sign with no seeded frame is an
+    under-specified qodec and raises; otherwise it resolves to the empty set,
+    which is what the single-edge path's positional fallback relies on. An
+    unseeded *logical* sign is always the empty set: a deterministic ``+1``
+    representative.
     """
     records: set[int] = set()
     for index in outcomes_of(equation):
-        if index >= len(body_prov):
+        if index >= len(provenance):
             raise NotImplementedError(
                 f"gadget {gadget.implements.mnemonic!r}: circuit.readouts[{index}] "
-                f"is out of range (body exposes {len(body_prov)} readouts)"
+                f"is out of range (body exposes {len(provenance)} readouts)"
             )
-        records ^= set(body_prov[index])
+        records ^= set(provenance[index])
     for sign in stabilizer_signs_of(equation, side="in"):
-        if sign.key not in frame_map:
+        if strict and sign.key not in frames.stabilizers:
             raise NotImplementedError(
                 f"gadget {gadget.implements.mnemonic!r}: input stabilizer "
-                f"frame {sign.key} has not been seeded by any prior gadget; the "
-                f"recursive emitter requires an explicit out.* declaration "
+                f"frame {sign.key} has not been seeded by any prior gadget; "
+                f"composing layers requires an explicit out.* declaration "
                 f"upstream"
             )
-        records ^= set(frame_map[sign.key])
+        records ^= set(frames.stabilizers.get(sign.key, frozenset()))
     for sign in logical_signs_of(equation, side="in"):
-        records ^= set(logical_frame_map.get(sign.key, frozenset()))
+        records ^= set(frames.logicals.get(sign.key, frozenset()))
     return records
 
 
 def _stabilizer_source_records(
-    check: Equation,
-    body_prov: list[frozenset[int]],
-    frame_map: StabilizerFrames,
+    check: Equation, provenance: Provenance, frames: FrameMaps
 ) -> frozenset[int]:
     """Records carrying the ``out`` stabilizer sign a check declares.
 
@@ -112,91 +141,74 @@ def _stabilizer_source_records(
     """
     records: set[int] = set()
     for index in outcomes_of(check):
-        records ^= set(body_prov[index])
+        records ^= set(provenance[index])
     for sign in stabilizer_signs_of(check, side="in"):
-        records ^= set(frame_map.get(sign.key, frozenset()))
+        records ^= set(frames.stabilizers.get(sign.key, frozenset()))
     return frozenset(records)
 
 
-def _logical_source_records(
-    check: Equation,
-    body_prov: list[frozenset[int]],
-    frame_map: StabilizerFrames,
-    logical_frame_map: LogicalFrames,
-) -> frozenset[int]:
-    """Records carrying the ``out`` logical sign a check declares.
-
-    A rotating logical's representative accumulates over other logical frames as
-    well as measurements and stabilizer frames.
-    """
-    records = set(_stabilizer_source_records(check, body_prov, frame_map))
-    for sign in logical_signs_of(check, side="in"):
-        records ^= set(logical_frame_map.get(sign.key, frozenset()))
-    return frozenset(records)
-
-
-def _update_frame_maps_recursive(
+def update_frame_maps(
     gadget: qc.Gadget,
-    frame_map: StabilizerFrames,
-    logical_frame_map: LogicalFrames,
-    body_prov: list[frozenset[int]],
+    provenance: Provenance,
+    frames: FrameMaps,
+    *,
+    seed_deterministic: bool,
 ) -> None:
-    """Apply this gadget's frame declarations using composed provenance.
+    """Apply this gadget's ``out[...]`` sign declarations to ``frames``.
 
-    Mirrors the flat path's ``stim._update_frame_maps`` but resolves an
-    :class:`Outcome` to the record set ``body_prov[k]`` and — unlike the flat
-    path — seeds a *deterministic* output stabilizer (no readouts, no input
-    frame) to the empty record set (an empty XOR is always ``+1``, the sign a
-    fresh preparation asserts), instead of falling back to a positional record.
+    A declaration names the new record set carrying an output sign as the XOR of
+    the gadget's own body readouts and any referenced input frames. Signs the
+    gadget does not declare keep their existing frame, so a gadget that
+    re-measures only part of the code carries the rest forward.
 
     A gadget's output state must be a valid codeword of its declared output
-    encoding, so every output-code stabilizer has a well-defined boundary sign.
-    A gadget therefore declares ``out[<e>].stabilizers[i]`` for every ``i`` —
-    either an XOR of readouts and ``in`` signs (measured/propagated) or the
-    empty set (deterministic preparation seed). Because every frame is
-    established at preparation, later gadgets only ever *compare* against an
-    existing entry; an ``in`` reference with no seeded frame is an
-    under-specified qodec and is rejected (see
-    :func:`_resolve_equation_records`), with no positional fallback.
+    encoding, so every output-code stabilizer has a well-defined boundary sign,
+    and a gadget should declare ``out[<e>].stabilizers[i]`` for every ``i``.
+    With ``seed_deterministic``, a declaration with neither readouts nor an
+    input frame — a preparation asserting a deterministic sign — seeds the empty
+    record set, an empty XOR being ``+1``. Without it that declaration is left
+    unset so downstream references fall back to the positional virtual-record
+    model, which is what qodecs that do not yet declare their preparation frames
+    still rely on.
     """
-    new_stabilizers: StabilizerFrames = {}
     checks = parse_equations(gadget.checks)
+
+    declared: StabilizerFrames = {}
     for check in checks:
         outs = stabilizer_signs_of(check, side="out")
         if not outs:
             continue
-        records = _stabilizer_source_records(check, body_prov, frame_map)
-        for sign in outs:
-            new_stabilizers[sign.key] = records
-    frame_map.update(new_stabilizers)
-
-    # Logical frames resolve against the stabilizer frames this gadget just
-    # declared, so they are computed after the update above.
-    new_logicals: LogicalFrames = {}
-    for check in checks:
-        outs = logical_signs_of(check, side="out")
-        if not outs:
+        sourced = outcomes_of(check) or stabilizer_signs_of(check, side="in")
+        if not sourced and not seed_deterministic:
             continue
-        records = _logical_source_records(
-            check, body_prov, frame_map, logical_frame_map
-        )
+        records = _stabilizer_source_records(check, provenance, frames)
         for sign in outs:
-            new_logicals[sign.key] = records
-    logical_frame_map.update(new_logicals)
+            declared[sign.key] = records
+    frames.stabilizers.update(declared)
+
+    # A rotating logical's representative accumulates over other logical frames
+    # as well, and resolves against the stabilizer frames just declared above.
+    declared_logicals: LogicalFrames = {}
+    for check in checks:
+        outs_logical = logical_signs_of(check, side="out")
+        if not outs_logical:
+            continue
+        records = frozenset(resolve_records(check, provenance, frames, gadget))
+        for sign in outs_logical:
+            declared_logicals[sign.key] = records
+    frames.logicals.update(declared_logicals)
 
 
-def _call_readout_prov(
+def exposed_readout_records(
     gadget: qc.Gadget,
-    body_prov: list[frozenset[int]],
-    frame_map: StabilizerFrames,
-    logical_frame_map: LogicalFrames,
+    provenance: Provenance,
+    frames: FrameMaps,
 ) -> dict[str, frozenset[int]]:
-    """Provenance of each readout the gadget exposes to its parent.
+    """Physical records behind each readout the gadget exposes to its parent.
 
     Keyed by positional readout name (``"0"``, ``"1"``, ...); the value is the
-    set of physical records whose XOR carries that readout's value. Every
-    observe outcome the objective exposes must have a positional
-    ``gadget.readouts`` entry.
+    set of records whose XOR carries that readout's value. Every observe outcome
+    the instruction declares must have a positional ``gadget.readouts`` entry.
     """
     declared = observe_count_of(gadget.implements)
     slots = observable_slots(gadget)
@@ -208,9 +220,7 @@ def _call_readout_prov(
         )
     return {
         slot.name: frozenset(
-            _resolve_equation_records(
-                slot.equation, body_prov, frame_map, logical_frame_map, gadget
-            )
+            resolve_records(slot.equation, provenance, frames, gadget, strict=True)
         )
         for slot in slots
     }

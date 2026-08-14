@@ -1,24 +1,20 @@
 """Tests for intrinsic fault profiling."""
 
 import qodec as qc
-from qodec.circuits import Program
 
+from qdk.ec._analysis.propagation import program_of
 from qdk.ec.faults import Fault, FaultEffect, FaultProfile, fault_profile_of
 from qdk.ec.targets import depolarizing
 
 
-def _program_of(gadget: qc.Gadget) -> Program:
-    return Program(gadget.circuit.instructions, gadget.circuit.isa)
-
-
 def _basis_of(gadget: qc.Gadget) -> tuple[Fault, ...]:
-    return depolarizing(0.001).fault_basis_of(_program_of(gadget))
+    return depolarizing(0.001).fault_basis_of(program_of(gadget))
 
 
 def test_depolarizing_target_admits_three_faults_per_qubit_per_instruction(
     idle_gadget: qc.Gadget,
 ) -> None:
-    program = _program_of(idle_gadget)
+    program = program_of(idle_gadget)
     basis = depolarizing(0.001).fault_basis_of(program)
     expected = 3 * sum(len(call.inputs) for call in program.instructions)
     assert len(basis) == expected

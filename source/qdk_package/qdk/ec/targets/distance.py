@@ -16,6 +16,7 @@ from .._analysis.distance_solvers import (
 )
 from ..faults import FaultEffect, fault_profile_of
 from .._analysis.odd_cycles import OddCycles
+from .._analysis.propagation.interpreter import program_of
 from .._analysis.propagation.pauli import characters_of
 from .model import TargetModel
 
@@ -53,7 +54,7 @@ class GadgetDistanceData:
 
     @staticmethod
     def of(gadget: qc.Gadget, target_model: TargetModel) -> "GadgetDistanceData":
-        program = Program(gadget.circuit.instructions, gadget.circuit.isa)
+        program = program_of(gadget)
         profile = fault_profile_of(gadget, target_model.fault_basis_of(program))
         effects = list(profile.effects)
         return GadgetDistanceData(

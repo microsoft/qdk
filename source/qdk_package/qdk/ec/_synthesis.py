@@ -339,17 +339,25 @@ def _logical_token_map(
     """Resolve which action token names each of the code's logical qubits.
 
     A ``pauli: X_<t>`` action names a logical qubit by a token index ``t``.
-    That index is *assumed* to be the position of the operator in the code's
-    own ``x`` / ``z`` lists, but the declared-action machinery does not always
-    agree: for a ``k = 6`` code the observed correspondence is the permutation
-    ``[0, 1, 4, 5, 2, 3]``, while for ``k = 2`` it is the identity.
+    That index *should* be the position of the operator in the code's own
+    ``x`` / ``z`` lists, and for every code with ``k <= 4`` it is. It is not in
+    general, so this resolves the correspondence by verification instead.
 
-    Rather than encode either convention, this resolves the map by
-    verification: for logical qubit ``j`` it emits the circuit that applies the
-    code's ``j``-th logical operator and finds the token index whose declared
-    action the realized action actually matches. The identity is tried first,
-    so a correct convention costs one check per logical qubit and the map is
-    the identity if and when the inconsistency is resolved upstream.
+    The smallest reproduction is the direct sum of three [[4,2,2]] blocks
+    (``k = 6``): the ``x`` tokens come back permuted ``[0, 1, 4, 5, 2, 3]``
+    while the ``z`` tokens are the identity. An X/Z asymmetry rules out a
+    qubit-relocation problem — :func:`~qdk.ec._analysis.propagation.pauli_remap.
+    encoding_relocation` is the identity here — and points at the canonical
+    reordering :func:`~qdk.ec._analysis.circuit_action._standard_form_of`
+    applies when it standardizes the logical generators for comparison. That is
+    a defect in the equivalence machinery, not in this synthesizer, and this map
+    is the workaround until it is fixed upstream; once it is, every lookup
+    resolves to the identity on the first try and this function can go.
+
+    For logical qubit ``j`` this emits the circuit that applies the code's
+    ``j``-th logical operator and finds the token index whose declared action
+    the realized action actually matches. The identity is tried first, so a
+    correct convention costs one check per logical qubit.
 
     Logical qubits whose token cannot be resolved are absent from the result.
     """

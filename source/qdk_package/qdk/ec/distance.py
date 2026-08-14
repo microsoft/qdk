@@ -25,6 +25,7 @@ from ._analysis.code_algebra import (
     SubsystemCode,
     logical_effect_indicators_of,
     one_qubit_errors_on_support,
+    subsystem_code_of,
     syndrome_indicators_of,
 )
 from ._analysis.distance_solvers import (
@@ -45,7 +46,7 @@ Errors = Union[str, Sequence[Pauli]]
 
 def _code_view(code: qc.Code | SubsystemCode) -> SubsystemCode:
     if isinstance(code, qc.Code):
-        return SubsystemCode.from_qodec(code)
+        return subsystem_code_of(code)
     if isinstance(code, SubsystemCode):
         return code
     raise TypeError(f"expected qodec.Code, got {type(code).__name__}")
@@ -66,9 +67,7 @@ class CodeDistanceData:
     odd_cycles: OddCycles
 
     @staticmethod
-    def of(
-        code: qc.Code | SubsystemCode, errors: Errors = "XZ"
-    ) -> "CodeDistanceData":
+    def of(code: qc.Code | SubsystemCode, errors: Errors = "XZ") -> "CodeDistanceData":
         view = _code_view(code)
         error_paulis = _errors_of(view, errors)
         return CodeDistanceData(

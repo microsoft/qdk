@@ -24,14 +24,14 @@ def test_outcome_profile_non_essential_keeps_declared_checks(
         assert parsed == frozenset(outcomes_of(parse_equation(declared)))
 
 
-def test_outcome_profile_observables_pair_objective_and_realisation(
+def test_outcome_profile_observables_pair_declared_and_realized(
     measure_xx_gadget: qc.Gadget,
 ) -> None:
     profile = outcome_profile_of(measure_xx_gadget)
     observables = list(observables_as_xor_map(measure_xx_gadget).values())
     assert len(profile.observables) == len(observables)
-    for objective_outcome, (paired_objective, realisation_outcomes) in enumerate(
+    for declared_outcome, (paired_declared, realized_outcomes) in enumerate(
         profile.observables
     ):
-        assert paired_objective == objective_outcome
-        assert realisation_outcomes == frozenset(observables[objective_outcome])
+        assert paired_declared == declared_outcome
+        assert realized_outcomes == frozenset(observables[declared_outcome])

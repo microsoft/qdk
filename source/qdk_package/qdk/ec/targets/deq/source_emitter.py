@@ -9,7 +9,6 @@ error-model construction).
 
 from __future__ import annotations
 
-import re
 from collections.abc import Callable, Iterable
 from io import StringIO
 
@@ -504,7 +503,7 @@ def _stim_measurement_delta(stim_line: str) -> int:
 
 def _readout_lines(gadget: qc.Gadget, measurement_count: int) -> list[str]:
     """Emit a ``READOUT`` statement per logical observable declared by
-    the gadget's objective.
+    the gadget's instruction.
 
     deq's ``READOUT`` syntax accepts ``rec[-N]`` references and XORs
     them implicitly when several are listed on one line.

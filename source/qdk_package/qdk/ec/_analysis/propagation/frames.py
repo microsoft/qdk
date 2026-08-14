@@ -8,7 +8,13 @@ from typing import Callable, Iterable, Mapping, Sequence
 from paulimer import PauliGroup
 
 from .groups import rank_extension_of, restriction_indicator_basis_of
-from .pauli import Pauli, PauliCharacter, characters_of, identity
+from .pauli import (
+    Pauli,
+    complex_conjugate_of,
+    identity,
+    relabel,
+    restrict,
+)
 
 
 @dataclass(frozen=True, repr=False)
@@ -102,38 +108,21 @@ class FrameGroup:
         return _carry_frames(combined, reduce)
 
     def relabel(self, mapping: Mapping[int, int]) -> "FrameGroup":
-        def remap(pauli: Pauli) -> Pauli:
-            return Pauli(
-                {mapping.get(qubit, qubit): pauli[qubit] for qubit in pauli.support}
-            ) * identity(pauli.phase)
-
         return FrameGroup(
-            PauliFrame(remap(framed.pauli), framed.frame) for framed in self.generators
+            PauliFrame(relabel(framed.pauli, mapping), framed.frame)
+            for framed in self.generators
         )
 
     def restrict_to(self, support: Iterable[int]) -> "FrameGroup":
         support_set = frozenset(support)
-
-        def restrict(pauli: Pauli) -> Pauli:
-            kept: dict[int, PauliCharacter] = {
-                qubit: character
-                for qubit, character in characters_of(pauli).items()
-                if qubit in support_set
-            }
-            return Pauli(kept) * identity(pauli.phase)
-
         return FrameGroup(
-            PauliFrame(restrict(framed.pauli), framed.frame)
+            PauliFrame(restrict(framed.pauli, support_set), framed.frame)
             for framed in self.generators
         )
 
     def complex_conjugated(self) -> "FrameGroup":
-        def conjugate(pauli: Pauli) -> Pauli:
-            y_count = sum(1 for qubit in pauli.support if pauli[qubit] == "Y")
-            return pauli * identity(-1) if y_count % 2 else pauli
-
         return FrameGroup(
-            PauliFrame(conjugate(framed.pauli), framed.frame)
+            PauliFrame(complex_conjugate_of(framed.pauli), framed.frame)
             for framed in self.generators
         )
 

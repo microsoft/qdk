@@ -18,31 +18,27 @@ live in :mod:`qdk.ec.equivalence`.
 from ._analysis.circuit_action import (
     CircuitAction,
     action_of,
+    declared_action_of,
     gadget_action_mismatch,
-    gadget_objective_action_of,
-    gadget_realization_action_of,
     input_qubits_of,
+    realized_action_of,
 )
 from ._analysis.equivalence import LogicalAction, LogicalImage, logical_action_of
-from ._analysis.objective import ObjectiveLift, lift_objective
+from ._analysis.declaration import DeclarationLift, lift_declaration
 from ._analysis.propagation.frames import FrameGroup, PauliFrame
-
-#: Names that state which side of the gadget contract is being profiled.
-declared_action_of = gadget_objective_action_of
-realized_action_of = gadget_realization_action_of
 
 __all__ = [
     "CircuitAction",
     "FrameGroup",
     "LogicalAction",
     "LogicalImage",
-    "ObjectiveLift",
+    "DeclarationLift",
     "PauliFrame",
     "action_of",
     "declared_action_of",
     "gadget_action_mismatch",
     "input_qubits_of",
-    "lift_objective",
+    "lift_declaration",
     "logical_action_of",
     "realized_action_of",
 ]

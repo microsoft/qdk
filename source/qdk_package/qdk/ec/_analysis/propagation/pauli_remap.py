@@ -70,13 +70,26 @@ def flat_logical_paulis(encodings: Iterable[Any]) -> list[Pauli]:
     return paulis
 
 
+def flat_logical_slots(encodings: Iterable[Any]) -> list[tuple[Any, int]]:
+    """``(encoding, local logical index)`` per logical qubit, in flat order.
+
+    An action token ``X_<t>`` names the ``t``-th entry of this list, so this is
+    how a flat token index resolves to the encoding that carries it.
+    """
+    return [
+        (encoding, local)
+        for encoding in encodings
+        for local in range(len(list(encoding.code.x)))
+    ]
+
+
 def _flat_logical_chars(code: Any) -> Iterator[dict[int, "PauliCharacter"]]:
     x_operators = getattr(code, "x", None)
     z_operators = getattr(code, "z", None)
     if x_operators is not None and z_operators is not None:
         for x_operator, z_operator in zip(list(x_operators), list(z_operators)):
-            yield _pauli_string_to_chars(str(x_operator))
-            yield _pauli_string_to_chars(str(z_operator))
+            yield characters_of_string(str(x_operator))
+            yield characters_of_string(str(z_operator))
         return
     for pauli in code.logical_basis:
         yield pauli.characters
@@ -84,24 +97,25 @@ def _flat_logical_chars(code: Any) -> Iterator[dict[int, "PauliCharacter"]]:
 
 def _all_operator_chars(code: Any) -> Iterator[dict[int, "PauliCharacter"]]:
     for stabilizer in getattr(code, "stabilizers", []):
-        yield _pauli_string_to_chars(str(stabilizer))
+        yield characters_of_string(str(stabilizer))
     for destabilizer in getattr(code, "destabilizers", []):
-        yield _pauli_string_to_chars(str(destabilizer))
+        yield characters_of_string(str(destabilizer))
     x_operators = getattr(code, "x", None)
     z_operators = getattr(code, "z", None)
     if x_operators is not None and z_operators is not None:
         for operator in x_operators:
-            yield _pauli_string_to_chars(str(operator))
+            yield characters_of_string(str(operator))
         for operator in z_operators:
-            yield _pauli_string_to_chars(str(operator))
+            yield characters_of_string(str(operator))
     for logical in getattr(code, "logicals", []):
-        yield _pauli_string_to_chars(logical.x)
-        yield _pauli_string_to_chars(logical.z)
+        yield characters_of_string(logical.x)
+        yield characters_of_string(logical.z)
     for gauge in getattr(code, "gauges", []):
-        yield _pauli_string_to_chars(str(gauge))
+        yield characters_of_string(str(gauge))
 
 
-def _pauli_string_to_chars(pauli_str: str) -> dict[int, "PauliCharacter"]:
+def characters_of_string(pauli_str: str) -> dict[int, "PauliCharacter"]:
+    """Parse a ``"X_0 Z_2"`` operator string into ``{qubit: character}``."""
     characters: dict[int, "PauliCharacter"] = {}
     for token in pauli_str.split():
         basis, _, index = token.partition("_")

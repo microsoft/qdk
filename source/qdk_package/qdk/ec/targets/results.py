@@ -16,78 +16,56 @@ Batch = Sequence[Readouts]
 """Many shots of hard measurement bits."""
 
 
-class SoftBatch(tuple):  # type: ignore[type-arg]
-    """A batch carrying a parallel per-bit error-probability grid."""
+class AnnotatedBatch(tuple):  # type: ignore[type-arg]
+    """A batch carrying optional per-bit side channels.
 
-    probabilities: Sequence[Sequence[float]]
+    Still a plain sequence of shots, so anything accepting a :data:`Batch`
+    accepts one of these. A channel that was not measured is ``None`` rather
+    than absent, so asking whether a batch carries one is a value test rather
+    than an attribute probe — see :func:`probabilities_of` and :func:`leaks_of`.
+    """
+
+    probabilities: Sequence[Sequence[float]] | None
+    leaks: Sequence[Sequence[bool]] | None
 
     def __new__(
         cls,
         readouts: Iterable[Readouts],
-        probabilities: Sequence[Sequence[float]],
-    ) -> "SoftBatch":
+        *,
+        probabilities: Sequence[Sequence[float]] | None = None,
+        leaks: Sequence[Sequence[bool]] | None = None,
+    ) -> "AnnotatedBatch":
         self = tuple.__new__(cls, readouts)
-        if len(self) != len(probabilities):
-            raise ValueError(
-                f"probabilities shots ({len(probabilities)}) != "
-                f"bits shots ({len(self)})"
-            )
+        _check_shots(probabilities, len(self), "probabilities")
+        _check_shots(leaks, len(self), "leaks")
         self.probabilities = probabilities
-        return self
-
-
-class HeraldedBatch(tuple):  # type: ignore[type-arg]
-    """A batch carrying a parallel per-bit erasure-herald grid."""
-
-    leaks: Sequence[Sequence[bool]]
-
-    def __new__(
-        cls,
-        readouts: Iterable[Readouts],
-        leaks: Sequence[Sequence[bool]],
-    ) -> "HeraldedBatch":
-        self = tuple.__new__(cls, readouts)
-        if len(self) != len(leaks):
-            raise ValueError(f"leaks shots ({len(leaks)}) != bits shots ({len(self)})")
         self.leaks = leaks
         return self
 
 
-class SoftView:
-    """A tolerant soft-confidence view over any batch."""
-
-    def __init__(self, batch: Batch) -> None:
-        self.bits: Batch = batch
-        existing = getattr(batch, "probabilities", None)
-        self.probabilities: Sequence[Sequence[float]] = (
-            existing if existing is not None else [[0.0] * len(row) for row in batch]
-        )
-
-    @property
-    def is_soft(self) -> bool:
-        return getattr(self.bits, "probabilities", None) is not None
+def _check_shots(channel: Sequence[object] | None, shots: int, name: str) -> None:
+    if channel is not None and len(channel) != shots:
+        raise ValueError(f"{name} shots ({len(channel)}) != bits shots ({shots})")
 
 
-class HeraldedView:
-    """A tolerant erasure-herald view over any batch."""
+def probabilities_of(batch: Batch) -> Sequence[Sequence[float]] | None:
+    """The per-bit error probabilities ``batch`` carries, or ``None`` if none.
 
-    def __init__(self, batch: Batch) -> None:
-        self.bits: Batch = batch
-        existing = getattr(batch, "leaks", None)
-        self.leaks: Sequence[Sequence[bool]] = (
-            existing if existing is not None else [[False] * len(row) for row in batch]
-        )
+    A batch need not be an :class:`AnnotatedBatch` — a plain list of shots is a
+    valid :data:`Batch` and simply carries no channels.
+    """
+    return getattr(batch, "probabilities", None)
 
-    @property
-    def is_heralded(self) -> bool:
-        return getattr(self.bits, "leaks", None) is not None
+
+def leaks_of(batch: Batch) -> Sequence[Sequence[bool]] | None:
+    """The per-bit erasure heralds ``batch`` carries, or ``None`` if none."""
+    return getattr(batch, "leaks", None)
 
 
 __all__ = [
+    "AnnotatedBatch",
     "Batch",
-    "HeraldedBatch",
-    "HeraldedView",
     "Readouts",
-    "SoftBatch",
-    "SoftView",
+    "leaks_of",
+    "probabilities_of",
 ]

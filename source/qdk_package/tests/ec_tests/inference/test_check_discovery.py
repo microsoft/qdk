@@ -18,12 +18,12 @@ def test_profile_of_returns_profile_with_checks_and_observables() -> None:
     profile = profile_of(gadget)
     assert isinstance(profile, Profile)
     assert len(profile.checks) >= 1
-    # measure_zz has two objective observe outcomes, named positionally.
+    # measure_zz declares two observe outcomes, named positionally.
     assert set(profile.observables) >= {"0", "1"}
 
 
 def test_profile_of_idle_round_finds_four_stabilizer_checks() -> None:
-    """C4's `idle` realisation runs both X- and Z-stabilizer extractions
+    """C4's `idle` circuit runs both X- and Z-stabilizer extractions
     in and out, yielding 4 deterministic checks."""
     qodec = c4()
     gadget = qodec.layers[0].gadgets["idle"]
@@ -38,10 +38,10 @@ def test_simulate_channel_returns_simulation() -> None:
     assert sim.simulation.outcome_count > 0
 
 
-def test_simulate_channel_with_objective_records_objective_outcomes() -> None:
-    """`with_objective` tells `simulate_channel` to also probe each
-    objective `Observe` Pauli after the walk."""
+def test_simulate_channel_with_declared_records_declared_outcomes() -> None:
+    """`with_declared` tells `simulate_channel` to also probe each
+    declared `Observe` Pauli after the walk."""
     qodec = c4()
     gadget = qodec.layers[0].gadgets["measure_zz"]
-    sim = simulate_channel(gadget, with_objective=True)
-    assert len(sim.objective_outcomes) == 2
+    sim = simulate_channel(gadget, with_declared=True)
+    assert len(sim.declared_outcomes) == 2
