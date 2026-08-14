@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-import qodec
+import qodec as qc
 from qodec.actions import Clifford, Observe, Stabilize
 from qodec.codes import Code
 from qodec.gadgets import Circuit, Encoding
@@ -34,7 +34,7 @@ from deq.circuit.parser import parse
 
 # Action factory: a callable producing a fresh qodec action list, so no action
 # object is shared between synthesized instructions.
-_ActionFactory = Callable[[], "list[qodec.Action]"]
+_ActionFactory = Callable[[], "list[qc.Action]"]
 
 # stim gate -> (input qubits, output qubits, action factory) per application.
 _GATE_TABLE: dict[str, tuple[int, int, _ActionFactory]] = {
@@ -73,11 +73,11 @@ _NOISE_GATES = frozenset(
 )
 
 
-def from_deq(source: str) -> qodec.Qodec:
+def from_deq(source: str) -> qc.Qodec:
     """Build a qodec :class:`~qodec.Qodec` from ``.deq`` ``source`` text.
 
     Parses the ``.deq`` source with deq's own parser, then reconstructs a
-    two-layer codec (a synthesized logical ISA lowering to a synthesized
+    two-layer qodec (a synthesized logical ISA lowering to a synthesized
     physical/stim ISA). Raises :class:`NotImplementedError` if a gadget body
     uses a stim gate outside the supported set (see :data:`_GATE_TABLE`).
 
@@ -110,10 +110,10 @@ def from_deq(source: str) -> qodec.Qodec:
         for definition in gadget_defs
     ]
 
-    return qodec.Qodec(
+    return qc.Qodec(
         layers=[
-            qodec.Layer(logical_isa, gadgets=gadgets),
-            qodec.Layer(physical_isa),
+            qc.Layer(logical_isa, gadgets=gadgets),
+            qc.Layer(physical_isa),
         ],
         name=next(iter(codes)),
     )
@@ -202,7 +202,7 @@ def _readout_statements(
     ]
 
 
-def _logical_action(definition: deq_model.GadgetDefinition) -> list[qodec.Action]:
+def _logical_action(definition: deq_model.GadgetDefinition) -> list[qc.Action]:
     """Synthesize the logical instruction's action from its READOUTs.
 
     Each READOUT statement becomes one observed logical outcome. The basis
@@ -246,7 +246,7 @@ def _instruction_measurements(instruction: deq_model.Instruction) -> int:
 
 def _build_checks(
     definition: deq_model.GadgetDefinition, codes: dict[str, Code]
-) -> list[list[qodec.ReferenceLike]]:
+) -> list[list[qc.ReferenceLike]]:
     """Parse ``CHECK rec[-k]`` statements back into qodec check references.
 
     Inverse of ``to_deq``'s check emission: deq's record stream is
@@ -277,7 +277,7 @@ def _build_checks(
         port = max(p for p in range(len(out_counts)) if out_offsets[p] <= relative)
         return f"out[{port}].stabilizers[{relative - out_offsets[port]}]"
 
-    checks: list[list[qodec.ReferenceLike]] = []
+    checks: list[list[qc.ReferenceLike]] = []
     running = 0
     for statement in definition.body:
         if isinstance(statement, (deq_model.InputPort, deq_model.OutputPort)):
@@ -301,7 +301,7 @@ def _build_gadget(
     logical_isa: InstructionSet,
     physical_isa: InstructionSet,
     codes: dict[str, Code],
-) -> qodec.Gadget:
+) -> qc.Gadget:
     body = "\n".join(_stim_line(instr) for instr in _body_instructions(definition))
     inputs = [
         Encoding(
@@ -318,9 +318,9 @@ def _build_gadget(
 
     boundary = "in" if inputs else "out"
     measurement_count = _measurement_count(definition)
-    readouts: list[qodec.ReadoutLike] = []
+    readouts: list[qc.ReadoutLike] = []
     for index, statement in enumerate(_readout_statements(definition)):
-        references: list[qodec.ReferenceLike] = [
+        references: list[qc.ReferenceLike] = [
             f"circuit.readouts[{measurement_count - target.offset}]"
             for target in statement.targets
             if isinstance(target, deq_model.MeasurementRecordTarget)
@@ -328,7 +328,7 @@ def _build_gadget(
         references.append(f"{boundary}[0].z[{index}]")
         readouts.append(references)
 
-    return qodec.Gadget(
+    return qc.Gadget(
         implements=logical_isa.instruction(definition.name),
         circuit=Circuit(physical_isa, body, format="stim"),
         inputs=inputs,

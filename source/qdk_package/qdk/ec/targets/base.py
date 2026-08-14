@@ -1,22 +1,22 @@
-"""Codec-bound program executors, and how to compose them.
+"""Qodec-bound program executors, and how to compose them.
 
 This module defines the small vocabulary the sampler stack is built from:
 
-* :class:`Target` — a generic, codec-bound executor whose :meth:`Target.execute`
+* :class:`Target` — a generic, qodec-bound executor whose :meth:`Target.execute`
   samples a `Program` and returns a result of some type ``R`` (a
   ``Target[Batch]`` is a sampler).
 * :class:`Sampler` — the structural contract for "anything that produces a
   `Batch`", so consumers can accept any backend, not one concrete target.
 * :class:`ComposableTarget` / :class:`CompositeTarget` — assemble one
   per-translation target per layer into a single executor over a whole layered
-  codec. This is what samplers like ``UniversalSampler`` are built on.
+  qodec. This is what samplers like ``UniversalSampler`` are built on.
 """
 
 from __future__ import annotations
 
 from typing import Callable, Generic, Protocol, TypeVar, runtime_checkable
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 from .results import Batch
@@ -27,25 +27,25 @@ Readin = TypeVar("Readin")
 Readout = TypeVar("Readout")
 Targetlike = TypeVar("Targetlike")
 
-#: A callable that binds a codec to a target-like executor.
-Factory = Callable[[qodec.Qodec], Targetlike]
+#: A callable that binds a qodec to a target-like executor.
+Factory = Callable[[qc.Qodec], Targetlike]
 
 
 class Target(Generic[Result_co]):
-    """Generic, codec-bound view onto a program executor.
+    """Generic, qodec-bound view onto a program executor.
 
-    Stores the bound codec at construction; subclasses parameterise the
+    Stores the bound qodec at construction; subclasses parameterise the
     result type ``Result_co`` and implement :meth:`execute`, which samples
     ``shots`` independent shots of ``program`` and returns a result of type
     ``Result_co``.
     """
 
-    def __init__(self, codec: qodec.Qodec) -> None:
-        self._codec = codec
+    def __init__(self, qodec: qc.Qodec) -> None:
+        self._qodec = qodec
 
     @property
-    def codec(self) -> qodec.Qodec:
-        return self._codec
+    def qodec(self) -> qc.Qodec:
+        return self._qodec
 
     def execute(self, program: Program, *, shots: int) -> Result_co:
         raise NotImplementedError
@@ -60,7 +60,7 @@ class Sampler(Protocol):
     """
 
     @property
-    def codec(self) -> qodec.Qodec: ...
+    def qodec(self) -> qc.Qodec: ...
 
     def execute(self, program: Program, *, shots: int) -> "Batch": ...
 
@@ -84,7 +84,7 @@ class ComposableTarget(Target[Readout], Generic[Readin, Readout]):
 class CompositeTarget(Target[Result]):
     """A Target over a compound qodec, assembled from per-layer ComposableTargets.
 
-    Each adjacent layer pair (``codec.slice(i, i + 2)``) is one lowering. The
+    Each adjacent layer pair (``qodec.slice(i, i + 2)``) is one lowering. The
     bottom lowering is executed directly by ``runtime``; each upper lowering is
     realized by a ``ComposableTarget`` that ``compose_with`` the layer below it.
     ``execute`` delegates to the top of the wired stack.
@@ -92,18 +92,18 @@ class CompositeTarget(Target[Result]):
 
     def __init__(
         self,
-        codec: qodec.Qodec,
+        qodec: qc.Qodec,
         runtime: Factory[Target[Result]],
         processors: Factory[ComposableTarget[Result, Result]],
     ) -> None:
-        super().__init__(codec)
-        if len(codec.layers) < 2:
+        super().__init__(qodec)
+        if len(qodec.layers) < 2:
             raise ValueError(
-                "CompositeTarget requires a codec with at least two layers "
+                "CompositeTarget requires a qodec with at least two layers "
                 "(one lowering edge)"
             )
         # One simple qodec per lowering: slice(i, i + 2) covers layers i and i+1.
-        layers = [codec.slice(i, i + 2) for i in range(len(codec.layers) - 1)]
+        layers = [qodec.slice(i, i + 2) for i in range(len(qodec.layers) - 1)]
         # The floor (bottom) lowering is run by the runtime; the upper lowerings
         # are realized by ComposableTargets, ordered top to bottom.
         self._runtime: Target[Result] = runtime(layers[-1])

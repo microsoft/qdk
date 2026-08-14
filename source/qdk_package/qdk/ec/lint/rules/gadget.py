@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
-import qodec
+import qodec as qc
 
 from ..._readouts import observable_names, observe_count
 from ..._references import parse_encoding_atom, parse_stabilizer_atom
@@ -20,12 +20,12 @@ from ...lint._rule import Rule
 from ...lint._severity import Severity
 
 
-def _where(gadget: qodec.Gadget) -> str:
+def _where(gadget: qc.Gadget) -> str:
     return f"gadget[{gadget.implements.mnemonic!r}]"
 
 
-def _gadget(target: object) -> qodec.Gadget:
-    if not isinstance(target, qodec.Gadget):
+def _gadget(target: object) -> qc.Gadget:
+    if not isinstance(target, qc.Gadget):
         raise TypeError(f"expected qodec.Gadget, got {type(target).__name__}")
     return target
 
@@ -35,9 +35,9 @@ class MissingObservableRule:
     name: str = "gadget/missing-observable"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.STRUCTURAL
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         for missing in lift_objective(gadget).missing_observables:
             yield Diagnostic(
@@ -54,9 +54,9 @@ class MissingFlagRule:
     name: str = "gadget/missing-flag"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.STRUCTURAL
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         for missing in lift_objective(gadget).missing_flags:
             yield Diagnostic(
@@ -74,9 +74,9 @@ class UnsupportedActionAtomRule:
     name: str = "gadget/unsupported-action-atom"
     severity: Severity = Severity.WARNING
     phase: Phase = Phase.STRUCTURAL
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         for atom_name in lift_objective(gadget).unsupported_atoms:
             yield Diagnostic(
@@ -95,9 +95,9 @@ class FlagContentRule:
     name: str = "gadget/flag-content-not-checked"
     severity: Severity = Severity.INFO
     phase: Phase = Phase.INFORMATIONAL
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         for flag_name in lift_objective(gadget).bound_flags:
             yield Diagnostic(
@@ -114,9 +114,9 @@ class ActionMismatchRule:
     name: str = "gadget/action-mismatch"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.SEMANTIC
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         mnemonic = gadget.implements.mnemonic
         try:
@@ -158,9 +158,9 @@ class ReadoutMismatchRule:
     name: str = "gadget/readout-mismatch"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.SEMANTIC
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         mnemonic = gadget.implements.mnemonic
         try:
@@ -191,7 +191,7 @@ class ReadoutMismatchRule:
             )
 
 
-def _declared_out_frames(gadget: qodec.Gadget) -> set[tuple[int, int]]:
+def _declared_out_frames(gadget: qc.Gadget) -> set[tuple[int, int]]:
     declared = set()
     for check in gadget.checks:
         for atom in check:
@@ -201,7 +201,7 @@ def _declared_out_frames(gadget: qodec.Gadget) -> set[tuple[int, int]]:
     return declared
 
 
-def _required_out_frames(gadget: qodec.Gadget) -> set[tuple[int, int]]:
+def _required_out_frames(gadget: qc.Gadget) -> set[tuple[int, int]]:
     return {
         (entry, index)
         for entry, encoding in enumerate(gadget.outputs)
@@ -214,9 +214,9 @@ class IncompleteOutputFrameRule:
     name: str = "gadget/incomplete-output-frame"
     severity: Severity = Severity.WARNING
     phase: Phase = Phase.SEMANTIC
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         try:
             missing = _required_out_frames(gadget) - _declared_out_frames(gadget)
@@ -250,7 +250,7 @@ def _equation_atoms(
     return [str(atom) for atom in entry]
 
 
-def _encoding_atom_violation(gadget: qodec.Gadget, atom: str) -> str | None:
+def _encoding_atom_violation(gadget: qc.Gadget, atom: str) -> str | None:
     parsed = parse_encoding_atom(atom)
     if parsed is None:
         return None
@@ -280,9 +280,9 @@ class ReferenceOutOfBoundsRule:
     name: str = "gadget/reference-out-of-bounds"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.STRUCTURAL
-    target: type = qodec.Gadget
+    target: type = qc.Gadget
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         equations = [
             (f"check[{index}]", [str(atom) for atom in check])

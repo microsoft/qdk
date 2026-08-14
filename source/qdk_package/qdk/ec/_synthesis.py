@@ -88,7 +88,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Optional
 
-import qodec
+import qodec as qc
 from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
@@ -115,7 +115,7 @@ def _characters(text: object) -> dict[int, str]:
     return dict(characters_of(Pauli(str(text))))
 
 
-def _qubit_count(code: qodec.Code) -> int:
+def _qubit_count(code: qc.Code) -> int:
     """Number of physical qubits the code addresses.
 
     Derived as one past the highest qubit index mentioned by any stabilizer or
@@ -130,7 +130,7 @@ def _qubit_count(code: qodec.Code) -> int:
     return highest + 1
 
 
-def _reject_y_components(code: qodec.Code) -> None:
+def _reject_y_components(code: qc.Code) -> None:
     """Raise if any operator has a Y component.
 
     Y components would need ``S`` / ``S_DAG`` in the physical ISA, whose sign
@@ -330,7 +330,7 @@ def _pauli_lines(operator: object) -> list[str]:
 
 
 def _logical_token_map(
-    code: qodec.Code,
+    code: qc.Code,
     block: str,
     logical_count: int,
     physical: InstructionSet,
@@ -370,7 +370,7 @@ def _logical_token_map(
     )
 
     def matches(basis: str, token: int, source: str) -> bool:
-        probe = qodec.Gadget(
+        probe = qc.Gadget(
             probe_isa.instruction(f"probe_{basis.lower()}{token}"),
             Circuit(physical, source, format="stim"),
             inputs=[Encoding(code, support=list(support))],
@@ -419,7 +419,7 @@ class _Candidate:
 
 
 def _candidates(
-    code: qodec.Code,
+    code: qc.Code,
     block: str,
     logical_count: int,
     data_width: int,
@@ -449,8 +449,8 @@ def _candidates(
     # and the token is whatever names it.
     z_tokens = [f"Z_{token('Z', i)}" for i in order]
     x_tokens = [f"X_{token('X', i)}" for i in order]
-    z_observables: list[qodec.actions.Observable | str] = list(z_tokens)
-    x_observables: list[qodec.actions.Observable | str] = list(x_tokens)
+    z_observables: list[qc.actions.Observable | str] = list(z_tokens)
+    x_observables: list[qc.actions.Observable | str] = list(x_tokens)
 
     candidates = [
         _Candidate(
@@ -546,12 +546,12 @@ def _candidates(
 def _draft(
     candidate: _Candidate,
     instruction: Instruction,
-    code: qodec.Code,
+    code: qc.Code,
     physical: InstructionSet,
     data_width: int,
-) -> qodec.Gadget:
+) -> qc.Gadget:
     support = [str(qubit) for qubit in range(data_width)]
-    return qodec.Gadget(
+    return qc.Gadget(
         instruction,
         Circuit(physical, candidate.source, format="stim"),
         inputs=[Encoding(code, support=list(support))] if candidate.takes_input else [],
@@ -561,9 +561,9 @@ def _draft(
     )
 
 
-def _rebound(gadget: qodec.Gadget, instruction: Instruction) -> qodec.Gadget:
+def _rebound(gadget: qc.Gadget, instruction: Instruction) -> qc.Gadget:
     """``gadget`` re-pointed at ``instruction``, keeping its completed surface."""
-    return qodec.Gadget(
+    return qc.Gadget(
         instruction,
         gadget.circuit,
         inputs=list(gadget.inputs),
@@ -575,55 +575,53 @@ def _rebound(gadget: qodec.Gadget, instruction: Instruction) -> qodec.Gadget:
     )
 
 
-def memory_program(codec: qodec.Qodec, *, rounds: int = 1) -> "Program":
-    """The standard memory experiment over a synthesized ``codec``.
+def memory_program(qodec: qc.Qodec, *, rounds: int = 1) -> "Program":
+    """The standard memory experiment over a synthesized ``qodec``.
 
     ``prepare_z``, then ``rounds`` of ``idle``, then ``measure_z`` — the
     circuit whose fault distance should equal the code distance, and the one
     :func:`~qdk.ec.targets.circuit_distance_of` is meant to score.
 
-    Raises :class:`ValueError` if ``codec`` lacks any of those instructions,
+    Raises :class:`ValueError` if ``qodec`` lacks any of those instructions,
     which is what happens when synthesis had to omit them.
     """
     from qodec.circuits import Program
 
-    isa = codec.layers[0].isa
+    isa = qodec.layers[0].isa
     mnemonics = ["prepare_z", *["idle"] * rounds, "measure_z"]
     missing = [
         name for name in dict.fromkeys(mnemonics) if name not in isa.instructions
     ]
     if missing:
         raise ValueError(
-            f"codec {codec.name!r} cannot express a memory experiment; it is "
+            f"qodec {qodec.name!r} cannot express a memory experiment; it is "
             f"missing {', '.join(missing)}"
         )
 
-    def call(mnemonic: str) -> "qodec.instructions.InstructionCall":
+    def call(mnemonic: str) -> "qc.instructions.InstructionCall":
         instruction = isa.instruction(mnemonic)
-        inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+        inputs: dict[str, qc.instructions.InstructionCall.Argument] = {
             str(i): "q" for i in range(len(list(instruction.inputs)))
         }
-        outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+        outputs: dict[str, qc.instructions.InstructionCall.Argument] = {
             str(i): "q" for i in range(len(list(instruction.outputs)))
         }
         if not inputs and not outputs:
-            return qodec.instructions.InstructionCall(mnemonic)
-        return qodec.instructions.InstructionCall(
-            mnemonic, inputs=inputs, outputs=outputs
-        )
+            return qc.instructions.InstructionCall(mnemonic)
+        return qc.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
 
     return Program([call(name) for name in mnemonics], isa)
 
 
 def qodec_from_code(
-    code: qodec.Code,
+    code: qc.Code,
     *,
     name: Optional[str] = None,
     description: Optional[str] = None,
     flags: Optional[int] = None,
     verify_distance: bool = False,
     strict: bool = False,
-) -> qodec.Qodec:
+) -> qc.Qodec:
     """Synthesize a runnable qodec that implements ``code``.
 
     Returns a two-layer qodec: a logical ISA over the code's ``k`` logical
@@ -710,7 +708,7 @@ def qodec_from_code(
         instructions=[candidate.instruction for candidate in candidates],
     )
 
-    completed: list[tuple[_Candidate, qodec.Gadget]] = []
+    completed: list[tuple[_Candidate, qc.Gadget]] = []
     omitted: dict[str, str] = {}
 
     def reject(mnemonic: str, reason: str) -> None:
@@ -771,8 +769,8 @@ def qodec_from_code(
         }
     }
 
-    built = qodec.Qodec(
-        [qodec.Layer(logical, gadgets=gadgets), qodec.Layer(physical)],
+    built = qc.Qodec(
+        [qc.Layer(logical, gadgets=gadgets), qc.Layer(physical)],
         name=resolved_name,
         description=(
             description
@@ -808,12 +806,12 @@ def qodec_from_code(
     return built
 
 
-def synthesis_notes(codec: qodec.Qodec) -> dict[str, object]:
-    """The synthesis record :func:`qodec_from_code` left on ``codec``.
+def synthesis_notes(qodec: qc.Qodec) -> dict[str, object]:
+    """The synthesis record :func:`qodec_from_code` left on ``qodec``.
 
     Returns an empty mapping for a qodec that was not synthesized.
     """
-    section = dict(codec.metadata).get(_METADATA_KEY)
+    section = dict(qodec.metadata).get(_METADATA_KEY)
     if not isinstance(section, Mapping):
         return {}
     notes = section.get("synthesis")

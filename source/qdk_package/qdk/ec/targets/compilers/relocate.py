@@ -18,7 +18,7 @@ from typing import Hashable
 from ..._typed_ir import value_to_string as _value_to_string
 from ..._typed_ir import value_tokens as _value_tokens
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 from .compiler import CompileResult
@@ -93,16 +93,16 @@ class AutoRelocate:
 
 
 def _remap_program(program: Program, label_map: Mapping[str, str]) -> Program:
-    new_calls: list[qodec.instructions.InstructionCall] = []
+    new_calls: list[qc.instructions.InstructionCall] = []
     for call in program.instructions:
-        new_inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+        new_inputs: dict[str, qc.instructions.InstructionCall.Argument] = {
             n: _remap_value(v, label_map) for n, v in call.inputs.items()
         }
-        new_outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+        new_outputs: dict[str, qc.instructions.InstructionCall.Argument] = {
             n: _remap_value(v, label_map) for n, v in call.outputs.items()
         }
         new_calls.append(
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 call.mnemonic,
                 inputs=new_inputs,
                 outputs=new_outputs,

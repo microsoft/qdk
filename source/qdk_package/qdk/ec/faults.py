@@ -6,7 +6,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 from ._readouts import observables_as_xor_map
@@ -49,7 +49,7 @@ class FaultProfile:
         return iter(zip(self.basis, self.effects))
 
 
-def fault_profile_of(gadget: qodec.Gadget, basis: Sequence[Fault]) -> FaultProfile:
+def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
     """Map an explicit Pauli fault basis to probability-free effects."""
     fault_basis = tuple(basis)
     if not fault_basis:
@@ -114,13 +114,13 @@ def fault_profile_of(gadget: qodec.Gadget, basis: Sequence[Fault]) -> FaultProfi
     return FaultProfile(fault_basis, tuple(effects))
 
 
-def fault_effects_of(gadget: qodec.Gadget, basis: Sequence[Fault]) -> list[FaultEffect]:
+def fault_effects_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> list[FaultEffect]:
     """Return only the effects from :func:`fault_profile_of`."""
     return list(fault_profile_of(gadget, basis).effects)
 
 
 def _build_basis_probes(
-    encodings: Sequence[qodec.Encoding], basis: str
+    encodings: Sequence[qc.Encoding], basis: str
 ) -> tuple[list[Pauli], list[tuple[int, int]]]:
     probes = []
     layout = []
@@ -157,7 +157,7 @@ def _pauli_string_to_chars(
 
 
 def _combine_residual_passes(
-    encodings: Sequence[qodec.Encoding],
+    encodings: Sequence[qc.Encoding],
     z_flips: set[int],
     z_layout: list[tuple[int, int]],
     x_flips: set[int],

@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional, Sequence, Union
 
-import qodec
+import qodec as qc
 
 from ._analysis.code_algebra import (
     SubsystemCode,
@@ -43,8 +43,8 @@ from ._analysis.propagation.pauli import Pauli
 Errors = Union[str, Sequence[Pauli]]
 
 
-def _code_view(code: qodec.Code | SubsystemCode) -> SubsystemCode:
-    if isinstance(code, qodec.Code):
+def _code_view(code: qc.Code | SubsystemCode) -> SubsystemCode:
+    if isinstance(code, qc.Code):
         return SubsystemCode.from_qodec(code)
     if isinstance(code, SubsystemCode):
         return code
@@ -67,7 +67,7 @@ class CodeDistanceData:
 
     @staticmethod
     def of(
-        code: qodec.Code | SubsystemCode, errors: Errors = "XZ"
+        code: qc.Code | SubsystemCode, errors: Errors = "XZ"
     ) -> "CodeDistanceData":
         view = _code_view(code)
         error_paulis = _errors_of(view, errors)
@@ -91,7 +91,7 @@ class CodeDistanceData:
 
 
 def code_distance_of(
-    code: qodec.Code | SubsystemCode,
+    code: qc.Code | SubsystemCode,
     *,
     errors: Errors = "XZ",
     distance_upper_bound: Optional[int] = None,
@@ -109,7 +109,7 @@ def code_distance_of(
 
 
 def code_distance_bounds_of(
-    code: qodec.Code | SubsystemCode,
+    code: qc.Code | SubsystemCode,
     *,
     errors: Errors = "XZ",
     distance_upper_bound: Optional[int] = None,

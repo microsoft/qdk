@@ -2,14 +2,14 @@
 
 from qdk.ec.checks import OutcomeCode, outcome_code_of
 from qdk.ec._analysis.propagation import Program
-import qodec
+import qodec as qc
 
 
-def _program_of(gadget: qodec.Gadget) -> Program:
+def _program_of(gadget: qc.Gadget) -> Program:
     return Program(gadget.circuit.instructions, gadget.circuit.isa)
 
 
-def test_outcome_code_of_idle_channel_is_nonempty(idle_gadget: qodec.Gadget) -> None:
+def test_outcome_code_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> None:
     program = _program_of(idle_gadget)
     code = outcome_code_of(program)
     assert isinstance(code, OutcomeCode)
@@ -17,13 +17,13 @@ def test_outcome_code_of_idle_channel_is_nonempty(idle_gadget: qodec.Gadget) -> 
     assert code.check_count >= 1
 
 
-def test_outcome_code_of_returns_equal_results(idle_gadget: qodec.Gadget) -> None:
+def test_outcome_code_of_returns_equal_results(idle_gadget: qc.Gadget) -> None:
     program = _program_of(idle_gadget)
     assert outcome_code_of(program) == outcome_code_of(program)
 
 
 def test_outcome_code_checks_are_subsets_of_measurement_indices(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     program = _program_of(idle_gadget)
     code = outcome_code_of(program)

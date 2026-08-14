@@ -8,7 +8,7 @@ from qdk.ec._analysis.propagation.pauli import Pauli
 from qdk.ec._analysis.code_algebra import SubsystemCode
 
 
-qodec = pytest.importorskip("qodec")
+qc = pytest.importorskip("qodec")
 
 
 def test_sparse_pauli_parses_qodec_format() -> None:

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Protocol, Sequence, runtime_checkable
 
 from binar import BitMatrix
-import qodec
+import qodec as qc
 from paulimer import CliffordUnitary, OutcomeCompleteSimulation
 from qodec.actions import (
     Clifford as CliffordAction,
@@ -273,7 +273,7 @@ def propagate_faults(
 
 
 def propagate_input_paulis(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     paulis: Sequence[Pauli],
     *,
     residual_probes: Sequence[Pauli] = (),

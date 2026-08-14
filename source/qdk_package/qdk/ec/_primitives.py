@@ -11,29 +11,29 @@ import os
 import tempfile
 from pathlib import Path
 
-import qodec
+import qodec as qc
 
 #: The filename qodec uses for a single-file bundle's manifest.
 _MANIFEST_NAME = "qodec.yaml"
 
 
-def load(path: str | os.PathLike[str]) -> qodec.Qodec:
+def load(path: str | os.PathLike[str]) -> qc.Qodec:
     """Load a qodec from ``path``.
 
     ``path`` may be a directory containing a ``qodec.yaml`` manifest (or a
     single ``*.qodec.yaml`` when no canonical manifest exists), or the path to
     a specific ``*.qodec.yaml`` file.
     """
-    return qodec.Qodec.load(str(Path(path)))
+    return qc.Qodec.load(str(Path(path)))
 
 
 def save(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     path: str | os.PathLike[str],
     *,
     single_file: bool = False,
 ) -> None:
-    """Write ``codec`` to ``path`` as a YAML bundle.
+    """Write ``qodec`` to ``path`` as a YAML bundle.
 
     By default every artifact is written back to its own qodec-root-relative
     path. With ``single_file=True`` the whole qodec is written as one
@@ -41,10 +41,10 @@ def save(
     """
     destination = Path(path)
     destination.mkdir(parents=True, exist_ok=True)
-    codec.save(str(destination), single_file=single_file)
+    qodec.save(str(destination), single_file=single_file)
 
 
-def from_yaml(source: str) -> qodec.Qodec:
+def from_yaml(source: str) -> qc.Qodec:
     """Parse a single-file qodec YAML bundle from an in-memory string.
 
     ``source`` is the multi-document YAML produced by :func:`to_yaml` (or by
@@ -55,18 +55,18 @@ def from_yaml(source: str) -> qodec.Qodec:
     with tempfile.TemporaryDirectory() as directory:
         manifest = Path(directory) / _MANIFEST_NAME
         manifest.write_text(source, encoding="utf-8")
-        return qodec.Qodec.load(str(manifest))
+        return qc.Qodec.load(str(manifest))
 
 
-def to_yaml(codec: qodec.Qodec) -> str:
-    """Serialize ``codec`` to a single-file qodec YAML bundle.
+def to_yaml(qodec: qc.Qodec) -> str:
+    """Serialize ``qodec`` to a single-file qodec YAML bundle.
 
     Raises :class:`ValueError` when the qodec has external source-circuit
     sidecars, which a single string cannot carry; use :func:`save` for those.
     """
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
-        codec.save(str(root), single_file=True)
+        qodec.save(str(root), single_file=True)
         written = sorted(path for path in root.rglob("*") if path.is_file())
         manifests = [path for path in written if path.suffix in (".yaml", ".yml")]
         if not manifests:

@@ -1,9 +1,9 @@
 """Recursive lowering compiler.
 
-Walks the codec's translation chain from top (logical) to bottom
+Walks the qodec's translation chain from top (logical) to bottom
 (physical), substituting each source-layer instruction with the
 gadget that realizes it on the next layer down. After all translations
-have been applied, the resulting program is in the codec's bottom-layer
+have been applied, the resulting program is in the qodec's bottom-layer
 ISA.
 
 Block qubits in gadget bodies are *namespaced*: the i-th qubit of a
@@ -23,7 +23,7 @@ integer indices.
 
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 
 from ..._typed_ir import value_to_string as _value_to_string
 from ..._typed_ir import value_tokens as _value_tokens
@@ -36,38 +36,38 @@ from .compiler import CompileResult
 class RecursiveLowering:
     """Lower a Program through gadget substitution across all layers.
 
-    The compiler's "source" is ``codec.layers[0].isa``; its "target" is
-    ``codec.layers[-1].isa``. To compile only part of a larger codec's
+    The compiler's "source" is ``qodec.layers[0].isa``; its "target" is
+    ``qodec.layers[-1].isa``. To compile only part of a larger qodec's
     chain, slice it with ``Qodec.slice(top, bottom + 1)`` first and pass
-    the sub-codec to this compiler.
+    the sub-qodec to this compiler.
 
     Block qubit references in gadget bodies are rewritten to namespaced
     labels of the form ``"<block_name>.<index>"``. To get integer or
     other concrete qubit labels, chain with a relocation compiler.
     """
 
-    def __init__(self, codec: qodec.Qodec) -> None:
-        self._codec = codec
+    def __init__(self, qodec: qc.Qodec) -> None:
+        self._qodec = qodec
 
     @property
-    def codec(self) -> qodec.Qodec:
-        return self._codec
+    def qodec(self) -> qc.Qodec:
+        return self._qodec
 
     def compile(self, program: Program) -> CompileResult:
-        if not self._codec.layers:
-            raise ValueError("RecursiveLowering: codec has no layers")
-        top_isa = self._codec.layers[0].isa
+        if not self._qodec.layers:
+            raise ValueError("RecursiveLowering: qodec has no layers")
+        top_isa = self._qodec.layers[0].isa
         if program.isa.name != top_isa.name:
             raise ValueError(
-                f"program ISA {program.isa.name!r} does not match codec's "
+                f"program ISA {program.isa.name!r} does not match qodec's "
                 f"top layer {top_isa.name!r}"
             )
 
         current_program = program
         # Each non-bottom layer carries the gadgets that lower it to the
         # layer below; the bottom layer has no gadgets.
-        for layer_index, layer in enumerate(self._codec.layers[:-1]):
-            target_isa = self._codec.layers[layer_index + 1].isa
+        for layer_index, layer in enumerate(self._qodec.layers[:-1]):
+            target_isa = self._qodec.layers[layer_index + 1].isa
             current_program = _apply_translation(current_program, layer, target_isa)
 
         return CompileResult(program=current_program)
@@ -75,11 +75,11 @@ class RecursiveLowering:
 
 def _apply_translation(
     program: Program,
-    layer: qodec.Layer,
-    target_isa: qodec.InstructionSet,
+    layer: qc.Layer,
+    target_isa: qc.InstructionSet,
 ) -> Program:
     """Substitute each call with its gadget's namespaced target instructions."""
-    lowered: list[qodec.instructions.InstructionCall] = []
+    lowered: list[qc.instructions.InstructionCall] = []
     gadgets = layer.gadgets
 
     for call in program.instructions:
@@ -96,8 +96,8 @@ def _apply_translation(
 
 
 def _build_namespaced_remap(
-    gadget: qodec.Gadget,
-    call: qodec.instructions.InstructionCall,
+    gadget: qc.Gadget,
+    call: qc.instructions.InstructionCall,
     mnemonic: str,
     namespace_internal_blocks: bool = False,
 ) -> dict[int, str]:
@@ -154,19 +154,19 @@ def _build_namespaced_remap(
 
 
 def _remap_call(
-    call: qodec.instructions.InstructionCall,
+    call: qc.instructions.InstructionCall,
     remap: dict[int, str],
-) -> qodec.instructions.InstructionCall:
+) -> qc.instructions.InstructionCall:
     """Return a copy of ``call`` with every qubit operand remapped."""
     if not remap:
         return call
-    new_inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+    new_inputs: dict[str, qc.instructions.InstructionCall.Argument] = {
         name: _remap_qubits(value, remap) for name, value in call.inputs.items()
     }
-    new_outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+    new_outputs: dict[str, qc.instructions.InstructionCall.Argument] = {
         name: _remap_qubits(value, remap) for name, value in call.outputs.items()
     }
-    return qodec.instructions.InstructionCall(
+    return qc.instructions.InstructionCall(
         call.mnemonic,
         inputs=new_inputs,
         outputs=new_outputs,

@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-import qodec
+import qodec as qc
 
 from ...lint._diagnostic import Diagnostic, Phase
 from ...lint._rule import Rule
@@ -15,10 +15,10 @@ class MissingSourceInstructionRule:
     name: str = "gadget/missing-source-instruction"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.STRUCTURAL
-    target: type = qodec.Qodec
+    target: type = qc.Qodec
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
-        if not isinstance(target, qodec.Qodec):
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        if not isinstance(target, qc.Qodec):
             raise TypeError(f"expected qodec.Qodec, got {type(target).__name__}")
         for index, layer in enumerate(target.layers):
             source = set(layer.isa.instructions)
@@ -38,10 +38,10 @@ class MissingRealizationRule:
     name: str = "gadget/missing-realization"
     severity: Severity = Severity.ERROR
     phase: Phase = Phase.STRUCTURAL
-    target: type = qodec.Qodec
+    target: type = qc.Qodec
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
-        if not isinstance(target, qodec.Qodec):
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        if not isinstance(target, qc.Qodec):
             raise TypeError(f"expected qodec.Qodec, got {type(target).__name__}")
         for index, layer in enumerate(target.layers[:-1]):
             for mnemonic in layer.isa.instructions:

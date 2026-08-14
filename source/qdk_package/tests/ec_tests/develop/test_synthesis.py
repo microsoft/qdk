@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-import qodec
+import qodec as qc
 
 from ec_tests.testing import code_catalog as catalog
 from ec_tests.testing.optional import requires_stim
@@ -34,39 +34,39 @@ FULLY_SUPPORTED = [
 ]
 
 
-def _code(label: str, factory) -> qodec.Code:
+def _code(label: str, factory) -> qc.Code:
     return factory().to_qodec(label)
 
 
 @pytest.fixture(scope="module")
-def steane() -> qodec.Qodec:
+def steane() -> qc.Qodec:
     return qodec_from_code(_code("steane", catalog.make_steane_code))
 
 
 # ── Structure ───────────────────────────────────────────────────────────────
 
 
-def test_result_is_a_two_layer_qodec(steane: qodec.Qodec) -> None:
+def test_result_is_a_two_layer_qodec(steane: qc.Qodec) -> None:
     assert len(steane.layers) == 2
     assert steane.layers[0].isa.name == "steane"
     assert steane.layers[1].isa.name == "stim"
     assert steane.layers[1].gadgets == {}
 
 
-def test_logical_block_encodes_the_logical_qubits(steane: qodec.Qodec) -> None:
+def test_logical_block_encodes_the_logical_qubits(steane: qc.Qodec) -> None:
     (block,) = steane.layers[0].isa.blocks
 
     assert block.name == "steane"
     assert block.encodes == 1
 
 
-def test_every_declared_instruction_has_a_gadget(steane: qodec.Qodec) -> None:
+def test_every_declared_instruction_has_a_gadget(steane: qc.Qodec) -> None:
     layer = steane.layers[0]
 
     assert set(layer.isa.instructions) == set(layer.gadgets)
 
 
-def test_the_expected_instruction_menu_is_synthesized(steane: qodec.Qodec) -> None:
+def test_the_expected_instruction_menu_is_synthesized(steane: qc.Qodec) -> None:
     assert set(steane.layers[0].gadgets) == {
         "prepare_z",
         "prepare_x",
@@ -78,7 +78,7 @@ def test_the_expected_instruction_menu_is_synthesized(steane: qodec.Qodec) -> No
     }
 
 
-def test_the_code_is_carried_through(steane: qodec.Qodec) -> None:
+def test_the_code_is_carried_through(steane: qc.Qodec) -> None:
     assert "steane" in steane.codes
     assert list(steane.codes["steane"].stabilizers)
 
@@ -93,13 +93,13 @@ def test_name_and_description_default_from_the_code() -> None:
 def test_name_and_description_can_be_overridden() -> None:
     built = qodec_from_code(
         _code("steane", catalog.make_steane_code),
-        name="my_codec",
+        name="my_qodec",
         description="hand written",
     )
 
-    assert built.name == "my_codec"
+    assert built.name == "my_qodec"
     assert built.description == "hand written"
-    assert built.layers[0].isa.name == "my_codec"
+    assert built.layers[0].isa.name == "my_qodec"
 
 
 @pytest.mark.parametrize(
@@ -126,7 +126,7 @@ def test_synthesis_notes_are_empty_for_a_hand_authored_qodec() -> None:
 
 
 def test_syndrome_round_allocates_a_syndrome_ancilla_and_a_flag_per_stabilizer(
-    steane: qodec.Qodec,
+    steane: qc.Qodec,
 ) -> None:
     code = steane.codes["steane"]
     stabilizers = len(list(code.stabilizers))
@@ -149,19 +149,17 @@ def test_syndrome_round_allocates_a_syndrome_ancilla_and_a_flag_per_stabilizer(
 
 
 def test_syndrome_records_are_ordered_stabilizers_then_flags(
-    steane: qodec.Qodec,
+    steane: qc.Qodec,
 ) -> None:
     """The record layout must not depend on which stabilizers carry flags."""
     source = steane.layers[0].gadgets["idle"].circuit.source
-    measurement_lines = [
-        line for line in source.splitlines() if line.startswith("M ")
-    ]
+    measurement_lines = [line for line in source.splitlines() if line.startswith("M ")]
 
     assert len(measurement_lines) == 2, "expected one M for syndromes, one for flags"
 
 
 def test_flag_outcomes_are_discovered_as_deterministic_checks(
-    steane: qodec.Qodec,
+    steane: qc.Qodec,
 ) -> None:
     """A flag bit is deterministic, so completion must find it as a check.
 
@@ -213,7 +211,7 @@ def test_negative_flag_counts_are_rejected() -> None:
 
 
 def test_syndrome_round_never_touches_data_qubits_with_single_qubit_gates(
-    steane: qodec.Qodec,
+    steane: qc.Qodec,
 ) -> None:
     source = steane.layers[0].gadgets["idle"].circuit.source
 
@@ -223,18 +221,20 @@ def test_syndrome_round_never_touches_data_qubits_with_single_qubit_gates(
             assert all(int(target) >= 7 for target in targets), line
 
 
-def test_measure_gadgets_are_transversal(steane: qodec.Qodec) -> None:
+def test_measure_gadgets_are_transversal(steane: qc.Qodec) -> None:
     gadgets = steane.layers[0].gadgets
 
     assert gadgets["measure_z"].circuit.source == "M 0 1 2 3 4 5 6\n"
     assert gadgets["measure_x"].circuit.source == "H 0 1 2 3 4 5 6\nM 0 1 2 3 4 5 6\n"
 
 
-def test_logical_pauli_gadget_applies_the_codes_operator(steane: qodec.Qodec) -> None:
+def test_logical_pauli_gadget_applies_the_codes_operator(steane: qc.Qodec) -> None:
     code = steane.codes["steane"]
     x_operator = str(list(code.x)[0])
     expected = sorted(
-        int(token.split("_")[1]) for token in x_operator.split() if token.startswith("X")
+        int(token.split("_")[1])
+        for token in x_operator.split()
+        if token.startswith("X")
     )
 
     source = steane.layers[0].gadgets["x0"].circuit.source
@@ -242,10 +242,9 @@ def test_logical_pauli_gadget_applies_the_codes_operator(steane: qodec.Qodec) ->
     assert sorted(int(t) for t in source.split()[1:]) == expected
 
 
-def test_circuits_are_tagged_as_stim(steane: qodec.Qodec) -> None:
+def test_circuits_are_tagged_as_stim(steane: qc.Qodec) -> None:
     assert all(
-        gadget.circuit.format == "stim"
-        for gadget in steane.layers[0].gadgets.values()
+        gadget.circuit.format == "stim" for gadget in steane.layers[0].gadgets.values()
     )
 
 
@@ -281,17 +280,15 @@ def test_gadgets_that_hold_state_discover_checks(label: str, factory) -> None:
         assert gadget.checks, f"{mnemonic} discovered no checks"
 
 
-def test_measure_gadgets_bind_a_readout_per_logical_qubit(steane: qodec.Qodec) -> None:
+def test_measure_gadgets_bind_a_readout_per_logical_qubit(steane: qc.Qodec) -> None:
     for mnemonic in ("measure_z", "measure_x"):
         gadget = steane.layers[0].gadgets[mnemonic]
         assert len(gadget.readouts) == 1, mnemonic
 
 
-def test_idle_checks_reference_both_boundaries(steane: qodec.Qodec) -> None:
+def test_idle_checks_reference_both_boundaries(steane: qc.Qodec) -> None:
     atoms = {
-        str(atom)
-        for check in steane.layers[0].gadgets["idle"].checks
-        for atom in check
+        str(atom) for check in steane.layers[0].gadgets["idle"].checks for atom in check
     }
 
     assert any(atom.startswith("in[0].stabilizers") for atom in atoms)
@@ -338,7 +335,7 @@ def test_the_known_audit_rule_also_fires_on_the_hand_authored_fixture() -> None:
     rules = {
         d.rule
         for gadget in fixture.layers[0].gadgets.values()
-        for d in lint.Auditor().audit_gadget(gadget, codec=fixture).errors()
+        for d in lint.Auditor().audit_gadget(gadget, qodec=fixture).errors()
     }
     assert _KNOWN_AUDIT_RULE in rules
 
@@ -346,7 +343,7 @@ def test_the_known_audit_rule_also_fires_on_the_hand_authored_fixture() -> None:
 # ── Round-tripping ──────────────────────────────────────────────────────────
 
 
-def test_synthesized_qodec_round_trips_through_yaml(steane: qodec.Qodec) -> None:
+def test_synthesized_qodec_round_trips_through_yaml(steane: qc.Qodec) -> None:
     restored = ec.from_yaml(ec.to_yaml(steane))
 
     assert restored.name == steane.name
@@ -354,7 +351,7 @@ def test_synthesized_qodec_round_trips_through_yaml(steane: qodec.Qodec) -> None
 
 
 def test_synthesized_qodec_round_trips_through_disk(
-    steane: qodec.Qodec, tmp_path: Path
+    steane: qc.Qodec, tmp_path: Path
 ) -> None:
     ec.save(steane, tmp_path / "bundle")
     restored = ec.load(tmp_path / "bundle")
@@ -364,7 +361,7 @@ def test_synthesized_qodec_round_trips_through_disk(
 
 
 def test_completion_is_idempotent_on_a_synthesized_qodec(
-    steane: qodec.Qodec,
+    steane: qc.Qodec,
 ) -> None:
     recompleted = ec.complete_qodec(steane)
 
@@ -457,7 +454,7 @@ def test_logical_pauli_gadgets_are_verified_for_a_large_k_code() -> None:
 
 
 def test_y_components_are_rejected_with_an_actionable_message() -> None:
-    code = qodec.Code("has_y", stabilizers=["Y_0 X_1"], x=["X_0"], z=["Z_0 Z_1"])
+    code = qc.Code("has_y", stabilizers=["Y_0 X_1"], x=["X_0"], z=["Z_0 Z_1"])
 
     with pytest.raises(NotImplementedError, match="Y components"):
         qodec_from_code(code)
@@ -465,14 +462,14 @@ def test_y_components_are_rejected_with_an_actionable_message() -> None:
 
 def test_a_code_with_no_logical_qubits_is_rejected() -> None:
     """A [[1, 0]] code: a valid stabilizer code that encodes nothing."""
-    code = qodec.Code("full_rank", stabilizers=["Z_0"], x=[], z=[])
+    code = qc.Code("full_rank", stabilizers=["Z_0"], x=[], z=[])
 
     with pytest.raises(ValueError, match="no logical qubits"):
         qodec_from_code(code)
 
 
 def test_an_unnamed_code_requires_an_explicit_name() -> None:
-    code = qodec.Code("", stabilizers=["Z_0 Z_1"], x=["X_0 X_1"], z=["Z_0"])
+    code = qc.Code("", stabilizers=["Z_0 Z_1"], x=["X_0 X_1"], z=["Z_0"])
 
     with pytest.raises(ValueError, match="no name"):
         qodec_from_code(code)
@@ -483,7 +480,7 @@ def test_an_unnamed_code_requires_an_explicit_name() -> None:
 
 @requires_stim
 def test_a_synthesized_qodec_samples_without_detections_when_noiseless(
-    steane: qodec.Qodec,
+    steane: qc.Qodec,
 ) -> None:
     import numpy as np
 
@@ -500,7 +497,7 @@ def test_a_synthesized_qodec_samples_without_detections_when_noiseless(
 
 
 @requires_stim
-def test_a_synthesized_qodec_detects_noise(steane: qodec.Qodec) -> None:
+def test_a_synthesized_qodec_detects_noise(steane: qc.Qodec) -> None:
     import numpy as np
 
     from qdk.ec import targets
@@ -515,7 +512,7 @@ def test_a_synthesized_qodec_detects_noise(steane: qodec.Qodec) -> None:
 
 
 @requires_stim
-def test_a_detector_error_model_can_be_built(steane: qodec.Qodec) -> None:
+def test_a_detector_error_model_can_be_built(steane: qc.Qodec) -> None:
     from qdk.ec import targets
 
     dem = targets.detector_error_model_of(
@@ -526,7 +523,7 @@ def test_a_detector_error_model_can_be_built(steane: qodec.Qodec) -> None:
 
 
 @requires_stim
-def test_idle_gadget_has_a_circuit_level_distance(steane: qodec.Qodec) -> None:
+def test_idle_gadget_has_a_circuit_level_distance(steane: qc.Qodec) -> None:
     from qdk.ec import targets
 
     distance, _ = targets.gadget_distance_of(
@@ -646,7 +643,7 @@ def test_verify_distance_rejects_a_deficient_build() -> None:
 
 @requires_stim
 def test_memory_program_composes_into_a_well_formed_circuit(
-    steane: qodec.Qodec,
+    steane: qc.Qodec,
 ) -> None:
     """A non-deterministic detector would mean checks and circuits disagree."""
     from qdk.ec import targets
@@ -665,7 +662,7 @@ def test_memory_program_reports_missing_instructions() -> None:
         ec.memory_program(built)
 
 
-def test_memory_program_has_the_expected_shape(steane: qodec.Qodec) -> None:
+def test_memory_program_has_the_expected_shape(steane: qc.Qodec) -> None:
     program = ec.memory_program(steane, rounds=3)
 
     assert [call.mnemonic for call in program.instructions] == [
@@ -677,20 +674,18 @@ def test_memory_program_has_the_expected_shape(steane: qodec.Qodec) -> None:
     ]
 
 
-def _memory_program(codec: qodec.Qodec):
-    """prepare_z / idle / measure_z over the codec's logical ISA."""
+def _memory_program(qodec: qc.Qodec):
+    """prepare_z / idle / measure_z over the qodec's logical ISA."""
     from qodec.circuits import Program
 
-    isa = codec.layers[0].isa
+    isa = qodec.layers[0].isa
 
-    def call(mnemonic: str) -> qodec.instructions.InstructionCall:
+    def call(mnemonic: str) -> qc.instructions.InstructionCall:
         instruction = isa.instruction(mnemonic)
         inputs = {str(i): "q" for i in range(len(list(instruction.inputs)))}
         outputs = {str(i): "q" for i in range(len(list(instruction.outputs)))}
         if not inputs and not outputs:
-            return qodec.instructions.InstructionCall(mnemonic)
-        return qodec.instructions.InstructionCall(
-            mnemonic, inputs=inputs, outputs=outputs
-        )
+            return qc.instructions.InstructionCall(mnemonic)
+        return qc.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
 
     return Program([call(m) for m in ("prepare_z", "idle", "measure_z")], isa)

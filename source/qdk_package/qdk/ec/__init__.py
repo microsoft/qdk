@@ -61,8 +61,8 @@ Installing
 Example
 -------
 >>> import qdk.ec as ec  # doctest: +SKIP
->>> codec = ec.load("my_codec.qodec.yaml")  # doctest: +SKIP
->>> report = ec.lint.diagnose(codec)  # doctest: +SKIP
+>>> qodec = ec.load("my_qodec.qodec.yaml")  # doctest: +SKIP
+>>> report = ec.lint.diagnose(qodec)  # doctest: +SKIP
 """
 
 from __future__ import annotations

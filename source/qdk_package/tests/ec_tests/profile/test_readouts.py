@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 
 from qdk.ec import checks as checks_module
 from qdk.ec import readouts
 
 
 def test_profile_of_discovers_the_observable_bindings(
-    measure_zz_gadget: qodec.Gadget,
+    measure_zz_gadget: qc.Gadget,
 ) -> None:
     profile = readouts.profile_of(measure_zz_gadget)
 
@@ -26,7 +26,7 @@ def test_checks_and_readouts_share_one_discovery_pass() -> None:
 
 
 def test_outcome_profile_agrees_with_the_discovered_profile(
-    measure_zz_gadget: qodec.Gadget,
+    measure_zz_gadget: qc.Gadget,
 ) -> None:
     profile = readouts.profile_of(measure_zz_gadget)
     outcome_profile = readouts.outcome_profile_of(measure_zz_gadget)
@@ -38,7 +38,7 @@ def test_outcome_profile_agrees_with_the_discovered_profile(
 
 
 def test_outcome_profile_checks_are_the_essential_checks(
-    measure_zz_gadget: qodec.Gadget,
+    measure_zz_gadget: qc.Gadget,
 ) -> None:
     outcome_profile = readouts.outcome_profile_of(measure_zz_gadget)
 
@@ -48,7 +48,7 @@ def test_outcome_profile_checks_are_the_essential_checks(
 
 
 def test_anti_observable_flips_are_reported_per_outcome(
-    measure_zz_gadget: qodec.Gadget,
+    measure_zz_gadget: qc.Gadget,
 ) -> None:
     flipped = readouts.outcomes_flipped_by_anti_observables_of(measure_zz_gadget)
 
@@ -58,5 +58,5 @@ def test_anti_observable_flips_are_reported_per_outcome(
     )
 
 
-def test_idle_gadget_has_no_observables(idle_gadget: qodec.Gadget) -> None:
+def test_idle_gadget_has_no_observables(idle_gadget: qc.Gadget) -> None:
     assert readouts.profile_of(idle_gadget).observables == {}

@@ -28,7 +28,7 @@ def pytest_ignore_collect(collection_path, config) -> bool:  # noqa: ARG001
 
 
 if not _MISSING:
-    import qodec
+    import qodec as qc
     from hypothesis import Verbosity, settings
 
     settings.register_profile("factory")
@@ -41,31 +41,31 @@ if not _MISSING:
 
     # ── Shared gadget fixtures (c4 translation layer), used across the suite.
     @pytest.fixture(scope="package")
-    def bundle() -> qodec.Qodec:
+    def bundle() -> qc.Qodec:
         from ec_tests.testing.qodecs import c4
 
         return c4()
 
     @pytest.fixture(scope="package")
-    def translation(bundle: qodec.Qodec) -> qodec.Layer:
+    def translation(bundle: qc.Qodec) -> qc.Layer:
         return bundle.layers[0]
 
     @pytest.fixture(scope="package")
-    def idle_gadget(translation: qodec.Layer) -> qodec.Gadget:
+    def idle_gadget(translation: qc.Layer) -> qc.Gadget:
         return translation.gadgets["idle"]
 
     @pytest.fixture(scope="package")
-    def measure_xx_gadget(translation: qodec.Layer) -> qodec.Gadget:
+    def measure_xx_gadget(translation: qc.Layer) -> qc.Gadget:
         return translation.gadgets["measure_xx"]
 
     @pytest.fixture(scope="package")
-    def measure_zz_gadget(translation: qodec.Layer) -> qodec.Gadget:
+    def measure_zz_gadget(translation: qc.Layer) -> qc.Gadget:
         return translation.gadgets["measure_zz"]
 
     @pytest.fixture(scope="package")
-    def prepare_xx_gadget(translation: qodec.Layer) -> qodec.Gadget:
+    def prepare_xx_gadget(translation: qc.Layer) -> qc.Gadget:
         return translation.gadgets["prepare_xx"]
 
     @pytest.fixture(scope="package")
-    def prepare_zz_gadget(translation: qodec.Layer) -> qodec.Gadget:
+    def prepare_zz_gadget(translation: qc.Layer) -> qc.Gadget:
         return translation.gadgets["prepare_zz"]

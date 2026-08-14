@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import qodec
+import qodec as qc
 
 from ._analysis.check_discovery import Profile, profile_of
 from ._analysis.essential_checks import (
@@ -35,7 +35,7 @@ class OutcomeProfile:
 
 
 def outcome_profile_of(
-    gadget: qodec.Gadget, *, essential: bool = True
+    gadget: qc.Gadget, *, essential: bool = True
 ) -> OutcomeProfile:
     """Return ``gadget``'s declared check and observable parity structure."""
     declared = tuple(frozenset(outcome_indices(atoms)) for atoms in gadget.checks)

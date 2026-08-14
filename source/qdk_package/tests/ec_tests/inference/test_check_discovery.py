@@ -13,8 +13,8 @@ from ec_tests.testing.qodecs import c4
 
 
 def test_profile_of_returns_profile_with_checks_and_observables() -> None:
-    codec = c4()
-    gadget = codec.layers[0].gadgets["measure_zz"]
+    qodec = c4()
+    gadget = qodec.layers[0].gadgets["measure_zz"]
     profile = profile_of(gadget)
     assert isinstance(profile, Profile)
     assert len(profile.checks) >= 1
@@ -25,15 +25,15 @@ def test_profile_of_returns_profile_with_checks_and_observables() -> None:
 def test_profile_of_idle_round_finds_four_stabilizer_checks() -> None:
     """C4's `idle` realisation runs both X- and Z-stabilizer extractions
     in and out, yielding 4 deterministic checks."""
-    codec = c4()
-    gadget = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    gadget = qodec.layers[0].gadgets["idle"]
     profile = profile_of(gadget)
     assert len(profile.checks) == 4
 
 
 def test_simulate_channel_returns_simulation() -> None:
-    codec = c4()
-    gadget = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    gadget = qodec.layers[0].gadgets["idle"]
     sim = simulate_channel(gadget)
     assert sim.simulation.outcome_count > 0
 
@@ -41,7 +41,7 @@ def test_simulate_channel_returns_simulation() -> None:
 def test_simulate_channel_with_objective_records_objective_outcomes() -> None:
     """`with_objective` tells `simulate_channel` to also probe each
     objective `Observe` Pauli after the walk."""
-    codec = c4()
-    gadget = codec.layers[0].gadgets["measure_zz"]
+    qodec = c4()
+    gadget = qodec.layers[0].gadgets["measure_zz"]
     sim = simulate_channel(gadget, with_objective=True)
     assert len(sim.objective_outcomes) == 2

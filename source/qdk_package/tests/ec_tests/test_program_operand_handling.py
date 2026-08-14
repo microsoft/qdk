@@ -23,20 +23,20 @@ import pytest
 
 pytest.importorskip("stim")
 
-import qodec  # noqa: E402
+import qodec as qc  # noqa: E402
 from qodec.circuits import Program  # noqa: E402
 from ec_tests.testing.qodecs import c4  # noqa: E402
 from qdk.ec.targets import StimSampler  # noqa: E402
 
 
 @pytest.fixture
-def c4_codec() -> qodec.Qodec:
+def c4_qodec() -> qc.Qodec:
     return c4()
 
 
 @pytest.fixture
-def c4_isa(c4_codec: qodec.Qodec) -> qodec.InstructionSet:
-    return c4_codec.layers[0].isa
+def c4_isa(c4_qodec: qc.Qodec) -> qc.InstructionSet:
+    return c4_qodec.layers[0].isa
 
 
 # ----------------------------------------------------------------------------
@@ -44,12 +44,12 @@ def c4_isa(c4_codec: qodec.Qodec) -> qodec.InstructionSet:
 # ----------------------------------------------------------------------------
 
 
-def test_explicit_operands_are_accepted(c4_isa: qodec.InstructionSet) -> None:
+def test_explicit_operands_are_accepted(c4_isa: qc.InstructionSet) -> None:
     """A program with explicitly bound operands is accepted."""
     program = Program(
         [
-            qodec.instructions.InstructionCall("prepare_zz", outputs={"block": "q"}),
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall("prepare_zz", outputs={"block": "q"}),
+            qc.instructions.InstructionCall(
                 "idle", inputs={"block": "q"}, outputs={"block": "q"}
             ),
         ],
@@ -58,21 +58,21 @@ def test_explicit_operands_are_accepted(c4_isa: qodec.InstructionSet) -> None:
     assert len(program.instructions) == 2
 
 
-def test_operand_keys_are_cosmetic(c4_isa: qodec.InstructionSet) -> None:
+def test_operand_keys_are_cosmetic(c4_isa: qc.InstructionSet) -> None:
     """Operands are matched positionally, so the dict *key* a call uses is a
     cosmetic label: an arbitrary key binds the same (single) operand."""
     program = Program(
-        [qodec.instructions.InstructionCall("idle", inputs={"anything": "q"}, outputs={"anything": "q"})],
+        [qc.instructions.InstructionCall("idle", inputs={"anything": "q"}, outputs={"anything": "q"})],
         c4_isa,
     )
     assert len(program.instructions) == 1
 
 
-def test_unknown_mnemonic_is_rejected(c4_isa: qodec.InstructionSet) -> None:
+def test_unknown_mnemonic_is_rejected(c4_isa: qc.InstructionSet) -> None:
     """A call to a mnemonic absent from the ISA is rejected at construction."""
     with pytest.raises(KeyError, match="absent from its ISA"):
         Program(
-            [qodec.instructions.InstructionCall("not_an_instruction", inputs={"block": "q"})],
+            [qc.instructions.InstructionCall("not_an_instruction", inputs={"block": "q"})],
             c4_isa,
         )
 
@@ -82,17 +82,17 @@ def test_unknown_mnemonic_is_rejected(c4_isa: qodec.InstructionSet) -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_stim_sampler_runs_single_block_program(c4_codec: qodec.Qodec, c4_isa: qodec.InstructionSet) -> None:
+def test_stim_sampler_runs_single_block_program(c4_qodec: qc.Qodec, c4_isa: qc.InstructionSet) -> None:
     """An explicit single-block program executes correctly: the noiseless
     memory experiment produces no detection events or observable flips."""
-    sampler = StimSampler(c4_codec)
+    sampler = StimSampler(c4_qodec)
     program = Program(
         [
-            qodec.instructions.InstructionCall("prepare_zz", outputs={"block": "A"}),
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall("prepare_zz", outputs={"block": "A"}),
+            qc.instructions.InstructionCall(
                 "idle", inputs={"block": "A"}, outputs={"block": "A"}
             ),
-            qodec.instructions.InstructionCall("measure_zz", inputs={"block": "A"}),
+            qc.instructions.InstructionCall("measure_zz", inputs={"block": "A"}),
         ],
         c4_isa,
     )
@@ -103,23 +103,23 @@ def test_stim_sampler_runs_single_block_program(c4_codec: qodec.Qodec, c4_isa: q
     assert flips.sum() == 0
 
 
-def test_stim_sampler_handles_two_block_program(c4_codec: qodec.Qodec, c4_isa: qodec.InstructionSet) -> None:
+def test_stim_sampler_handles_two_block_program(c4_qodec: qc.Qodec, c4_isa: qc.InstructionSet) -> None:
     """Two independent c4 blocks A and B compile to a single stim circuit
     with disjoint physical qubit ranges (4 data qubits each). Noiseless
     execution must produce no detection events on either block."""
-    sampler = StimSampler(c4_codec)
+    sampler = StimSampler(c4_qodec)
     program = Program(
         [
-            qodec.instructions.InstructionCall("prepare_zz", outputs={"block": "A"}),
-            qodec.instructions.InstructionCall("prepare_zz", outputs={"block": "B"}),
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall("prepare_zz", outputs={"block": "A"}),
+            qc.instructions.InstructionCall("prepare_zz", outputs={"block": "B"}),
+            qc.instructions.InstructionCall(
                 "idle", inputs={"block": "A"}, outputs={"block": "A"}
             ),
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 "idle", inputs={"block": "B"}, outputs={"block": "B"}
             ),
-            qodec.instructions.InstructionCall("measure_zz", inputs={"block": "A"}),
-            qodec.instructions.InstructionCall("measure_zz", inputs={"block": "B"}),
+            qc.instructions.InstructionCall("measure_zz", inputs={"block": "A"}),
+            qc.instructions.InstructionCall("measure_zz", inputs={"block": "B"}),
         ],
         c4_isa,
     )
@@ -135,18 +135,18 @@ def test_stim_sampler_handles_two_block_program(c4_codec: qodec.Qodec, c4_isa: q
 
 
 def test_stim_sampler_allocates_fresh_block_for_unproduced_input(
-    c4_codec: qodec.Qodec, c4_isa: qodec.InstructionSet
+    c4_qodec: qc.Qodec, c4_isa: qc.InstructionSet
 ) -> None:
     """An ``idle`` call asks for input block ``B`` that no prior call
     produced. The sampler silently allocates fresh physical qubits for B
     (each ``(block, position)`` key is independent); validating that a block
     was previously produced is a higher-level concern handled elsewhere,
     not by the stim sampler."""
-    sampler = StimSampler(c4_codec)
+    sampler = StimSampler(c4_qodec)
     program = Program(
         [
-            qodec.instructions.InstructionCall("prepare_zz", outputs={"block": "A"}),
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall("prepare_zz", outputs={"block": "A"}),
+            qc.instructions.InstructionCall(
                 "idle", inputs={"block": "B"}, outputs={"block": "B"}
             ),
         ],

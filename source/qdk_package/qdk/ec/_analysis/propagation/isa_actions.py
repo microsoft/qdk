@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, TYPE_CHECKING
 
-import qodec
+import qodec as qc
 from paulimer import DensePauli
 
 from ..._typed_ir import value_tokens
@@ -24,8 +24,8 @@ def block_strides(isa: Any) -> dict[str, int]:
     return result
 
 
-def block_operands(program: "Program") -> list[qodec.instructions.BlockOperand]:
-    result: list[qodec.instructions.BlockOperand] = []
+def block_operands(program: "Program") -> list[qc.instructions.BlockOperand]:
+    result: list[qc.instructions.BlockOperand] = []
     for call in program.instructions:
         instruction = program.lookup(call.mnemonic)
         declared = list(instruction.inputs) + list(instruction.outputs)
@@ -51,7 +51,7 @@ def call_qubit_map(call: Any, strides: dict[str, int]) -> dict[int, int]:
 
 def build_qubit_map(
     call: Any,
-    operands: list[qodec.instructions.BlockOperand],
+    operands: list[qc.instructions.BlockOperand],
     strides: dict[str, int],
 ) -> dict[int, int]:
     del operands

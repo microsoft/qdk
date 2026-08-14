@@ -1,13 +1,13 @@
 """Code profiling accepts qodec's canonical code type."""
-import qodec
+import qodec as qc
 from paulimer import SparsePauli
 
 from qdk.ec.code import syndrome_of
 from qdk.ec.distance import code_distance_of
 
 
-def repetition_code() -> qodec.Code:
-    return qodec.Code(
+def repetition_code() -> qc.Code:
+    return qc.Code(
         "repetition_2",
         stabilizers=["Z_0 Z_1"],
         x=["X_0 X_1"],

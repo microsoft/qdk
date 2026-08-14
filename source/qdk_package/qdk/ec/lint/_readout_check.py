@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from binar import BitVector
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 from .._readouts import observables_as_xor_map
@@ -32,7 +32,7 @@ class ReadoutMismatch:
     verifiable: bool = True
 
 
-def readout_disagreements(gadget: qodec.Gadget) -> list[ReadoutMismatch]:
+def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
     observables, result = _realization_input_observables(gadget)
     declared = observables_as_xor_map(gadget)
     probes = _data_side_logical_probes(gadget)
@@ -79,7 +79,7 @@ def readout_disagreements(gadget: qodec.Gadget) -> list[ReadoutMismatch]:
 
 
 def _realization_input_observables(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> tuple[FrameGroup, ConditionalChoiResult]:
     program = Program(gadget.circuit.instructions, gadget.circuit.isa)
     code_in, _ = realization_codes_of(gadget)
@@ -103,7 +103,7 @@ def _realization_input_observables(
     return observables, result
 
 
-def _data_side_logical_probes(gadget: qodec.Gadget) -> dict[str, Pauli]:
+def _data_side_logical_probes(gadget: qc.Gadget) -> dict[str, Pauli]:
     flat_map: list[tuple[Any, int]] = []
     for encoding in gadget.inputs:
         for local in range(len(list(encoding.code.x))):
@@ -111,7 +111,7 @@ def _data_side_logical_probes(gadget: qodec.Gadget) -> dict[str, Pauli]:
     result: dict[str, Pauli] = {}
     position = 0
     for action in gadget.implements.action:
-        if not isinstance(action, qodec.actions.Observe):
+        if not isinstance(action, qc.actions.Observe):
             continue
         for observable in action.observables:
             characters: dict[int, PauliCharacter] = {}

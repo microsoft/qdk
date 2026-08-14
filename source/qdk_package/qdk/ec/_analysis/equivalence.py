@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-import qodec
+import qodec as qc
 
 from .._readouts import observables_as_xor_map
 from .propagation.interpreter import propagate_input_paulis
@@ -27,7 +27,7 @@ class LogicalAction:
     images: tuple[LogicalImage, ...]
 
 
-def logical_action_of(gadget: qodec.Gadget) -> LogicalAction:
+def logical_action_of(gadget: qc.Gadget) -> LogicalAction:
     inputs = flat_logical_paulis(gadget.inputs)
     probes = flat_logical_paulis(gadget.outputs)
     if not inputs:
@@ -69,11 +69,11 @@ def logical_action_of(gadget: qodec.Gadget) -> LogicalAction:
     )
 
 
-def gadgets_equivalent(left: qodec.Gadget, right: qodec.Gadget) -> bool:
+def gadgets_equivalent(left: qc.Gadget, right: qc.Gadget) -> bool:
     return logical_action_of(left) == logical_action_of(right)
 
 
-def why_not_equivalent(left: qodec.Gadget, right: qodec.Gadget) -> str:
+def why_not_equivalent(left: qc.Gadget, right: qc.Gadget) -> str:
     left_action = logical_action_of(left)
     right_action = logical_action_of(right)
     if left_action.encoding_in != right_action.encoding_in:
@@ -103,7 +103,7 @@ def why_not_equivalent(left: qodec.Gadget, right: qodec.Gadget) -> str:
 
 
 def _encoding_signature(
-    encodings: Iterable[qodec.Encoding],
+    encodings: Iterable[qc.Encoding],
 ) -> EncodingSignature:
     return tuple(
         (entry, tuple(int(qubit) for qubit in encoding.support))

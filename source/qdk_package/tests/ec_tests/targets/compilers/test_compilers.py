@@ -1,9 +1,10 @@
 """Tests for qdk.ec.targets.compilers."""
+
 from __future__ import annotations
 
 import pytest
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 from ec_tests.testing.qodecs import c4
 from qdk.ec.targets.compilers import (
@@ -17,23 +18,23 @@ from qdk.ec.targets.compilers import (
 
 
 @pytest.fixture
-def codec() -> qodec.Qodec:
+def qodec() -> qc.Qodec:
     return c4()
 
 
 @pytest.fixture
-def source_isa(codec: qodec.Qodec) -> qodec.InstructionSet:
-    return codec.layers[0].isa
+def source_isa(qodec: qc.Qodec) -> qc.InstructionSet:
+    return qodec.layers[0].isa
 
 
-def _program(isa: qodec.InstructionSet, *mnemonics: str) -> Program:
+def _program(isa: qc.InstructionSet, *mnemonics: str) -> Program:
     return Program(
         [_call(isa, m) for m in mnemonics],
         isa,
     )
 
 
-def _call(isa: qodec.InstructionSet, mnemonic: str) -> qodec.instructions.InstructionCall:
+def _call(isa: qc.InstructionSet, mnemonic: str) -> qc.instructions.InstructionCall:
     """Build an `InstructionCall` with explicit operand bindings.
 
     Every operand declared by the ISA's instruction is bound (positionally)
@@ -44,8 +45,8 @@ def _call(isa: qodec.InstructionSet, mnemonic: str) -> qodec.instructions.Instru
     inputs = {str(i): "q" for i in range(len(list(instruction.inputs)))}
     outputs = {str(i): "q" for i in range(len(list(instruction.outputs)))}
     if not inputs and not outputs:
-        return qodec.instructions.InstructionCall(mnemonic)
-    return qodec.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
+        return qc.instructions.InstructionCall(mnemonic)
+    return qc.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
 
 
 # ── Compiler protocol & identity ────────────────────────────────────────────
@@ -55,15 +56,15 @@ def test_identity_compiler_satisfies_protocol() -> None:
     assert isinstance(IdentityCompiler(), Compiler)
 
 
-def test_identity_returns_input_program(source_isa: qodec.InstructionSet) -> None:
+def test_identity_returns_input_program(source_isa: qc.InstructionSet) -> None:
     program = _program(source_isa, "prepare_zz")
     result = IdentityCompiler().compile(program)
     assert isinstance(result, CompileResult)
     assert result.program is program
 
 
-def test_recursive_lowering_satisfies_protocol(codec: qodec.Codec) -> None:
-    assert isinstance(RecursiveLowering(codec), Compiler)
+def test_recursive_lowering_satisfies_protocol(qodec: qc.Qodec) -> None:
+    assert isinstance(RecursiveLowering(qodec), Compiler)
 
 
 def test_relocate_satisfies_protocol() -> None:
@@ -77,42 +78,48 @@ def test_auto_relocate_satisfies_protocol() -> None:
 # ── Recursive lowering: behavior ────────────────────────────────────────────
 
 
-def test_recursive_lowering_lowers_to_bottom_layer(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_recursive_lowering_lowers_to_bottom_layer(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     program = _program(source_isa, "prepare_zz", "measure_zz")
-    result = RecursiveLowering(codec).compile(program)
-    assert result.program.isa.name == codec.layers[-1].isa.name
+    result = RecursiveLowering(qodec).compile(program)
+    assert result.program.isa.name == qodec.layers[-1].isa.name
 
 
-def test_recursive_lowering_expands_calls(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_recursive_lowering_expands_calls(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     program = _program(source_isa, "prepare_zz")
-    result = RecursiveLowering(codec).compile(program)
+    result = RecursiveLowering(qodec).compile(program)
     assert len(result.program.instructions) > 1
 
 
-def test_recursive_lowering_rejects_wrong_isa(codec: qodec.Codec) -> None:
-    bottom_isa = codec.layers[-1].isa
+def test_recursive_lowering_rejects_wrong_isa(qodec: qc.Qodec) -> None:
+    bottom_isa = qodec.layers[-1].isa
     program = _program(bottom_isa, "H")
     with pytest.raises(ValueError, match="does not match"):
-        RecursiveLowering(codec).compile(program)
+        RecursiveLowering(qodec).compile(program)
 
 
-def test_lowering_namespaces_block(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_lowering_namespaces_block(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     """Calls bind to a single block ``"q"``; qubits become ``q.0`` etc."""
     program = _program(source_isa, "prepare_zz")
-    result = RecursiveLowering(codec).compile(program)
+    result = RecursiveLowering(qodec).compile(program)
     r_qubits = [
-        c.inputs["target"]
-        for c in result.program.instructions
-        if c.mnemonic == "R"
+        c.inputs["target"] for c in result.program.instructions if c.mnemonic == "R"
     ]
     assert r_qubits[:4] == ["q.0", "q.1", "q.2", "q.3"]
 
 
-def test_lowering_handles_multi_block_without_collision(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_lowering_handles_multi_block_without_collision(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     """Two distinct blocks get distinct namespaces."""
     program = Program(
         [
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 "transversal_cx",
                 inputs={"control": "alice", "target": "bob"},
                 outputs={"control": "alice", "target": "bob"},
@@ -120,7 +127,7 @@ def test_lowering_handles_multi_block_without_collision(codec: qodec.Codec, sour
         ],
         source_isa,
     )
-    result = RecursiveLowering(codec).compile(program)
+    result = RecursiveLowering(qodec).compile(program)
     cx_calls = [c for c in result.program.instructions if c.mnemonic == "CX"]
     pairs = [(c.inputs["control"], c.inputs["target"]) for c in cx_calls]
     assert pairs == [
@@ -131,25 +138,27 @@ def test_lowering_handles_multi_block_without_collision(codec: qodec.Codec, sour
     ]
 
 
-def test_lowering_passes_through_ancillas(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_lowering_passes_through_ancillas(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     """Qubits outside any encoding's support keep their authored indices."""
     program = _program(source_isa, "prepare_zz")
-    result = RecursiveLowering(codec).compile(program)
+    result = RecursiveLowering(qodec).compile(program)
     # The ancilla qubit 4 in prepare_zz's body is not in any encoding.support;
     # it should pass through as the integer string "4".
     m_qubits = [
-        c.inputs["target"]
-        for c in result.program.instructions
-        if c.mnemonic == "M"
+        c.inputs["target"] for c in result.program.instructions if c.mnemonic == "M"
     ]
     assert "4" in m_qubits
 
 
-# ── Subcodec composition ────────────────────────────────────────────────────
+# ── Subqodec composition ────────────────────────────────────────────────────
 
 
-def test_subcodec_identity_slice_lowers_trivially(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
-    sub = codec.slice(0, 1)
+def test_subqodec_identity_slice_lowers_trivially(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
+    sub = qodec.slice(0, 1)
     program = _program(source_isa, "prepare_zz", "measure_zz")
     result = RecursiveLowering(sub).compile(program)
     assert result.program.isa.name == source_isa.name
@@ -159,46 +168,55 @@ def test_subcodec_identity_slice_lowers_trivially(codec: qodec.Codec, source_isa
     ]
 
 
-def test_subcodec_full_range_equivalent_to_full_codec(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
-    sub = codec.slice(0, len(codec.layers))
+def test_subqodec_full_range_equivalent_to_full_qodec(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
+    sub = qodec.slice(0, len(qodec.layers))
     program = _program(source_isa, "prepare_zz")
-    full_calls = [c.mnemonic for c in RecursiveLowering(codec).compile(program).program.instructions]
-    sub_calls = [c.mnemonic for c in RecursiveLowering(sub).compile(program).program.instructions]
+    full_calls = [
+        c.mnemonic
+        for c in RecursiveLowering(qodec).compile(program).program.instructions
+    ]
+    sub_calls = [
+        c.mnemonic for c in RecursiveLowering(sub).compile(program).program.instructions
+    ]
     assert full_calls == sub_calls
 
 
 # ── Relocate: explicit label remap ──────────────────────────────────────────
 
 
-def test_relocate_rewrites_labels(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_relocate_rewrites_labels(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     program = _program(source_isa, "prepare_zz")
-    lowered = RecursiveLowering(codec).compile(program).program
-    relocated = Relocate({"q.0": "10", "q.1": "11", "q.2": "12", "q.3": "13"}).compile(lowered).program
-    r_qubits = [
-        c.inputs["target"]
-        for c in relocated.instructions
-        if c.mnemonic == "R"
-    ]
+    lowered = RecursiveLowering(qodec).compile(program).program
+    relocated = (
+        Relocate({"q.0": "10", "q.1": "11", "q.2": "12", "q.3": "13"})
+        .compile(lowered)
+        .program
+    )
+    r_qubits = [c.inputs["target"] for c in relocated.instructions if c.mnemonic == "R"]
     assert r_qubits[:4] == ["10", "11", "12", "13"]
 
 
-def test_relocate_passes_through_unmapped(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_relocate_passes_through_unmapped(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     program = _program(source_isa, "prepare_zz")
-    lowered = RecursiveLowering(codec).compile(program).program
+    lowered = RecursiveLowering(qodec).compile(program).program
     # Only relocate two labels; the rest pass through.
     relocated = Relocate({"q.0": "100", "q.1": "101"}).compile(lowered).program
-    r_qubits = [
-        c.inputs["target"]
-        for c in relocated.instructions
-        if c.mnemonic == "R"
-    ]
+    r_qubits = [c.inputs["target"] for c in relocated.instructions if c.mnemonic == "R"]
     assert r_qubits[:4] == ["100", "101", "q.2", "q.3"]
 
 
-def test_relocate_from_block_placement(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_relocate_from_block_placement(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     program = Program(
         [
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 "transversal_cx",
                 inputs={"control": "alice", "target": "bob"},
                 outputs={"control": "alice", "target": "bob"},
@@ -206,7 +224,7 @@ def test_relocate_from_block_placement(codec: qodec.Codec, source_isa: qodec.Ins
         ],
         source_isa,
     )
-    lowered = RecursiveLowering(codec).compile(program).program
+    lowered = RecursiveLowering(qodec).compile(program).program
     relocator = Relocate.from_block_placement(
         {"alice": [0, 1, 2, 3], "bob": [10, 11, 12, 13]}
     )
@@ -219,32 +237,28 @@ def test_relocate_from_block_placement(codec: qodec.Codec, source_isa: qodec.Ins
 # ── AutoRelocate: first-seen integer assignment ────────────────────────────
 
 
-def test_auto_relocate_assigns_first_seen_integers(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_auto_relocate_assigns_first_seen_integers(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     """AutoRelocate over the lowered single-block program assigns integers
     in first-seen order, reproducing the c4 example's natural numbering."""
     program = _program(source_isa, "prepare_zz", "measure_zz")
-    lowered = RecursiveLowering(codec).compile(program).program
+    lowered = RecursiveLowering(qodec).compile(program).program
     relocated = AutoRelocate().compile(lowered).program
     # First seen labels (in instruction order) should be "q.0", "q.1", "q.2", "q.3", "4".
     # AutoRelocate maps them to "0", "1", "2", "3", "4".
-    r_qubits = [
-        c.inputs["target"]
-        for c in relocated.instructions
-        if c.mnemonic == "R"
-    ]
+    r_qubits = [c.inputs["target"] for c in relocated.instructions if c.mnemonic == "R"]
     assert r_qubits[:4] == ["0", "1", "2", "3"]
-    m_qubits = [
-        c.inputs["target"]
-        for c in relocated.instructions
-        if c.mnemonic == "M"
-    ]
+    m_qubits = [c.inputs["target"] for c in relocated.instructions if c.mnemonic == "M"]
     assert m_qubits[0] == "4"
 
 
-def test_auto_relocate_handles_multi_block(codec: qodec.Codec, source_isa: qodec.InstructionSet) -> None:
+def test_auto_relocate_handles_multi_block(
+    qodec: qc.Qodec, source_isa: qc.InstructionSet
+) -> None:
     program = Program(
         [
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 "transversal_cx",
                 inputs={"control": "alice", "target": "bob"},
                 outputs={"control": "alice", "target": "bob"},
@@ -252,7 +266,7 @@ def test_auto_relocate_handles_multi_block(codec: qodec.Codec, source_isa: qodec
         ],
         source_isa,
     )
-    lowered = RecursiveLowering(codec).compile(program).program
+    lowered = RecursiveLowering(qodec).compile(program).program
     relocated = AutoRelocate().compile(lowered).program
     cx_calls = [c for c in relocated.instructions if c.mnemonic == "CX"]
     pairs = [(c.inputs["control"], c.inputs["target"]) for c in cx_calls]

@@ -6,14 +6,14 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 from ..faults import Fault
 from .._analysis.propagation.pauli import Pauli
 
 
-def _qubit_operands(call: qodec.InstructionCall) -> Iterator[int]:
+def _qubit_operands(call: qc.InstructionCall) -> Iterator[int]:
     for name, value in call.inputs.items():
         if isinstance(value, list):
             raise TypeError(

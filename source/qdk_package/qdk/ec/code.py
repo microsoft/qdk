@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-import qodec
+import qodec as qc
 from paulimer import CliffordUnitary
 
 from ._analysis.propagation.pauli import Pauli
@@ -22,29 +22,29 @@ from ._analysis.code_algebra import SubsystemCode
 from ._analysis.code_algebra import encoding_clifford_of as _encoding_clifford_of
 
 
-def _view(code: qodec.Code) -> SubsystemCode:
+def _view(code: qc.Code) -> SubsystemCode:
     # Transitional adapter until qodec exposes first-class gauge pairs.
     return SubsystemCode.from_qodec(code)
 
 
-def syndrome_of(code: qodec.Code, error: Pauli) -> set[int]:
+def syndrome_of(code: qc.Code, error: Pauli) -> set[int]:
     """Return the stabilizer syndrome of ``error`` for ``code``."""
     return _view(code).syndrome_of(error)
 
 
-def logical_effect_of(code: qodec.Code, error: Pauli) -> Pauli:
+def logical_effect_of(code: qc.Code, error: Pauli) -> Pauli:
     """Return the logical Pauli induced by ``error`` on ``code``."""
     return _view(code).logical_action_of(error)
 
 
-def gauge_basis_of(code: qodec.Code) -> tuple[Pauli, ...]:
+def gauge_basis_of(code: qc.Code) -> tuple[Pauli, ...]:
     """Return a derived gauge basis for the code's unspecified degrees of freedom."""
     return tuple(_view(code).gauge_basis)
 
 
 def codes_equivalent(
-    left: qodec.Code,
-    right: qodec.Code,
+    left: qc.Code,
+    right: qc.Code,
     *,
     including_signs: bool = False,
     strict_basis: bool = True,
@@ -58,7 +58,7 @@ def codes_equivalent(
 
 
 def encoding_clifford_of(
-    code: qodec.Code,
+    code: qc.Code,
     *,
     supported_by: Sequence[int] | None = None,
 ) -> CliffordUnitary:

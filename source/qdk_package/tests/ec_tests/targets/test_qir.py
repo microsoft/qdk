@@ -8,7 +8,7 @@ program, the same result shape, better error rates.
 from __future__ import annotations
 
 import pytest
-import qodec
+import qodec as qc
 
 from ec_tests.testing.optional import requires_stim
 from ec_tests.testing.qodecs import c4
@@ -24,7 +24,7 @@ from qdk.ec.targets.qir import (  # noqa: E402
 
 
 @pytest.fixture(scope="module")
-def codec() -> qodec.Qodec:
+def qodec() -> qc.Qodec:
     return c4()
 
 
@@ -57,17 +57,17 @@ MEASURE_ONLY = """
 
 
 def test_encodable_gates_are_derived_from_the_qodecs_actions(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
 ) -> None:
-    gates = encodable_gates_of(codec)
+    gates = encodable_gates_of(qodec)
 
     assert {"X", "Z"} <= gates, "c4 implements logical X and Z"
     assert {"M", "MZ", "MResetZ"} <= gates, "c4 implements Z-basis readout"
 
 
-def test_a_qodec_without_a_gate_does_not_claim_it(codec: qodec.Qodec) -> None:
+def test_a_qodec_without_a_gate_does_not_claim_it(qodec: qc.Qodec) -> None:
     # c4 has no logical Hadamard gadget.
-    assert "H" not in encodable_gates_of(codec)
+    assert "H" not in encodable_gates_of(qodec)
 
 
 # ── Encoding ────────────────────────────────────────────────────────────────
@@ -76,14 +76,16 @@ def test_a_qodec_without_a_gate_does_not_claim_it(codec: qodec.Qodec) -> None:
 @requires_stim
 @pytest.mark.parametrize("profile", ["Base", "Adaptive"])
 def test_the_same_program_encodes_identically_under_both_profiles(
-    codec: qodec.Qodec, profile: str
+    qodec: qc.Qodec, profile: str
 ) -> None:
     """The Adaptive profile wraps intrinsics in helper functions; inlining
     those must recover exactly the Base-profile gate sequence."""
     from qdk.ec.targets.qir import _extract_gates
     from qdk.simulation._simulation import preprocess_simulation_input
 
-    module, *_ = preprocess_simulation_input(_qir(X_THEN_MEASURE, profile), 1, None, None)
+    module, *_ = preprocess_simulation_input(
+        _qir(X_THEN_MEASURE, profile), 1, None, None
+    )
     gates, qubit_count = _extract_gates(module)
 
     names = [str(gate[0]).rsplit(".", maxsplit=1)[-1] for gate in gates]
@@ -93,7 +95,7 @@ def test_the_same_program_encodes_identically_under_both_profiles(
 
 
 @requires_stim
-def test_encoding_opens_with_a_preparation(codec: qodec.Qodec) -> None:
+def test_encoding_opens_with_a_preparation(qodec: qc.Qodec) -> None:
     """QIR starts from |0>; the encoded program must say so explicitly."""
     from qdk.ec.targets.qir import _extract_gates
     from qdk.simulation._simulation import preprocess_simulation_input
@@ -101,39 +103,39 @@ def test_encoding_opens_with_a_preparation(codec: qodec.Qodec) -> None:
     module, *_ = preprocess_simulation_input(_qir(X_THEN_MEASURE), 1, None, None)
     gates, qubit_count = _extract_gates(module)
 
-    encoded = encode_qir(gates, codec, qubit_count=qubit_count)
+    encoded = encode_qir(gates, qodec, qubit_count=qubit_count)
 
     mnemonics = [call.mnemonic for call in encoded.program.instructions]
     assert mnemonics == ["prepare_zz", "x0", "measure_zz"]
 
 
 @requires_stim
-def test_encoding_records_where_each_result_came_from(codec: qodec.Qodec) -> None:
+def test_encoding_records_where_each_result_came_from(qodec: qc.Qodec) -> None:
     from qdk.ec.targets.qir import _extract_gates
     from qdk.simulation._simulation import preprocess_simulation_input
 
     module, *_ = preprocess_simulation_input(_qir(X_THEN_MEASURE), 1, None, None)
     gates, qubit_count = _extract_gates(module)
 
-    encoded = encode_qir(gates, codec, qubit_count=qubit_count)
+    encoded = encode_qir(gates, qodec, qubit_count=qubit_count)
 
     assert encoded.result_slots == [LogicalSlot(block=0, index=0)]
     assert encoded.measurement_gadgets == ["measure_zz"]
 
 
 def test_an_unsupported_gate_is_refused_not_silently_dropped(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
 ) -> None:
     """Encoding must never substitute an unprotected operation."""
     from qdk._native import QirInstructionId as Id
 
     with pytest.raises(NotImplementedError, match="cannot encode QIR gate"):
-        encode_qir([(Id.H, 0)], codec, qubit_count=1)
+        encode_qir([(Id.H, 0)], qodec, qubit_count=1)
 
 
-def test_too_many_qubits_for_one_block_is_refused(codec: qodec.Qodec) -> None:
+def test_too_many_qubits_for_one_block_is_refused(qodec: qc.Qodec) -> None:
     with pytest.raises(NotImplementedError, match="multi-block"):
-        encode_qir([], codec, qubit_count=3)
+        encode_qir([], qodec, qubit_count=3)
 
 
 # ── Noise translation ───────────────────────────────────────────────────────
@@ -178,29 +180,29 @@ def test_a_measurement_error_becomes_a_measurement_rate() -> None:
 
 @requires_stim
 def test_a_noiseless_encoded_run_reproduces_the_programs_answer(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
 ) -> None:
     """X then measure must read One, encoded or not."""
     from qdk.ec.targets.qir import run_qir_encoded
 
-    results = run_qir_encoded(_qir(X_THEN_MEASURE), codec, shots=16)
+    results = run_qir_encoded(_qir(X_THEN_MEASURE), qodec, shots=16)
 
     assert len(results) == 16, "noiseless: nothing to postselect away"
     assert all(str(shot) == "One" for shot in results)
 
 
 @requires_stim
-def test_a_program_without_gates_reads_zero(codec: qodec.Qodec) -> None:
+def test_a_program_without_gates_reads_zero(qodec: qc.Qodec) -> None:
     from qdk.ec.targets.qir import run_qir_encoded
 
-    results = run_qir_encoded(_qir(MEASURE_ONLY), codec, shots=16)
+    results = run_qir_encoded(_qir(MEASURE_ONLY), qodec, shots=16)
 
     assert all(str(shot) == "Zero" for shot in results)
 
 
 @requires_stim
 def test_encoded_results_have_the_same_shape_as_physical_ones(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
 ) -> None:
     """The whole point: an encoded run is a drop-in for a physical one."""
     from qdk.ec.targets.qir import run_qir_encoded
@@ -209,19 +211,19 @@ def test_encoded_results_have_the_same_shape_as_physical_ones(
     program = _qir(X_THEN_MEASURE)
 
     physical = run_qir(program, shots=4, type="clifford")
-    encoded = run_qir_encoded(program, codec, shots=4)
+    encoded = run_qir_encoded(program, qodec, shots=4)
 
     assert type(encoded[0]) is type(physical[0])
     assert str(encoded[0]) == str(physical[0])
 
 
 @requires_stim
-def test_postselection_can_be_disabled(codec: qodec.Qodec) -> None:
+def test_postselection_can_be_disabled(qodec: qc.Qodec) -> None:
     from qdk.ec.targets.qir import run_qir_encoded
 
     kept = run_qir_encoded(
         _qir(X_THEN_MEASURE),
-        codec,
+        qodec,
         shots=64,
         noise={"p_data": 0.1, "p_meas": 0.1},
         postselect=False,
@@ -231,20 +233,22 @@ def test_postselection_can_be_disabled(codec: qodec.Qodec) -> None:
 
 
 @requires_stim
-def test_postselection_discards_shots_the_code_flagged(codec: qodec.Qodec) -> None:
+def test_postselection_discards_shots_the_code_flagged(qodec: qc.Qodec) -> None:
     from qdk.ec.targets.qir import run_qir_encoded
 
     program = _qir(X_THEN_MEASURE)
     noise = {"p_data": 0.1, "p_meas": 0.1}
 
-    everything = run_qir_encoded(program, codec, shots=400, noise=noise, postselect=False)
-    surviving = run_qir_encoded(program, codec, shots=400, noise=noise, postselect=True)
+    everything = run_qir_encoded(
+        program, qodec, shots=400, noise=noise, postselect=False
+    )
+    surviving = run_qir_encoded(program, qodec, shots=400, noise=noise, postselect=True)
 
     assert len(surviving) < len(everything)
 
 
 @requires_stim
-def test_error_detection_improves_the_answer(codec: qodec.Qodec) -> None:
+def test_error_detection_improves_the_answer(qodec: qc.Qodec) -> None:
     """The payoff: discarding flagged shots lowers the logical error rate.
 
     This is what an error-*detecting* code such as [[4,2,2]] buys, and it is the
@@ -261,10 +265,10 @@ def test_error_detection_improves_the_answer(codec: qodec.Qodec) -> None:
         return sum(1 for shot in results if str(shot) != "One") / len(results)
 
     raw = wrong_fraction(
-        run_qir_encoded(program, codec, shots=shots, noise=noise, postselect=False)
+        run_qir_encoded(program, qodec, shots=shots, noise=noise, postselect=False)
     )
     corrected = wrong_fraction(
-        run_qir_encoded(program, codec, shots=shots, noise=noise, postselect=True)
+        run_qir_encoded(program, qodec, shots=shots, noise=noise, postselect=True)
     )
 
     assert corrected < raw / 1.5, (
@@ -277,11 +281,11 @@ def test_error_detection_improves_the_answer(codec: qodec.Qodec) -> None:
 
 
 @requires_stim
-def test_run_qir_accepts_a_qodec(codec: qodec.Qodec) -> None:
+def test_run_qir_accepts_a_qodec(qodec: qc.Qodec) -> None:
     """The demo notebook's exact call shape."""
     from qdk.simulation import run_qir
 
-    results = run_qir(_qir(X_THEN_MEASURE), shots=8, type="clifford", qodec=codec)
+    results = run_qir(_qir(X_THEN_MEASURE), shots=8, type="clifford", qodec=qodec)
 
     assert results
     assert all(str(shot) == "One" for shot in results)
@@ -289,7 +293,7 @@ def test_run_qir_accepts_a_qodec(codec: qodec.Qodec) -> None:
 
 @requires_stim
 def test_run_qir_routes_a_noise_config_through_the_encoded_path(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
 ) -> None:
     from qdk.simulation import NoiseConfig, run_qir
 
@@ -297,7 +301,7 @@ def test_run_qir_routes_a_noise_config_through_the_encoded_path(
     noise.x.x = 0.05
 
     results = run_qir(
-        _qir(X_THEN_MEASURE), shots=64, type="clifford", noise=noise, qodec=codec
+        _qir(X_THEN_MEASURE), shots=64, type="clifford", noise=noise, qodec=qodec
     )
 
     assert len(results) <= 64, "some shots may be postselected away"

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from binar import BitMatrix
-import qodec
+import qodec as qc
 
 from .._references import outcome_indices
 from .propagation.interpreter import propagate_input_paulis
@@ -11,7 +11,7 @@ from .propagation.pauli_remap import flat_logical_paulis
 
 
 def outcomes_flipped_by_anti_observables_of(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> list[frozenset[int]]:
     input_paulis = flat_logical_paulis(gadget.inputs)
     if not input_paulis:
@@ -28,7 +28,7 @@ def outcomes_flipped_by_anti_observables_of(
 
 
 def essential_checks_of(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     *,
     checks: tuple[frozenset[int], ...] | None = None,
 ) -> tuple[frozenset[int], ...]:

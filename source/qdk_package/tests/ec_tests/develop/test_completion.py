@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-import qodec
+import qodec as qc
 
 from qdk.ec import complete_gadget
 
@@ -16,8 +16,8 @@ def _readout(
     return [str(atom) for atom in value]
 
 
-def test_complete_gadget_returns_completed_copy(idle_gadget: qodec.Gadget) -> None:
-    draft = qodec.Gadget(
+def test_complete_gadget_returns_completed_copy(idle_gadget: qc.Gadget) -> None:
+    draft = qc.Gadget(
         idle_gadget.implements,
         idle_gadget.circuit,
         inputs=list(idle_gadget.inputs),

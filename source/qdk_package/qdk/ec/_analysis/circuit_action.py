@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Iterable, Mapping, Sequence, Union
 from warnings import warn
 
-import qodec
+import qodec as qc
 from paulimer import PauliGroup, symplectic_form_of
 from qodec.actions import Stabilize
 from qodec.circuits import Program
@@ -426,11 +426,11 @@ def _outcome_items(
     return items
 
 
-def objective_program_of(gadget: qodec.Gadget) -> Program:
+def objective_program_of(gadget: qc.Gadget) -> Program:
     instruction = gadget.implements
     input_count, output_count = _objective_logical_counts(gadget)
-    unit = qodec.instructions.BlockOperand("objective")
-    synthetic = qodec.Instruction(
+    unit = qc.instructions.BlockOperand("objective")
+    synthetic = qc.Instruction(
         mnemonic=instruction.mnemonic,
         inputs=[unit for _ in range(input_count)],
         outputs=[unit for _ in range(output_count)],
@@ -439,7 +439,7 @@ def objective_program_of(gadget: qodec.Gadget) -> Program:
     )
     isa = _objective_isa(synthetic)
     binding = [*range(input_count), *range(output_count)]
-    call = qodec.instructions.InstructionCall(
+    call = qc.instructions.InstructionCall(
         instruction.mnemonic,
         inputs={str(index): value for index, value in enumerate(binding)},
     )
@@ -447,15 +447,15 @@ def objective_program_of(gadget: qodec.Gadget) -> Program:
 
 
 def _objective_isa(
-    instruction: qodec.Instruction,
-) -> qodec.InstructionSet:
-    block = qodec.instructions.Block("objective", encodes=1)
-    return qodec.InstructionSet(
+    instruction: qc.Instruction,
+) -> qc.InstructionSet:
+    block = qc.instructions.Block("objective", encodes=1)
+    return qc.InstructionSet(
         name="objective", blocks=[block], instructions=[instruction]
     )
 
 
-def _objective_logical_counts(gadget: qodec.Gadget) -> tuple[int, int]:
+def _objective_logical_counts(gadget: qc.Gadget) -> tuple[int, int]:
     return (
         sum(len(list(encoding.code.x)) for encoding in gadget.inputs),
         sum(len(list(encoding.code.x)) for encoding in gadget.outputs),
@@ -463,7 +463,7 @@ def _objective_logical_counts(gadget: qodec.Gadget) -> tuple[int, int]:
 
 
 def objective_codes_of(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> tuple[SeparableCode, SeparableCode]:
     input_count, output_count = _objective_logical_counts(gadget)
     return (
@@ -486,12 +486,12 @@ def _identity_codes_over(qubit_indices: Sequence[int] | range) -> SeparableCode:
     return SeparableCode(*blocks)
 
 
-def realization_program_of(gadget: qodec.Gadget) -> Program:
+def realization_program_of(gadget: qc.Gadget) -> Program:
     return Program(gadget.circuit.instructions, gadget.circuit.isa)
 
 
 def realization_codes_of(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> tuple[SeparableCode, SeparableCode]:
     return (
         _stack_encodings(gadget.inputs),
@@ -499,7 +499,7 @@ def realization_codes_of(
     )
 
 
-def _stack_encodings(encodings: Sequence[qodec.Encoding]) -> SeparableCode:
+def _stack_encodings(encodings: Sequence[qc.Encoding]) -> SeparableCode:
     blocks = []
     for encoding in encodings:
         code = SubsystemCode.from_qodec(encoding.code)
@@ -507,7 +507,7 @@ def _stack_encodings(encodings: Sequence[qodec.Encoding]) -> SeparableCode:
     return SeparableCode(*blocks)
 
 
-def gadget_objective_action_of(gadget: qodec.Gadget) -> CircuitAction:
+def gadget_objective_action_of(gadget: qc.Gadget) -> CircuitAction:
     codes_in, codes_out = objective_codes_of(gadget)
     return action_of(
         objective_program_of(gadget),
@@ -515,7 +515,7 @@ def gadget_objective_action_of(gadget: qodec.Gadget) -> CircuitAction:
     )
 
 
-def gadget_realization_action_of(gadget: qodec.Gadget) -> CircuitAction:
+def gadget_realization_action_of(gadget: qc.Gadget) -> CircuitAction:
     codes_in, codes_out = realization_codes_of(gadget)
     return action_of(
         realization_program_of(gadget),
@@ -523,7 +523,7 @@ def gadget_realization_action_of(gadget: qodec.Gadget) -> CircuitAction:
     )
 
 
-def gadget_action_mismatch(gadget: qodec.Gadget) -> str | None:
+def gadget_action_mismatch(gadget: qc.Gadget) -> str | None:
     expected = gadget_objective_action_of(gadget)
     actual = gadget_realization_action_of(gadget)
     if expected.is_equivalent_to(actual):

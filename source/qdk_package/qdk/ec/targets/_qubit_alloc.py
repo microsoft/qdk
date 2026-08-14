@@ -15,11 +15,11 @@ from collections.abc import Iterable
 
 import stim
 
-import qodec
+import qodec as qc
 
 
 def _gadget_qubit_table(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> dict[int, list[tuple[str, int]]]:
     """Map each source qubit index → the list of ``(operand_name,
     position)`` identities it carries across ``gadget``'s encodings.
@@ -155,8 +155,8 @@ def _resolve_block_name(operand_binding: object) -> str:
 
 def remap_call_source(
     source_circuit: stim.Circuit,
-    gadget: qodec.Gadget,
-    call: qodec.instructions.InstructionCall,
+    gadget: qc.Gadget,
+    call: qc.instructions.InstructionCall,
     allocator: PhysicalQubitAllocator,
 ) -> stim.Circuit:
     """Return a copy of ``source_circuit`` with every qubit target

@@ -2,18 +2,18 @@
 
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 
 from ec_tests.testing.qodecs import c4
 from qdk.ec import complete_qodec
 
 
-def _stripped(codec: qodec.Qodec) -> qodec.Qodec:
-    """``codec`` with every gadget's checks removed, i.e. an unfinished draft."""
+def _stripped(qodec: qc.Qodec) -> qc.Qodec:
+    """``qodec`` with every gadget's checks removed, i.e. an unfinished draft."""
     layers = []
-    for layer in codec.layers:
+    for layer in qodec.layers:
         drafts = [
-            qodec.Gadget(
+            qc.Gadget(
                 gadget.implements,
                 gadget.circuit,
                 inputs=list(gadget.inputs),
@@ -25,8 +25,8 @@ def _stripped(codec: qodec.Qodec) -> qodec.Qodec:
             )
             for gadget in layer.gadgets.values()
         ]
-        layers.append(qodec.Layer(layer.isa, gadgets=drafts))
-    return qodec.Qodec(layers, name=codec.name, description=codec.description)
+        layers.append(qc.Layer(layer.isa, gadgets=drafts))
+    return qc.Qodec(layers, name=qodec.name, description=qodec.description)
 
 
 def _equation(entry: object) -> list[object]:
@@ -68,27 +68,27 @@ def test_complete_qodec_leaves_the_input_untouched() -> None:
 
 
 def test_complete_qodec_preserves_the_layer_chain_and_identity() -> None:
-    codec = c4()
+    qodec = c4()
 
-    completed = complete_qodec(codec)
+    completed = complete_qodec(qodec)
 
-    assert completed is not codec
-    assert completed.name == codec.name
-    assert completed.description == codec.description
+    assert completed is not qodec
+    assert completed.name == qodec.name
+    assert completed.description == qodec.description
     assert [layer.isa.name for layer in completed.layers] == [
-        layer.isa.name for layer in codec.layers
+        layer.isa.name for layer in qodec.layers
     ]
     assert [sorted(layer.gadgets) for layer in completed.layers] == [
-        sorted(layer.gadgets) for layer in codec.layers
+        sorted(layer.gadgets) for layer in qodec.layers
     ]
 
 
 def test_complete_qodec_matches_the_authored_checks() -> None:
-    codec = c4()
+    qodec = c4()
 
-    completed = complete_qodec(_stripped(codec))
+    completed = complete_qodec(_stripped(qodec))
 
-    for layer, completed_layer in zip(codec.layers, completed.layers):
+    for layer, completed_layer in zip(qodec.layers, completed.layers):
         for mnemonic, authored in layer.gadgets.items():
             rediscovered = completed_layer.gadgets[mnemonic]
             assert {

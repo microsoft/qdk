@@ -13,7 +13,7 @@ import pytest
 pytest.importorskip("deq")
 pytest.importorskip("deq_runtime")
 
-import qodec  # noqa: E402
+import qodec as qc  # noqa: E402
 import stim  # noqa: E402
 import deq_runtime  # noqa: E402
 from deq.proto import deq_bin_pb2  # noqa: E402
@@ -47,8 +47,8 @@ def _native_deq_runtime() -> bool:
     return True
 
 
-def _load(name: str) -> qodec.Qodec:
-    """Resolve a codec by name.
+def _load(name: str) -> qc.Qodec:
+    """Resolve a qodec by name.
 
     ``c4-stim`` is the vendored ``c4`` fixture
     (:func:`tests.testing.qodecs.c4`); every other name is loaded from the
@@ -56,7 +56,7 @@ def _load(name: str) -> qodec.Qodec:
     """
     if name == "c4-stim":
         return c4()
-    return qodec.Qodec.load(str(EXAMPLES / name))
+    return qc.Qodec.load(str(EXAMPLES / name))
 
 
 @pytest.mark.parametrize("name", ["c4-stim", "c4c6"])
@@ -75,8 +75,8 @@ def test_to_jit_library_builds(name: str) -> None:
     for port in lib.port_types:
         assert port.k >= 1
     # Gadgets must round-trip their names from qodec.
-    codec = _load(name)
-    expected = set(codec.layers[-2].gadgets)
+    qodec = _load(name)
+    expected = set(qodec.layers[-2].gadgets)
     actual = {g.base.name for g in lib.gadget_types}
     assert expected == actual
 
@@ -93,28 +93,28 @@ def test_jit_library_compiles_to_bin(name: str) -> None:
     assert len(result.port_types) == len(lib.port_types)
 
 
-def _c4_slice_and_program() -> tuple[qodec.Qodec, object]:
-    """The standalone C4 codec (bottom slice of c4c6) plus a prep+measure program."""
-    full = qodec.Qodec.load(str(EXAMPLES / "c4c6"))
-    codec = qodec.Qodec(layers=full.layers[1:], name="c4")
-    isa = codec.layers[0].isa
+def _c4_slice_and_program() -> tuple[qc.Qodec, object]:
+    """The standalone C4 qodec (bottom slice of c4c6) plus a prep+measure program."""
+    full = qc.Qodec.load(str(EXAMPLES / "c4c6"))
+    qodec = qc.Qodec(layers=full.layers[1:], name="c4")
+    isa = qodec.layers[0].isa
     program = coerce_program(
         header_for(isa)
         + "\nqubit[2] q;\nbit reject = prepare_z_all(q);\nbit[2] result = measure_z_all(q);\n",
         isa,
     )
-    return codec, program
+    return qodec, program
 
 
 def test_to_stim_source_requires_program() -> None:
-    codec = qodec.Qodec.load(str(EXAMPLES / "c4c6"))
+    qodec = qc.Qodec.load(str(EXAMPLES / "c4c6"))
     with pytest.raises(ValueError, match="requires a program"):
-        to_stim_source(codec)
+        to_stim_source(qodec)
 
 
 def test_to_stim_source_emits_qdk_ready_physical_circuit() -> None:
-    codec, program = _c4_slice_and_program()
-    src = to_stim_source(codec, program=program)
+    qodec, program = _c4_slice_and_program()
+    src = to_stim_source(qodec, program=program)
 
     # deq-only bang-directives (e.g. its #!rhai logical-error block) must be
     # stripped; #!preselect would be kept but this program declares none.
@@ -173,14 +173,14 @@ GADGET TransversalCNOT {
 
 
 def test_from_deq_reconstructs_code_and_gadgets() -> None:
-    codec = from_deq(_REPETITION_DEQ)
-    assert [layer.isa.name for layer in codec.layers] == ["logical", "stim"]
-    assert set(codec.codes) == {"Rep"}
-    code = codec.codes["Rep"]
+    qodec = from_deq(_REPETITION_DEQ)
+    assert [layer.isa.name for layer in qodec.layers] == ["logical", "stim"]
+    assert set(qodec.codes) == {"Rep"}
+    code = qodec.codes["Rep"]
     assert list(code.stabilizers) == ["Z_0 Z_1", "Z_1 Z_2"]
     assert list(code.x) == ["X_0 X_1 X_2"]
     assert list(code.z) == ["Z_0"]
-    assert set(codec.layers[0].gadgets) == {"PrepareZ", "MeasureZ", "TransversalCNOT"}
+    assert set(qodec.layers[0].gadgets) == {"PrepareZ", "MeasureZ", "TransversalCNOT"}
 
 
 def test_deq_qodec_round_trip_is_stable_fixpoint() -> None:
@@ -204,8 +204,8 @@ def test_from_deq_rejects_unsupported_gate() -> None:
 def test_to_deq_skips_non_stim_gadget() -> None:
     # The qodec repetition3 example has a parameterized rotate_z gadget whose
     # inline-YAML body has no `.deq` representation; to_deq skips it cleanly.
-    codec = qodec.Qodec.load(str(EXAMPLES / "repetition3"))
-    source = to_deq(codec)
+    qodec = qc.Qodec.load(str(EXAMPLES / "repetition3"))
+    source = to_deq(qodec)
     assert "GADGET rotate_z" not in source
     assert "skipped gadget 'rotate_z'" in source
     rebuilt = from_deq(source)
@@ -213,17 +213,17 @@ def test_to_deq_skips_non_stim_gadget() -> None:
 
 
 def test_to_deq_is_to_deq_source_alias() -> None:
-    codec = qodec.Qodec.load(str(EXAMPLES / "repetition3"))
-    assert to_deq(codec) == to_deq_source(codec)
+    qodec = qc.Qodec.load(str(EXAMPLES / "repetition3"))
+    assert to_deq(qodec) == to_deq_source(qodec)
 
 
-def _check_set(gadget: qodec.Gadget) -> set[frozenset[str]]:
+def _check_set(gadget: qc.Gadget) -> set[frozenset[str]]:
     return {frozenset(str(ref) for ref in check) for check in gadget.checks}
 
 
 def test_to_deq_captures_checks_and_from_deq_recovers_them() -> None:
-    codec = qodec.Qodec.load(str(EXAMPLES / "repetition3"))
-    source = to_deq(codec)
+    qodec = qc.Qodec.load(str(EXAMPLES / "repetition3"))
+    source = to_deq(qodec)
 
     # Checks are emitted as deq CHECK statements under a trusting @CHECKS.
     assert '@CHECKS("manual", verify=0)' in source
@@ -233,6 +233,6 @@ def test_to_deq_captures_checks_and_from_deq_recovers_them() -> None:
     # The explicit syndrome checks survive qodec -> .deq -> qodec (XOR order and
     # check order are irrelevant, so compare as sets of sets of references).
     for mnemonic in ("idle", "measure_z"):
-        original = codec.layers[0].gadgets[mnemonic]
+        original = qodec.layers[0].gadgets[mnemonic]
         recovered = rebuilt.layers[0].gadgets[mnemonic]
         assert _check_set(recovered) == _check_set(original)

@@ -1,11 +1,11 @@
 """Single-gadget audit convenience."""
 
-import qodec
+import qodec as qc
 
 from ._auditor import Auditor
 
 
-def why_not_valid(gadget: qodec.Gadget) -> str:
+def why_not_valid(gadget: qc.Gadget) -> str:
     if not gadget.inputs and not gadget.outputs:
         return "Gadget has no input or output encoding."
     errors = Auditor().audit_gadget(gadget).errors()
