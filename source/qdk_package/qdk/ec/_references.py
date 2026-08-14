@@ -87,7 +87,7 @@ def parse_stabilizer_atom(atom: str, side: str | None = None) -> tuple[int, int]
     return (parsed.entry, parsed.index)
 
 
-def outcome_indices(atoms: Iterable[str]) -> list[int]:
+def outcome_indices(atoms: Iterable[object]) -> list[int]:
     """Measurement-record indices addressed by ``circuit.readouts[<sel>]`` atoms.
 
     ``<sel>`` is a single index, a JsonPath slice (``N:M``, ``N:M:K``), or a

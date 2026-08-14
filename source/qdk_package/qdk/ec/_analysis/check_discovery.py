@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import cast
 
 import qodec
 from paulimer import OutcomeCompleteSimulation, UnitaryOpcode
@@ -51,12 +51,8 @@ class StabilizerReference:
 def simulate_program(
     program: Program,
     simulation: OutcomeCompleteSimulation | None = None,
-    *,
-    sim: OutcomeCompleteSimulation | None = None,
 ) -> ProgramSimulation:
-    if simulation is not None and sim is not None:
-        raise TypeError("pass only one of simulation or sim")
-    walk = walk_program(program, simulation=simulation or sim)
+    walk = walk_program(program, simulation=simulation)
     return ProgramSimulation(walk.simulation, walk.observe_outcomes)
 
 
@@ -417,7 +413,6 @@ def _pauli_xor(left: PauliCharacter, right: PauliCharacter) -> PauliCharacter:
 __all__ = [
     "ChannelSimulation",
     "Profile",
-    "ProgramSimulation",
     "checks_of",
     "choi_prepare",
     "profile_of",
