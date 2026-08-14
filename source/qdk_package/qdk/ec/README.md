@@ -37,9 +37,9 @@ that a human should not have to finish by hand.
 ```python
 import qdk.ec as ec
 
-qodec = ec.load("protocol.qodec.yaml")
+qodec = ec.load_yaml("protocol.qodec.yaml")
 completed = ec.complete_qodec(qodec)   # or complete_gadget(one_gadget)
-ec.save(completed, "out/")
+ec.save_yaml(completed, "out/")
 ```
 
 `complete_gadget` discovers checks and Pauli-bearing readouts by exact simulation,
@@ -81,7 +81,7 @@ diagnostics.
 import qdk.ec as ec
 from qdk.ec import action, equivalence, lint, targets
 
-qodec = ec.load("protocol.qodec.yaml")
+qodec = ec.load_yaml("protocol.qodec.yaml")
 gadget = qodec.layers[0].gadgets["idle"]
 
 expected = action.declared_action_of(gadget)
@@ -108,7 +108,7 @@ from qodec.circuits import Program
 import qdk.ec as ec
 from qdk.ec import targets
 
-qodec = ec.load("protocol.qodec.yaml")
+qodec = ec.load_yaml("protocol.qodec.yaml")
 program = Program(
     [
         qc.instructions.InstructionCall("prepare", outputs={"0": "q"}),
@@ -140,7 +140,7 @@ qir = qsharp.compile("{ use q = Qubit(); X(q); MResetZ(q) }")
 noise = NoiseConfig()
 noise.x.x = 0.05
 
-qodec = ec.load("c4.qodec.yaml")
+qodec = ec.load_yaml("c4.qodec.yaml")
 run_qir(qir, shots=100, type="clifford", noise=noise, qodec=qodec)
 ```
 

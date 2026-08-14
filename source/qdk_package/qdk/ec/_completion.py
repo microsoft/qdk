@@ -46,12 +46,7 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
     for index, layer in enumerate(qodec.layers):
         completed: list[qc.Gadget] = []
         for mnemonic, gadget in layer.gadgets.items():
-            try:
-                completed.append(complete_gadget(gadget))
-            except Exception as error:  # noqa: BLE001 - re-raised with context
-                raise type(error)(
-                    f"layer {index} gadget {mnemonic!r}: {error}"
-                ) from error
+            completed.append(_try_complete_gadget(gadget, index, mnemonic))
         layers.append(qc.Layer(layer.isa, gadgets=completed))
     return qc.Qodec(
         layers,
@@ -60,6 +55,14 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
         schema_version=qodec.schema_version,
         metadata=dict(qodec.metadata),
     )
+
+
+def _try_complete_gadget(gadget: qc.Gadget, index: int, mnemonic: str) -> qc.Gadget:
+    """Enrich a gadget completion error with its location within a qodec."""
+    try:
+        return complete_gadget(gadget)
+    except Exception as error:  # noqa: BLE001 - re-raised with context
+        raise type(error)(f"layer {index} gadget {mnemonic!r}: {error}") from error
 
 
 __all__ = ["complete_gadget", "complete_qodec"]

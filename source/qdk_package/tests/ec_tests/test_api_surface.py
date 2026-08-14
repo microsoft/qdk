@@ -25,9 +25,9 @@ _SURFACE: dict[str, tuple[str, ...]] = {
         "complete_gadget",
         "complete_qodec",
         "from_yaml",
-        "load",
+        "load_yaml",
         "qodec_from_code",
-        "save",
+        "save_yaml",
         "to_yaml",
     ),
     # profile
