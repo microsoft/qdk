@@ -1,4 +1,4 @@
-"""Drive deq's pipeline from a qodec codec.
+"""Drive deq's pipeline from a qodec qodec.
 
 Thin wrappers that emit ``.deq`` source via :mod:`.source_emitter` and
 feed it to deq's own pipeline:
@@ -17,7 +17,7 @@ import tempfile
 from contextlib import redirect_stdout
 from io import StringIO
 
-import qodec
+import qodec as qc
 
 # These imports require the `deq` package to be installed. The bridge is
 # optional in qdk.ec; consumers that don't need deq integration can
@@ -52,21 +52,21 @@ def _strip_non_preselect_directives(stim_text: str) -> str:
 
 
 def to_jit_library(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     *,
     translation_index: int = -1,
     program: object | None = None,
     program_name: str = "Program",
 ) -> jit_pb.JitLibrary:
-    """Build a deq `JitLibrary` for ``codec``.
+    """Build a deq `JitLibrary` for ``qodec``.
 
-    The codec is rendered as ``.deq`` source, then parsed and lowered
+    The qodec is rendered as ``.deq`` source, then parsed and lowered
     through deq's existing library builder. Any deq-side validation
     errors (unresolved checks, malformed circuits, etc.) surface as
     exceptions from the builder.
     """
     source = to_deq_source(
-        codec,
+        qodec,
         translation_index=translation_index,
         program=program,
         program_name=program_name,
@@ -76,13 +76,13 @@ def to_jit_library(
 
 
 def to_stim_source(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     *,
     translation_index: int = -1,
     program: object | None = None,
     program_name: str = "Program",
 ) -> str:
-    """Render ``codec`` + ``program`` as a physical Stim circuit string.
+    """Render ``qodec`` + ``program`` as a physical Stim circuit string.
 
     Drives deq's full pipeline end to end: emit ``.deq`` source, parse it,
     build a ``JitLibrary``, then run deq's stim exporter
@@ -110,7 +110,7 @@ def to_stim_source(
         raise ValueError("to_stim_source requires a program to emit a stim circuit")
 
     source = to_deq_source(
-        codec,
+        qodec,
         translation_index=translation_index,
         program=program,
         program_name=program_name,

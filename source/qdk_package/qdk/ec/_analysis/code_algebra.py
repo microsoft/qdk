@@ -26,7 +26,7 @@ from .propagation.pauli import (
 )
 
 if TYPE_CHECKING:
-    import qodec
+    import qodec as qc
 
 
 class SubsystemCode:  # pylint: disable=too-many-public-methods
@@ -43,7 +43,7 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         return basis
 
     @classmethod
-    def from_qodec(cls, code: "qodec.Code") -> "SubsystemCode":
+    def from_qodec(cls, code: "qc.Code") -> "SubsystemCode":
         stabilizers = [Pauli(text) for text in code.stabilizers]
         logical_basis = [
             Pauli(str(text))
@@ -59,8 +59,8 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         instance.qodec_description = code.description
         return instance
 
-    def to_qodec(self, name: Optional[str] = None) -> "qodec.Code":
-        import qodec
+    def to_qodec(self, name: Optional[str] = None) -> "qc.Code":
+        import qodec as qc
 
         resolved_name = self.qodec_name or name
         if not resolved_name:
@@ -80,7 +80,7 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
                 "Cannot materialize a subsystem code with gauge operators as "
                 "qodec.Code; qodec does not yet model gauge pairs."
             )
-        return qodec.Code(
+        return qc.Code(
             name=resolved_name,
             description=self.qodec_description or "",
             stabilizers=[_format_pauli(stabilizer) for stabilizer in self.stabilizers],

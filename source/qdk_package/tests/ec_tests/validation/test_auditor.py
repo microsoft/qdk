@@ -2,14 +2,15 @@
 
 Inputs come from the vendored, current-model ``repetition3`` qodec
 (``tests/analysis/audit/fixtures/repetition3.qodec.yaml``, exposed by the
-``rep3_codec`` fixture), so these tests exercise the audit against a real
+``rep3_qodec`` fixture), so these tests exercise the audit against a real
 loaded qodec.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
 
-import qodec
+import qodec as qc
 from qdk.ec.lint import (
     Auditor,
     Diagnostic,
@@ -17,7 +18,6 @@ from qdk.ec.lint import (
     Severity,
     diagnose as audit,
 )
-
 
 # ----------------------------------------------------------------------------
 # Helpers: rebuild a gadget with the current API, optionally corrupting it.
@@ -33,13 +33,13 @@ def _atoms(readout: Sequence[object] | Mapping[str, Sequence[object]]) -> list[s
 
 
 def _clone(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     *,
     checks: list[list[str]] | None = None,
     readouts: list[list[str]] | None = None,
-) -> qodec.Gadget:
+) -> qc.Gadget:
     """A copy of ``gadget`` with its ``checks`` / ``readouts`` optionally replaced."""
-    return qodec.Gadget(
+    return qc.Gadget(
         gadget.implements,
         gadget.circuit,
         inputs=list(gadget.inputs),
@@ -62,15 +62,15 @@ def _clone(
 # ----------------------------------------------------------------------------
 
 
-def test_repetition3_audits_without_errors(rep3_codec: qodec.Qodec) -> None:
-    report = audit(rep3_codec)
+def test_repetition3_audits_without_errors(rep3_qodec: qc.Qodec) -> None:
+    report = audit(rep3_qodec)
     assert report.ok, str(report)
 
 
 def test_repetition3_audits_clean_with_informational(
-    rep3_codec: qodec.Qodec,
+    rep3_qodec: qc.Qodec,
 ) -> None:
-    report = audit(rep3_codec, include_informational=True)
+    report = audit(rep3_qodec, include_informational=True)
     assert report.ok, str(report)
 
 
@@ -79,11 +79,9 @@ def test_repetition3_audits_clean_with_informational(
 # ----------------------------------------------------------------------------
 
 
-def test_audit_gadget_only_runs_gadget_rules(rep3_codec: qodec.Qodec) -> None:
-    gadget = rep3_codec.layers[0].gadgets["measure_z"]
-    report = Auditor(include_informational=True).audit_gadget(
-        gadget, codec=rep3_codec
-    )
+def test_audit_gadget_only_runs_gadget_rules(rep3_qodec: qc.Qodec) -> None:
+    gadget = rep3_qodec.layers[0].gadgets["measure_z"]
+    report = Auditor(include_informational=True).audit_gadget(gadget, qodec=rep3_qodec)
     assert report.ok, str(report)
     assert all(d.rule.startswith("gadget/") for d in report.diagnostics)
 
@@ -94,11 +92,11 @@ def test_audit_gadget_only_runs_gadget_rules(rep3_codec: qodec.Qodec) -> None:
 
 
 def test_dropped_readouts_triggers_missing_observable(
-    rep3_codec: qodec.Qodec,
+    rep3_qodec: qc.Qodec,
 ) -> None:
-    measure_z = rep3_codec.layers[0].gadgets["measure_z"]
+    measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
     stripped = _clone(measure_z, readouts=[])
-    report = Auditor().audit_gadget(stripped, codec=rep3_codec)
+    report = Auditor().audit_gadget(stripped, qodec=rep3_qodec)
     assert not report.ok
     assert "gadget/missing-observable" in {d.rule for d in report.errors()}
 
@@ -109,9 +107,9 @@ def test_dropped_readouts_triggers_missing_observable(
 
 
 def test_truncated_readout_triggers_readout_mismatch(
-    rep3_codec: qodec.Qodec,
+    rep3_qodec: qc.Qodec,
 ) -> None:
-    measure_z = rep3_codec.layers[0].gadgets["measure_z"]
+    measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
     truncated: list[list[str]] = []
     for readout in measure_z.readouts:
         atoms = _atoms(readout)
@@ -119,7 +117,7 @@ def test_truncated_readout_triggers_readout_mismatch(
         other = [a for a in atoms if not a.startswith("circuit.readouts")]
         truncated.append(other + record_atoms[1:])
     corrupted = _clone(measure_z, readouts=truncated)
-    report = Auditor().audit_gadget(corrupted, codec=rep3_codec)
+    report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
     assert not report.ok
     assert "gadget/readout-mismatch" in {d.rule for d in report.errors()}
 
@@ -130,29 +128,29 @@ def test_truncated_readout_triggers_readout_mismatch(
 
 
 def test_out_of_range_encoding_entry_is_flagged(
-    rep3_codec: qodec.Qodec,
+    rep3_qodec: qc.Qodec,
 ) -> None:
     """``measure_z`` destroys its logical, so it has no output encoding; an
     ``out[...]`` reference is therefore out of range."""
-    measure_z = rep3_codec.layers[0].gadgets["measure_z"]
+    measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
     checks = [[str(a) for a in check] for check in measure_z.checks]
     checks.append(["out[5].stabilizers[0]"])
     corrupted = _clone(measure_z, checks=checks)
-    report = Auditor().audit_gadget(corrupted, codec=rep3_codec)
+    report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
     assert not report.ok
     assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors()}
 
 
 def test_out_of_range_stabilizer_index_is_flagged(
-    rep3_codec: qodec.Qodec,
+    rep3_qodec: qc.Qodec,
 ) -> None:
     """The repetition code has two stabilizers, so ``stabilizers[9]`` is out
     of range even though the entry index is valid."""
-    idle = rep3_codec.layers[0].gadgets["idle"]
+    idle = rep3_qodec.layers[0].gadgets["idle"]
     checks = [[str(a) for a in check] for check in idle.checks]
     checks.append(["in[0].stabilizers[9]"])
     corrupted = _clone(idle, checks=checks)
-    report = Auditor().audit_gadget(corrupted, codec=rep3_codec)
+    report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
     assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors()}
 
 
@@ -162,21 +160,21 @@ def test_out_of_range_stabilizer_index_is_flagged(
 # ----------------------------------------------------------------------------
 
 
-def test_unbound_flag_triggers_missing_flag(rep3_codec: qodec.Qodec) -> None:
-    stim_isa = rep3_codec.layers[1].isa
-    code = rep3_codec.codes["repetition3"]
-    operand = qodec.instructions.BlockOperand("repetition3")
-    flagged = qodec.Instruction(
+def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
+    stim_isa = rep3_qodec.layers[1].isa
+    code = rep3_qodec.codes["repetition3"]
+    operand = qc.instructions.BlockOperand("repetition3")
+    flagged = qc.Instruction(
         "prepare_flagged",
         outputs=[operand],
         flags=["reject"],
-        action=[qodec.actions.Stabilize(["Z_0"])],
+        action=[qc.actions.Stabilize(["Z_0"])],
     )
-    circuit = qodec.gadgets.Circuit(stim_isa, "R 0 1 2", format="stim")
-    encoding = qodec.gadgets.Encoding(code, support=["0", "1", "2"])
+    circuit = qc.gadgets.Circuit(stim_isa, "R 0 1 2", format="stim")
+    encoding = qc.gadgets.Encoding(code, support=["0", "1", "2"])
     # readouts=[] leaves the declared 'reject' flag unbound.
-    gadget = qodec.Gadget(flagged, circuit, outputs=[encoding], readouts=[])
-    report = Auditor().audit_gadget(gadget, codec=rep3_codec)
+    gadget = qc.Gadget(flagged, circuit, outputs=[encoding], readouts=[])
+    report = Auditor().audit_gadget(gadget, qodec=rep3_qodec)
     assert "gadget/missing-flag" in {d.rule for d in report.errors()}
 
 
@@ -185,11 +183,11 @@ def test_unbound_flag_triggers_missing_flag(rep3_codec: qodec.Qodec) -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_structural_error_skips_semantic_phase(rep3_codec: qodec.Qodec) -> None:
+def test_structural_error_skips_semantic_phase(rep3_qodec: qc.Qodec) -> None:
     """A missing observable (structural) skips action-mismatch (semantic)."""
-    measure_z = rep3_codec.layers[0].gadgets["measure_z"]
+    measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
     stripped = _clone(measure_z, readouts=[])
-    report = Auditor().audit_gadget(stripped, codec=rep3_codec)
+    report = Auditor().audit_gadget(stripped, qodec=rep3_qodec)
     rules_fired = {d.rule for d in report.diagnostics}
     assert "gadget/missing-observable" in rules_fired
     assert "gadget/action-mismatch" not in rules_fired
@@ -202,29 +200,25 @@ def test_structural_error_skips_semantic_phase(rep3_codec: qodec.Qodec) -> None:
 
 
 def test_incomplete_output_frame_quiet_for_complete_gadget(
-    rep3_codec: qodec.Qodec,
+    rep3_qodec: qc.Qodec,
 ) -> None:
     # ``idle`` declares an out[0].stabilizers[i] sign for every stabilizer.
-    idle = rep3_codec.layers[0].gadgets["idle"]
-    report = Auditor(include_informational=True).audit_gadget(
-        idle, codec=rep3_codec
-    )
+    idle = rep3_qodec.layers[0].gadgets["idle"]
+    report = Auditor(include_informational=True).audit_gadget(idle, qodec=rep3_qodec)
     fired = [
-        d for d in report.diagnostics
-        if d.rule == "gadget/incomplete-output-frame"
+        d for d in report.diagnostics if d.rule == "gadget/incomplete-output-frame"
     ]
     assert not fired, str(report)
 
 
 def test_incomplete_output_frame_fires_when_out_frames_dropped(
-    rep3_codec: qodec.Qodec,
+    rep3_qodec: qc.Qodec,
 ) -> None:
-    idle = rep3_codec.layers[0].gadgets["idle"]
+    idle = rep3_qodec.layers[0].gadgets["idle"]
     stripped = _clone(idle, checks=[])
-    report = Auditor().audit_gadget(stripped, codec=rep3_codec)
+    report = Auditor().audit_gadget(stripped, qodec=rep3_qodec)
     fired = [
-        d for d in report.diagnostics
-        if d.rule == "gadget/incomplete-output-frame"
+        d for d in report.diagnostics if d.rule == "gadget/incomplete-output-frame"
     ]
     assert fired, str(report)
     assert all(d.severity is Severity.WARNING for d in fired)
@@ -236,17 +230,17 @@ def test_incomplete_output_frame_fires_when_out_frames_dropped(
 # ----------------------------------------------------------------------------
 
 
-def test_strict_mode_promotes_warnings(rep3_codec: qodec.Qodec) -> None:
+def test_strict_mode_promotes_warnings(rep3_qodec: qc.Qodec) -> None:
     """Strict mode turns every WARNING into ERROR."""
 
     class _AlwaysWarn:
         name = "test/always-warn"
         severity = Severity.WARNING
         phase = Phase.STRUCTURAL
-        target = qodec.Gadget
+        target = qc.Gadget
 
         def __call__(
-            self, target: object, *, codec: qodec.Qodec
+            self, target: object, *, qodec: qc.Qodec
         ) -> "Iterator[Diagnostic]":
             yield Diagnostic(
                 rule=self.name,
@@ -256,8 +250,8 @@ def test_strict_mode_promotes_warnings(rep3_codec: qodec.Qodec) -> None:
             )
 
     auditor = Auditor(rules=[_AlwaysWarn()], strict=True)
-    gadget = rep3_codec.layers[0].gadgets["measure_z"]
-    report = auditor.audit_gadget(gadget, codec=rep3_codec)
+    gadget = rep3_qodec.layers[0].gadgets["measure_z"]
+    report = auditor.audit_gadget(gadget, qodec=rep3_qodec)
     assert not report.ok
     assert all(d.severity is Severity.ERROR for d in report.diagnostics)
 
@@ -267,10 +261,10 @@ def test_strict_mode_promotes_warnings(rep3_codec: qodec.Qodec) -> None:
 # ----------------------------------------------------------------------------
 
 
-def test_disabled_rule_is_skipped(rep3_codec: qodec.Qodec) -> None:
-    measure_z = rep3_codec.layers[0].gadgets["measure_z"]
+def test_disabled_rule_is_skipped(rep3_qodec: qc.Qodec) -> None:
+    measure_z = rep3_qodec.layers[0].gadgets["measure_z"]
     stripped = _clone(measure_z, readouts=[])
     auditor = Auditor(disabled={"gadget/missing-observable"})
-    report = auditor.audit_gadget(stripped, codec=rep3_codec)
+    report = auditor.audit_gadget(stripped, qodec=rep3_qodec)
     rules_fired = {d.rule for d in report.diagnostics}
     assert "gadget/missing-observable" not in rules_fired

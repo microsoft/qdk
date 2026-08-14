@@ -1,4 +1,4 @@
-"""Emit ``.deq`` source from a qodec `Codec`+`Translation`(+`Program`).
+"""Emit ``.deq`` source from a qodec `Qodec`+`Translation`(+`Program`).
 
 The output is a ``.deq`` source string suitable for deq's own
 ``parse(...)`` and ``build_jit_library(...)``. We deliberately keep
@@ -15,7 +15,7 @@ from io import StringIO
 
 import stim
 
-import qodec
+import qodec as qc
 from qodec.actions import Observe
 
 from qdk.ec._readouts import observe_count, readout_equation
@@ -23,23 +23,23 @@ from qdk.ec._references import outcome_indices
 
 
 def to_deq_source(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     *,
     translation_index: int = -1,
     program: object | None = None,
     program_name: str = "Program",
 ) -> str:
-    """Render ``codec`` as a ``.deq`` source string.
+    """Render ``qodec`` as a ``.deq`` source string.
 
     Parameters
     ----------
-    codec :
-        The qodec codec to translate.
+    qodec :
+        The qodec qodec to translate.
     translation_index :
         The *top* of the emitted translation stack and the layer the
         ``program`` is written against. Translations from this index down
         to the bottom (the stim layer) are all emitted, preserving the
-        codec's abstraction layers: the bottom translation becomes
+        qodec's abstraction layers: the bottom translation becomes
         physical ``GADGET`` blocks, and every translation above it becomes
         a ``COMPOSE`` block whose body applies the gadgets of the layer
         just below. Defaults to the bottom translation (``-1``), which
@@ -67,10 +67,10 @@ def to_deq_source(
     ``PRESELECT`` is emitted — gadgets remain usable without forcing
     rejection.
     """
-    translations = codec.layers[:-1]
+    translations = qodec.layers[:-1]
     n_translations = len(translations)
     if n_translations == 0:
-        raise ValueError("codec has no translations to emit")
+        raise ValueError("qodec has no translations to emit")
     top = translation_index % n_translations
     bottom = n_translations - 1
     emitted = list(range(top, n_translations))
@@ -78,8 +78,8 @@ def to_deq_source(
     resolve_name = _build_name_resolver(translations, emitted)
 
     out = StringIO()
-    _emit_header(out, codec, emitted)
-    for name, code in codec.codes.items():
+    _emit_header(out, qodec, emitted)
+    for name, code in qodec.codes.items():
         _emit_code(out, name, code)
     # Emit bottom-up so each COMPOSE references gadgets already declared
     # (deq's compose builder rejects forward references).
@@ -107,7 +107,7 @@ def to_deq_source(
 
 
 def _build_name_resolver(
-    translations: list[qodec.Layer], emitted: list[int]
+    translations: list[qc.Layer], emitted: list[int]
 ) -> Callable[[int, str], str]:
     """Return a ``(translation_index, mnemonic) -> deq_name`` resolver.
 
@@ -133,7 +133,7 @@ def _build_name_resolver(
     return resolve
 
 
-def _primary_code_name(gadget: qodec.Gadget) -> str | None:
+def _primary_code_name(gadget: qc.Gadget) -> str | None:
     """The code name that identifies a gadget's encoding layer.
 
     Uses the output encoding's code when present (preparations,
@@ -145,7 +145,7 @@ def _primary_code_name(gadget: qodec.Gadget) -> str | None:
     return None
 
 
-def _is_stim_emittable(gadget: qodec.Gadget) -> bool:
+def _is_stim_emittable(gadget: qc.Gadget) -> bool:
     """Whether a bottom-layer gadget's body is a stim circuit deq can hold.
 
     A ``.deq`` ``GADGET`` body is stim. Gadgets with a non-stim body (e.g. a
@@ -199,8 +199,8 @@ def _collect_assumed_flags(program: object | None) -> dict[str, dict[str, int]]:
     return seen
 
 
-def _emit_header(out: StringIO, codec: qodec.Qodec, emitted: list[int]) -> None:
-    layers = codec.layers
+def _emit_header(out: StringIO, qodec: qc.Qodec, emitted: list[int]) -> None:
+    layers = qodec.layers
     if len(emitted) == 1:
         ti = emitted[0]
         desc = f"translation #{ti}: {layers[ti].isa.name} -> {layers[ti + 1].isa.name}"
@@ -209,7 +209,7 @@ def _emit_header(out: StringIO, codec: qodec.Qodec, emitted: list[int]) -> None:
             [layers[ti].isa.name for ti in emitted] + [layers[emitted[-1] + 1].isa.name]
         )
         desc = f"translations #{emitted[0]}..#{emitted[-1]} ({stack})"
-    out.write(f"# auto-generated from qodec codec {codec.name!r} ({desc})\n\n")
+    out.write(f"# auto-generated from qodec {qodec.name!r} ({desc})\n\n")
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +217,7 @@ def _emit_header(out: StringIO, codec: qodec.Qodec, emitted: list[int]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _emit_code(out: StringIO, name: str, code: qodec.Code) -> None:
+def _emit_code(out: StringIO, name: str, code: qc.Code) -> None:
     out.write(f"CODE {name} {_code_parameters(code)} {{\n")
     for x_op, z_op in zip(list(code.x), list(code.z)):
         x_term = _pauli_term(str(x_op))
@@ -231,7 +231,7 @@ def _emit_code(out: StringIO, name: str, code: qodec.Code) -> None:
     out.write("}\n\n")
 
 
-def _code_parameters(code: qodec.Code) -> str:
+def _code_parameters(code: qc.Code) -> str:
     """Render the ``[[n,k,d]]`` parameter triple.
 
     ``n`` is the physical qubit count, inferred from the highest index
@@ -244,7 +244,7 @@ def _code_parameters(code: qodec.Code) -> str:
     return f"[[{n},{k},1]]"
 
 
-def _qubit_count(code: qodec.Code) -> int:
+def _qubit_count(code: qc.Code) -> int:
     """Highest qubit index referenced + 1 across all Pauli strings."""
     high = -1
     for op in code.stabilizers:
@@ -291,7 +291,7 @@ _BOUNDARY_STAB_REF = re.compile(r"(in|out)\[(\d+)\]\.stabilizers\[(\d+)\]$")
 def _emit_gadget(
     out: StringIO,
     name: str,
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     expected_flags: dict[str, int] | None = None,
 ) -> None:
     body_lines = [
@@ -327,7 +327,7 @@ def _emit_gadget(
     out.write("}\n\n")
 
 
-def _check_lines(gadget: qodec.Gadget, measurement_count: int) -> list[str] | None:
+def _check_lines(gadget: qc.Gadget, measurement_count: int) -> list[str] | None:
     """Render the gadget's checks as deq ``CHECK rec[-k]`` statements.
 
     deq models each input/output boundary stabilizer as a *virtual*
@@ -417,14 +417,14 @@ def _check_ref_global(
 
 # ---------------------------------------------------------------------------
 # COMPOSE block — an upper-translation gadget whose body applies the gadgets
-# of the layer just below (preserving the codec's abstraction layers).
+# of the layer just below (preserving the qodec's abstraction layers).
 # ---------------------------------------------------------------------------
 
 
 def _emit_compose(
     out: StringIO,
     deq_name: str,
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     translation_index: int,
     resolve_name: Callable[[int, str], str],
 ) -> None:
@@ -450,7 +450,7 @@ def _emit_compose(
     out.write("}\n\n")
 
 
-def _body_call_blocks(call: qodec.InstructionCall) -> list[int]:
+def _body_call_blocks(call: qc.InstructionCall) -> list[int]:
     """Block indices a body call targets, in port order.
 
     An inline-YAML body call addresses the layer below by *block index*
@@ -475,7 +475,7 @@ def _qubit_list(qubits: Iterable[object]) -> str:
 
 # Operations that produce one measurement record per target qubit. This is
 # a conservative subset that covers the stim gates currently used in the
-# qodec example codecs; if a future codec adds more measurement-producing
+# qodec example qodecs; if a future qodec adds more measurement-producing
 # gates we'll widen this here.
 _MEAS_GATES_PER_QUBIT = {"M", "MX", "MY", "MZ", "MR", "MRX", "MRY", "MRZ"}
 # Operations that produce one measurement record per pair of qubits.
@@ -503,7 +503,7 @@ def _stim_measurement_delta(stim_line: str) -> int:
     return 0
 
 
-def _readout_lines(gadget: qodec.Gadget, measurement_count: int) -> list[str]:
+def _readout_lines(gadget: qc.Gadget, measurement_count: int) -> list[str]:
     """Emit a ``READOUT`` statement per logical observable declared by
     the gadget's objective.
 
@@ -558,7 +558,7 @@ def _readout_to_rec(reference: str, measurement_count: int) -> str:
 
 
 def _preselect_lines(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     measurement_count: int,
     expected_flags: dict[str, int],
 ) -> list[str]:
@@ -645,7 +645,7 @@ def _emit_program(
 
 
 def _assign_block_indices(
-    instructions: Iterable[qodec.InstructionCall],
+    instructions: Iterable[qc.InstructionCall],
 ) -> dict[str, int]:
     """Collect unique block names across the program in first-seen order
     and assign each a sequential index starting at 0.
@@ -661,7 +661,7 @@ def _assign_block_indices(
     return indices
 
 
-def _ordered_operand_names(call: qodec.InstructionCall) -> list[str]:
+def _ordered_operand_names(call: qc.InstructionCall) -> list[str]:
     """Return the union of ``inputs`` and ``outputs`` block names in a
     stable order.
 
@@ -680,8 +680,8 @@ def _ordered_operand_names(call: qodec.InstructionCall) -> list[str]:
 
 
 def _program_readout_count(
-    instructions: Iterable[qodec.InstructionCall],
-    isa: qodec.InstructionSet,
+    instructions: Iterable[qc.InstructionCall],
+    isa: qc.InstructionSet,
 ) -> int:
     """Count the total number of logical readouts the program emits.
 

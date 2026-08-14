@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 
 from qdk.ec._analysis.propagation import (
     Program,
@@ -14,11 +14,11 @@ from paulimer import PauliGroup
 from qdk.ec._analysis.propagation.frames import PauliFrame
 
 
-def _program_of(gadget: qodec.Gadget) -> Program:
+def _program_of(gadget: qc.Gadget) -> Program:
     return Program(gadget.circuit.instructions, gadget.circuit.isa)
 
 
-def test_stabilizer_group_of_idle_channel(idle_gadget: qodec.Gadget) -> None:
+def test_stabilizer_group_of_idle_channel(idle_gadget: qc.Gadget) -> None:
     program = _program_of(idle_gadget)
     group = stabilizer_group_of(program)
     assert isinstance(group, PauliGroup)
@@ -26,7 +26,7 @@ def test_stabilizer_group_of_idle_channel(idle_gadget: qodec.Gadget) -> None:
 
 
 def test_evolution_of_empty_matches_stabilizer_group_of(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     program = _program_of(idle_gadget)
     evolved = evolution_of(PauliGroup([], all_commute=True), program=program)

@@ -1,7 +1,7 @@
 """Tests for objective action profiling."""
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 from qdk.ec.action import lift_objective, logical_action_of
 from ec_tests.testing.qodecs import c4
 
@@ -9,16 +9,16 @@ from ec_tests.testing.qodecs import c4
 def _swap_idle_objective(
     *,
     mnemonic: str,
-    actions: list[qodec.Action],
+    actions: list[qc.Action],
     flags: list[str] | None = None,
-) -> qodec.Instruction:
+) -> qc.Instruction:
     """Build a single instruction matching the shape of `c4()`'s ``idle``
     (one input/output ``c4`` block, two logical qubits) but carrying
     ``actions`` instead. Returns the objective `Instruction`; the gadget
     body it is paired with supplies the realisation.
     """
-    block_op = qodec.instructions.BlockOperand("c4")
-    return qodec.Instruction(
+    block_op = qc.instructions.BlockOperand("c4")
+    return qc.Instruction(
         mnemonic=mnemonic,
         inputs=[block_op], outputs=[block_op],
         flags=list(flags) if flags else [],
@@ -27,14 +27,14 @@ def _swap_idle_objective(
 
 
 def _bogus_gadget(
-    base: qodec.Gadget,
-    objective: qodec.Instruction,
+    base: qc.Gadget,
+    objective: qc.Instruction,
     *,
     readouts: list[object] | None = None,
-) -> qodec.Gadget:
+) -> qc.Gadget:
     """Build a gadget that reuses ``base``'s realisation (circuit + boundary
     encodings + checks) but swaps in a custom implemented instruction."""
-    return qodec.Gadget(
+    return qc.Gadget(
         implements=objective,
         circuit=base.circuit,
         inputs=list(base.inputs),
@@ -48,8 +48,8 @@ def test_lift_objective_happy_path_for_measure_zz() -> None:
     """`measure_zz` declares two Pauli observables; the lift should
     produce an expected `LogicalAction` and no missing/unsupported
     annotations."""
-    codec = c4()
-    gadget = codec.layers[0].gadgets["measure_zz"]
+    qodec = c4()
+    gadget = qodec.layers[0].gadgets["measure_zz"]
     lift = lift_objective(gadget)
     assert lift.expected is not None
     assert lift.missing_observables == ()
@@ -60,8 +60,8 @@ def test_lift_objective_happy_path_for_measure_zz() -> None:
 
 def test_lift_objective_flags_prepare_zz_reject() -> None:
     """`prepare_zz` declares a flag named ``reject`` that the realisation binds."""
-    codec = c4()
-    gadget = codec.layers[0].gadgets["prepare_zz"]
+    qodec = c4()
+    gadget = qodec.layers[0].gadgets["prepare_zz"]
     lift = lift_objective(gadget)
     assert "reject" in lift.bound_flags
 
@@ -69,9 +69,9 @@ def test_lift_objective_flags_prepare_zz_reject() -> None:
 def test_lift_objective_reports_missing_observable() -> None:
     """If the realisation drops an observable the objective declares,
     the lift records it under `missing_observables`."""
-    codec = c4()
-    measure_zz = codec.layers[0].gadgets["measure_zz"]
-    bogus = qodec.Gadget(
+    qodec = c4()
+    measure_zz = qodec.layers[0].gadgets["measure_zz"]
+    bogus = qc.Gadget(
         implements=measure_zz.implements,
         circuit=measure_zz.circuit,
         inputs=list(measure_zz.inputs),
@@ -87,8 +87,8 @@ def test_lift_objective_reports_missing_observable() -> None:
 def test_lift_objective_clean_on_idle() -> None:
     """`idle` has no objective action atoms; the lift produces an
     identity-shaped expected action with no flags or unsupported atoms."""
-    codec = c4()
-    gadget = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    gadget = qodec.layers[0].gadgets["idle"]
     lift = lift_objective(gadget)
     assert lift.expected is not None
     assert lift.missing_observables == ()
@@ -99,16 +99,16 @@ def test_lift_objective_clean_on_idle() -> None:
 def test_lift_objective_records_unsupported_atom() -> None:
     """A `Rotate` atom (out of stabiliser scope) is reported in
     `unsupported_atoms` and lift returns no expected action."""
-    codec = c4()
-    measure_zz = codec.layers[0].gadgets["measure_zz"]
-    bogus_objective = qodec.Instruction(
+    qodec = c4()
+    measure_zz = qodec.layers[0].gadgets["measure_zz"]
+    bogus_objective = qc.Instruction(
         mnemonic="rotated",
-        inputs=[qodec.instructions.BlockOperand("c4")],
+        inputs=[qc.instructions.BlockOperand("c4")],
         action=[
-            qodec.actions.Rotate("Z_0 Z_1", angle=0.5),
+            qc.actions.Rotate("Z_0 Z_1", angle=0.5),
         ],
     )
-    bogus = qodec.Gadget(
+    bogus = qc.Gadget(
         implements=bogus_objective,
         circuit=measure_zz.circuit,
         inputs=list(measure_zz.inputs),
@@ -123,11 +123,11 @@ def test_lift_objective_identity_clifford_matches_idle() -> None:
     """An identity `Clifford` (empty generators dict relying on the
     implicit identity) on the `idle` realisation lifts to the same
     `LogicalAction` as the realisation actually produces."""
-    codec = c4()
-    idle = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    idle = qodec.layers[0].gadgets["idle"]
     objective = _swap_idle_objective(
         mnemonic="id_clifford",
-        actions=[qodec.actions.Clifford({})],
+        actions=[qc.actions.Clifford({})],
     )
     bogus = _bogus_gadget(idle, objective)
     lift = lift_objective(bogus)
@@ -141,11 +141,11 @@ def test_lift_objective_non_trivial_clifford_composes() -> None:
     (X̄_0 ↔ X̄_1, Z̄_0 ↔ Z̄_1) lifts to the expected permutation of the
     flat image table — independently of the realisation's behaviour.
     """
-    codec = c4()
-    idle = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    idle = qodec.layers[0].gadgets["idle"]
     objective = _swap_idle_objective(
         mnemonic="swap_ls",
-        actions=[qodec.actions.Clifford({
+        actions=[qc.actions.Clifford({
             "X_0": "X_1",
             "X_1": "X_0",
             "Z_0": "Z_1",
@@ -171,9 +171,9 @@ def test_lift_objective_clifford_composition_order() -> None:
     """Two `Clifford` atoms compose left-to-right (sequential
     application). Applying the same L↔S swap twice yields identity.
     """
-    codec = c4()
-    idle = codec.layers[0].gadgets["idle"]
-    swap = qodec.actions.Clifford({
+    qodec = c4()
+    idle = qodec.layers[0].gadgets["idle"]
+    swap = qc.actions.Clifford({
         "X_0": "X_1",
         "X_1": "X_0",
         "Z_0": "Z_1",
@@ -192,11 +192,11 @@ def test_lift_objective_unconditional_pauli_is_no_op() -> None:
     """An unconditional `Pauli` only changes signs, which `LogicalAction`
     does not track. The lift treats it as identity and reports no
     unsupported atoms."""
-    codec = c4()
-    idle = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    idle = qodec.layers[0].gadgets["idle"]
     objective = _swap_idle_objective(
         mnemonic="pauli_kick",
-        actions=[qodec.actions.Pauli("X_0")],
+        actions=[qc.actions.Pauli("X_0")],
     )
     bogus = _bogus_gadget(idle, objective)
     lift = lift_objective(bogus)
@@ -209,14 +209,14 @@ def test_lift_objective_conditional_clifford_unsupported() -> None:
     """A `Clifford` carrying a non-``None`` ``condition`` (feedforward
     Pauli correction) is reported in ``unsupported_atoms`` and the lift
     returns no expected action."""
-    codec = c4()
-    idle = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    idle = qodec.layers[0].gadgets["idle"]
     objective = _swap_idle_objective(
         mnemonic="cond_clifford",
         flags=["flag"],
-        actions=[qodec.actions.Clifford(
+        actions=[qc.actions.Clifford(
             {"X_0": "X_1"},
-            condition=qodec.actions.Condition(["flag"]),
+            condition=qc.actions.Condition(["flag"]),
         )],
     )
     bogus = _bogus_gadget(
@@ -231,14 +231,14 @@ def test_lift_objective_conditional_clifford_unsupported() -> None:
 def test_lift_objective_conditional_pauli_unsupported() -> None:
     """A `Pauli` carrying a non-``None`` ``condition`` is reported in
     ``unsupported_atoms`` and the lift returns no expected action."""
-    codec = c4()
-    idle = codec.layers[0].gadgets["idle"]
+    qodec = c4()
+    idle = qodec.layers[0].gadgets["idle"]
     objective = _swap_idle_objective(
         mnemonic="cond_pauli",
         flags=["flag"],
-        actions=[qodec.actions.Pauli(
+        actions=[qc.actions.Pauli(
             "X_0",
-            condition=qodec.actions.Condition(["flag"]),
+            condition=qc.actions.Condition(["flag"]),
         )],
     )
     bogus = _bogus_gadget(

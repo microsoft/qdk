@@ -13,7 +13,7 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
-import qodec
+import qodec as qc
 
 _READOUT_RE = re.compile(r"^circuit\.readouts\[([^\]]+)\]$")
 _ENCODING_REF_RE = re.compile(r"^(in|out)\[(\d+)\]\.(stabilizers|x|z)\[(\d+)\]$")
@@ -121,12 +121,12 @@ def outcome_index_of_atom(key: object) -> int:
     return indices[0]
 
 
-def readout_atoms(indices: Iterable[int]) -> list[qodec.ReferenceLike]:
+def readout_atoms(indices: Iterable[int]) -> list[qc.ReferenceLike]:
     """Serialise an outcome-XOR pattern as ``circuit.readouts[<i>]`` atoms."""
     return [f"circuit.readouts[{index}]" for index in indices]
 
 
-def as_references(atoms: Iterable[object]) -> list[qodec.ReferenceLike]:
+def as_references(atoms: Iterable[object]) -> list[qc.ReferenceLike]:
     """One parity equation in the shape qodec's setters accept."""
     return [str(atom) for atom in atoms]
 

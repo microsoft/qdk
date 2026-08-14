@@ -18,7 +18,7 @@ from dataclasses import dataclass
 
 import stim
 
-import qodec
+import qodec as qc
 
 from .._readouts import readout_equation
 from .._references import (
@@ -83,7 +83,7 @@ class _RecursiveEmitState:
     noise: dict[str, float]
 
 
-def _observe_names(gadget: qodec.Gadget) -> list[str]:
+def _observe_names(gadget: qc.Gadget) -> list[str]:
     """Ordered readout names this gadget's objective exposes to its parent.
 
     Observe outcomes are positional in the current model, so these are the
@@ -108,7 +108,7 @@ def _resolve_atoms_records(
     body_prov: list[frozenset[int]],
     frame_map: dict[tuple[int, int], frozenset[int]],
     logical_frame_map: dict[tuple[int, str, int], frozenset[int]],
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> set[int]:
     """XOR-resolve a parity equation to a set of physical record indices.
 
@@ -148,7 +148,7 @@ def _resolve_atoms_records(
 
 
 def _update_frame_map_recursive(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     frame_map: dict[tuple[int, int], frozenset[int]],
     logical_frame_map: dict[tuple[int, str, int], frozenset[int]],
     body_prov: list[frozenset[int]],
@@ -169,7 +169,7 @@ def _update_frame_map_recursive(
     empty set (deterministic preparation seed). Because every frame is
     established at preparation, later gadgets only ever *compare* against an
     existing entry; an ``in`` reference with no seeded frame is an
-    under-specified codec and is rejected (see
+    under-specified qodec and is rejected (see
     :func:`_resolve_atoms_records`), with no positional fallback.
     """
     new_entries: dict[tuple[int, int], frozenset[int]] = {}
@@ -212,7 +212,7 @@ def _update_frame_map_recursive(
     # ``out[entry].(x|z)[i]`` atom re-expresses that rotating logical's
     # representative; the record set carrying its sign is the XOR of the
     # check's body readouts, stabilizer in-frames, and logical in-frames.
-    # Static-logical codecs (c4, surface) declare no out-logical atoms, so
+    # Static-logical qodecs (c4, surface) declare no out-logical atoms, so
     # this leaves ``logical_frame_map`` untouched.
     new_logical: dict[tuple[int, str, int], frozenset[int]] = {}
     for check in gadget.checks:
@@ -241,7 +241,7 @@ def _update_frame_map_recursive(
 
 
 def _call_readout_prov(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     body_prov: list[frozenset[int]],
     frame_map: dict[tuple[int, int], frozenset[int]],
     logical_frame_map: dict[tuple[int, str, int], frozenset[int]],

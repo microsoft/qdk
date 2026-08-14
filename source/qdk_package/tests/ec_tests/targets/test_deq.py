@@ -24,37 +24,37 @@ except RuntimeError:
         "deq_runtime native extension not built", allow_module_level=True
     )
 
-import qodec  # noqa: E402
+import qodec as qc  # noqa: E402
 
 from qodec.circuits import Program  # noqa: E402
 from ec_tests.testing.qodecs import c4  # noqa: E402
 from qdk.ec.targets import Biased, DeqLerTarget, LerResult, SI1000  # noqa: E402
 
 
-def _memory_program(codec: qodec.Qodec) -> Program:
+def _memory_program(qodec: qc.Qodec) -> Program:
     return Program(
         [
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 "prepare_zz",
                 outputs={"block": "data"},
                 assume=[{"reject": 0}],
             ),
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 "idle", inputs={"block": "data"}, outputs={"block": "data"}
             ),
-            qodec.instructions.InstructionCall(
+            qc.instructions.InstructionCall(
                 "measure_zz", inputs={"block": "data"}
             ),
         ],
-        codec.layers[0].isa,
+        qodec.layers[0].isa,
     )
 
 
 def test_deq_ler_target_noiseless_memory() -> None:
     """c4-stim is noiseless → memory experiment should produce 0 errors."""
-    codec = c4()
-    target = DeqLerTarget(codec)
-    result = target.execute(_memory_program(codec), shots=200, timeout=60)
+    qodec = c4()
+    target = DeqLerTarget(qodec)
+    result = target.execute(_memory_program(qodec), shots=200, timeout=60)
 
     assert isinstance(result, LerResult)
     assert result.shots == 200
@@ -66,9 +66,9 @@ def test_deq_ler_target_noiseless_memory() -> None:
 def test_deq_ler_target_si1000_produces_errors() -> None:
     """With SI1000 noise at p=1%, c4-stim memory experiment must see logical
     errors — sanity check that noise injection reaches the simulator."""
-    codec = c4()
-    target = DeqLerTarget(codec, noise=SI1000(0.01))
-    result = target.execute(_memory_program(codec), shots=500, timeout=60)
+    qodec = c4()
+    target = DeqLerTarget(qodec, noise=SI1000(0.01))
+    result = target.execute(_memory_program(qodec), shots=500, timeout=60)
 
     assert result.shots == 500
     assert result.logical_errors > 0
@@ -77,9 +77,9 @@ def test_deq_ler_target_si1000_produces_errors() -> None:
 
 def test_deq_ler_target_biased_runs() -> None:
     """Biased noise model also wires through end-to-end."""
-    codec = c4()
-    target = DeqLerTarget(codec, noise=Biased(0.005, eta=5.0))
-    result = target.execute(_memory_program(codec), shots=200, timeout=60)
+    qodec = c4()
+    target = DeqLerTarget(qodec, noise=Biased(0.005, eta=5.0))
+    result = target.execute(_memory_program(qodec), shots=200, timeout=60)
 
     assert result.shots == 200
     assert 0.0 <= result.error_rate <= 1.0

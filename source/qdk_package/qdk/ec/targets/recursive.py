@@ -1,11 +1,11 @@
 """RecursiveTarget: execute a layered program through a bottom executor.
 
 A `RecursiveTarget` looks like any other sampler — ``execute(program, *, shots)
-→ Batch`` — but it preserves the codec's abstraction layers instead of
+→ Batch`` — but it preserves the qodec's abstraction layers instead of
 flattening them into one monolithic decode:
 
 * A **bottom** `Sampler` (e.g. `StimSampler`, or a future deq per-shot sampler)
-  executes the bottom slice of the codec under its own noise model and returns
+  executes the bottom slice of the qodec under its own noise model and returns
   raw physical readouts. Noise lives entirely on the bottom; the recursive
   target itself is noise-free.
 * The bottom slice's physical readouts are lifted to that slice's logical
@@ -16,7 +16,7 @@ flattening them into one monolithic decode:
 
 This is the staged, layer-preserving counterpart to a flat
 `DeqLerTarget`/`StimSampler`, which compose every translation into one circuit.
-Staging is what lets a *vertically concatenated* codec (an outer-code block
+Staging is what lets a *vertically concatenated* qodec (an outer-code block
 realised across inner-code blocks) be executed with deq driving only the
 physical inner layer — the layer where deq's noise model and decoders are
 defined — while the outer code is resolved classically on top.
@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import numpy as np
 
-import qodec
+import qodec as qc
 
 from .._readouts import observable_names, observe_count
 from .._references import outcome_indices
@@ -45,7 +45,7 @@ from .stim import StimEmitter
 
 
 def _parity_lift(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     level: int,
     upper_program: Program,
     lower: Batch,
@@ -58,8 +58,8 @@ def _parity_lift(
     body's own logical outcomes — so each upper readout is the XOR of the
     corresponding columns of the layer-below batch.
     """
-    layer = codec.layers[level]
-    below = codec.layers[level + 1]
+    layer = qodec.layers[level]
+    below = qodec.layers[level + 1]
     lower_bits = np.asarray(lower, dtype=np.bool_)
     shots = lower_bits.shape[0]
 
@@ -85,51 +85,51 @@ def _parity_lift(
 
 
 class RecursiveTarget(Target[Batch]):
-    """Staged, layer-preserving sampler over a layered codec.
+    """Staged, layer-preserving sampler over a layered qodec.
 
     Parameters
     ----------
-    codec :
-        The full layered codec.
+    qodec :
+        The full layered qodec.
     bottom :
-        A `Sampler` bound to a bottom slice ``codec.slice(split, n)``. It
+        A `Sampler` bound to a bottom slice ``qodec.slice(split, n)``. It
         executes that slice (under its own noise) and returns raw physical
         readouts as a `Batch`. The split point is inferred from how many layers
-        ``bottom.codec`` spans.
+        ``bottom.qodec`` spans.
     """
 
     def __init__(
         self,
-        codec: qodec.Qodec,
+        qodec: qc.Qodec,
         bottom: Sampler,
     ) -> None:
-        super().__init__(codec)
-        n_layers = len(codec.layers)
-        split = n_layers - len(bottom.codec.layers)
-        if split < 0 or bottom.codec.layers[0].isa.name != codec.layers[split].isa.name:
+        super().__init__(qodec)
+        n_layers = len(qodec.layers)
+        split = n_layers - len(bottom.qodec.layers)
+        if split < 0 or bottom.qodec.layers[0].isa.name != qodec.layers[split].isa.name:
             raise ValueError(
-                "bottom.codec must be a bottom slice of codec "
-                "(its layers a suffix of codec.layers)"
+                "bottom.qodec must be a bottom slice of qodec "
+                "(its layers a suffix of qodec.layers)"
             )
         self._bottom = bottom
         self._split = split
         # The bottom slice is sampled raw; gadget flags (verified-prep reject
         # truth tables) are post-processing predicates, not stim observables,
         # so flag emission is suppressed for the readout lift.
-        self._bottom_emitter = StimEmitter(bottom.codec, emit_flags=False)
+        self._bottom_emitter = StimEmitter(bottom.qodec, emit_flags=False)
 
     @property
     def bottom(self) -> Sampler:
         return self._bottom
 
     def execute(self, program: object, *, shots: int) -> Batch:
-        top = coerce_program(program, self._codec.layers[0].isa)
+        top = coerce_program(program, self._qodec.layers[0].isa)
 
         # Lower the program one translation at a time so each upper layer's
         # program is retained for its lift.
         programs: list[Program] = [top]
         for level in range(self._split):
-            sub = self._codec.slice(level, level + 2)
+            sub = self._qodec.slice(level, level + 2)
             lowered = RecursiveLowering(sub).compile(programs[-1]).program
             programs.append(lowered)
         bottom_program = programs[self._split]
@@ -145,7 +145,7 @@ class RecursiveTarget(Target[Batch]):
 
         # Fold up, bottom translation first.
         for level in range(self._split - 1, -1, -1):
-            lower = _parity_lift(self._codec, level, programs[level], lower)
+            lower = _parity_lift(self._qodec, level, programs[level], lower)
         return lower
 
 

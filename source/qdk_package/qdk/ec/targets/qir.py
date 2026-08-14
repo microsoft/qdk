@@ -37,7 +37,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-import qodec
+import qodec as qc
 
 from .._readouts import observables_as_xor_map
 
@@ -71,7 +71,7 @@ class EncodedProgram:
     measurement_gadgets: list[str] = field(default_factory=list)
 
 
-def _action_signature(instruction: qodec.Instruction) -> Optional[tuple]:
+def _action_signature(instruction: qc.Instruction) -> Optional[tuple]:
     """A comparable summary of what a qodec instruction does.
 
     Returns ``("pauli", basis, index)`` for a single-qubit Pauli,
@@ -86,14 +86,14 @@ def _action_signature(instruction: qodec.Instruction) -> Optional[tuple]:
         return None
     action = actions[0]
 
-    if isinstance(action, qodec.actions.Pauli):
+    if isinstance(action, qc.actions.Pauli):
         token = str(action.operator).strip()
         basis, _, index = token.partition("_")
         if basis in _PAULI_GATES and index.isdigit():
             return ("pauli", basis, int(index))
         return None
 
-    if isinstance(action, qodec.actions.Observe):
+    if isinstance(action, qc.actions.Observe):
         bases = []
         for observable in action.observables:
             token = str(getattr(observable, "pauli", observable)).strip()
@@ -103,7 +103,7 @@ def _action_signature(instruction: qodec.Instruction) -> Optional[tuple]:
             bases.append((basis, int(index)))
         return ("observe", tuple(bases))
 
-    if isinstance(action, qodec.actions.Stabilize):
+    if isinstance(action, qc.actions.Stabilize):
         bases = []
         for operator in action.operators:
             token = str(operator).strip()
@@ -116,7 +116,7 @@ def _action_signature(instruction: qodec.Instruction) -> Optional[tuple]:
     return None
 
 
-def _index_isa(isa: qodec.InstructionSet) -> dict[tuple, str]:
+def _index_isa(isa: qc.InstructionSet) -> dict[tuple, str]:
     """Map each recognisable action signature to its instruction mnemonic."""
     index: dict[tuple, str] = {}
     for mnemonic, instruction in isa.instructions.items():
@@ -126,7 +126,7 @@ def _index_isa(isa: qodec.InstructionSet) -> dict[tuple, str]:
     return index
 
 
-def _logical_capacity(isa: qodec.InstructionSet) -> int:
+def _logical_capacity(isa: qc.InstructionSet) -> int:
     """How many logical qubits one encoded block of this ISA holds."""
     blocks = list(isa.blocks)
     if not blocks:
@@ -134,14 +134,14 @@ def _logical_capacity(isa: qodec.InstructionSet) -> int:
     return blocks[0].encodes
 
 
-def encodable_gates_of(codec: qodec.Qodec) -> set[str]:
-    """The QIR gate mnemonics ``codec`` can express.
+def encodable_gates_of(qodec: qc.Qodec) -> set[str]:
+    """The QIR gate mnemonics ``qodec`` can express.
 
     Reports what :func:`run_qir_encoded` will accept for this qodec, derived
     from the declared action of each of its logical instructions. Useful for
     telling a user *why* their program cannot be encoded before they run it.
     """
-    index = _index_isa(codec.layers[0].isa)
+    index = _index_isa(qodec.layers[0].isa)
     gates = set()
     for signature in index:
         if signature[0] == "pauli":
@@ -156,19 +156,19 @@ def encodable_gates_of(codec: qodec.Qodec) -> set[str]:
 
 
 def _call(
-    isa: qodec.InstructionSet, mnemonic: str, block: str = "q"
-) -> "qodec.instructions.InstructionCall":
+    isa: qc.InstructionSet, mnemonic: str, block: str = "q"
+) -> "qc.instructions.InstructionCall":
     """An ``InstructionCall`` binding every operand of ``mnemonic`` to ``block``."""
     instruction = isa.instruction(mnemonic)
-    inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+    inputs: dict[str, qc.instructions.InstructionCall.Argument] = {
         str(i): block for i in range(len(list(instruction.inputs)))
     }
-    outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+    outputs: dict[str, qc.instructions.InstructionCall.Argument] = {
         str(i): block for i in range(len(list(instruction.outputs)))
     }
     if not inputs and not outputs:
-        return qodec.instructions.InstructionCall(mnemonic)
-    return qodec.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
+        return qc.instructions.InstructionCall(mnemonic)
+    return qc.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
 
 
 def _gate_name(gate: object) -> str:
@@ -281,7 +281,7 @@ class _SubstitutedCall:
 
 def encode_qir(
     gates: Sequence[Sequence[Any]],
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     *,
     qubit_count: int,
 ) -> EncodedProgram:
@@ -299,7 +299,7 @@ def encode_qir(
     """
     from qodec.circuits import Program
 
-    isa = codec.layers[0].isa
+    isa = qodec.layers[0].isa
     index = _index_isa(isa)
     per_block = _logical_capacity(isa)
 
@@ -317,7 +317,7 @@ def encode_qir(
     prepare = index.get(("stabilize", tuple(("Z", i) for i in range(per_block))))
     if prepare is None:
         raise NotImplementedError(
-            f"qodec {codec.name!r} has no Z-basis preparation instruction, so a "
+            f"qodec {qodec.name!r} has no Z-basis preparation instruction, so a "
             "QIR program (which starts from |0>) cannot be encoded"
         )
 
@@ -344,7 +344,7 @@ def encode_qir(
             mnemonic = index.get(("pauli", _PAULI_GATES[name], slot.index))
             if mnemonic is None:
                 raise NotImplementedError(
-                    f"qodec {codec.name!r} has no instruction applying logical "
+                    f"qodec {qodec.name!r} has no instruction applying logical "
                     f"{name} to logical qubit {slot.index}"
                 )
             calls.append(_call(isa, mnemonic))
@@ -356,7 +356,7 @@ def encode_qir(
             mnemonic = index.get(("observe", tuple(("Z", i) for i in range(per_block))))
             if mnemonic is None:
                 raise NotImplementedError(
-                    f"qodec {codec.name!r} has no Z-basis logical measurement"
+                    f"qodec {qodec.name!r} has no Z-basis logical measurement"
                 )
             calls.append(_call(isa, mnemonic))
             result_slots.append(slot)
@@ -364,8 +364,8 @@ def encode_qir(
             continue
 
         raise NotImplementedError(
-            f"qodec {codec.name!r} cannot encode QIR gate {name!r}; it can "
-            f"express {sorted(encodable_gates_of(codec))}"
+            f"qodec {qodec.name!r} cannot encode QIR gate {name!r}; it can "
+            f"express {sorted(encodable_gates_of(qodec))}"
         )
 
     return EncodedProgram(
@@ -377,7 +377,7 @@ def encode_qir(
 
 
 def _decode_logical(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     encoded: EncodedProgram,
     readouts: "Any",
 ) -> "Any":
@@ -389,7 +389,7 @@ def _decode_logical(
     """
     import numpy as np
 
-    gadgets = codec.layers[0].gadgets
+    gadgets = qodec.layers[0].gadgets
     values = np.zeros((readouts.shape[0], len(encoded.result_slots)), dtype=bool)
 
     # Measurement gadgets appear in program order; walk the record stream from
@@ -420,7 +420,7 @@ def _decode_logical(
     return values
 
 
-def _measurement_width(gadget: qodec.Gadget) -> int:
+def _measurement_width(gadget: qc.Gadget) -> int:
     """Number of physical measurement records one gadget's circuit produces."""
     width = 0
     for line in gadget.circuit.source.splitlines():
@@ -472,14 +472,14 @@ def stim_noise_from(noise: Any) -> Optional[dict[str, float]]:
 
 def run_qir_encoded(
     input: Any,
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     *,
     shots: int = 1,
     noise: Any = None,
     seed: Optional[int] = None,
     postselect: bool = True,
 ) -> list[Any]:
-    """Simulate a QIR program with its qubits encoded in ``codec``.
+    """Simulate a QIR program with its qubits encoded in ``qodec``.
 
     Returns results in the same shape ``qdk.simulation.run_qir`` returns for the
     same program — but every value is a *logical* measurement decoded from an
@@ -489,7 +489,7 @@ def run_qir_encoded(
     ----------
     input:
         QIR source, as accepted by ``qdk.simulation.run_qir``.
-    codec:
+    qodec:
         The qodec to encode into. Must express every gate the program uses; see
         :func:`encodable_gates_of`.
     shots:
@@ -511,7 +511,7 @@ def run_qir_encoded(
     Raises
     ------
     NotImplementedError
-        If the program uses a gate ``codec`` cannot express.
+        If the program uses a gate ``qodec`` cannot express.
     """
     import numpy as np
 
@@ -524,12 +524,12 @@ def run_qir_encoded(
     module, shots, _, seed = preprocess_simulation_input(input, shots, None, seed)
     gates, qubit_count = _extract_gates(module)
 
-    encoded = encode_qir(gates, codec, qubit_count=qubit_count)
+    encoded = encode_qir(gates, qodec, qubit_count=qubit_count)
 
-    sampler = StimSampler(codec, noise=stim_noise_from(noise))
+    sampler = StimSampler(qodec, noise=stim_noise_from(noise))
     readouts = np.asarray(sampler.execute(encoded.program, shots=shots), dtype=bool)
 
-    values = _decode_logical(codec, encoded, readouts)
+    values = _decode_logical(qodec, encoded, readouts)
 
     keep = np.ones(readouts.shape[0], dtype=bool)
     if postselect:

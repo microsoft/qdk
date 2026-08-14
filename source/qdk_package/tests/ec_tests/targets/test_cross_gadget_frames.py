@@ -22,7 +22,7 @@ Assertions:
     positional fallback (which would compare against the wrong, adjacent record
     and fire ~50% of the time).
 
-The codec is built directly through the qodec Python API (rather than loaded
+The qodec is built directly through the qodec Python API (rather than loaded
 from on-disk YAML) so the fixture stays a single self-contained module.
 """
 
@@ -35,7 +35,7 @@ import pytest
 
 pytest.importorskip("stim")
 
-import qodec  # noqa: E402
+import qodec as qc  # noqa: E402
 from qodec.actions import Clifford, Observe, Stabilize  # noqa: E402
 from qodec.instructions import InstructionCall as Call  # noqa: E402
 from qodec.circuits import Program  # noqa: E402
@@ -43,8 +43,8 @@ from qodec.circuits import Program  # noqa: E402
 from qdk.ec.targets import StimEmitter  # noqa: E402
 
 
-def _build_codec() -> qodec.Qodec:
-    """Build the distance-3 split-syndrome repetition memory codec.
+def _build_qodec() -> qc.Qodec:
+    """Build the distance-3 split-syndrome repetition memory qodec.
 
     A single ``logical -> physical`` lowering: the ``RepLogical`` ISA's four
     instructions (``prepare_ref``, ``syndrome_a``, ``syndrome_b``,
@@ -52,44 +52,44 @@ def _build_codec() -> qodec.Qodec:
     half-syndrome gadgets carry the cross-round detector declarations that
     exercise non-adjacent frame resolution.
     """
-    phys_qubit = qodec.instructions.Block("phys_qubit", encodes=1)
-    target = qodec.instructions.BlockOperand("phys_qubit")
-    control = qodec.instructions.BlockOperand("phys_qubit")
-    physical_isa = qodec.InstructionSet(
+    phys_qubit = qc.instructions.Block("phys_qubit", encodes=1)
+    target = qc.instructions.BlockOperand("phys_qubit")
+    control = qc.instructions.BlockOperand("phys_qubit")
+    physical_isa = qc.InstructionSet(
         name="RepPhysical",
         blocks=[phys_qubit],
         instructions=[
-            qodec.Instruction(
+            qc.Instruction(
                 mnemonic="R", outputs=[target], action=[Stabilize(["Z_0"])]
             ),
-            qodec.Instruction(
+            qc.Instruction(
                 mnemonic="CX",
                 inputs=[control, target], outputs=[control, target],
                 action=[Clifford({"X_0": "X_0 X_1", "Z_1": "Z_0 Z_1"})],
             ),
-            qodec.Instruction(
+            qc.Instruction(
                 mnemonic="M", inputs=[target], action=[Observe(["Z_0"])]
             ),
         ],
     )
 
-    mem = qodec.instructions.BlockOperand("mem")
-    logical_isa = qodec.InstructionSet(
+    mem = qc.instructions.BlockOperand("mem")
+    logical_isa = qc.InstructionSet(
         name="RepLogical",
-        blocks=[qodec.instructions.Block("mem", encodes=1)],
+        blocks=[qc.instructions.Block("mem", encodes=1)],
         instructions=[
-            qodec.Instruction(
+            qc.Instruction(
                 mnemonic="prepare_ref", outputs=[mem], action=[Stabilize(["Z_0"])]
             ),
-            qodec.Instruction(mnemonic="syndrome_a", inputs=[mem], outputs=[mem]),
-            qodec.Instruction(mnemonic="syndrome_b", inputs=[mem], outputs=[mem]),
-            qodec.Instruction(
+            qc.Instruction(mnemonic="syndrome_a", inputs=[mem], outputs=[mem]),
+            qc.Instruction(mnemonic="syndrome_b", inputs=[mem], outputs=[mem]),
+            qc.Instruction(
                 mnemonic="measure", inputs=[mem], action=[Observe(["Z_0"])]
             ),
         ],
     )
 
-    code = qodec.Code(
+    code = qc.Code(
         name="Rep3",
         description="Distance-3 repetition code.",
         stabilizers=["Z_0 Z_1", "Z_1 Z_2"],
@@ -97,13 +97,13 @@ def _build_codec() -> qodec.Qodec:
         z=["Z_0"],
     )
 
-    def enc() -> qodec.gadgets.Encoding:
-        return qodec.gadgets.Encoding(code=code, support=["0", "1", "2"])
+    def enc() -> qc.gadgets.Encoding:
+        return qc.gadgets.Encoding(code=code, support=["0", "1", "2"])
 
-    def body(source: str) -> qodec.gadgets.Circuit:
-        return qodec.gadgets.Circuit(physical_isa, source, format="stim")
+    def body(source: str) -> qc.gadgets.Circuit:
+        return qc.gadgets.Circuit(physical_isa, source, format="stim")
 
-    prepare_ref = qodec.Gadget(
+    prepare_ref = qc.Gadget(
         implements=logical_isa.instruction("prepare_ref"),
         circuit=body("R 0 1 2 3 4\nCX 0 3 1 3\nCX 1 4 2 4\nM 3 4\n"),
         outputs=[enc()],
@@ -112,7 +112,7 @@ def _build_codec() -> qodec.Qodec:
             ["circuit.readouts[1]", "out[0].stabilizers[1]"],
         ],
     )
-    syndrome_a = qodec.Gadget(
+    syndrome_a = qc.Gadget(
         implements=logical_isa.instruction("syndrome_a"),
         circuit=body("R 3\nCX 0 3 1 3\nM 3\n"),
         inputs=[enc()], outputs=[enc()],
@@ -122,7 +122,7 @@ def _build_codec() -> qodec.Qodec:
             ["in[0].stabilizers[1]", "out[0].stabilizers[1]"],
         ],
     )
-    syndrome_b = qodec.Gadget(
+    syndrome_b = qc.Gadget(
         implements=logical_isa.instruction("syndrome_b"),
         circuit=body("R 3\nCX 1 3 2 3\nM 3\n"),
         inputs=[enc()], outputs=[enc()],
@@ -132,7 +132,7 @@ def _build_codec() -> qodec.Qodec:
             ["in[0].stabilizers[0]", "out[0].stabilizers[0]"],
         ],
     )
-    measure = qodec.Gadget(
+    measure = qc.Gadget(
         implements=logical_isa.instruction("measure"),
         circuit=body("M 0 1 2\n"),
         inputs=[enc()],
@@ -143,13 +143,13 @@ def _build_codec() -> qodec.Qodec:
         readouts=[["circuit.readouts[0]", "in[0].z[0]"]],
     )
 
-    return qodec.Qodec(
+    return qc.Qodec(
         layers=[
-            qodec.Layer(
+            qc.Layer(
                 logical_isa,
                 gadgets=[prepare_ref, syndrome_a, syndrome_b, measure],
             ),
-            qodec.Layer(physical_isa),
+            qc.Layer(physical_isa),
         ],
         name="rep3-split",
     )
@@ -165,8 +165,8 @@ def _detector_record_offsets(circuit_text: str) -> list[list[int]]:
 
 
 def test_cross_gadget_frame_resolution_is_deterministic() -> None:
-    codec = _build_codec()
-    isa = codec.layers[0].isa
+    qodec = _build_qodec()
+    isa = qodec.layers[0].isa
 
     calls = [Call("prepare_ref", outputs={"state": "M"})]
     for _ in range(2):
@@ -175,7 +175,7 @@ def test_cross_gadget_frame_resolution_is_deterministic() -> None:
     calls.append(Call("measure", inputs={"state": "M"}))
     program = Program(calls, isa)
 
-    circuit = StimEmitter(codec).build_circuit(program)
+    circuit = StimEmitter(qodec).build_circuit(program)
     detectors, _ = circuit.compile_detector_sampler().sample(4000, separate_observables=True)
     means = detectors.mean(axis=0)
     assert bool(np.all(means == 0.0)), "all detectors must be deterministic when noiseless"
@@ -201,8 +201,8 @@ def test_cross_gadget_frame_resolution_deeper_schedule() -> None:
     fallback would compare against an adjacent (wrong) record and fire
     under the noiseless trajectory.
     """
-    codec = _build_codec()
-    isa = codec.layers[0].isa
+    qodec = _build_qodec()
+    isa = qodec.layers[0].isa
 
     rounds = 4
     calls = [Call("prepare_ref", outputs={"state": "M"})]
@@ -212,7 +212,7 @@ def test_cross_gadget_frame_resolution_deeper_schedule() -> None:
     calls.append(Call("measure", inputs={"state": "M"}))
     program = Program(calls, isa)
 
-    circuit = StimEmitter(codec).build_circuit(program)
+    circuit = StimEmitter(qodec).build_circuit(program)
     detectors, _ = circuit.compile_detector_sampler().sample(
         4000, separate_observables=True
     )

@@ -37,8 +37,8 @@ that a human should not have to finish by hand.
 ```python
 import qdk.ec as ec
 
-codec = ec.load("protocol.qodec.yaml")
-completed = ec.complete_qodec(codec)   # or complete_gadget(one_gadget)
+qodec = ec.load("protocol.qodec.yaml")
+completed = ec.complete_qodec(qodec)   # or complete_gadget(one_gadget)
 ec.save(completed, "out/")
 ```
 
@@ -51,18 +51,18 @@ If you are starting from a bare stabilizer code rather than a draft qodec,
 verified circuit behind each of its instructions:
 
 ```python
-import qodec
+import qodec as qc
 from qdk.ec import qodec_from_code, synthesis_notes
 
-code = qodec.Code(
+code = qc.Code(
     "steane",
     stabilizers=["X_0 X_3 X_4 X_6", ...],
     x=["X_0 X_1 X_3"],
     z=["Z_1 Z_2 Z_5"],
 )
-codec = qodec_from_code(code)
-print(sorted(codec.layers[0].gadgets))    # idle, measure_x, measure_z, prepare_x, ...
-print(synthesis_notes(codec)["omitted"])  # anything that could not be synthesized
+qodec = qodec_from_code(code)
+print(sorted(qodec.layers[0].gadgets))    # idle, measure_x, measure_z, prepare_x, ...
+print(synthesis_notes(qodec)["omitted"])  # anything that could not be synthesized
 ```
 Every synthesized gadget is completed *and* verified against the action it declares,
 so an instruction ships only if its circuit provably implements it. Syndrome
@@ -81,12 +81,12 @@ diagnostics.
 import qdk.ec as ec
 from qdk.ec import action, equivalence, lint, targets
 
-codec = ec.load("protocol.qodec.yaml")
-gadget = codec.layers[0].gadgets["idle"]
+qodec = ec.load("protocol.qodec.yaml")
+gadget = qodec.layers[0].gadgets["idle"]
 
 expected = action.declared_action_of(gadget)
 actual = action.realized_action_of(gadget)
-report = lint.diagnose(codec)
+report = lint.diagnose(qodec)
 
 distance, witness = targets.gadget_distance_of(gadget, targets.depolarizing(0.001))
 ```
@@ -102,22 +102,22 @@ to the profiling modules; target simulation is reserved for noise, shots, and
 backend semantics.
 
 ```python
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 import qdk.ec as ec
 from qdk.ec import targets
 
-codec = ec.load("protocol.qodec.yaml")
+qodec = ec.load("protocol.qodec.yaml")
 program = Program(
     [
-        qodec.instructions.InstructionCall("prepare", outputs={"0": "q"}),
-        qodec.instructions.InstructionCall("measure", inputs={"0": "q"}),
+        qc.instructions.InstructionCall("prepare", outputs={"0": "q"}),
+        qc.instructions.InstructionCall("measure", inputs={"0": "q"}),
     ],
-    codec.layers[0].isa,
+    qodec.layers[0].isa,
 )
 
-sampler = targets.StimSampler(codec, noise={"p_data": 0.001, "p_meas": 0.001})
+sampler = targets.StimSampler(qodec, noise={"p_data": 0.001, "p_meas": 0.001})
 batch = sampler.execute(program, shots=100_000)
 ```
 
@@ -140,14 +140,14 @@ qir = qsharp.compile("{ use q = Qubit(); X(q); MResetZ(q) }")
 noise = NoiseConfig()
 noise.x.x = 0.05
 
-codec = ec.load("c4.qodec.yaml")
-run_qir(qir, shots=100, type="clifford", noise=noise, qodec=codec)
+qodec = ec.load("c4.qodec.yaml")
+run_qir(qir, shots=100, type="clifford", noise=noise, qodec=qodec)
 ```
 
 Shots in which the code detected an error are discarded, so fewer than `shots`
 results may come back — that is what an error-*detecting* code buys. See
 `qdk.ec.targets.run_qir_encoded` for the full options and
-`encodable_gates_of(codec)` for what a given qodec can express.
+`encodable_gates_of(qodec)` for what a given qodec can express.
 
 ## Layout
 

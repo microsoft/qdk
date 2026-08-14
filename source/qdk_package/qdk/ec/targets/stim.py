@@ -1,8 +1,8 @@
 """StimSampler: stochastic sampler that compiles to stim and runs the
 detector sampler.
 
-A `StimSampler` binds a codec and a noise model at construction. Programs
-in any source layer of the codec are first lowered to the second-to-bottom
+A `StimSampler` binds a qodec and a noise model at construction. Programs
+in any source layer of the qodec are first lowered to the second-to-bottom
 layer via the supplied compiler (default: `RecursiveLowering`). The
 sampler then performs the final hop into stim: each remaining call's
 gadget contributes a stim circuit fragment, with detector and observable
@@ -18,7 +18,7 @@ import numpy.typing as npt
 
 import stim
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 from .compilers import Compiler, RecursiveLowering
@@ -47,25 +47,25 @@ from .base import Target
 
 
 class StimEmitter:
-    """Codec-aware Program → stim circuit (with DEM annotations).
+    """Qodec-aware Program → stim circuit (with DEM annotations).
 
     Knows nothing about sampling. Its sole responsibilities are:
 
-    * lower a Program from any source layer down to the codec's
+    * lower a Program from any source layer down to the qodec's
       bottom-layer ISA (via the supplied ``compiler``);
     * concatenate each gadget's raw stim source;
     * inject gate-level noise (optional);
     * append ``DETECTOR`` and ``OBSERVABLE_INCLUDE`` directives derived
       from the gadget's checks, observables, and flags.
 
-    The codec must have at least one translation. The emitter uses the
+    The qodec must have at least one translation. The emitter uses the
     *last* translation (bottom layer) to emit stim; any earlier
     translations are handled by ``compiler`` (default:
-    `RecursiveLowering` over the codec's pre-bottom slice).
+    `RecursiveLowering` over the qodec's pre-bottom slice).
 
     .. note::
 
-        **Multi-layer decoding surfaces.** When the codec has more than
+        **Multi-layer decoding surfaces.** When the qodec has more than
         one translation *and* no explicit ``compiler`` is supplied, the
         emitter recurses through every translation, folding each edge's
         ``checks`` / ``frames`` / ``readouts`` down to physical
@@ -79,7 +79,7 @@ class StimEmitter:
         ``frames``, and ``readouts``. Features such as ``capture`` /
         ``assume`` readouts, undeclared frames, or flags on
         non-bottom gadgets raise ``NotImplementedError``. Single-
-        translation codecs (or any codec given an explicit ``compiler``)
+        translation qodecs (or any qodec given an explicit ``compiler``)
         keep the original flat emission path unchanged.
 
     Stim source files must be metadata-free: ``DETECTOR`` and
@@ -96,27 +96,27 @@ class StimEmitter:
 
     def __init__(
         self,
-        codec: qodec.Qodec,
+        qodec: qc.Qodec,
         *,
         noise: dict[str, float] | None = None,
         compiler: Compiler | None = None,
         emit_flags: bool = True,
     ) -> None:
-        if len(codec.layers) < 2:
+        if len(qodec.layers) < 2:
             raise ValueError(
-                "StimEmitter requires a codec with at least two layers "
+                "StimEmitter requires a qodec with at least two layers "
                 "(one lowering edge)"
             )
-        layer_count = len(codec.layers)
-        self._codec = codec
+        layer_count = len(qodec.layers)
+        self._qodec = qodec
         self._emit_flags = emit_flags
         # The bottom non-empty layer: its gadgets lower the second-to-bottom
         # ISA into the physical (stim) ISA. (Kept under the historical name
         # ``_stim_translation``; ``.gadgets`` works on a Layer.)
-        self._stim_translation = codec.layers[-2]
-        self._stim_source_isa = codec.layers[-2].isa
-        self._stim_target_isa = codec.layers[-1].isa
-        # When the caller supplies no compiler and the codec has more than one
+        self._stim_translation = qodec.layers[-2]
+        self._stim_source_isa = qodec.layers[-2].isa
+        self._stim_target_isa = qodec.layers[-1].isa
+        # When the caller supplies no compiler and the qodec has more than one
         # lowering edge, the emitter walks the layer chain itself
         # (``_build_circuit_recursive``), composing every intermediate
         # layer's decoding surface (checks / readouts) down to physical
@@ -125,7 +125,7 @@ class StimEmitter:
         # (``_build_circuit_from_lowered``) is used.
         self._recursive = compiler is None and layer_count > 2
         if compiler is None:
-            pre_bottom = codec.slice(0, layer_count - 1)
+            pre_bottom = qodec.slice(0, layer_count - 1)
             compiler = RecursiveLowering(pre_bottom)
         self._compiler = compiler
         self._noise = dict(noise) if noise else {}
@@ -135,15 +135,15 @@ class StimEmitter:
         ] = {}
 
     @property
-    def codec(self) -> qodec.Qodec:
-        return self._codec
+    def qodec(self) -> qc.Qodec:
+        return self._qodec
 
     @property
     def compiler(self) -> Compiler:
         return self._compiler
 
     @property
-    def translation(self) -> qodec.Layer:
+    def translation(self) -> qc.Layer:
         """The bottom layer: the one whose gadgets drive stim emission."""
         return self._stim_translation
 
@@ -154,12 +154,12 @@ class StimEmitter:
     def with_noise(self, noise: dict[str, float] | None) -> "StimEmitter":
         """Return a fresh emitter with a new noise dict.
 
-        Shares the codec and compiler with ``self``; raw-circuit cache
+        Shares the qodec and compiler with ``self``; raw-circuit cache
         is rebuilt independently so that mutating one emitter cannot
         affect the other.
         """
         return StimEmitter(
-            self._codec,
+            self._qodec,
             noise=noise,
             compiler=self._compiler,
             emit_flags=self._emit_flags,
@@ -181,7 +181,7 @@ class StimEmitter:
         after each gadget. Call ``.detector_error_model(...)`` on it
         for the DEM directly, or :meth:`build_dem`.
         """
-        program = coerce_program(program, self._codec.layers[0].isa)
+        program = coerce_program(program, self._qodec.layers[0].isa)
         if self._recursive:
             return self._build_circuit_recursive(program)
         lowered = self._compiler.compile(program).program
@@ -235,13 +235,13 @@ class StimEmitter:
         carrying a non-None Pauli (the gadget's logical content).
         ``False`` for flag observables (one per ``gadget.flags`` entry).
         """
-        program_coerced = coerce_program(program, self._codec.layers[0].isa)
+        program_coerced = coerce_program(program, self._qodec.layers[0].isa)
         if self._recursive:
             # Logical observables come from the *top* layer's gadget
             # readouts (intermediate readouts are consumed as body records,
             # not emitted as observables).
             return _build_logical_observable_mask(
-                program_coerced, self._codec.layers[0], emit_flags=self._emit_flags
+                program_coerced, self._qodec.layers[0], emit_flags=self._emit_flags
             )
         lowered = self._compiler.compile(program_coerced).program
         return _build_logical_observable_mask(
@@ -305,7 +305,7 @@ class StimEmitter:
         # from each gadget's ``out.<op>.(x|z)[i]`` frame declarations and
         # consumed by terminal ``in.<op>.(x|z)[i]`` readout atoms. An unseeded
         # logical frame resolves to the empty set (deterministic +1), which
-        # reproduces the historical behaviour for static-logical codecs whose
+        # reproduces the historical behaviour for static-logical qodecs whose
         # readouts reference ``in.<op>.z[0]`` purely as documentation.
         logical_frame_map: dict[tuple[int, str, int], frozenset[int]] = {}
 
@@ -374,21 +374,21 @@ class StimEmitter:
         reconstruction to the decoder (``capture``, ``assume``, intermediate
         flags) raise :class:`NotImplementedError`.
         """
-        if program.isa.name != self._codec.layers[0].isa.name:
+        if program.isa.name != self._qodec.layers[0].isa.name:
             raise ValueError(
-                f"recursive emitter expected a program in the codec's top "
-                f"layer {self._codec.layers[0].isa.name!r}; got {program.isa.name!r}"
+                f"recursive emitter expected a program in the qodec's top "
+                f"layer {self._qodec.layers[0].isa.name!r}; got {program.isa.name!r}"
             )
 
         state = _RecursiveEmitState(
             combined=stim.Circuit(),
             allocator=PhysicalQubitAllocator(),
             global_rec=0,
-            frame_maps=[{} for _ in self._codec.layers[:-1]],
-            logical_frame_maps=[{} for _ in self._codec.layers[:-1]],
+            frame_maps=[{} for _ in self._qodec.layers[:-1]],
+            logical_frame_maps=[{} for _ in self._qodec.layers[:-1]],
             noise=self._noise,
         )
-        top_translation = self._codec.layers[0]
+        top_translation = self._qodec.layers[0]
         observable_offset = 0
 
         for call in program.instructions:
@@ -413,7 +413,7 @@ class StimEmitter:
     def _emit_call(
         self,
         state: "_RecursiveEmitState",
-        call: qodec.instructions.InstructionCall,
+        call: qc.instructions.InstructionCall,
         level: int,
     ) -> dict[str, frozenset[int]]:
         """Emit ``call`` at translation ``level``; return its readout
@@ -423,16 +423,16 @@ class StimEmitter:
         level's detectors to ``state.combined``, and updates
         ``state.frame_maps[level]``.
         """
-        translation = self._codec.layers[level]
+        translation = self._qodec.layers[level]
         gadget = translation.gadgets.get(call.mnemonic)
         if gadget is None:
             raise KeyError(
                 f"no gadget for instruction {call.mnemonic!r} in translation "
-                f"{self._codec.layers[level].isa.name!r} -> "
-                f"{self._codec.layers[level + 1].isa.name!r}"
+                f"{self._qodec.layers[level].isa.name!r} -> "
+                f"{self._qodec.layers[level + 1].isa.name!r}"
             )
 
-        is_bottom = level == len(self._codec.layers) - 2
+        is_bottom = level == len(self._qodec.layers) - 2
         if is_bottom:
             base_circuit = self._load_circuit(call.mnemonic)
             noisy_circuit = _inject_noise(base_circuit, self._noise)
@@ -458,7 +458,7 @@ class StimEmitter:
                 call.mnemonic,
                 namespace_internal_blocks=True,
             )
-            child_translation = self._codec.layers[level + 1]
+            child_translation = self._qodec.layers[level + 1]
             body_prov = []
             for body_call in gadget.circuit.instructions:
                 child_call = _remap_call(body_call, remap)
@@ -478,7 +478,7 @@ class StimEmitter:
     def _emit_recursive_detectors(
         self,
         state: "_RecursiveEmitState",
-        gadget: qodec.Gadget,
+        gadget: qc.Gadget,
         body_prov: list[frozenset[int]],
         frame_map: dict[tuple[int, int], frozenset[int]],
         logical_frame_map: dict[tuple[int, str, int], frozenset[int]],
@@ -499,7 +499,7 @@ class StimSampler(Target[Batch]):
     """Compile programs to stim circuits, inject noise, sample.
 
     Thin layer over :class:`StimEmitter`: the emitter handles all
-    codec-aware circuit construction (including DEM annotations), and
+    qodec-aware circuit construction (including DEM annotations), and
     this class adds the detector-sampler invocation plus a
     :class:`SampleResult` with the logical-observable mask.
 
@@ -509,27 +509,27 @@ class StimSampler(Target[Batch]):
 
     def __init__(
         self,
-        codec: qodec.Qodec,
+        qodec: qc.Qodec,
         *,
         noise: dict[str, float] | None = None,
         compiler: Compiler | None = None,
         emitter: StimEmitter | None = None,
         emit_flags: bool = True,
     ) -> None:
-        super().__init__(codec)
+        super().__init__(qodec)
         if emitter is None:
             emitter = StimEmitter(
-                codec, noise=noise, compiler=compiler, emit_flags=emit_flags
+                qodec, noise=noise, compiler=compiler, emit_flags=emit_flags
             )
         elif noise is not None or compiler is not None:
             raise ValueError(
                 "StimSampler(emitter=…) is mutually exclusive with the "
                 "noise/compiler kwargs; pass them to StimEmitter directly"
             )
-        elif emitter.codec is not codec:
+        elif emitter.qodec is not qodec:
             raise ValueError(
-                "StimSampler(codec, emitter=…): emitter is bound to a "
-                "different codec"
+                "StimSampler(qodec, emitter=…): emitter is bound to a "
+                "different qodec"
             )
         self._emitter = emitter
 
@@ -542,7 +542,7 @@ class StimSampler(Target[Batch]):
         return self._emitter.compiler
 
     @property
-    def translation(self) -> qodec.Layer:
+    def translation(self) -> qc.Layer:
         """The bottom layer: the one whose gadgets drive stim emission."""
         return self._emitter.translation
 
@@ -572,7 +572,7 @@ class StimSampler(Target[Batch]):
 
 
 def _build_logical_observable_mask(
-    program: Program, translation: qodec.Layer, *, emit_flags: bool = True
+    program: Program, translation: qc.Layer, *, emit_flags: bool = True
 ) -> npt.NDArray[np.bool_]:
     """Mark each observable column as logical (True) or flag/check (False).
     A column is logical when it comes from an `Observe` action atom (every
@@ -595,7 +595,7 @@ def _build_logical_observable_mask(
     return np.array(mask, dtype=np.bool_)
 
 
-def _virtual_input_count(gadget: qodec.Gadget) -> int:
+def _virtual_input_count(gadget: qc.Gadget) -> int:
     count = 0
     for encoding in gadget.inputs:
         count += len(encoding.code.stabilizers)
@@ -617,7 +617,7 @@ def _reject_source_metadata(circuit: stim.Circuit, mnemonic: str) -> None:
         )
 
 
-def _emitted_detector_count(gadget: qodec.Gadget) -> int:
+def _emitted_detector_count(gadget: qc.Gadget) -> int:
     """Number of DETECTORs this target emits for the gadget."""
     return sum(1 for check in gadget.checks if not _has_out_stab(check))
 
@@ -647,7 +647,7 @@ class _FrameContext:
 
 def _append_gadget_directives(
     combined: stim.Circuit,
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     channel_measurement_count: int,
     observable_offset: int,
     frames: _FrameContext,
@@ -750,7 +750,7 @@ def _resolve_observable_records(atoms: list[str], frames: _FrameContext) -> set[
 
 
 def _update_logical_frame_map(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     frame_map: dict[tuple[int, int], frozenset[int]],
     logical_frame_map: dict[tuple[int, str, int], frozenset[int]],
     body_base: int,
@@ -763,7 +763,7 @@ def _update_logical_frame_map(
     determined by that round's source atoms. A check carrying an
     ``out[entry].(x|z)[i]`` atom is such a declaration; its sources are the
     check's body readouts, referenced stabilizer frames, and other logical
-    frames. Static-logical codecs (c4, surface) declare no out-logical
+    frames. Static-logical qodecs (c4, surface) declare no out-logical
     atoms, so this leaves ``logical_frame_map`` untouched.
     """
     new_entries: dict[tuple[int, str, int], frozenset[int]] = {}
@@ -793,7 +793,7 @@ def _update_logical_frame_map(
 
 
 def _update_frame_map(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     frame_map: dict[tuple[int, int], frozenset[int]],
     body_base: int,
 ) -> None:
@@ -828,9 +828,9 @@ def _update_frame_map(
             # deterministic ``+1``) — which the recursive emitter does in
             # ``_update_frame_map_recursive``. This flat path instead leaves the
             # frame unset so downstream references fall back to the positional
-            # virtual-record model, preserving legacy behaviour for codecs that
+            # virtual-record model, preserving legacy behaviour for qodecs that
             # do not yet declare their preparation frames. This fallback is
-            # slated for removal once those codecs declare prep frames, at which
+            # slated for removal once those qodecs declare prep frames, at which
             # point an unseeded ``in`` frame becomes a hard error.
             return
         records: set[int] = set()
@@ -860,7 +860,7 @@ def _update_frame_map(
     frame_map.update(new_entries)
 
 
-def _stab_offset_from_end_map(gadget: qodec.Gadget) -> dict[tuple[int, int], int]:
+def _stab_offset_from_end_map(gadget: qc.Gadget) -> dict[tuple[int, int], int]:
     encodings = list(gadget.inputs)
     total = sum(len(e.code.stabilizers) for e in encodings)
     result: dict[tuple[int, int], int] = {}

@@ -3,7 +3,7 @@
 from collections.abc import Iterator
 from dataclasses import dataclass
 
-import qodec
+import qodec as qc
 
 from ...lint._diagnostic import Diagnostic, Phase
 from ...lint._rule import Rule
@@ -15,10 +15,10 @@ class UnreferencedBlockRule:
     name: str = "isa/unreferenced-block"
     severity: Severity = Severity.INFO
     phase: Phase = Phase.INFORMATIONAL
-    target: type = qodec.InstructionSet
+    target: type = qc.InstructionSet
 
-    def __call__(self, target: object, *, codec: qodec.Qodec) -> Iterator[Diagnostic]:
-        if not isinstance(target, qodec.InstructionSet):
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        if not isinstance(target, qc.InstructionSet):
             raise TypeError(
                 f"expected qodec.InstructionSet, got {type(target).__name__}"
             )

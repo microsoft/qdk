@@ -7,7 +7,7 @@ from ._diagnostic import Diagnostic, Phase
 from ._severity import Severity
 
 if TYPE_CHECKING:
-    import qodec
+    import qodec as qc
 
 
 @runtime_checkable
@@ -25,7 +25,7 @@ class Rule(Protocol):
     def target(self) -> type: ...
 
     def __call__(
-        self, target: object, *, codec: "qodec.Qodec"
+        self, target: object, *, qodec: "qc.Qodec"
     ) -> Iterator[Diagnostic]: ...
 
 

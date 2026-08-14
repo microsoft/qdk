@@ -6,7 +6,7 @@ qodec kept under ``tests/validation/audit/fixtures/``.
 from pathlib import Path
 
 import pytest
-import qodec
+import qodec as qc
 
 _AUDIT_FIXTURES = Path(__file__).parent / "audit" / "fixtures"
 
@@ -18,10 +18,10 @@ def rep3_path() -> str:
 
 
 @pytest.fixture
-def rep3_codec(rep3_path: str) -> qodec.Qodec:
+def rep3_qodec(rep3_path: str) -> qc.Qodec:
     """A freshly loaded ``repetition3`` qodec.
 
     Function-scoped so individual tests may mutate the returned object (e.g.
     swap a gadget) without affecting others.
     """
-    return qodec.Qodec.load(rep3_path)
+    return qc.Qodec.load(rep3_path)

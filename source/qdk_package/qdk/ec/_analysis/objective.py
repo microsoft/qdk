@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any, cast
 
-import qodec
+import qodec as qc
 
 from .._readouts import observable_names, observe_count
 from .propagation.pauli import Pauli, PauliCharacter
@@ -26,7 +26,7 @@ class ObjectiveLift:
     bound_flags: tuple[str, ...] = field(default_factory=tuple)
 
 
-def lift_objective(gadget: qodec.Gadget) -> ObjectiveLift:
+def lift_objective(gadget: qc.Gadget) -> ObjectiveLift:
     from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 
     instruction = gadget.implements
@@ -116,7 +116,7 @@ def _expected_image_paulis(
     *,
     inputs: list[Pauli],
     clifford_actions: list[Any],
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> list[Pauli]:
     if not clifford_actions:
         return list(inputs)
@@ -133,7 +133,7 @@ def _expected_image_paulis(
 
 
 def _flat_input_generator_names(
-    encodings: Sequence[qodec.Encoding],
+    encodings: Sequence[qc.Encoding],
 ) -> list[str]:
     names: list[str] = []
     flat = 0
@@ -152,7 +152,7 @@ def _apply_clifford_to_pauli_string(pauli_str: str, generators: dict[str, str]) 
     )
 
 
-def _resolve_objective_pauli(pauli_str: str, gadget: qodec.Gadget) -> Pauli:
+def _resolve_objective_pauli(pauli_str: str, gadget: qc.Gadget) -> Pauli:
     flat_map = [
         (encoding, local)
         for encoding in list(gadget.inputs) + list(gadget.outputs)

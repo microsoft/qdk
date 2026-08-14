@@ -10,7 +10,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import qodec
+import qodec as qc
 from deq.noise import inject_biased, inject_si1000
 from qodec.circuits import Program
 
@@ -52,13 +52,13 @@ class DeqLerTarget(Target[LerResult]):
 
     def __init__(
         self,
-        codec: qodec.Qodec,
+        qodec: qc.Qodec,
         *,
         translation_index: int = -1,
         noise: NoiseModel | None = None,
         options: DeqOptions | None = None,
     ) -> None:
-        super().__init__(codec)
+        super().__init__(qodec)
         self._translation_index = translation_index
         self._noise = noise
         self._options = options if options is not None else DeqOptions()
@@ -76,7 +76,7 @@ class DeqLerTarget(Target[LerResult]):
         timeout: float | None = None,
     ) -> LerResult:
         source = to_deq_source(
-            self.codec,
+            self.qodec,
             translation_index=self._translation_index,
             program=program,
             program_name="Program",

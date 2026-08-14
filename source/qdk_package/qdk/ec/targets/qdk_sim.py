@@ -1,7 +1,7 @@
 """QdkSampler: lower a qodec program to a physical stim circuit and sample it on the QDK.
 
 The pipeline is short: build the stim circuit with
-:class:`~qdk.ec.targets.StimEmitter` (carrying the codec's noise model), strip
+:class:`~qdk.ec.targets.StimEmitter` (carrying the qodec's noise model), strip
 the ``DETECTOR`` / ``OBSERVABLE_INCLUDE`` / ``MPAD`` directives the QDK does not
 act on (see :func:`_physical`), optionally annotate the remainder with the QDK's
 ``#!preselect`` directives, hand the stim source to :func:`qdk.stim.run`, and
@@ -32,7 +32,7 @@ import numpy.typing as npt
 
 import stim
 
-import qodec
+import qodec as qc
 from .results import Batch
 from .base import Target
 from .stim import StimEmitter
@@ -126,13 +126,13 @@ class QdkSampler(Target[Batch]):
     The QDK runs the bare physical circuit — the emitter's cross-gadget
     ``DETECTOR`` / ``OBSERVABLE_INCLUDE`` / ``MPAD`` scaffolding is stripped (see
     :func:`_physical`) — so the Batch is the raw physical measurements in stim's
-    record order. For codecs whose gadgets need no ``MPAD`` virtual-input pads it
+    record order. For qodecs whose gadgets need no ``MPAD`` virtual-input pads it
     matches a `StimSampler` Batch column-for-column; resolving checks across
     gadget boundaries for decoding is left to a deq-style layer.
 
     Parameters
     ----------
-    codec:
+    qodec:
         The qodec to bind.
     noise:
         Stim gate-noise model, forwarded to :class:`StimEmitter` (e.g.
@@ -151,23 +151,23 @@ class QdkSampler(Target[Batch]):
 
     def __init__(
         self,
-        codec: qodec.Qodec,
+        qodec: qc.Qodec,
         *,
         noise: dict[str, float] | None = None,
         seed: int | None = None,
         emitter: StimEmitter | None = None,
     ) -> None:
-        super().__init__(codec)
+        super().__init__(qodec)
         if emitter is None:
-            emitter = StimEmitter(codec, noise=noise)
+            emitter = StimEmitter(qodec, noise=noise)
         elif noise is not None:
             raise ValueError(
                 "QdkSampler(emitter=…) is mutually exclusive with the noise "
                 "kwarg; pass noise to StimEmitter directly"
             )
-        elif emitter.codec is not codec:
+        elif emitter.qodec is not qodec:
             raise ValueError(
-                "QdkSampler(codec, emitter=…): emitter is bound to a different " "codec"
+                "QdkSampler(qodec, emitter=…): emitter is bound to a different " "qodec"
             )
         self._emitter = emitter
         self._seed = seed

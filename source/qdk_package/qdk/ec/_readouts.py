@@ -10,21 +10,21 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 
-import qodec
+import qodec as qc
 
 from ._references import as_references, outcome_indices, readout_atoms
 
 
-def observe_count(gadget: qodec.Gadget) -> int:
+def observe_count(gadget: qc.Gadget) -> int:
     """Number of ``observe`` outcome bits the gadget's instruction declares."""
     return sum(
         len(action.observables)
         for action in gadget.implements.action
-        if isinstance(action, qodec.actions.Observe)
+        if isinstance(action, qc.actions.Observe)
     )
 
 
-def readout_equation(entry: qodec.Readout) -> list[str]:
+def readout_equation(entry: qc.Readout) -> list[str]:
     """The flat atom-string list of one ``gadget.readouts`` entry.
 
     An entry is either a bare parity equation or a single-key
@@ -38,14 +38,14 @@ def readout_equation(entry: qodec.Readout) -> list[str]:
 
 def as_readout(
     entry: Sequence[object] | Mapping[str, Sequence[object]],
-) -> qodec.ReadoutLike:
+) -> qc.ReadoutLike:
     """One readout entry in the shape qodec's setters accept."""
     if isinstance(entry, Mapping):
         return {name: as_references(equation) for name, equation in entry.items()}
     return as_references(entry)
 
 
-def observable_names(gadget: qodec.Gadget) -> list[str]:
+def observable_names(gadget: qc.Gadget) -> list[str]:
     """Positional names of the gadget's *bound* observables (``"0"``, ``"1"``, ...).
 
     A gadget that declares fewer readouts than its instruction has observe
@@ -58,7 +58,7 @@ def observable_names(gadget: qodec.Gadget) -> list[str]:
     ]
 
 
-def observables_as_xor_map(gadget: qodec.Gadget) -> dict[str, list[int]]:
+def observables_as_xor_map(gadget: qc.Gadget) -> dict[str, list[int]]:
     """Gadget observables: positional name → measurement-record XOR.
 
     The trailing flag entries are deliberately excluded: a flag is a
@@ -71,7 +71,7 @@ def observables_as_xor_map(gadget: qodec.Gadget) -> dict[str, list[int]]:
 
 
 def set_gadget_readouts(
-    gadget: qodec.Gadget, named_xor: Mapping[str, Iterable[int]]
+    gadget: qc.Gadget, named_xor: Mapping[str, Iterable[int]]
 ) -> None:
     """Set the observable entries of ``gadget.readouts`` from an XOR map.
 
@@ -83,11 +83,11 @@ def set_gadget_readouts(
     expectation, so they are authored by hand rather than discovered, and
     re-deriving the observables must not drop them.
     """
-    positional: dict[int, list[qodec.ReferenceLike]] = {}
+    positional: dict[int, list[qc.ReferenceLike]] = {}
     for name, indices in named_xor.items():
         if str(name).isdigit():
             positional[int(name)] = readout_atoms(indices)
-    readouts: list[qodec.ReadoutLike] = [
+    readouts: list[qc.ReadoutLike] = [
         positional[index] for index in sorted(positional)
     ]
     readouts.extend(

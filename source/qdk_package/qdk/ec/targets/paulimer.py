@@ -1,4 +1,4 @@
-"""PaulimerSampler: codec-bound Sampler backed by `paulimer.FaultySimulation`.
+"""PaulimerSampler: qodec-bound Sampler backed by `paulimer.FaultySimulation`.
 
 Operates at the **logical** level: each block instance maps to a
 contiguous range of qubits (one per logical qubit the block encodes),
@@ -7,7 +7,7 @@ circuit-builder calls.
 
 This is the noiseless logical-semantics reference. Use it to:
 
-* verify a Program's ideal behaviour independently of a codec's
+* verify a Program's ideal behaviour independently of a qodec's
   physical realisation;
 * regression-test decoders (zero noise → zero detection events →
   zero predictions);
@@ -42,7 +42,7 @@ import numpy as np
 import numpy.typing as npt
 
 import paulimer
-import qodec
+import qodec as qc
 from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 from qodec.circuits._common import (
     BlockLayout,
@@ -59,19 +59,19 @@ from .results import Batch
 class PaulimerSampler:
     """Logical-level noiseless Sampler backed by `paulimer.FaultySimulation`.
 
-    Implements the `Sampler` Protocol: ``codec`` property + ``execute``.
+    Implements the `Sampler` Protocol: ``qodec`` property + ``execute``.
     No detector events are emitted (logical level has no checks).
     """
 
-    def __init__(self, codec: qodec.Qodec) -> None:
-        self._codec = codec
+    def __init__(self, qodec: qc.Qodec) -> None:
+        self._qodec = qodec
 
     @property
-    def codec(self) -> qodec.Qodec:
-        return self._codec
+    def qodec(self) -> qc.Qodec:
+        return self._qodec
 
     def execute(self, program: object, *, shots: int) -> Batch:
-        coerced = coerce_program(program, self._codec.layers[0].isa)
+        coerced = coerce_program(program, self._qodec.layers[0].isa)
         layout = BlockLayout.of(coerced)
 
         sim = paulimer.FaultySimulation(qubit_count=layout.total_qubits)
@@ -116,7 +116,7 @@ class PaulimerSampler:
 def _emit_stabilize(
     sim: paulimer.FaultySimulation,
     atom: Stabilize,
-    call: qodec.InstructionCall,
+    call: qc.InstructionCall,
     layout: BlockLayout,
 ) -> None:
     """Reset (measure + conditional-X) then optionally rotate."""
@@ -144,7 +144,7 @@ def _emit_stabilize(
 def _emit_pauli(
     sim: paulimer.FaultySimulation,
     atom: PauliAction,
-    call: qodec.InstructionCall,
+    call: qc.InstructionCall,
     layout: BlockLayout,
 ) -> None:
     sim.apply_pauli(_pauli_from_terms(parse_observable(atom.operator), layout, call))
@@ -153,7 +153,7 @@ def _emit_pauli(
 def _emit_observe(
     sim: paulimer.FaultySimulation,
     atom: Observe,
-    call: qodec.InstructionCall,
+    call: qc.InstructionCall,
     layout: BlockLayout,
     indices_collected: list[int],
 ) -> None:
@@ -172,7 +172,7 @@ def _emit_observe(
 def _emit_clifford(
     sim: paulimer.FaultySimulation,
     atom: Clifford,
-    call: qodec.InstructionCall,
+    call: qc.InstructionCall,
     layout: BlockLayout,
 ) -> None:
     pairs = transversal_cx_pairs(atom.generators, call, layout)
@@ -189,7 +189,7 @@ def _emit_clifford(
 def _pauli_from_terms(
     terms: list[ObservableTerm],
     layout: BlockLayout,
-    call: qodec.InstructionCall,
+    call: qc.InstructionCall,
 ) -> Pauli:
     """Build a `Pauli` from a list of single-qubit Pauli terms."""
     spec = cast(dict[int, Any], {layout.qubit_of(call, t): t.basis for t in terms})

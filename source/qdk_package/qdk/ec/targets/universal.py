@@ -6,7 +6,7 @@ so it can serve as a proof-of-concept skeleton for more sophisticated machinery
 later. Three parts:
 
 * :class:`_PaulimerRuntime` — the **backend**. It lowers the bottom translation
-  of the codec all the way to the codec's bottom ISA (whatever that ISA is —
+  of the qodec all the way to the qodec's bottom ISA (whatever that ISA is —
   ``stim`` or otherwise), then *interprets* each bottom instruction's formal
   ``action`` with paulimer's :class:`~paulimer.OutcomeSpecificSimulation`, one
   independent trajectory per shot. It returns the slice's logical readouts,
@@ -19,7 +19,7 @@ later. Three parts:
 
 * :class:`UniversalSampler` — wires the runtime and the processors into a
   :class:`~qdk.ec.targets.base.CompositeTarget`. Its only construction
-  parameter is the codec.
+  parameter is the qodec.
 
 The "decoding" here is **trivial**: a gadget's logical readout is the XOR of the
 body readouts named by its ``readouts`` parity equation. Syndromes (the gadgets'
@@ -51,7 +51,7 @@ import numpy as np
 import numpy.typing as npt
 
 import paulimer
-import qodec
+import qodec as qc
 from qodec.actions import Clifford, Observe, Pauli as PauliAction, Rotate, Stabilize
 from qodec.circuits._common import BlockLayout, ObservableTerm, parse_observable
 
@@ -90,7 +90,7 @@ class AssumeViolation(RuntimeError):
 class UniversalSampler(CompositeTarget[Batch]):
     """A from-scratch sampler over any layered qodec.
 
-    Construct it with the codec — nothing else — and call ``execute(program,
+    Construct it with the qodec — nothing else — and call ``execute(program,
     *, shots)`` to draw shots of the top-layer logical readouts. The backend is
     paulimer outcome-specific simulation; the per-layer decoding is the trivial
     readout-parity lift (syndromes ignored, no corrections, no noise model).
@@ -102,12 +102,12 @@ class UniversalSampler(CompositeTarget[Batch]):
 
     Example
     -------
-    >>> sampler = UniversalSampler(codec)            # doctest: +SKIP
+    >>> sampler = UniversalSampler(qodec)            # doctest: +SKIP
     >>> batch = sampler.execute(program, shots=1000)  # doctest: +SKIP
     """
 
-    def __init__(self, codec: qodec.Qodec) -> None:
-        super().__init__(codec, _PaulimerRuntime, _TrivialProcessor)
+    def __init__(self, qodec: qc.Qodec) -> None:
+        super().__init__(qodec, _PaulimerRuntime, _TrivialProcessor)
 
 
 class _PaulimerRuntime(Target[Batch]):
@@ -119,7 +119,7 @@ class _PaulimerRuntime(Target[Batch]):
     records.
     """
 
-    def __init__(self, translation: qodec.Qodec) -> None:
+    def __init__(self, translation: qc.Qodec) -> None:
         super().__init__(translation)
         self._translation = translation
 
@@ -134,7 +134,7 @@ class _PaulimerRuntime(Target[Batch]):
 class _TrivialProcessor(ComposableTarget[Batch, Batch]):
     """Upper-translation processor: lower one step, delegate, lift by parity."""
 
-    def __init__(self, translation: qodec.Qodec) -> None:
+    def __init__(self, translation: qc.Qodec) -> None:
         super().__init__(translation)
         self._translation = translation
         self._below: Target[Batch] | None = None
@@ -155,7 +155,7 @@ class _TrivialProcessor(ComposableTarget[Batch, Batch]):
 # ── lowering ────────────────────────────────────────────────────────────────
 
 
-def _lower_one(translation: qodec.Qodec, program: Program) -> tuple[Program, list[int]]:
+def _lower_one(translation: qc.Qodec, program: Program) -> tuple[Program, list[int]]:
     """Lower ``program`` across one translation of a two-layer ``translation``.
 
     Substitutes each call's gadget body for the call, namespacing block qubits
@@ -167,7 +167,7 @@ def _lower_one(translation: qodec.Qodec, program: Program) -> tuple[Program, lis
     """
     source = translation.layers[0]
     target = translation.layers[1]
-    lowered: list[qodec.instructions.InstructionCall] = []
+    lowered: list[qc.instructions.InstructionCall] = []
     widths: list[int] = []
     for call in program.instructions:
         gadget = source.gadgets[call.mnemonic]
@@ -182,7 +182,7 @@ def _lower_one(translation: qodec.Qodec, program: Program) -> tuple[Program, lis
     return Program(lowered, target.isa), widths
 
 
-def _readout_width(layer: qodec.Layer, call: qodec.instructions.InstructionCall) -> int:
+def _readout_width(layer: qc.Layer, call: qc.instructions.InstructionCall) -> int:
     """Number of logical readouts ``call`` produces at ``layer``.
 
     For a logical layer that has a gadget for the call, that is the gadget's
@@ -205,7 +205,7 @@ def _readout_width(layer: qodec.Layer, call: qodec.instructions.InstructionCall)
 
 
 def _parity_decode(
-    layer: qodec.Layer,
+    layer: qc.Layer,
     program: Program,
     widths: Sequence[int],
     below: Batch | npt.NDArray[np.bool_],
@@ -239,7 +239,7 @@ def _parity_decode(
 
 
 def _readout_columns(
-    gadget: qodec.Gadget, bits: npt.NDArray[np.bool_], offset: int
+    gadget: qc.Gadget, bits: npt.NDArray[np.bool_], offset: int
 ) -> list[npt.NDArray[np.bool_]]:
     """The XOR-of-records columns for one gadget's ``observe`` readouts.
 
@@ -256,8 +256,8 @@ def _readout_columns(
 
 
 def _check_assume(
-    call: qodec.instructions.InstructionCall,
-    gadget: qodec.Gadget,
+    call: qc.instructions.InstructionCall,
+    gadget: qc.Gadget,
     bits: npt.NDArray[np.bool_],
     offset: int,
 ) -> None:
@@ -275,7 +275,7 @@ def _check_assume(
 
 
 def _flag_columns(
-    gadget: qodec.Gadget, bits: npt.NDArray[np.bool_], offset: int
+    gadget: qc.Gadget, bits: npt.NDArray[np.bool_], offset: int
 ) -> dict[str, npt.NDArray[np.bool_]]:
     """Decode the gadget's flag readouts to per-shot bit columns, keyed by
     ``implements.flags`` name (flags follow the observables, positionally)."""
@@ -350,7 +350,7 @@ def _simulate(program: Program, shots: int) -> npt.NDArray[np.bool_]:
 def _apply_atom(
     sim: paulimer.OutcomeSpecificSimulation,
     atom: object,
-    call: qodec.instructions.InstructionCall,
+    call: qc.instructions.InstructionCall,
     layout: BlockLayout,
     records: list[int],
 ) -> None:
@@ -403,7 +403,7 @@ def _apply_atom(
 def _emit_reset(
     sim: paulimer.OutcomeSpecificSimulation,
     operator: str,
-    call: qodec.instructions.InstructionCall,
+    call: qc.instructions.InstructionCall,
     layout: BlockLayout,
 ) -> None:
     """Active reset into the ``operator`` eigenbasis (single-Pauli only)."""
@@ -451,7 +451,7 @@ def _clifford(generators: Mapping[str, str]) -> paulimer.CliffordUnitary:
 
 def _pauli(
     operator: str,
-    call: qodec.instructions.InstructionCall,
+    call: qc.instructions.InstructionCall,
     layout: BlockLayout,
 ) -> Pauli:
     return _sparse(parse_observable(operator), call, layout)
@@ -459,7 +459,7 @@ def _pauli(
 
 def _sparse(
     terms: Sequence[ObservableTerm],
-    call: qodec.instructions.InstructionCall,
+    call: qc.instructions.InstructionCall,
     layout: BlockLayout,
 ) -> Pauli:
     spec = {layout.qubit_of(call, term): term.basis for term in terms}

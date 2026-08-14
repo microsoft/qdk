@@ -8,11 +8,11 @@ target's ``execute`` can do the conversion in one line.
 
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 
-def coerce_program(program: object, isa: qodec.InstructionSet) -> Program:
+def coerce_program(program: object, isa: qc.InstructionSet) -> Program:
     """Return ``program`` if it's already a `Program`; otherwise parse it."""
     if isinstance(program, Program):
         return program

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 from .._analysis.distance_solvers import (
@@ -52,7 +52,7 @@ class GadgetDistanceData:
     odd_cycles: OddCycles
 
     @staticmethod
-    def of(gadget: qodec.Gadget, target_model: TargetModel) -> "GadgetDistanceData":
+    def of(gadget: qc.Gadget, target_model: TargetModel) -> "GadgetDistanceData":
         program = Program(gadget.circuit.instructions, gadget.circuit.isa)
         profile = fault_profile_of(gadget, target_model.fault_basis_of(program))
         effects = list(profile.effects)
@@ -66,7 +66,7 @@ class GadgetDistanceData:
 
 
 def gadget_distance_of(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     target_model: TargetModel,
     *,
     distance_upper_bound: Optional[int] = None,
@@ -81,7 +81,7 @@ def gadget_distance_of(
 
 
 def gadget_distance_bounds_of(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     target_model: TargetModel,
     *,
     distance_upper_bound: Optional[int] = None,
@@ -96,7 +96,7 @@ def gadget_distance_bounds_of(
 
 
 def circuit_distance_of(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     program: Program,
     *,
     noise: Optional[dict] = None,
@@ -104,7 +104,7 @@ def circuit_distance_of(
 ) -> int:
     """Fault distance of the *whole compiled circuit* for ``program``.
 
-    Lowers ``program`` through ``codec`` to a physical stim circuit and returns
+    Lowers ``program`` through ``qodec`` to a physical stim circuit and returns
     the smallest number of circuit faults that together flip a logical
     observable while flipping no detector — the circuit-level analogue of code
     distance, and the number that says whether a qodec actually delivers the
@@ -128,7 +128,7 @@ def circuit_distance_of(
     from .stim import StimEmitter
 
     emitter = StimEmitter(
-        codec, noise=noise if noise is not None else {"p_data": 0.001, "p_meas": 0.001}
+        qodec, noise=noise if noise is not None else {"p_data": 0.001, "p_meas": 0.001}
     )
     circuit = emitter.build_circuit(program)
     error = circuit.search_for_undetectable_logical_errors(

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 
 from ._readouts import as_readout, set_gadget_readouts
 from ._references import as_references
 from .checks import profile_of
 
 
-def complete_gadget(gadget: qodec.Gadget) -> qodec.Gadget:
+def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
     """Return a copy of ``gadget`` with discovered checks and readouts.
 
     Pauli-bearing instruction outputs are derived by exact simulation. Flag
@@ -17,7 +17,7 @@ def complete_gadget(gadget: qodec.Gadget) -> qodec.Gadget:
     gadget and all objects it references are left unchanged.
     """
     discovered = profile_of(gadget)
-    completed = qodec.Gadget(
+    completed = qc.Gadget(
         gadget.implements,
         gadget.circuit,
         inputs=list(gadget.inputs),
@@ -31,8 +31,8 @@ def complete_gadget(gadget: qodec.Gadget) -> qodec.Gadget:
     return completed
 
 
-def complete_qodec(codec: qodec.Qodec) -> qodec.Qodec:
-    """Return a copy of ``codec`` with every gadget completed.
+def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
+    """Return a copy of ``qodec`` with every gadget completed.
 
     Applies :func:`complete_gadget` to each gadget of each layer, so the
     returned qodec carries the checks and observable bindings that exact
@@ -43,8 +43,8 @@ def complete_qodec(codec: qodec.Qodec) -> qodec.Qodec:
     The input qodec and every object it references are left unchanged.
     """
     layers = []
-    for index, layer in enumerate(codec.layers):
-        completed: list[qodec.Gadget] = []
+    for index, layer in enumerate(qodec.layers):
+        completed: list[qc.Gadget] = []
         for mnemonic, gadget in layer.gadgets.items():
             try:
                 completed.append(complete_gadget(gadget))
@@ -52,13 +52,13 @@ def complete_qodec(codec: qodec.Qodec) -> qodec.Qodec:
                 raise type(error)(
                     f"layer {index} gadget {mnemonic!r}: {error}"
                 ) from error
-        layers.append(qodec.Layer(layer.isa, gadgets=completed))
-    return qodec.Qodec(
+        layers.append(qc.Layer(layer.isa, gadgets=completed))
+    return qc.Qodec(
         layers,
-        name=codec.name,
-        description=codec.description,
-        schema_version=codec.schema_version,
-        metadata=dict(codec.metadata),
+        name=qodec.name,
+        description=qodec.description,
+        schema_version=qodec.schema_version,
+        metadata=dict(qodec.metadata),
     )
 
 

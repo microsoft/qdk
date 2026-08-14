@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 
 
 def detector_error_model_of(
-    codec: qodec.Qodec,
+    qodec: qc.Qodec,
     program: Program,
     target_model: Mapping[str, float],
     *,
@@ -18,7 +18,7 @@ def detector_error_model_of(
     """Build a Stim DEM under the target model's gate-noise assumptions."""
     from .stim import StimEmitter
 
-    return StimEmitter(codec, noise=dict(target_model)).build_dem(
+    return StimEmitter(qodec, noise=dict(target_model)).build_dem(
         program, decompose_errors=decompose_errors
     )
 

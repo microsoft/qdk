@@ -5,33 +5,33 @@ from pathlib import Path
 
 import pytest
 
-import qodec
+import qodec as qc
 from qodec.circuits import Program
 from ec_tests.testing.qodecs import c4
 from qdk.ec.targets._coerce import coerce_program
 
 
 @pytest.fixture
-def isa() -> qodec.InstructionSet:
+def isa() -> qc.InstructionSet:
     return c4().layers[0].isa
 
 
-def _expected_program(isa: qodec.InstructionSet) -> Program:
+def _expected_program(isa: qc.InstructionSet) -> Program:
     return Program(
         [
-            qodec.instructions.InstructionCall("prepare_zz", outputs={"block": "data"}),
-            qodec.instructions.InstructionCall("measure_zz", inputs={"block": "data"}),
+            qc.instructions.InstructionCall("prepare_zz", outputs={"block": "data"}),
+            qc.instructions.InstructionCall("measure_zz", inputs={"block": "data"}),
         ],
         isa,
     )
 
 
-def test_coerce_passes_through_program(isa: qodec.InstructionSet) -> None:
+def test_coerce_passes_through_program(isa: qc.InstructionSet) -> None:
     program = _expected_program(isa)
     assert coerce_program(program, isa) is program
 
 
-def test_coerce_parses_qasm_text(isa: qodec.InstructionSet) -> None:
+def test_coerce_parses_qasm_text(isa: qc.InstructionSet) -> None:
     pytest.importorskip("openqasm3")
     text = """OPENQASM 3.0;
 def prepare_zz(qubit[2] block) -> bit { }
@@ -45,7 +45,7 @@ bit[2] result = measure_zz(data);
     assert [c.mnemonic for c in program.instructions] == ["prepare_zz", "measure_zz"]
 
 
-def test_coerce_parses_qasm_path(isa: qodec.InstructionSet, tmp_path: Path) -> None:
+def test_coerce_parses_qasm_path(isa: qc.InstructionSet, tmp_path: Path) -> None:
     pytest.importorskip("openqasm3")
     text = """OPENQASM 3.0;
 def prepare_zz(qubit[2] block) -> bit { }
@@ -60,7 +60,7 @@ bit[2] result = measure_zz(data);
     assert [c.mnemonic for c in program.instructions] == ["prepare_zz", "measure_zz"]
 
 
-def test_coerce_parses_cirq_circuit(isa: qodec.InstructionSet) -> None:
+def test_coerce_parses_cirq_circuit(isa: qc.InstructionSet) -> None:
     cirq = pytest.importorskip("cirq")
     from qodec.circuits.cirq import gates_for
     gates = gates_for(isa)

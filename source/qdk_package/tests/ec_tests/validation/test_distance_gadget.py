@@ -1,7 +1,7 @@
 """Tests for gadget-distance estimation."""
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 from qdk.ec.faults import FaultEffect
 from qdk.ec.distance import MwpfSolverOptions
 from qdk.ec.targets import (
@@ -14,7 +14,7 @@ from ec_tests.testing.optional import requires_mwpf
 
 
 def test_measure_xx_gadget_distance_is_two(
-    measure_xx_gadget: qodec.Gadget,
+    measure_xx_gadget: qc.Gadget,
 ) -> None:
     distance, witness = gadget_distance_of(measure_xx_gadget, depolarizing(0.001))
     assert distance == 2
@@ -23,7 +23,7 @@ def test_measure_xx_gadget_distance_is_two(
 
 
 def test_measure_xx_witness_is_an_undetectable_logical_error(
-    measure_xx_gadget: qodec.Gadget,
+    measure_xx_gadget: qc.Gadget,
 ) -> None:
     _, witness = gadget_distance_of(measure_xx_gadget, depolarizing(0.001))
     combined_checks: frozenset[int] = frozenset()
@@ -37,7 +37,7 @@ def test_measure_xx_witness_is_an_undetectable_logical_error(
 
 @requires_mwpf
 def test_mwpf_agrees_with_exhaustive_on_gadget_distance(
-    measure_xx_gadget: qodec.Gadget,
+    measure_xx_gadget: qc.Gadget,
 ) -> None:
     exact, _ = gadget_distance_of(measure_xx_gadget, depolarizing(0.001))
     lower, upper, _ = gadget_distance_bounds_of(
@@ -48,7 +48,7 @@ def test_mwpf_agrees_with_exhaustive_on_gadget_distance(
 
 
 def test_gadget_distance_data_exposes_propagated_effects(
-    measure_xx_gadget: qodec.Gadget,
+    measure_xx_gadget: qc.Gadget,
 ) -> None:
     data = GadgetDistanceData.of(measure_xx_gadget, depolarizing(0.001))
     assert len(data.effects) > 0
@@ -56,7 +56,7 @@ def test_gadget_distance_data_exposes_propagated_effects(
 
 
 def test_idle_gadget_distance_uses_encoding_residual_observables(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     distance, witness = gadget_distance_of(idle_gadget, depolarizing(0.001))
     assert distance >= 1
@@ -72,7 +72,7 @@ def test_idle_gadget_distance_uses_encoding_residual_observables(
 
 
 def test_idle_gadget_mwpf_agrees_with_exhaustive(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     exact, _ = gadget_distance_of(idle_gadget, depolarizing(0.001))
     _, upper, _ = gadget_distance_bounds_of(

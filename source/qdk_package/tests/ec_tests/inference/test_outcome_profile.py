@@ -4,11 +4,11 @@ from qdk.ec._readouts import observables_as_xor_map
 from qdk.ec._references import outcome_indices
 from qdk.ec.checks import essential_checks_of
 from qdk.ec.readouts import OutcomeProfile, outcome_profile_of
-import qodec
+import qodec as qc
 
 
 def test_outcome_profile_defaults_to_essential_checks(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     profile = outcome_profile_of(idle_gadget)
     assert isinstance(profile, OutcomeProfile)
@@ -16,7 +16,7 @@ def test_outcome_profile_defaults_to_essential_checks(
 
 
 def test_outcome_profile_non_essential_keeps_declared_checks(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     profile = outcome_profile_of(idle_gadget, essential=False)
     assert len(profile.checks) == len(idle_gadget.checks)
@@ -25,7 +25,7 @@ def test_outcome_profile_non_essential_keeps_declared_checks(
 
 
 def test_outcome_profile_observables_pair_objective_and_realisation(
-    measure_xx_gadget: qodec.Gadget,
+    measure_xx_gadget: qc.Gadget,
 ) -> None:
     profile = outcome_profile_of(measure_xx_gadget)
     observables = list(observables_as_xor_map(measure_xx_gadget).values())

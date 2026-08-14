@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import qodec
+import qodec as qc
 
 from qdk.ec.action import (
     CircuitAction,
@@ -20,15 +20,15 @@ from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
 
 
-def _program_of(gadget: qodec.Gadget) -> Program:
+def _program_of(gadget: qc.Gadget) -> Program:
     return Program(gadget.circuit.instructions, gadget.circuit.isa)
 
 
-def _action_of_gadget(gadget: qodec.Gadget) -> CircuitAction:
+def _action_of_gadget(gadget: qc.Gadget) -> CircuitAction:
     return action_of(_program_of(gadget))
 
 
-def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qodec.Gadget) -> None:
+def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qc.Gadget) -> None:
     program = _program_of(idle_gadget)
     inputs = input_qubits_of(program)
     assert isinstance(inputs, frozenset)
@@ -37,7 +37,7 @@ def test_input_qubits_of_idle_channel_is_nonempty(idle_gadget: qodec.Gadget) -> 
 
 
 def test_action_of_idle_channel_returns_circuit_action(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     action = _action_of_gadget(idle_gadget)
     assert isinstance(action, CircuitAction)
@@ -46,7 +46,7 @@ def test_action_of_idle_channel_returns_circuit_action(
     assert isinstance(action.mapping, dict)
 
 
-def test_action_is_equivalent_to_itself(idle_gadget: qodec.Gadget) -> None:
+def test_action_is_equivalent_to_itself(idle_gadget: qc.Gadget) -> None:
     action = _action_of_gadget(idle_gadget)
     assert action.is_equivalent_to(action)
     assert action.is_equivalent_to(action, modulo_paulis=True)
@@ -55,7 +55,7 @@ def test_action_is_equivalent_to_itself(idle_gadget: qodec.Gadget) -> None:
 
 
 def test_distinct_gadgets_are_not_equivalent(
-    idle_gadget: qodec.Gadget, measure_xx_gadget: qodec.Gadget
+    idle_gadget: qc.Gadget, measure_xx_gadget: qc.Gadget
 ) -> None:
     idle = _action_of_gadget(idle_gadget)
     measure = _action_of_gadget(measure_xx_gadget)
@@ -65,7 +65,7 @@ def test_distinct_gadgets_are_not_equivalent(
 
 
 def test_sign_flipped_action_is_mod_paulis_equivalent_but_not_outcome(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     action = _action_of_gadget(idle_gadget)
     if not action.mapping:
@@ -79,7 +79,7 @@ def test_sign_flipped_action_is_mod_paulis_equivalent_but_not_outcome(
 
 
 def test_different_stabilizers_are_not_mod_paulis_equivalent(
-    idle_gadget: qodec.Gadget,
+    idle_gadget: qc.Gadget,
 ) -> None:
     action = _action_of_gadget(idle_gadget)
     extra = FrameGroup(
@@ -90,8 +90,8 @@ def test_different_stabilizers_are_not_mod_paulis_equivalent(
 
 
 def test_preparation_objective_stabilizers_are_deterministic(
-    prepare_xx_gadget: qodec.Gadget,
-    prepare_zz_gadget: qodec.Gadget,
+    prepare_xx_gadget: qc.Gadget,
+    prepare_zz_gadget: qc.Gadget,
 ) -> None:
     """A ``stabilize`` preparation must fix its stabilisers at a definite +1.
 

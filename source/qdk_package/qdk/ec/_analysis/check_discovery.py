@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
-import qodec
+import qodec as qc
 from paulimer import OutcomeCompleteSimulation, UnitaryOpcode
 from qodec.actions import Observe
 from qodec.circuits import Program
@@ -56,7 +56,7 @@ def simulate_program(
     return ProgramSimulation(walk.simulation, walk.observe_outcomes)
 
 
-def choi_prepare(gadget: qodec.Gadget) -> OutcomeCompleteSimulation:
+def choi_prepare(gadget: qc.Gadget) -> OutcomeCompleteSimulation:
     program = program_of(gadget)
     input_qubits = _input_data_qubits(gadget)
     simulation = _fresh_sim(program.qubit_count + len(input_qubits))
@@ -68,13 +68,13 @@ def choi_prepare(gadget: qodec.Gadget) -> OutcomeCompleteSimulation:
     return simulation
 
 
-def program_of(gadget: qodec.Gadget) -> Program:
+def program_of(gadget: qc.Gadget) -> Program:
     """The gadget's circuit as a runnable program (parses the source)."""
     return Program(gadget.circuit.instructions, gadget.circuit.isa)
 
 
 def simulate_channel(
-    gadget: qodec.Gadget, *, with_objective: bool = False
+    gadget: qc.Gadget, *, with_objective: bool = False
 ) -> ChannelSimulation:
     program = program_of(gadget)
     simulation = choi_prepare(gadget)
@@ -101,12 +101,12 @@ def simulate_channel(
     )
 
 
-def checks_of(gadget: qodec.Gadget) -> list[list[str]]:
+def checks_of(gadget: qc.Gadget) -> list[list[str]]:
     result = simulate_channel(gadget)
     return _emit_checks(result, _deterministic_rows(result))
 
 
-def profile_of(gadget: qodec.Gadget) -> Profile:
+def profile_of(gadget: qc.Gadget) -> Profile:
     result = simulate_channel(gadget, with_objective=True)
     rows = _deterministic_rows(result)
     checks = [row for row in rows if not row.objectives]
@@ -231,7 +231,7 @@ def _classify(
 
 def _emit_observables(
     result: ChannelSimulation,
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
     objective_rows: Sequence[CheckRow],
     check_rows: Sequence[CheckRow],
 ) -> tuple[dict[str, list[int]], list[frozenset[int]]]:
@@ -272,7 +272,7 @@ def _emit_observables(
     return observables, flag_patterns
 
 
-def _flag_bindings_of(gadget: qodec.Gadget) -> dict[str, frozenset[int]]:
+def _flag_bindings_of(gadget: qc.Gadget) -> dict[str, frozenset[int]]:
     trailing = list(gadget.readouts)[observe_count(gadget) :]
     return {
         name: frozenset(outcome_indices(readout_equation(readout)))
@@ -280,7 +280,7 @@ def _flag_bindings_of(gadget: qodec.Gadget) -> dict[str, frozenset[int]]:
     }
 
 
-def _objective_observable_names(gadget: qodec.Gadget) -> list[str]:
+def _objective_observable_names(gadget: qc.Gadget) -> list[str]:
     names = list(gadget.implements.flags)
     position = 0
     for action in gadget.implements.action:
@@ -304,7 +304,7 @@ def _measure(simulation: OutcomeCompleteSimulation, pauli: Pauli) -> int:
     return row
 
 
-def _input_data_qubits(gadget: qodec.Gadget) -> list[int]:
+def _input_data_qubits(gadget: qc.Gadget) -> list[int]:
     qubits: set[int] = set()
     for encoding in gadget.inputs:
         qubits.update(encoding_qubit_relocation(encoding).values())
@@ -312,7 +312,7 @@ def _input_data_qubits(gadget: qodec.Gadget) -> list[int]:
 
 
 def _stabilizer_probes(
-    encodings: Sequence[qodec.gadgets.Encoding],
+    encodings: Sequence[qc.gadgets.Encoding],
 ) -> tuple[tuple[Pauli, ...], tuple[StabilizerReference, ...]]:
     paulis: list[Pauli] = []
     references: list[StabilizerReference] = []
@@ -333,7 +333,7 @@ def _stabilizer_probes(
 
 
 def _objective_observable_probes(
-    gadget: qodec.Gadget,
+    gadget: qc.Gadget,
 ) -> list[tuple[str, Pauli | None]]:
     flat_map = [
         (encoding, local)
