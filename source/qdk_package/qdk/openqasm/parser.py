@@ -1,15 +1,10 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Syntactic parsing of OpenQASM programs.
+"""Parse, inspect, and serialize OpenQASM syntax trees.
 
-This module exposes the QDK's OpenQASM *parser* to Python. Unlike semantic
-analysis, a syntactic parse performs lexing and parsing only: it does not
-resolve identifiers, infer types, or evaluate constants. The result is a tree of
-read-only nodes rooted at :class:`Program`, mirroring the raw structure of the
-source text.
-
-Use :func:`parse` as the entry point::
+Use :func:`parse` when you want diagnostics and a recoverable syntax tree, even
+for invalid source::
 
     from qdk.openqasm import parser
 
@@ -19,73 +14,37 @@ Use :func:`parse` as the entry point::
             print(diagnostic.message)
     program = result.program
 
-``result.document`` is the immutable source snapshot for the parse. Syntax and
-diagnostic spans are global, half-open UTF-8 byte ranges; map them to a source
-with ``result.document.source_map.range_from_span(span)``.
+Use :func:`parse_program` instead when invalid source should raise
+:class:`QASM3ParsingError`. Parsing preserves the source-level structure but
+does not resolve names, infer types, or evaluate constants. For that information,
+use :func:`qdk.openqasm.semantic.analyze`.
 
-The ``includes`` argument accepts a mapping or callback over platform-neutral
-logical identifiers. Use ``/`` separators. Relative ``.`` and ``..`` components
-are normalized against the including source's logical parent, and URI-like
-schemes are preserved without URL decoding or fetching. Caller-provided key
-matching is exact and case-sensitive. ``stdgates.inc``, ``qelib1.inc``, and the
-QDK extension ``qdk.inc`` are built in. Parsing recognizes ``qdk.inc`` without
-consulting the resolver; semantic analysis injects the
-``mresetz_checked(qubit) -> int`` and ``postselectz(bit, qubit) -> void``
-intrinsic declarations. ``mresetz_checked`` returns ``0`` for Zero, ``1`` for
-One, or ``2`` for qubit loss. Those names are unavailable without the include.
-No other include falls back to the filesystem or network. Missing keys and
-callback exceptions become result diagnostics with unresolved source entries.
-A new resolver bridge is used for each call, and the result does not retain the
-mapping or callback.
+Inspect a node through its named properties, dispatch with :func:`isinstance`,
+or walk its children with :class:`QASMVisitor`. All nodes derive from
+:class:`QASMNode`; expression and statement nodes additionally derive from
+:class:`Expression` and :class:`Statement`. Use :class:`SyntaxNode` when an API
+needs to distinguish parser nodes from semantic nodes.
 
-Class names follow the ``openqasm3`` reference AST wherever an equivalent class
-exists (for example :class:`BinaryExpression`, :class:`QuantumGate`,
-:class:`ClassicalDeclaration`, and :class:`ForInLoop`); variants with no
-``openqasm3`` equivalent take a descriptive QDK name (for example
-:class:`ErrorExpression` and :class:`ParenExpression`).
+``result.document`` contains the entry source and every resolved include.
+Node and diagnostic spans are global, half-open UTF-8 byte ranges. Convert one
+to a source-local :class:`SourceRange` with
+``result.document.source_map.range_from_span(span)``.
 
-Every node derives from :class:`QASMNode`. Expressions derive from
-:class:`Expression` and statements from :class:`Statement`. Because this is a
-purely syntactic tree, expressions carry no ``ty``, ``const_value``, or
-``symbol`` accessors; for that resolved information use
-:func:`qdk.openqasm.semantic.analyze` instead. There is no ``kind``
-discriminant: dispatch on a node's concrete type using :func:`isinstance` or
-``type(node).__name__``, and traverse uniformly with each node's ``children()``
-method.
+The ``includes`` argument accepts a mapping or callback from logical include
+paths to source text. Paths use ``/`` separators, relative components are
+normalized against the including source, and matching is exact and
+case-sensitive. ``stdgates.inc``, ``qelib1.inc``, and ``qdk.inc`` are built in;
+there is no implicit filesystem or network lookup. Missing includes and callback
+failures are reported as diagnostics.
 
-Nodes are eagerly materialized and hold no reference back into the parser, so
-they may be freely retained, inspected across threads, and traversed after the
-call returns. Node identity is local to one parse snapshot: repeated access to
-a child within a result preserves identity, but rewriting creates a new graph
-and does not preserve identities for unchanged subtrees.
+Use :func:`dumps` or :func:`dump` to emit canonical OpenQASM from a complete
+syntax :class:`Program`. Serialization normalizes formatting and omits comments;
+it does not accept semantic programs or individual nodes.
 
-Nodes compare and hash structurally, not by identity. Two trees parsed from the
-same source are equal and hash equally, and so are two nodes describing the same
-construct at different offsets, because ``span`` does not participate in either
-operation. That makes nodes usable as ``set`` members and ``dict`` keys. One
-consequence is worth knowing: structurally identical nodes taken from different
-documents also compare equal, since neither position nor source document
-participates.
-
-Most class names here are also class names in :mod:`qdk.openqasm.semantic`, so a
-value named ``Program``, ``QuantumGate``, or ``IntType`` does not say which tree
-produced it. Use ``isinstance(node, SyntaxNode)`` to ask. :class:`SyntaxNode` is
-a virtual base with no members: every class in this tree is registered against
-it at import time, and :class:`qdk.openqasm.semantic.SemanticNode` is the
-counterpart for the other tree. Reach for it at an API boundary that must reject
-the wrong tree, or while diagnosing where a node came from; it resolves through
-``ABCMeta.__instancecheck__``, which is not what you want inside a traversal
-loop.
-
-Four classes answer ``False`` to both questions: :class:`QASMNode`,
-:class:`Expression`, :class:`Statement`, and :class:`Annotation`. Both trees use
-them, so asking which tree one came from has no answer, and claiming either
-would be false. Everything a parse actually produces is a :class:`SyntaxNode`.
+Nodes compare and hash by structure. Source positions do not participate, so
+equal nodes can come from different locations or source documents.
 
 This API is in preview and may change between QDK releases.
-
-Serialization accepts only syntax ``Program`` objects; it rejects semantic
-programs and does not retain comments or original spelling.
 """
 
 from __future__ import annotations
@@ -441,11 +400,10 @@ def parse_program(
 ) -> Program:
     """Parse source with strict-by-default compatibility control flow.
 
-    This wrapper offers control-flow compatibility with the reference
-    ``openqasm3`` parser: errors raise unless ``permissive`` is true. It returns
-    QDK syntax objects and does not provide reference AST compatibility,
-    ANTLR diagnostic text, or identical recovery behavior. The underlying
-    recovery-oriented :func:`parse` API remains unchanged.
+    This wrapper follows the reference ``openqasm3`` parser's error-handling
+    convention: errors raise unless ``permissive`` is true. It returns QDK
+    syntax objects; AST details, diagnostic text, and recovery behavior may
+    differ from the reference parser.
 
     Args:
         source: The OpenQASM 2.0 or 3.0 source text to parse.
@@ -454,7 +412,7 @@ def parse_program(
         includes: How to resolve ``include`` directives.
 
     Returns:
-        The program from the single underlying parse result.
+        The parsed syntax program.
 
     Raises:
         QASM3ParsingError: If parsing reports errors and ``permissive`` is
@@ -519,14 +477,8 @@ def dumps(program: Program, /) -> str:
     comments and original formatting. During the preview period, byte-level
     stability is not promised across QDK releases.
 
-    Output is derived from the entry source of the program's source document
-    rather than by walking the node tree, so this costs one reparse per call.
-    Trees are immutable, so the result always matches the program passed in.
-
-    Only a whole syntactic program is accepted. ``openqasm3.dumps`` serializes
-    any node, and a statement, an expression, or a semantic tree has no entry
-    source to reparse, so serializing one needs an emitter that walks the node
-    tree. The parameter may widen once such an emitter exists.
+    Only a whole syntactic program is accepted. Statements, expressions, and
+    semantic programs cannot be serialized with this function.
 
     Args:
         program: A syntactic :class:`Program` returned by this parser.

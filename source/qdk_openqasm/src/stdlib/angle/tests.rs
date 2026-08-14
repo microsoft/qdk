@@ -186,6 +186,22 @@ fn test_angle_try_into_f64() {
 }
 
 #[test]
+fn sixty_four_bit_angles_convert_without_wrapping_or_rounding_to_tau() {
+    let smallest: f64 = Angle::new(1, 64).try_into().unwrap();
+    let largest: f64 = Angle::new(u64::MAX, 64).try_into().unwrap();
+
+    assert!(smallest.abs() <= f64::EPSILON);
+    assert!(largest < TAU);
+}
+
+#[test]
+fn float_conversion_rejects_invalid_fixed_point_pairs() {
+    assert!(TryInto::<f64>::try_into(Angle::new(0, 0)).is_err());
+    assert!(TryInto::<f64>::try_into(Angle::new(1, 65)).is_err());
+    assert!(TryInto::<f64>::try_into(Angle::new(4, 2)).is_err());
+}
+
+#[test]
 fn test_angle_display() {
     let angle = Angle::from_f64_sized(PI, 4);
     assert_eq!(format!("{angle}"), format!("{PI}"));

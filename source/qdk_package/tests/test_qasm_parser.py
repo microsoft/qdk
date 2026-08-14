@@ -174,8 +174,7 @@ def test_parse_program_strict_parses_once_and_preserves_error_payload(
         diagnostic.render(color=False) for diagnostic in result.diagnostics
     ]
     assert str(error) == "\n\n".join(
-        diagnostic.render(color=False).rstrip("\n")
-        for diagnostic in result.diagnostics
+        diagnostic.render(color=False).rstrip("\n") for diagnostic in result.diagnostics
     )
     assert not str(error).endswith("\n")
     assert "\x1b[" not in str(error)
@@ -315,7 +314,9 @@ def test_gate_modifiers_preserve_implicit_counts_and_source_order() -> None:
         result = layer.parse(source) if layer is parser else layer.analyze(source)
         assert not result.has_errors
         gates = result.program.statements[-2:]
-        assert [[modifier.modifier for modifier in gate.modifiers] for gate in gates] == [
+        assert [
+            [modifier.modifier for modifier in gate.modifiers] for gate in gates
+        ] == [
             [parser.GateModifierName.CTRL, parser.GateModifierName.INV],
             [parser.GateModifierName.NEGCTRL, parser.GateModifierName.CTRL],
         ]
@@ -352,6 +353,32 @@ def test_index_ranges_preserve_omitted_components() -> None:
     assert right_range.end.const_value == 1
 
 
+def test_recovery_gaps_remain_visible_in_gate_operands_and_indices() -> None:
+    gate_result = parser.parse("OPENQASM 3.0; qubit q; x ,q;")
+    gate = gate_result.program.statements[-1]
+
+    assert gate_result.has_errors
+    assert [type(qubit).__name__ for qubit in gate.qubits] == [
+        "ErrorExpression",
+        "Identifier",
+    ]
+    missing_qubit = gate.qubits[0]
+    assert missing_qubit.span.lo == missing_qubit.span.hi
+    assert any(child is missing_qubit for child in gate.children())
+
+    index_result = parser.parse("OPENQASM 3.0; array[int[32], 2] a; int x = a[,1];")
+    index = index_result.program.statements[-1].init_expr.indices[0]
+
+    assert index_result.has_errors
+    assert [type(value).__name__ for value in index.values] == [
+        "ErrorExpression",
+        "IntegerLiteral",
+    ]
+    missing_index = index.values[0]
+    assert missing_index.span == index.span
+    assert any(child is missing_index for child in index.children())
+
+
 def test_index_ranges_preserve_all_components() -> None:
     source = """OPENQASM 3.0;
     bit[8] a;
@@ -386,16 +413,22 @@ def test_index_ranges_preserve_all_components() -> None:
             actual.append(
                 tuple(
                     None if expression is None else value_of(expression)
-                    for expression in (range_node.start, range_node.step, range_node.end)
+                    for expression in (
+                        range_node.start,
+                        range_node.step,
+                        range_node.end,
+                    )
                 )
             )
         assert actual == expected
 
 
 def test_syntax_indices_preserve_dimensions_and_discrete_sets() -> None:
-    indexed = parser.parse(
-        "OPENQASM 3.0; array[int[32], 2, 3] a; int x = a[1, 0:2];"
-    ).program.statements[-1].init_expr
+    indexed = (
+        parser.parse("OPENQASM 3.0; array[int[32], 2, 3] a; int x = a[1, 0:2];")
+        .program.statements[-1]
+        .init_expr
+    )
     assert len(indexed.indices) == 1
     assert len(indexed.indices[0].values) == 2
     assert indexed.indices[0].values[0].value == 1
@@ -447,7 +480,11 @@ def test_subroutine_parameters_preserve_name_and_type_grouping() -> None:
     def f(int[8] a, float[32] b, qubit q) -> int { return a; }
     """
     syntax_def = parser.parse(source).program.statements[0]
-    assert [parameter.identifier.name for parameter in syntax_def.params] == ["a", "b", "q"]
+    assert [parameter.identifier.name for parameter in syntax_def.params] == [
+        "a",
+        "b",
+        "q",
+    ]
     assert [type(parameter.type).__name__ for parameter in syntax_def.params] == [
         "IntType",
         "FloatType",
@@ -460,7 +497,9 @@ def test_subroutine_parameters_preserve_name_and_type_grouping() -> None:
 
     semantic_def = semantic.analyze(source).program.statements[0]
     assert [parameter.name for parameter in semantic_def.params] == ["a", "b", "q"]
-    assert all(parameter.symbol.name == parameter.name for parameter in semantic_def.params)
+    assert all(
+        parameter.symbol.name == parameter.name for parameter in semantic_def.params
+    )
     assert [parameter.symbol.ty.name for parameter in semantic_def.params] == [
         "int[8]",
         "float[32]",
@@ -604,6 +643,12 @@ def test_statement_annotations_preserve_values_and_spans() -> None:
             "first",
             "vendor.payload",
         ]
-        assert [annotation.value for annotation in statement.annotations] == [None, "23"]
+        assert [annotation.value for annotation in statement.annotations] == [
+            None,
+            "23",
+        ]
         assert statement.annotations[0].value_span is None
-        assert statement.annotations[1].value_span.hi > statement.annotations[1].value_span.lo
+        assert (
+            statement.annotations[1].value_span.hi
+            > statement.annotations[1].value_span.lo
+        )

@@ -73,7 +73,7 @@ impl Severity {
     }
 }
 
-/// A labeled region of source associated with a :class:`Diagnostic`.
+/// A frozen, hashable labeled region associated with a diagnostic.
 #[pyclass(module = "qdk.openqasm.parser", frozen, eq, hash, skip_from_py_object)]
 #[derive(Clone, Eq, Hash, PartialEq)]
 pub(crate) struct Label {
@@ -96,7 +96,7 @@ impl Label {
     }
 }
 
-/// A plain projection of a layered diagnostic.
+/// A diagnostic reported while parsing or analyzing OpenQASM source.
 #[pyclass(module = "qdk.openqasm.parser", frozen, eq, skip_from_py_object)]
 #[derive(Clone, Eq, PartialEq)]
 pub(crate) struct Diagnostic {
@@ -106,7 +106,7 @@ pub(crate) struct Diagnostic {
     /// The diagnostic's severity.
     #[pyo3(get)]
     pub severity: Severity,
-    /// An optional machine-readable code (e.g. `Qasm.Parse.Token`).
+    /// An optional machine-readable code (e.g. ``Qasm.Parse.Token``).
     #[pyo3(get)]
     pub code: Option<String>,
     /// Source labels attached to the diagnostic.
@@ -132,14 +132,14 @@ impl Diagnostic {
 
     /// Renders the diagnostic to its pretty, source-annotated form.
     ///
-    /// Unlike `str(diagnostic)`, which is a fixed no-color rendering, this lets
-    /// the caller control the output for the current terminal:
+    /// Unlike ``str(diagnostic)``, which is a fixed no-color rendering, this
+    /// lets the caller control the output for the current terminal:
     ///
-    /// * `color` - emit ANSI color. When `None`, color is enabled only if
-    ///   standard output is a terminal and `NO_COLOR` is unset.
-    /// * `unicode` - use Unicode box-drawing (`True`) or ASCII (`False`).
-    ///   Defaults to `True`.
-    /// * `width` - wrap width in columns. Defaults to 80.
+    /// * ``color`` - emit ANSI color. When ``None``, color is enabled only if
+    ///     standard output is a terminal and ``NO_COLOR`` is unset.
+    /// * ``unicode`` - use Unicode box-drawing (``True``) or ASCII (``False``).
+    ///     Defaults to ``True``.
+    /// * ``width`` - wrap width in columns. Defaults to 80.
     #[pyo3(signature = (*, color=None, unicode=None, width=None))]
     fn render(&self, color: Option<bool>, unicode: Option<bool>, width: Option<usize>) -> String {
         let color = color.unwrap_or_else(color_auto_enabled);

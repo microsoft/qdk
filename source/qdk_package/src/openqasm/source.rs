@@ -75,6 +75,12 @@ impl ResolutionStatus {
     }
 }
 
+/// How a :class:`Position` counts columns within a line.
+///
+/// :attr:`UTF8` counts bytes, :attr:`CODE_POINT` counts Unicode code points,
+/// and :attr:`UTF16` counts UTF-16 code units. Use :attr:`UTF16` for Language
+/// Server Protocol positions and :attr:`CODE_POINT` for ordinary Python string
+/// indexing. All three encodings give the same columns for ASCII text.
 #[pyclass(
     module = "qdk.openqasm.source",
     eq,
@@ -151,16 +157,20 @@ impl PositionEncoding {
     }
 }
 
+/// A frozen, hashable zero-based line and column in a source file.
+///
+/// ``line`` and ``column`` must be between ``0`` and ``2**32 - 1``;
+/// construction raises ``OverflowError`` otherwise.
 #[pyclass(module = "qdk.openqasm.source", frozen, eq, hash, skip_from_py_object)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct Position {
     /// The zero-based line number.
     #[pyo3(get)]
     line: u32,
-    /// The zero-based column in the selected encoding.
+    /// The zero-based column, counted according to :attr:`encoding`.
     #[pyo3(get)]
     column: u32,
-    /// The encoding used for `column`.
+    /// The encoding used for ``column``.
     #[pyo3(get)]
     encoding: PositionEncoding,
 }
@@ -207,6 +217,11 @@ impl Position {
     }
 }
 
+/// A frozen, hashable range within one source file.
+///
+/// ``source_id`` must be between ``0`` and ``2**32 - 1``; construction raises
+/// ``OverflowError`` otherwise. Use :meth:`SourceMap.span_from_range` to
+/// convert this source-local range to a global :class:`Span`.
 #[pyclass(module = "qdk.openqasm.source", frozen, eq, hash, skip_from_py_object)]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct SourceRange {
@@ -318,6 +333,7 @@ impl SourceDocumentInner {
     }
 }
 
+/// One source file in a parse or analysis result.
 #[pyclass(module = "qdk.openqasm.source", frozen, eq, hash, skip_from_py_object)]
 #[derive(Eq, Hash, PartialEq)]
 pub(crate) struct SourceFile {
@@ -344,6 +360,9 @@ impl SourceFile {
     }
 
     /// The logical path used to resolve this source.
+    ///
+    /// For an include, this is the normalized path passed to the include
+    /// resolver. It is not necessarily a filesystem path.
     #[getter]
     fn path(&self) -> &str {
         &self.inner().path
@@ -398,6 +417,10 @@ impl SourceFile {
     }
 }
 
+/// The source files and coordinate conversions for one result.
+///
+/// Lines and columns are zero based. Coordinate conversion is strict and
+/// raises ``ValueError`` rather than clamping invalid boundaries.
 #[pyclass(module = "qdk.openqasm.source", frozen, eq, skip_from_py_object)]
 #[derive(Eq, PartialEq)]
 pub(crate) struct SourceMap {
@@ -478,6 +501,9 @@ impl SourceMap {
         Ok(list.as_any().try_iter()?.into_any().unbind())
     }
 
+    /// Returns the source file with ``source_id``.
+    ///
+    /// Raises ``KeyError`` when the ID is not in this source map.
     fn get(&self, py: Python<'_>, source_id: u32) -> PyResult<Py<SourceFile>> {
         let index = self
             .document
@@ -488,6 +514,9 @@ impl SourceMap {
         self.file(py, index)
     }
 
+    /// Returns the first source whose logical path exactly matches ``path``.
+    ///
+    /// Matching is case-sensitive. Returns ``None`` when no source matches.
     fn find(&self, py: Python<'_>, path: &str) -> PyResult<Option<Py<SourceFile>>> {
         self.document
             .files()
@@ -497,6 +526,9 @@ impl SourceMap {
             .transpose()
     }
 
+    /// Returns all sources whose logical path exactly matches ``path``.
+    ///
+    /// Matching is case-sensitive. The tuple is empty when no source matches.
     fn find_all(&self, py: Python<'_>, path: &str) -> PyResult<Py<PyTuple>> {
         let files = self
             .document
@@ -509,6 +541,15 @@ impl SourceMap {
         Ok(PyTuple::new(py, files)?.unbind())
     }
 
+    /// Converts a source-local UTF-8 byte offset to a line and column.
+    ///
+    /// ``byte_offset`` is relative to the start of ``source_id``; it is not a
+    /// global :class:`Span` offset. Use :meth:`range_from_span` when starting
+    /// from a node, symbol, or diagnostic span.
+    ///
+    /// The default column encoding is :attr:`PositionEncoding.CODE_POINT`.
+    /// Raises ``ValueError`` for an unknown source, an out-of-range offset, or
+    /// an offset that is not a UTF-8 character boundary.
     #[pyo3(signature = (source_id, byte_offset, *, encoding=None))]
     fn position_at(
         &self,
@@ -526,6 +567,13 @@ impl SourceMap {
         .map_err(|error| PyValueError::new_err(error.to_string()))
     }
 
+    /// Converts a source-local line and column to a UTF-8 byte offset.
+    ///
+    /// The returned offset is relative to the start of ``source_id``, not a
+    /// global :class:`Span` offset.
+    ///
+    /// The position's own encoding controls how its column is interpreted.
+    /// Raises ``ValueError`` for an unknown source or invalid position.
     #[allow(clippy::needless_pass_by_value)]
     fn byte_offset(&self, source_id: u32, position: PyRef<'_, Position>) -> PyResult<u32> {
         let source = self.source(source_id)?;
@@ -533,6 +581,11 @@ impl SourceMap {
             .map_err(|error| PyValueError::new_err(error.to_string()))
     }
 
+    /// Converts a global byte span to a source-local line and column range.
+    ///
+    /// The default column encoding is :attr:`PositionEncoding.CODE_POINT`.
+    /// Raises ``ValueError`` if the span is invalid or is not contained in one
+    /// source in this map.
     #[pyo3(signature = (span, *, encoding=None))]
     #[allow(clippy::needless_pass_by_value)]
     fn range_from_span(
@@ -555,6 +608,10 @@ impl SourceMap {
         })
     }
 
+    /// Converts a source-local range to a global UTF-8 byte span.
+    ///
+    /// Raises ``ValueError`` if the range is invalid, refers to an unknown
+    /// source, or belongs to a different source document.
     #[allow(clippy::needless_pass_by_value)]
     fn span_from_range(&self, source_range: PyRef<'_, SourceRange>) -> PyResult<Span> {
         if source_range
@@ -585,6 +642,7 @@ impl SourceMap {
     }
 }
 
+/// The entry source and resolved includes for one parse or analysis result.
 #[pyclass(module = "qdk.openqasm.source", frozen, eq, skip_from_py_object)]
 #[derive(Eq, PartialEq)]
 pub(crate) struct SourceDocument {

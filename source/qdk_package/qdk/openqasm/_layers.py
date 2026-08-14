@@ -28,16 +28,11 @@ from typing import Any, Dict, Iterable, Tuple
 
 
 class SyntaxNode(abc.ABC):
-    """Virtual base of every class in the syntactic tree.
+    """Marker base for values produced by syntactic parsing.
 
     ``isinstance(node, SyntaxNode)`` is true for nodes produced by
-    :func:`qdk.openqasm.parser.parse` and false for nodes produced by
-    :func:`qdk.openqasm.semantic.analyze`, with the shared-class exception
-    described in :data:`SHARED_CLASS_NAMES`.
-
-    This class is never instantiated or subclassed directly. Membership is
-    virtual, so it resolves through ``ABCMeta.__instancecheck__``: appropriate
-    for a diagnostic check at an API boundary, not for a hot traversal loop.
+    :func:`qdk.openqasm.parser.parse`. Use it to reject a semantic value where
+    an API requires source-level syntax. Do not instantiate it directly.
     """
 
     # Declared where users import it from rather than where it is defined, as
@@ -47,13 +42,12 @@ class SyntaxNode(abc.ABC):
 
 
 class SemanticNode(abc.ABC):
-    """Virtual base of every class in the semantic tree.
+    """Marker base for values produced by semantic analysis.
 
-    The counterpart of :class:`SyntaxNode`. It also covers the resolved types
-    rooted at :class:`qdk.openqasm.semantic.Type`, which are not
-    :class:`~qdk.openqasm.QASMNode` instances and carry no span, but are part
-    of the semantic layer's vocabulary and collide by name with the syntactic
-    type nodes.
+    ``isinstance(value, SemanticNode)`` is true for semantic AST nodes and
+    resolved :class:`qdk.openqasm.semantic.Type` values. Use it to reject a
+    parser value where an API requires analyzed data. Do not instantiate it
+    directly.
     """
 
     __module__ = "qdk.openqasm.semantic"
