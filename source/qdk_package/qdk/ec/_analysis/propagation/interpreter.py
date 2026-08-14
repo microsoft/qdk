@@ -17,10 +17,9 @@ from qodec.actions import (
 from qodec.circuits import Program
 
 from .isa_actions import (
-    block_operands,
-    block_strides,
+    block_stride,
     build_clifford_images,
-    build_qubit_map,
+    call_qubit_map,
     remap_pauli,
 )
 from .pauli import Pauli, PauliCharacter, characters_of
@@ -161,15 +160,10 @@ def walk_program(
 
     outcome_count = 0
     observe_rows: list[int] = []
-    strides = block_strides(program.isa)
-    operands_flat = block_operands(program)
-    operand_offset = 0
+    stride = block_stride(program.isa)
     for instruction_index, call in enumerate(program.instructions):
         instruction = program.lookup(call.mnemonic)
-        operand_count = len(call.inputs)
-        call_operands = operands_flat[operand_offset : operand_offset + operand_count]
-        operand_offset += operand_count
-        qubit_map = build_qubit_map(call, call_operands, strides)
+        qubit_map = call_qubit_map(call, stride)
 
         for action in instruction.action:
             if isinstance(action, Stabilize):

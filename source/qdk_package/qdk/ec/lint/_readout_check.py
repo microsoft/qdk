@@ -17,7 +17,7 @@ from .._analysis.propagation.conditional import (
 )
 from .._analysis.propagation.frames import FrameGroup
 from .._analysis.propagation.interpreter import program_of
-from .._analysis.propagation.isa_actions import parse_basis_index
+from .._analysis.propagation.pauli import parse_term
 from .._analysis.propagation.pauli import Pauli, PauliCharacter
 from .._analysis.propagation.pauli_remap import (
     encoding_qubit_relocation,
@@ -116,7 +116,7 @@ def _data_side_logical_probes(gadget: qc.Gadget) -> dict[str, Pauli]:
         for observable in action.observables:
             characters: dict[int, PauliCharacter] = {}
             for token in observable.pauli.split():
-                basis, flat_index = parse_basis_index(token)
+                basis, flat_index = parse_term(token)
                 encoding, local_index = flat_map[flat_index]
                 relocation = encoding_qubit_relocation(encoding)
                 for local, character in _declared_logical_chars(

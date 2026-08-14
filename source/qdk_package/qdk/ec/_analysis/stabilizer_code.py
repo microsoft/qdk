@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import warnings
 from typing import Iterable, Optional, Sequence
 
 from paulimer import PauliGroup
@@ -22,24 +21,6 @@ class StabilizerCode(SubsystemCode):
             generators, logical_basis, also_supporting
         )
         super().__init__(generators, logical_basis=completed_basis)
-
-    @property
-    def generators(self) -> Sequence[Pauli]:
-        warnings.warn(
-            "The `generators` property is deprecated. Use `stabilizers`.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.stabilizers
-
-    @property
-    def anti_generators(self) -> Sequence[Pauli]:
-        warnings.warn(
-            "The `anti_generators` property is deprecated. Use " "`anti_stabilizers`.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        return self.anti_stabilizers
 
 
 def _make_logical_basis(

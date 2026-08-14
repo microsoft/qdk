@@ -16,9 +16,8 @@ from .propagation.frames import FrameGroup, PauliFrame
 from .propagation.groups import subgroup_of
 from .propagation.interpreter import program_of
 from .propagation.isa_actions import (
-    block_operands,
-    block_strides,
-    build_qubit_map,
+    block_stride,
+    call_qubit_map,
     remap_pauli,
 )
 from .propagation.pauli import (
@@ -53,15 +52,10 @@ class CircuitAction:
 def input_qubits_of(program: Program) -> frozenset[int]:
     seen: set[int] = set()
     prepared: set[int] = set()
-    strides = block_strides(program.isa)
-    operands_flat = block_operands(program)
-    operand_offset = 0
+    stride = block_stride(program.isa)
     for call in program.instructions:
         instruction = program.lookup(call.mnemonic)
-        operand_count = len(call.inputs)
-        call_operands = operands_flat[operand_offset : operand_offset + operand_count]
-        operand_offset += operand_count
-        qubit_map = build_qubit_map(call, call_operands, strides)
+        qubit_map = call_qubit_map(call, stride)
         for action in instruction.action:
             touched: set[int] = set()
             if isinstance(action, Stabilize):

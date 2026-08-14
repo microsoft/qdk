@@ -96,6 +96,7 @@ from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 from .action import gadget_action_mismatch
 from .distance import code_distance_of
 from ._analysis.propagation.pauli import Pauli, characters_of
+from ._analysis.propagation.pauli_remap import code_qubit_count
 from ._completion import complete_gadget
 from ._readouts import as_readout
 from ._references import as_references
@@ -113,21 +114,6 @@ _METADATA_KEY = "qdk.ec"
 def _characters(text: qc.PauliString) -> dict[int, str]:
     """The ``{qubit: character}`` map of a qodec Pauli string."""
     return dict(characters_of(Pauli(str(text))))
-
-
-def _qubit_count(code: qc.Code) -> int:
-    """Number of physical qubits the code addresses.
-
-    Derived as one past the highest qubit index mentioned by any stabilizer or
-    logical operator, so a code that never touches a trailing qubit reports the
-    narrower width.
-    """
-    highest = -1
-    for group in (code.stabilizers, code.x, code.z):
-        for text in group:
-            for qubit in _characters(text):
-                highest = max(highest, qubit)
-    return highest + 1
 
 
 def _reject_y_components(code: qc.Code) -> None:
@@ -685,7 +671,7 @@ def qodec_from_code(
             "for a qodec to compute with"
         )
 
-    data_width = _qubit_count(code)
+    data_width = code_qubit_count(code)
     resolved_name = name or code.name
     if not resolved_name:
         raise ValueError("code has no name; pass name= explicitly")
