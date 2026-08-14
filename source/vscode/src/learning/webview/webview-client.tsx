@@ -225,7 +225,7 @@ function App() {
 
   return (
     <>
-      <Branding course={learning.course} />
+      <Branding />
       <Header current={learning.position} />
       <ContentBody
         content={learning.position.content}
@@ -247,8 +247,10 @@ function App() {
   );
 }
 
-function Branding({ course }: { course: LearningState["course"] }) {
+function Branding() {
   const mobiusUri = document.body.dataset.mobiusUri ?? "";
+  // We don't actually use this panel for notebook courses,
+  // so hard-coding the katas course name is fine.
   return (
     <div class="branding" style={`--mobius-url: url('${mobiusUri}')`}>
       <div
@@ -256,7 +258,7 @@ function Branding({ course }: { course: LearningState["course"] }) {
         role="img"
         aria-label="Microsoft Quantum logo"
       />
-      <span class="branding-text">{course.title}</span>
+      <span class="branding-text">Microsoft Quantum Katas</span>
     </div>
   );
 }

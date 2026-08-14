@@ -54,7 +54,7 @@ export class LessonPanelManager {
    * use the notebook itself as the primary surface, so the lesson panel is
    * never shown for them.
    */
-  private get isPythonNotebook(): boolean {
+  private get isNotebookCourse(): boolean {
     return (
       this.service.initialized &&
       isNotebookCourse(this.service.getActiveCourseInfo())
@@ -76,7 +76,7 @@ export class LessonPanelManager {
       return;
     }
 
-    if (this.isPythonNotebook) {
+    if (this.isNotebookCourse) {
       return;
     }
 
@@ -123,7 +123,7 @@ export class LessonPanelManager {
       return;
     }
 
-    if (this.isPythonNotebook) {
+    if (this.isNotebookCourse) {
       // The active course no longer uses the panel — drop the serialized one.
       panel.dispose();
       return;
@@ -173,7 +173,7 @@ export class LessonPanelManager {
         if (!this.panel) {
           return;
         }
-        if (this.isPythonNotebook) {
+        if (this.isNotebookCourse) {
           // Switched into a course that doesn't use the panel.
           this.panel.dispose();
           return;
@@ -220,7 +220,7 @@ export class LessonPanelManager {
     if (!this.panel || !this.service.initialized) {
       return undefined;
     }
-    if (this.isPythonNotebook) {
+    if (this.isNotebookCourse) {
       // The panel disposes itself as soon as the service switches into a
       // course that doesn't use it, so this is not expected to happen.
       log.warn("The lesson panel is not used for python-notebook courses.");
