@@ -78,10 +78,11 @@ export class CompositeCourseProvider implements CourseProvider {
  */
 export function createCourseProvider(
   workspaceRoot: vscode.Uri,
+  extensionUri: vscode.Uri,
 ): CompositeCourseProvider {
   return new CompositeCourseProvider([
     new KatasCourseProvider(),
-    new NotebookCourseProvider(workspaceRoot),
+    new NotebookCourseProvider(workspaceRoot, extensionUri),
   ]);
 }
 
