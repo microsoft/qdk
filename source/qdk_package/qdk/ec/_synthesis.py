@@ -97,6 +97,8 @@ from .action import gadget_action_mismatch
 from .distance import code_distance_of
 from ._analysis.propagation.pauli import Pauli, characters_of
 from ._completion import complete_gadget
+from ._readouts import as_readout
+from ._references import as_references
 
 if TYPE_CHECKING:
     from qodec.circuits import Program
@@ -287,8 +289,7 @@ def _syndrome_round(
         # error of weight >= 2 behind.
         opens = {index: flag_qubits[index - 1] for index in range(1, flag_count + 1)}
         closes = {
-            weight - index: flag_qubits[index - 1]
-            for index in range(1, flag_count + 1)
+            weight - index: flag_qubits[index - 1] for index in range(1, flag_count + 1)
         }
 
         lines.append(f"R {syndrome}")
@@ -379,6 +380,7 @@ def _logical_token_map(
             return gadget_action_mismatch(probe) is None
         except Exception:  # noqa: BLE001 - an unverifiable probe is not a match
             return False
+
     resolved: dict[tuple[str, int], int] = {}
     for basis, operators in (("X", list(code.x)), ("Z", list(code.z))):
         taken: set[int] = set()
@@ -447,6 +449,8 @@ def _candidates(
     # and the token is whatever names it.
     z_tokens = [f"Z_{token('Z', i)}" for i in order]
     x_tokens = [f"X_{token('X', i)}" for i in order]
+    z_observables: list[qodec.actions.Observable | str] = list(z_tokens)
+    x_observables: list[qodec.actions.Observable | str] = list(x_tokens)
 
     candidates = [
         _Candidate(
@@ -487,7 +491,7 @@ def _candidates(
                 "measure_z",
                 description="Destructively measure every logical qubit in Z.",
                 inputs=[operand()],
-                action=[Observe(z_tokens)],
+                action=[Observe(z_observables)],
             ),
             [f"M {all_data}"],
             takes_input=True,
@@ -498,7 +502,7 @@ def _candidates(
                 "measure_x",
                 description="Destructively measure every logical qubit in X.",
                 inputs=[operand()],
-                action=[Observe(x_tokens)],
+                action=[Observe(x_observables)],
             ),
             [f"H {all_data}", f"M {all_data}"],
             takes_input=True,
@@ -557,14 +561,6 @@ def _draft(
     )
 
 
-def _readout_value(entry: object) -> "list[str] | dict[str, list[str]]":
-    if isinstance(entry, Mapping):
-        return {
-            name: [str(atom) for atom in equation] for name, equation in entry.items()
-        }
-    return [str(atom) for atom in entry]  # type: ignore[union-attr]
-
-
 def _rebound(gadget: qodec.Gadget, instruction: Instruction) -> qodec.Gadget:
     """``gadget`` re-pointed at ``instruction``, keeping its completed surface."""
     return qodec.Gadget(
@@ -572,8 +568,8 @@ def _rebound(gadget: qodec.Gadget, instruction: Instruction) -> qodec.Gadget:
         gadget.circuit,
         inputs=list(gadget.inputs),
         outputs=list(gadget.outputs),
-        checks=[[str(atom) for atom in check] for check in gadget.checks],
-        readouts=[_readout_value(entry) for entry in gadget.readouts],
+        checks=[as_references(check) for check in gadget.checks],
+        readouts=[as_readout(entry) for entry in gadget.readouts],
         parameters=dict(gadget.parameters),
         metadata=dict(gadget.metadata),
     )
@@ -593,7 +589,9 @@ def memory_program(codec: qodec.Qodec, *, rounds: int = 1) -> "Program":
 
     isa = codec.layers[0].isa
     mnemonics = ["prepare_z", *["idle"] * rounds, "measure_z"]
-    missing = [name for name in dict.fromkeys(mnemonics) if name not in isa.instructions]
+    missing = [
+        name for name in dict.fromkeys(mnemonics) if name not in isa.instructions
+    ]
     if missing:
         raise ValueError(
             f"codec {codec.name!r} cannot express a memory experiment; it is "
@@ -602,8 +600,12 @@ def memory_program(codec: qodec.Qodec, *, rounds: int = 1) -> "Program":
 
     def call(mnemonic: str) -> "qodec.instructions.InstructionCall":
         instruction = isa.instruction(mnemonic)
-        inputs = {str(i): "q" for i in range(len(list(instruction.inputs)))}
-        outputs = {str(i): "q" for i in range(len(list(instruction.outputs)))}
+        inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+            str(i): "q" for i in range(len(list(instruction.inputs)))
+        }
+        outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+            str(i): "q" for i in range(len(list(instruction.outputs)))
+        }
         if not inputs and not outputs:
             return qodec.instructions.InstructionCall(mnemonic)
         return qodec.instructions.InstructionCall(

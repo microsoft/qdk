@@ -17,7 +17,13 @@ from paulimer import (
 )
 
 from .propagation.groups import is_stabilizer_group
-from .propagation.pauli import Pauli, as_literals, characters_of, identity
+from .propagation.pauli import (
+    Pauli,
+    PauliCharacter,
+    as_literals,
+    characters_of,
+    identity,
+)
 
 if TYPE_CHECKING:
     import qodec
@@ -232,7 +238,10 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
 
     def relocated(self, by: Mapping[int, int]) -> "SubsystemCode":
         def remap(pauli: Pauli) -> Pauli:
-            characters = {by.get(qubit, qubit): pauli[qubit] for qubit in pauli.support}
+            characters: dict[int, PauliCharacter] = {
+                by.get(qubit, qubit): character
+                for qubit, character in characters_of(pauli).items()
+            }
             return Pauli(characters) * identity(pauli.phase)
 
         return SubsystemCode(

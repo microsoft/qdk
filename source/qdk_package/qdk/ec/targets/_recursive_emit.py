@@ -13,13 +13,14 @@ no import cycle.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 
 import stim
 
 import qodec
 
+from .._readouts import readout_equation
 from .._references import (
     outcome_indices,
     parse_encoding_atom,
@@ -28,15 +29,15 @@ from .._references import (
 from ._qubit_alloc import PhysicalQubitAllocator
 
 
-def _parse_stab_in_atom(atom: str) -> tuple[int, int] | None:
+def _parse_stab_in_atom(atom: object) -> tuple[int, int] | None:
     return parse_stabilizer_atom(atom, side="in")
 
 
-def _parse_stab_out_atom(atom: str) -> tuple[int, int] | None:
+def _parse_stab_out_atom(atom: object) -> tuple[int, int] | None:
     return parse_stabilizer_atom(atom, side="out")
 
 
-def _parse_logical_in_atom(atom: str) -> tuple[int, str, int] | None:
+def _parse_logical_in_atom(atom: object) -> tuple[int, str, int] | None:
     """Parse an ``in[<entry>].(x|z)[i]`` logical-observable sign atom.
 
     Returns ``(entry, basis, index)`` with ``basis in {"x", "z"}``, or
@@ -48,7 +49,7 @@ def _parse_logical_in_atom(atom: str) -> tuple[int, str, int] | None:
     return (parsed.entry, parsed.basis, parsed.index)
 
 
-def _parse_logical_out_atom(atom: str) -> tuple[int, str, int] | None:
+def _parse_logical_out_atom(atom: object) -> tuple[int, str, int] | None:
     """Parse an ``out[<entry>].(x|z)[i]`` logical-observable sign atom."""
     parsed = parse_encoding_atom(atom)
     if parsed is None or parsed.basis not in ("x", "z") or parsed.side != "out":
@@ -56,7 +57,7 @@ def _parse_logical_out_atom(atom: str) -> tuple[int, str, int] | None:
     return (parsed.entry, parsed.basis, parsed.index)
 
 
-def _has_out_stab(check: Sequence[str]) -> bool:
+def _has_out_stab(check: Iterable[object]) -> bool:
     return any(str(atom).startswith("out[") for atom in check)
 
 
@@ -103,7 +104,7 @@ def _observe_names(gadget: qodec.Gadget) -> list[str]:
 
 
 def _resolve_atoms_records(
-    atoms: Sequence[str],
+    atoms: Sequence[object],
     body_prov: list[frozenset[int]],
     frame_map: dict[tuple[int, int], frozenset[int]],
     logical_frame_map: dict[tuple[int, str, int], frozenset[int]],
@@ -260,7 +261,7 @@ def _call_readout_prov(
                 f"gadget {gadget.implements.mnemonic!r} observes readout "
                 f"{name!r} but declares no readout equation at position {position}"
             )
-        atoms = readouts[position]
+        atoms = readout_equation(readouts[position])
         prov[name] = frozenset(
             _resolve_atoms_records(
                 atoms, body_prov, frame_map, logical_frame_map, gadget

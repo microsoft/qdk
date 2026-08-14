@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+import qodec
 from qodec.circuits import Program
 
 from ..faults import Fault
 from .._analysis.propagation.pauli import Pauli
+
+
+def _qubit_operands(call: qodec.InstructionCall) -> Iterator[int]:
+    for name, value in call.inputs.items():
+        if isinstance(value, list):
+            raise TypeError(
+                f"call {call.mnemonic!r}: operand {name!r} binds a qubit list; "
+                "the depolarizing model expects single-qubit operands"
+            )
+        yield int(value)
 
 
 @runtime_checkable
@@ -33,7 +44,7 @@ class DepolarizingTargetModel:
         return tuple(
             Fault({instruction_index: Pauli({qubit: basis})})
             for instruction_index, call in enumerate(program.instructions)
-            for qubit in (int(value) for value in call.inputs.values())
+            for qubit in _qubit_operands(call)
             for basis in ("X", "Y", "Z")
         )
 

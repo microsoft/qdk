@@ -23,7 +23,7 @@ from qdk.ec._references import outcome_indices
 
 
 def to_deq_source(
-    codec: qodec.Codec,
+    codec: qodec.Qodec,
     *,
     translation_index: int = -1,
     program: object | None = None,
@@ -199,7 +199,7 @@ def _collect_assumed_flags(program: object | None) -> dict[str, dict[str, int]]:
     return seen
 
 
-def _emit_header(out: StringIO, codec: qodec.Codec, emitted: list[int]) -> None:
+def _emit_header(out: StringIO, codec: qodec.Qodec, emitted: list[int]) -> None:
     layers = codec.layers
     if len(emitted) == 1:
         ti = emitted[0]
@@ -644,7 +644,9 @@ def _emit_program(
     out.write("}\n")
 
 
-def _assign_block_indices(instructions: Iterable[object]) -> dict[str, int]:
+def _assign_block_indices(
+    instructions: Iterable[qodec.InstructionCall],
+) -> dict[str, int]:
     """Collect unique block names across the program in first-seen order
     and assign each a sequential index starting at 0.
 

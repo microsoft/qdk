@@ -8,7 +8,7 @@ from typing import Callable, Iterable, Mapping, Sequence
 from paulimer import PauliGroup
 
 from .groups import rank_extension_of, restriction_indicator_basis_of
-from .pauli import Pauli, identity
+from .pauli import Pauli, PauliCharacter, characters_of, identity
 
 
 @dataclass(frozen=True, repr=False)
@@ -115,7 +115,11 @@ class FrameGroup:
         support_set = frozenset(support)
 
         def restrict(pauli: Pauli) -> Pauli:
-            kept = {qubit: pauli[qubit] for qubit in set(pauli.support) & support_set}
+            kept: dict[int, PauliCharacter] = {
+                qubit: character
+                for qubit, character in characters_of(pauli).items()
+                if qubit in support_set
+            }
             return Pauli(kept) * identity(pauli.phase)
 
         return FrameGroup(

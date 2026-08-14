@@ -95,8 +95,12 @@ class AutoRelocate:
 def _remap_program(program: Program, label_map: Mapping[str, str]) -> Program:
     new_calls: list[qodec.instructions.InstructionCall] = []
     for call in program.instructions:
-        new_inputs = {n: _remap_value(v, label_map) for n, v in call.inputs.items()}
-        new_outputs = {n: _remap_value(v, label_map) for n, v in call.outputs.items()}
+        new_inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+            n: _remap_value(v, label_map) for n, v in call.inputs.items()
+        }
+        new_outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+            n: _remap_value(v, label_map) for n, v in call.outputs.items()
+        }
         new_calls.append(
             qodec.instructions.InstructionCall(
                 call.mnemonic,

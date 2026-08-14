@@ -8,11 +8,11 @@ these helpers read it off ``gadget.implements`` rather than guessing.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 
 import qodec
 
-from ._references import outcome_indices, readout_atoms
+from ._references import as_references, outcome_indices, readout_atoms
 
 
 def observe_count(gadget: qodec.Gadget) -> int:
@@ -34,6 +34,15 @@ def readout_equation(entry: qodec.Readout) -> list[str]:
         (equation,) = entry.values()
         return [str(atom) for atom in equation]
     return [str(atom) for atom in entry]
+
+
+def as_readout(
+    entry: Sequence[object] | Mapping[str, Sequence[object]],
+) -> qodec.ReadoutLike:
+    """One readout entry in the shape qodec's setters accept."""
+    if isinstance(entry, Mapping):
+        return {name: as_references(equation) for name, equation in entry.items()}
+    return as_references(entry)
 
 
 def observable_names(gadget: qodec.Gadget) -> list[str]:
@@ -74,16 +83,21 @@ def set_gadget_readouts(
     expectation, so they are authored by hand rather than discovered, and
     re-deriving the observables must not drop them.
     """
-    positional: dict[int, list[str]] = {}
+    positional: dict[int, list[qodec.ReferenceLike]] = {}
     for name, indices in named_xor.items():
         if str(name).isdigit():
             positional[int(name)] = readout_atoms(indices)
-    observables = [positional[index] for index in sorted(positional)]
-    flags = list(gadget.readouts)[observe_count(gadget) :]
-    gadget.readouts = observables + flags
+    readouts: list[qodec.ReadoutLike] = [
+        positional[index] for index in sorted(positional)
+    ]
+    readouts.extend(
+        as_readout(flag) for flag in list(gadget.readouts)[observe_count(gadget) :]
+    )
+    gadget.readouts = readouts
 
 
 __all__ = [
+    "as_readout",
     "observable_names",
     "observables_as_xor_map",
     "observe_count",
