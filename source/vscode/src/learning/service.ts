@@ -491,7 +491,7 @@ export class LearningService {
         continue;
       }
       for (const unit of course.units) {
-        const workbook = workbookUri(course, unit);
+        const workbook = workbookUri(unit);
         if (workbook.toString() === target) {
           return { course, unit };
         }
@@ -843,7 +843,7 @@ export class LearningService {
     const course = this.activeCourse;
     if (isNotebookCourse(course)) {
       const unit = this.findCourseUnit(course, this.position.unitId);
-      return workbookUri(course, unit);
+      return workbookUri(unit);
     }
     const { activity } = this.findCurrentActivity();
     if (activity.type === "exercise") {
@@ -866,9 +866,9 @@ export class LearningService {
     if (isNotebookCourse(course)) {
       const unit = this.findCourseUnit(course, this.position.unitId);
       // Close any open notebook tabs for this unit.
-      await this.closeNotebookTab(workbookUri(course, unit));
+      await this.closeNotebookTab(workbookUri(unit));
       // Re-materialize the unit from source.
-      await rematerializeUnitWorkbook(course, unit);
+      await rematerializeUnitWorkbook(unit);
       // Clear completion for every activity in the unit, not just the
       // current one, since the whole unit was re-materialized.
       this.markUnitIncomplete(course.id, unit);

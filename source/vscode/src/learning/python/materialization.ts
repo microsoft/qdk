@@ -17,11 +17,11 @@ export async function materializeCourseWorkbooks(
   course: NotebookCatalogCourse,
 ): Promise<void> {
   for (const unit of course.units) {
-    const dest = workbookUri(course, unit);
+    const dest = workbookUri(unit);
     if (await uriExists(dest)) {
       continue;
     }
-    await materializeNotebook(sourceNotebookUri(course, unit), dest, unit.id);
+    await materializeNotebook(sourceNotebookUri(unit), dest, unit.id);
   }
 }
 
@@ -30,12 +30,11 @@ export async function materializeCourseWorkbooks(
  * with a fresh copy derived from the authored notebook.
  */
 export async function rematerializeUnitWorkbook(
-  course: NotebookCatalogCourse,
   unit: NotebookCatalogUnit,
 ): Promise<void> {
   await materializeNotebook(
-    sourceNotebookUri(course, unit),
-    workbookUri(course, unit),
+    sourceNotebookUri(unit),
+    workbookUri(unit),
     unit.id,
   );
 }
