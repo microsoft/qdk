@@ -29,7 +29,7 @@ def compile(
     Compile OpenQASM source or an imported operation to QIR.
 
     The returned :class:`~qdk.qsharp.QirInputData` can be submitted to a target;
-    ``str(result)`` returns its LLVM IR text.
+    ``str(result)`` returns its QIR text.
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
@@ -42,7 +42,7 @@ def compile(
             specified is ``TargetProfile.Adaptive_RIF`` or the value set explicitly via ``qdk.init``.
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
-    :return: The compiled program. Use ``str()`` to get its LLVM IR text.
+    :return: The compiled program. Use ``str()`` to get its QIR text.
     :rtype: QirInputData
     :raises ValueError: If ``source`` is neither a string nor a callable with a
         ``__global_callable`` attribute.
