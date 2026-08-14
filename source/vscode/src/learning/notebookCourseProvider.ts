@@ -29,7 +29,6 @@ const EXTENSION_COURSES_PATH = ["resources", "qdk-learning", "courses"];
  */
 interface CourseManifest {
   schemaVersion?: number;
-  id?: unknown;
   title?: unknown;
   shortDescription?: unknown;
   units?: unknown;
@@ -46,15 +45,9 @@ interface ManifestUnit {
 interface CourseLocation {
   /** Folder that contains `course.json`. */
   dir: vscode.Uri;
-  /** Basename of the folder (e.g. `"circuit-diagrams-new"`). */
+  /** Basename of the folder — also used as the course ID. */
   folderName: string;
   manifest: CourseManifest;
-}
-
-/** A parsed course paired with the folder it came from. */
-interface CandidateCourse {
-  course: NotebookCatalogCourse;
-  folderName: string;
 }
 
 /**
@@ -76,61 +69,22 @@ export class NotebookCourseProvider implements CourseProvider {
   ) {}
 
   async listCourses(): Promise<NotebookCatalogCourse[]> {
-    const bundledFolders = await this.seedBundledCourses();
-
-    // Parse every discovered course, tagging each with its folder name.
-    const candidates: CandidateCourse[] = [];
-    for (const loc of await this.discover()) {
-      const course = await this.parseCourse(loc);
-      if (!course) {
-        continue;
-      }
-      candidates.push({ course, folderName: loc.folderName });
-    }
-
-    // Group by course ID, then pick one winner per ID.
-    const courseIdToCandidatesMap = new Map<string, CandidateCourse[]>();
-    for (const entry of candidates) {
-      let group = courseIdToCandidatesMap.get(entry.course.id);
-      if (!group) {
-        group = [];
-        courseIdToCandidatesMap.set(entry.course.id, group);
-      }
-      group.push(entry);
-    }
+    await this.seedBundledCourses();
 
     const courses: NotebookCatalogCourse[] = [];
-    for (const [id, group] of courseIdToCandidatesMap) {
-      let winner = group[0];
-      if (group.length > 1) {
-        // Prefer the course from a bundled folder.
-        winner =
-          group.find((e) => bundledFolders.has(e.folderName)) ?? group[0];
-        for (const loser of group) {
-          if (loser !== winner) {
-            log.warn(
-              `Duplicate notebook course id "${id}" at ${loser.course.sourceDir ?? loser.folderName} ` +
-                `superseded by ${winner.course.sourceDir ?? winner.folderName}.`,
-            );
-          }
-        }
+    for (const loc of await this.discover()) {
+      const course = await this.parseCourse(loc);
+      if (course) {
+        courses.push(course);
       }
-      courses.push(winner.course);
     }
     return courses;
   }
 
   // ─── Seeding bundled courses ───
 
-  /**
-   * Copy bundled course folders from the extension into the workspace's
-   * `qdk-learning/courses/` directory. Folders that already exist are
-   * skipped. Returns the set of bundled folder names so that
-   * {@link listCourses} can resolve ID collisions in their favour.
-   */
-  private async seedBundledCourses(): Promise<Set<string>> {
-    const bundledFolders = new Set<string>();
-
+  /** Copy bundled course folders into `qdk-learning/courses/`, skipping folders that already exist. */
+  private async seedBundledCourses(): Promise<void> {
     const bundledRoot = vscode.Uri.joinPath(
       this.extensionUri,
       ...EXTENSION_COURSES_PATH,
@@ -145,7 +99,6 @@ export class NotebookCourseProvider implements CourseProvider {
       if (child.type !== vscode.FileType.Directory) {
         continue;
       }
-      bundledFolders.add(child.name);
       const target = vscode.Uri.joinPath(coursesRoot, child.name);
       if (await uriExists(target)) {
         log.info(
@@ -162,8 +115,6 @@ export class NotebookCourseProvider implements CourseProvider {
         log.warn(`Failed to seed bundled course "${child.name}": ${String(e)}`);
       }
     }
-
-    return bundledFolders;
   }
 
   // ─── Discovery ───
@@ -208,12 +159,9 @@ export class NotebookCourseProvider implements CourseProvider {
     }
     try {
       const parsed = JSON.parse(text) as CourseManifest;
-      if (
-        manifestString(parsed.id) === undefined ||
-        manifestString(parsed.title) === undefined
-      ) {
+      if (manifestString(parsed.title) === undefined) {
         log.warn(
-          `Ignoring notebook course at ${dir.toString()}: "id" and "title" are required.`,
+          `Ignoring notebook course at ${dir.toString()}: "title" is required.`,
         );
         return undefined;
       }
@@ -229,9 +177,9 @@ export class NotebookCourseProvider implements CourseProvider {
   private async parseCourse(
     loc: CourseLocation,
   ): Promise<NotebookCatalogCourse | undefined> {
-    const id = manifestString(loc.manifest.id);
+    const id = loc.folderName;
     const title = manifestString(loc.manifest.title);
-    if (id === undefined || title === undefined) {
+    if (title === undefined) {
       return undefined;
     }
 
