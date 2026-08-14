@@ -174,7 +174,9 @@ def _remap_call(
     )
 
 
-def _remap_qubits(value: object, remap: dict[int, str]) -> str:
+def _remap_qubits(
+    value: qc.instructions.InstructionCall.Argument, remap: dict[int, str]
+) -> str:
     """Remap each whitespace-separated qubit-index token in ``value``.
 
     Tokens that don't parse as integers (e.g., classical bit names) are

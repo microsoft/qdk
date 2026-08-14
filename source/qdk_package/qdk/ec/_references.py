@@ -59,7 +59,7 @@ class EncodingAtom:
     index: int
 
 
-def parse_encoding_atom(atom: object) -> EncodingAtom | None:
+def parse_encoding_atom(atom: qc.ReferenceLike) -> EncodingAtom | None:
     """Parse a single ``(in|out)[<entry>].(stabilizers|x|z)[<i>]`` atom.
 
     Returns ``None`` for atoms of any other shape.
@@ -76,7 +76,7 @@ def parse_encoding_atom(atom: object) -> EncodingAtom | None:
 
 
 def parse_stabilizer_atom(
-    atom: object, side: str | None = None
+    atom: qc.ReferenceLike, side: str | None = None
 ) -> tuple[int, int] | None:
     """Parse a ``(in|out)[<entry>].stabilizers[<i>]`` atom to ``(entry, index)``.
 
@@ -91,7 +91,7 @@ def parse_stabilizer_atom(
     return (parsed.entry, parsed.index)
 
 
-def outcome_indices(atoms: Iterable[object]) -> list[int]:
+def outcome_indices(atoms: Iterable[qc.ReferenceLike]) -> list[int]:
     """Measurement-record indices addressed by ``circuit.readouts[<sel>]`` atoms.
 
     ``<sel>`` is a single index, a JsonPath slice (``N:M``, ``N:M:K``), or a
@@ -106,7 +106,7 @@ def outcome_indices(atoms: Iterable[object]) -> list[int]:
     return out
 
 
-def outcome_index_of_atom(key: object) -> int:
+def outcome_index_of_atom(key: qc.ReferenceLike) -> int:
     """Parse a single readout atom into a measurement-record index.
 
     Accepts ``circuit.readouts[<i>]`` or a bare decimal-string index. Unlike
@@ -126,7 +126,7 @@ def readout_atoms(indices: Iterable[int]) -> list[qc.ReferenceLike]:
     return [f"circuit.readouts[{index}]" for index in indices]
 
 
-def as_references(atoms: Iterable[object]) -> list[qc.ReferenceLike]:
+def as_references(atoms: Iterable[qc.ReferenceLike]) -> list[qc.ReferenceLike]:
     """One parity equation in the shape qodec's setters accept."""
     return [str(atom) for atom in atoms]
 

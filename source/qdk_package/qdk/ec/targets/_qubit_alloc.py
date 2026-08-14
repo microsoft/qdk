@@ -141,7 +141,9 @@ class PhysicalQubitAllocator:
         return self._next
 
 
-def _resolve_block_name(operand_binding: object) -> str:
+def _resolve_block_name(
+    operand_binding: qc.instructions.InstructionCall.Argument,
+) -> str:
     """Return the block name from an ``InstructionCall`` operand binding.
 
     Bindings are typically plain strings; the integer-binding form
@@ -176,7 +178,7 @@ def remap_call_source(
     # Encodings are positional: the i-th input encoding carries operand name
     # ``str(i)`` (see ``_gadget_qubit_table``), so bind it to the i-th value
     # the call supplies in ``inputs`` (then ``outputs``), matching by position.
-    bindings: dict[str, object] = {}
+    bindings: dict[str, qc.instructions.InstructionCall.Argument] = {}
     for entry, value in enumerate(call.inputs.values()):
         bindings[str(entry)] = value
     for entry, value in enumerate(call.outputs.values()):

@@ -382,9 +382,9 @@ def _objective_observable_probes(
 
 
 def _objective_logical_chars(
-    encoding: object, local_index: int, basis: str
+    encoding: qc.Encoding, local_index: int, basis: str
 ) -> Iterator[tuple[int, PauliCharacter]]:
-    code = encoding.code  # type: ignore[attr-defined]
+    code = encoding.code
     if basis == "X":
         operators = [list(code.x)[local_index]]
     elif basis == "Z":

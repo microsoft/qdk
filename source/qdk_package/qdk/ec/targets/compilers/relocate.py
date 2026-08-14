@@ -112,7 +112,9 @@ def _remap_program(program: Program, label_map: Mapping[str, str]) -> Program:
     return Program(new_calls, program.isa)
 
 
-def _remap_value(value: object, label_map: Mapping[str, str]) -> str:
+def _remap_value(
+    value: qc.instructions.InstructionCall.Argument, label_map: Mapping[str, str]
+) -> str:
     tokens = _value_tokens(value)
     if not tokens:
         return _value_to_string(value)

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from typing import TYPE_CHECKING
 
 import qodec as qc
 from qodec.circuits import Program
+
+if TYPE_CHECKING:
+    import stim
 
 
 def detector_error_model_of(
@@ -14,7 +18,7 @@ def detector_error_model_of(
     target_model: Mapping[str, float],
     *,
     decompose_errors: bool = False,
-) -> object:
+) -> "stim.DetectorErrorModel":
     """Build a Stim DEM under the target model's gate-noise assumptions."""
     from .stim import StimEmitter
 
