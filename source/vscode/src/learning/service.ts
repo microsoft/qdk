@@ -491,7 +491,7 @@ export class LearningService {
         continue;
       }
       for (const unit of course.units) {
-        const workbook = workbookUri(course, unit);
+        const workbook = workbookUri(unit);
         if (workbook.toString() === target) {
           return { course, unit };
         }
@@ -536,6 +536,61 @@ export class LearningService {
     }
     const unit = this.findUnit(this.position.unitId);
     return unit.notebookExercises?.some((ex) => ex.cellId === cellId) ?? false;
+  }
+
+  /**
+   * Build a CurrentActivity for the given notebook cell.
+   * Returns `undefined` when the active course isn't a notebook course.
+   */
+  getCurrentActivityForCell(
+    cellId: string,
+    cellText: string,
+    notebookUri: string,
+  ): CurrentActivity | undefined {
+    if (!isNotebookCourse(this.activeCourse)) {
+      return undefined;
+    }
+
+    const unit = this.findCourseUnit(this.activeCourse, this.position.unitId);
+    if (workbookUri(unit).toString() !== notebookUri) {
+      // The argument was based on the editor state and may not match the progress state
+      return undefined;
+    }
+
+    const exerciseInfo = unit.notebookExercises?.find(
+      (ex) => ex.cellId === cellId,
+    );
+
+    let content: ActivityContent;
+    if (exerciseInfo) {
+      content = {
+        type: "exercise",
+        id: cellId,
+        title: exerciseInfo.title,
+        description: exerciseInfo.description,
+        filePath: `${notebookUri}#${cellId}`,
+        isComplete: false,
+        hasMultipleSolutions: exerciseInfo.solutions.length > 1,
+      } satisfies ExerciseContent;
+    } else {
+      content = {
+        type: "lesson-text",
+        content: cellText,
+      } satisfies LessonTextContent;
+    }
+
+    const location: ActivityLocation = {
+      courseId: this.activeCourse.id,
+      unitId: unit.id,
+      activityId: cellId,
+    };
+
+    return {
+      location,
+      unitTitle: unit.title,
+      activityTitle: exerciseInfo?.title ?? cellId,
+      content,
+    };
   }
 
   /**
@@ -793,7 +848,7 @@ export class LearningService {
     const course = this.activeCourse;
     if (isNotebookCourse(course)) {
       const unit = this.findCourseUnit(course, this.position.unitId);
-      return workbookUri(course, unit);
+      return workbookUri(unit);
     }
     const { activity } = this.findCurrentActivity();
     if (activity.type === "exercise") {
@@ -816,9 +871,9 @@ export class LearningService {
     if (isNotebookCourse(course)) {
       const unit = this.findCourseUnit(course, this.position.unitId);
       // Close any open notebook tabs for this unit.
-      await this.closeNotebookTab(workbookUri(course, unit));
+      await this.closeNotebookTab(workbookUri(unit));
       // Re-materialize the unit from source.
-      await rematerializeUnitWorkbook(course, unit);
+      await rematerializeUnitWorkbook(unit);
       // Clear completion for every activity in the unit, not just the
       // current one, since the whole unit was re-materialized.
       this.markUnitIncomplete(course.id, unit);

@@ -26,10 +26,7 @@ export function isNotebookCourse(course: CourseWithKind): boolean {
 }
 
 /** The authored notebook that a unit's workbook is derived from. */
-export function sourceNotebookUri(
-  _course: NotebookCatalogCourse,
-  unit: NotebookCatalogUnit,
-): vscode.Uri {
+export function sourceNotebookUri(unit: NotebookCatalogUnit): vscode.Uri {
   return unit.sourceNotebookUri;
 }
 
@@ -41,10 +38,7 @@ export function sourceNotebookUri(
  * relative imports (`_course_lib.py`, `_unit.py`) as the source. Returns a
  * URI whether or not the file exists yet.
  */
-export function workbookUri(
-  _course: NotebookCatalogCourse,
-  unit: NotebookCatalogUnit,
-): vscode.Uri {
+export function workbookUri(unit: NotebookCatalogUnit): vscode.Uri {
   const src = unit.sourceNotebookUri;
   return src.with({ path: src.path.replace(/\.ipynb$/i, WORKBOOK_SUFFIX) });
 }
