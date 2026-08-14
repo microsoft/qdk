@@ -32,6 +32,30 @@ _checkers: dict[str, Checker] = {}
 _registered: list[str] = []
 
 
+class ExerciseError(AssertionError):
+    """Raised when an exercise is not yet correct."""
+
+
+def _hide_traceback() -> None:
+    """Show only the failure banner for a wrong answer.
+
+    The cell still ends in an error, which is what marks the exercise as not
+    yet complete, but the learner sees the banner instead of a call stack.
+    Errors raised by the learner's own code are untouched and keep theirs.
+    """
+    try:
+        from IPython import get_ipython
+    except ImportError:
+        return
+    shell = get_ipython()
+    if shell is None:
+        return
+    shell.set_custom_exc((ExerciseError,), lambda *args, **kwargs: None)
+
+
+_hide_traceback()
+
+
 def _register(name: str, checker: Checker) -> str:
     """Record a checker under ``name`` and return the name."""
     _checkers[name] = checker
@@ -61,8 +85,8 @@ def _pass(message: str) -> None:
     )
 
 
-def _fail(message: str) -> None:
-    """Render an orange failure banner and raise AssertionError."""
+def _banner(message: str) -> None:
+    """Render an orange failure banner."""
     display(
         HTML(
             '<div style="font-family:system-ui,sans-serif;margin:8px 0;'
@@ -75,7 +99,12 @@ def _fail(message: str) -> None:
             "</div>"
         )
     )
-    raise AssertionError(message)
+
+
+def _fail(message: str) -> None:
+    """Render an orange failure banner and raise ExerciseError."""
+    _banner(message)
+    raise ExerciseError(message)
 
 
 # ---------------------------------------------------------------------------
@@ -103,14 +132,17 @@ def exercise(fn):
 
 
 def _run(fn):
-    """Call the learner's function, surfacing errors as a failure banner."""
+    """Call the learner's function, keeping the traceback for real errors."""
     try:
         return fn()
-    except Exception as e:  # noqa: BLE001 — surface any learner error nicely
-        _fail(
-            f"Your <code>{fn.__name__}</code> function raised an error: "
-            f"<code>{type(e).__name__}: {e}</code>"
+    except ExerciseError:
+        raise
+    except Exception:  # noqa: BLE001 - the learner's own bug, shown in full
+        _banner(
+            f"Your <code>{fn.__name__}</code> function raised an error. "
+            "The traceback below shows where."
         )
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +158,8 @@ def register_value_exercise(name: str, *, expected) -> str:
         if actual != expected:
             _fail(
                 f"<code>{name}()</code> returned <code>{actual!r}</code>, "
-                f"but expected <code>{expected!r}</code>."
+                "which is not correct. Use <b>Ask for a Hint</b> below the cell, "
+                "then run it again."
             )
         else:
             _passed.add(name)

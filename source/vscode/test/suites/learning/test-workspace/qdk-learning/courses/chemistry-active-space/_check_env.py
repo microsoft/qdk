@@ -1,8 +1,8 @@
 """Course environment check utility.
 
-Called from the first code cell of each unit notebook. Validates that the
-notebook kernel is running in the course .venv and that all required packages
-are importable. Renders results as styled HTML in the notebook output.
+Called from the first code cell of each unit notebook. Validates that all
+required packages are importable. Renders results as styled HTML in the
+notebook output.
 """
 
 import importlib.util
@@ -45,49 +45,7 @@ def check(notebook_dir: str | Path | None = None) -> None:
     py_version = sys.version.split()[0]
     results.append(("Python version", py_version, True))
 
-    # --- Check 2: course .venv exists and has a Python interpreter ---
-    course_root = course_json_path.resolve().parent
-    expected_venv = (course_root / ".venv").resolve()
-    venv_exists = expected_venv.is_dir()
-    venv_python = _find_venv_python(expected_venv) if venv_exists else None
-
-    if not venv_exists:
-        results.append(("Course venv", f"{expected_venv} — not found", False))
-        errors.append(
-            "The course virtual environment does not exist yet.<br>"
-            "Click the <b>Run Course Diagnostics</b> button in the notebook toolbar "
-            "and choose <b>Set up environment</b>."
-        )
-    elif not venv_python:
-        results.append(("Course venv", f"{expected_venv} — corrupt (no python)", False))
-        errors.append(
-            "The course virtual environment exists but has no Python interpreter.<br>"
-            "Click the <b>Run Course Diagnostics</b> button in the notebook toolbar "
-            "and choose <b>Set up environment</b> to recreate it."
-        )
-    else:
-        results.append(("Course venv", str(expected_venv), True))
-
-    # --- Check 3: kernel is actually using the course .venv ---
-    prefix = Path(sys.prefix).resolve()
-
-    in_course_venv = False
-    if venv_exists:
-        try:
-            prefix.relative_to(expected_venv)
-            in_course_venv = True
-        except ValueError:
-            pass
-
-    if venv_exists and venv_python and not in_course_venv:
-        results.append(("Kernel", f"Expected {expected_venv}, got {prefix}", False))
-        errors.append(
-            "It is recommended, but not required, that you use the course virtual environment. "
-            "To do so, you can click <b>Select Kernel</b> (top-right of the notebook) "
-            "and pick the course <code>.venv</code>, then re-run this cell."
-        )
-
-    # --- Check 4: required packages ---
+    # --- Check 2: required packages ---
     missing = [m for m in import_checks if not _can_import(m)]
 
     if missing:
@@ -95,12 +53,10 @@ def check(notebook_dir: str | Path | None = None) -> None:
             ("Packages", ", ".join(f"<code>{m}</code> missing" for m in missing), False)
         )
         errors.append(
-            "Install missing packages by running this in a new cell, then re-run this one:"
+            "Install missing packages by running the following in a new cell, then re-run this cell:"
             f"<pre>  %pip install -r ../requirements.txt</pre>"
-            "Or click the <b>Run Course Diagnostics</b> button in the notebook toolbar "
-            "to set up the full environment."
         )
-    elif import_checks and in_course_venv:
+    elif import_checks:
         results.append(("Packages", ", ".join(import_checks), True))
 
     # --- Render ---
@@ -118,19 +74,6 @@ def _can_import(module_name: str) -> bool:
         return importlib.util.find_spec(module_name) is not None
     except ModuleNotFoundError:
         return False
-
-
-def _find_venv_python(venv: Path) -> Path | None:
-    """Return the venv's Python interpreter path, or None if missing."""
-    candidates = [
-        venv / "bin" / "python",
-        venv / "bin" / "python3",
-        venv / "Scripts" / "python.exe",
-    ]
-    for c in candidates:
-        if c.exists():
-            return c
-    return None
 
 
 def _find_course_json(nb_dir: Path) -> Path | None:

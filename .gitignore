@@ -24,6 +24,9 @@ __pycache__/
 samples/scratch/
 qdk-learning/
 !/source/vscode/test/suites/learning/test-workspace/qdk-learning/
+# Working copies the extension materializes inside the un-ignored test workspace.
+/source/vscode/test/suites/learning/test-workspace/qdk-learning/**/*.workbook.ipynb
+/source/vscode/test/suites/learning/test-workspace/qdk-learning/examples/
 qdk-learning.json
 *.pyd
 /python_doc/

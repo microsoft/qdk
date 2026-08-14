@@ -40,7 +40,12 @@ RECIPES = {
         "py": None,
         "unit_dir": "overview",
         "notebook": "overview.ipynb",
-        "skip_sections": [],
+        "skip_sections": ["Cumulative assignment"],
+        # What survives of the lab-notebook paragraph once its own sentences go.
+        "drop_blocks": ["This is a note-taking document"],
+        "rewrites": [
+            ("where appropriate; and", "where appropriate."),
+        ],
         "extra_regions": [],
         "exercises": [],
     },
@@ -66,12 +71,6 @@ RECIPES = {
             "run the complete script from the Visual Studio Code integrated terminal",
             "python tutorial_describe_n2.py",
         ],
-        "rewrites": [
-            (
-                "Run the complete script and record both fixed-geometry total energies",
-                "Record both fixed-geometry total energies",
-            ),
-        ],
         # Regions the chapter never includes but the notebook needs to be whole.
         "extra_regions": [("Running the calculation", "compare")],
         # Promoted from the chapter's own quiz-question at 02_describing_the_molecule.rst:126.
@@ -88,9 +87,9 @@ RECIPES = {
                 "@exercise\n"
                 "def lower_energy_basis():\n"
                 '    return "cc-pvdz"\n',
-                "hint": "Lower energy means the more negative number, not the smaller magnitude. "
-                "`energies` maps each basis-set name to its energy, so taking `min` over the "
-                "keys with the energy as the sort key picks the winner.",
+                "hint": "Watch the signs. Both energies are negative, so the lower one is the "
+                "more negative number rather than the one closer to zero. `energies` holds a "
+                "basis-set name for each energy, and the function has to return the name.",
                 "solution": "```python\n@exercise\ndef lower_energy_basis():\n"
                 "    return min(energies, key=energies.get)\n```\n\n"
                 "`cc-pvtz` wins. Hartree\u2013Fock is variational, so enlarging the basis can only "
@@ -111,12 +110,18 @@ RECIPES = {
         "drop_blocks": [
             "run the complete script from the Visual Studio Code integrated terminal",
             "python tutorial_choose_active_space.py",
+            # The learner is already in the notebook that shows the viewer.
+            "Download and open",
         ],
         "rewrites": [
             (
                 "## Running the calculation",
                 "## Running the calculation\n\nThe cells above have already run the "
                 "workflow. Use their output to answer the questions below.",
+            ),
+            (
+                "The Jupyter notebook displays every candidate natural orbital",
+                "The viewer below displays every candidate natural orbital",
             ),
         ],
         "extra_regions": [],
@@ -222,8 +227,7 @@ RECIPES = {
                         "group while excluding the other candidate orbitals.\n\n"
                         "Treat the orbital shapes as aids to chemical interpretation rather than "
                         "as the selection rule. Defend the refined active-space choice using the "
-                        "occupation and entropy overlays, and record your explanation in the "
-                        "active-space section of the lab notebook.",
+                        "occupation and entropy overlays.",
                     ),
                 ],
             },
@@ -232,7 +236,7 @@ RECIPES = {
             {
                 "section": "The active-space choice",
                 "prompt": "## Count the determinants\n\n"
-                "The refined active space is CAS$(6,6)$: six electrons in six spatial orbitals, "
+                "The refined active space is CAS $(6,6)$: six electrons in six spatial orbitals, "
                 "so three $\\alpha$ and three $\\beta$ electrons. The $\\alpha$ and $\\beta$ "
                 "occupations are chosen independently of each other.\n\n"
                 "Fix the function below so that it returns the number of determinants this active "
@@ -242,13 +246,13 @@ RECIPES = {
                 "    alpha = comb(6, 3)\n"
                 "    beta = comb(6, 3)\n"
                 "    return alpha\n",
-                "hint": "Every way of placing the three $\\alpha$ electrons can be paired with "
-                "every way of placing the three $\\beta$ electrons, so the two counts combine "
-                "multiplicatively rather than additively.",
+                "hint": "`alpha` and `beta` already count the arrangements for each spin on its "
+                "own. Nothing ties the two choices together, so ask yourself how many "
+                "whole-determinant arrangements a single $\\alpha$ choice can appear in.",
                 "solution": "Return the product of the two counts:\n\n"
                 "```python\nreturn alpha * beta\n```\n\n"
                 "$\\binom{6}{3}=20$, so the refined space holds $20\\times20=400$ determinants, "
-                "down from the 3,136 of the initial CAS$(10,8)$ valence space.",
+                "down from the 3,136 of the initial CAS $(10,8)$ valence space.",
             }
         ],
     },
@@ -269,6 +273,10 @@ RECIPES = {
                 "## Running the mapping",
                 "## Running the mapping\n\nThe cells above have already run the mapping. "
                 "Use their output to answer the questions below.",
+            ),
+            (
+                "so the complete script displays the all-identity term",
+                "so the preview below displays the all-identity term",
             ),
         ],
         # The chapter shows the mapper output through an :append: line the converter
@@ -351,9 +359,9 @@ RECIPES = {
                 "@exercise\n"
                 "def compute_qubit_count():\n"
                 "    return 6\n",
-                "hint": "The compute register holds one qubit per spin orbital, and every spatial "
-                "orbital contributes one \u03b1 and one \u03b2 spin orbital. "
-                "`num_active_spatial_orbitals` is already in scope.",
+                "hint": "Two traps here. The answer is not the number of spatial orbitals, and "
+                "it does not include the phase-estimation ancilla. Work out what the register "
+                "stores one qubit of. `num_active_spatial_orbitals` is in scope from above.",
                 "solution": "```python\n@exercise\ndef compute_qubit_count():\n"
                 "    return 2 * num_active_spatial_orbitals\n```\n\n"
                 "`12`. Six active spatial orbitals give twelve spin orbitals, and "
@@ -497,8 +505,9 @@ RECIPES = {
                 "@exercise\n"
                 "def first_majority_count():\n"
                 "    return 1\n",
-                "hint": "`fidelities` maps a determinant count to its fidelity. Walk the counts "
-                "in increasing order and return the first one whose value clears 0.5.",
+                "hint": "`fidelities` maps each determinant count to its fidelity. You are asked "
+                "for a count, not a fidelity, so you need the keys, filtered by what their "
+                "values do. More than one count may qualify.",
                 "solution": "```python\n@exercise\ndef first_majority_count():\n"
                 "    return min(c for c, f in fidelities.items() if f > 0.5)\n```\n\n"
                 "Two determinants. The one-determinant fidelity is about 0.4825, so no single "
@@ -607,6 +616,44 @@ RECIPES = {
         ],
         "exercises": [
             {
+                "section": "IQPE circuit visualization",
+                "prompt": "## Validate the circuit structure\n\n"
+                "Before trusting any phase-estimation result, confirm the circuit is the one "
+                "you think it is. Three numbers describe it, and each is somewhere learners "
+                "commonly go wrong.\n\n"
+                "Complete `validate_circuit` so it reports:\n\n"
+                "- `iteration_circuits`, how many iteration circuits one complete run uses\n"
+                "- `compute_qubits`, how many wires hold the encoded molecular state\n"
+                "- `readout_ancillas`, how many wires are algorithm workspace rather than "
+                "spin orbitals\n\n"
+                "Read each one from `problem` or from the statistics computed above, rather "
+                "than typing the numbers in. The stub below gets all three wrong.",
+                "code": "from _unit import exercise\n\n\n"
+                "@exercise\n"
+                "def validate_circuit():\n"
+                "    return {\n"
+                '        "iteration_circuits": 1,\n'
+                '        "compute_qubits": num_qubits,\n'
+                '        "readout_ancillas": 0,\n'
+                "    }\n",
+                "hint": "`problem.iteration_circuits` is a list, which settles the first one. "
+                "`problem.mapping` knows how wide the compute register is. For the third, "
+                "compare that width with `num_qubits`, the width of the circuit you rendered, "
+                "and re-read the note above about what the extra wire is.",
+                "solution": "```python\n@exercise\ndef validate_circuit():\n"
+                "    compute = problem.mapping.num_compute_qubits\n"
+                "    return {\n"
+                '        "iteration_circuits": len(problem.iteration_circuits),\n'
+                '        "compute_qubits": compute,\n'
+                '        "readout_ancillas": num_qubits - compute,\n'
+                "    }\n```\n\n"
+                "Six, twelve, and one. The rendered circuit is thirteen wires wide, but only "
+                "twelve carry the molecule: two per active spatial orbital. The thirteenth is "
+                "the readout ancilla, and it is rebuilt along with the trial state on every "
+                "one of the six iterations, which is why preparation cost from Chapter 5 is "
+                "paid six times over.",
+            },
+            {
                 "section": "Molecular energy reconstruction",
                 "prompt": "## Read a phase off the grid\n\n"
                 "Each complete run returns a six-bit string. That string is the binary "
@@ -619,9 +666,9 @@ RECIPES = {
                 "@exercise\n"
                 "def measured_phase():\n"
                 "    return 0.0\n",
-                "hint": "`int(measured_bitstring, 2)` reads a binary string as an integer. The "
-                "grid has $2^{n}$ points for `n` bits, and `len(measured_bitstring)` gives "
-                "you `n`.",
+                "hint": "Two steps. First turn the bitstring into the grid index it represents, "
+                "which `int` can do if you tell it the base. Then scale that index by the size "
+                "of the grid, which follows from how many bits the string has.",
                 "solution": "```python\n@exercise\ndef measured_phase():\n"
                 "    return int(measured_bitstring, 2) / 2 ** len(measured_bitstring)\n```\n\n"
                 "The selected grid point `010000` is $k=16$, so $\\varphi = 16/64 = 0.25$.",
@@ -634,9 +681,21 @@ RECIPES = {
 # alpha tint so they stay readable over both light and dark editor themes.
 ADMONITION_ACCENTS = {
     "chapter-focus": "#6d3f8c",
-    "lab-notebook-assignment": "#005a8d",
 }
 QUIZ_ACCENT = "#8c4a00"
+# Cross-references to the published documentation become real links; references to
+# other tutorial chapters stay as text, because those chapters are units in here.
+DOCS_SITE = "https://microsoft.github.io/qdk-chemistry/"
+
+
+def _badge(accent, glyph):
+    """A round marker for a callout header, inverted against the accent bar."""
+    return (
+        '<span style="display:inline-block;width:1.15em;height:1.15em;'
+        "line-height:1.15em;border-radius:50%;background:#ffffff;"
+        f'color:{accent};text-align:center;font-weight:700;margin-right:0.5em;">'
+        f"{glyph}</span>"
+    )
 
 
 def callout(title, body, accent, icon=""):
@@ -676,16 +735,23 @@ def _role(name, text):
     if name == "download":
         return f"`{label}`"
     if name in ("doc", "ref"):
-        # Anchors point outside the course, so only the wording survives.
+        if ref.startswith("../"):
+            return link(label, DOCS_SITE + ref.lstrip("./") + ".html")
+        # Anchors point inside the tutorial, so only the wording survives.
         return "*" + (label if target else label.replace("-", " ")) + "*"
     return label
 
 
 def link(text, url):
-    return f"[{text}](<{url}>)" if "(" in url or ")" in url else f"[{text}]({url})"
+    # Mark links that leave the notebook for the documentation site.
+    label = f"{text} \u2197" if url.startswith("http") else text
+    return f"[{label}](<{url}>)" if "(" in url or ")" in url else f"[{label}]({url})"
 
 
 def inline(text):
+    # RST's escaped space glues a role to the previous word, but markdown will not
+    # open inline math on a dollar that follows a word character.
+    text = re.sub(r"\\ (?=:math:)", " ", text)
     text = re.sub(r"\\ (?=[:`])", "", text)
 
     def sub(m):
@@ -708,6 +774,30 @@ def inline(text):
 UNDERLINE = re.compile(r"^([#=\-~^\"'+*])\1{2,}\s*$")
 DIRECTIVE = re.compile(r"^([ \t]*)\.\. ([a-z-]+):: ?(.*)$")
 ANCHOR = re.compile(r"^\.\. _[\w-]+:\s*$")
+LAB_NOTEBOOK = re.compile(r"lab[ -]notebook", re.I)
+
+
+def strip_lab_notebook(blocks):
+    """Remove the tutorial's cumulative lab-notebook assignment.
+
+    The course does not ship the assignment, so its callouts go entirely and its
+    sentences go line by line. The sources use one sentence per line, so this
+    leaves the surrounding paragraphs intact.
+    """
+    kept = []
+    for block in blocks:
+        if block[0] == "directive":
+            if block[3].get("class") == "lab-notebook-assignment":
+                continue
+            body = [ln for ln in block[4] if not LAB_NOTEBOOK.search(ln)]
+            kept.append((block[0], block[1], block[2], block[3], body))
+        elif block[0] == "prose":
+            lines = [ln for ln in block[1] if not LAB_NOTEBOOK.search(ln)]
+            if lines:
+                kept.append(("prose", lines))
+        else:
+            kept.append(block)
+    return kept
 
 
 def _body(lines, start, indent=0):
@@ -745,6 +835,12 @@ def parse(text):
             indent, name, argument = directive.group(1), directive.group(2), directive.group(3)
             options, body, i = _body(lines, i + 1, len(indent.expandtabs()))
             blocks.append(("directive", name, argument, options, body))
+            continue
+        if line.startswith(".. "):
+            # Neither a directive nor an anchor, so it is an RST comment.
+            i += 1
+            while i < len(lines) and lines[i].startswith("   "):
+                i += 1
             continue
         if line.strip():
             para = []
@@ -840,7 +936,11 @@ def render_prose(block):
 
 
 def _is_definition_list(lines):
-    """An RST definition list: each unindented term followed by an indented definition."""
+    """An RST definition list: each unindented term followed by an indented definition.
+
+    A blank line between entries splits them into separate blocks, so a block
+    carrying a single term is still a definition list.
+    """
     terms = 0
     for i, ln in enumerate(lines):
         if not ln.strip():
@@ -852,7 +952,7 @@ def _is_definition_list(lines):
         if i + 1 >= len(lines) or not lines[i + 1].startswith("   "):
             return False
         terms += 1
-    return terms >= 2
+    return terms >= 1
 
 
 def render_directive(name, argument, options, body):
@@ -865,7 +965,7 @@ def render_directive(name, argument, options, body):
         title = inline(argument)
         accent = ADMONITION_ACCENTS.get(options.get("class", ""))
         if accent:
-            return callout(title, text.strip(), accent)
+            return callout(title, text.strip(), accent, icon=_badge(accent, "!"))
         return f"**{title}**\n\n" + "\n".join("> " + ln if ln else ">" for ln in text.splitlines())
     if name == "toctree":
         return ""
@@ -914,15 +1014,49 @@ def render_directive(name, argument, options, body):
     return text
 
 
+MATH_SPAN = re.compile(r"\$([^$]+)\$")
+
+
+def _math_to_html(text, where=""):
+    """Render inline math as HTML for text that sits inside a raw HTML tag.
+
+    Markdown, and therefore KaTeX, never runs inside an HTML tag's content, so a
+    quiz question written into ``<summary>`` would show its dollar signs. Only the
+    handful of constructs the questions actually use are covered.
+    """
+
+    def one(match):
+        body = match.group(1)
+        # \mathrm marks upright text; anything else is a variable, so italic.
+        parts = re.split(r"(\\mathrm\{[^}]*\})", body)
+        for i, part in enumerate(parts):
+            if part.startswith("\\mathrm{"):
+                parts[i] = part[len("\\mathrm{") : -1]
+            else:
+                parts[i] = re.sub(r"[A-Za-z]+", lambda m: f"<i>{m.group(0)}</i>", part)
+        body = "".join(parts)
+        body = re.sub(r"_\{([^}]*)\}", r"<sub>\1</sub>", body)
+        body = re.sub(r"\^\{([^}]*)\}", r"<sup>\1</sup>", body)
+        body = re.sub(r"_(\w)", r"<sub>\1</sub>", body)
+        body = re.sub(r"\^(\w)", r"<sup>\1</sup>", body)
+        body = body.replace("\\ ", "&nbsp;").replace("\\,", "&nbsp;")
+        if "\\" in body:
+            print(f"WARNING unrendered math in {where or 'a quiz question'}: {body}")
+        return body
+
+    return MATH_SPAN.sub(one, text)
+
+
 def quiz(question, body):
     answer = "\n".join(inline(ln) for ln in body).strip()
+    title = _math_to_html(inline(question), where="quiz question")
     return (
         f'<div style="border-left:4px solid {QUIZ_ACCENT};background:{QUIZ_ACCENT}1a;'
         'border-radius:4px;margin:1em 0;">'
         "<details>"
         f'<summary style="background:{QUIZ_ACCENT};color:#ffffff;padding:0.35em 0.8em;'
         'cursor:pointer;font-weight:600;">'
-        f"&#10067;&nbsp;{inline(question)}</summary>\n\n"
+        f"&#10067;&nbsp;{title}</summary>\n\n"
         f'<div style="padding:0.1em 1em;">\n\n{answer}\n\n</div>\n\n'
         "</details></div>"
     )
@@ -983,7 +1117,9 @@ def merge_code_runs(cells):
 
 def convert(key):
     recipe = RECIPES[key]
-    blocks = parse((RST_DIR / recipe["rst"]).read_text(encoding="utf-8"))
+    blocks = strip_lab_notebook(
+        parse((RST_DIR / recipe["rst"]).read_text(encoding="utf-8"))
+    )
     py_text = (PY_DIR / recipe["py"]).read_text(encoding="utf-8") if recipe["py"] else ""
 
     cells, buffer, section = [], [], None
@@ -1045,7 +1181,9 @@ def convert(key):
         if name == "include":
             included = DOCS / argument.strip().lstrip("/")
             if included.exists():
-                for sub in parse(included.read_text(encoding="utf-8")):
+                for sub in strip_lab_notebook(
+                    parse(included.read_text(encoding="utf-8"))
+                ):
                     if sub[0] == "directive":
                         buffer.append(rewrite(render_directive(sub[1], sub[2], sub[3], sub[4])))
                     elif sub[0] == "prose":
