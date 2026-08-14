@@ -13,6 +13,8 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+import qodec
+
 _READOUT_RE = re.compile(r"^circuit\.readouts\[([^\]]+)\]$")
 _ENCODING_REF_RE = re.compile(r"^(in|out)\[(\d+)\]\.(stabilizers|x|z)\[(\d+)\]$")
 
@@ -57,7 +59,7 @@ class EncodingAtom:
     index: int
 
 
-def parse_encoding_atom(atom: str) -> EncodingAtom | None:
+def parse_encoding_atom(atom: object) -> EncodingAtom | None:
     """Parse a single ``(in|out)[<entry>].(stabilizers|x|z)[<i>]`` atom.
 
     Returns ``None`` for atoms of any other shape.
@@ -73,7 +75,9 @@ def parse_encoding_atom(atom: str) -> EncodingAtom | None:
     )
 
 
-def parse_stabilizer_atom(atom: str, side: str | None = None) -> tuple[int, int] | None:
+def parse_stabilizer_atom(
+    atom: object, side: str | None = None
+) -> tuple[int, int] | None:
     """Parse a ``(in|out)[<entry>].stabilizers[<i>]`` atom to ``(entry, index)``.
 
     Restricts to the ``stabilizers`` basis. When ``side`` is given the
@@ -102,7 +106,7 @@ def outcome_indices(atoms: Iterable[object]) -> list[int]:
     return out
 
 
-def outcome_index_of_atom(key: str) -> int:
+def outcome_index_of_atom(key: object) -> int:
     """Parse a single readout atom into a measurement-record index.
 
     Accepts ``circuit.readouts[<i>]`` or a bare decimal-string index. Unlike
@@ -117,13 +121,19 @@ def outcome_index_of_atom(key: str) -> int:
     return indices[0]
 
 
-def readout_atoms(indices: Iterable[int]) -> list[str]:
+def readout_atoms(indices: Iterable[int]) -> list[qodec.ReferenceLike]:
     """Serialise an outcome-XOR pattern as ``circuit.readouts[<i>]`` atoms."""
     return [f"circuit.readouts[{index}]" for index in indices]
 
 
+def as_references(atoms: Iterable[object]) -> list[qodec.ReferenceLike]:
+    """One parity equation in the shape qodec's setters accept."""
+    return [str(atom) for atom in atoms]
+
+
 __all__ = [
     "EncodingAtom",
+    "as_references",
     "outcome_index_of_atom",
     "outcome_indices",
     "parse_encoding_atom",

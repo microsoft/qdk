@@ -160,10 +160,10 @@ def _remap_call(
     """Return a copy of ``call`` with every qubit operand remapped."""
     if not remap:
         return call
-    new_inputs = {
+    new_inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
         name: _remap_qubits(value, remap) for name, value in call.inputs.items()
     }
-    new_outputs = {
+    new_outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
         name: _remap_qubits(value, remap) for name, value in call.outputs.items()
     }
     return qodec.instructions.InstructionCall(

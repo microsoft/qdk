@@ -160,8 +160,12 @@ def _call(
 ) -> "qodec.instructions.InstructionCall":
     """An ``InstructionCall`` binding every operand of ``mnemonic`` to ``block``."""
     instruction = isa.instruction(mnemonic)
-    inputs = {str(i): block for i in range(len(list(instruction.inputs)))}
-    outputs = {str(i): block for i in range(len(list(instruction.outputs)))}
+    inputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+        str(i): block for i in range(len(list(instruction.inputs)))
+    }
+    outputs: dict[str, qodec.instructions.InstructionCall.Argument] = {
+        str(i): block for i in range(len(list(instruction.outputs)))
+    }
     if not inputs and not outputs:
         return qodec.instructions.InstructionCall(mnemonic)
     return qodec.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)

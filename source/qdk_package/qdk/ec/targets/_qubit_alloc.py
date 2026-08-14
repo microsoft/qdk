@@ -215,8 +215,9 @@ def remap_call_source(
             assert isinstance(instruction, stim.CircuitInstruction)
             new_targets: list[stim.GateTarget] = []
             for target in instruction.targets_copy():
-                if target.is_qubit_target:
-                    new_targets.append(stim.GateTarget(remap(target.qubit_value)))
+                qubit = target.qubit_value
+                if target.is_qubit_target and qubit is not None:
+                    new_targets.append(stim.GateTarget(remap(qubit)))
                 else:
                     new_targets.append(target)
             out.append(

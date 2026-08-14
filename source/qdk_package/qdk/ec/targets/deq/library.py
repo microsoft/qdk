@@ -52,7 +52,7 @@ def _strip_non_preselect_directives(stim_text: str) -> str:
 
 
 def to_jit_library(
-    codec: qodec.Codec,
+    codec: qodec.Qodec,
     *,
     translation_index: int = -1,
     program: object | None = None,
@@ -76,7 +76,7 @@ def to_jit_library(
 
 
 def to_stim_source(
-    codec: qodec.Codec,
+    codec: qodec.Qodec,
     *,
     translation_index: int = -1,
     program: object | None = None,

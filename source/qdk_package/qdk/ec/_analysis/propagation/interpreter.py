@@ -23,7 +23,7 @@ from .isa_actions import (
     build_qubit_map,
     remap_pauli,
 )
-from .pauli import Pauli, characters_of
+from .pauli import Pauli, PauliCharacter, characters_of
 
 
 @runtime_checkable
@@ -79,10 +79,10 @@ class _FramePropagator:
     def apply_clifford(
         self,
         clifford: CliffordUnitary,
-        supported_by: Sequence[int],
+        qubits: Sequence[int],
     ) -> None:
-        local_index = {qubit: index for index, qubit in enumerate(supported_by)}
-        support = set(supported_by)
+        local_index = {qubit: index for index, qubit in enumerate(qubits)}
+        support = set(qubits)
         evolved = []
         for frame in self._frames:
             characters = characters_of(frame)
@@ -94,8 +94,8 @@ class _FramePropagator:
                 }
             )
             image = Pauli.from_dense(clifford.image_of(local))
-            remapped = {
-                supported_by[qubit]: character
+            remapped: dict[int, PauliCharacter] = {
+                qubits[qubit]: character
                 for qubit, character in characters_of(image).items()
             }
             remapped.update(

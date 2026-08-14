@@ -63,11 +63,11 @@ class PaulimerSampler:
     No detector events are emitted (logical level has no checks).
     """
 
-    def __init__(self, codec: qodec.Codec) -> None:
+    def __init__(self, codec: qodec.Qodec) -> None:
         self._codec = codec
 
     @property
-    def codec(self) -> qodec.Codec:
+    def codec(self) -> qodec.Qodec:
         return self._codec
 
     def execute(self, program: object, *, shots: int) -> Batch:
@@ -157,13 +157,12 @@ def _emit_observe(
     layout: BlockLayout,
     indices_collected: list[int],
 ) -> None:
-    for observable in atom.observables:
+    for position, observable in enumerate(atom.observables):
         pauli = observable.pauli
         if pauli is None:
             raise ValueError(
-                f"call {call.mnemonic!r}: Observe of flag observable "
-                f"{observable.name!r} (no Pauli) is not transpilable to "
-                f"PaulimerSampler"
+                f"call {call.mnemonic!r}: Observe of observable {position} "
+                f"carries no Pauli and is not transpilable to PaulimerSampler"
             )
         terms = parse_observable(pauli)
         outcome_idx = sim.measure(_pauli_from_terms(terms, layout, call))

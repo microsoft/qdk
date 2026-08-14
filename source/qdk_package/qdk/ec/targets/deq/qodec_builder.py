@@ -34,7 +34,7 @@ from deq.circuit.parser import parse
 
 # Action factory: a callable producing a fresh qodec action list, so no action
 # object is shared between synthesized instructions.
-_ActionFactory = Callable[[], list[object]]
+_ActionFactory = Callable[[], "list[qodec.Action]"]
 
 # stim gate -> (input qubits, output qubits, action factory) per application.
 _GATE_TABLE: dict[str, tuple[int, int, _ActionFactory]] = {
@@ -202,7 +202,7 @@ def _readout_statements(
     ]
 
 
-def _logical_action(definition: deq_model.GadgetDefinition) -> list[object]:
+def _logical_action(definition: deq_model.GadgetDefinition) -> list[qodec.Action]:
     """Synthesize the logical instruction's action from its READOUTs.
 
     Each READOUT statement becomes one observed logical outcome. The basis
@@ -246,7 +246,7 @@ def _instruction_measurements(instruction: deq_model.Instruction) -> int:
 
 def _build_checks(
     definition: deq_model.GadgetDefinition, codes: dict[str, Code]
-) -> list[list[str]]:
+) -> list[list[qodec.ReferenceLike]]:
     """Parse ``CHECK rec[-k]`` statements back into qodec check references.
 
     Inverse of ``to_deq``'s check emission: deq's record stream is
@@ -277,7 +277,7 @@ def _build_checks(
         port = max(p for p in range(len(out_counts)) if out_offsets[p] <= relative)
         return f"out[{port}].stabilizers[{relative - out_offsets[port]}]"
 
-    checks: list[list[str]] = []
+    checks: list[list[qodec.ReferenceLike]] = []
     running = 0
     for statement in definition.body:
         if isinstance(statement, (deq_model.InputPort, deq_model.OutputPort)):
@@ -292,7 +292,7 @@ def _build_checks(
             ]
             if len(references) == 1 and references[0].startswith("out["):
                 continue
-            checks.append(references)
+            checks.append(list(references))
     return checks
 
 
@@ -318,9 +318,9 @@ def _build_gadget(
 
     boundary = "in" if inputs else "out"
     measurement_count = _measurement_count(definition)
-    readouts: list[list[str]] = []
+    readouts: list[qodec.ReadoutLike] = []
     for index, statement in enumerate(_readout_statements(definition)):
-        references = [
+        references: list[qodec.ReferenceLike] = [
             f"circuit.readouts[{measurement_count - target.offset}]"
             for target in statement.targets
             if isinstance(target, deq_model.MeasurementRecordTarget)
