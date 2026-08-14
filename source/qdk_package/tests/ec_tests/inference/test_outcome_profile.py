@@ -1,7 +1,7 @@
 """Tests for outcome-profile computation."""
 
 from qdk.ec._readouts import observables_as_xor_map
-from qdk.ec._references import outcome_indices
+from qdk.ec._references import outcomes_of, parse_equation
 from qdk.ec.checks import essential_checks_of
 from qdk.ec.readouts import OutcomeProfile, outcome_profile_of
 import qodec as qc
@@ -21,7 +21,7 @@ def test_outcome_profile_non_essential_keeps_declared_checks(
     profile = outcome_profile_of(idle_gadget, essential=False)
     assert len(profile.checks) == len(idle_gadget.checks)
     for declared, parsed in zip(idle_gadget.checks, profile.checks):
-        assert parsed == frozenset(outcome_indices(declared))
+        assert parsed == frozenset(outcomes_of(parse_equation(declared)))
 
 
 def test_outcome_profile_observables_pair_objective_and_realisation(

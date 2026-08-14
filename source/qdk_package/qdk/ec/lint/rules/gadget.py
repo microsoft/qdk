@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import qodec as qc
 
-from ..._readouts import observable_names, observe_count
-from ..._references import parse_encoding_atom, parse_stabilizer_atom
+from ..._readouts import flag_slots, observable_slots, readout_slots
+from ..._references import (
+    Atom,
+    LogicalSign,
+    StabilizerSign,
+    parse_equations,
+    stabilizer_signs_of,
+)
 from ..._analysis.circuit_action import (
     gadget_objective_action_of,
     gadget_realization_action_of,
@@ -45,7 +51,8 @@ class MissingObservableRule:
                 self.severity,
                 f"objective declares observable {missing!r}, realisation does not emit it",
                 _where(gadget),
-                f"realisation observables: {sorted(observable_names(gadget))}",
+                f"realisation observables: "
+                f"{sorted(slot.name for slot in observable_slots(gadget))}",
             )
 
 
@@ -65,7 +72,7 @@ class MissingFlagRule:
                 f"objective declares flag {missing!r}, realisation does not bind it",
                 _where(gadget),
                 f"instruction flags: {list(gadget.implements.flags)}; bound "
-                f"readout slots: {max(0, len(gadget.readouts) - observe_count(gadget))}",
+                f"readout slots: {len(flag_slots(gadget))}",
             )
 
 
@@ -192,13 +199,11 @@ class ReadoutMismatchRule:
 
 
 def _declared_out_frames(gadget: qc.Gadget) -> set[tuple[int, int]]:
-    declared = set()
-    for check in gadget.checks:
-        for atom in check:
-            parsed = parse_stabilizer_atom(str(atom), side="out")
-            if parsed is not None:
-                declared.add(parsed)
-    return declared
+    return {
+        sign.key
+        for check in parse_equations(gadget.checks)
+        for sign in stabilizer_signs_of(check, side="out")
+    }
 
 
 def _required_out_frames(gadget: qc.Gadget) -> set[tuple[int, int]]:
@@ -242,35 +247,30 @@ class IncompleteOutputFrameRule:
             )
 
 
-def _equation_atoms(
-    entry: Sequence[object] | Mapping[str, Sequence[object]],
-) -> list[str]:
-    if isinstance(entry, Mapping):
-        return [str(atom) for atom in next(iter(entry.values()))]
-    return [str(atom) for atom in entry]
-
-
-def _encoding_atom_violation(gadget: qc.Gadget, atom: str) -> str | None:
-    parsed = parse_encoding_atom(atom)
-    if parsed is None:
+def _encoding_atom_violation(gadget: qc.Gadget, atom: Atom) -> str | None:
+    if isinstance(atom, StabilizerSign):
+        basis = "stabilizers"
+    elif isinstance(atom, LogicalSign):
+        basis = atom.basis
+    else:
         return None
-    encodings = gadget.inputs if parsed.side == "in" else gadget.outputs
-    if parsed.entry >= len(encodings):
+    encodings = gadget.inputs if atom.side == "in" else gadget.outputs
+    if atom.entry >= len(encodings):
         return (
-            f"{parsed.side}[{parsed.entry}], but the gadget declares "
-            f"{len(encodings)} {parsed.side} encoding(s)"
+            f"{atom.side}[{atom.entry}], but the gadget declares "
+            f"{len(encodings)} {atom.side} encoding(s)"
         )
-    code = encodings[parsed.entry].code
+    code = encodings[atom.entry].code
     operators = (
         code.stabilizers
-        if parsed.basis == "stabilizers"
-        else code.x if parsed.basis == "x" else code.z
+        if basis == "stabilizers"
+        else code.x if basis == "x" else code.z
     )
     bound = len(list(operators))
-    if parsed.index >= bound:
+    if atom.index >= bound:
         return (
-            f"{parsed.side}[{parsed.entry}].{parsed.basis}[{parsed.index}], "
-            f"but that code has {bound} {parsed.basis} operator(s)"
+            f"{atom.side}[{atom.entry}].{basis}[{atom.index}], "
+            f"but that code has {bound} {basis} operator(s)"
         )
     return None
 
@@ -285,11 +285,11 @@ class ReferenceOutOfBoundsRule:
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
         equations = [
-            (f"check[{index}]", [str(atom) for atom in check])
-            for index, check in enumerate(gadget.checks)
+            (f"check[{index}]", check)
+            for index, check in enumerate(parse_equations(gadget.checks))
         ] + [
-            (f"readout[{index}]", _equation_atoms(readout))
-            for index, readout in enumerate(gadget.readouts)
+            (f"readout[{slot.position}]", slot.equation)
+            for slot in readout_slots(gadget)
         ]
         for label, equation in equations:
             for atom in equation:

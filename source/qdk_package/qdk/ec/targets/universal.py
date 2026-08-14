@@ -59,8 +59,8 @@ from qodec.circuits import Program
 
 from .._analysis.propagation.pauli import Pauli
 from .compilers.recursive_lowering import _build_namespaced_remap, _remap_call
-from .._readouts import observe_count, readout_equation
-from .._references import outcome_indices
+from .._readouts import flag_slots, observable_slots, observe_count_of
+from .._references import outcomes_of
 from .results import Batch
 from ._coerce import coerce_program
 from .base import ComposableTarget, CompositeTarget, Target
@@ -185,20 +185,18 @@ def _lower_one(translation: qc.Qodec, program: Program) -> tuple[Program, list[i
 def _readout_width(layer: qc.Layer, call: qc.instructions.InstructionCall) -> int:
     """Number of logical readouts ``call`` produces at ``layer``.
 
-    For a logical layer that has a gadget for the call, that is the gadget's
-    ``observe`` count. For the bottom ISA (no gadgets), it is the number of
-    ``observe`` outcomes the ISA instruction's action declares — i.e. the
-    physical measurement records the instruction emits.
+    Both cases ask the same question of an instruction; only which instruction
+    differs. A layer with a gadget for the call answers from the gadget's
+    objective; the bottom ISA (no gadgets) answers from its own instruction,
+    whose observe outcomes are the physical records it emits.
     """
     gadget = layer.gadgets.get(call.mnemonic)
-    if gadget is not None:
-        return observe_count(gadget)
-    instruction = layer.isa.instruction(call.mnemonic)
-    return sum(
-        len(atom.observables)
-        for atom in instruction.action
-        if isinstance(atom, Observe)
+    instruction = (
+        gadget.implements
+        if gadget is not None
+        else layer.isa.instruction(call.mnemonic)
     )
+    return observe_count_of(instruction)
 
 
 # ── trivial parity decode ────────────────────────────────────────────────────
@@ -247,9 +245,9 @@ def _readout_columns(
     addressed records live at ``bits[:, offset + i]``.
     """
     columns: list[npt.NDArray[np.bool_]] = []
-    for equation in gadget.readouts[: observe_count(gadget)]:
+    for slot in observable_slots(gadget):
         column = np.zeros(bits.shape[0], dtype=np.bool_)
-        for index in outcome_indices(readout_equation(equation)):
+        for index in outcomes_of(slot.equation):
             column ^= bits[:, offset + index]
         columns.append(column)
     return columns
@@ -279,13 +277,12 @@ def _flag_columns(
 ) -> dict[str, npt.NDArray[np.bool_]]:
     """Decode the gadget's flag readouts to per-shot bit columns, keyed by
     ``implements.flags`` name (flags follow the observables, positionally)."""
-    base = observe_count(gadget)
     columns: dict[str, npt.NDArray[np.bool_]] = {}
-    for index, name in enumerate(gadget.implements.flags):
+    for slot in flag_slots(gadget):
         column = np.zeros(bits.shape[0], dtype=np.bool_)
-        for record in outcome_indices(readout_equation(gadget.readouts[base + index])):
+        for record in outcomes_of(slot.equation):
             column ^= bits[:, offset + record]
-        columns[name] = column
+        columns[slot.name] = column
     return columns
 
 

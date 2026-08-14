@@ -1,10 +1,23 @@
-"""Parsers for qodec's property-path reference grammar.
+"""The atom vocabulary behind qodec's property-path reference grammar.
 
-A qodec parity equation is a flat list of JsonPath-style references relative
-to the gadget root: ``circuit.readouts[<sel>]`` for a measurement record and
-``(in|out)[<entry>].(stabilizers|x|z)[<i>]`` for a boundary encoding sign.
-``qodec.Reference`` validates a path but does not decompose it, so this module
-is the single place qdk.ec turns those strings into indices.
+A qodec parity equation is a flat list of JsonPath-style references relative to
+the gadget root. That grammar is *text*, and text is a poor thing to reason
+with: asking "does this check constrain an output stabilizer?" of a string means
+knowing the grammar at the asking site. This module is the one place qdk.ec
+turns those strings into values and back, so everything else matches on atom
+types instead.
+
+===================================  =========================
+reference text                       atom
+===================================  =========================
+``circuit.readouts[<sel>]``          :class:`Outcome`
+``(in|out)[<e>].stabilizers[<i>]``   :class:`StabilizerSign`
+``(in|out)[<e>].(x|z)[<i>]``         :class:`LogicalSign`
+===================================  =========================
+
+``<sel>`` is a single index, a stop-exclusive slice (``N:M``, ``N:M:K``), or a
+union (``N,M,P``); a selector addressing several records parses to one
+:class:`Outcome` per record.
 """
 
 from __future__ import annotations
@@ -12,19 +25,22 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import Literal, Union
 
 import qodec as qc
+
+#: Which side of a gadget boundary an encoding reference names.
+Side = Literal["in", "out"]
+
+#: Which operator list of a boundary encoding a sign reference names.
+Basis = Literal["x", "z"]
 
 _READOUT_RE = re.compile(r"^circuit\.readouts\[([^\]]+)\]$")
 _ENCODING_REF_RE = re.compile(r"^(in|out)\[(\d+)\]\.(stabilizers|x|z)\[(\d+)\]$")
 
 
 def _expand_bracket_selector(token: str) -> list[int]:
-    """Expand a JsonPath bracket-selector token into explicit indices.
-
-    Supports single index ``N``, slice ``N:M`` / ``N:M:K`` (stop-exclusive),
-    and union ``N,M,P``. Returns the list of selected indices in declared order.
-    """
+    """Expand a JsonPath bracket-selector token into explicit indices."""
     token = token.strip()
     if not token:
         return []
@@ -46,97 +62,147 @@ def _expand_bracket_selector(token: str) -> list[int]:
 
 
 @dataclass(frozen=True)
-class EncodingAtom:
-    """A parsed ``(in|out)[<entry>].<basis>[<i>]`` encoding-sign reference.
+class Outcome:
+    """One measurement record of the gadget's own circuit."""
 
-    ``entry`` is the positional index into the gadget's ``inputs`` /
-    ``outputs`` encoding list.
-    """
-
-    side: str  # "in" | "out"
-    entry: int
-    basis: str  # "stabilizers" | "x" | "z"
     index: int
 
+    def __str__(self) -> str:
+        return f"circuit.readouts[{self.index}]"
 
-def parse_encoding_atom(atom: qc.ReferenceLike) -> EncodingAtom | None:
-    """Parse a single ``(in|out)[<entry>].(stabilizers|x|z)[<i>]`` atom.
 
-    Returns ``None`` for atoms of any other shape.
+@dataclass(frozen=True)
+class StabilizerSign:
+    """The sign of one stabilizer of a boundary encoding.
+
+    ``entry`` is the positional index into the gadget's ``inputs`` / ``outputs``
+    encoding list; ``index`` selects a generator of that encoding's code.
     """
-    match = _ENCODING_REF_RE.match(str(atom))
-    if match is None:
-        return None
-    return EncodingAtom(
-        side=match.group(1),
-        entry=int(match.group(2)),
-        basis=match.group(3),
-        index=int(match.group(4)),
-    )
+
+    side: Side
+    entry: int
+    index: int
+
+    @property
+    def key(self) -> tuple[int, int]:
+        """This stabilizer's side-independent identity.
+
+        A sign one gadget writes as ``out[...]`` the next gadget reads as
+        ``in[...]``, so anything carrying signs across gadgets keys on this.
+        """
+        return (self.entry, self.index)
+
+    def __str__(self) -> str:
+        return f"{self.side}[{self.entry}].stabilizers[{self.index}]"
 
 
-def parse_stabilizer_atom(
-    atom: qc.ReferenceLike, side: str | None = None
-) -> tuple[int, int] | None:
-    """Parse a ``(in|out)[<entry>].stabilizers[<i>]`` atom to ``(entry, index)``.
+@dataclass(frozen=True)
+class LogicalSign:
+    """The sign of one logical operator of a boundary encoding."""
 
-    Restricts to the ``stabilizers`` basis. When ``side`` is given the
-    atom's side must match it. Returns ``None`` for any other shape.
+    side: Side
+    entry: int
+    basis: Basis
+    index: int
+
+    @property
+    def key(self) -> tuple[int, Basis, int]:
+        """This logical operator's side-independent identity."""
+        return (self.entry, self.basis, self.index)
+
+    def __str__(self) -> str:
+        return f"{self.side}[{self.entry}].{self.basis}[{self.index}]"
+
+
+Atom = Union[Outcome, StabilizerSign, LogicalSign]
+
+#: One parity equation, parsed.
+Equation = tuple[Atom, ...]
+
+
+def _parse_atom(reference: qc.ReferenceLike) -> list[Atom]:
+    text = str(reference)
+    readout = _READOUT_RE.match(text)
+    if readout is not None:
+        return [Outcome(index) for index in _expand_bracket_selector(readout.group(1))]
+    encoding = _ENCODING_REF_RE.match(text)
+    if encoding is None:
+        return []
+    side, entry, basis, index = encoding.groups()
+    resolved_side: Side = "in" if side == "in" else "out"
+    if basis == "stabilizers":
+        return [StabilizerSign(resolved_side, int(entry), int(index))]
+    resolved_basis: Basis = "x" if basis == "x" else "z"
+    return [LogicalSign(resolved_side, int(entry), resolved_basis, int(index))]
+
+
+def parse_equation(references: Iterable[qc.ReferenceLike]) -> Equation:
+    """Every atom of one parity equation, in declared order.
+
+    References of a shape this module does not model are dropped rather than
+    rejected: qodec validates the path grammar itself, and an equation may
+    legitimately carry atoms qdk.ec has no use for.
     """
-    parsed = parse_encoding_atom(atom)
-    if parsed is None or parsed.basis != "stabilizers":
-        return None
-    if side is not None and parsed.side != side:
-        return None
-    return (parsed.entry, parsed.index)
+    return tuple(atom for reference in references for atom in _parse_atom(reference))
 
 
-def outcome_indices(atoms: Iterable[qc.ReferenceLike]) -> list[int]:
-    """Measurement-record indices addressed by ``circuit.readouts[<sel>]`` atoms.
-
-    ``<sel>`` is a single index, a JsonPath slice (``N:M``, ``N:M:K``), or a
-    union (``N,M,P``). Atoms of any other shape (encoding signs, declared-readout
-    references) are silently ignored.
-    """
-    out: list[int] = []
-    for atom in atoms:
-        match = _READOUT_RE.match(str(atom))
-        if match is not None:
-            out.extend(_expand_bracket_selector(match.group(1)))
-    return out
+def parse_equations(
+    equations: Iterable[Iterable[qc.ReferenceLike]],
+) -> tuple[Equation, ...]:
+    """A list of parity equations — a gadget's ``checks``, say — parsed."""
+    return tuple(parse_equation(equation) for equation in equations)
 
 
-def outcome_index_of_atom(key: qc.ReferenceLike) -> int:
-    """Parse a single readout atom into a measurement-record index.
-
-    Accepts ``circuit.readouts[<i>]`` or a bare decimal-string index. Unlike
-    :func:`outcome_indices`, the atom must address exactly one record.
-    """
-    match = _READOUT_RE.match(str(key))
-    if match is None:
-        return int(str(key))
-    indices = _expand_bracket_selector(match.group(1))
-    if len(indices) != 1:
-        raise ValueError(f"readout atom {key!r} must address exactly one outcome")
-    return indices[0]
+def outcomes_of(equation: Iterable[Atom]) -> list[int]:
+    """The measurement-record indices an equation addresses, in order."""
+    return [atom.index for atom in equation if isinstance(atom, Outcome)]
 
 
-def readout_atoms(indices: Iterable[int]) -> list[qc.ReferenceLike]:
-    """Serialise an outcome-XOR pattern as ``circuit.readouts[<i>]`` atoms."""
-    return [f"circuit.readouts[{index}]" for index in indices]
+def stabilizer_signs_of(
+    equation: Iterable[Atom], *, side: Side | None = None
+) -> list[StabilizerSign]:
+    """The stabilizer-sign atoms of an equation, optionally one side only."""
+    return [
+        atom
+        for atom in equation
+        if isinstance(atom, StabilizerSign) and side in (None, atom.side)
+    ]
 
 
-def as_references(atoms: Iterable[qc.ReferenceLike]) -> list[qc.ReferenceLike]:
+def logical_signs_of(
+    equation: Iterable[Atom], *, side: Side | None = None
+) -> list[LogicalSign]:
+    """The logical-sign atoms of an equation, optionally one side only."""
+    return [
+        atom
+        for atom in equation
+        if isinstance(atom, LogicalSign) and side in (None, atom.side)
+    ]
+
+
+def outcome_equation(indices: Iterable[int]) -> Equation:
+    """An outcome-XOR pattern as an equation."""
+    return tuple(Outcome(index) for index in indices)
+
+
+def as_references(atoms: Iterable[qc.ReferenceLike | Atom]) -> list[qc.ReferenceLike]:
     """One parity equation in the shape qodec's setters accept."""
     return [str(atom) for atom in atoms]
 
 
 __all__ = [
-    "EncodingAtom",
+    "Atom",
+    "Basis",
+    "Equation",
+    "LogicalSign",
+    "Outcome",
+    "Side",
+    "StabilizerSign",
     "as_references",
-    "outcome_index_of_atom",
-    "outcome_indices",
-    "parse_encoding_atom",
-    "parse_stabilizer_atom",
-    "readout_atoms",
+    "logical_signs_of",
+    "outcome_equation",
+    "outcomes_of",
+    "parse_equation",
+    "parse_equations",
+    "stabilizer_signs_of",
 ]

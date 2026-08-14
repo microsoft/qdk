@@ -11,8 +11,8 @@ from paulimer import OutcomeCompleteSimulation, UnitaryOpcode
 from qodec.actions import Observe
 from qodec.circuits import Program
 
-from .._readouts import observables_as_xor_map, observe_count, readout_equation
-from .._references import outcome_indices
+from .._readouts import flag_slots, observables_as_xor_map, observe_count_of
+from .._references import Atom, Equation, Outcome, StabilizerSign, outcomes_of
 from .propagation.interpreter import walk_program
 from .propagation.isa_actions import parse_basis_index
 from .propagation.pauli import Pauli, PauliCharacter
@@ -38,7 +38,7 @@ class ChannelSimulation:
 
 @dataclass(frozen=True)
 class Profile:
-    checks: list[list[str]]
+    checks: list[Equation]
     observables: dict[str, list[int]]
 
 
@@ -101,7 +101,7 @@ def simulate_channel(
     )
 
 
-def checks_of(gadget: qc.Gadget) -> list[list[str]]:
+def checks_of(gadget: qc.Gadget) -> list[Equation]:
     result = simulate_channel(gadget)
     return _emit_checks(result, _deterministic_rows(result))
 
@@ -139,7 +139,7 @@ def _emit_checks(
     rows: Sequence[CheckRow],
     *,
     exclude: Sequence[frozenset[int]] = (),
-) -> list[list[str]]:
+) -> list[Equation]:
     candidates = _eliminate(rows, lambda row: row.out_stabs) + _eliminate(
         rows, lambda row: row.in_stabs
     )
@@ -157,21 +157,19 @@ def _emit_checks(
         if key in seen:
             continue
         seen.add(key)
-        emitted.append(_check_atoms(result, row))
+        emitted.append(_check_equation(result, row))
     return emitted
 
 
-def _check_atoms(result: ChannelSimulation, row: CheckRow) -> list[str]:
-    atoms = [f"circuit.readouts[{index}]" for index in sorted(row.outcomes)]
+def _check_equation(result: ChannelSimulation, row: CheckRow) -> Equation:
+    atoms: list[Atom] = [Outcome(index) for index in sorted(row.outcomes)]
     for index in sorted(row.in_stabs):
         reference = result.in_refs[index]
-        atoms.append(f"in[{reference.entry}].stabilizers[{reference.stabilizer_index}]")
+        atoms.append(StabilizerSign("in", reference.entry, reference.stabilizer_index))
     for index in sorted(row.out_stabs):
         reference = result.out_refs[index]
-        atoms.append(
-            f"out[{reference.entry}].stabilizers[{reference.stabilizer_index}]"
-        )
-    return atoms
+        atoms.append(StabilizerSign("out", reference.entry, reference.stabilizer_index))
+    return tuple(atoms)
 
 
 def _eliminate(
@@ -273,22 +271,18 @@ def _emit_observables(
 
 
 def _flag_bindings_of(gadget: qc.Gadget) -> dict[str, frozenset[int]]:
-    trailing = list(gadget.readouts)[observe_count(gadget) :]
     return {
-        name: frozenset(outcome_indices(readout_equation(readout)))
-        for name, readout in zip(gadget.implements.flags, trailing)
+        slot.name: frozenset(outcomes_of(slot.equation)) for slot in flag_slots(gadget)
     }
 
 
 def _objective_observable_names(gadget: qc.Gadget) -> list[str]:
-    names = list(gadget.implements.flags)
-    position = 0
-    for action in gadget.implements.action:
-        if isinstance(action, Observe):
-            for _ in action.observables:
-                names.append(str(position))
-                position += 1
-    return names
+    """Every readout the instruction declares: its flags, then its observe outcomes."""
+    instruction = gadget.implements
+    return [
+        *instruction.flags,
+        *(str(position) for position in range(observe_count_of(instruction))),
+    ]
 
 
 def _fresh_sim(qubit_count: int) -> OutcomeCompleteSimulation:

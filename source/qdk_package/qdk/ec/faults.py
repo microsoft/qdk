@@ -10,7 +10,7 @@ import qodec as qc
 from qodec.circuits import Program
 
 from ._readouts import observables_as_xor_map
-from ._references import outcome_indices
+from ._references import outcomes_of, parse_equations
 from ._analysis.propagation.interpreter import propagate_faults
 from ._analysis.propagation.pauli import Pauli, PauliCharacter
 from ._analysis.propagation.pauli_remap import (
@@ -56,7 +56,7 @@ def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
         return FaultProfile((), ())
 
     program = Program(gadget.circuit.instructions, gadget.circuit.isa)
-    checks = [outcome_indices(atoms) for atoms in gadget.checks]
+    checks = [outcomes_of(check) for check in parse_equations(gadget.checks)]
     observable_map = observables_as_xor_map(gadget)
     observables = list(observable_map.values())
     flag_names = set(gadget.implements.flags)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from binar import BitMatrix
 import qodec as qc
 
-from .._references import outcome_indices
+from .._references import outcomes_of, parse_equations
 from .propagation.interpreter import propagate_input_paulis
 from .propagation.pauli_remap import flat_logical_paulis
 
@@ -33,7 +33,7 @@ def essential_checks_of(
     checks: tuple[frozenset[int], ...] | None = None,
 ) -> tuple[frozenset[int], ...]:
     checks_tuple = (
-        tuple(frozenset(outcome_indices(atoms)) for atoms in gadget.checks)
+        tuple(frozenset(outcomes_of(check)) for check in parse_equations(gadget.checks))
         if checks is None
         else tuple(frozenset(check) for check in checks)
     )

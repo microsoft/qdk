@@ -16,10 +16,15 @@ from io import StringIO
 import stim
 
 import qodec as qc
-from qodec.actions import Observe
 
-from qdk.ec._readouts import observe_count, readout_equation
-from qdk.ec._references import outcome_indices
+from qdk.ec._readouts import flag_slots, observable_slots, observe_count_of
+from qdk.ec._references import (
+    Atom,
+    Outcome,
+    StabilizerSign,
+    outcomes_of,
+    parse_equations,
+)
 
 
 def to_deq_source(
@@ -284,9 +289,6 @@ def _pauli_term(pauli_string: str) -> str:
 # GADGET block — implemented stub for now
 # ---------------------------------------------------------------------------
 
-#: qodec stabilizer-boundary reference shape that maps to a deq virtual record.
-_BOUNDARY_STAB_REF = re.compile(r"(in|out)\[(\d+)\]\.stabilizers\[(\d+)\]$")
-
 
 def _emit_gadget(
     out: StringIO,
@@ -364,11 +366,11 @@ def _check_lines(gadget: qc.Gadget, measurement_count: int) -> list[str] | None:
 
     lines: list[str] = []
     covered: set[int] = set()
-    for check in gadget.checks:
+    for check in parse_equations(gadget.checks):
         indices: set[int] = set()
-        for ref in check:
-            resolved = _check_ref_global(
-                str(ref), num_input, ov_start, in_stabs, out_stabs
+        for atom in check:
+            resolved = _check_atom_global(
+                atom, num_input, ov_start, in_stabs, out_stabs
             )
             if resolved is None:
                 return None
@@ -391,27 +393,24 @@ def _check_lines(gadget: qc.Gadget, measurement_count: int) -> list[str] | None:
     return lines
 
 
-def _check_ref_global(
-    ref: str,
+def _check_atom_global(
+    atom: Atom,
     num_input: int,
     ov_start: int,
     in_stabs: list[int],
     out_stabs: list[int],
 ) -> list[int] | None:
-    """Resolve a qodec check reference to global deq measurement indices.
+    """Resolve a check atom to global deq measurement indices.
 
-    Returns the index list (a slice/union expands to several), or ``None`` if
-    the reference is not representable as a deq ``CHECK`` target.
+    Returns the index list, or ``None`` if the atom is not representable as a
+    deq ``CHECK`` target — a logical sign, for instance.
     """
-    real = outcome_indices([ref])
-    if real:
-        return [num_input + i for i in real]
-    match = _BOUNDARY_STAB_REF.match(ref)
-    if match is not None:
-        side, entry, index = match.group(1), int(match.group(2)), int(match.group(3))
-        if side == "in":
-            return [sum(in_stabs[:entry]) + index]
-        return [ov_start + sum(out_stabs[:entry]) + index]
+    if isinstance(atom, Outcome):
+        return [num_input + atom.index]
+    if isinstance(atom, StabilizerSign):
+        if atom.side == "in":
+            return [sum(in_stabs[: atom.entry]) + atom.index]
+        return [ov_start + sum(out_stabs[: atom.entry]) + atom.index]
     return None
 
 
@@ -511,24 +510,12 @@ def _readout_lines(gadget: qc.Gadget, measurement_count: int) -> list[str]:
     them implicitly when several are listed on one line.
     """
     lines: list[str] = []
-    position = 0
-    for atom in gadget.implements.action:
-        if not isinstance(atom, Observe):
+    for slot in observable_slots(gadget):
+        indices = outcomes_of(slot.equation)
+        if not indices:
             continue
-        for _observable in atom.observables:
-            record_refs = (
-                list(gadget.readouts[position])
-                if position < len(gadget.readouts)
-                else []
-            )
-            position += 1
-            if not record_refs:
-                continue
-            indices = outcome_indices(record_refs)
-            if not indices:
-                continue
-            recs = [_index_to_rec(i, measurement_count) for i in indices]
-            lines.append("READOUT " + " ".join(recs))
+        recs = [_index_to_rec(i, measurement_count) for i in indices]
+        lines.append("READOUT " + " ".join(recs))
     return lines
 
 
@@ -544,17 +531,17 @@ def _index_to_rec(i: int, measurement_count: int) -> str:
     return f"rec[-{offset}]"
 
 
-def _readout_to_rec(reference: str, measurement_count: int) -> str:
-    """Translate a single-index ``circuit.readouts[i]`` reference to stim's
-    ``rec[-N]`` syntax. Used at call sites that expect exactly one record per
-    reference (e.g. PRESELECT clauses)."""
-    indices = outcome_indices([reference])
-    if len(indices) != 1:
+def _readout_to_rec(atom: Atom, measurement_count: int) -> str:
+    """Translate a single measurement-record atom to stim's ``rec[-N]`` syntax.
+
+    Used at call sites that expect exactly one record per reference (e.g.
+    PRESELECT clauses)."""
+    if not isinstance(atom, Outcome):
         raise ValueError(
-            f"cannot translate readout reference {reference!r}: "
-            "expected a single-index 'circuit.readouts[i]'"
+            f"cannot translate readout reference {atom!r}: "
+            "expected a single measurement record"
         )
-    return _index_to_rec(indices[0], measurement_count)
+    return _index_to_rec(atom.index, measurement_count)
 
 
 def _preselect_lines(
@@ -577,20 +564,20 @@ def _preselect_lines(
     """
     lines: list[str] = []
     flag_names = list(gadget.implements.flags)
-    flag_readouts = list(gadget.readouts)[observe_count(gadget) :]
+    bound = {slot.name: slot for slot in flag_slots(gadget)}
     for flag_name, expected_bit in expected_flags.items():
         if flag_name not in flag_names:
             raise ValueError(
                 f"gadget {gadget.implements.mnemonic!r} declares no "
                 f"{flag_name!r} flag; cannot honour assumed value"
             )
-        flag_index = flag_names.index(flag_name)
-        if flag_index >= len(flag_readouts):
+        slot = bound.get(flag_name)
+        if slot is None:
             raise ValueError(
                 f"gadget {gadget.implements.mnemonic!r}: flag {flag_name!r} "
                 f"is declared but not bound to a readout"
             )
-        equation = readout_equation(flag_readouts[flag_index])
+        equation = slot.equation
         if len(equation) != 1:
             raise NotImplementedError(
                 f"gadget {gadget.implements.mnemonic!r}: flag {flag_name!r} "
@@ -696,7 +683,5 @@ def _program_readout_count(
         instr = by_mnemonic.get(call.mnemonic)
         if instr is None:
             continue
-        for atom in instr.action:
-            if isinstance(atom, Observe):
-                total += len(atom.observables)
+        total += observe_count_of(instr)
     return total
