@@ -12,7 +12,8 @@ Develop
 Move qodecs between disk, memory, and YAML text, and let automated analysis
 finish the parts a human should not have to write.
 
-* :func:`load`, :func:`save`, :func:`from_yaml`, :func:`to_yaml` — primitives.
+* :func:`load_yaml`, :func:`save_yaml`, :func:`from_yaml`, :func:`to_yaml` —
+  moving qodecs between disk, memory, and YAML text.
 * :func:`complete_gadget`, :func:`complete_qodec` — derive the checks and
   observable bindings exact simulation can determine.
 * :func:`qodec_from_code` — synthesize a whole runnable qodec from a bare
@@ -61,7 +62,7 @@ Installing
 Example
 -------
 >>> import qdk.ec as ec  # doctest: +SKIP
->>> qodec = ec.load("my_qodec.qodec.yaml")  # doctest: +SKIP
+>>> qodec = ec.load_yaml("my_qodec.qodec.yaml")  # doctest: +SKIP
 >>> report = ec.lint.diagnose(qodec)  # doctest: +SKIP
 """
 
@@ -71,7 +72,7 @@ import importlib
 from typing import TYPE_CHECKING, Any
 
 from ._completion import complete_gadget, complete_qodec
-from ._primitives import from_yaml, load, save, to_yaml
+from ._io import from_yaml, load_yaml, save_yaml, to_yaml
 from ._synthesis import memory_program, qodec_from_code, synthesis_notes
 
 #: Submodules resolved on first attribute access, so ``import qdk.ec`` stays
@@ -94,10 +95,10 @@ __all__ = [
     "complete_gadget",
     "complete_qodec",
     "from_yaml",
-    "load",
+    "load_yaml",
     "memory_program",
     "qodec_from_code",
-    "save",
+    "save_yaml",
     "synthesis_notes",
     "to_yaml",
 ]

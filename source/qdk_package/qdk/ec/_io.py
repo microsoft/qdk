@@ -1,4 +1,4 @@
-"""Primitive load/save operations for qodec artifacts.
+"""Moving qodec artifacts between disk, memory, and YAML text.
 
 These are thin, ``pathlib``-friendly wrappers over the ``qodec`` package's own
 serialization entry points, plus in-memory YAML round-tripping (``from_yaml`` /
@@ -17,7 +17,7 @@ import qodec as qc
 _MANIFEST_NAME = "qodec.yaml"
 
 
-def load(path: str | os.PathLike[str]) -> qc.Qodec:
+def load_yaml(path: str | os.PathLike[str]) -> qc.Qodec:
     """Load a qodec from ``path``.
 
     ``path`` may be a directory containing a ``qodec.yaml`` manifest (or a
@@ -27,7 +27,7 @@ def load(path: str | os.PathLike[str]) -> qc.Qodec:
     return qc.Qodec.load(str(Path(path)))
 
 
-def save(
+def save_yaml(
     qodec: qc.Qodec,
     path: str | os.PathLike[str],
     *,
@@ -50,7 +50,7 @@ def from_yaml(source: str) -> qc.Qodec:
     ``source`` is the multi-document YAML produced by :func:`to_yaml` (or by
     ``Qodec.save(..., single_file=True)``). Qodecs whose gadget circuits live in
     external sidecar files cannot be represented as a single string and must be
-    loaded from disk with :func:`load` instead.
+    loaded from disk with :func:`load_yaml` instead.
     """
     with tempfile.TemporaryDirectory() as directory:
         manifest = Path(directory) / _MANIFEST_NAME
@@ -62,7 +62,7 @@ def to_yaml(qodec: qc.Qodec) -> str:
     """Serialize ``qodec`` to a single-file qodec YAML bundle.
 
     Raises :class:`ValueError` when the qodec has external source-circuit
-    sidecars, which a single string cannot carry; use :func:`save` for those.
+    sidecars, which a single string cannot carry; use :func:`save_yaml` for those.
     """
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
@@ -79,9 +79,9 @@ def to_yaml(qodec: qc.Qodec) -> str:
             )
             raise ValueError(
                 "qodec has external source-circuit sidecars that a single YAML "
-                f"string cannot carry ({names}); use save() instead"
+                f"string cannot carry ({names}); use save_yaml() instead"
             )
         return manifest.read_text(encoding="utf-8")
 
 
-__all__ = ["from_yaml", "load", "save", "to_yaml"]
+__all__ = ["from_yaml", "load_yaml", "save_yaml", "to_yaml"]

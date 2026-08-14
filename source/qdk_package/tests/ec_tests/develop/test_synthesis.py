@@ -353,8 +353,8 @@ def test_synthesized_qodec_round_trips_through_yaml(steane: qc.Qodec) -> None:
 def test_synthesized_qodec_round_trips_through_disk(
     steane: qc.Qodec, tmp_path: Path
 ) -> None:
-    ec.save(steane, tmp_path / "bundle")
-    restored = ec.load(tmp_path / "bundle")
+    ec.save_yaml(steane, tmp_path / "bundle")
+    restored = ec.load_yaml(tmp_path / "bundle")
 
     assert restored.name == steane.name
     assert sorted(restored.codes) == sorted(steane.codes)
