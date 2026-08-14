@@ -78,11 +78,10 @@ RECIPES = {
             {
                 "section": "Running the calculation",
                 "prompt": "## Which basis set wins\n\n"
-                "The chapter asked which basis set gives the lower energy. Answer it from your "
-                "own numbers rather than from the text.\n\n"
+                "The `energies` dictionary you just filled in holds a Hartree\u2013Fock energy "
+                "for each basis set.\n\n"
                 "Complete `lower_energy_basis` so it returns the name of the basis set with the "
-                "lower Hartree\u2013Fock energy, read from the `energies` dictionary you just "
-                "filled in.",
+                "lower Hartree\u2013Fock energy.",
                 "code": "from _unit import exercise\n\n\n"
                 "@exercise\n"
                 "def lower_energy_basis():\n"
@@ -291,9 +290,9 @@ RECIPES = {
                     (
                         "md",
                         "## Running the Chapter 3 workflow\n\n"
-                        "Every excerpt in this chapter starts from the active space selected in "
+                        "Everything below starts from the active space selected in "
                         "Chapter 3. This cell reruns that workflow so the rest of the notebook "
-                        "has a selected space to map. It is the expensive step in the chapter.",
+                        "has a selected space to map. It is the slowest cell here.",
                     ),
                     ("code", "active_space_result = run_active_space_workflow()\n"),
                 ],
@@ -304,9 +303,7 @@ RECIPES = {
                     (
                         "md",
                         "### Pauli term preview\n\n"
-                        "The chapter prints its Pauli preview from a helper that sits outside its "
-                        "excerpts. The two functions above are that helper; this cell is the "
-                        "preview the chapter describes.",
+                        "The two functions above build the preview; this cell prints it.",
                     ),
                     (
                         "code",
@@ -323,9 +320,8 @@ RECIPES = {
                     (
                         "md",
                         "### Recording the results\n\n"
-                        "The quantities the chapter asks you to record come from a reporting "
-                        "function outside its excerpts, so they are printed here from the values "
-                        "the cells above computed.",
+                        "This cell prints the mapping results from the values the cells above "
+                        "computed.",
                     ),
                     (
                         "code",
@@ -350,11 +346,9 @@ RECIPES = {
             {
                 "section": "Qubits for the encoded fermionic state",
                 "prompt": "## How many compute qubits\n\n"
-                "The chapter asked how many compute qubits the selected active space needs under "
-                "Jordan\u2013Wigner. Answer it from your own reasoning rather than from the "
-                "text.\n\n"
-                "Complete `compute_qubit_count` so it returns the size of the compute register "
-                "for the active space selected in Chapter 3.",
+                "The active space selected in Chapter 3 determines the size of the compute "
+                "register under Jordan\u2013Wigner.\n\n"
+                "Complete `compute_qubit_count` so it returns that size.",
                 "code": "from _unit import exercise\n\n\n"
                 "@exercise\n"
                 "def compute_qubit_count():\n"
@@ -400,9 +394,9 @@ RECIPES = {
                     (
                         "md",
                         "## Workflow helpers\n\n"
-                        "The chapter keeps two helpers outside its excerpts: one ranks the "
-                        "reference determinants by weight, the other counts the leaf gates in a "
-                        "generated circuit. Run both so the rest of the notebook can use them.",
+                        "Two helpers follow: one ranks the reference determinants by weight, "
+                        "the other counts the leaf gates in a generated circuit. Run both so "
+                        "the rest of the notebook can use them.",
                     ),
                     ("region", "determinant-weights"),
                     ("region", "circuit-statistics"),
@@ -441,9 +435,8 @@ RECIPES = {
                     (
                         "md",
                         "### Choosing the determinant count\n\n"
-                        "The two excerpts that follow are one pass of the script's loop over one, "
-                        "two, and four determinants. Fix the count here so they can run as "
-                        "ordinary cells.",
+                        "The two cells that follow are one pass over one, two, and four "
+                        "determinants. Fix the count here so they run as ordinary cells.",
                     ),
                     ("code", "num_determinants = 4\n"),
                 ],
@@ -454,8 +447,7 @@ RECIPES = {
                     (
                         "md",
                         "### Circuit cost\n\n"
-                        "The chapter reports the circuit cost from a printing function that sits "
-                        "outside its excerpts, so the numbers it discusses are shown here.",
+                        "This cell prints the circuit cost for the trial state prepared above.",
                     ),
                     (
                         "code",
@@ -686,6 +678,15 @@ QUIZ_ACCENT = "#8c4a00"
 # Cross-references to the published documentation become real links; references to
 # other tutorial chapters stay as text, because those chapters are units in here.
 DOCS_SITE = "https://microsoft.github.io/qdk-chemistry/"
+# Titles the course ships as its own units, so a reference to one names it as a chapter.
+CHAPTERS = {
+    "Energy and accuracy",
+    "Describing the molecule",
+    "Choosing the active space",
+    "Mapping the problem to qubits",
+    "Preparing the trial state",
+    "Iterative quantum phase estimation",
+}
 
 
 def _badge(accent, glyph):
@@ -738,7 +739,11 @@ def _role(name, text):
         if ref.startswith("../"):
             return link(label, DOCS_SITE + ref.lstrip("./") + ".html")
         # Anchors point inside the tutorial, so only the wording survives.
-        return "*" + (label if target else label.replace("-", " ")) + "*"
+        wording = label if target else label.replace("-", " ")
+        if wording in CHAPTERS:
+            return f"the chapter *{wording}*"
+        # A lowercase label is a sentence fragment, not a title, so it stays plain.
+        return wording if wording[:1].islower() else f"*{wording}*"
     return label
 
 
@@ -764,6 +769,7 @@ def inline(text):
         return f"*{m.group('ref')}*"
 
     text = INLINE.sub(sub, text)
+    text = re.sub(r"(^|(?<=[.!?] ))the chapter \*", r"\1The chapter *", text)
     text = re.sub(r"(?<=\w)--(?=\w)", "\u2013", text)
     text = re.sub(r"\s+([.,;:])", r"\1", text)
     return re.sub(r" {2,}", " ", text).rstrip()
@@ -930,7 +936,8 @@ def render_prose(block):
             if ln.startswith("   "):
                 out.append(f"  {inline(ln.strip())}")
             else:
-                out.append(f"- **{inline(ln.strip())}**")
+                # The break keeps the term on its own line, as the docs site has it.
+                out.append(f"- **{inline(ln.strip())}**<br>")
         return "\n".join(out)
     return "\n".join(inline(ln) for ln in lines)
 
