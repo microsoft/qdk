@@ -1221,8 +1221,9 @@ def convert(key):
                 "## Before you begin\n\n"
                 "This course requires a Python environment with the `qdk-chemistry[jupyter]` package.\n\n"
                 "`qdk-chemistry` ships compiled binaries for Linux, macOS on Apple silicon, "
-                "and Windows on x86-64. On Windows on Arm, run this course inside WSL. Run the "
-                "cell below to check the current environment."
+                "and Windows on x86-64. This course also needs PySCF, which has no Windows "
+                "build, so run it inside WSL on Windows. Run the cell below to check the "
+                "current environment."
             ),
         ),
         ("Before you begin", code("from _unit import check_env\n\ncheck_env()")),
