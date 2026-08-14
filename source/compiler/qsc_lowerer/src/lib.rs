@@ -4,8 +4,8 @@
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
-    Block, CallableImpl, ExecGraph, ExecGraphDebugNode, ExecGraphIdx, ExecGraphNode, Expr, Pat,
-    SpecImpl, Stmt,
+    Block, CallableImpl, ExecGraph, ExecGraphDebugNode, ExecGraphExpr, ExecGraphIdx, ExecGraphNode,
+    Expr, Pat, SpecImpl, Stmt,
 };
 use qsc_fir::{
     fir::{self, BlockId, ExprId, LocalItemId, PatId, StmtId},
@@ -515,32 +515,38 @@ impl Lowerer {
         let graph_start_idx = self.exec_graph.len();
         let ty = self.lower_ty(&expr.ty);
 
-        let kind = match &expr.kind {
+        let (kind, exec_expr) = match &expr.kind {
             hir::ExprKind::Array(items) => {
                 if items
                     .iter()
                     .all(|i| matches!(i.kind, hir::ExprKind::Lit(..)))
                 {
-                    fir::ExprKind::ArrayLit(
-                        items
-                            .iter()
-                            .map(|i| {
-                                let i = self.lower_expr(i);
-                                self.exec_graph.pop();
-                                i
-                            })
-                            .collect(),
+                    (
+                        fir::ExprKind::ArrayLit(
+                            items
+                                .iter()
+                                .map(|i| {
+                                    let i = self.lower_expr(i);
+                                    self.exec_graph.pop();
+                                    i
+                                })
+                                .collect(),
+                        ),
+                        None,
                     )
                 } else {
-                    fir::ExprKind::Array(
-                        items
-                            .iter()
-                            .map(|i| {
-                                let i = self.lower_expr(i);
-                                self.exec_graph.push(ExecGraphNode::Store);
-                                i
-                            })
-                            .collect(),
+                    (
+                        fir::ExprKind::Array(
+                            items
+                                .iter()
+                                .map(|i| {
+                                    let i = self.lower_expr(i);
+                                    self.exec_graph.push(ExecGraphNode::Store);
+                                    i
+                                })
+                                .collect(),
+                        ),
+                        Some(ExecGraphExpr::Array(items.len())),
                     )
                 }
             }
@@ -548,7 +554,10 @@ impl Lowerer {
                 let value = self.lower_expr(value);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let size = self.lower_expr(size);
-                fir::ExprKind::ArrayRepeat(value, size)
+                (
+                    fir::ExprKind::ArrayRepeat(value, size),
+                    Some(ExecGraphExpr::ArrayRepeat),
+                )
             }
             hir::ExprKind::Assign(lhs, rhs) => {
                 let idx = self.exec_graph.len();
@@ -556,11 +565,16 @@ impl Lowerer {
                 // The left-hand side of an assignment is not really an expression to be executed,
                 // so remove any added nodes from the execution graph.
                 self.exec_graph.truncate(idx);
-                fir::ExprKind::Assign(lhs, self.lower_expr(rhs))
+                (
+                    fir::ExprKind::Assign(lhs, self.lower_expr(rhs)),
+                    Some(ExecGraphExpr::Assign(lhs)),
+                )
             }
             hir::ExprKind::AssignOp(op, lhs, rhs) => {
                 let idx = self.exec_graph.len();
                 let is_array = matches!(lhs.ty, qsc_hir::ty::Ty::Array(..));
+                let lhs_span = lhs.span;
+                let rhs_span = rhs.span;
                 let lhs = self.lower_expr(lhs);
                 if is_array {
                     // The left-hand side of an array append is not really an expression to be
@@ -592,16 +606,26 @@ impl Lowerer {
                     }
                     _ => {}
                 }
-                fir::ExprKind::AssignOp(lower_binop(*op), lhs, rhs)
+                let op = lower_binop(*op);
+                (
+                    fir::ExprKind::AssignOp(op, lhs, rhs),
+                    Some(ExecGraphExpr::AssignOp {
+                        op,
+                        lhs,
+                        lhs_span,
+                        rhs_span,
+                    }),
+                )
             }
             hir::ExprKind::AssignField(container, field, replace) => {
                 let field = lower_field(field);
                 let replace = self.lower_expr(replace);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let container = self.lower_expr(container);
-                fir::ExprKind::AssignField(container, field, replace)
+                (fir::ExprKind::AssignField(container, field, replace), None)
             }
             hir::ExprKind::AssignIndex(container, index, replace) => {
+                let index_span = index.span;
                 let index = self.lower_expr(index);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let replace = self.lower_expr(replace);
@@ -610,9 +634,17 @@ impl Lowerer {
                 // The left-hand side of an array index assignment is not really an expression to be
                 // executed, so remove any added nodes from the execution graph.
                 self.exec_graph.truncate(idx);
-                fir::ExprKind::AssignIndex(container, index, replace)
+                (
+                    fir::ExprKind::AssignIndex(container, index, replace),
+                    Some(ExecGraphExpr::AssignIndex {
+                        lhs: container,
+                        mid_span: index_span,
+                    }),
+                )
             }
             hir::ExprKind::BinOp(op, lhs, rhs) => {
+                let lhs_span = lhs.span;
+                let rhs_span = rhs.span;
                 let lhs = self.lower_expr(lhs);
                 let idx = self.exec_graph.len();
                 if matches!(op, hir::BinOp::AndL | hir::BinOp::OrL) {
@@ -643,24 +675,43 @@ impl Lowerer {
                     }
                     _ => {}
                 }
-                fir::ExprKind::BinOp(lower_binop(*op), lhs, rhs)
+                let op = lower_binop(*op);
+                (
+                    fir::ExprKind::BinOp(op, lhs, rhs),
+                    Some(ExecGraphExpr::BinOp {
+                        op,
+                        lhs_span,
+                        rhs_span,
+                    }),
+                )
             }
-            hir::ExprKind::Block(block) => fir::ExprKind::Block(self.lower_block(block)),
+            hir::ExprKind::Block(block) => (fir::ExprKind::Block(self.lower_block(block)), None),
             hir::ExprKind::Call(callee, arg) => {
+                let callee_span = callee.span;
+                let args_span = arg.span;
                 let call = self.lower_expr(callee);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let arg = self.lower_expr(arg);
-                fir::ExprKind::Call(call, arg)
+                (
+                    fir::ExprKind::Call(call, arg),
+                    Some(ExecGraphExpr::Call {
+                        callee_span,
+                        args_span,
+                    }),
+                )
             }
             hir::ExprKind::Fail(message) => {
                 // Ensure the right-hand side expression is lowered first so that it
                 // is executed before the fail node, if any.
-                fir::ExprKind::Fail(self.lower_expr(message))
+                (
+                    fir::ExprKind::Fail(self.lower_expr(message)),
+                    Some(ExecGraphExpr::Fail),
+                )
             }
             hir::ExprKind::Field(container, field) => {
                 let container = self.lower_expr(container);
                 let field = lower_field(field);
-                fir::ExprKind::Field(container, field)
+                (fir::ExprKind::Field(container, field), None)
             }
             hir::ExprKind::If(cond, if_true, if_false) => {
                 let cond = self.lower_expr(cond);
@@ -687,13 +738,17 @@ impl Lowerer {
                 // Update the placeholder to skip the true branch if the condition is false
                 self.exec_graph
                     .set_with_arg(ExecGraphNode::JumpIfNot, branch_idx, else_idx);
-                fir::ExprKind::If(cond, if_true, if_false)
+                (fir::ExprKind::If(cond, if_true, if_false), None)
             }
             hir::ExprKind::Index(container, index) => {
+                let index_span = index.span;
                 let container = self.lower_expr(container);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let index = self.lower_expr(index);
-                fir::ExprKind::Index(container, index)
+                (
+                    fir::ExprKind::Index(container, index),
+                    Some(ExecGraphExpr::Index { index_span }),
+                )
             }
             hir::ExprKind::Parallel(limit, expr) => {
                 let limit = limit.as_ref().map(|l| self.lower_expr(l));
@@ -704,9 +759,9 @@ impl Lowerer {
                 let expr = self.lower_expr(expr);
                 self.exec_graph.push(ExecGraphNode::ParEnd);
                 self.parallel_count -= 1;
-                fir::ExprKind::Parallel(limit, expr)
+                (fir::ExprKind::Parallel(limit, expr), None)
             }
-            hir::ExprKind::Lit(lit) => lower_lit(lit),
+            hir::ExprKind::Lit(lit) => (lower_lit(lit), None),
             hir::ExprKind::Range(start, step, end) => {
                 let start = start.as_ref().map(|s| self.lower_expr(s));
                 if start.is_some() {
@@ -717,7 +772,14 @@ impl Lowerer {
                     self.exec_graph.push(ExecGraphNode::Store);
                 }
                 let end = end.as_ref().map(|e| self.lower_expr(e));
-                fir::ExprKind::Range(start, step, end)
+                (
+                    fir::ExprKind::Range(start, step, end),
+                    Some(ExecGraphExpr::Range {
+                        has_start: start.is_some(),
+                        has_step: step.is_some(),
+                        has_end: end.is_some(),
+                    }),
+                )
             }
             hir::ExprKind::Return(expr) => {
                 let expr = self.lower_expr(expr);
@@ -729,7 +791,7 @@ impl Lowerer {
                     self.exec_graph.push(ExecGraphNode::ParEnd);
                 }
                 self.exec_graph.push_ret();
-                fir::ExprKind::Return(expr)
+                (fir::ExprKind::Return(expr), None)
             }
             hir::ExprKind::Struct(name, copy, fields) => {
                 let res = self.lower_res(name);
@@ -746,20 +808,27 @@ impl Lowerer {
                         f
                     })
                     .collect();
-                fir::ExprKind::Struct(res, copy, fields)
+                (fir::ExprKind::Struct(res, copy, fields), None)
             }
-            hir::ExprKind::Tuple(items) => fir::ExprKind::Tuple(
-                items
-                    .iter()
-                    .map(|i| {
-                        let i = self.lower_expr(i);
-                        self.exec_graph.push(ExecGraphNode::Store);
-                        i
-                    })
-                    .collect(),
+            hir::ExprKind::Tuple(items) => (
+                fir::ExprKind::Tuple(
+                    items
+                        .iter()
+                        .map(|i| {
+                            let i = self.lower_expr(i);
+                            self.exec_graph.push(ExecGraphNode::Store);
+                            i
+                        })
+                        .collect(),
+                ),
+                Some(ExecGraphExpr::Tuple(items.len())),
             ),
             hir::ExprKind::UnOp(op, operand) => {
-                fir::ExprKind::UnOp(lower_unop(*op), self.lower_expr(operand))
+                let op = lower_unop(*op);
+                (
+                    fir::ExprKind::UnOp(op, self.lower_expr(operand)),
+                    Some(ExecGraphExpr::UnOp(op)),
+                )
             }
             hir::ExprKind::While(cond, body) => {
                 self.exec_graph
@@ -785,69 +854,95 @@ impl Lowerer {
                 // While-exprs never have a return value, so we need to insert a no-op to ensure
                 // a Unit value is returned for the expr.
                 self.exec_graph.push(ExecGraphNode::Unit);
-                fir::ExprKind::While(cond, body)
+                (fir::ExprKind::While(cond, body), None)
             }
             hir::ExprKind::Closure(ids, id) => {
                 let ids = ids.iter().map(|id| self.lower_local_id(*id)).collect();
-                fir::ExprKind::Closure(ids, lower_local_item_id(*id))
+                (fir::ExprKind::Closure(ids, lower_local_item_id(*id)), None)
             }
-            hir::ExprKind::String(components) => fir::ExprKind::String(
-                components
-                    .iter()
-                    .map(|c| self.lower_string_component(c))
-                    .collect(),
+            hir::ExprKind::String(components) => (
+                fir::ExprKind::String(
+                    components
+                        .iter()
+                        .map(|c| self.lower_string_component(c))
+                        .collect(),
+                ),
+                None,
             ),
             hir::ExprKind::UpdateIndex(lhs, mid, rhs) => {
+                let mid_span = mid.span;
                 let mid = self.lower_expr(mid);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let rhs = self.lower_expr(rhs);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let lhs = self.lower_expr(lhs);
-                fir::ExprKind::UpdateIndex(lhs, mid, rhs)
+                (
+                    fir::ExprKind::UpdateIndex(lhs, mid, rhs),
+                    Some(ExecGraphExpr::UpdateIndex { mid_span }),
+                )
             }
             hir::ExprKind::UpdateField(record, field, replace) => {
                 let field = lower_field(field);
                 let replace = self.lower_expr(replace);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let record = self.lower_expr(record);
-                fir::ExprKind::UpdateField(record, field, replace)
+                (fir::ExprKind::UpdateField(record, field, replace), None)
             }
             hir::ExprKind::Var(res, args) => {
                 let res = self.lower_res(res);
                 let args = args.iter().map(|arg| self.lower_generic_arg(arg)).collect();
-                fir::ExprKind::Var(res, args)
+                (fir::ExprKind::Var(res, args), Some(ExecGraphExpr::Var(res)))
             }
             hir::ExprKind::Break => panic!("break should be eliminated by passes"),
             hir::ExprKind::Conjugate(..) => panic!("conjugate should be eliminated by passes"),
             hir::ExprKind::Continue => panic!("continue should be eliminated by passes"),
             hir::ExprKind::Err => panic!("error expr should not be present"),
             hir::ExprKind::For(..) => panic!("for-loop should be eliminated by passes"),
-            hir::ExprKind::Hole => fir::ExprKind::Hole, // allowed for discards
+            hir::ExprKind::Hole => (fir::ExprKind::Hole, None), // allowed for discards
             hir::ExprKind::Repeat(..) => panic!("repeat-loop should be eliminated by passes"),
         };
 
-        match kind {
+        match (&kind, exec_expr) {
             // These expressions express specific control flow that is handled above.
-            fir::ExprKind::BinOp(fir::BinOp::AndL | fir::BinOp::OrL, _, _)
-            | fir::ExprKind::Block(..)
-            | fir::ExprKind::If(..)
-            | fir::ExprKind::Return(..)
-            | fir::ExprKind::While(..)
-            | fir::ExprKind::Parallel(..) => {}
+            (
+                fir::ExprKind::BinOp(fir::BinOp::AndL | fir::BinOp::OrL, _, _)
+                | fir::ExprKind::Block(..)
+                | fir::ExprKind::If(..)
+                | fir::ExprKind::Return(..)
+                | fir::ExprKind::While(..)
+                | fir::ExprKind::Parallel(..),
+                None,
+            ) => {}
 
-            fir::ExprKind::Assign(..)
-            | fir::ExprKind::AssignField(..)
-            | fir::ExprKind::AssignIndex(..)
-            | fir::ExprKind::AssignOp(..) => {
+            (
+                fir::ExprKind::Assign(..)
+                | fir::ExprKind::AssignField(..)
+                | fir::ExprKind::AssignIndex(..)
+                | fir::ExprKind::AssignOp(..),
+                exec_expr,
+            ) => {
                 // Assignments are expressions that always produce the value `Unit`,
                 // so we need to push the expr first and then follow up with an explicit
                 // `Unit` node.
-                self.exec_graph.push(ExecGraphNode::Expr(id));
+                if let Some(exec_expr) = exec_expr {
+                    self.exec_graph
+                        .push(ExecGraphNode::Expr(exec_expr, expr.span));
+                } else {
+                    self.exec_graph
+                        .push(ExecGraphNode::Expr(ExecGraphExpr::Expr(id), expr.span));
+                }
                 self.exec_graph.push(ExecGraphNode::Unit);
             }
 
+            (_, Some(exec_expr)) => {
+                self.exec_graph
+                    .push(ExecGraphNode::Expr(exec_expr, expr.span));
+            }
+
             // All other expressions should be added to the execution graph.
-            _ => self.exec_graph.push(ExecGraphNode::Expr(id)),
+            _ => self
+                .exec_graph
+                .push(ExecGraphNode::Expr(ExecGraphExpr::Expr(id), expr.span)),
         }
 
         let expr = fir::Expr {
