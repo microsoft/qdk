@@ -470,3 +470,37 @@ fn check_rca_for_callable_with_parallel_loop_invoking_stdlib_callable_with_inner
                 ctl-adj: <none>"#]],
     );
 }
+
+#[test]
+fn check_rca_for_parallel_with_only_call_to_controlled_specialization() {
+    let mut compilation_context = CompilationContext::new(Profile::Adaptive.into());
+    compilation_context.update(
+        r#"
+        operation ParallelControlled(q : Qubit) : Unit {
+            parallel Controlled X([], q);
+        }"#,
+    );
+    let package_store_compute_properties = compilation_context.get_compute_properties();
+    check_callable_compute_properties(
+        &compilation_context.fir_store,
+        package_store_compute_properties,
+        "ParallelControlled",
+        &expect![[r#"
+            Callable: CallableComputeProperties:
+                body: ApplicationsGeneratorSet:
+                    inherent: Dynamic:
+                        runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                        value_kind: Constant
+                    dynamic_param_applications:
+                        [0]: [Parameter Type Element] ElementParamApplication:
+                            constant: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                value_kind: Constant
+                            variable: Dynamic:
+                                runtime_features: RuntimeFeatureFlags(UseOfDynamicQubit | QubitAllocation)
+                                value_kind: Constant
+                adj: <none>
+                ctl: <none>
+                ctl-adj: <none>"#]],
+    );
+}

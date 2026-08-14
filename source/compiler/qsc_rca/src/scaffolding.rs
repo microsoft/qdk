@@ -401,8 +401,12 @@ impl From<SpecializationsComputeProperties> for CallableComputeProperties {
             }
         }
 
+        // If the body is not present, this is likely a callable where only
+        // a non-body specialization is invoked in a parallel expression. We allow
+        // the body to be effectively empty by using default, since only the non-body
+        // specialization compute properties are relevant.
         CallableComputeProperties {
-            body: body.expect("body should exist"),
+            body: body.unwrap_or_default(),
             adj,
             ctl,
             ctl_adj,
