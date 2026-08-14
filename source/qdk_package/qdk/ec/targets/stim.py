@@ -11,7 +11,7 @@ directives appended from the gadget's checks and observables.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from typing import Iterable
 
 import numpy as np
 import numpy.typing as npt
@@ -29,8 +29,6 @@ from .compilers.recursive_lowering import (
 from .results import Batch
 from .._readouts import observable_slots, readout_slots
 from .._references import (
-    Equation,
-    logical_signs_of,
     outcomes_of,
     parse_equations,
     stabilizer_signs_of,
@@ -38,13 +36,13 @@ from .._references import (
 from ._coerce import coerce_program
 from ._qubit_alloc import PhysicalQubitAllocator, remap_call_source
 from ._recursive_emit import (
-    LogicalFrames,
-    StabilizerFrames,
-    _RecursiveEmitState,
-    _call_readout_prov,
+    FrameMaps,
+    Provenance,
     _has_out_stab,
-    _resolve_equation_records,
-    _update_frame_maps_recursive,
+    _RecursiveEmitState,
+    exposed_readout_records,
+    resolve_records,
+    update_frame_maps,
 )
 from .base import Target
 
@@ -114,19 +112,16 @@ class StimEmitter:
         self._qodec = qodec
         self._emit_flags = emit_flags
         # The bottom non-empty layer: its gadgets lower the second-to-bottom
-        # ISA into the physical (stim) ISA. (Kept under the historical name
-        # ``_stim_translation``; ``.gadgets`` works on a Layer.)
-        self._stim_translation = qodec.layers[-2]
+        # ISA into the physical (stim) ISA.
+        self._stim_layer = qodec.layers[-2]
         self._stim_source_isa = qodec.layers[-2].isa
         self._stim_target_isa = qodec.layers[-1].isa
-        # When the caller supplies no compiler and the qodec has more than one
-        # lowering edge, the emitter walks the layer chain itself
-        # (``_build_circuit_recursive``), composing every intermediate
-        # layer's decoding surface (checks / readouts) down to physical
-        # records. With a single edge — or a user-supplied compiler that
-        # pre-lowers to the bottom-1 layer — the flat single-edge path
-        # (``_build_circuit_from_lowered``) is used.
-        self._recursive = compiler is None and layer_count > 2
+        # With a caller-supplied compiler the program arrives pre-lowered to the
+        # bottom edge, so there is only ever one decoding surface to emit.
+        # Without one, every extra lowering edge carries its own checks and
+        # readouts, which have to be composed down to physical records
+        # (``_build_circuit_recursive``) rather than discarded.
+        self._composes_layers = compiler is None and layer_count > 2
         if compiler is None:
             pre_bottom = qodec.slice(0, layer_count - 1)
             compiler = RecursiveLowering(pre_bottom)
@@ -148,7 +143,7 @@ class StimEmitter:
     @property
     def translation(self) -> qc.Layer:
         """The bottom layer: the one whose gadgets drive stim emission."""
-        return self._stim_translation
+        return self._stim_layer
 
     @property
     def noise(self) -> dict[str, float]:
@@ -171,7 +166,7 @@ class StimEmitter:
     def detector_counts(self) -> dict[str, int]:
         """Detector counts per gadget mnemonic in the bottom translation."""
         result: dict[str, int] = {}
-        for name, gadget in self._stim_translation.gadgets.items():
+        for name, gadget in self._stim_layer.gadgets.items():
             base = self._load_circuit(name).num_detectors
             result[name] = base + _emitted_detector_count(gadget)
         return result
@@ -185,7 +180,7 @@ class StimEmitter:
         for the DEM directly, or :meth:`build_dem`.
         """
         program = coerce_program(program, self._qodec.layers[0].isa)
-        if self._recursive:
+        if self._composes_layers:
             return self._build_circuit_recursive(program)
         lowered = self._compiler.compile(program).program
         return self._build_circuit_from_lowered(lowered)
@@ -248,7 +243,7 @@ class StimEmitter:
             )
         lowered = self._compiler.compile(program_coerced).program
         return _build_logical_observable_mask(
-            lowered, self._stim_translation, emit_flags=self._emit_flags
+            lowered, self._stim_layer, emit_flags=self._emit_flags
         )
 
     def _m2d_convert(
@@ -273,7 +268,7 @@ class StimEmitter:
 
     def _load_circuit(self, mnemonic: str) -> stim.Circuit:
         if mnemonic not in self._raw_circuits:
-            gadget = self._stim_translation.gadgets[mnemonic]
+            gadget = self._stim_layer.gadgets[mnemonic]
             circuit = stim.Circuit(gadget.circuit.source)
             _reject_source_metadata(circuit, mnemonic)
             self._raw_circuits[mnemonic] = circuit
@@ -294,33 +289,26 @@ class StimEmitter:
         observable_offset = 0
         # Absolute index of the next measurement record appended to
         # ``combined`` (counting MPAD pads). Used to resolve cross-gadget
-        # stabilizer frames that reach back past intervening gadgets.
+        # frames that reach back past intervening gadgets.
         global_measurement_count = 0
-        # Persistent stabilizer frame map: (operand, stabilizer index) ->
-        # the set of absolute measurement-record indices whose XOR currently
-        # carries that stabilizer's value. Updated from each gadget's
-        # ``out.<op>.stabilizers[i]`` checks and consumed by later gadgets'
-        # ``in.<op>.stabilizers[i]`` references.
-        frame_map: dict[tuple[int, int], frozenset[int]] = {}
-        # Persistent logical-observable frame map: (operand, basis, index) ->
-        # the set of absolute measurement-record indices whose XOR currently
-        # carries that logical sign's accumulated Pauli frame. Seeded/updated
-        # from each gadget's ``out.<op>.(x|z)[i]`` frame declarations and
-        # consumed by terminal ``in.<op>.(x|z)[i]`` readout atoms. An unseeded
-        # logical frame resolves to the empty set (deterministic +1), which
-        # reproduces the historical behaviour for static-logical qodecs whose
-        # readouts reference ``in.<op>.z[0]`` purely as documentation.
-        logical_frame_map: dict[tuple[int, str, int], frozenset[int]] = {}
+        # Boundary signs in flight across gadgets, as the absolute
+        # measurement-record sets currently carrying them. Updated from each
+        # gadget's ``out[...]`` checks and consumed by later gadgets'
+        # ``in[...]`` references. An unseeded logical sign resolves to the empty
+        # set (deterministic +1), which reproduces the historical behaviour for
+        # static-logical qodecs whose readouts reference ``in[0].z[0]`` purely
+        # as documentation.
+        frames = FrameMaps()
 
         for call in lowered.instructions:
             mnemonic = call.mnemonic
-            if mnemonic not in self._stim_translation.gadgets:
+            if mnemonic not in self._stim_layer.gadgets:
                 raise KeyError(
-                    f"no gadget for instruction {mnemonic!r} in translation "
+                    f"no gadget for instruction {mnemonic!r} in lowering "
                     f"{self._stim_source_isa.name!r} -> "
                     f"{self._stim_target_isa.name!r}"
                 )
-            gadget = self._stim_translation.gadgets[mnemonic]
+            gadget = self._stim_layer.gadgets[mnemonic]
             base_circuit = self._load_circuit(mnemonic)
 
             num_needed = _virtual_input_count(gadget)
@@ -344,7 +332,9 @@ class StimEmitter:
             combined += remapped_circuit
             channel_measurement_count = remapped_circuit.num_measurements
 
-            body_base = global_measurement_count
+            provenance = Provenance.own_records(
+                global_measurement_count, channel_measurement_count
+            )
             global_measurement_count += channel_measurement_count
 
             observable_offset += _append_gadget_directives(
@@ -352,12 +342,9 @@ class StimEmitter:
                 gadget,
                 channel_measurement_count,
                 observable_offset,
-                _FrameContext(
-                    frame_map=frame_map,
-                    logical_frame_map=logical_frame_map,
-                    body_base=body_base,
-                    global_measurement_count=global_measurement_count,
-                ),
+                frames,
+                provenance,
+                global_measurement_count,
                 emit_flags=self._emit_flags,
             )
 
@@ -387,26 +374,24 @@ class StimEmitter:
             combined=stim.Circuit(),
             allocator=PhysicalQubitAllocator(),
             global_rec=0,
-            frame_maps=[{} for _ in self._qodec.layers[:-1]],
-            logical_frame_maps=[{} for _ in self._qodec.layers[:-1]],
+            frames=[FrameMaps() for _ in self._qodec.layers[:-1]],
             noise=self._noise,
         )
-        top_translation = self._qodec.layers[0]
+        top_layer = self._qodec.layers[0]
         observable_offset = 0
 
         for call in program.instructions:
-            readout_prov = self._emit_call(state, call, 0)
-            gadget = top_translation.gadgets[call.mnemonic]
+            exposed = self._emit_call(state, call, 0)
+            gadget = top_layer.gadgets[call.mnemonic]
             if gadget.implements.flags and self._emit_flags:
                 raise NotImplementedError(
-                    f"gadget {call.mnemonic!r} carries flags; the recursive "
-                    f"multi-layer emitter does not yet compose flag "
-                    f"observables across translations"
+                    f"gadget {call.mnemonic!r} carries flags; the layer-composing "
+                    f"emitter does not yet compose flag observables across layers"
                 )
             for slot in observable_slots(gadget):
                 targets = [
                     stim.target_rec(-(state.global_rec - record))
-                    for record in sorted(readout_prov[slot.name])
+                    for record in sorted(exposed[slot.name])
                 ]
                 state.combined.append("OBSERVABLE_INCLUDE", targets, observable_offset)
                 observable_offset += 1
@@ -419,18 +404,17 @@ class StimEmitter:
         call: qc.instructions.InstructionCall,
         level: int,
     ) -> dict[str, frozenset[int]]:
-        """Emit ``call`` at translation ``level``; return its readout
-        provenance (``readout name -> physical record indices``).
+        """Emit ``call`` at lowering edge ``level``; return the physical records
+        behind each readout it exposes to its parent.
 
-        Side effects: appends this call's body (recursively) and this
-        level's detectors to ``state.combined``, and updates
-        ``state.frame_maps[level]``.
+        Side effects: appends this call's body (recursively) and this level's
+        detectors to ``state.combined``, and updates ``state.frames[level]``.
         """
-        translation = self._qodec.layers[level]
-        gadget = translation.gadgets.get(call.mnemonic)
+        layer = self._qodec.layers[level]
+        gadget = layer.gadgets.get(call.mnemonic)
         if gadget is None:
             raise KeyError(
-                f"no gadget for instruction {call.mnemonic!r} in translation "
+                f"no gadget for instruction {call.mnemonic!r} in lowering "
                 f"{self._qodec.layers[level].isa.name!r} -> "
                 f"{self._qodec.layers[level + 1].isa.name!r}"
             )
@@ -444,15 +428,13 @@ class StimEmitter:
             )
             state.combined += remapped_circuit
             measurement_count = remapped_circuit.num_measurements
-            body_prov = [
-                frozenset({state.global_rec + i}) for i in range(measurement_count)
-            ]
+            provenance = Provenance.own_records(state.global_rec, measurement_count)
             state.global_rec += measurement_count
         else:
             if gadget.implements.flags and self._emit_flags:
                 raise NotImplementedError(
                     f"gadget {call.mnemonic!r} carries flags on an "
-                    f"intermediate translation; the recursive emitter only "
+                    f"intermediate layer; the layer-composing emitter only "
                     f"supports flags on the top-level program"
                 )
             remap = _build_namespaced_remap(
@@ -461,37 +443,32 @@ class StimEmitter:
                 call.mnemonic,
                 namespace_internal_blocks=True,
             )
-            child_translation = self._qodec.layers[level + 1]
-            body_prov = []
+            child_layer = self._qodec.layers[level + 1]
+            body_records: list[frozenset[int]] = []
             for body_call in gadget.circuit.instructions:
                 child_call = _remap_call(body_call, remap)
-                child_prov = self._emit_call(state, child_call, level + 1)
-                child_gadget = child_translation.gadgets[child_call.mnemonic]
+                child_exposed = self._emit_call(state, child_call, level + 1)
+                child_gadget = child_layer.gadgets[child_call.mnemonic]
                 for slot in observable_slots(child_gadget):
-                    body_prov.append(child_prov[slot.name])
+                    body_records.append(child_exposed[slot.name])
+            provenance = Provenance(tuple(body_records))
 
-        frame_map = state.frame_maps[level]
-        logical_frame_map = state.logical_frame_maps[level]
-        self._emit_recursive_detectors(
-            state, gadget, body_prov, frame_map, logical_frame_map
-        )
-        _update_frame_maps_recursive(gadget, frame_map, logical_frame_map, body_prov)
-        return _call_readout_prov(gadget, body_prov, frame_map, logical_frame_map)
+        frames = state.frames[level]
+        self._emit_composed_detectors(state, gadget, provenance, frames)
+        update_frame_maps(gadget, provenance, frames, seed_deterministic=True)
+        return exposed_readout_records(gadget, provenance, frames)
 
-    def _emit_recursive_detectors(
+    def _emit_composed_detectors(
         self,
         state: "_RecursiveEmitState",
         gadget: qc.Gadget,
-        body_prov: list[frozenset[int]],
-        frame_map: StabilizerFrames,
-        logical_frame_map: LogicalFrames,
+        provenance: Provenance,
+        frames: FrameMaps,
     ) -> None:
         for check in parse_equations(gadget.checks):
             if _has_out_stab(check):
                 continue
-            records = _resolve_equation_records(
-                check, body_prov, frame_map, logical_frame_map, gadget
-            )
+            records = resolve_records(check, provenance, frames, gadget, strict=True)
             targets = [
                 stim.target_rec(-(state.global_rec - r)) for r in sorted(records)
             ]
@@ -625,40 +602,25 @@ def _emitted_detector_count(gadget: qc.Gadget) -> int:
     )
 
 
-@dataclass(frozen=True)
-class _FrameContext:
-    """Cross-gadget frame-resolution state for one gadget.
-
-    ``frame_map`` is the persistent (operand, stabilizer index) -> absolute
-    record-index-set mapping (mutated in place across gadgets).
-    ``logical_frame_map`` is the analogous (operand, basis, index) -> absolute
-    record-index-set mapping for logical observable signs (``basis`` is
-    ``"x"`` or ``"z"``); it carries a rotating logical's accumulated Pauli
-    frame across gadgets so terminal ``in.<op>.(x|z)[i]`` readout atoms
-    resolve to the correct records. ``body_base`` is the absolute index of
-    this gadget's first body record; it is used when declaring new frames.
-    ``global_measurement_count`` is the total number of records appended so
-    far (after this gadget's body), used to convert an absolute record index
-    into a stim relative ``rec[-k]`` target.
-    """
-
-    frame_map: StabilizerFrames
-    logical_frame_map: LogicalFrames
-    body_base: int
-    global_measurement_count: int
-
-
 def _append_gadget_directives(
     combined: stim.Circuit,
     gadget: qc.Gadget,
     channel_measurement_count: int,
     observable_offset: int,
-    frames: _FrameContext,
+    frames: FrameMaps,
+    provenance: Provenance,
+    global_measurement_count: int,
     *,
     emit_flags: bool = True,
 ) -> int:
     n = channel_measurement_count
     stab_offset_from_end = _stab_offset_from_end_map(gadget)
+
+    def rec_targets(records: Iterable[int]) -> list[stim.GateTarget]:
+        return [
+            stim.target_rec(-(global_measurement_count - record))
+            for record in sorted(records)
+        ]
 
     for check in parse_equations(gadget.checks):
         if _has_out_stab(check):
@@ -667,14 +629,11 @@ def _append_gadget_directives(
             stim.target_rec(-(n - outcome)) for outcome in outcomes_of(check)
         ]
         for sign in stabilizer_signs_of(check, side="in"):
-            if sign.key in frames.frame_map:
+            if sign.key in frames.stabilizers:
                 # Cross-gadget frame: this stabilizer's value is carried by
                 # the XOR of these absolute measurement records, which may
                 # live in any earlier gadget (not just the adjacent one).
-                targets.extend(
-                    stim.target_rec(-(frames.global_measurement_count - absolute))
-                    for absolute in sorted(frames.frame_map[sign.key])
-                )
+                targets.extend(rec_targets(frames.stabilizers[sign.key]))
             else:
                 # Backward-compatible positional fallback: reach into the
                 # immediately preceding gadget's records (padded by MPAD).
@@ -687,90 +646,14 @@ def _append_gadget_directives(
     # the gadget's own readout order: observables first, then flags.
     emitted = [slot for slot in readout_slots(gadget) if emit_flags or not slot.is_flag]
     for offset, slot in enumerate(emitted):
-        records = _resolve_observable_records(slot.equation, frames)
         combined.append(
             "OBSERVABLE_INCLUDE",
-            [
-                stim.target_rec(-(frames.global_measurement_count - record))
-                for record in sorted(records)
-            ],
+            rec_targets(resolve_records(slot.equation, provenance, frames, gadget)),
             observable_offset + offset,
         )
 
-    _update_frame_maps(gadget, frames)
+    update_frame_maps(gadget, provenance, frames, seed_deterministic=False)
     return len(emitted)
-
-
-def _resolve_observable_records(equation: Equation, frames: _FrameContext) -> set[int]:
-    """Absolute records whose XOR carries an equation's value.
-
-    An outcome resolves to this gadget's own record at ``body_base + k``; an
-    ``in`` stabilizer sign via the stabilizer frame map; an ``in`` logical sign
-    via the logical frame map — the accumulated Pauli frame of a rotating
-    logical. An unseeded logical sign resolves to the empty set (deterministic
-    ``+1``).
-    """
-    records: set[int] = set()
-    for index in outcomes_of(equation):
-        records ^= {frames.body_base + index}
-    for sign in stabilizer_signs_of(equation, side="in"):
-        records ^= set(frames.frame_map.get(sign.key, frozenset()))
-    for sign in logical_signs_of(equation, side="in"):
-        records ^= set(frames.logical_frame_map.get(sign.key, frozenset()))
-    return records
-
-
-def _update_frame_maps(gadget: qc.Gadget, frames: _FrameContext) -> None:
-    """Apply this gadget's ``out[...]`` sign declarations to the frame maps.
-
-    A declaration names the new record set carrying an output sign as the XOR
-    (symmetric difference of record sets) of the gadget's own body readouts and
-    any referenced input frames. Signs the gadget does not declare keep their
-    existing frame, so a gadget that re-measures only part of the code carries
-    the rest forward.
-
-    A stabilizer declaration with neither readouts nor an input frame — a
-    preparation asserting a deterministic sign — is left unset, so downstream
-    references fall back to the positional virtual-record model. This preserves
-    legacy behaviour for qodecs that do not yet declare their preparation
-    frames; the recursive path seeds such a frame to the empty record set
-    instead. The fallback is slated for removal once those qodecs declare prep
-    frames, at which point an unseeded ``in`` frame becomes a hard error.
-    """
-    checks = parse_equations(gadget.checks)
-    new_stabilizers: StabilizerFrames = {}
-    for check in checks:
-        outs = stabilizer_signs_of(check, side="out")
-        if not outs:
-            continue
-        outcomes = outcomes_of(check)
-        stabilizer_ins = stabilizer_signs_of(check, side="in")
-        if not outcomes and not stabilizer_ins:
-            continue
-        records: set[int] = set()
-        for outcome in outcomes:
-            records ^= {frames.body_base + outcome}
-        for sign in stabilizer_ins:
-            records ^= set(frames.frame_map.get(sign.key, frozenset()))
-        for sign in outs:
-            new_stabilizers[sign.key] = frozenset(records)
-    frames.frame_map.update(new_stabilizers)
-
-    # Logical frames resolve against the stabilizer frames this gadget just
-    # declared, so they are computed after the update above. They are replaced
-    # rather than accumulated: when a gadget re-expresses a rotating logical's
-    # representative, the check's source atoms fully determine the new record
-    # set. Static-logical qodecs (c4, surface) declare no out-logical atoms, so
-    # this leaves the map untouched.
-    new_logicals: LogicalFrames = {}
-    for check in checks:
-        outs_logical = logical_signs_of(check, side="out")
-        if not outs_logical:
-            continue
-        records_logical = frozenset(_resolve_observable_records(check, frames))
-        for sign in outs_logical:
-            new_logicals[sign.key] = records_logical
-    frames.logical_frame_map.update(new_logicals)
 
 
 def _stab_offset_from_end_map(gadget: qc.Gadget) -> dict[tuple[int, int], int]:

@@ -272,13 +272,18 @@ def propagate_faults(
     return propagator.outcome_deltas, result.hidden_count, result.outcome_count
 
 
+def program_of(gadget: qc.Gadget) -> Program:
+    """The gadget's circuit as a runnable program (parses the source)."""
+    return Program(gadget.circuit.instructions, gadget.circuit.isa)
+
+
 def propagate_input_paulis(
     gadget: qc.Gadget,
     paulis: Sequence[Pauli],
     *,
     residual_probes: Sequence[Pauli] = (),
 ) -> tuple[BitMatrix, int, int]:
-    program = Program(gadget.circuit.instructions, gadget.circuit.isa)
+    program = program_of(gadget)
     propagator = _FramePropagator(len(paulis))
     for shot_index, pauli in enumerate(paulis):
         propagator.apply_pauli_to_shot(shot_index, pauli)
@@ -291,6 +296,7 @@ def propagate_input_paulis(
 __all__ = [
     "PropagationEngine",
     "WalkResult",
+    "program_of",
     "propagate_faults",
     "propagate_input_paulis",
     "walk_for_outcome_code",

@@ -17,10 +17,9 @@ _EXPORTS = {
     "CompositeSampler": (".base", "CompositeSampler"),
     "Batch": (".results", "Batch"),
     "Readouts": (".results", "Readouts"),
-    "SoftBatch": (".results", "SoftBatch"),
-    "SoftView": (".results", "SoftView"),
-    "HeraldedBatch": (".results", "HeraldedBatch"),
-    "HeraldedView": (".results", "HeraldedView"),
+    "AnnotatedBatch": (".results", "AnnotatedBatch"),
+    "probabilities_of": (".results", "probabilities_of"),
+    "leaks_of": (".results", "leaks_of"),
     "TargetModel": (".model", "TargetModel"),
     "DepolarizingTargetModel": (".model", "DepolarizingTargetModel"),
     "depolarizing": (".model", "depolarizing"),
@@ -113,12 +112,11 @@ if TYPE_CHECKING:
     )
     from .recursive import RecursiveTarget as RecursiveTarget
     from .results import (
+        AnnotatedBatch as AnnotatedBatch,
         Batch as Batch,
-        HeraldedBatch as HeraldedBatch,
-        HeraldedView as HeraldedView,
         Readouts as Readouts,
-        SoftBatch as SoftBatch,
-        SoftView as SoftView,
+        leaks_of as leaks_of,
+        probabilities_of as probabilities_of,
     )
     from .stim import StimEmitter as StimEmitter, StimSampler as StimSampler
     from .universal import (

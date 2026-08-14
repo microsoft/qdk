@@ -3,23 +3,26 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Iterable
 
 from binar import BitVector
 import qodec as qc
-from qodec.circuits import Program
 
 from .._readouts import observables_as_xor_map
-from .._analysis.circuit_action import realization_codes_of
-from .._analysis.check_discovery import _objective_logical_chars, _pauli_xor
+from .._analysis.circuit_action import realized_codes_of
+from .._analysis.check_discovery import _declared_logical_chars, _pauli_xor
 from .._analysis.propagation.conditional import (
     ConditionalChoiResult,
     conditional_choi_state,
 )
 from .._analysis.propagation.frames import FrameGroup
+from .._analysis.propagation.interpreter import program_of
 from .._analysis.propagation.isa_actions import parse_basis_index
 from .._analysis.propagation.pauli import Pauli, PauliCharacter
-from .._analysis.propagation.pauli_remap import encoding_qubit_relocation
+from .._analysis.propagation.pauli_remap import (
+    encoding_qubit_relocation,
+    flat_logical_slots,
+)
 
 
 @dataclass(frozen=True)
@@ -53,7 +56,7 @@ def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
                     discovered_signature=BitVector.zeros(width),
                     declared_signature=BitVector.zeros(width),
                     reason=(
-                        "logical Pauli probe is not in the realisation's "
+                        "logical Pauli probe is not in the circuit's "
                         "input-side stabiliser group; cannot verify"
                     ),
                     verifiable=False,
@@ -70,7 +73,7 @@ def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
                     discovered_signature=discovered,
                     declared_signature=declared_signature,
                     reason=(
-                        "declared XOR pattern disagrees with the realisation's "
+                        "declared XOR pattern disagrees with the circuit's "
                         "discovered signature on non-projector random columns"
                     ),
                 )
@@ -81,8 +84,8 @@ def readout_disagreements(gadget: qc.Gadget) -> list[ReadoutMismatch]:
 def _realization_input_observables(
     gadget: qc.Gadget,
 ) -> tuple[FrameGroup, ConditionalChoiResult]:
-    program = Program(gadget.circuit.instructions, gadget.circuit.isa)
-    code_in, _ = realization_codes_of(gadget)
+    program = program_of(gadget)
+    code_in, _ = realized_codes_of(gadget)
     input_qubits = sorted(code_in.support)
     result = conditional_choi_state(
         program,
@@ -104,10 +107,7 @@ def _realization_input_observables(
 
 
 def _data_side_logical_probes(gadget: qc.Gadget) -> dict[str, Pauli]:
-    flat_map: list[tuple[Any, int]] = []
-    for encoding in gadget.inputs:
-        for local in range(len(list(encoding.code.x))):
-            flat_map.append((encoding, local))
+    flat_map = flat_logical_slots(gadget.inputs)
     result: dict[str, Pauli] = {}
     position = 0
     for action in gadget.implements.action:
@@ -119,7 +119,7 @@ def _data_side_logical_probes(gadget: qc.Gadget) -> dict[str, Pauli]:
                 basis, flat_index = parse_basis_index(token)
                 encoding, local_index = flat_map[flat_index]
                 relocation = encoding_qubit_relocation(encoding)
-                for local, character in _objective_logical_chars(
+                for local, character in _declared_logical_chars(
                     encoding, local_index, basis
                 ):
                     data_qubit = relocation[local]

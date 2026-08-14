@@ -8,7 +8,7 @@ circuit-builder calls.
 This is the noiseless logical-semantics reference. Use it to:
 
 * verify a Program's ideal behaviour independently of a qodec's
-  physical realisation;
+  physical realization;
 * regression-test decoders (zero noise → zero detection events →
   zero predictions);
 * cross-check against `StimSampler` at zero noise.

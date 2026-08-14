@@ -7,13 +7,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import qodec as qc
-from qodec.circuits import Program
 
 from ._readouts import observables_as_xor_map
 from ._references import outcomes_of, parse_equations
-from ._analysis.propagation.interpreter import propagate_faults
+from ._analysis.propagation.interpreter import program_of, propagate_faults
 from ._analysis.propagation.pauli import Pauli, PauliCharacter
 from ._analysis.propagation.pauli_remap import (
+    characters_of_string,
     encoding_qubit_relocation,
     remap_to_global,
 )
@@ -55,7 +55,7 @@ def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
     if not fault_basis:
         return FaultProfile((), ())
 
-    program = Program(gadget.circuit.instructions, gadget.circuit.isa)
+    program = program_of(gadget)
     checks = [outcomes_of(check) for check in parse_equations(gadget.checks)]
     observable_map = observables_as_xor_map(gadget)
     observables = list(observable_map.values())
@@ -136,24 +136,12 @@ def _logical_chars(code: Any, basis: str) -> Iterator[dict[int, "PauliCharacter"
     x_operators = getattr(code, "x", None)
     z_operators = getattr(code, "z", None)
     if x_operators is not None and z_operators is not None:
-        for operator in (x_operators if basis == "X" else z_operators):
-            yield _pauli_string_to_chars(str(operator))
+        for operator in x_operators if basis == "X" else z_operators:
+            yield characters_of_string(str(operator))
         return
     offset = 0 if basis == "X" else 1
     for index in range(code.logical_qubit_count):
         yield code.logical_basis[2 * index + offset].characters
-
-
-def _pauli_string_to_chars(
-    pauli_str: str,
-) -> dict[int, "PauliCharacter"]:
-    characters: dict[int, "PauliCharacter"] = {}
-    for token in pauli_str.split():
-        basis, _, index = token.partition("_")
-        if basis not in ("I", "X", "Y", "Z"):
-            raise ValueError(f"unrecognised Pauli letter {basis!r}")
-        characters[int(index)] = basis  # type: ignore[assignment]
-    return characters
 
 
 def _combine_residual_passes(

@@ -187,7 +187,7 @@ def _readout_width(layer: qc.Layer, call: qc.instructions.InstructionCall) -> in
 
     Both cases ask the same question of an instruction; only which instruction
     differs. A layer with a gadget for the call answers from the gadget's
-    objective; the bottom ISA (no gadgets) answers from its own instruction,
+    instruction; the bottom ISA (no gadgets) answers from its own instruction,
     whose observe outcomes are the physical records it emits.
     """
     gadget = layer.gadgets.get(call.mnemonic)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from functools import cached_property
 from itertools import chain, product
-from typing import Any, Callable, Iterable, Mapping, Optional, Sequence, TYPE_CHECKING
+from typing import Callable, Iterable, Mapping, Optional, Sequence, TYPE_CHECKING
 
 from binar import BitMatrix
 from more_itertools import chunked, interleave, take
@@ -19,10 +19,10 @@ from paulimer import (
 from .propagation.groups import is_stabilizer_group
 from .propagation.pauli import (
     Pauli,
-    PauliCharacter,
     as_literals,
     characters_of,
     identity,
+    relabel,
 )
 
 if TYPE_CHECKING:
@@ -30,10 +30,12 @@ if TYPE_CHECKING:
 
 
 class SubsystemCode:  # pylint: disable=too-many-public-methods
-    """Internal algebraic interpretation of a qodec code."""
+    """Internal algebraic interpretation of a qodec code.
 
-    qodec_name: str | None = None
-    qodec_description: str | None = None
+    A pure value: stabilizers, a logical basis, and an optional gauge basis.
+    Naming and qodec (de)serialization are deliberately *not* part of it — see
+    :func:`subsystem_code_of` and :func:`as_qodec_code`.
+    """
 
     @staticmethod
     def standard_basis(over: Iterable[int] = ()) -> Sequence[Pauli]:
@@ -41,52 +43,6 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         for index in over:
             basis += [Pauli({index: "X"}), Pauli({index: "Z"})]
         return basis
-
-    @classmethod
-    def from_qodec(cls, code: "qc.Code") -> "SubsystemCode":
-        stabilizers = [Pauli(text) for text in code.stabilizers]
-        logical_basis = [
-            Pauli(str(text))
-            for x_operator, z_operator in zip(list(code.x), list(code.z))
-            for text in (x_operator, z_operator)
-        ]
-        gauges = [Pauli(text) for text in getattr(code, "gauges", [])]
-        if gauges:
-            instance = cls(stabilizers, logical_basis, gauge_basis=gauges)
-        else:
-            instance = cls(stabilizers, logical_basis)
-        instance.qodec_name = code.name
-        instance.qodec_description = code.description
-        return instance
-
-    def to_qodec(self, name: Optional[str] = None) -> "qc.Code":
-        import qodec as qc
-
-        resolved_name = self.qodec_name or name
-        if not resolved_name:
-            raise ValueError(
-                "Cannot materialize qodec.Code without a name; pass one "
-                "explicitly or construct the view from qodec.Code."
-            )
-        x_strings: list[str] = []
-        z_strings: list[str] = []
-        for x_operator, z_operator in zip(
-            self.logical_basis[0::2], self.logical_basis[1::2]
-        ):
-            x_strings.append(_format_pauli(x_operator))
-            z_strings.append(_format_pauli(z_operator))
-        if list(self.gauge.generators):
-            raise ValueError(
-                "Cannot materialize a subsystem code with gauge operators as "
-                "qodec.Code; qodec does not yet model gauge pairs."
-            )
-        return qc.Code(
-            name=resolved_name,
-            description=self.qodec_description or "",
-            stabilizers=[_format_pauli(stabilizer) for stabilizer in self.stabilizers],
-            x=x_strings,
-            z=z_strings,
-        )
 
     def __init__(
         self,
@@ -237,17 +193,10 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         )
 
     def relocated(self, by: Mapping[int, int]) -> "SubsystemCode":
-        def remap(pauli: Pauli) -> Pauli:
-            characters: dict[int, PauliCharacter] = {
-                by.get(qubit, qubit): character
-                for qubit, character in characters_of(pauli).items()
-            }
-            return Pauli(characters) * identity(pauli.phase)
-
         return SubsystemCode(
-            [remap(generator) for generator in self.stabilizers],
-            [remap(generator) for generator in self.logical_basis],
-            gauge_basis=[remap(generator) for generator in self.gauge_basis],
+            [relabel(generator, by) for generator in self.stabilizers],
+            [relabel(generator, by) for generator in self.logical_basis],
+            gauge_basis=[relabel(generator, by) for generator in self.gauge_basis],
         )
 
     def __eq__(self, other: object) -> bool:
@@ -261,6 +210,44 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
 
     def __hash__(self) -> int:
         return hash((self.stabilizers, self.logical_basis))
+
+
+def subsystem_code_of(code: "qc.Code") -> SubsystemCode:
+    """The algebraic view of a qodec code.
+
+    Purely a function of the code's operators: the code's name and description
+    are presentation, and do not ride along inside the algebraic value.
+    """
+    stabilizers = [Pauli(text) for text in code.stabilizers]
+    logical_basis = [
+        Pauli(str(text))
+        for x_operator, z_operator in zip(list(code.x), list(code.z))
+        for text in (x_operator, z_operator)
+    ]
+    gauges = [Pauli(text) for text in getattr(code, "gauges", [])]
+    if gauges:
+        return SubsystemCode(stabilizers, logical_basis, gauge_basis=gauges)
+    return SubsystemCode(stabilizers, logical_basis)
+
+
+def as_qodec_code(view: SubsystemCode, name: str, description: str = "") -> "qc.Code":
+    """Materialize an algebraic view as a named qodec code."""
+    import qodec as qc
+
+    if not name:
+        raise ValueError("Cannot materialize qodec.Code without a name.")
+    if list(view.gauge.generators):
+        raise ValueError(
+            "Cannot materialize a subsystem code with gauge operators as "
+            "qodec.Code; qodec does not yet model gauge pairs."
+        )
+    return qc.Code(
+        name=name,
+        description=description,
+        stabilizers=[_format_pauli(stabilizer) for stabilizer in view.stabilizers],
+        x=[_format_pauli(operator) for operator in view.logical_basis[0::2]],
+        z=[_format_pauli(operator) for operator in view.logical_basis[1::2]],
+    )
 
 
 def anti_commutation_indicator_of(

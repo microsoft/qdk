@@ -13,12 +13,13 @@ from .propagation.pauli import Pauli, PauliCharacter
 from .propagation.pauli_remap import (
     encoding_qubit_relocation,
     flat_logical_paulis,
+    flat_logical_slots,
 )
 from .equivalence import LogicalAction, LogicalImage, _encoding_signature
 
 
 @dataclass(frozen=True)
-class ObjectiveLift:
+class DeclarationLift:
     expected: LogicalAction | None
     missing_observables: tuple[str, ...] = field(default_factory=tuple)
     missing_flags: tuple[str, ...] = field(default_factory=tuple)
@@ -26,7 +27,7 @@ class ObjectiveLift:
     bound_flags: tuple[str, ...] = field(default_factory=tuple)
 
 
-def lift_objective(gadget: qc.Gadget) -> ObjectiveLift:
+def lift_declaration(gadget: qc.Gadget) -> DeclarationLift:
     from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 
     instruction = gadget.implements
@@ -66,14 +67,14 @@ def lift_objective(gadget: qc.Gadget) -> ObjectiveLift:
                 if name not in index_by_name:
                     missing_observables.append(name)
                 else:
-                    expected_observables[index_by_name[name]] = (
-                        _resolve_objective_pauli(observable.pauli, gadget)
+                    expected_observables[index_by_name[name]] = _resolve_declared_pauli(
+                        observable.pauli, gadget
                     )
             continue
         unsupported.append(type(action).__name__)
 
     if missing_observables or missing_flags or unsupported:
-        return ObjectiveLift(
+        return DeclarationLift(
             None,
             tuple(missing_observables),
             tuple(missing_flags),
@@ -102,7 +103,7 @@ def lift_objective(gadget: qc.Gadget) -> ObjectiveLift:
                 ),
             )
         )
-    return ObjectiveLift(
+    return DeclarationLift(
         LogicalAction(
             _encoding_signature(gadget.inputs),
             _encoding_signature(gadget.outputs),
@@ -127,7 +128,7 @@ def _expected_image_paulis(
             for image in images
         ]
     return [
-        _resolve_objective_pauli(image, gadget) if image.strip() else Pauli({})
+        _resolve_declared_pauli(image, gadget) if image.strip() else Pauli({})
         for image in images
     ]
 
@@ -152,20 +153,16 @@ def _apply_clifford_to_pauli_string(pauli_str: str, generators: dict[str, str]) 
     )
 
 
-def _resolve_objective_pauli(pauli_str: str, gadget: qc.Gadget) -> Pauli:
-    flat_map = [
-        (encoding, local)
-        for encoding in list(gadget.inputs) + list(gadget.outputs)
-        for local in range(len(list(encoding.code.x)))
-    ]
+def _resolve_declared_pauli(pauli_str: str, gadget: qc.Gadget) -> Pauli:
+    flat_map = flat_logical_slots(list(gadget.inputs) + list(gadget.outputs))
     characters: dict[int, PauliCharacter] = {}
     for token in pauli_str.split():
         basis, _, index_text = token.partition("_")
         flat_index = int(index_text) if index_text else 0
         if flat_index >= len(flat_map):
             raise ValueError(
-                f"objective Pauli {pauli_str!r} references flat logical "
-                f"qubit {flat_index} beyond the realisation's encodings"
+                f"declared Pauli {pauli_str!r} references flat logical "
+                f"qubit {flat_index} beyond the gadget's encodings"
             )
         encoding, local_index = flat_map[flat_index]
         if basis == "X":
@@ -207,4 +204,4 @@ def _multiply_basis(
     return next(item for item in ("X", "Y", "Z") if item not in (left, right))
 
 
-__all__ = ["ObjectiveLift", "lift_objective"]
+__all__ = ["DeclarationLift", "lift_declaration"]

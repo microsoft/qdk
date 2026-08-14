@@ -13,10 +13,10 @@ from qodec.circuits import Program
 
 from .._readouts import flag_slots, observables_as_xor_map, observe_count_of
 from .._references import Atom, Equation, Outcome, StabilizerSign, outcomes_of
-from .propagation.interpreter import walk_program
+from .propagation.interpreter import program_of, walk_program
 from .propagation.isa_actions import parse_basis_index
 from .propagation.pauli import Pauli, PauliCharacter
-from .propagation.pauli_remap import encoding_qubit_relocation
+from .propagation.pauli_remap import encoding_qubit_relocation, flat_logical_slots
 
 
 @dataclass(frozen=True)
@@ -31,7 +31,7 @@ class ChannelSimulation:
     in_stab_outcomes: tuple[int, ...]
     program_outcomes: tuple[int, ...]
     out_stab_outcomes: tuple[int, ...]
-    objective_outcomes: tuple[tuple[str, int], ...] = ()
+    declared_outcomes: tuple[tuple[str, int], ...] = ()
     in_refs: tuple["StabilizerReference", ...] = field(default_factory=tuple)
     out_refs: tuple["StabilizerReference", ...] = field(default_factory=tuple)
 
@@ -68,13 +68,8 @@ def choi_prepare(gadget: qc.Gadget) -> OutcomeCompleteSimulation:
     return simulation
 
 
-def program_of(gadget: qc.Gadget) -> Program:
-    """The gadget's circuit as a runnable program (parses the source)."""
-    return Program(gadget.circuit.instructions, gadget.circuit.isa)
-
-
 def simulate_channel(
-    gadget: qc.Gadget, *, with_objective: bool = False
+    gadget: qc.Gadget, *, with_declared: bool = False
 ) -> ChannelSimulation:
     program = program_of(gadget)
     simulation = choi_prepare(gadget)
@@ -83,11 +78,11 @@ def simulate_channel(
     input_outcomes = [_measure(simulation, item) for item in input_stabilizers]
     program_result = simulate_program(program, simulation)
     output_outcomes = [_measure(simulation, item) for item in output_stabilizers]
-    objective_outcomes: tuple[tuple[str, int], ...] = ()
-    if with_objective:
-        objective_outcomes = tuple(
+    declared_outcomes: tuple[tuple[str, int], ...] = ()
+    if with_declared:
+        declared_outcomes = tuple(
             (name, _measure(simulation, probe))
-            for name, probe in _objective_observable_probes(gadget)
+            for name, probe in _declared_observable_probes(gadget)
             if probe is not None
         )
     return ChannelSimulation(
@@ -95,7 +90,7 @@ def simulate_channel(
         tuple(input_outcomes),
         program_result.observe_outcomes,
         tuple(output_outcomes),
-        objective_outcomes,
+        declared_outcomes,
         input_refs,
         output_refs,
     )
@@ -107,11 +102,11 @@ def checks_of(gadget: qc.Gadget) -> list[Equation]:
 
 
 def profile_of(gadget: qc.Gadget) -> Profile:
-    result = simulate_channel(gadget, with_objective=True)
+    result = simulate_channel(gadget, with_declared=True)
     rows = _deterministic_rows(result)
-    checks = [row for row in rows if not row.objectives]
-    objective_rows = [row for row in rows if row.objectives]
-    observables, excluded = _emit_observables(result, gadget, objective_rows, checks)
+    checks = [row for row in rows if not row.declared]
+    declared_rows = [row for row in rows if row.declared]
+    observables, excluded = _emit_observables(result, gadget, declared_rows, checks)
     return Profile(
         checks=_emit_checks(result, checks, exclude=excluded),
         observables=observables,
@@ -123,14 +118,14 @@ class CheckRow:
     in_stabs: frozenset[int]
     outcomes: frozenset[int]
     out_stabs: frozenset[int]
-    objectives: frozenset[int] = frozenset()
+    declared: frozenset[int] = frozenset()
 
     def xor(self, other: "CheckRow") -> "CheckRow":
         return CheckRow(
             self.in_stabs ^ other.in_stabs,
             self.outcomes ^ other.outcomes,
             self.out_stabs ^ other.out_stabs,
-            self.objectives ^ other.objectives,
+            self.declared ^ other.declared,
         )
 
 
@@ -201,7 +196,7 @@ def _deterministic_rows(result: ChannelSimulation) -> list[CheckRow]:
         result.in_stab_outcomes,
         result.program_outcomes,
         result.out_stab_outcomes,
-        tuple(row for _, row in result.objective_outcomes),
+        tuple(row for _, row in result.declared_outcomes),
     )
     indexes = [{row: index for index, row in enumerate(group)} for group in groups]
     reportable = set().union(*(set(group) for group in groups))
@@ -230,32 +225,32 @@ def _classify(
 def _emit_observables(
     result: ChannelSimulation,
     gadget: qc.Gadget,
-    objective_rows: Sequence[CheckRow],
+    declared_rows: Sequence[CheckRow],
     check_rows: Sequence[CheckRow],
 ) -> tuple[dict[str, list[int]], list[frozenset[int]]]:
     basis = _eliminate(
-        _eliminate(list(objective_rows) + list(check_rows), lambda row: row.in_stabs),
+        _eliminate(list(declared_rows) + list(check_rows), lambda row: row.in_stabs),
         lambda row: row.out_stabs,
     )
     by_index = {
-        next(iter(row.objectives)): row.outcomes
+        next(iter(row.declared)): row.outcomes
         for row in basis
-        if len(row.objectives) == 1 and not row.in_stabs and not row.out_stabs
+        if len(row.declared) == 1 and not row.in_stabs and not row.out_stabs
     }
     discoverable = {
-        name: index for index, (name, _) in enumerate(result.objective_outcomes)
+        name: index for index, (name, _) in enumerate(result.declared_outcomes)
     }
     observables = {}
     flag_patterns = []
     flag_bindings = _flag_bindings_of(gadget)
     authored = observables_as_xor_map(gadget)
-    for name in _objective_observable_names(gadget):
+    for name in _declared_observable_names(gadget):
         if name in discoverable:
             index = discoverable[name]
             if index not in by_index:
                 raise ValueError(
-                    f"objective observable {name!r} could not be expressed "
-                    "in terms of realization outcomes"
+                    f"declared observable {name!r} could not be expressed "
+                    "in terms of realized outcomes"
                 )
             outcomes = by_index[index]
         elif name in flag_bindings:
@@ -276,7 +271,7 @@ def _flag_bindings_of(gadget: qc.Gadget) -> dict[str, frozenset[int]]:
     }
 
 
-def _objective_observable_names(gadget: qc.Gadget) -> list[str]:
+def _declared_observable_names(gadget: qc.Gadget) -> list[str]:
     """Every readout the instruction declares: its flags, then its observe outcomes."""
     instruction = gadget.implements
     return [
@@ -326,14 +321,10 @@ def _stabilizer_probes(
     return tuple(paulis), tuple(references)
 
 
-def _objective_observable_probes(
+def _declared_observable_probes(
     gadget: qc.Gadget,
 ) -> list[tuple[str, Pauli | None]]:
-    flat_map = [
-        (encoding, local)
-        for encoding in gadget.inputs
-        for local in range(len(list(encoding.code.x)))
-    ]
+    flat_map = flat_logical_slots(gadget.inputs)
     program = program_of(gadget)
     partners = {
         qubit: program.qubit_count + offset
@@ -352,7 +343,7 @@ def _objective_observable_probes(
                 basis, flat_index = parse_basis_index(token)
                 encoding, local_index = flat_map[flat_index]
                 relocation = encoding_qubit_relocation(encoding)
-                for local, character in _objective_logical_chars(
+                for local, character in _declared_logical_chars(
                     encoding, local_index, basis
                 ):
                     target = partners[relocation[local]]
@@ -375,7 +366,7 @@ def _objective_observable_probes(
     return specs
 
 
-def _objective_logical_chars(
+def _declared_logical_chars(
     encoding: qc.Encoding, local_index: int, basis: str
 ) -> Iterator[tuple[int, PauliCharacter]]:
     code = encoding.code
@@ -386,7 +377,7 @@ def _objective_logical_chars(
     elif basis == "Y":
         operators = [list(code.x)[local_index], list(code.z)[local_index]]
     else:
-        raise ValueError(f"unsupported objective Pauli basis {basis!r}")
+        raise ValueError(f"unsupported declared Pauli basis {basis!r}")
     for operator in operators:
         for token in str(operator).split():
             character, index = parse_basis_index(token)

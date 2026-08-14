@@ -18,13 +18,13 @@ import qodec as qc
 from paulimer import CliffordUnitary
 
 from ._analysis.propagation.pauli import Pauli
-from ._analysis.code_algebra import SubsystemCode
+from ._analysis.code_algebra import SubsystemCode, subsystem_code_of
 from ._analysis.code_algebra import encoding_clifford_of as _encoding_clifford_of
 
 
 def _view(code: qc.Code) -> SubsystemCode:
     # Transitional adapter until qodec exposes first-class gauge pairs.
-    return SubsystemCode.from_qodec(code)
+    return subsystem_code_of(code)
 
 
 def syndrome_of(code: qc.Code, error: Pauli) -> set[int]:

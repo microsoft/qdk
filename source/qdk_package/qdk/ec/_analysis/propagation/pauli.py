@@ -3,7 +3,16 @@
 from __future__ import annotations
 
 import math
-from typing import Final, Iterable, Iterator, Literal, cast, get_args
+from typing import (
+    Container,
+    Final,
+    Iterable,
+    Iterator,
+    Literal,
+    Mapping,
+    cast,
+    get_args,
+)
 
 from more_itertools import nth_combination, nth_product
 from paulimer import SparsePauli
@@ -35,6 +44,29 @@ def characters_of(pauli: Pauli) -> dict[int, PauliCharacter]:
         qubit: cast(PauliCharacter, character)
         for qubit, character in zip(pauli.support, pauli.characters)
     }
+
+
+def relabel(pauli: Pauli, mapping: Mapping[int, int]) -> Pauli:
+    """Return ``pauli`` with its qubits renamed, keeping its phase.
+
+    Qubits absent from ``mapping`` keep their label.
+    """
+    return Pauli(
+        {mapping.get(qubit, qubit): pauli[qubit] for qubit in pauli.support}
+    ) * identity(pauli.phase)
+
+
+def restrict(pauli: Pauli, support: Container[int]) -> Pauli:
+    """Return the part of ``pauli`` acting on ``support``, keeping its phase."""
+    return Pauli(
+        {qubit: pauli[qubit] for qubit in pauli.support if qubit in support}
+    ) * identity(pauli.phase)
+
+
+def complex_conjugate_of(pauli: Pauli) -> Pauli:
+    """Return the complex conjugate of ``pauli``: a sign flip per ``Y``."""
+    y_count = sum(character == "Y" for character in characters_of(pauli).values())
+    return pauli * identity((-1) ** (y_count % 2))
 
 
 def as_literal(character: str) -> PauliCharacter:

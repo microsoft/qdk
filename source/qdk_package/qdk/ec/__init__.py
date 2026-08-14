@@ -68,63 +68,42 @@ Example
 
 from __future__ import annotations
 
-import importlib
-from typing import TYPE_CHECKING, Any
-
+from . import (
+    action,
+    checks,
+    code,
+    distance,
+    equivalence,
+    faults,
+    lint,
+    readouts,
+    targets,
+)
 from ._completion import complete_gadget, complete_qodec
 from ._io import from_yaml, load_yaml, save_yaml, to_yaml
 from ._synthesis import memory_program, qodec_from_code, synthesis_notes
 
-#: Submodules resolved on first attribute access, so ``import qdk.ec`` stays
-#: cheap and optional backends (stim, mwpf, deq) are only required by the
-#: module that actually needs them.
-_LAZY_SUBMODULES = (
+__all__ = [
     "action",
     "checks",
     "code",
+    "complete_gadget",
+    "complete_qodec",
     "distance",
     "equivalence",
     "faults",
-    "lint",
-    "readouts",
-    "targets",
-)
-
-__all__ = [
-    *_LAZY_SUBMODULES,
-    "complete_gadget",
-    "complete_qodec",
     "from_yaml",
+    "lint",
     "load_yaml",
     "memory_program",
     "qodec_from_code",
+    "readouts",
     "save_yaml",
     "synthesis_notes",
+    "targets",
     "to_yaml",
 ]
 
 
-def __getattr__(name: str) -> Any:
-    if name in _LAZY_SUBMODULES:
-        module = importlib.import_module(f"{__name__}.{name}")
-        globals()[name] = module
-        return module
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
 def __dir__() -> list[str]:
     return sorted(__all__)
-
-
-if TYPE_CHECKING:
-    from . import (
-        action,
-        checks,
-        code,
-        distance,
-        equivalence,
-        faults,
-        lint,
-        readouts,
-        targets,
-    )

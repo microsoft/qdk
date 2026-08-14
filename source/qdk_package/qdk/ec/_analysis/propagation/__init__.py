@@ -16,6 +16,7 @@ _EXPORTS = {
     "conditional_choi_state": (".conditional", "conditional_choi_state"),
     "FrameGroup": (".frames", "FrameGroup"),
     "PauliFrame": (".frames", "PauliFrame"),
+    "program_of": (".interpreter", "program_of"),
     "evolution_of": (".stabilizer", "evolution_of"),
     "frame_group_of": (".stabilizer", "frame_group_of"),
     "stabilizer_group_of": (".stabilizer", "stabilizer_group_of"),

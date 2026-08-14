@@ -16,10 +16,10 @@ from ..._references import (
     stabilizer_signs_of,
 )
 from ..._analysis.circuit_action import (
-    gadget_objective_action_of,
-    gadget_realization_action_of,
+    declared_action_of,
+    realized_action_of,
 )
-from ..._analysis.objective import lift_objective
+from ..._analysis.declaration import lift_declaration
 from ...lint._diagnostic import Diagnostic, Phase
 from ...lint._readout_check import readout_disagreements
 from ...lint._rule import Rule
@@ -45,13 +45,13 @@ class MissingObservableRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for missing in lift_objective(gadget).missing_observables:
+        for missing in lift_declaration(gadget).missing_observables:
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"objective declares observable {missing!r}, realisation does not emit it",
+                f"instruction declares observable {missing!r}, circuit does not emit it",
                 _where(gadget),
-                f"realisation observables: "
+                f"realized observables: "
                 f"{sorted(slot.name for slot in observable_slots(gadget))}",
             )
 
@@ -65,11 +65,11 @@ class MissingFlagRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for missing in lift_objective(gadget).missing_flags:
+        for missing in lift_declaration(gadget).missing_flags:
             yield Diagnostic(
                 self.name,
                 self.severity,
-                f"objective declares flag {missing!r}, realisation does not bind it",
+                f"instruction declares flag {missing!r}, circuit does not bind it",
                 _where(gadget),
                 f"instruction flags: {list(gadget.implements.flags)}; bound "
                 f"readout slots: {len(flag_slots(gadget))}",
@@ -85,7 +85,7 @@ class UnsupportedActionAtomRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for atom_name in lift_objective(gadget).unsupported_atoms:
+        for atom_name in lift_declaration(gadget).unsupported_atoms:
             yield Diagnostic(
                 self.name,
                 self.severity,
@@ -106,7 +106,7 @@ class FlagContentRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for flag_name in lift_objective(gadget).bound_flags:
+        for flag_name in lift_declaration(gadget).bound_flags:
             yield Diagnostic(
                 self.name,
                 self.severity,
@@ -127,8 +127,8 @@ class ActionMismatchRule:
         gadget = _gadget(target)
         mnemonic = gadget.implements.mnemonic
         try:
-            expected = gadget_objective_action_of(gadget)
-            actual = gadget_realization_action_of(gadget)
+            expected = declared_action_of(gadget)
+            actual = realized_action_of(gadget)
         except (KeyError, ValueError, TypeError, NotImplementedError) as error:
             if not gadget.inputs and gadget.outputs:
                 yield Diagnostic(
@@ -153,7 +153,7 @@ class ActionMismatchRule:
         yield Diagnostic(
             self.name,
             self.severity,
-            f"realisation's logical action does not match the action of "
+            f"realized logical action does not match the action of "
             f"instruction {mnemonic!r}"
             + (" (matches up to Pauli signs only)" if modulo_paulis else ""),
             _where(gadget),
@@ -191,7 +191,7 @@ class ReadoutMismatchRule:
                 self.name,
                 self.severity if mismatch.verifiable else Severity.WARNING,
                 f"readout {mismatch.name!r} of {mnemonic!r} XOR pattern "
-                f"{verbiage} the realisation's discovered signature",
+                f"{verbiage} the circuit's discovered signature",
                 _where(gadget),
                 f"declared positions: {list(mismatch.declared_positions)}; "
                 f"{mismatch.reason}",

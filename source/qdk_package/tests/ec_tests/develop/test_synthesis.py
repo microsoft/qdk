@@ -18,6 +18,7 @@ from ec_tests.testing.qodecs import c4
 import qdk.ec as ec
 from qdk.ec import action, distance, lint
 from qdk.ec import qodec_from_code, synthesis_notes
+from qdk.ec._analysis.code_algebra import as_qodec_code
 
 #: Codes for which every instruction is expected to synthesize. Each entry is
 #: (label, factory, physical qubits, logical qubits).
@@ -35,7 +36,7 @@ FULLY_SUPPORTED = [
 
 
 def _code(label: str, factory) -> qc.Code:
-    return factory().to_qodec(label)
+    return as_qodec_code(factory(), label)
 
 
 @pytest.fixture(scope="module")
