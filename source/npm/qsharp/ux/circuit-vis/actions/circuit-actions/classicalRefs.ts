@@ -2,6 +2,7 @@
 // Licensed under the MIT license.
 
 import { ComponentGrid, Operation } from "../../data/circuit.js";
+import { CircuitModel } from "../../data/circuitModel.js";
 import { Register } from "../../data/register.js";
 import { findOperation, getOperationRegisters } from "../../utils.js";
 
@@ -268,13 +269,16 @@ const findLocationByRef = (
  * `originalOp` is the pre-move op still in `grid` (skipped, about to be removed); `cloneOp` is its
  * replacement (not yet in `grid`, walked separately). Both share one key→token map so a producer and
  * all its consumers — inside the clone or elsewhere — resolve to the same token.
+ *
+ * Returns the set of affected wires (source + landing), which `decodeClassicalResultTokens` reuses
+ * to refresh each wire's `numResults` counter — no separate measurement-wire sweep needed.
  */
 const encodeClassicalResultTokens = (
   grid: ComponentGrid,
   originalOp: Operation,
   cloneOp: Operation,
   delta: number,
-): void => {
+): Set<number> => {
   // Affected wires: the moved subtree's measurement wires (pre-shift, read off the clone) and their
   // post-shift landings.
   const affectedWires = new Set<number>();
@@ -292,7 +296,7 @@ const encodeClassicalResultTokens = (
     }
   };
   collectWires(cloneOp);
-  if (affectedWires.size === 0) return;
+  if (affectedWires.size === 0) return affectedWires;
 
   // Walk `grid` (skipping the doomed `originalOp` subtree) and `cloneOp`, applying `visit` to each op.
   const walkAll = (visit: (op: Operation) => void): void => {
@@ -349,6 +353,8 @@ const encodeClassicalResultTokens = (
       if (token !== undefined) reg.result = token;
     }
   });
+
+  return affectedWires;
 };
 
 /**
@@ -356,11 +362,24 @@ const encodeClassicalResultTokens = (
  * producers and repoint their tokenized consumers to the producers' final `(qubit, result)`. Call
  * AFTER the physical move + span resolution, when document order is settled.
  *
- * Producers are renumbered by position in a pre-order walk (matching `updateMeasurementLines`), so
- * any number of them on any wires reindex correctly; consumers then follow their token to the
- * producer's new slot.
+ * Producers are renumbered by position in a pre-order walk (matching the old `updateMeasurementLines`
+ * order), so any number of them on any wires reindex correctly; consumers then follow their token to
+ * the producer's new slot.
+ *
+ * Also refreshes `model.qubits[wire].numResults` for every wire in `affectedWires` (the source and
+ * landing wires of the move). Encode tokenized EVERY measurement on those wires, so the renumber
+ * pass's per-wire tally is the authoritative post-move count — this fully replaces the tail-end
+ * `updateMeasurementLines` sweep the move path used to run.
  */
-const decodeClassicalResultTokens = (grid: ComponentGrid): void => {
+const decodeClassicalResultTokens = (
+  model: CircuitModel,
+  affectedWires: Set<number>,
+): void => {
+  // Nothing was tokenized (encode found no measurements on the move's wires and returned an empty
+  // set), so there are no tokens to resolve and no `numResults` to refresh. Skip the grid walk.
+  if (affectedWires.size === 0) return;
+
+  const grid = model.componentGrid;
   const tokenToNew = new Map<number, Register>();
   const perWireCount = new Map<number, number>();
 
@@ -383,6 +402,18 @@ const decodeClassicalResultTokens = (grid: ComponentGrid): void => {
     }
   };
   renumber(grid);
+
+  // Refresh per-wire `numResults` for every wire the move touched. `perWireCount` is the
+  // authoritative post-move measurement count per wire (Pass 1 recounted every tokenized producer,
+  // and encode tokenized ALL measurements on the affected wires). A wire left with no measurements
+  // resets to `undefined`.
+  for (const wire of affectedWires) {
+    if (wire >= 0 && wire < model.qubits.length) {
+      const count = perWireCount.get(wire) ?? 0;
+      model.qubits[wire].numResults = count > 0 ? count : undefined;
+    }
+  }
+
   if (tokenToNew.size === 0) return;
 
   // Pass 2: repoint every tokenized consumer at its producer's final position.

@@ -147,11 +147,6 @@ const moveOperation = (
   }
   newSourceOperation.dataAttributes["sqore-prev-location"] = sourceLocation;
 
-  // Capture pre-move measurement wires from the live source, to refresh per-wire `numResults`
-  // counters after the move (see the `updateMeasurementLines` sweep at the tail).
-  const affectedMeasurementWires = new Set<number>();
-  collectMeasurementWires(originalOperation, affectedMeasurementWires);
-
   // Grow the model to fit the highest wire the moved op will land
   // on. For a single-leg move that's `targetWire`; for a unit-shift
   // every register shifts by `targetWire - sourceWire`, so the high
@@ -171,26 +166,20 @@ const moveOperation = (
 
   // Before shifting anything, give every classical register on the move's affected wires a stable
   // identity (a unique negative token) so producer→consumer links survive the wire-shift and the
-  // result-renumber. `decodeClassicalResultTokens` rebuilds real indices at the tail. Scoped to group
-  // moves (the bare-measurement path has its own reconciliation); a no-op when the subtree carries no
-  // measurements. `originalOperation` is still in the grid here and is skipped; the clone is walked
-  // directly.
-  const usingResultTokens = newSourceOperation.children != null;
-  if (usingResultTokens) {
-    encodeClassicalResultTokens(
-      model.componentGrid,
-      originalOperation,
-      newSourceOperation,
-      targetWire - sourceWire,
-    );
-  }
+  // result-renumber. `decodeClassicalResultTokens` rebuilds real indices at the tail. Applies to
+  // every move — groups, bare measurements, and plain gates alike — and self-guards to a no-op when
+  // the moved subtree carries no measurements. `originalOperation` is still in the grid here and is
+  // skipped; the clone is walked directly. Returns the affected wires (source + landing) so decode
+  // can refresh their `numResults` without a second measurement-wire sweep.
+  const affectedMeasurementWires = encodeClassicalResultTokens(
+    model.componentGrid,
+    originalOperation,
+    newSourceOperation,
+    targetWire - sourceWire,
+  );
 
   // Update operation's targets and controls
   moveY(newSourceOperation, sourceWire, targetWire, movingControl);
-
-  // Capture POST-shift measurement wires too, so the sweep covers both the wires measurements left
-  // and the wires they landed on.
-  collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
 
   // Move horizontally
   moveX(
@@ -221,22 +210,12 @@ const moveOperation = (
     destAncestorChain,
   );
 
-  // Rebuild real, contiguous result indices on the tokenized wires and repoint every tokenized
-  // consumer at its producer's final `(qubit, result)`. Runs after span resolution (document order
-  // settled) and before the sweep below, which re-asserts the same producer numbering and refreshes
-  // counters.
-  if (usingResultTokens) {
-    decodeClassicalResultTokens(model.componentGrid);
-  }
-
-  // Refresh per-wire `numResults` counters for every wire that may have gained or lost a
-  // measurement. `addOp` / `removeOp` only fire this for TOP-LEVEL measurements; a measurement
-  // crossing wires inside a moved group is only kept in step here.
-  for (const wire of affectedMeasurementWires) {
-    if (wire >= 0 && wire < model.qubits.length) {
-      updateMeasurementLines(model, wire);
-    }
-  }
+  // Rebuild real, contiguous result indices on the tokenized wires, repoint every tokenized consumer
+  // at its producer's final `(qubit, result)`, and refresh each affected wire's `numResults` counter.
+  // Runs after span resolution (document order settled). Self-guards to a no-op when the move
+  // tokenized nothing. This is the sole authority for classical-result bookkeeping in the move path
+  // (the old tail-end `updateMeasurementLines` sweep is subsumed by it).
+  decodeClassicalResultTokens(model, affectedMeasurementWires);
 
   model.removeTrailingUnusedQubits();
 
@@ -252,14 +231,14 @@ const moveOperation = (
  *   1. Called `collectMeasurementConsumers` on the M.
  *   2. Partitioned the result against `targetLocation` by
  *      [`Location.inEarlierColumnThan`](../data/location.ts) into survivors (their classical refs
- *      get remapped) and invalidated consumers (passed as `invalidatedConsumers`, cascade-deleted).
+ *      ride the move automatically) and invalidated consumers (passed as `invalidatedConsumers`,
+ *      cascade-deleted).
  *   3. Confirmed the cascade with the user.
  *
- * Wire-remap detail: `moveOperation`'s tail-end `updateMeasurementLines` sweep renumbers result
- * indices on every affected wire, so we snapshot each measurement's pre-move `(qubit, result)` keys
- * and compare with post-move keys to build a complete remap (also catching consumers of OTHER Ms on
- * the renumbered wires). The moved M becomes a new object reference, so its pre-move keys are
- * captured separately and paired positionally.
+ * Ref reconciliation is handled inside `moveOperation` by the classical-result token pass, which
+ * repoints every surviving consumer — of the moved M and of any OTHER M renumbered on the affected
+ * wires — at its producer's final `(qubit, result)`. This wrapper only adds the cascade-delete of
+ * invalidated consumers and the post-move span/collision cleanup.
  *
  * Ordering: move first, then cascade-delete — the pre-move `targetLocation` is still valid against
  * the unmodified grid, and cascade-delete uses object-reference predicates that survive the move's
@@ -279,36 +258,9 @@ const moveMeasurementWithDependents = (
   const mOp = findOperation(model.componentGrid, sourceLocation);
   if (mOp == null || mOp.kind !== "measurement") return null;
 
-  // Snapshot every M's pre-move (qubit, result) keys by object identity. Other Ms renumbered by the
-  // tail-end `updateMeasurementLines` sweep need their consumers updated too.
-  const preMoveKeysByRef = new Map<
-    Operation,
-    { qubit: number; result: number }[]
-  >();
-  const walkMeasurements = (g: ComponentGrid): void => {
-    for (const col of g) {
-      for (const op of col.components) {
-        if (op.kind === "measurement") {
-          const list: { qubit: number; result: number }[] = [];
-          for (const r of op.results) {
-            if (r.result !== undefined) {
-              list.push({ qubit: r.qubit, result: r.result });
-            }
-          }
-          preMoveKeysByRef.set(op, list);
-        }
-        if (op.children) walkMeasurements(op.children);
-      }
-    }
-  };
-  walkMeasurements(model.componentGrid);
-
-  // The moving M's pre-keys captured SEPARATELY: it becomes a new object post-move (deep-cloned),
-  // so the by-ref map won't have it.
-  const movedMPreKeys = preMoveKeysByRef.get(mOp) ?? [];
-
-  // Move M. The standard path handles its wire change, column placement, and the global
-  // `updateMeasurementLines` renumbering.
+  // Move M. `moveOperation`'s classical-result token pass handles its wire change, column
+  // placement, the global `updateMeasurementLines` renumbering, AND repointing every surviving
+  // consumer (of this M and of other Ms renumbered on the affected wires).
   const movedM = moveOperation(
     model,
     sourceLocation,
@@ -325,40 +277,6 @@ const moveMeasurementWithDependents = (
   const invalidatedSet = new Set(invalidatedConsumers);
   if (invalidatedSet.size > 0) {
     _findAndRemoveOperations(model, (op) => invalidatedSet.has(op));
-  }
-
-  // Build the (oldQubit, oldResult) → (newQubit, newResult) remap by pairing pre/post snapshots
-  // positionally per M: the moved M from `movedMPreKeys` → `movedM.results`, every other M from
-  // `preMoveKeysByRef` → its still-live op.
-  const keyRemap = new Map<string, string>();
-  const recordRemap = (
-    preList: { qubit: number; result: number }[],
-    postOp: Operation,
-  ): void => {
-    if (postOp.kind !== "measurement") return;
-    const postList: { qubit: number; result: number }[] = [];
-    for (const r of postOp.results) {
-      if (r.result !== undefined) {
-        postList.push({ qubit: r.qubit, result: r.result });
-      }
-    }
-    const n = Math.min(preList.length, postList.length);
-    for (let i = 0; i < n; i++) {
-      const preKey = `${preList[i].qubit}:${preList[i].result}`;
-      const postKey = `${postList[i].qubit}:${postList[i].result}`;
-      if (preKey !== postKey) keyRemap.set(preKey, postKey);
-    }
-  };
-  recordRemap(movedMPreKeys, movedM);
-  for (const [preOp, preList] of preMoveKeysByRef) {
-    if (preOp === mOp) continue; // moved M handled above
-    recordRemap(preList, preOp);
-  }
-
-  // Apply the remap to every classical ref in the grid. Walking the whole grid catches consumers of
-  // OTHER Ms bumped by the renumber.
-  if (keyRemap.size > 0) {
-    applyClassicalRefRemap(model.componentGrid, keyRemap);
   }
 
   // Consumers' visual spans may have changed, widening or narrowing group `.targets` caches and
@@ -549,17 +467,15 @@ const addOperation = (
     insertNewColumn,
   );
 
-  // Unit-shift clones can drop nested measurements onto wires the
-  // model has never seen. `addOp` only refreshes TOP-LEVEL
-  // measurements, so refresh each touched wire explicitly. Single-leg
-  // drops skip this — `addOp` already handled their only measurement.
-  if (cloneAsUnit) {
-    const affectedMeasurementWires = new Set<number>();
-    collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
-    for (const wire of affectedMeasurementWires) {
-      if (wire >= 0 && wire < model.qubits.length) {
-        updateMeasurementLines(model, wire);
-      }
+  // Assign result indices and refresh `numResults` for every wire the added op carries a
+  // measurement on. `addOp` no longer does this itself (it's a token-agnostic structural primitive
+  // shared with the move path); this action owns the measurement bookkeeping for adds. A no-op for a
+  // non-measurement op (nothing collected).
+  const affectedMeasurementWires = new Set<number>();
+  collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
+  for (const wire of affectedMeasurementWires) {
+    if (wire >= 0 && wire < model.qubits.length) {
+      updateMeasurementLines(model, wire);
     }
   }
 
@@ -589,7 +505,19 @@ const removeOperation = (model: CircuitModel, sourceLocation: string) => {
   // (and any column collapse).
   const ancestorChain = collectAncestorChain(model, sourceLocation);
 
+  // Capture the removed op's measurement wires BEFORE removal so the surviving Ms on those wires can
+  // be renumbered afterward (and `numResults` closed up). `removeOp` no longer does this itself;
+  // this action owns the measurement bookkeeping for deletes.
+  const affectedMeasurementWires = new Set<number>();
+  collectMeasurementWires(sourceOperation, affectedMeasurementWires);
+
   removeOp(model, sourceOperation, sourceOperationParent);
+
+  for (const wire of affectedMeasurementWires) {
+    if (wire >= 0 && wire < model.qubits.length) {
+      updateMeasurementLines(model, wire);
+    }
+  }
 
   // Re-derive the parent's `.targets` (and every ancestor above) from the surviving children.
   // Narrowing-only: shrinking a span can't introduce new sibling collisions, so no resolver hook.

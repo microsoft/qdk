@@ -38,6 +38,12 @@ const _isClassicallyControlled = (operation: Operation): boolean => {
  * `wireIndex` in document order, then sets `model.qubits[wireIndex].numResults` to the total.
  * Recursing into children is essential: the renderer reads any measurement's results, including
  * ones inside expanded groups, and throws on an uncounted nested measurement.
+ *
+ * This is the producer-renumbering + `numResults` sweep for STRUCTURAL grid edits (plain add,
+ * delete, clone). It is NOT part of the move path: a token-managed move (`moveOperation`) reconciles
+ * result indices and `numResults` itself via `decodeClassicalResultTokens`, and never calls this.
+ * The move-path callers (`addOperation`/`removeOperation`'s primitives) fire it only outside a move,
+ * so it never runs while classical-result tokens are live and needs no token awareness.
  */
 const updateMeasurementLines = (model: CircuitModel, wireIndex: number) => {
   model.ensureQubitCount(wireIndex);
@@ -112,12 +118,6 @@ const addOp = (
   }
 
   model.incrementQubitUseCountForOp(sourceOperation);
-
-  if (sourceOperation.kind === "measurement") {
-    for (const targetWire of sourceOperation.qubits) {
-      updateMeasurementLines(model, targetWire.qubit);
-    }
-  }
 };
 
 /** Remove an operation from the circuit. */
@@ -149,12 +149,6 @@ const removeOp = (
   }
 
   model.decrementQubitUseCountForOp(sourceOperation);
-
-  if (sourceOperation.kind === "measurement") {
-    for (const result of sourceOperation.results) {
-      updateMeasurementLines(model, result.qubit);
-    }
-  }
 };
 
 /** Move an element of `arr` from index `from` to index `to`. */

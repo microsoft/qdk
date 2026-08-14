@@ -301,7 +301,13 @@ const moveY = (
       break;
     case "measurement":
       sourceOperation.qubits = [{ qubit: targetWire }];
-      // The measurement result is updated later in the updateMeasurementLines function
+      // Keep the result registers' wire in sync with the qubit. The result INDEX is (re)assigned
+      // later by the token decode, but the wire must track the move now so downstream passes read
+      // the correct destination wire off `.results` — mirroring how the group unit-move path
+      // (`_doShift`) shifts both `.qubits` and `.results` together.
+      for (const r of sourceOperation.results) {
+        r.qubit = targetWire;
+      }
       break;
     case "ket":
       sourceOperation.targets = [{ qubit: targetWire }];
