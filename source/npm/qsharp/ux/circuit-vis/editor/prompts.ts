@@ -142,9 +142,11 @@ export const deleteOperationWithConfirmation = (
 
 /**
  * Move an operation. If the op is a measurement with downstream classical consumers, prompt before
- * committing: on confirm, the move remaps the classical refs of consumers that stay after the M's
- * new column and cascade-deletes any that would end up at-or-before it. Non-measurement /
- * no-consumer paths pass straight through to [`moveOperation`](../actions/circuitActions.ts).
+ * committing when the move materially changes what they reference: it cascade-deletes any consumer
+ * that would end up at-or-before the M's new column, and (on a wire-changing move) repoints the
+ * survivors at the M's new qubit. A same-wire move that only renumbers result indices is cosmetic
+ * and skips the prompt. Non-measurement / no-consumer paths pass straight through to
+ * [`moveOperation`](../actions/circuitActions.ts).
  *
  * `movingControl` MUST be threaded through unchanged. The drag controller routes every non-clone
  * drag through here, including control-dot drags on ordinary unitaries; hardcoding `false` would
@@ -169,38 +171,65 @@ export const moveOperationWithConfirmation = (
       sourceLocation,
     );
     if (consumers.length > 0) {
-      // Partition consumers by whether the M's new column comes strictly before them. Runs in
-      // pre-move coordinates, which is sound since splicing doesn't change relative column
-      // ordering.
+      // Partition consumers into those that survive the move and those whose reference it
+      // invalidates (cascade-deleted). A consumer survives iff the M's final column ends up strictly
+      // before it. `insertNewColumn` shifts that boundary: the M then lands in a fresh column
+      // spliced in AT `targetLocation` — strictly before whatever was there — so a consumer at the
+      // drop column survives; without it the M shares the target column and only strictly-later
+      // consumers survive. Runs in pre-move coordinates (splicing preserves relative column order).
       const targetLocParsed = Location.parse(targetLocation);
-      const survivors: { op: Operation; location: string }[] = [];
       const invalidated: { op: Operation; location: string }[] = [];
       for (const c of consumers) {
         const cLoc = Location.parse(c.location);
-        if (targetLocParsed.inEarlierColumnThan(cLoc)) {
-          survivors.push(c);
-        } else {
+        const consumerSurvives = insertNewColumn
+          ? !cLoc.inEarlierColumnThan(targetLocParsed)
+          : targetLocParsed.inEarlierColumnThan(cLoc);
+        if (!consumerSurvives) {
           invalidated.push(c);
         }
       }
 
-      const message = _buildMoveMConsumerMessage(
-        survivors.length,
-        invalidated.length,
-      );
-      createConfirmPrompt(message, (confirmed) => {
-        if (!confirmed) return;
-        moveMeasurementWithDependents(
-          model,
-          sourceLocation,
-          targetLocation,
-          sourceWire,
-          targetWire,
-          insertNewColumn,
-          invalidated.map((c) => c.op),
+      // Prompt when the move deletes a consumer or changes the M's wire (repointing survivors to a
+      // new qubit). A same-wire move only renumbers result indices — cosmetic — so it skips the
+      // prompt. Report survivors in the message only on a wire change, else a delete-triggered
+      // prompt would claim to "update" consumers whose reference didn't really move.
+      const isVerticalMove = sourceWire !== targetWire;
+      if (invalidated.length > 0 || isVerticalMove) {
+        const survivorsToReport = isVerticalMove
+          ? consumers.length - invalidated.length
+          : 0;
+        const message = _buildMoveMConsumerMessage(
+          survivorsToReport,
+          invalidated.length,
         );
-        renderFn();
-      });
+        createConfirmPrompt(message, (confirmed) => {
+          if (!confirmed) return;
+          moveMeasurementWithDependents(
+            model,
+            sourceLocation,
+            targetLocation,
+            sourceWire,
+            targetWire,
+            insertNewColumn,
+            invalidated.map((c) => c.op),
+          );
+          renderFn();
+        });
+        return;
+      }
+
+      // Horizontal, non-destructive move: apply directly (still via the dependents path so surviving
+      // consumers get their derived-target/overlap cleanup), no prompt.
+      moveMeasurementWithDependents(
+        model,
+        sourceLocation,
+        targetLocation,
+        sourceWire,
+        targetWire,
+        insertNewColumn,
+        [],
+      );
+      renderFn();
       return;
     }
   }
@@ -226,14 +255,8 @@ const _buildMoveMConsumerMessage = (
 ): string => {
   const opWord = (n: number): string =>
     n === 1 ? "1 dependent operation" : `${n} dependent operations`;
-  const willBeUpdated =
-    survivors === 1
-      ? `${opWord(survivors)} will be updated to reference this measurement's new wire`
-      : `${opWord(survivors)} will be updated to reference this measurement's new wire`;
-  const willBeDeleted =
-    invalidated === 1
-      ? `${opWord(invalidated)} would end up before this measurement in document order and will be deleted`
-      : `${opWord(invalidated)} would end up before this measurement in document order and will be deleted`;
+  const willBeUpdated = `${opWord(survivors)} will be updated to reference this measurement's new position`;
+  const willBeDeleted = `${opWord(invalidated)} would end up before this measurement in document order and will be deleted`;
 
   if (survivors > 0 && invalidated > 0) {
     return `Moving this measurement: ${willBeUpdated}; ${willBeDeleted}. Continue?`;

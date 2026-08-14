@@ -424,9 +424,10 @@ test("moveOperationWithConfirmation: M with NO consumers moves immediately, no p
   assert.equal(render.count, 1);
 });
 
-test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the update-only message", () => {
-  // Survivors-only partition: target column < every consumer's column. The M moves forward (or
-  // stays) so every consumer still comes after it; nothing gets deleted.
+test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers on a HORIZONTAL move runs without a prompt", () => {
+  // Survivors-only, same-wire move: target column < every consumer's column, so nothing is deleted,
+  // and the M stays on its wire so consumers only need result-index renumbering. That's cosmetic —
+  // no confirmation — the surviving consumers' refs are reconciled automatically.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)], // column 0: the M
@@ -436,22 +437,75 @@ test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the u
   );
   const render = makeRenderSpy();
 
-  // Move the M to column 0 (its current spot) — still strictly before columns 1 and 2. Both
-  // consumers partition into survivors.
+  // Move the M to column 0 (its current spot), same wire — still strictly before columns 1 and 2.
+  // Both consumers survive and the wire is unchanged, so the move applies with no prompt.
   moveWithConfirm(model, { from: "0,0", to: "0,0" }, render.fn);
 
+  assert.equal(
+    getOpenPrompt(),
+    null,
+    "a same-wire, non-destructive M move must not prompt",
+  );
+  assert.equal(render.count, 1);
+});
+
+test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers on a VERTICAL move prompts to update refs", () => {
+  // Survivors-only but the M changes wire: no consumer is deleted, yet every surviving consumer must
+  // be repointed at the measurement's new qubit (and result index). That's a material reference
+  // change, so it prompts even though nothing is destroyed.
+  const model = build(
+    circuit(qubits(3, { 0: 1 }), [
+      [meas(0)], // column 0: the M on wire 0
+      [consumer("X", 1)], // column 1: consumes M0, survives (later column)
+    ]),
+  );
+  const render = makeRenderSpy();
+
+  // Move the M from wire 0 to wire 2, staying in column 0 (still before the consumer's column). The
+  // consumer survives but must now reference wire 2 → prompt with the update-only message.
+  moveWithConfirm(model, { from: "0,0", to: "0,0", toWire: 2 }, render.fn);
+
   const prompt = getOpenPrompt();
-  assert.ok(prompt);
+  assert.ok(prompt, "a wire-changing M move with consumers must prompt");
   assert.match(
     prompt.message,
-    /2 dependent operations will be updated to reference this measurement's new wire/,
-    "must surface the survivors-update clause with the plural count",
+    /will be updated to reference this measurement's new position/,
+    "must surface the survivors-update clause",
   );
   assert.doesNotMatch(
     prompt.message,
     /will be deleted/,
-    "pure-survivors message must NOT mention deletion",
+    "a non-destructive vertical move must NOT mention deletion",
   );
+});
+
+test("moveOperationWithConfirmation: M dropped just left of its consumer (insertNewColumn) does not delete it", () => {
+  // Off-by-one guard: dropping the M into a FRESH column spliced in at the consumer's column places
+  // the M strictly before the consumer, so the consumer survives — no deletion, no prompt. Without
+  // the `insertNewColumn` awareness this partitioned the consumer as invalidated (same column).
+  const model = build(
+    circuit(qubits(2, { 0: 1 }), [
+      [meas(0)], // column 0: the M
+      [gate("H", 1)], // column 1: filler so the M has somewhere to move from
+      [consumer("X", 1)], // column 2: the consumer
+    ]),
+  );
+  const render = makeRenderSpy();
+
+  // Drop the M into a new column spliced in AT the consumer's column ("2,0"). The M lands strictly
+  // before the consumer, which shifts to column 3 — the consumer survives.
+  moveWithConfirm(
+    model,
+    { from: "0,0", to: "2,0", insertNewColumn: true },
+    render.fn,
+  );
+
+  assert.equal(
+    getOpenPrompt(),
+    null,
+    "dropping the M just before its consumer must not invalidate it",
+  );
+  assert.equal(render.count, 1);
 });
 
 test("moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the delete-only message", () => {
@@ -483,27 +537,29 @@ test("moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the
   );
 });
 
-test("moveOperationWithConfirmation: M with MIXED consumers shows both clauses joined with '; '", () => {
-  // Mixed partition: target column splits the consumer list — some stay after (survivors →
-  // updated), some end up at-or-before (invalidated → deleted). Message must include BOTH clauses
-  // and the explicit '; ' separator.
+test("moveOperationWithConfirmation: M with MIXED consumers on a VERTICAL move shows both clauses joined with '; '", () => {
+  // Mixed partition on a wire-changing move: some consumers stay after (survivors → updated to the
+  // new qubit), some end up at-or-before (invalidated → deleted). Because the M changes wire, the
+  // survivors' referenced qubit changes, so the message must include BOTH clauses and the explicit
+  // '; ' separator.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
-      [meas(0)], // column 0: the M
+      [meas(0)], // column 0: the M on wire 0
       [consumer("X", 1)], // column 1: invalidated (column == target)
       [consumer("Y", 2)], // column 2: survives (column > target)
     ]),
   );
   const render = makeRenderSpy();
 
-  // Target column 1 → consumer at "1,0" invalidates, consumer at "2,0" survives.
-  moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
+  // Target column 1, wire 0 → 2 → consumer at "1,0" invalidates, consumer at "2,0" survives and
+  // must be repointed to wire 2.
+  moveWithConfirm(model, { from: "0,0", to: "1,0", toWire: 2 }, render.fn);
 
   const prompt = getOpenPrompt();
   assert.ok(prompt);
   assert.match(
     prompt.message,
-    /will be updated to reference this measurement's new wire/,
+    /will be updated to reference this measurement's new position/,
     "must include the survivors clause",
   );
   assert.match(
@@ -515,6 +571,37 @@ test("moveOperationWithConfirmation: M with MIXED consumers shows both clauses j
     prompt.message,
     /; /,
     "the two clauses must be joined with '; '",
+  );
+});
+
+test("moveOperationWithConfirmation: M with MIXED consumers on a HORIZONTAL move shows the delete clause only", () => {
+  // Mixed partition but SAME wire: a consumer is deleted (triggering the prompt) while the survivors
+  // stay on the same qubit and only need result-index renumbering. That's cosmetic, so the message
+  // must mention ONLY the deletion, not the survivor update.
+  const model = build(
+    circuit(qubits(3, { 0: 1 }), [
+      [meas(0)], // column 0: the M
+      [consumer("X", 1)], // column 1: invalidated (column == target)
+      [consumer("Y", 2)], // column 2: survives (column > target)
+    ]),
+  );
+  const render = makeRenderSpy();
+
+  // Target column 1, same wire → consumer at "1,0" invalidates, consumer at "2,0" survives but its
+  // referenced qubit is unchanged.
+  moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
+
+  const prompt = getOpenPrompt();
+  assert.ok(prompt);
+  assert.match(
+    prompt.message,
+    /will be deleted/,
+    "must include the invalidated clause",
+  );
+  assert.doesNotMatch(
+    prompt.message,
+    /will be updated/,
+    "a horizontal deletion prompt must NOT mention survivor updates",
   );
 });
 

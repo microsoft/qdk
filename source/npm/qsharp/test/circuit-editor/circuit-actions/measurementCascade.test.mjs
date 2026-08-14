@@ -23,6 +23,7 @@ import assert from "node:assert/strict";
 import {
   collectMeasurementConsumers,
   moveMeasurementWithDependents,
+  moveOperation,
   removeMeasurementWithDependents,
 } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
 import {
@@ -404,4 +405,69 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
     [0, 1, 2],
     "wire 0's three Ms must have result indices 0, 1, 2 in doc order",
   );
+});
+
+// ---------------------------------------------------------------------------
+// Plain moveOperation on a bare measurement (no dependents wrapper)
+//
+// The drag layer routes an M-move through `moveMeasurementWithDependents` only when the MOVED M
+// itself has consumers. A bare M with no consumers falls straight through to `moveOperation`. If
+// that M shares a wire with OTHER Ms that DO have consumers, moving it renumbers those Ms via
+// `updateMeasurementLines` — and the classical-result token pass must repoint their consumers so
+// the links don't dangle.
+// ---------------------------------------------------------------------------
+
+test("moveOperation: bare M with no consumers, moved off a shared wire, reindexes a sibling M's consumer", () => {
+  // Wire 0 holds M_a (r=0, NO consumer) then M_b (r=1, consumed by ccx on wire 2). Moving M_a to
+  // wire 1 leaves M_b as the only wire-0 M → it reindexes to r=0, so its consumer must follow
+  // (0,1) → (0,0).
+  const model = build(
+    circuit(3, [[_mGate(0, 0)], [_mGate(0, 1)], [_ccx(2, 0, 1)]]),
+  );
+  const moved = moveOperation(model, "0,0", "0,0", 0, 1, false, false);
+  assert.ok(moved);
+
+  // M_a landed on wire 1 as its own r=0.
+  expectOp(at(model, "0,0"), { Measure: { qubits: [1] } });
+  // M_b's consumer must have been repointed to the sibling's new index.
+  expectOp(at(model, "2,0"), { X: { ctrls: [{ q: 0, r: 0 }] } });
+});
+
+test("moveOperation: bare M with no consumers, moved onto a wire with a consumed M, reindexes that M's consumer", () => {
+  // M_x on wire 1 (r=0, consumed by ccx). A no-consumer M on wire 0 moves onto wire 1 in an earlier
+  // column, so M_x reindexes to r=1 and its consumer must follow (1,0) → (1,1).
+  const model = build(
+    circuit(3, [[_mGate(1, 0)], [_mGate(0, 0)], [_ccx(2, 1, 0)]]),
+  );
+  // Move the wire-0 M (col 1) onto wire 1, inserting a fresh earlier column so it precedes M_x.
+  const moved = moveOperation(model, "1,0", "0,0", 0, 1, false, true);
+  assert.ok(moved);
+
+  // Find M_x's consumer and assert it now references (1, 1).
+  /** @type {any} */
+  let consumer = null;
+  for (const col of model.componentGrid) {
+    for (const op of col.components) {
+      if (op.kind === "unitary" && op.gate === "X") consumer = op;
+    }
+  }
+  assert.ok(consumer, "consumer ccx must still exist");
+  const ref = consumer.controls.find(
+    (/** @type {any} */ c) => c.result !== undefined,
+  );
+  assert.deepEqual(
+    { qubit: ref.qubit, result: ref.result },
+    { qubit: 1, result: 1 },
+    "consumer of the pushed-down M must track its new result index",
+  );
+});
+
+test("moveOperation: bare M carries its own consumer onto the new wire", () => {
+  // A single M on wire 0 (r=0) with a downstream consumer. Moving the M to wire 1 must repoint the
+  // consumer (0,0) → (1,0).
+  const model = build(circuit(3, [[_mGate(0, 0)], [_ccx(2, 0, 0)]]));
+  const moved = moveOperation(model, "0,0", "0,0", 0, 1, false, false);
+  assert.ok(moved);
+  expectOp(at(model, "0,0"), { Measure: { qubits: [1] } });
+  expectOp(at(model, "1,0"), { X: { ctrls: [{ q: 1, r: 0 }] } });
 });
