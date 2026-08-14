@@ -34,9 +34,9 @@ operation Main() : Unit {
     // use the `parallel within <int> <expr>` expression instead. This allows for
     // specifying an upper limit on the number of new allocations that are performed
     // before falling back to qubit reuse. In this case, by specifying a limit of
-    // 2, the call to `JointMeasure` will use two distinct ancilla qubits for the
-    // first two iterations of the loop and then reuse the first ancilla during
-    // the third iteration.
+    // 2, the first two allocations used by `JointMeasure` will use distinct qubits,
+    // while the third allocation will reuse the first qubit. This allows for a balance
+    // between depth and width optimization.
     parallel within 2 JointMeasure(qs);
 }
 
