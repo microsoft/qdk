@@ -10,13 +10,13 @@ from ._qodec_compat import set_gadget_readouts
 from .checks import profile_of
 
 
-def _references(values: Sequence[object]) -> list[str]:
+def _references(values: Sequence[object]) -> list[qodec.ReferenceLike]:
     return [str(value) for value in values]
 
 
 def _readout(
     value: Sequence[object] | Mapping[str, Sequence[object]],
-) -> list[str] | dict[str, list[str]]:
+) -> qodec.ReadoutLike:
     if isinstance(value, Mapping):
         return {name: _references(equation) for name, equation in value.items()}
     return _references(value)
@@ -35,7 +35,7 @@ def complete_gadget(gadget: qodec.Gadget) -> qodec.Gadget:
         gadget.circuit,
         inputs=list(gadget.inputs),
         outputs=list(gadget.outputs),
-        checks=discovered.checks,
+        checks=[_references(check) for check in discovered.checks],
         readouts=[_readout(value) for value in gadget.readouts],
         parameters=dict(gadget.parameters),
         metadata=dict(gadget.metadata),
