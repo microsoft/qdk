@@ -9,7 +9,7 @@ from binar import BitVector
 import qodec
 from qodec.circuits import Program
 
-from .._qodec_compat import observables_as_xor_map, realization
+from .._readouts import observables_as_xor_map
 from .._analysis.circuit_action import realization_codes_of
 from .._analysis.check_discovery import _objective_logical_chars, _pauli_xor
 from .._analysis.propagation.conditional import (
@@ -81,8 +81,7 @@ def readout_disagreements(gadget: qodec.Gadget) -> list[ReadoutMismatch]:
 def _realization_input_observables(
     gadget: qodec.Gadget,
 ) -> tuple[FrameGroup, ConditionalChoiResult]:
-    channel = realization(gadget)
-    program = Program(channel.instructions, channel.isa)
+    program = Program(gadget.circuit.instructions, gadget.circuit.isa)
     code_in, _ = realization_codes_of(gadget)
     input_qubits = sorted(code_in.support)
     result = conditional_choi_state(
@@ -105,9 +104,8 @@ def _realization_input_observables(
 
 
 def _data_side_logical_probes(gadget: qodec.Gadget) -> dict[str, Pauli]:
-    channel = realization(gadget)
     flat_map: list[tuple[Any, int]] = []
-    for encoding in channel.encoding_in:
+    for encoding in gadget.inputs:
         for local in range(len(list(encoding.code.x))):
             flat_map.append((encoding, local))
     result: dict[str, Pauli] = {}

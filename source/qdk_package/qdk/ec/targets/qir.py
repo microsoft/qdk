@@ -39,7 +39,7 @@ from typing import Any, Optional
 
 import qodec
 
-from .._qodec_compat import observables_as_xor_map
+from .._readouts import observables_as_xor_map
 
 #: Single-qubit Pauli gates, as ``(qir mnemonic, qodec action basis)``.
 _PAULI_GATES = {"X": "X", "Y": "Y", "Z": "Z"}
@@ -310,9 +310,7 @@ def encode_qir(
             f"encodes {per_block}; multi-block encoding is not supported yet"
         )
 
-    prepare = index.get(
-        ("stabilize", tuple(("Z", i) for i in range(per_block)))
-    )
+    prepare = index.get(("stabilize", tuple(("Z", i) for i in range(per_block))))
     if prepare is None:
         raise NotImplementedError(
             f"qodec {codec.name!r} has no Z-basis preparation instruction, so a "
@@ -351,9 +349,7 @@ def encode_qir(
         if name in _MEASURE_GATES:
             qubit = int(gate[1])
             slot = slots[qubit]
-            mnemonic = index.get(
-                ("observe", tuple(("Z", i) for i in range(per_block)))
-            )
+            mnemonic = index.get(("observe", tuple(("Z", i) for i in range(per_block))))
             if mnemonic is None:
                 raise NotImplementedError(
                     f"qodec {codec.name!r} has no Z-basis logical measurement"
@@ -455,9 +451,7 @@ def stim_noise_from(noise: Any) -> Optional[dict[str, float]]:
         return dict(noise)
 
     def total(table: Any) -> float:
-        return sum(
-            float(getattr(table, axis, 0.0) or 0.0) for axis in ("x", "y", "z")
-        )
+        return sum(float(getattr(table, axis, 0.0) or 0.0) for axis in ("x", "y", "z"))
 
     gate_tables = [
         getattr(noise, name, None)
@@ -546,9 +540,7 @@ def run_qir_encoded(
     recorder = OutputRecordingPass()
     recorder.run(module)
     return [
-        recorder.process_output(
-            [Result.One if bit else Result.Zero for bit in row]
-        )
+        recorder.process_output([Result.One if bit else Result.Zero for bit in row])
         for row, alive in zip(values, keep)
         if alive
     ]

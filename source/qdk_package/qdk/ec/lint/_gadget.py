@@ -2,14 +2,12 @@
 
 import qodec
 
-from .._qodec_compat import realization
 from ._auditor import Auditor
 
 
 def why_not_valid(gadget: qodec.Gadget) -> str:
-    channel = realization(gadget)
-    if not channel.encoding_in and not channel.encoding_out:
-        return "Channel has no input or output encoding."
+    if not gadget.inputs and not gadget.outputs:
+        return "Gadget has no input or output encoding."
     errors = Auditor().audit_gadget(gadget).errors()
     if not errors:
         return ""

@@ -20,8 +20,8 @@ import stim
 
 import qodec
 
-from .._qodec_compat import (
-    check_outcomes,
+from .._references import (
+    outcome_indices,
     parse_encoding_atom,
     parse_stabilizer_atom,
 )
@@ -87,7 +87,7 @@ def _observe_names(gadget: qodec.Gadget) -> list[str]:
 
     Observe outcomes are positional in the current model, so these are the
     string indices ``"0"``, ``"1"``, ... of the objective's ``Observe``
-    observables, in declaration order. A parent gadget's ``body.readouts``
+    observables, in declaration order. A parent gadget's ``circuit.readouts``
     index this gadget's outputs in exactly this order.
     """
     from qodec.actions import Observe  # local import to avoid cycle
@@ -111,7 +111,7 @@ def _resolve_atoms_records(
 ) -> set[int]:
     """XOR-resolve a parity equation to a set of physical record indices.
 
-    ``body.readouts[k]`` maps to ``body_prov[k]``; ``in.<op>.stab[i]`` maps
+    ``circuit.readouts[k]`` maps to ``body_prov[k]``; ``in.<op>.stab[i]`` maps
     to the frame currently carrying that stabilizer's sign; ``in.<op>.(x|z)[i]``
     maps to the logical frame carrying that observable's sign (empty when
     unseeded, i.e. a deterministic ``+1`` representative). An ``in``
@@ -120,10 +120,10 @@ def _resolve_atoms_records(
     explicitly).
     """
     records: set[int] = set()
-    for index in check_outcomes(atoms):
+    for index in outcome_indices(atoms):
         if index >= len(body_prov):
             raise NotImplementedError(
-                f"gadget {gadget.implements.mnemonic!r}: body.readouts[{index}] "
+                f"gadget {gadget.implements.mnemonic!r}: circuit.readouts[{index}] "
                 f"is out of range (body exposes {len(body_prov)} readouts)"
             )
         records ^= set(body_prov[index])
@@ -154,7 +154,7 @@ def _update_frame_map_recursive(
 ) -> None:
     """Apply this gadget's frame declarations using composed provenance.
 
-    Mirrors ``stim._update_frame_map`` but resolves ``body.readouts[k]`` to
+    Mirrors ``stim._update_frame_map`` but resolves ``circuit.readouts[k]`` to
     the record set ``body_prov[k]`` and — unlike the flat path — seeds a
     *deterministic* output stabilizer (no readouts, no input frame) to the
     empty record set (an empty XOR is always ``+1``, the sign a fresh
@@ -164,7 +164,7 @@ def _update_frame_map_recursive(
     gadget's output state must be a valid codeword of its declared output
     encoding, so every output-code stabilizer has a well-defined boundary
     sign. A gadget therefore declares ``out.<op>.stabilizers[i]`` for every
-    ``i`` — either ``XOR(body.readouts…, in…)`` (measured/propagated) or the
+    ``i`` — either ``XOR(circuit.readouts…, in…)`` (measured/propagated) or the
     empty set (deterministic preparation seed). Because every frame is
     established at preparation, later gadgets only ever *compare* against an
     existing entry; an ``in`` reference with no seeded frame is an
@@ -202,7 +202,7 @@ def _update_frame_map_recursive(
             for ref in (_parse_stab_in_atom(atom) for atom in check)
             if ref is not None
         ]
-        record_declaration(out_refs, list(check_outcomes(check)), in_refs)
+        record_declaration(out_refs, list(outcome_indices(check)), in_refs)
 
     frame_map.update(new_entries)
 
@@ -223,7 +223,7 @@ def _update_frame_map_recursive(
         if not logical_outs:
             continue
         records: set[int] = set()
-        for index in check_outcomes(check):
+        for index in outcome_indices(check):
             records ^= set(body_prov[index])
         for atom in check:
             stab_ref = _parse_stab_in_atom(atom)

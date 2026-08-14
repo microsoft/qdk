@@ -34,7 +34,8 @@ import numpy as np
 
 import qodec
 
-from .._qodec_compat import observable_names, observe_count, outcome_indices
+from .._readouts import observable_names, observe_count
+from .._references import outcome_indices
 from qodec.circuits import Program
 from .compilers import RecursiveLowering
 from .results import Batch
@@ -53,7 +54,7 @@ def _parity_lift(
 
     The layer-below batch carries, per shot, the logical readouts of every
     gadget body in ``upper_program`` order. For each call, its gadget's
-    ``readouts`` are parity equations over ``body.readouts[i]`` — i.e. over the
+    ``readouts`` are parity equations over ``circuit.readouts[i]`` — i.e. over the
     body's own logical outcomes — so each upper readout is the XOR of the
     corresponding columns of the layer-below batch.
     """

@@ -1,15 +1,15 @@
-"""Unit tests for the canonical qodec property-path atom parsers.
+"""Unit tests for the qodec property-path atom parsers.
 
-These helpers in :mod:`qdk.ec._qodec_compat` are the single source of
-truth for the v3.4 property-path atom DSL; every other module delegates
-to them. The cases below pin the dot/bracket/selector shapes those
-parsers must accept.
+These helpers in :mod:`qdk.ec._references` are the single source of truth
+for the property-path atom DSL; every other module delegates to them. The
+cases below pin the bracket/selector shapes those parsers must accept.
 """
+
 from __future__ import annotations
 
 import pytest
 
-from qdk.ec._qodec_compat import (
+from qdk.ec._references import (
     EncodingAtom,
     outcome_index_of_atom,
     outcome_indices,
@@ -18,13 +18,13 @@ from qdk.ec._qodec_compat import (
 )
 
 
-def test_outcome_indices_accepts_dot_and_bracket_shapes() -> None:
-    assert outcome_indices(["body.readouts.0", "body.readouts[3]"]) == [0, 3]
+def test_outcome_indices_reads_bracket_atoms() -> None:
+    assert outcome_indices(["circuit.readouts[0]", "circuit.readouts[3]"]) == [0, 3]
 
 
 def test_outcome_indices_expands_bracket_selectors() -> None:
-    assert outcome_indices(["body.readouts[1:4]"]) == [1, 2, 3]
-    assert outcome_indices(["body.readouts[0,2,5]"]) == [0, 2, 5]
+    assert outcome_indices(["circuit.readouts[1:4]"]) == [1, 2, 3]
+    assert outcome_indices(["circuit.readouts[0,2,5]"]) == [0, 2, 5]
 
 
 def test_outcome_indices_ignores_unrelated_atoms() -> None:
@@ -32,27 +32,26 @@ def test_outcome_indices_ignores_unrelated_atoms() -> None:
 
 
 def test_outcome_index_of_atom_shapes() -> None:
-    assert outcome_index_of_atom("body.readouts.2") == 2
-    assert outcome_index_of_atom("body.readouts[4]") == 4
+    assert outcome_index_of_atom("circuit.readouts[4]") == 4
     assert outcome_index_of_atom("7") == 7
 
 
 def test_outcome_index_of_atom_rejects_multi_index_selector() -> None:
     with pytest.raises(ValueError):
-        outcome_index_of_atom("body.readouts[0:2]")
+        outcome_index_of_atom("circuit.readouts[0:2]")
 
 
-def test_parse_encoding_atom_dot_and_bracket() -> None:
+def test_parse_encoding_atom_bases() -> None:
     assert parse_encoding_atom("in[0].stabilizers[1]") == EncodingAtom(
         side="in", entry=0, basis="stabilizers", index=1
     )
-    assert parse_encoding_atom("out[2].z.3") == EncodingAtom(
+    assert parse_encoding_atom("out[2].z[3]") == EncodingAtom(
         side="out", entry=2, basis="z", index=3
     )
 
 
 def test_parse_encoding_atom_rejects_other_shapes() -> None:
-    assert parse_encoding_atom("body.readouts[0]") is None
+    assert parse_encoding_atom("circuit.readouts[0]") is None
     assert parse_encoding_atom("checks[2]") is None
     # The removed named-operand form is rejected.
     assert parse_encoding_atom("in.block.stabilizers[1]") is None

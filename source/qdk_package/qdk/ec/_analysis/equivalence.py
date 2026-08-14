@@ -7,11 +7,11 @@ from typing import Iterable
 
 import qodec
 
-from .._qodec_compat import observables_as_xor_map, realization
+from .._readouts import observables_as_xor_map
 from .propagation.interpreter import propagate_input_paulis
 from .propagation.pauli_remap import flat_logical_paulis
 
-EncodingSignature = tuple[tuple[str, tuple[int, ...]], ...]
+EncodingSignature = tuple[tuple[int, tuple[int, ...]], ...]
 
 
 @dataclass(frozen=True)
@@ -28,17 +28,16 @@ class LogicalAction:
 
 
 def logical_action_of(gadget: qodec.Gadget) -> LogicalAction:
-    channel = realization(gadget)
-    inputs = flat_logical_paulis(channel.encoding_in)
-    probes = flat_logical_paulis(channel.encoding_out)
+    inputs = flat_logical_paulis(gadget.inputs)
+    probes = flat_logical_paulis(gadget.outputs)
     if not inputs:
         return LogicalAction(
-            _encoding_signature(channel.encoding_in),
-            _encoding_signature(channel.encoding_out),
+            _encoding_signature(gadget.inputs),
+            _encoding_signature(gadget.outputs),
             (),
         )
     deltas, hidden_count, outcome_count = propagate_input_paulis(
-        channel, inputs, residual_probes=probes
+        gadget, inputs, residual_probes=probes
     )
     observables = list(observables_as_xor_map(gadget).values())
     probe_offset = hidden_count + outcome_count
@@ -64,8 +63,8 @@ def logical_action_of(gadget: qodec.Gadget) -> LogicalAction:
             )
         )
     return LogicalAction(
-        _encoding_signature(channel.encoding_in),
-        _encoding_signature(channel.encoding_out),
+        _encoding_signature(gadget.inputs),
+        _encoding_signature(gadget.outputs),
         tuple(images),
     )
 
@@ -104,11 +103,11 @@ def why_not_equivalent(left: qodec.Gadget, right: qodec.Gadget) -> str:
 
 
 def _encoding_signature(
-    encodings: Iterable[qodec.gadgets.Encoding],
+    encodings: Iterable[qodec.Encoding],
 ) -> EncodingSignature:
     return tuple(
-        (encoding.operand, tuple(int(qubit) for qubit in encoding.support))
-        for encoding in encodings
+        (entry, tuple(int(qubit) for qubit in encoding.support))
+        for entry, encoding in enumerate(encodings)
     )
 
 

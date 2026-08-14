@@ -273,12 +273,12 @@ def propagate_faults(
 
 
 def propagate_input_paulis(
-    channel: qodec.Channel,
+    gadget: qodec.Gadget,
     paulis: Sequence[Pauli],
     *,
     residual_probes: Sequence[Pauli] = (),
 ) -> tuple[BitMatrix, int, int]:
-    program = Program(channel.instructions, channel.isa)
+    program = Program(gadget.circuit.instructions, gadget.circuit.isa)
     propagator = _FramePropagator(len(paulis))
     for shot_index, pauli in enumerate(paulis):
         propagator.apply_pauli_to_shot(shot_index, pauli)

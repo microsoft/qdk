@@ -1,15 +1,17 @@
 """Tests for essential-check profiling."""
+
 import qodec
-from qdk.ec._qodec_compat import check_outcomes, realization
+from qdk.ec._references import outcome_indices
 from qdk.ec.checks import essential_checks_of
 from qdk.ec.readouts import outcomes_flipped_by_anti_observables_of
 
 
-def test_anti_observable_flips_one_per_logical_basis_element(idle_gadget: qodec.Gadget) -> None:
+def test_anti_observable_flips_one_per_logical_basis_element(
+    idle_gadget: qodec.Gadget,
+) -> None:
     flips = outcomes_flipped_by_anti_observables_of(idle_gadget)
     expected_count = sum(
-        len(list(encoding.code.x)) * 2
-        for encoding in realization(idle_gadget).encoding_in
+        len(list(encoding.code.x)) * 2 for encoding in idle_gadget.inputs
     )
     assert len(flips) == expected_count
     for flip in flips:
@@ -17,7 +19,7 @@ def test_anti_observable_flips_one_per_logical_basis_element(idle_gadget: qodec.
 
 
 def test_essential_checks_collapse_duplicate_checks(idle_gadget: qodec.Gadget) -> None:
-    declared = tuple(frozenset(check_outcomes(atoms)) for atoms in idle_gadget.checks)
+    declared = tuple(frozenset(outcome_indices(atoms)) for atoms in idle_gadget.checks)
     essential = essential_checks_of(idle_gadget)
     assert len(set(essential)) == len(essential)
     assert len(set(essential)) <= len(set(declared))

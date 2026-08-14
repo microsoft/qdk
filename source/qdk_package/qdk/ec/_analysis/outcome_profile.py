@@ -6,7 +6,8 @@ from dataclasses import dataclass
 
 import qodec
 
-from .._qodec_compat import check_outcomes, observables_as_xor_map
+from .._readouts import observables_as_xor_map
+from .._references import outcome_indices
 from .essential_checks import essential_checks_of
 
 
@@ -19,7 +20,7 @@ class OutcomeProfile:
 def outcome_profile_of(
     gadget: qodec.Gadget, *, essential: bool = True
 ) -> OutcomeProfile:
-    declared = tuple(frozenset(check_outcomes(atoms)) for atoms in gadget.checks)
+    declared = tuple(frozenset(outcome_indices(atoms)) for atoms in gadget.checks)
     checks = essential_checks_of(gadget, checks=declared) if essential else declared
     observables = tuple(
         (index, frozenset(outcomes))

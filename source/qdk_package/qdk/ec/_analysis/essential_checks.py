@@ -5,7 +5,7 @@ from __future__ import annotations
 from binar import BitMatrix
 import qodec
 
-from .._qodec_compat import check_outcomes, realization
+from .._references import outcome_indices
 from .propagation.interpreter import propagate_input_paulis
 from .propagation.pauli_remap import flat_logical_paulis
 
@@ -13,11 +13,10 @@ from .propagation.pauli_remap import flat_logical_paulis
 def outcomes_flipped_by_anti_observables_of(
     gadget: qodec.Gadget,
 ) -> list[frozenset[int]]:
-    channel = realization(gadget)
-    input_paulis = flat_logical_paulis(channel.encoding_in)
+    input_paulis = flat_logical_paulis(gadget.inputs)
     if not input_paulis:
         return []
-    deltas, hidden_count, outcome_count = propagate_input_paulis(channel, input_paulis)
+    deltas, hidden_count, outcome_count = propagate_input_paulis(gadget, input_paulis)
     return [
         frozenset(
             outcome
@@ -34,7 +33,7 @@ def essential_checks_of(
     checks: tuple[frozenset[int], ...] | None = None,
 ) -> tuple[frozenset[int], ...]:
     checks_tuple = (
-        tuple(frozenset(check_outcomes(atoms)) for atoms in gadget.checks)
+        tuple(frozenset(outcome_indices(atoms)) for atoms in gadget.checks)
         if checks is None
         else tuple(frozenset(check) for check in checks)
     )

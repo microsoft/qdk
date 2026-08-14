@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 
 import qodec
 
-from ._qodec_compat import set_gadget_readouts
+from ._readouts import set_gadget_readouts
 from .checks import profile_of
 
 

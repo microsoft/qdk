@@ -27,13 +27,8 @@ from .compilers.recursive_lowering import (
     _remap_call,
 )
 from .results import Batch
-from .._qodec_compat import (
-    check_outcomes,
-    observable_names,
-    outcome_indices,
-    realization,
-    _readout_equation,
-)
+from .._readouts import observable_names, readout_equation
+from .._references import outcome_indices
 from ._coerce import coerce_program
 from ._qubit_alloc import PhysicalQubitAllocator, remap_call_source
 from ._recursive_emit import (
@@ -80,7 +75,7 @@ class StimEmitter:
 
         The recursive path targets the *fully declared* subset: gadgets
         whose decoding surface is expressed through declared
-        ``body.readouts`` (positional or observe-named), ``checks``,
+        ``circuit.readouts`` (positional or observe-named), ``checks``,
         ``frames``, and ``readouts``. Features such as ``capture`` /
         ``assume`` readouts, undeclared frames, or flags on
         non-bottom gadgets raise ``NotImplementedError``. Single-
@@ -275,8 +270,8 @@ class StimEmitter:
 
     def _load_circuit(self, mnemonic: str) -> stim.Circuit:
         if mnemonic not in self._raw_circuits:
-            channel = realization(self._stim_translation.gadgets[mnemonic])
-            circuit = stim.Circuit(channel.body)
+            gadget = self._stim_translation.gadgets[mnemonic]
+            circuit = stim.Circuit(gadget.circuit.source)
             _reject_source_metadata(circuit, mnemonic)
             self._raw_circuits[mnemonic] = circuit
         return self._raw_circuits[mnemonic]
@@ -323,10 +318,9 @@ class StimEmitter:
                     f"{self._stim_target_isa.name!r}"
                 )
             gadget = self._stim_translation.gadgets[mnemonic]
-            channel = realization(gadget)
             base_circuit = self._load_circuit(mnemonic)
 
-            num_needed = _virtual_input_count(channel)
+            num_needed = _virtual_input_count(gadget)
             if num_needed > virtual_records_available:
                 padding = num_needed - virtual_records_available
                 # MPAD args are *assertion values* for each padding slot
@@ -340,7 +334,7 @@ class StimEmitter:
             noisy_circuit = _inject_noise(base_circuit, self._noise)
             remapped_circuit = remap_call_source(
                 noisy_circuit,
-                channel,
+                gadget,
                 call,
                 allocator,
             )
@@ -443,7 +437,7 @@ class StimEmitter:
             base_circuit = self._load_circuit(call.mnemonic)
             noisy_circuit = _inject_noise(base_circuit, self._noise)
             remapped_circuit = remap_call_source(
-                noisy_circuit, realization(gadget), call, state.allocator
+                noisy_circuit, gadget, call, state.allocator
             )
             state.combined += remapped_circuit
             measurement_count = remapped_circuit.num_measurements
@@ -466,7 +460,7 @@ class StimEmitter:
             )
             child_translation = self._codec.layers[level + 1]
             body_prov = []
-            for body_call in realization(gadget).instructions:
+            for body_call in gadget.circuit.instructions:
                 child_call = _remap_call(body_call, remap)
                 child_prov = self._emit_call(state, child_call, level + 1)
                 child_gadget = child_translation.gadgets[child_call.mnemonic]
@@ -601,9 +595,9 @@ def _build_logical_observable_mask(
     return np.array(mask, dtype=np.bool_)
 
 
-def _virtual_input_count(channel: qodec.Channel) -> int:
+def _virtual_input_count(gadget: qodec.Gadget) -> int:
     count = 0
-    for encoding in channel.encoding_in:
+    for encoding in gadget.inputs:
         count += len(encoding.code.stabilizers)
     return count
 
@@ -660,15 +654,14 @@ def _append_gadget_directives(
     *,
     emit_flags: bool = True,
 ) -> int:
-    channel = realization(gadget)
     n = channel_measurement_count
-    stab_offset_from_end = _stab_offset_from_end_map(channel)
+    stab_offset_from_end = _stab_offset_from_end_map(gadget)
 
     for check in gadget.checks:
         if _has_out_stab(check):
             continue
         targets: list[stim.GateTarget] = []
-        for outcome in check_outcomes(check):
+        for outcome in outcome_indices(check):
             targets.append(stim.target_rec(-(n - outcome)))
         for atom in check:
             ref = _parse_stab_in_atom(atom)
@@ -693,7 +686,7 @@ def _append_gadget_directives(
     observables = observable_names(gadget)
     for position, _name in enumerate(observables):
         readout_records = _resolve_observable_records(
-            _readout_equation(gadget.readouts[position]), frames
+            readout_equation(gadget.readouts[position]), frames
         )
         rec_targets = [
             stim.target_rec(-(frames.global_measurement_count - record))
@@ -712,7 +705,7 @@ def _append_gadget_directives(
         # column layout matches observable_names() followed by the flags.
         for flag_readout in list(gadget.readouts)[len(observables) :]:
             flag_records = _resolve_observable_records(
-                _readout_equation(flag_readout), frames
+                readout_equation(flag_readout), frames
             )
             rec_targets = [
                 stim.target_rec(-(frames.global_measurement_count - record))
@@ -736,7 +729,7 @@ def _append_gadget_directives(
 def _resolve_observable_records(atoms: list[str], frames: _FrameContext) -> set[int]:
     """Absolute records whose XOR carries an observable readout's value.
 
-    Resolves three atom kinds: ``body.readouts[k]`` (this gadget's own
+    Resolves three atom kinds: ``circuit.readouts[k]`` (this gadget's own
     measurement, at ``body_base + k``); ``in.<op>.stabilizers[i]`` (via the
     stabilizer frame map); and ``in.<op>.(x|z)[i]`` (via the logical frame
     map — the accumulated Pauli frame of a rotating logical). An unseeded
@@ -862,13 +855,13 @@ def _update_frame_map(
             for ref in (_parse_stab_in_atom(atom) for atom in check)
             if ref is not None
         ]
-        record_declaration(out_refs, list(check_outcomes(check)), in_refs)
+        record_declaration(out_refs, list(outcome_indices(check)), in_refs)
 
     frame_map.update(new_entries)
 
 
-def _stab_offset_from_end_map(channel: object) -> dict[tuple[int, int], int]:
-    encodings = list(channel.encoding_in)  # type: ignore[attr-defined]
+def _stab_offset_from_end_map(gadget: qodec.Gadget) -> dict[tuple[int, int], int]:
+    encodings = list(gadget.inputs)
     total = sum(len(e.code.stabilizers) for e in encodings)
     result: dict[tuple[int, int], int] = {}
     position = 0

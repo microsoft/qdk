@@ -4,11 +4,11 @@ The module's heavy logic is exercised through `audit` and the C4 demo;
 this file pins the public surface (`profile_of`, `simulate_channel`,
 `Profile`) so a refactor cannot accidentally remove or rename them.
 """
+
 from __future__ import annotations
 
 from qdk.ec.checks import Profile, profile_of
 from qdk.ec._analysis.propagation import simulate_channel
-from qdk.ec._qodec_compat import realization
 from ec_tests.testing.qodecs import c4
 
 
@@ -31,17 +31,17 @@ def test_profile_of_idle_round_finds_four_stabilizer_checks() -> None:
     assert len(profile.checks) == 4
 
 
-def test_simulate_channel_with_channel_returns_simulation() -> None:
+def test_simulate_channel_returns_simulation() -> None:
     codec = c4()
     gadget = codec.layers[0].gadgets["idle"]
-    sim = simulate_channel(realization(gadget))
+    sim = simulate_channel(gadget)
     assert sim.simulation.outcome_count > 0
 
 
-def test_simulate_channel_with_gadget_records_objective_outcomes() -> None:
-    """Passing a gadget tells `simulate_channel` to also probe each
+def test_simulate_channel_with_objective_records_objective_outcomes() -> None:
+    """`with_objective` tells `simulate_channel` to also probe each
     objective `Observe` Pauli after the walk."""
     codec = c4()
     gadget = codec.layers[0].gadgets["measure_zz"]
-    sim = simulate_channel(gadget=gadget)
+    sim = simulate_channel(gadget, with_objective=True)
     assert len(sim.objective_outcomes) == 2
