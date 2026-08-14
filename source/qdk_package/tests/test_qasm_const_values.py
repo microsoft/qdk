@@ -144,9 +144,15 @@ def test_angle_radians_are_computed_from_the_fixed_point_pair() -> None:
 
 
 def test_angle_radians_stay_within_one_turn() -> None:
-    for size in (1, 2, 4, 8, 53):
+    for size in (1, 2, 4, 8, 53, 64):
         largest = semantic.Angle((1 << size) - 1, size)
         assert 0.0 <= largest.radians < 2 * math.pi
+
+
+@pytest.mark.parametrize(("value", "size"), [(0, 0), (1, 65), (4, 2)])
+def test_an_angle_rejects_invalid_fixed_point_pairs(value: int, size: int) -> None:
+    with pytest.raises(ValueError):
+        semantic.Angle(value, size)
 
 
 @pytest.mark.parametrize(

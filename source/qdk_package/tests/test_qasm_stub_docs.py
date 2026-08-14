@@ -16,34 +16,24 @@ them, one per layer, rather than in the shared ``qdk/_native.pyi``.
 from __future__ import annotations
 
 import ast
+import importlib
+import inspect
 import pathlib
+import re
 from typing import Any, Iterator
 
-from qdk.openqasm import parser, semantic
+import qdk.openqasm as openqasm
+
+parser = importlib.import_module("qdk.openqasm.parser")
+semantic = importlib.import_module("qdk.openqasm.semantic")
 
 _QASM_PACKAGE = pathlib.Path(__file__).resolve().parents[1] / "qdk" / "openqasm"
 _SYNTAX_STUB = _QASM_PACKAGE / "_native_syntax.pyi"
 _SEMANTIC_STUB = _QASM_PACKAGE / "_native_semantic.pyi"
-
-# Documented on the base class that declares them, not on every subclass.
-_INHERITED = {"span", "annotations", "ty", "const_value", "symbol", "name", "is_const"}
-_AUXILIARY_CLASSES = {
-    "syntax": {
-        "RangeDefinition",
-        "DiscreteSet",
-        "IndexList",
-        "SwitchCase",
-        "SubroutineParameter",
-    },
-    "semantic": {
-        "QuantumGateModifier",
-        "RangeDefinition",
-        "DiscreteSet",
-        "SwitchCase",
-        "SubroutineParameter",
-        "GateParameter",
-    },
-}
+_NATIVE_STUB = _QASM_PACKAGE.parent / "_native.pyi"
+_INTERPRETER_RS = _QASM_PACKAGE.parents[1] / "src" / "interpreter.rs"
+_SHARED_NATIVE_CLASSES = ("OutputSemantics", "ProgramType", "QasmError")
+_SHARED_NATIVE_ENUMS = ("OutputSemantics", "ProgramType")
 
 
 def _stub_module(path: pathlib.Path) -> ast.Module:
@@ -65,6 +55,46 @@ def _stub_classes() -> dict[str, dict[str, ast.ClassDef]]:
     return {"syntax": syntax, "semantic": {**syntax, **semantic_only}}
 
 
+def _native_stub_classes() -> dict[str, ast.ClassDef]:
+    return _class_defs(_stub_module(_NATIVE_STUB))
+
+
+def _stub_enum_member_docs(cls: ast.ClassDef) -> dict[str, str]:
+    docs: dict[str, str] = {}
+    for index, item in enumerate(cls.body[:-1]):
+        following = cls.body[index + 1]
+        if (
+            isinstance(item, ast.AnnAssign)
+            and isinstance(item.target, ast.Name)
+            and isinstance(following, ast.Expr)
+            and isinstance(following.value, ast.Constant)
+            and isinstance(following.value.value, str)
+        ):
+            docs[item.target.id] = inspect.cleandoc(following.value.value)
+    return docs
+
+
+def _rust_enum_member_docs(enum_name: str) -> dict[str, str]:
+    source = _INTERPRETER_RS.read_text(encoding="utf-8")
+    match = re.search(
+        rf"\b(?:pub\(crate\)|pub) enum {enum_name} \{{(.*?)\n\}}", source, re.S
+    )
+    assert match is not None, f"Rust enum {enum_name} not found"
+
+    docs: dict[str, str] = {}
+    pending: list[str] = []
+    for line in match.group(1).splitlines():
+        stripped = line.strip()
+        if stripped.startswith("///"):
+            pending.append(stripped.removeprefix("///").removeprefix(" "))
+        elif variant := re.fullmatch(r"(\w+),", stripped):
+            docs[variant.group(1)] = "\n".join(pending)
+            pending = []
+        elif stripped and not stripped.startswith("#["):
+            pending = []
+    return docs
+
+
 def _stub_properties(cls: ast.ClassDef) -> dict[str, str | None]:
     return {
         item.name: ast.get_docstring(item)
@@ -76,9 +106,18 @@ def _stub_properties(cls: ast.ClassDef) -> dict[str, str | None]:
     }
 
 
-def _comparable_docstring(docstring: str) -> str:
-    """Normalize Rustdoc and reStructuredText inline-code delimiters."""
-    return " ".join(docstring.replace("``", "`").split())
+def _stub_public_methods(cls: ast.ClassDef) -> dict[str, str | None]:
+    return {
+        item.name: ast.get_docstring(item)
+        for item in cls.body
+        if isinstance(item, ast.FunctionDef)
+        and not item.name.startswith("_")
+        and item.name != "children"
+        and not any(
+            isinstance(decorator, ast.Name) and decorator.id == "property"
+            for decorator in item.decorator_list
+        )
+    }
 
 
 def _property_callable_mismatches(
@@ -135,8 +174,31 @@ def _runtime_accessors(cls: type) -> dict[str, str | None]:
     return {
         name: getattr(getattr(cls, name), "__doc__", None)
         for name in vars(cls)
-        if not name.startswith("_") and name != "children" and name not in _INHERITED
+        if not name.startswith("_") and name != "children"
     }
+
+
+def _class_doc_mismatches(
+    stub: dict[str, dict[str, ast.ClassDef]] | None = None,
+) -> list[str]:
+    """Find exported native classes whose runtime and stub docs differ."""
+    if stub is None:
+        stub = _stub_classes()
+    problems: list[str] = []
+    for layer, module in (("syntax", parser), ("semantic", semantic)):
+        for class_name in module.__all__:
+            cls = getattr(module, class_name, None)
+            stub_cls = stub[layer].get(class_name)
+            if not isinstance(cls, type) or stub_cls is None:
+                continue
+            stub_doc = ast.get_docstring(stub_cls)
+            runtime_doc = cls.__doc__
+            if stub_doc != runtime_doc:
+                problems.append(
+                    f"{layer}.{class_name}: stub says {stub_doc!r}, "
+                    f"runtime says {runtime_doc!r}"
+                )
+    return problems
 
 
 def _mismatches() -> list[str]:
@@ -182,13 +244,25 @@ def _non_node_doc_mismatches(
                     )
                     continue
                 runtime_doc = getattr(getattr(cls, accessor, None), "__doc__", None)
-                if (
-                    runtime_doc is not None
-                    and _comparable_docstring(runtime_doc)
-                    != _comparable_docstring(stub_doc)
-                ):
+                if runtime_doc is not None and runtime_doc != stub_doc:
                     problems.append(
                         f"{layer}.{class_name}.{accessor}: stub says "
+                        f"{stub_doc!r}, runtime says {runtime_doc!r}"
+                    )
+            for method, stub_doc in _stub_public_methods(stub_cls).items():
+                if stub_doc is None:
+                    problems.append(
+                        f"{layer}.{class_name}.{method}: missing method doc"
+                    )
+                    continue
+                runtime_doc = getattr(getattr(cls, method, None), "__doc__", None)
+                if runtime_doc is None:
+                    problems.append(
+                        f"{layer}.{class_name}.{method}: missing runtime method doc"
+                    )
+                elif runtime_doc != stub_doc:
+                    problems.append(
+                        f"{layer}.{class_name}.{method}: stub says "
                         f"{stub_doc!r}, runtime says {runtime_doc!r}"
                     )
     return problems
@@ -196,10 +270,9 @@ def _non_node_doc_mismatches(
 
 def test_stub_property_docstrings_match_the_runtime() -> None:
     problems = _mismatches()
-    assert not problems, (
-        f"{len(problems)} stub/runtime documentation mismatches:\n"
-        + "\n".join(problems)
-    )
+    assert (
+        not problems
+    ), f"{len(problems)} stub/runtime documentation mismatches:\n" + "\n".join(problems)
 
 
 def test_stub_properties_are_not_runtime_methods() -> None:
@@ -217,9 +290,7 @@ def test_property_callable_guard_rejects_a_mutated_stub() -> None:
     )
     children.decorator_list.append(ast.Name(id="property"))
 
-    assert _property_callable_mismatches(stub) == [
-        "syntax.ExternDeclaration.children"
-    ]
+    assert _property_callable_mismatches(stub) == ["syntax.ExternDeclaration.children"]
 
 
 def test_every_node_class_has_a_stub_class_docstring() -> None:
@@ -234,18 +305,49 @@ def test_every_node_class_has_a_stub_class_docstring() -> None:
     assert not missing, f"node classes without a stub docstring: {missing}"
 
 
-def test_auxiliary_node_class_docstrings_match_the_runtime() -> None:
-    stub = _stub_classes()
+def test_all_native_class_docstrings_match_the_runtime() -> None:
+    problems = _class_doc_mismatches()
+    assert not problems, "\n".join(problems)
+
+
+def test_shared_native_class_docstrings_match_the_runtime() -> None:
+    stub = _native_stub_classes()
+    problems = [
+        f"{name}: stub says {ast.get_docstring(stub[name])!r}, "
+        f"runtime says {getattr(openqasm, name).__doc__!r}"
+        for name in _SHARED_NATIVE_CLASSES
+        if ast.get_docstring(stub[name]) != getattr(openqasm, name).__doc__
+    ]
+    assert not problems, "\n".join(problems)
+
+
+def test_shared_native_enum_member_docs_match_rust() -> None:
+    stub = _native_stub_classes()
     problems = []
-    for layer, module in (("syntax", parser), ("semantic", semantic)):
-        for class_name in _AUXILIARY_CLASSES[layer]:
-            runtime_doc = getattr(module, class_name).__doc__
-            stub_doc = ast.get_docstring(stub[layer][class_name])
-            if runtime_doc != stub_doc:
+    for enum_name in _SHARED_NATIVE_ENUMS:
+        stub_docs = _stub_enum_member_docs(stub[enum_name])
+        rust_docs = _rust_enum_member_docs(enum_name)
+        for member, stub_doc in stub_docs.items():
+            rust_doc = rust_docs.get(member)
+            if stub_doc != rust_doc:
                 problems.append(
-                    f"{layer}.{class_name}: stub says {stub_doc!r}, runtime says {runtime_doc!r}"
+                    f"{enum_name}.{member}: stub says {stub_doc!r}, "
+                    f"Rust says {rust_doc!r}"
                 )
     assert not problems, "\n".join(problems)
+
+
+def test_class_documentation_guard_rejects_a_mutated_stub() -> None:
+    stub = _stub_classes()
+    identifier = stub["syntax"]["Identifier"]
+    docstring = identifier.body[0]
+    assert isinstance(docstring, ast.Expr)
+    docstring.value = ast.Constant(value="Changed documentation.")
+
+    assert _class_doc_mismatches(stub) == [
+        "syntax.Identifier: stub says 'Changed documentation.', "
+        f"runtime says {parser.Identifier.__doc__!r}"
+    ]
 
 
 def test_non_node_stub_documentation_matches_public_exports() -> None:

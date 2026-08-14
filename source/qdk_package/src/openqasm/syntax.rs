@@ -120,9 +120,9 @@ fn syntax_type_base(span: Span) -> PyClassInitializer<ClassicalType> {
 
 /// A binary operator.
 ///
-/// Member names are descriptive because the `openqasm3` reference enum names
+/// Member names are descriptive because the ``openqasm3`` reference enum names
 /// its members by symbol, which are not Python identifiers. The OpenQASM
-/// spelling is available as `value`.
+/// spelling is available as ``value``.
 #[pyclass(
     module = "qdk.openqasm.parser",
     eq,
@@ -251,7 +251,7 @@ impl From<ast::BinOp> for BinaryOperator {
 
 #[pymethods]
 impl BinaryOperator {
-    /// The OpenQASM spelling of the operator, for example `">="`.
+    /// The OpenQASM spelling of the operator, for example ``">="``.
     #[getter]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn value(&self) -> &'static str {
@@ -269,7 +269,7 @@ impl BinaryOperator {
     }
 }
 
-/// A unary operator.
+/// A unary operator. The OpenQASM spelling is available as ``value``.
 #[pyclass(
     module = "qdk.openqasm.parser",
     eq,
@@ -318,7 +318,7 @@ impl From<ast::UnaryOp> for UnaryOperator {
 
 #[pymethods]
 impl UnaryOperator {
-    /// The OpenQASM spelling of the operator, for example `"~"`.
+    /// The OpenQASM spelling of the operator, for example ``"~"``.
     #[getter]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn value(&self) -> &'static str {
@@ -449,7 +449,9 @@ impl AccessControl {
     }
 }
 
-/// The direction of an `input` or `output` declaration.
+/// The direction of an ``input`` or ``output`` declaration.
+///
+/// The OpenQASM keyword is available as ``value``.
 #[pyclass(
     module = "qdk.openqasm.parser",
     eq,
@@ -493,7 +495,7 @@ impl From<ast::IOKeyword> for IOKeyword {
 
 #[pymethods]
 impl IOKeyword {
-    /// The `OpenQASM` keyword, either `"input"` or `"output"`.
+    /// The ``OpenQASM`` keyword, either ``"input"`` or ``"output"``.
     #[getter]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn value(&self) -> &'static str {
@@ -512,6 +514,8 @@ impl IOKeyword {
 }
 
 /// The keyword naming a quantum gate modifier.
+///
+/// The OpenQASM keyword is available as ``value``.
 #[pyclass(
     module = "qdk.openqasm.parser",
     eq,
@@ -565,7 +569,7 @@ impl From<&ast::GateModifierKind> for GateModifierName {
 
 #[pymethods]
 impl GateModifierName {
-    /// The `OpenQASM` keyword, for example `"negctrl"`.
+    /// The ``OpenQASM`` keyword, for example ``"negctrl"``.
     #[getter]
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn value(&self) -> &'static str {
@@ -651,10 +655,7 @@ impl Program {
     }
 }
 
-/// A quantum gate modifier (for example `ctrl @`, `inv @`, or `pow(2) @`).
-///
-/// This extends :class:`QASMNode` directly, mirroring the `openqasm3`
-/// `QuantumGateModifier` node, which is neither an expression nor a statement.
+/// A quantum gate modifier (for example ``ctrl @`` or ``pow(2) @``).
 #[pyclass(extends = QASMNode, frozen, module = "qdk.openqasm.parser")]
 pub(crate) struct QuantumGateModifier {
     /// The modifier keyword.
@@ -804,7 +805,7 @@ qasm_node!(@sexpr ParenExpression {
     operand: node,
 });
 qasm_node!(@sexpr DurationOf {
-    /// The statements whose duration is being measured.
+    /// The statements whose duration is being measured, in source order.
     body: list,
     /// The span covering the `durationof` keyword.
     name_span: span,
@@ -843,6 +844,9 @@ qasm_node!(@saux SwitchCase, doc = "One `case` branch of a switch statement." {
 });
 qasm_node!(@saux SubroutineParameter, doc = "One declared parameter of a subroutine." {
     /// The parameter's name.
+    ///
+    /// This is an :class:`Identifier` in valid source, or an
+    /// :class:`ErrorExpression` when parsing recovered a missing name.
     identifier: node,
     /// The parameter's declared type.
     r#type: node,
@@ -1086,8 +1090,14 @@ qasm_node!(@sstmt QuantumGateDefinition {
     /// The identifier naming the gate.
     name: node,
     /// The classical parameters, in source order.
+    ///
+    /// Each item is an :class:`Identifier` in valid source, or an
+    /// :class:`ErrorExpression` where parsing recovered a missing parameter.
     params: list,
     /// The qubit parameters, in source order.
+    ///
+    /// Each item is an :class:`Identifier` in valid source, or an
+    /// :class:`ErrorExpression` where parsing recovered a missing parameter.
     qubits: list,
     /// The statements making up the gate body.
     body: list,
@@ -1102,7 +1112,7 @@ qasm_node!(@sstmt ReturnStatement {
     /// The returned expression, when the subroutine returns a value.
     value: opt,
 });
-/// A read-only OpenQASM `SwitchStatement` node.
+/// A ``switch`` statement.
 #[pyclass(extends = Statement, frozen, module = "qdk.openqasm.parser")]
 pub(crate) struct SwitchStatement {
     /// The expression being switched on.
@@ -1966,7 +1976,9 @@ fn collect_gate_operand(
             out.push(build_ident_or_indexed(py, ident)?);
         }
         ast::GateOperandKind::HardwareQubit(hw) => out.push(build_hardware_qubit(py, hw)?),
-        ast::GateOperandKind::Err => {}
+        ast::GateOperandKind::Err => {
+            out.push(Py::new(py, ErrorExpression::init(Span::from(operand.span)))?.into_any());
+        }
     }
     Ok(())
 }
@@ -1985,7 +1997,9 @@ fn build_index(py: Python<'_>, index: &ast::Index) -> PyResult<Py<PyAny>> {
                         values.push(build_range(py, range)?);
                     }
                     ast::IndexListItem::Expr(expr) => values.push(build_expr(py, expr)?),
-                    ast::IndexListItem::Err => {}
+                    ast::IndexListItem::Err => values.push(
+                        Py::new(py, ErrorExpression::init(Span::from(list.span)))?.into_any(),
+                    ),
                 }
             }
             Ok(Py::new(py, IndexList::init(Span::from(list.span), values))?.into_any())

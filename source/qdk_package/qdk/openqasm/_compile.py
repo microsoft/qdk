@@ -26,9 +26,10 @@ def compile(
     **kwargs: Any,
 ) -> QirInputData:
     """
-    Compiles the OpenQASM source code into a program that can be submitted to a
-    target as QIR (Quantum Intermediate Representation).
-    Either a full program or a callable with arguments must be provided.
+    Compile OpenQASM source or an imported operation to QIR.
+
+    The returned :class:`~qdk.qsharp.QirInputData` can be submitted to a target;
+    ``str(result)`` returns its LLVM IR text.
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
@@ -41,20 +42,22 @@ def compile(
             specified is ``TargetProfile.Adaptive_RIF`` or the value set explicitly via ``qdk.init``.
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
-    :return: The compiled program. Use ``str()`` to get the QIR string.
+    :return: The compiled program. Use ``str()`` to get its LLVM IR text.
     :rtype: QirInputData
     :raises ValueError: If ``source`` is neither a string nor a callable with a
         ``__global_callable`` attribute.
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-    :raises QSharpError: If there is an error compiling the program.
+    :raises qdk.qsharp.QSharpError: If there is an error compiling the program.
 
     Example:
 
     .. code-block:: python
+
         from qdk.openqasm import compile
+
         source = ...
         program = compile(source)
-        with open('myfile.ll', 'w') as file:
+        with open("myfile.ll", "w") as file:
             file.write(str(program))
     """
 

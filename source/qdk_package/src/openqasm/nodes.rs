@@ -28,7 +28,7 @@ use crate::openqasm::repr::{py_items, py_opt_str, py_str};
 use crate::openqasm::span::Span;
 use pyo3::prelude::*;
 
-/// An annotation attached to an `OpenQASM` statement.
+/// An annotation attached to an OpenQASM statement.
 #[pyclass(extends = QASMNode, frozen, module = "qdk.openqasm")]
 pub(crate) struct Annotation {
     /// The annotation's dotted identifier, without the leading `@`.
@@ -84,10 +84,6 @@ impl Annotation {
 }
 
 /// The abstract root of every `OpenQASM` AST node.
-///
-/// This class has no Python constructor; attempting to instantiate it directly
-/// raises `TypeError`. It exists so callers can dispatch on `isinstance` and
-/// read the source :class:`Span` common to all nodes.
 #[pyclass(subclass, frozen, module = "qdk.openqasm")]
 pub(crate) struct QASMNode {
     pub span: Span,
@@ -103,25 +99,16 @@ impl QASMNode {
 }
 
 /// The abstract base of every expression node.
-///
-/// This class has no Python constructor; it exists purely for `isinstance`
-/// dispatch and to root the expression side of the hierarchy.
 #[pyclass(extends = QASMNode, subclass, frozen, module = "qdk.openqasm")]
 pub(crate) struct Expression;
 
 /// The abstract base of every statement node.
-///
-/// This class has no Python constructor; it exists purely for `isinstance`
-/// dispatch and to root the statement side of the hierarchy.
 #[pyclass(extends = QASMNode, subclass, frozen, module = "qdk.openqasm")]
 pub(crate) struct Statement {
     pub(crate) annotations: Vec<Py<Annotation>>,
 }
 
 /// The abstract base of every type node.
-///
-/// This class has no Python constructor; it exists purely for `isinstance`
-/// dispatch over the concrete type nodes such as `IntType` and `ArrayType`.
 #[pyclass(extends = QASMNode, subclass, frozen, module = "qdk.openqasm.parser")]
 pub(crate) struct ClassicalType;
 
@@ -129,9 +116,8 @@ pub(crate) struct ClassicalType;
 impl Statement {
     /// The annotations attached to this statement, in source order.
     ///
-    /// Annotations are also reported by `children()`, ahead of the statement's
-    /// own children, so a generic traversal reaches them without using this
-    /// accessor.
+    /// ``children()`` also returns annotations before the statement's other
+    /// children, so visitors encounter them automatically.
     #[getter]
     fn annotations(&self, py: Python<'_>) -> Vec<Py<Annotation>> {
         self.annotations

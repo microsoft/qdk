@@ -1,15 +1,9 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""Semantic analysis of OpenQASM programs.
+"""Resolve OpenQASM symbols, types, and compile-time values.
 
-This module exposes the QDK's OpenQASM *semantic* analyzer to Python. Unlike a
-purely syntactic parse, semantic analysis resolves identifiers to symbols,
-infers types, and evaluates compile-time constants. The result is a tree of
-richly-typed, read-only nodes rooted at :class:`Program`, together with the
-resolved :class:`SymbolTable`.
-
-Use :func:`analyze` as the entry point::
+Use :func:`analyze` to obtain a read-only semantic tree and symbol table::
 
     from qdk.openqasm import semantic
 
@@ -19,40 +13,26 @@ Use :func:`analyze` as the entry point::
             print(diagnostic.message)
     program = result.program
 
-Every node derives from :class:`QASMNode`. Expressions derive from
-:class:`Expression` (and :class:`SemanticExpression`, which adds ``ty``,
-``const_value``, and ``symbol``); statements derive from :class:`Statement`
-(and :class:`SemanticStatement`, which adds ``annotations``). There is no
-``kind`` discriminant: dispatch on a node's concrete type using
-:func:`isinstance` or ``type(node).__name__``, and traverse uniformly with each
-node's ``children()`` method.
+Use semantic analysis when you need to follow an identifier to its declaration,
+inspect an expression's resolved type, or read a value computed at compile time.
+Use :func:`qdk.openqasm.parser.parse` instead when you need the source-level
+syntax, including unresolved identifiers and type expressions as written.
 
-The node classes present clean, un-prefixed Python names (for example
-``QuantumGate`` and ``BinaryExpression``) and identify this importable module
-as their runtime home. They keep ``Sem``-prefixed identifiers in the native
-layer, where a private namespace avoids collisions with the syntactic layer's
-``openqasm3``-parity names.
-
-Nodes are eagerly materialized and hold no reference back into the analyzer, so
-they may be freely retained, inspected across threads, and traversed after the
-call returns.
+Every semantic expression exposes ``ty``, ``const_value``, and ``symbol``.
+Dispatch on concrete classes such as :class:`BinaryExpression` with
+:func:`isinstance`, traverse nodes with :class:`QASMVisitor` or ``children()``,
+and use :class:`SemanticNode` when an API must distinguish semantic values from
+parser values.
 
 ``AnalysisResult.document`` and ``Program.document`` are the same immutable
 source snapshot. Semantic node, symbol, and diagnostic spans are global,
 half-open UTF-8 byte ranges and can be mapped to their owning source through
 ``result.document.source_map``.
 
-The ``includes`` argument follows the parser's logical resolver contract:
-relative ``.`` and ``..`` components are normalized using ``/``-separated
-logical paths, URI-like schemes remain opaque, and caller keys match exactly
-and case-sensitively. ``stdgates.inc``, ``qelib1.inc``, and the QDK extension
-``qdk.inc`` are built in. Without consulting the resolver, ``qdk.inc`` makes
-the ``mresetz_checked(qubit) -> int`` and
-``postselectz(bit, qubit) -> void`` intrinsics available.
-``mresetz_checked`` returns ``0`` for Zero, ``1`` for One, or ``2`` for qubit
-loss. There is no filesystem or network fallback. Missing sources and callback
-failures become diagnostics and unresolved source entries instead of escaping
-as callback exceptions. Each analysis call creates a fresh resolver bridge.
+The ``includes`` argument accepts the same logical-path mapping or callback as
+:func:`qdk.openqasm.parser.parse`. ``stdgates.inc``, ``qelib1.inc``, and
+``qdk.inc`` are built in; there is no implicit filesystem or network lookup.
+Missing includes and callback failures are reported as diagnostics.
 
 Semantic type and constant values are analysis data. Do not persist their
 human-readable string forms as a stable interchange format.
@@ -64,14 +44,13 @@ values, ``str`` for a bitstring's zero-padded binary digits, :class:`Angle` for
 angles, :class:`Duration` for durations, and ``None`` for arrays and for
 expressions that are not constant.
 
-Resolved types are structured nodes rather than strings. ``Type`` is the base of
-a family covering every resolved kind, so an ``int[8]`` arrives as an
+Resolved types are structured values rather than strings. :class:`Type` is the
+base of the resolved type family, so an ``int[8]`` arrives as an
 :class:`IntType` whose ``size`` is ``8``, and an ``array[int[8], 2, 3]`` arrives
 as an :class:`ArrayType` whose ``base_type`` and ``dimensions`` are separately
 addressable. Dispatch with :func:`isinstance`; ``Type.name`` remains available as
-a textual rendering. Because a resolved type is analysis output rather than
-syntax, it carries no ``span`` and is not a ``QASMNode``, so it does not appear
-in ``children()``.
+a display string. Resolved types have no source span and do not appear in an
+AST node's ``children()``.
 
 Nodes, resolved types, and constant values all compare and hash structurally
 rather than by identity. Two analyses of the same source produce equal,
@@ -82,23 +61,9 @@ where that name landed in the analysis symbol table. One consequence is worth
 knowing: structurally identical nodes taken from different documents also
 compare equal, since neither position nor source document participates.
 
-To reach a node's resolved declaration, use its ``symbol`` accessor, and use
-``Symbol.id`` when you need to address the symbol table directly.
-
-Most class names here are also class names in :mod:`qdk.openqasm.parser`, so a
-value named ``Program``, ``QuantumGate``, or ``IntType`` does not say which tree
-produced it. Use ``isinstance(node, SemanticNode)`` to ask.
-:class:`SemanticNode` is a virtual base with no members: every class in this
-tree is registered against it at import time, and
-:class:`qdk.openqasm.parser.SyntaxNode` is the counterpart for the other tree.
-Resolved types count, even though they are not ``QASMNode``\\ s, because
-``IntType`` and its siblings are exactly the names that collide.
-
-Everything an analysis produces is a :class:`SemanticNode`, except the four
-classes both trees share: :class:`QASMNode`, :class:`Expression`,
-:class:`Statement`, and :class:`Annotation` answer ``False`` to both questions.
-:mod:`qdk.openqasm.parser` explains why that is the right answer, and when the
-predicate is the wrong tool to reach for.
+To reach a referenced declaration, use an expression's ``symbol`` property.
+Use :meth:`SymbolTable.lookup` to find a declaration by name or
+:meth:`SymbolTable.get` to find one by ``Symbol.id``.
 """
 
 from __future__ import annotations

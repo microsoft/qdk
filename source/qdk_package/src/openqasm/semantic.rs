@@ -172,7 +172,11 @@ impl<'a> BuildContext<'a> {
 // Shared value enums
 // ----------------------------------------------------------------------------
 
-/// Whether a cast was written in the source or inserted by the analyzer.
+/// Whether a cast was explicit in the source or added during analysis.
+///
+/// :attr:`EXPLICIT` represents source such as ``int[32](value)``.
+/// :attr:`IMPLICIT` represents a conversion inserted to satisfy OpenQASM type
+/// rules.
 #[pyclass(
     module = "qdk.openqasm.semantic",
     eq,
@@ -220,7 +224,10 @@ impl CastKind {
     }
 }
 
-/// Whether a symbol is a program input, a program output, or neither.
+/// How a symbol participates in an OpenQASM program's public interface.
+///
+/// :attr:`INPUT` and :attr:`OUTPUT` correspond to OpenQASM input and output
+/// declarations. :attr:`DEFAULT` identifies every other declaration.
 #[pyclass(
     module = "qdk.openqasm.semantic",
     eq,
@@ -335,12 +342,10 @@ impl From<sem::TimeUnit> for TimeUnit {
 // Constant value projections
 // ----------------------------------------------------------------------------
 
-/// A constant angle value, stored as OpenQASM stores it: a fixed-point integer.
+/// A constant angle represented as a fixed-point fraction of one turn.
 ///
-/// An `angle[n]` divides a full turn into `2 ** n` equal steps, so `value` counts
-/// steps and `size` is `n`. This class is what a semantic `const_value` holds for
-/// an angle literal. It carries no source position and is not part of the node
-/// tree.
+/// Construction raises ``ValueError`` unless ``size`` is between 1 and 64 and
+/// ``value`` fits in that many bits.
 #[pyclass(
     name = "Angle",
     module = "qdk.openqasm.semantic",
@@ -349,39 +354,39 @@ impl From<sem::TimeUnit> for TimeUnit {
 )]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Angle {
-    /// The fixed-point numerator, in units of a full turn divided by `2 ** size`.
+    /// The numerator of the angle fraction ``value / (2 ** size)`` turns.
     #[pyo3(get)]
     value: u64,
-    /// The number of bits `value` is expressed in.
+    /// The precision, in bits, of the fixed-point :attr:`value`.
     ///
-    /// This is the precision the analyzer folded the constant at, not the width
-    /// written in the source. A `const angle[4]` is folded at the full 53 bits a
-    /// float carries; the declared width is on the expression's `ty`.
+    /// This can differ from the width declared in source. Inspect the
+    /// expression's ``ty`` for the declared type width.
     #[pyo3(get)]
     size: u32,
-    /// The angle in radians, in the range `[0, 2 * pi)`.
+    /// A floating-point approximation in radians, in ``[0, 2 * pi)``.
     ///
-    /// Derived from `value` and `size` rather than stored by the analyzer, so it
-    /// is lossy whenever `size` exceeds the 53 bits a Python float can hold. It
-    /// is `nan` when `size` exceeds 64, which no representable angle reaches.
+    /// Use :attr:`value` and :attr:`size` when exact fixed-point precision
+    /// matters; converting values wider than 53 bits to ``float`` can lose
+    /// precision.
     #[pyo3(get)]
     radians: f64,
 }
 
 impl Angle {
-    fn from_core(angle: qdk_openqasm::stdlib::angle::Angle) -> Self {
-        Angle {
+    fn from_core(angle: qdk_openqasm::stdlib::angle::Angle) -> PyResult<Self> {
+        let radians = angle.try_into().map_err(PyValueError::new_err)?;
+        Ok(Self {
             value: angle.value,
             size: angle.size,
-            radians: angle.try_into().unwrap_or(f64::NAN),
-        }
+            radians,
+        })
     }
 }
 
 #[pymethods]
 impl Angle {
     #[new]
-    fn new(value: u64, size: u32) -> Self {
+    fn new(value: u64, size: u32) -> PyResult<Self> {
         Self::from_core(qdk_openqasm::stdlib::angle::Angle::new(value, size))
     }
 
@@ -405,12 +410,11 @@ impl Angle {
     }
 }
 
-/// A constant duration value: a magnitude paired with the unit it was written in.
+/// A constant duration as a magnitude and its source unit.
 ///
-/// The unit is preserved rather than normalized, because `TimeUnit.DT` is a
-/// backend-defined cycle time that cannot be converted without knowing the
-/// target. This class is what a semantic `const_value` holds for a duration
-/// literal. It carries no source position and is not part of the node tree.
+/// Units are preserved rather than normalized because :attr:`TimeUnit.DT`
+/// depends on the target backend. Interpret or convert :attr:`value` together
+/// with :attr:`unit`.
 #[pyclass(
     name = "Duration",
     module = "qdk.openqasm.semantic",
@@ -419,7 +423,7 @@ impl Angle {
 )]
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct Duration {
-    /// The magnitude, expressed in `unit`.
+    /// The magnitude, expressed in ``unit``.
     #[pyo3(get)]
     value: f64,
     /// The unit the duration was written in.
@@ -457,12 +461,12 @@ impl Duration {
 
 /// The abstract base of every resolved semantic type.
 ///
-/// A resolved type is analysis output, not syntax, so it carries no source
-/// position and is not a `QASMNode`. Dispatch over the concrete subclasses with
-/// `isinstance`; `name` remains available as the textual rendering.
+/// Dispatch over concrete subclasses with ``isinstance`` and inspect their
+/// structured properties instead of parsing :attr:`name`. Resolved types do
+/// not have source positions and are not syntax-tree nodes.
 #[pyclass(name = "Type", module = "qdk.openqasm.semantic", subclass, frozen)]
 pub(crate) struct SemType {
-    /// The type's textual rendering, for example `"int[32]"` or `"qubit"`.
+    /// The type's textual rendering, for example ``"int[32]"`` or ``"qubit"``.
     #[pyo3(get)]
     name: String,
     /// Whether the type is compile-time constant.
@@ -477,7 +481,10 @@ fn sem_type_base(name: String, is_const: bool) -> PyClassInitializer<SemType> {
 
 #[pymethods]
 impl SemType {
-    /// The type's child types.
+    /// The component types nested directly in this type.
+    ///
+    /// For example, an :class:`ArrayType` reports its element type. Scalar
+    /// types return an empty list.
     #[allow(clippy::unused_self)]
     fn children(&self) -> Vec<Py<PyAny>> {
         Vec::new()
@@ -724,10 +731,14 @@ pub(crate) struct SemSymbol {
     /// The span covering the type as written in the source.
     #[pyo3(get)]
     ty_span: Span,
-    /// Whether the symbol is a program input, a program output, or neither.
+    /// How the symbol participates in the program's input or output interface.
     #[pyo3(get)]
     io_kind: IOKind,
-    /// The symbol's const-evaluated value, if it is a constant.
+    /// The symbol's compile-time value, or ``None`` if it is not constant.
+    ///
+    /// Scalar values use ``bool``, ``int``, ``float``, ``complex``, ``str``,
+    /// :class:`Angle`, or :class:`Duration`. Arrays do not currently expose a
+    /// Python constant value.
     #[pyo3(get)]
     const_value: Option<Py<PyAny>>,
 }
@@ -762,7 +773,10 @@ impl SemSymbol {
     }
 }
 
-/// An iterable, read-only projection of the resolved symbol table.
+/// The resolved declarations in an analyzed program.
+///
+/// Iterate over the table to inspect every declaration, or use :meth:`lookup`
+/// and :meth:`get` for name-based and ID-based access.
 #[pyclass(name = "SymbolTable", module = "qdk.openqasm.semantic", frozen)]
 pub(crate) struct SemSymbolTable {
     symbols: Vec<Py<SemSymbol>>,
@@ -780,7 +794,7 @@ impl SemSymbolTable {
         Ok(list.as_any().try_iter()?.into_any().unbind())
     }
 
-    /// Returns the symbol with the given id, or `None`.
+    /// Returns the symbol with the given ``id``, or ``None`` if it is not present.
     fn get(&self, py: Python<'_>, id: u32) -> Option<Py<SemSymbol>> {
         self.symbols
             .iter()
@@ -788,7 +802,7 @@ impl SemSymbolTable {
             .map(|symbol| symbol.clone_ref(py))
     }
 
-    /// Returns the first symbol with the given name, or `None`.
+    /// Returns the first symbol named ``name``, or ``None`` if it is not present.
     fn lookup(&self, py: Python<'_>, name: &str) -> Option<Py<SemSymbol>> {
         self.symbols
             .iter()
@@ -796,7 +810,7 @@ impl SemSymbolTable {
             .map(|symbol| symbol.clone_ref(py))
     }
 
-    /// All :class:`Symbol` views in the table, in id order.
+    /// All :class:`Symbol` values in ID order, equivalent to direct iteration.
     fn symbols(&self, py: Python<'_>) -> Vec<Py<SemSymbol>> {
         self.symbols
             .iter()
@@ -908,11 +922,7 @@ fn subroutine_return_type(
 // Category bases
 // ----------------------------------------------------------------------------
 
-/// The abstract base of every semantic expression node.
-///
-/// This class has no Python constructor; it exists for `isinstance` dispatch and
-/// to carry the resolved `ty`, `const_value`, and (for resolved identifiers)
-/// `symbol` shared by all semantic expressions.
+/// The base of every semantic expression node.
 #[pyclass(
     extends = Expression,
     subclass,
@@ -921,21 +931,25 @@ fn subroutine_return_type(
     module = "qdk.openqasm.semantic"
 )]
 pub(crate) struct SemExpr {
-    /// The resolved type of the expression.
+    /// The expression's resolved type.
     #[pyo3(get)]
     ty: Py<PyAny>,
-    /// The const-evaluated value of the expression, if any.
+    /// The compile-time value of the expression, or ``None`` if it is not constant.
+    ///
+    /// Scalar values use ``bool``, ``int``, ``float``, ``complex``, ``str``,
+    /// :class:`Angle`, or :class:`Duration`. Arrays do not currently expose a
+    /// Python constant value.
     #[pyo3(get)]
     const_value: Option<Py<PyAny>>,
-    /// The resolved symbol for identifier expressions, if any.
+    /// The referenced declaration for an identifier expression, if any.
+    ///
+    /// This is set for :class:`Identifier` and :class:`CapturedIdentifier`
+    /// nodes and is ``None`` for other expression kinds.
     #[pyo3(get)]
     symbol: Option<Py<SemSymbol>>,
 }
 
-/// The abstract base of every semantic statement node.
-///
-/// This class has no Python constructor; it exists for `isinstance` dispatch and
-/// to carry the `annotations` shared by all semantic statements.
+/// The base of every semantic statement node.
 #[pyclass(
     extends = Statement,
     subclass,
@@ -1024,12 +1038,7 @@ impl SemProgram {
 
 // Named per the module-level convention: the Rust identifier keeps its `Sem`
 // prefix while Python sees the un-prefixed `HardwareQubit`.
-/// A hardware-qubit gate operand (for example `$0`).
-///
-/// This extends the semantic expression base so that an operand answers `ty`
-/// whether it was written as a declared qubit or as a hardware qubit. It carries
-/// no const value and no symbol, because a hardware qubit is a physical
-/// reference rather than a declaration.
+/// A hardware-qubit gate operand (for example ``$0``).
 #[pyclass(
     extends = SemExpr,
     frozen,
@@ -1044,6 +1053,7 @@ pub(crate) struct SemHardwareQubit {
 
 #[pymethods]
 impl SemHardwareQubit {
+    /// The node's child nodes. A hardware-qubit reference never has any.
     #[allow(clippy::unused_self)]
     fn children(&self) -> Vec<Py<PyAny>> {
         Vec::new()
@@ -1099,7 +1109,7 @@ qasm_node!(@aux SemSwitchCase = "SwitchCase", doc = "A semantic ``case`` branch 
 qasm_node!(@aux SemSubroutineParameter = "SubroutineParameter", doc = "A semantic subroutine parameter declaration." {
     /// The parameter's name, when analysis resolved one.
     name: val Option<String>,
-    /// The parameter's resolved symbol.
+    /// The parameter's resolved declaration, including its name, type, and span.
     symbol: val Py<SemSymbol>,
     /// The parameter's resolved type.
     r#type: val Py<PyAny>,
@@ -1107,7 +1117,7 @@ qasm_node!(@aux SemSubroutineParameter = "SubroutineParameter", doc = "A semanti
 qasm_node!(@aux SemGateParameter = "GateParameter", doc = "A semantic gate parameter declaration." {
     /// The parameter's name, when analysis resolved one.
     name: val Option<String>,
-    /// The parameter's resolved symbol.
+    /// The parameter's resolved declaration, including its name, type, and span.
     symbol: val Py<SemSymbol>,
     /// The parameter's resolved type.
     r#type: val Py<PyAny>,
@@ -1390,7 +1400,7 @@ qasm_node!(@stmt SemReturn = "ReturnStatement" {
     /// The returned expression, when the subroutine returns a value.
     value: opt,
 });
-/// A read-only OpenQASM `SwitchStatement` node.
+/// A switch statement.
 #[pyclass(
     extends = SemStmt,
     frozen,
@@ -2348,7 +2358,7 @@ fn literal_kind_value(py: Python<'_>, lit: &LiteralKind) -> PyResult<Option<Py<P
         LiteralKind::Complex(value) => PyComplex::from_doubles(py, value.real, value.imag)
             .into_any()
             .unbind(),
-        LiteralKind::Angle(angle) => Angle::from_core(*angle).into_py_any(py)?,
+        LiteralKind::Angle(angle) => Angle::from_core(*angle)?.into_py_any(py)?,
         LiteralKind::Duration(duration) => {
             Duration::new(duration.value, duration.unit.into()).into_py_any(py)?
         }

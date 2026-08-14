@@ -47,8 +47,11 @@ def run(
     **kwargs: Any,
 ) -> List[Any] | str:
     """
-    Runs the given OpenQASM program for the given number of shots.
-    Either a full program or a callable with arguments must be provided.
+    Simulates an OpenQASM program for the requested number of shots.
+
+    ``source`` may be source text or an operation previously created with
+    :func:`import_openqasm`. Each shot starts with an independent simulator
+    state.
     Each shot uses an independent instance of the simulator.
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
@@ -57,19 +60,21 @@ def run(
     :param shots: The number of shots to run. Defaults to ``1024``.
     :type shots: int
     :param *args: The arguments to pass to the callable, if one is provided.
-    :param on_result: A callback function that will be called with each result.
-        Only supported when a callable is provided; raises :class:`~qdk.openqasm.QasmError`
-        if used otherwise.
+    :param on_result: A callback called after each shot with a ``ShotResult``.
+        Only supported when ``source`` is an imported callable.
     :type on_result: Callable
-    :param save_events: If true, the output of each shot will be saved. If false, they will be printed.
-        Only supported when a callable is provided; raises :class:`~qdk.openqasm.QasmError`
-        if used otherwise.
+    :param save_events: If ``True``, capture messages, matrices, and state dumps
+        in each returned ``ShotResult``. Otherwise, display events as they occur
+        and return only each shot's result. Event capture is supported only for
+        an imported callable.
     :type save_events: bool
     :param noise: The noise to use in simulation.
     :type noise: Union[Tuple[float, float, float], PauliNoise, BitFlipNoise, PhaseFlipNoise, DepolarizingNoise, NoiseConfig]
     :param qubit_loss: The probability of qubit loss in simulation.
     :type qubit_loss: float
-    :param as_bitstring: If true, the result registers will be converted to bitstrings.
+    :param as_bitstring: If ``True``, recursively convert arrays containing only
+        Q# measurement results to bitstrings. The surrounding result structure
+        is preserved.
     :type as_bitstring: bool
     :param type: The type of simulator to use. If not specified, the default sparse state vector simulation will be used.
     :param num_qubits: The number of qubits to use for the simulation type "clifford".
@@ -81,12 +86,16 @@ def run(
         - ``search_path`` (str): The optional search path for resolving file references.
         - ``output_semantics`` (OutputSemantics): The output semantics for the compilation.
         - ``seed`` (int): The seed to use for the random number generator.
-    :return: Results or runtime errors. If ``save_events`` is true, a list of ``ShotResult`` values is returned. If ``as_bitstring`` is true, a single result may be returned as a string.
+    :return: One result per shot. With ``save_events=True``, each item is a
+        ``ShotResult`` containing its result and captured events. With
+        ``as_bitstring=True``, result arrays are replaced by strings and the
+        top-level value can itself be a string.
     :rtype: List[Any] | str
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-    :raises QSharpError: If there is an error interpreting the input.
+    :raises qdk.qsharp.QSharpError: If there is an error interpreting the input.
     :raises ValueError: If the number of shots is less than 1.
-    :raises QasmError: If ``on_result`` or ``save_events`` are used when running OpenQASM programs.
+    :raises QasmError: If ``on_result`` or ``save_events`` is used with source
+        text instead of an imported callable.
     """
 
     ipython_helper()

@@ -106,6 +106,163 @@ macro_rules! qasm_eq_fields {
     };
 }
 
+/// Expands to the public Python class documentation for a generated node.
+///
+/// Keep these strings byte-for-byte identical to the corresponding class
+/// docstrings in `_native_syntax.pyi` and `_native_semantic.pyi`.
+macro_rules! qasm_node_doc {
+    (Identifier) => { "An identifier expression (a reference to a name)." };
+    (IndexedIdentifier) => { "An indexed identifier (for example ``a[i]``) in an l-value position." };
+    (HardwareQubit) => { "A hardware-qubit gate operand (for example ``$0``)." };
+    (ErrorExpression) => {
+        "A placeholder inserted when the parser recovers from an invalid expression.\n\nInspect the parse result's diagnostics for the error. The placeholder keeps\nthe recovered tree traversable and identifies the affected source span."
+    };
+    (UnaryExpression) => { "A unary operator expression." };
+    (BinaryExpression) => { "A binary operator expression." };
+    (IntegerLiteral) => { "An integer literal of arbitrary precision." };
+    (FloatLiteral) => { "A floating-point literal." };
+    (ImaginaryLiteral) => { "An imaginary literal, carrying its magnitude." };
+    (BooleanLiteral) => { "A boolean literal." };
+    (BitstringLiteral) => { "A bitstring literal, carrying its value and declared width." };
+    (DurationLiteral) => { "A duration literal, carrying its magnitude and unit." };
+    (ArrayLiteral) => { "An array literal, exposing its elements as children." };
+    (StringLiteral) => { "A string literal." };
+    (FunctionCall) => { "A function-call expression." };
+    (Cast) => { "A type-cast expression." };
+    (IndexExpression) => { "An index expression (for example ``a[i]``)." };
+    (ParenExpression) => { "A parenthesized expression." };
+    (DurationOf) => { "A ``durationof`` expression over a block of statements." };
+    (Concatenation) => { "A concatenation r-value (for example ``a ++ b``)." };
+    (QuantumMeasurement) => { "A measurement r-value (for example ``measure q``)." };
+    (IntType) => { "A signed integer type, optionally sized." };
+    (UintType) => { "An unsigned integer type, optionally sized." };
+    (FloatType) => { "A floating-point type, optionally sized." };
+    (AngleType) => { "An angle type, optionally sized." };
+    (BitType) => { "A bit or bit-register type, optionally sized." };
+    (ComplexType) => { "A complex type, optionally carrying its component float type." };
+    (BoolType) => { "A boolean type." };
+    (DurationType) => { "A duration type." };
+    (StretchType) => { "A stretch type." };
+    (QubitType) => { "A qubit parameter type, optionally sized." };
+    (ErrorType) => { "A type that could not be parsed." };
+    (ArrayType) => { "A sized array type." };
+    (StaticArrayReferenceType) => { "An array reference with statically known dimensions." };
+    (DynArrayReferenceType) => { "An array reference with a dynamic number of dimensions." };
+    (QubitDeclaration) => { "A qubit declaration statement (for example ``qubit q;``)." };
+    (AliasStatement) => { "An alias declaration statement (``let``)." };
+    (ClassicalAssignment) => { "A classical assignment statement (``a = b;``)." };
+    (CompoundAssignment) => { "A compound assignment statement (for example ``a += b;``)." };
+    (QuantumBarrier) => { "A ``barrier`` statement." };
+    (Box) => { "A ``box`` statement." };
+    (BreakStatement) => { "A ``break`` statement." };
+    (CompoundStatement) => { "A block of statements (``{ ... }``)." };
+    (CalibrationStatement) => { "A ``cal`` calibration block." };
+    (CalibrationGrammarDeclaration) => { "A ``defcalgrammar`` declaration." };
+    (ClassicalDeclaration) => { "A classical variable declaration." };
+    (ConstantDeclaration) => { "A ``const`` declaration." };
+    (ContinueStatement) => { "A ``continue`` statement." };
+    (SubroutineDefinition) => { "A ``def`` subroutine definition." };
+    (CalibrationDefinition) => { "A ``defcal`` calibration definition." };
+    (DelayInstruction) => { "A ``delay`` instruction." };
+    (EndStatement) => { "An ``end`` statement." };
+    (ExpressionStatement) => { "A statement that evaluates an expression." };
+    (ExternDeclaration) => { "An ``extern`` declaration." };
+    (ForInLoop) => { "A ``for`` loop over an iterable set." };
+    (BranchingStatement) => { "An ``if`` / ``else`` branching statement." };
+    (QuantumGate) => { "A quantum gate call." };
+    (QuantumPhase) => { "A ``gphase`` statement." };
+    (Include) => { "An ``include`` directive." };
+    (IODeclaration) => { "An ``input`` / ``output`` declaration." };
+    (QuantumMeasurementStatement) => { "A measurement statement (for example ``c = measure q;``)." };
+    (Pragma) => {
+        "A ``pragma`` directive.\n\n:attr:`command` contains all text after the keyword. :attr:`name` and\n:attr:`value` split that text into its leading dotted identifier and the\nremaining content for convenient inspection."
+    };
+    (QuantumGateDefinition) => {
+        "A ``gate`` definition.\n\n``params`` and ``qubits`` hold :class:`Identifier` nodes. A parameter the\nparser recovered from is an :class:`ErrorExpression` at the span it would\nhave occupied."
+    };
+    (QuantumReset) => { "A ``reset`` statement." };
+    (ReturnStatement) => { "A ``return`` statement." };
+    (WhileLoop) => { "A ``while`` loop." };
+    (ErrorStatement) => {
+        "A placeholder inserted when the parser recovers from an invalid statement.\n\nInspect the parse result's diagnostics for the error. The placeholder keeps\nthe recovered tree traversable and identifies the affected source span."
+    };
+    (SemIntType) => { "A resolved signed integer type." };
+    (SemUintType) => { "A resolved unsigned integer type." };
+    (SemFloatType) => { "A resolved floating-point type." };
+    (SemAngleType) => { "A resolved angle type." };
+    (SemComplexType) => { "A resolved complex type." };
+    (SemBitType) => { "A resolved single-bit type." };
+    (SemBoolType) => { "A resolved boolean type." };
+    (SemDurationType) => { "A resolved duration type." };
+    (SemStretchType) => { "A resolved stretch type." };
+    (SemQubitType) => { "A resolved single-qubit type." };
+    (SemHardwareQubitType) => { "A resolved hardware qubit type, as written ``$0``." };
+    (SemBitArrayType) => { "A resolved bit register type." };
+    (SemQubitArrayType) => { "A resolved qubit register type." };
+    (SemArrayType) => { "A resolved array type." };
+    (SemStaticArrayReferenceType) => { "A resolved array reference whose dimension lengths are all known." };
+    (SemDynArrayReferenceType) => { "A resolved array reference declared with ``#dim``, so only its rank is known." };
+    (SemGateType) => { "A resolved gate type." };
+    (SemFunctionType) => { "A resolved subroutine signature." };
+    (SemRangeType) => { "The resolved type of a range expression." };
+    (SemSetType) => { "The resolved type of a discrete set expression." };
+    (SemVoidType) => { "The resolved type of an expression that yields no value." };
+    (SemErrorType) => { "The resolved type analysis assigns when it could not determine one." };
+    (SemErrExpr) => {
+        "A placeholder for an expression semantic analysis could not resolve.\n\nInspect the analysis result's diagnostics for the cause. The placeholder\npreserves the source span so tools can continue traversing the recovered\ntree."
+    };
+    (SemResolvedIdent) => { "A reference to a resolved symbol." };
+    (SemCapturedResolvedIdent) => { "A reference to a symbol captured from an enclosing scope." };
+    (SemUnaryOpExpr) => { "A unary operator expression." };
+    (SemBinaryOpExpr) => {
+        "A binary operator expression."
+    };
+    (SemLiteral) => { "A literal expression." };
+    (SemFunctionCall) => { "A call to a resolved function." };
+    (SemBuiltinFunctionCall) => { "A call to a built-in function." };
+    (SemCast) => { "A type cast expression." };
+    (SemIndexedExpr) => { "An indexing expression." };
+    (SemParen) => { "A parenthesized expression." };
+    (SemMeasure) => { "A measurement expression." };
+    (SemRuntimeSizeof) => { "A runtime ``sizeof`` expression." };
+    (SemEvaluatedDurationof) => { "An evaluated ``durationof`` expression." };
+    (SemConcat) => { "A concatenation expression." };
+    (SemAliasDecl) => { "An alias declaration statement." };
+    (SemAssign) => { "An assignment statement." };
+    (SemBarrier) => { "A barrier statement." };
+    (SemBox) => { "A box statement." };
+    (SemBlock) => { "A block of statements." };
+    (SemBreak) => { "A break statement." };
+    (SemCalibration) => { "A calibration statement." };
+    (SemCalibrationGrammar) => { "A calibration grammar statement." };
+    (SemClassicalDecl) => { "A classical variable declaration statement." };
+    (SemContinue) => { "A continue statement." };
+    (SemDef) => { "A subroutine definition statement." };
+    (SemDefCal) => { "A ``defcal`` statement." };
+    (SemDelay) => { "A delay statement." };
+    (SemEnd) => { "An end statement." };
+    (SemExprStmt) => { "An expression statement." };
+    (SemExternDecl) => { "An extern declaration statement." };
+    (SemForLoop) => { "A ``for`` loop statement." };
+    (SemGateCall) => { "A gate call statement." };
+    (SemIfStmt) => { "An ``if`` statement." };
+    (SemIndexedAssign) => { "An indexed assignment statement." };
+    (SemInputDeclaration) => { "An input declaration statement." };
+    (SemOutputDeclaration) => { "An output declaration statement." };
+    (SemPragma) => {
+        "A pragma statement.\n\n:attr:`command` contains all text after the keyword. :attr:`name` and\n:attr:`value` split that text into its leading dotted identifier and the\nremaining content for convenient inspection."
+    };
+    (SemGateDefinition) => { "A quantum gate definition statement." };
+    (SemQubitDecl) => { "A qubit declaration statement." };
+    (SemQubitArrayDecl) => { "A qubit array declaration statement." };
+    (SemReset) => { "A reset statement." };
+    (SemReturn) => { "A return statement." };
+    (SemWhileLoop) => { "A ``while`` loop statement." };
+    (SemErrStmt) => {
+        "A placeholder for a statement semantic analysis could not resolve.\n\nInspect the analysis result's diagnostics for the cause. The placeholder\npreserves the source span so tools can continue traversing the recovered\ntree."
+    };
+}
+
 /// Generates a semantic AST leaf `#[pyclass]` and its accessors.
 ///
 /// See the [module documentation](self) for the field-kind and category
@@ -296,7 +453,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
+        #[doc = qasm_node_doc!($name)]
         #[pyclass(extends = SemExpr, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -357,7 +514,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
+        #[doc = qasm_node_doc!($name)]
         #[pyclass(extends = SemStmt, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -419,7 +576,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
+        #[doc = qasm_node_doc!($name)]
         #[pyclass(extends = Expression, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -477,7 +634,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
+        #[doc = qasm_node_doc!($name)]
         #[pyclass(extends = Statement, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -539,7 +696,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
+        #[doc = concat!("An analyzed OpenQASM `", $($disp)*, "` component.")]
         #[pyclass(extends = QASMNode, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -649,7 +806,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` node.")]
+        #[doc = concat!("A parsed OpenQASM `", $($disp)*, "` component.")]
         #[pyclass(extends = QASMNode, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -759,7 +916,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` type node.")]
+        #[doc = qasm_node_doc!($name)]
         #[pyclass(extends = ClassicalType, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*
@@ -817,7 +974,7 @@ macro_rules! qasm_node {
         { $($sf:tt)* }, { $($param:tt)* }, { $($ctor:tt)* },
         { $($n:ident,)* }, { $($o:ident,)* }, { $($l:ident,)* }, { $(($rk:ident, $rn:ident),)* }
     ) => {
-        #[doc = concat!("A read-only OpenQASM `", $($disp)*, "` resolved type.")]
+        #[doc = qasm_node_doc!($name)]
         #[pyclass(extends = SemType, frozen, $($meta)*)]
         pub(crate) struct $name {
             $($sf)*

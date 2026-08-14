@@ -5,7 +5,11 @@
 
 use pyo3::prelude::*;
 
-/// A half-open `[lo, hi)` byte range into a source string.
+/// A hashable, half-open UTF-8 byte range ``[lo, hi)``.
+///
+/// Spans use global offsets across the entry source and all resolved includes.
+/// Use :meth:`SourceMap.range_from_span` to identify the source file and
+/// convert the offsets to source-local lines and columns.
 #[pyclass(module = "qdk.openqasm.parser", frozen, eq, hash, skip_from_py_object)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct Span {

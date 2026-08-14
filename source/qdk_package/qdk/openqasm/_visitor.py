@@ -102,7 +102,13 @@ class QASMVisitor:
     """
 
     def visit(self, node: Any, context: Any = None) -> Any:
-        """Dispatch to a node callback, optionally carrying traversal context."""
+        """Dispatch to the callback for ``node`` and return its result.
+
+        ``context`` is passed to callbacks that accept a second argument. This
+        lets callers carry state through a traversal without storing it on the
+        visitor. Callbacks that accept only ``node`` continue to work when no
+        context is supplied.
+        """
         method = getattr(self, f"visit_{type(node).__name__}", self.generic_visit)
         accepts = _accepts_context(method)
         if accepts is False or (accepts is None and context is None):
@@ -114,6 +120,8 @@ class QASMVisitor:
 
         Statement nodes report their annotations from ``children()``, ahead of
         their own child nodes, so annotations need no separate traversal here.
+        Child callback return values are ignored; collect results in ``context``
+        or on the visitor instance.
         """
         for child in node.children():
             self.visit(child, context)

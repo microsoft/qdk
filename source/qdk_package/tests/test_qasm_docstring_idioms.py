@@ -16,6 +16,7 @@ import inspect
 import re
 from typing import Any, Iterator
 
+import qdk.openqasm as openqasm
 from qdk.openqasm import parser, semantic, source
 
 # Rust-only documentation idioms. Rust renders the first two as links; Python
@@ -27,7 +28,11 @@ _RUST_IDIOMS = {
     "private Sem-prefixed name": re.compile(r"\bSem[A-Z]\w*"),
 }
 
-_SWEPT_MODULES = (parser, semantic, source)
+_SWEPT_MODULES = (openqasm, parser, semantic, source)
+_UNDOCUMENTABLE_EXPORTS = {
+    (parser.__name__, "IncludeResolver"),
+    (semantic.__name__, "IncludeResolver"),
+}
 
 
 def _rust_idiom_hits(label: str, doc: str | None) -> list[str]:
@@ -78,6 +83,36 @@ def test_no_rust_doc_idiom_leaks_into_any_public_docstring() -> None:
     ]
     assert not leaks, "Rust documentation idioms in public docstrings:\n" + "\n".join(
         leaks
+    )
+
+
+def test_public_classes_functions_and_methods_have_docstrings() -> None:
+    """Keep every help-visible API documented, except runtime type aliases."""
+    missing = []
+    for module in _SWEPT_MODULES:
+        if not inspect.getdoc(module):
+            missing.append(module.__name__)
+        for name in module.__all__:
+            if (module.__name__, name) in _UNDOCUMENTABLE_EXPORTS:
+                continue
+            value = getattr(module, name)
+            if (
+                inspect.ismodule(value) or isinstance(value, type) or callable(value)
+            ) and not inspect.getdoc(value):
+                missing.append(f"{module.__name__}.{name}")
+            if not isinstance(value, type):
+                continue
+            for member_name, member in _own_members(value):
+                if member_name.startswith("_"):
+                    continue
+                if (
+                    isinstance(member, (property, staticmethod, classmethod))
+                    or inspect.isroutine(member)
+                ) and not inspect.getdoc(member):
+                    missing.append(f"{module.__name__}.{name}.{member_name}")
+
+    assert not missing, "public OpenQASM APIs without docstrings:\n" + "\n".join(
+        missing
     )
 
 

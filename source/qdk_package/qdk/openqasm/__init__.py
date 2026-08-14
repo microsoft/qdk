@@ -1,58 +1,24 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""OpenQASM tooling for the QDK.
+"""Compile, simulate, and inspect OpenQASM programs.
 
-This module provides functions for compiling, running, estimating, and
-generating circuits from OpenQASM 2.0/3.0 programs.
+For execution workflows, use :func:`run` to simulate a program,
+:func:`compile` to produce QIR, :func:`circuit` to generate a circuit, or
+:func:`import_openqasm` to add declarations to the active QDK context.
+For resource estimation, use :mod:`qdk.qre`; :func:`estimate` is deprecated.
 
-The parser, source, semantic, and serialization APIs are in preview and may
-change between QDK releases.
+For source-analysis workflows, use :func:`parse` to inspect the syntax exactly
+as written, or :func:`analyze` to inspect resolved symbols, types, and constant
+values. The :mod:`parser` and :mod:`semantic` modules export the corresponding
+read-only node classes. :class:`QASMVisitor` walks either tree.
 
-The trees are read-only and their nodes are not ``openqasm3.ast`` objects, so
-reference-parser code that mutates nodes or depends on ``openqasm3`` types does
-not work unchanged.
+Use :func:`dumps` or :func:`dump` to serialize a syntax program to canonical
+OpenQASM. The :mod:`source` module maps node and diagnostic spans back to files,
+lines, and columns.
 
-Key exports:
-
-- :func:`~qdk.openqasm.import_openqasm` — import an OpenQASM program or
-  fragment into the active QDK interpreter context.
-- :func:`~qdk.openqasm.run` — simulate an OpenQASM program for one or more shots.
-- :func:`~qdk.openqasm.compile` — compile an OpenQASM program to QIR for
-  submission to a hardware target.
-- :func:`~qdk.openqasm.circuit` — synthesize a circuit diagram from an
-  OpenQASM program.
-- :func:`~qdk.openqasm.estimate` — estimate the quantum resources required to
-  run an OpenQASM program (deprecated; use :mod:`qdk.qre` instead).
-- :class:`~qdk.openqasm.ProgramType` — controls how the source is interpreted
-  (``Operation``, ``File``, or ``Fragments``).
-- :class:`~qdk.openqasm.OutputSemantics` — controls measurement output
-  semantics during compilation.
-- :class:`~qdk.openqasm.QasmError` — raised when an OpenQASM source cannot
-  be parsed or compiled.
-- :mod:`~qdk.openqasm.parser` provides the syntactic AST: :func:`parse` and
-  the read-only ``openqasm3``-style node classes it produces.
-- :mod:`~qdk.openqasm.semantic` provides the resolved semantic AST:
-  :func:`analyze` and the richly-typed, clean-named node classes it produces
-  (for example :class:`~qdk.openqasm.semantic.QuantumGate` and
-  :class:`~qdk.openqasm.semantic.BinaryExpression`). Both entry points are also
-  re-exported here, so ``qdk.openqasm.parse`` and ``qdk.openqasm.analyze`` work
-  without importing the layer module first.
-- :class:`~qdk.openqasm.QASMVisitor` is a read-only visitor base for
-  walking either the syntactic or semantic AST. Like the shared node classes
-  below it belongs to neither layer, so it is re-exported here and from both.
-- :class:`~qdk.openqasm.QASMNode`, :class:`~qdk.openqasm.Expression`,
-  :class:`~qdk.openqasm.Statement`, and :class:`~qdk.openqasm.Annotation` are
-  the classes both layers use. They live here rather than in either layer's
-  module, and are re-exported from both for convenience.
-- :class:`~qdk.openqasm.parser.SyntaxNode` and
-  :class:`~qdk.openqasm.semantic.SemanticNode` ask which tree a node came
-  from. Most class names appear in both layers, so a value named ``Program``
-  or ``IntType`` is otherwise ambiguous. The four shared classes above belong
-  to neither and answer ``False`` to both.
-- :func:`dumps` and :func:`dump` produce canonical OpenQASM source for a whole
-  syntactic program. Unlike ``openqasm3.dumps`` they do not accept an
-  arbitrary node; the parameter may widen later.
+The parsing, semantic-analysis, source, and serialization APIs are in preview
+and may change between QDK releases.
 """
 
 from . import parser, semantic, source
