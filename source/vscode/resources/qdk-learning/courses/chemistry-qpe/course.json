@@ -1,8 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "chemistry-active-space",
   "title": "Ground-State Molecular Energies with QPE",
-  "shortDescription": "Port of the QDK/Chemistry ground-state QPE tutorial to the QDK Learning notebook format.",
+  "shortDescription": "Estimate a molecule's ground-state energy using quantum phase estimation with the QDK/Chemistry library.",
   "units": [
     {
       "id": "overview",
@@ -41,10 +40,6 @@
     }
   ],
   "environment": {
-    "importChecks": [
-      "qdk_chemistry",
-      "qdk_chemistry.utils.cubegen",
-      "pyscf"
-    ]
+    "importChecks": ["qdk_chemistry", "qdk_chemistry.utils.cubegen", "pyscf"]
   }
 }

@@ -9,11 +9,7 @@ from pathlib import Path
 
 import nbformat
 
-DEFAULT_COURSE = (
-    Path(__file__).resolve().parent.parent
-    / "source/vscode/test/suites/learning/test-workspace"
-    / "qdk-learning/courses/chemistry-active-space"
-)
+DEFAULT_COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
 COURSE = Path(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_COURSE
 if not (COURSE / "course.json").is_file():
     sys.exit(f"no course.json under {COURSE}")

@@ -13,11 +13,7 @@ from pathlib import Path
 import nbformat
 from nbclient import NotebookClient
 
-COURSE = (
-    Path(__file__).resolve().parent.parent
-    / "source/vscode/test/suites/learning/test-workspace"
-    / "qdk-learning/courses/chemistry-active-space"
-)
+COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
 NOTEBOOKS = {
     "02": "01-describe-molecule/describe_molecule.ipynb",
     "03": "02-active-space/active_space.ipynb",

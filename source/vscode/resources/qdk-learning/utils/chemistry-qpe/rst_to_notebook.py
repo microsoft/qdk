@@ -21,16 +21,12 @@ import sys
 import textwrap
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[6]
 # The built qdk-chemistry docs are not part of this repo; override with --docs.
 DOCS = REPO_ROOT.parent / "html"
 RST_DIR = DOCS / "_sources/tutorials/ground_state_molecular_energies_with_qpe"
 PY_DIR = DOCS / "_static/examples/python"
-COURSE = (
-    REPO_ROOT
-    / "source/vscode/test/suites/learning/test-workspace"
-    / "qdk-learning/courses/chemistry-active-space"
-)
+COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
 
 # Per-chapter human decisions. Everything else is derived from the sources.
 RECIPES = {

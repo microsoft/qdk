@@ -1,5 +1,6 @@
 src/**
 test/**
+resources/qdk-learning/utils/**
 .gitignore
 .artifactignore
 tsconfig.json
