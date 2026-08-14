@@ -110,7 +110,7 @@ _PHYSICAL_ISA_NAME = "stim"
 _METADATA_KEY = "qdk.ec"
 
 
-def _characters(text: object) -> dict[int, str]:
+def _characters(text: qc.PauliString) -> dict[int, str]:
     """The ``{qubit: character}`` map of a qodec Pauli string."""
     return dict(characters_of(Pauli(str(text))))
 
@@ -233,7 +233,7 @@ def _flag_capacity(weight: int) -> int:
 
 
 def _syndrome_round(
-    stabilizers: Sequence[object], data_width: int, flags: int
+    stabilizers: Sequence[qc.PauliString], data_width: int, flags: int
 ) -> list[str]:
     """Stim lines measuring every stabilizer once, fault-tolerantly.
 
@@ -316,7 +316,7 @@ def _syndrome_round(
     return lines
 
 
-def _pauli_lines(operator: object) -> list[str]:
+def _pauli_lines(operator: qc.PauliString) -> list[str]:
     """Stim lines applying a Pauli operator gate by gate."""
     characters = _characters(operator)
     x_targets = sorted(q for q, c in characters.items() if c == "X")
@@ -815,7 +815,9 @@ def synthesis_notes(qodec: qc.Qodec) -> dict[str, object]:
     if not isinstance(section, Mapping):
         return {}
     notes = section.get("synthesis")
-    return dict(notes) if isinstance(notes, Mapping) else {}
+    if not isinstance(notes, Mapping):
+        return {}
+    return dict(notes)
 
 
 __all__ = ["memory_program", "qodec_from_code", "synthesis_notes"]

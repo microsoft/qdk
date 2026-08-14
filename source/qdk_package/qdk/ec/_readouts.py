@@ -37,7 +37,7 @@ def readout_equation(entry: qc.Readout) -> list[str]:
 
 
 def as_readout(
-    entry: Sequence[object] | Mapping[str, Sequence[object]],
+    entry: Sequence[qc.ReferenceLike] | Mapping[str, Sequence[qc.ReferenceLike]],
 ) -> qc.ReadoutLike:
     """One readout entry in the shape qodec's setters accept."""
     if isinstance(entry, Mapping):
@@ -87,9 +87,7 @@ def set_gadget_readouts(
     for name, indices in named_xor.items():
         if str(name).isdigit():
             positional[int(name)] = readout_atoms(indices)
-    readouts: list[qc.ReadoutLike] = [
-        positional[index] for index in sorted(positional)
-    ]
+    readouts: list[qc.ReadoutLike] = [positional[index] for index in sorted(positional)]
     readouts.extend(
         as_readout(flag) for flag in list(gadget.readouts)[observe_count(gadget) :]
     )

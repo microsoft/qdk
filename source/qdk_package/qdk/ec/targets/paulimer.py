@@ -200,7 +200,7 @@ def _single_qubit_pauli(basis: str, qubit: int) -> Pauli:
     return Pauli(cast(dict[int, Any], {qubit: basis}))
 
 
-def _check_unconditional(atom: object, mnemonic: str) -> None:
+def _check_unconditional(atom: qc.Action, mnemonic: str) -> None:
     if getattr(atom, "condition", None):
         raise NotImplementedError(
             f"call {mnemonic!r}: conditional action atoms are not yet "

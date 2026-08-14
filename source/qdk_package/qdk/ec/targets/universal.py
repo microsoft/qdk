@@ -349,7 +349,7 @@ def _simulate(program: Program, shots: int) -> npt.NDArray[np.bool_]:
 
 def _apply_atom(
     sim: paulimer.OutcomeSpecificSimulation,
-    atom: object,
+    atom: qc.Action,
     call: qc.instructions.InstructionCall,
     layout: BlockLayout,
     records: list[int],

@@ -29,15 +29,15 @@ from .._references import (
 from ._qubit_alloc import PhysicalQubitAllocator
 
 
-def _parse_stab_in_atom(atom: object) -> tuple[int, int] | None:
+def _parse_stab_in_atom(atom: qc.ReferenceLike) -> tuple[int, int] | None:
     return parse_stabilizer_atom(atom, side="in")
 
 
-def _parse_stab_out_atom(atom: object) -> tuple[int, int] | None:
+def _parse_stab_out_atom(atom: qc.ReferenceLike) -> tuple[int, int] | None:
     return parse_stabilizer_atom(atom, side="out")
 
 
-def _parse_logical_in_atom(atom: object) -> tuple[int, str, int] | None:
+def _parse_logical_in_atom(atom: qc.ReferenceLike) -> tuple[int, str, int] | None:
     """Parse an ``in[<entry>].(x|z)[i]`` logical-observable sign atom.
 
     Returns ``(entry, basis, index)`` with ``basis in {"x", "z"}``, or
@@ -49,7 +49,7 @@ def _parse_logical_in_atom(atom: object) -> tuple[int, str, int] | None:
     return (parsed.entry, parsed.basis, parsed.index)
 
 
-def _parse_logical_out_atom(atom: object) -> tuple[int, str, int] | None:
+def _parse_logical_out_atom(atom: qc.ReferenceLike) -> tuple[int, str, int] | None:
     """Parse an ``out[<entry>].(x|z)[i]`` logical-observable sign atom."""
     parsed = parse_encoding_atom(atom)
     if parsed is None or parsed.basis not in ("x", "z") or parsed.side != "out":
@@ -57,7 +57,7 @@ def _parse_logical_out_atom(atom: object) -> tuple[int, str, int] | None:
     return (parsed.entry, parsed.basis, parsed.index)
 
 
-def _has_out_stab(check: Iterable[object]) -> bool:
+def _has_out_stab(check: Iterable[qc.ReferenceLike]) -> bool:
     return any(str(atom).startswith("out[") for atom in check)
 
 
@@ -104,7 +104,7 @@ def _observe_names(gadget: qc.Gadget) -> list[str]:
 
 
 def _resolve_atoms_records(
-    atoms: Sequence[object],
+    atoms: Sequence[qc.ReferenceLike],
     body_prov: list[frozenset[int]],
     frame_map: dict[tuple[int, int], frozenset[int]],
     logical_frame_map: dict[tuple[int, str, int], frozenset[int]],

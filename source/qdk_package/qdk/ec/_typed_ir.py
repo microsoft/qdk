@@ -17,10 +17,17 @@ duplicate the type-dispatch logic.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import qodec as qc
+
+    #: A bound operand value carried by an :class:`InstructionCall`. Stub-only
+    #: in qodec, so it must stay behind ``TYPE_CHECKING``.
+    Argument = qc.instructions.InstructionCall.Argument
 
 
-def value_tokens(value: Any) -> list[str]:
+def value_tokens(value: Argument) -> list[str]:
     """Return a list of string tokens for an :class:`InstructionCall` operand value.
 
     A single :class:`int` / :class:`float` becomes a one-element list
@@ -37,7 +44,7 @@ def value_tokens(value: Any) -> list[str]:
     return [str(value)]
 
 
-def value_to_string(value: Any) -> str:
+def value_to_string(value: Argument) -> str:
     """Render an operand value as a single whitespace-joined string.
 
     The inverse of :func:`value_tokens` modulo whitespace normalization.
