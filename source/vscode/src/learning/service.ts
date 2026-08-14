@@ -550,20 +550,19 @@ export class LearningService {
     if (!isNotebookCourse(this.activeCourse)) {
       return undefined;
     }
-    const unit = this.findUnit(this.position.unitId);
+
+    const unit = this.findCourseUnit(this.activeCourse, this.position.unitId);
+    if (workbookUri(unit).toString() !== notebookUri) {
+      // The argument was based on the editor state and may not match the progress state
+      return undefined;
+    }
+
     const exerciseInfo = unit.notebookExercises?.find(
       (ex) => ex.cellId === cellId,
     );
-    const isExercise = this.isExerciseCellId(cellId);
-
-    const location: ActivityLocation = {
-      courseId: this.activeCourse.id,
-      unitId: unit.id,
-      activityId: cellId,
-    };
 
     let content: ActivityContent;
-    if (isExercise && exerciseInfo) {
+    if (exerciseInfo) {
       content = {
         type: "exercise",
         id: cellId,
@@ -580,10 +579,16 @@ export class LearningService {
       } satisfies LessonTextContent;
     }
 
+    const location: ActivityLocation = {
+      courseId: this.activeCourse.id,
+      unitId: unit.id,
+      activityId: cellId,
+    };
+
     return {
       location,
       unitTitle: unit.title,
-      activityTitle: exerciseInfo?.title ?? "",
+      activityTitle: exerciseInfo?.title ?? cellId,
       content,
     };
   }
