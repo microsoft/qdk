@@ -16,9 +16,9 @@ import {
   findOpRungAndAncestors,
 } from "./circuit-actions/ancestors.js";
 import {
-  applyClassicalRefRemap,
   encodeClassicalResultTokens,
   decodeClassicalResultTokens,
+  resequenceClassicalResults,
   findLocationByRef,
   collectExternalProducerLocations,
   collectMeasurementConsumers,
@@ -34,7 +34,6 @@ import {
   getSubtreeMinMaxWire,
   moveArrayElement,
   removeOp,
-  updateMeasurementLines,
   resolveOverlappingOperations,
   resolveOverlappingOperationsRecursive,
 } from "./circuit-actions/gridPrimitives.js";
@@ -62,11 +61,11 @@ import {
 /**
  * Move an operation in the circuit.
  *
- * After the move, both the source-side and dest-side ancestor chains are walked innermost-out by
- * `refreshAncestorTargets` and each still-attached ancestor's derived `.targets`/`.results` is
- * rebuilt from its post-move children, maintaining the invariant that an ancestor's `.targets` is
- * the union of its descendants' wires. The target location string is authoritative about which
- * group the op lands in.
+ * After the move, each side's ancestor chain has its derived `.targets`/`.results` rebuilt from its
+ * post-move children, maintaining the invariant that an ancestor's `.targets` is the union of its
+ * descendants' wires: the source-side survivors via `refreshAncestorTargets`, the dest-side chain
+ * via `resolveSpanChange` (which also resolves any collisions the widening introduced). The target
+ * location string is authoritative about which group the op lands in.
  *
  * @param model The circuit model to mutate.
  * @param sourceLocation The location string of the source operation.
@@ -213,8 +212,7 @@ const moveOperation = (
   // Rebuild real, contiguous result indices on the tokenized wires, repoint every tokenized consumer
   // at its producer's final `(qubit, result)`, and refresh each affected wire's `numResults` counter.
   // Runs after span resolution (document order settled). Self-guards to a no-op when the move
-  // tokenized nothing. This is the sole authority for classical-result bookkeeping in the move path
-  // (the old tail-end `updateMeasurementLines` sweep is subsumed by it).
+  // tokenized nothing. This is the sole authority for classical-result bookkeeping in the move path.
   decodeClassicalResultTokens(model, affectedMeasurementWires);
 
   model.removeTrailingUnusedQubits();
@@ -259,7 +257,7 @@ const moveMeasurementWithDependents = (
   if (mOp == null || mOp.kind !== "measurement") return null;
 
   // Move M. `moveOperation`'s classical-result token pass handles its wire change, column
-  // placement, the global `updateMeasurementLines` renumbering, AND repointing every surviving
+  // placement, the result-index renumbering, AND repointing every surviving
   // consumer (of this M and of other Ms renumbered on the affected wires).
   const movedM = moveOperation(
     model,
@@ -298,10 +296,9 @@ const moveMeasurementWithDependents = (
  * no dangling classical refs to the deleted M (whose location may shift in the cascade, so we look
  * it back up by object reference).
  *
- * Result-index propagation: `removeOperation`'s tail-end `updateMeasurementLines` sweep renumbers
- * per-wire result indices to close the gap. If OTHER Ms share that wire, their consumers keep stale
- * keys, so we snapshot every surviving M's pre-removal keys by identity, remove, then build and
- * apply a pre/post remap (same mechanism as the move path). The deleted M is excluded.
+ * Result-index propagation: `removeOperation` renumbers the surviving producers on the deleted M's
+ * wire(s) and repoints their consumers via the classical-result token pass, so no separate remap is
+ * needed here. (The deleted M's own consumers were already cascade-deleted above.)
  */
 const removeMeasurementWithDependents = (
   model: CircuitModel,
@@ -311,31 +308,6 @@ const removeMeasurementWithDependents = (
   const mOp = findOperation(model.componentGrid, mLocation);
   if (mOp == null) return;
 
-  // Snapshot every OTHER M's pre-removal (qubit, result) keys by identity. The deleted M is
-  // excluded; surviving Ms on the same wire(s) get renumbered by `removeOperation`'s sweep and
-  // their consumers need a matching remap.
-  const preRemovalKeysByRef = new Map<
-    Operation,
-    { qubit: number; result: number }[]
-  >();
-  const walkMeasurements = (g: ComponentGrid): void => {
-    for (const col of g) {
-      for (const op of col.components) {
-        if (op.kind === "measurement" && op !== mOp) {
-          const list: { qubit: number; result: number }[] = [];
-          for (const r of op.results) {
-            if (r.result !== undefined) {
-              list.push({ qubit: r.qubit, result: r.result });
-            }
-          }
-          preRemovalKeysByRef.set(op, list);
-        }
-        if (op.children) walkMeasurements(op.children);
-      }
-    }
-  };
-  walkMeasurements(model.componentGrid);
-
   // Cascade-delete the consumers. The predicate matches on object identity, so location-string
   // drift doesn't matter.
   if (consumers.length > 0) {
@@ -343,38 +315,17 @@ const removeMeasurementWithDependents = (
     _findAndRemoveOperations(model, (op) => consumerSet.has(op));
   }
 
-  // M's location may have shifted in the cascade; re-derive by ref.
+  // M's location may have shifted in the cascade; re-derive by ref. `removeOperation` renumbers the
+  // surviving producers on M's wire(s) and repoints their consumers via the token pass.
   const newMLoc = findLocationByRef(model.componentGrid, mOp);
   if (newMLoc != null) {
     removeOperation(model, newMLoc);
   }
 
-  // Build the remap by pairing pre/post snapshots positionally per surviving M. An M
-  // cascade-deleted with a consumer group is dropped: it isn't visited in the post-removal walk.
-  const keyRemap = new Map<string, string>();
-  for (const [postOp, preList] of preRemovalKeysByRef) {
-    if (postOp.kind !== "measurement") continue;
-    const postList: { qubit: number; result: number }[] = [];
-    for (const r of postOp.results) {
-      if (r.result !== undefined) {
-        postList.push({ qubit: r.qubit, result: r.result });
-      }
-    }
-    const n = Math.min(preList.length, postList.length);
-    for (let i = 0; i < n; i++) {
-      const preKey = `${preList[i].qubit}:${preList[i].result}`;
-      const postKey = `${postList[i].qubit}:${postList[i].result}`;
-      if (preKey !== postKey) keyRemap.set(preKey, postKey);
-    }
-  }
-
-  if (keyRemap.size > 0) {
-    applyClassicalRefRemap(model.componentGrid, keyRemap);
-    // Surviving classically-controlled groups' spans may have shifted; refresh + resolve overlaps
-    // (same as the move path).
-    deepRefreshDerivedTargets(model.componentGrid);
-    resolveOverlappingOperationsRecursive(model.componentGrid);
-  }
+  // Cascade-deleted consumer groups may have narrowed spans; refresh derived targets and resolve
+  // overlaps defensively (same as the move path).
+  deepRefreshDerivedTargets(model.componentGrid);
+  resolveOverlappingOperationsRecursive(model.componentGrid);
 };
 
 /**
@@ -442,7 +393,10 @@ const addOperation = (
     // the op to `targetWire`.
     if (newSourceOperation.kind === "measurement") {
       newSourceOperation.qubits = [{ qubit: targetWire }];
-      // The measurement result is updated later in the updateMeasurementLines function
+      // Stamp the new producer with a sentinel result index (`-1`): `resequenceClassicalResults`
+      // below assigns its real position on `targetWire`. The sentinel shares no `(qubit, result)`
+      // key with any existing producer, so it can't collide with one during the consumer remap.
+      newSourceOperation.results = [{ qubit: targetWire, result: -1 }];
     } else if (
       newSourceOperation.kind === "unitary" ||
       newSourceOperation.kind === "ket"
@@ -459,6 +413,11 @@ const addOperation = (
     targetLocation,
   );
 
+  // Collect the wires this op carries a measurement on; used to reindex classical results below. A
+  // no-op for a non-measurement op (nothing collected).
+  const affectedMeasurementWires = new Set<number>();
+  collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
+
   addOp(
     model,
     newSourceOperation,
@@ -467,24 +426,17 @@ const addOperation = (
     insertNewColumn,
   );
 
-  // Assign result indices and refresh `numResults` for every wire the added op carries a
-  // measurement on. `addOp` no longer does this itself (it's a token-agnostic structural primitive
-  // shared with the move path); this action owns the measurement bookkeeping for adds. A no-op for a
-  // non-measurement op (nothing collected).
-  const affectedMeasurementWires = new Set<number>();
-  collectMeasurementWires(newSourceOperation, affectedMeasurementWires);
-  for (const wire of affectedMeasurementWires) {
-    if (wire >= 0 && wire < model.qubits.length) {
-      updateMeasurementLines(model, wire);
-    }
-  }
-
   // After mutating the parent group's children, the centralized post-widening cleanup re-derives
   // every ancestor's `.targets` and resolves any sibling-column collisions the widening introduced.
   resolveSpanChange(
     { op: newSourceOperation, containingArray: targetOperationParent },
     destAncestorChain,
   );
+
+  // Resequence result indices on the affected wires, carry each downstream consumer to its
+  // producer's new slot, and refresh each wire's `numResults`. `addOp` is a structural primitive
+  // with no measurement bookkeeping of its own; this action owns it for adds.
+  resequenceClassicalResults(model, affectedMeasurementWires);
 
   return newSourceOperation;
 };
@@ -506,18 +458,15 @@ const removeOperation = (model: CircuitModel, sourceLocation: string) => {
   const ancestorChain = collectAncestorChain(model, sourceLocation);
 
   // Capture the removed op's measurement wires BEFORE removal so the surviving Ms on those wires can
-  // be renumbered afterward (and `numResults` closed up). `removeOp` no longer does this itself;
-  // this action owns the measurement bookkeeping for deletes.
+  // be renumbered afterward (and their consumers carried, `numResults` closed up).
   const affectedMeasurementWires = new Set<number>();
   collectMeasurementWires(sourceOperation, affectedMeasurementWires);
 
   removeOp(model, sourceOperation, sourceOperationParent);
 
-  for (const wire of affectedMeasurementWires) {
-    if (wire >= 0 && wire < model.qubits.length) {
-      updateMeasurementLines(model, wire);
-    }
-  }
+  // Resequence the surviving producers on those wires in document order, carry each of their
+  // consumers to the producer's new slot, and refresh each wire's `numResults`.
+  resequenceClassicalResults(model, affectedMeasurementWires);
 
   // Re-derive the parent's `.targets` (and every ancestor above) from the surviving children.
   // Narrowing-only: shrinking a span can't introduce new sibling collisions, so no resolver hook.

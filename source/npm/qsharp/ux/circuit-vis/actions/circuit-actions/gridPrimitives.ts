@@ -32,41 +32,6 @@ const _isClassicallyControlled = (operation: Operation): boolean => {
 };
 
 /**
- * Update measurement-result indices for a specific wire.
- *
- * Walks the entire grid tree (including nested children) and renumbers every measurement on
- * `wireIndex` in document order, then sets `model.qubits[wireIndex].numResults` to the total.
- * Recursing into children is essential: the renderer reads any measurement's results, including
- * ones inside expanded groups, and throws on an uncounted nested measurement.
- *
- * This is the producer-renumbering + `numResults` sweep for STRUCTURAL grid edits (plain add,
- * delete, clone). It is NOT part of the move path: a token-managed move (`moveOperation`) reconciles
- * result indices and `numResults` itself via `decodeClassicalResultTokens`, and never calls this.
- * The move-path callers (`addOperation`/`removeOperation`'s primitives) fire it only outside a move,
- * so it never runs while classical-result tokens are live and needs no token awareness.
- */
-const updateMeasurementLines = (model: CircuitModel, wireIndex: number) => {
-  model.ensureQubitCount(wireIndex);
-  let resultIndex = 0;
-  const walk = (grid: ComponentGrid): void => {
-    for (const col of grid) {
-      for (const comp of col.components) {
-        if (comp.kind === "measurement") {
-          const qubit = comp.qubits.find((q) => q.qubit === wireIndex);
-          if (qubit) {
-            comp.results = [{ qubit: qubit.qubit, result: resultIndex++ }];
-          }
-        }
-        if (comp.children) walk(comp.children);
-      }
-    }
-  };
-  walk(model.componentGrid);
-  model.qubits[wireIndex].numResults =
-    resultIndex > 0 ? resultIndex : undefined;
-};
-
-/**
  * Add an operation to the circuit at the specified location.
  */
 const addOp = (
@@ -251,7 +216,6 @@ export {
   getSubtreeMinMaxWire,
   moveArrayElement,
   removeOp,
-  updateMeasurementLines,
   resolveOverlappingOperations,
   resolveOverlappingOperationsRecursive,
 };

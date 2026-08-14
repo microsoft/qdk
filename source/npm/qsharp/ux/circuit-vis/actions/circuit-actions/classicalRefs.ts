@@ -188,48 +188,6 @@ const collectMeasurementConsumers = (
 };
 
 /**
- * Walk the grid and remap every classical-ref entry's `(qubit, result)` pair according to
- * `keyRemap`. Visits both the op's own register-bearing fields AND the cached `.targets` /
- * `.controls` on group ops (which hold their own `Register` objects, independent of descendant ops
- * — see [`_dedupRegistersByIdentity`](derivedTargets.ts)).
- *
- * Only classical refs (`result !== undefined`) are touched; quantum refs are left alone.
- */
-const applyClassicalRefRemap = (
-  grid: ComponentGrid,
-  keyRemap: Map<string, string>,
-): void => {
-  const remapRegister = (reg: Register): void => {
-    if (reg.result === undefined) return;
-    const preKey = `${reg.qubit}:${reg.result}`;
-    const postKey = keyRemap.get(preKey);
-    if (postKey == null) return;
-    const colonIdx = postKey.indexOf(":");
-    reg.qubit = parseInt(postKey.substring(0, colonIdx), 10);
-    reg.result = parseInt(postKey.substring(colonIdx + 1), 10);
-  };
-  const walk = (g: ComponentGrid): void => {
-    for (const col of g) {
-      for (const op of col.components) {
-        // Remap consumer-side refs only. A measurement's `.results` is the producer side, already
-        // assigned by `updateMeasurementLines`; remapping it here would double-remap and collapse
-        // distinct Ms onto the same key. So for measurements visit only `.qubits`; for everything
-        // else visit all registers, which are refs to producers elsewhere.
-        if (op.kind === "measurement") {
-          for (const reg of op.qubits) remapRegister(reg);
-        } else {
-          for (const reg of getOperationRegisters(op)) {
-            remapRegister(reg);
-          }
-        }
-        if (op.children) walk(op.children);
-      }
-    }
-  };
-  walk(grid);
-};
-
-/**
  * Walk the grid for an op matching `target` by object identity and return its hierarchical location
  * string, or `null` if not found. Used by callers (e.g. `removeMeasurementWithDependents`) that
  * capture an op reference BEFORE a mutation that may shift its location, then need a fresh location
@@ -358,43 +316,40 @@ const encodeClassicalResultTokens = (
 };
 
 /**
- * Undo `encodeClassicalResultTokens`: assign real, contiguous result indices to the tokenized
- * producers and repoint their tokenized consumers to the producers' final `(qubit, result)`. Call
- * AFTER the physical move + span resolution, when document order is settled.
+ * Renumber the classical producers on a set of wires and carry their downstream consumers along, in
+ * two passes over the grid. `keyOf` maps a register to the value that bridges a producer to its
+ * consumers.
  *
- * Producers are renumbered by position in a pre-order walk (matching the old `updateMeasurementLines`
- * order), so any number of them on any wires reindex correctly; consumers then follow their token to
- * the producer's new slot.
- *
- * Also refreshes `model.qubits[wire].numResults` for every wire in `affectedWires` (the source and
- * landing wires of the move). Encode tokenized EVERY measurement on those wires, so the renumber
- * pass's per-wire tally is the authoritative post-move count — this fully replaces the tail-end
- * `updateMeasurementLines` sweep the move path used to run.
+ * Pass 1 walks every measurement on a wire in `wires` in document order, keys each producer via
+ * `keyOf` (captured BEFORE its index is overwritten), assigns it the next contiguous index on its
+ * wire, and records key → final `(qubit, result)`. It then refreshes `model.qubits[wire].numResults`
+ * for every wire in `wires`. Pass 2 walks every consumer, keys it via the same `keyOf`, and repoints
+ * any whose key was recorded in pass 1. A measurement's own `.results` are producers (renumbered in
+ * pass 1); its `.qubits` are quantum; every other op's classical refs are consumers.
  */
-const decodeClassicalResultTokens = (
+const reconcileClassicalResults = <K>(
   model: CircuitModel,
-  affectedWires: Set<number>,
+  wires: Set<number>,
+  keyOf: (reg: Register) => K,
 ): void => {
-  // Nothing was tokenized (encode found no measurements on the move's wires and returned an empty
-  // set), so there are no tokens to resolve and no `numResults` to refresh. Skip the grid walk.
-  if (affectedWires.size === 0) return;
+  if (wires.size === 0) return;
 
   const grid = model.componentGrid;
-  const tokenToNew = new Map<number, Register>();
+  const keyToNew = new Map<K, Register>();
   const perWireCount = new Map<number, number>();
 
-  // Pass 1: renumber tokenized producers in document order, recording token → final (qubit, result).
+  // Pass 1: renumber producers on the affected wires in document order.
   const renumber = (g: ComponentGrid): void => {
     for (const col of g) {
       for (const op of col.components) {
         if (op.kind === "measurement") {
           for (const r of op.results) {
-            if (r.result === undefined || r.result >= 0) continue;
-            const token = r.result;
+            if (r.result === undefined || !wires.has(r.qubit)) continue;
+            const key = keyOf(r);
             const idx = perWireCount.get(r.qubit) ?? 0;
             perWireCount.set(r.qubit, idx + 1);
             r.result = idx;
-            tokenToNew.set(token, { qubit: r.qubit, result: idx });
+            keyToNew.set(key, { qubit: r.qubit, result: idx });
           }
         }
         if (op.children) renumber(op.children);
@@ -403,28 +358,26 @@ const decodeClassicalResultTokens = (
   };
   renumber(grid);
 
-  // Refresh per-wire `numResults` for every wire the move touched. `perWireCount` is the
-  // authoritative post-move measurement count per wire (Pass 1 recounted every tokenized producer,
-  // and encode tokenized ALL measurements on the affected wires). A wire left with no measurements
-  // resets to `undefined`.
-  for (const wire of affectedWires) {
+  // Refresh per-wire `numResults` for every affected wire. A wire left with no measurements resets
+  // to `undefined`.
+  for (const wire of wires) {
     if (wire >= 0 && wire < model.qubits.length) {
       const count = perWireCount.get(wire) ?? 0;
       model.qubits[wire].numResults = count > 0 ? count : undefined;
     }
   }
 
-  if (tokenToNew.size === 0) return;
+  if (keyToNew.size === 0) return;
 
-  // Pass 2: repoint every tokenized consumer at its producer's final position.
+  // Pass 2: repoint every consumer whose key was remapped in pass 1.
   const repoint = (g: ComponentGrid): void => {
     for (const col of g) {
       for (const op of col.components) {
         const regs =
           op.kind === "measurement" ? op.qubits : getOperationRegisters(op);
         for (const reg of regs) {
-          if (reg.result === undefined || reg.result >= 0) continue;
-          const dest = tokenToNew.get(reg.result);
+          if (reg.result === undefined) continue;
+          const dest = keyToNew.get(keyOf(reg));
           if (dest !== undefined) {
             reg.qubit = dest.qubit;
             reg.result = dest.result;
@@ -437,10 +390,46 @@ const decodeClassicalResultTokens = (
   repoint(grid);
 };
 
+/**
+ * Undo `encodeClassicalResultTokens`: assign real, contiguous result indices to the tokenized
+ * producers and repoint their tokenized consumers to the producers' final `(qubit, result)`. Call
+ * AFTER the physical move + span resolution, when document order is settled.
+ *
+ * Keys by the token integer stamped on both producer and consumer by encode — the producer's
+ * original `(qubit, result)` is destroyed by the shift, so only the shift-immune token bridges them.
+ * Also refreshes `numResults` for every wire in `affectedWires` (the move's source and landing
+ * wires), which fully replaces the tail-end `updateMeasurementLines` sweep the move path used to run.
+ */
+const decodeClassicalResultTokens = (
+  model: CircuitModel,
+  affectedWires: Set<number>,
+): void => {
+  reconcileClassicalResults(model, affectedWires, (reg) => reg.result!);
+};
+
+/**
+ * Resequence classical result indices on a set of wires after a STRUCTURAL edit (plain add / remove
+ * of a measurement) and carry every downstream consumer along. The add/remove counterpart to the
+ * move path's `decodeClassicalResultTokens`; it needs no encode step because a structural edit never
+ * relocates a producer off its wire, so a producer's pre-edit `(qubit, result)` is a stable, unique
+ * key its consumers can be matched on directly. A freshly-added measurement carries a sentinel index
+ * (`-1`) that shares no key with any real producer, so its (consumer-less) entry never collides.
+ */
+const resequenceClassicalResults = (
+  model: CircuitModel,
+  wires: Set<number>,
+): void => {
+  reconcileClassicalResults(
+    model,
+    wires,
+    (reg) => `${reg.qubit}:${reg.result}`,
+  );
+};
+
 export {
-  applyClassicalRefRemap,
   encodeClassicalResultTokens,
   decodeClassicalResultTokens,
+  resequenceClassicalResults,
   collectInternalClassicalRegs,
   findLocationByRef,
   collectExternalProducerLocations,
