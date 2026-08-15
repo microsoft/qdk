@@ -8,12 +8,12 @@ from typing import Any, cast
 
 import qodec as qc
 
-from .._readouts import flag_slots, observable_slots
-from .propagation.pauli import Pauli, PauliCharacter, parse_term
+from .._readouts import readouts_of
+from .propagation.pauli import Pauli, PauliCharacter, characters_of_string
 from .propagation.pauli_remap import (
-    encoding_qubit_relocation,
+    declared_pauli_of,
     flat_logical_paulis,
-    flat_logical_slots,
+    logical_pauli_of,
 )
 from .equivalence import LogicalAction, LogicalImage, _encoding_signature
 
@@ -31,9 +31,10 @@ def lift_declaration(gadget: qc.Gadget) -> DeclarationLift:
     from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 
     instruction = gadget.implements
+    readouts = readouts_of(gadget)
     inputs = flat_logical_paulis(gadget.inputs)
     output_probes = flat_logical_paulis(gadget.outputs)
-    names = [slot.name for slot in observable_slots(gadget)]
+    names = [slot.name for slot in readouts.observables]
     index_by_name = {name: index for index, name in enumerate(names)}
     expected_observables: list[Pauli | None] = [None] * len(names)
     missing_observables: list[str] = []
@@ -42,7 +43,7 @@ def lift_declaration(gadget: qc.Gadget) -> DeclarationLift:
     bound_flags: list[str] = []
     cliffords: list[Clifford] = []
 
-    bound_flag_slots = len(flag_slots(gadget))
+    bound_flag_slots = len(readouts.flags)
     for index, flag_name in enumerate(instruction.flags):
         (bound_flags if index < bound_flag_slots else missing_flags).append(flag_name)
 
@@ -67,8 +68,8 @@ def lift_declaration(gadget: qc.Gadget) -> DeclarationLift:
                 if name not in index_by_name:
                     missing_observables.append(name)
                 else:
-                    expected_observables[index_by_name[name]] = _resolve_declared_pauli(
-                        observable.pauli, gadget
+                    expected_observables[index_by_name[name]] = declared_pauli_of(
+                        list(gadget.inputs) + list(gadget.outputs), observable.pauli
                     )
             continue
         unsupported.append(type(action).__name__)
@@ -121,73 +122,46 @@ def _expected_image_paulis(
 ) -> list[Pauli]:
     if not clifford_actions:
         return list(inputs)
-    images = _flat_input_generator_names(gadget.inputs)
+    encodings = list(gadget.inputs) + list(gadget.outputs)
+    images = _flat_input_generators(gadget.inputs)
     for clifford in clifford_actions:
-        images = [
-            _apply_clifford_to_pauli_string(image, clifford.generators)
-            for image in images
-        ]
+        images = [_clifford_image(image, clifford.generators) for image in images]
     return [
-        _resolve_declared_pauli(image, gadget) if image.strip() else Pauli({})
+        logical_pauli_of(encodings, [(basis, qubit) for qubit, basis in image.items()])
         for image in images
     ]
 
 
-def _flat_input_generator_names(
+def _flat_input_generators(
     encodings: Sequence[qc.Encoding],
-) -> list[str]:
-    names: list[str] = []
-    flat = 0
-    for encoding in encodings:
-        for _ in range(len(list(encoding.code.x))):
-            names.extend((f"X_{flat}", f"Z_{flat}"))
-            flat += 1
-    return names
+) -> list[dict[int, PauliCharacter]]:
+    """One ``{flat logical qubit: basis}`` per input generator, X then Z."""
+    count = sum(len(list(encoding.code.x)) for encoding in encodings)
+    return [
+        {flat: cast(PauliCharacter, basis)}
+        for flat in range(count)
+        for basis in ("X", "Z")
+    ]
 
 
-def _apply_clifford_to_pauli_string(pauli_str: str, generators: dict[str, str]) -> str:
-    return " ".join(
-        generators.get(token, token)
-        for token in pauli_str.split()
-        if generators.get(token, token)
-    )
+def _clifford_image(
+    logical: dict[int, PauliCharacter], generators: dict[str, str]
+) -> dict[int, PauliCharacter]:
+    """Image of a flat-logical Pauli under one declared Clifford, ignoring phase.
 
-
-def _resolve_declared_pauli(pauli_str: str, gadget: qc.Gadget) -> Pauli:
-    flat_map = flat_logical_slots(list(gadget.inputs) + list(gadget.outputs))
-    characters: dict[int, PauliCharacter] = {}
-    for token in pauli_str.split():
-        basis, flat_index = parse_term(token)
-        if flat_index >= len(flat_map):
-            raise ValueError(
-                f"declared Pauli {pauli_str!r} references flat logical "
-                f"qubit {flat_index} beyond the gadget's encodings"
-            )
-        encoding, local_index = flat_map[flat_index]
-        if basis == "X":
-            logicals = [list(encoding.code.x)[local_index]]
-        elif basis == "Z":
-            logicals = [list(encoding.code.z)[local_index]]
-        elif basis == "Y":
-            logicals = [
-                list(encoding.code.x)[local_index],
-                list(encoding.code.z)[local_index],
-            ]
-        else:
-            raise ValueError(f"unrecognised basis letter {basis!r}")
-        relocation = encoding_qubit_relocation(encoding)
-        for logical in logicals:
-            for sub_token in str(logical).split():
-                sub_basis, sub_index = parse_term(sub_token)
-                qubit = relocation[sub_index]
-                characters[qubit] = _multiply_basis(
-                    characters.get(qubit),
-                    sub_basis,
-                )
-    final: dict[int, PauliCharacter] = {
-        qubit: basis for qubit, basis in characters.items() if basis != "I"
-    }
-    return Pauli(final)
+    A Clifford maps a product to the product of its factors' images, so each
+    ``X``/``Z`` factor is looked up on its own and the results multiplied. A
+    generator the Clifford does not name is fixed.
+    """
+    image: dict[int, PauliCharacter] = {}
+    for qubit, basis in logical.items():
+        for factor in ("X", "Z") if basis == "Y" else (basis,):
+            name = f"{factor}_{qubit}"
+            for target, mapped in characters_of_string(
+                generators.get(name, name)
+            ).items():
+                image[target] = _multiply_basis(image.get(target), mapped)
+    return {qubit: basis for qubit, basis in image.items() if basis != "I"}
 
 
 def _multiply_basis(

@@ -1,7 +1,9 @@
 """Target-conditioned evaluations and backend-bound views onto a qodec.
 
-Exports are loaded lazily so importing the target contracts does not require
-optional backend dependencies such as stim, QDK, or deq.
+Everything here is imported normally except the exports whose module needs an
+optional backend: ``stim``, ``qdk_sim`` and ``recursive`` (all stim), and the
+``deq`` symbols. Those stay behind :func:`__getattr__` so importing the target
+contracts does not require a simulator or decoder toolchain to be installed.
 """
 
 from __future__ import annotations
@@ -9,52 +11,81 @@ from __future__ import annotations
 import importlib
 from typing import TYPE_CHECKING, Any
 
-_EXPORTS = {
-    "Target": (".base", "Target"),
-    "Sampler": (".base", "Sampler"),
-    "ComposableTarget": (".base", "ComposableTarget"),
-    "CompositeTarget": (".base", "CompositeTarget"),
-    "CompositeSampler": (".base", "CompositeSampler"),
-    "Batch": (".results", "Batch"),
-    "Readouts": (".results", "Readouts"),
-    "AnnotatedBatch": (".results", "AnnotatedBatch"),
-    "probabilities_of": (".results", "probabilities_of"),
-    "leaks_of": (".results", "leaks_of"),
-    "TargetModel": (".model", "TargetModel"),
-    "DepolarizingTargetModel": (".model", "DepolarizingTargetModel"),
-    "depolarizing": (".model", "depolarizing"),
-    "GadgetDistanceData": (".distance", "GadgetDistanceData"),
-    "circuit_distance_of": (".distance", "circuit_distance_of"),
-    "gadget_distance_bounds_of": (".distance", "gadget_distance_bounds_of"),
-    "gadget_distance_of": (".distance", "gadget_distance_of"),
-    "build_dem": (".dem", "build_dem"),
-    "detector_error_model_of": (".dem", "detector_error_model_of"),
+from .base import (
+    ComposableTarget,
+    CompositeSampler,
+    CompositeTarget,
+    Sampler,
+    Target,
+)
+from .dem import build_dem, detector_error_model_of
+from .distance import (
+    GadgetDistanceData,
+    circuit_distance_of,
+    gadget_distance_bounds_of,
+    gadget_distance_of,
+)
+from .model import DepolarizingTargetModel, TargetModel, depolarizing
+from .paulimer import PaulimerSampler
+from .qir import encodable_gates_of, encode_qir, run_qir_encoded
+from .results import (
+    AnnotatedBatch,
+    Batch,
+    Readouts,
+    leaks_of,
+    probabilities_of,
+)
+from .universal import AssumeViolation, UniversalSampler, UnsupportedFeatureWarning
+
+#: Exports whose module needs an optional backend, so cannot be imported eagerly.
+_LAZY_EXPORTS = {
     "StimEmitter": (".stim", "StimEmitter"),
     "StimSampler": (".stim", "StimSampler"),
     "QdkSampler": (".qdk_sim", "QdkSampler"),
     "preselect_on_flags": (".qdk_sim", "preselect_on_flags"),
-    "PaulimerSampler": (".paulimer", "PaulimerSampler"),
-    "encodable_gates_of": (".qir", "encodable_gates_of"),
-    "encode_qir": (".qir", "encode_qir"),
-    "run_qir_encoded": (".qir", "run_qir_encoded"),
+    "RecursiveTarget": (".recursive", "RecursiveTarget"),
+    "Biased": (".deq", "Biased"),
     "DeqLerTarget": (".deq", "DeqLerTarget"),
     "DeqOptions": (".deq", "DeqOptions"),
     "LerResult": (".deq", "LerResult"),
     "NoiseModel": (".deq", "NoiseModel"),
     "SI1000": (".deq", "SI1000"),
-    "Biased": (".deq", "Biased"),
-    "RecursiveTarget": (".recursive", "RecursiveTarget"),
-    "AssumeViolation": (".universal", "AssumeViolation"),
-    "UniversalSampler": (".universal", "UniversalSampler"),
-    "UnsupportedFeatureWarning": (".universal", "UnsupportedFeatureWarning"),
 }
 
-__all__ = list(_EXPORTS)
+__all__ = [
+    "AnnotatedBatch",
+    "AssumeViolation",
+    "Batch",
+    "ComposableTarget",
+    "CompositeSampler",
+    "CompositeTarget",
+    "DepolarizingTargetModel",
+    "GadgetDistanceData",
+    "PaulimerSampler",
+    "Readouts",
+    "Sampler",
+    "Target",
+    "TargetModel",
+    "UniversalSampler",
+    "UnsupportedFeatureWarning",
+    "build_dem",
+    "circuit_distance_of",
+    "depolarizing",
+    "detector_error_model_of",
+    "encodable_gates_of",
+    "encode_qir",
+    "gadget_distance_bounds_of",
+    "gadget_distance_of",
+    "leaks_of",
+    "probabilities_of",
+    "run_qir_encoded",
+    *_LAZY_EXPORTS,
+]
 
 
 def __getattr__(name: str) -> Any:
     try:
-        module_name, symbol = _EXPORTS[name]
+        module_name, symbol = _LAZY_EXPORTS[name]
     except KeyError as error:
         raise AttributeError(
             f"module {__name__!r} has no attribute {name!r}"
@@ -70,13 +101,6 @@ def __dir__() -> list[str]:
 
 
 if TYPE_CHECKING:
-    from .base import (
-        ComposableTarget as ComposableTarget,
-        CompositeSampler as CompositeSampler,
-        CompositeTarget as CompositeTarget,
-        Sampler as Sampler,
-        Target as Target,
-    )
     from .deq import (
         Biased as Biased,
         DeqLerTarget as DeqLerTarget,
@@ -85,42 +109,9 @@ if TYPE_CHECKING:
         NoiseModel as NoiseModel,
         SI1000 as SI1000,
     )
-    from .dem import (
-        build_dem as build_dem,
-        detector_error_model_of as detector_error_model_of,
-    )
-    from .distance import (
-        GadgetDistanceData as GadgetDistanceData,
-        circuit_distance_of as circuit_distance_of,
-        gadget_distance_bounds_of as gadget_distance_bounds_of,
-        gadget_distance_of as gadget_distance_of,
-    )
-    from .model import (
-        DepolarizingTargetModel as DepolarizingTargetModel,
-        TargetModel as TargetModel,
-        depolarizing as depolarizing,
-    )
-    from .paulimer import PaulimerSampler as PaulimerSampler
-    from .qir import (
-        encodable_gates_of as encodable_gates_of,
-        encode_qir as encode_qir,
-        run_qir_encoded as run_qir_encoded,
-    )
     from .qdk_sim import (
         QdkSampler as QdkSampler,
         preselect_on_flags as preselect_on_flags,
     )
     from .recursive import RecursiveTarget as RecursiveTarget
-    from .results import (
-        AnnotatedBatch as AnnotatedBatch,
-        Batch as Batch,
-        Readouts as Readouts,
-        leaks_of as leaks_of,
-        probabilities_of as probabilities_of,
-    )
     from .stim import StimEmitter as StimEmitter, StimSampler as StimSampler
-    from .universal import (
-        AssumeViolation as AssumeViolation,
-        UniversalSampler as UniversalSampler,
-        UnsupportedFeatureWarning as UnsupportedFeatureWarning,
-    )

@@ -17,7 +17,7 @@ later. Three parts:
   to that layer, and lifts the result back up by the gadgets' readout parity
   equations. Nothing more.
 
-* :class:`UniversalSampler` — wires the runtime and the processors into a
+* :class:`UniversalSampler` — assembles the runtime and the processors into a
   :class:`~qdk.ec.targets.base.CompositeTarget`. Its only construction
   parameter is the qodec.
 
@@ -58,7 +58,7 @@ from qodec.circuits._common import BlockLayout, ObservableTerm, parse_observable
 from qodec.circuits import Program
 
 from .._analysis.propagation.pauli import Pauli
-from .compilers.recursive_lowering import _build_namespaced_remap, _remap_call
+from .compilers.recursive_lowering import build_namespaced_remap, remap_call
 from .._readouts import flag_slots, observable_slots, observe_count_of
 from .._references import outcomes_of
 from .results import Batch
@@ -119,14 +119,10 @@ class _PaulimerRuntime(Target[Batch]):
     records.
     """
 
-    def __init__(self, translation: qc.Qodec) -> None:
-        super().__init__(translation)
-        self._translation = translation
-
     def execute(self, program: object, *, shots: int) -> Batch:
-        source = self._translation.layers[0]
+        source = self.qodec.layers[0]
         program = coerce_program(program, source.isa)
-        lowered, widths = _lower_one(self._translation, program)
+        lowered, widths = _lower_one(self.qodec, program)
         records = _simulate(lowered, shots)
         return _parity_decode(source, program, widths, records)
 
@@ -134,21 +130,11 @@ class _PaulimerRuntime(Target[Batch]):
 class _TrivialProcessor(ComposableTarget[Batch, Batch]):
     """Upper-translation processor: lower one step, delegate, lift by parity."""
 
-    def __init__(self, translation: qc.Qodec) -> None:
-        super().__init__(translation)
-        self._translation = translation
-        self._below: Target[Batch] | None = None
-
-    def compose_with(self, target: Target[Batch]) -> None:
-        self._below = target
-
     def execute(self, program: object, *, shots: int) -> Batch:
-        if self._below is None:
-            raise RuntimeError("compose_with(...) must precede execute(...)")
-        source = self._translation.layers[0]
+        source = self.qodec.layers[0]
         program = coerce_program(program, source.isa)
-        lowered, widths = _lower_one(self._translation, program)
-        below = self._below.execute(lowered, shots=shots)
+        lowered, widths = _lower_one(self.qodec, program)
+        below = self.below.execute(lowered, shots=shots)
         return _parity_decode(source, program, widths, below)
 
 
@@ -171,12 +157,12 @@ def _lower_one(translation: qc.Qodec, program: Program) -> tuple[Program, list[i
     widths: list[int] = []
     for call in program.instructions:
         gadget = source.gadgets[call.mnemonic]
-        remap = _build_namespaced_remap(
+        remap = build_namespaced_remap(
             gadget, call, call.mnemonic, namespace_internal_blocks=True
         )
         width = 0
         for body_call in gadget.circuit.instructions:
-            lowered.append(_remap_call(body_call, remap))
+            lowered.append(remap_call(body_call, remap))
             width += _readout_width(target, body_call)
         widths.append(width)
     return Program(lowered, target.isa), widths

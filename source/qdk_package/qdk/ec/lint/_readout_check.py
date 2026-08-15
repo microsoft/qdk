@@ -10,19 +10,14 @@ import qodec as qc
 
 from .._readouts import observables_as_xor_map
 from .._analysis.circuit_action import realized_codes_of
-from .._analysis.check_discovery import _declared_logical_chars, _pauli_xor
 from .._analysis.propagation.conditional import (
     ConditionalChoiResult,
     conditional_choi_state,
 )
 from .._analysis.propagation.frames import FrameGroup
 from .._analysis.propagation.interpreter import program_of
-from .._analysis.propagation.pauli import parse_term
-from .._analysis.propagation.pauli import Pauli, PauliCharacter
-from .._analysis.propagation.pauli_remap import (
-    encoding_qubit_relocation,
-    flat_logical_slots,
-)
+from .._analysis.propagation.pauli import Pauli
+from .._analysis.propagation.pauli_remap import declared_pauli_of
 
 
 @dataclass(frozen=True)
@@ -107,32 +102,13 @@ def _realization_input_observables(
 
 
 def _data_side_logical_probes(gadget: qc.Gadget) -> dict[str, Pauli]:
-    flat_map = flat_logical_slots(gadget.inputs)
     result: dict[str, Pauli] = {}
     position = 0
     for action in gadget.implements.action:
         if not isinstance(action, qc.actions.Observe):
             continue
         for observable in action.observables:
-            characters: dict[int, PauliCharacter] = {}
-            for token in observable.pauli.split():
-                basis, flat_index = parse_term(token)
-                encoding, local_index = flat_map[flat_index]
-                relocation = encoding_qubit_relocation(encoding)
-                for local, character in _declared_logical_chars(
-                    encoding, local_index, basis
-                ):
-                    data_qubit = relocation[local]
-                    characters[data_qubit] = _pauli_xor(
-                        characters.get(data_qubit, "I"), character
-                    )
-            result[str(position)] = Pauli(
-                {
-                    qubit: character
-                    for qubit, character in characters.items()
-                    if character != "I"
-                }
-            )
+            result[str(position)] = declared_pauli_of(gadget.inputs, observable.pauli)
             position += 1
     return result
 

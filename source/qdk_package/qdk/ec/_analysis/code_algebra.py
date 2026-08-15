@@ -37,13 +37,6 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     :func:`subsystem_code_of` and :func:`as_qodec_code`.
     """
 
-    @staticmethod
-    def standard_basis(over: Iterable[int] = ()) -> Sequence[Pauli]:
-        basis = []
-        for index in over:
-            basis += [Pauli({index: "X"}), Pauli({index: "Z"})]
-        return basis
-
     def __init__(
         self,
         stabilizers: Sequence[Pauli],
