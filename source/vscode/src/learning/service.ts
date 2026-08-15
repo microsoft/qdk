@@ -80,9 +80,7 @@ export async function detectLearningWorkspace(): Promise<
 > {
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
     const learningFile = vscode.Uri.joinPath(folder.uri, LEARNING_FILE);
-    try {
-      await vscode.workspace.fs.stat(learningFile);
-    } catch {
+    if (!(await uriExists(learningFile))) {
       continue;
     }
 
