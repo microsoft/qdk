@@ -3,6 +3,7 @@
 
 import { ComponentGrid, Operation } from "../../data/circuit.js";
 import { CircuitModel } from "../../data/circuitModel.js";
+import { Location } from "../../data/location.js";
 import { Register } from "../../data/register.js";
 import { findOperation, getOperationRegisters } from "../../utils.js";
 
@@ -127,35 +128,25 @@ const collectExternalProducerLocations = (
 };
 
 /**
- * For the measurement at `mLocation`, find every downstream consumer: any op whose register fields
- * hold a classical-ref `(qubit, result)` matching one of this M's `results`. Returned entries pair
- * the consumer op (object reference) with its location string. Walks into nested children; the M op
- * itself is excluded.
+ * Find every consumer OUTSIDE the subtree at `subtreeLocation` whose `.controls` classical-ref
+ * reads a register produced by a measurement inside the subtree. Pairs each consumer op with its
+ * location; the subtree itself is skipped (its internal consumers travel/delete with it).
  *
- * Only `.controls` count as consumption (not `.targets`): a consumer is an op whose execution is
- * GATED by the M's signal, which for unitaries is a `.controls` entry with `result` defined. A
- * group's `.targets` is a derived cache that propagates a classically-controlled child's ref up
- * into every ancestor; treating those as consumption would falsely flag every enclosing group and
- * the cascade-delete would wipe out unrelated siblings. A classically-controlled group is still
- * flagged correctly via its own `.controls`.
+ * Only `.controls` count, never the derived `.targets` cache — flagging `.targets` would falsely
+ * mark every enclosing group and cascade-delete unrelated siblings.
  *
- * Returns `[]` if the location isn't a measurement, the M has no classical results, or nothing
- * references them.
+ * Runs BEFORE a delete: `removeOperation` renumbers producers by key and can reuse a vacated index,
+ * so a post-delete scan is untrustworthy. (`findInvalidatedConsumers` is the move path's
+ * post-mutation counterpart.)
  */
-const collectMeasurementConsumers = (
+const collectSubtreeConsumers = (
   rootGrid: ComponentGrid,
-  mLocation: string,
+  subtreeLocation: string,
 ): { op: Operation; location: string }[] => {
-  const mOp = findOperation(rootGrid, mLocation);
-  if (mOp == null || mOp.kind !== "measurement") return [];
+  const subtree = findOperation(rootGrid, subtreeLocation);
+  if (subtree == null) return [];
 
-  // Build the set of (qubit, result) keys this M produces.
-  const producedKeys = new Set<string>();
-  for (const r of mOp.results) {
-    if (r.result !== undefined) {
-      producedKeys.add(`${r.qubit}:${r.result}`);
-    }
-  }
+  const producedKeys = collectInternalClassicalRegs(subtree);
   if (producedKeys.size === 0) return [];
 
   const consumers: { op: Operation; location: string }[] = [];
@@ -163,19 +154,18 @@ const collectMeasurementConsumers = (
     g.forEach((col, ci) => {
       col.components.forEach((op, oi) => {
         const loc = prefix === "" ? `${ci},${oi}` : `${prefix}-${ci},${oi}`;
-        // Skip the M itself, but still recurse into its children.
-        if (op !== mOp) {
-          // Logical consumption lives in `.controls` only.
-          const controls = op.kind === "unitary" ? op.controls : undefined;
-          if (controls) {
-            for (const reg of controls) {
-              if (
-                reg.result !== undefined &&
-                producedKeys.has(`${reg.qubit}:${reg.result}`)
-              ) {
-                consumers.push({ op, location: loc });
-                break;
-              }
+        // Skip the subtree itself; its internal consumers travel/delete with it.
+        if (op === subtree) return;
+        // Logical consumption lives in `.controls` only.
+        const controls = op.kind === "unitary" ? op.controls : undefined;
+        if (controls) {
+          for (const reg of controls) {
+            if (
+              reg.result !== undefined &&
+              producedKeys.has(`${reg.qubit}:${reg.result}`)
+            ) {
+              consumers.push({ op, location: loc });
+              break;
             }
           }
         }
@@ -188,8 +178,51 @@ const collectMeasurementConsumers = (
 };
 
 /**
+ * Scan a committed grid for consumers left dangling by the last mutation: any op whose `.controls`
+ * classical-ref reads a producer that no longer sits in a strictly-earlier column (moved to/past it
+ * or removed). Pairs each consumer with its location.
+ *
+ * The move path's single post-mutation check; kind- and producer-count-agnostic, so one pass covers
+ * a group carrying several producers. Relies on the move's token pass having already repointed
+ * surviving consumers — a producer's index can be reused mid-move, so only the token-preserved link
+ * is trustworthy. (Add/remove renumbers by key instead, so those paths detect BEFORE mutating via
+ * `collectSubtreeConsumers`.)
+ */
+const findInvalidatedConsumers = (
+  rootGrid: ComponentGrid,
+): { op: Operation; location: string }[] => {
+  const producers = _indexProducers(rootGrid);
+  const invalidated: { op: Operation; location: string }[] = [];
+  const walk = (g: ComponentGrid, prefix: string): void => {
+    g.forEach((col, ci) => {
+      col.components.forEach((op, oi) => {
+        const loc = prefix === "" ? `${ci},${oi}` : `${prefix}-${ci},${oi}`;
+        const controls = op.kind === "unitary" ? op.controls : undefined;
+        if (controls) {
+          const consumerLoc = Location.parse(loc);
+          for (const reg of controls) {
+            if (reg.result === undefined) continue;
+            const producerLoc = producers.get(`${reg.qubit}:${reg.result}`);
+            const survives =
+              producerLoc != null &&
+              Location.parse(producerLoc).inEarlierColumnThan(consumerLoc);
+            if (!survives) {
+              invalidated.push({ op, location: loc });
+              break;
+            }
+          }
+        }
+        if (op.children) walk(op.children, loc);
+      });
+    });
+  };
+  walk(rootGrid, "");
+  return invalidated;
+};
+
+/**
  * Walk the grid for an op matching `target` by object identity and return its hierarchical location
- * string, or `null` if not found. Used by callers (e.g. `removeMeasurementWithDependents`) that
+ * string, or `null` if not found. Used by callers (e.g. `removeOperationWithDependents`) that
  * capture an op reference BEFORE a mutation that may shift its location, then need a fresh location
  * string AFTER the mutation.
  */
@@ -433,5 +466,6 @@ export {
   collectInternalClassicalRegs,
   findLocationByRef,
   collectExternalProducerLocations,
-  collectMeasurementConsumers,
+  collectSubtreeConsumers,
+  findInvalidatedConsumers,
 };

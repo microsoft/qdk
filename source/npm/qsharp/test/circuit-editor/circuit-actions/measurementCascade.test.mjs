@@ -3,28 +3,30 @@
 
 // Measurement move / delete with downstream consumers.
 //
-// `collectMeasurementConsumers` walks the grid and finds every op whose classical-ref `(qubit,
-// result)` matches one of the M's `results` entries. Both the prompt layer and the cascade actions
-// consume its output.
+// `collectSubtreeConsumers` walks the grid and finds every op OUTSIDE a subtree whose classical-ref
+// `(qubit, result)` matches a classical register produced anywhere in that subtree. The delete
+// prompt layer and the delete cascade action consume its output.
 //
-// `removeMeasurementWithDependents` deletes a measurement together with its downstream consumers,
-// then keeps the surviving circuit consistent. Test surface: predicate-match correctness,
-// M-location re-derivation after the cascade collapses columns, and the renumber-then-remap pass
-// for surviving Ms whose result indices shift.
+// `removeOperationWithDependents` deletes an operation together with its downstream consumers, then
+// keeps the surviving circuit consistent. Test surface: predicate-match correctness, location
+// re-derivation after the cascade collapses columns, and the renumber-then-remap pass for surviving
+// Ms whose result indices shift.
 //
-// `moveMeasurementWithDependents` is the bulk of the new logic: pre-/post-move (qubit, result)
-// snapshotting, wire-level renumbering remap propagation, survivor / invalidated partition by
-// object identity, and post-mutation overlap resolution for changed visual spans.
+// `moveOperationWithDependents` is the bulk of the new logic: it moves, then self-detects the
+// consumers the move stranded (via a post-move grid scan) and cascade-deletes them, plus
+// post-mutation overlap resolution for changed visual spans. Callers pass no invalidated set; the
+// post-move grid is the single source of truth.
 
 // @ts-check
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  collectMeasurementConsumers,
-  moveMeasurementWithDependents,
+  collectSubtreeConsumers,
+  moveOperationWithDependents,
   moveOperation,
-  removeMeasurementWithDependents,
+  countStrandedConsumers,
+  removeOperationWithDependents,
 } from "../../../dist/ux/circuit-vis/actions/circuitActions.js";
 import {
   at,
@@ -49,25 +51,22 @@ const _ccx = (
 ) => gate("X", targetQubit, { ctrls: [{ q: ctrlQubit, r: ctrlResult }] });
 
 // ---------------------------------------------------------------------------
-// collectMeasurementConsumers
+// collectSubtreeConsumers
 // ---------------------------------------------------------------------------
 
-test("collectMeasurementConsumers: empty when no consumer references the M", () => {
+test("collectSubtreeConsumers: empty when no consumer references the M", () => {
   const model = build(circuit(2, [[_mGate(0, 0)], [gate("H", 1)]]));
-  assert.equal(
-    collectMeasurementConsumers(model.componentGrid, "0,0").length,
-    0,
-  );
+  assert.equal(collectSubtreeConsumers(model.componentGrid, "0,0").length, 0);
 });
 
-test("collectMeasurementConsumers: finds a top-level classically-controlled consumer", () => {
+test("collectSubtreeConsumers: finds a top-level classically-controlled consumer", () => {
   const model = build(circuit(2, [[_mGate(0, 0)], [_ccx(1, 0, 0)]]));
-  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  const consumers = collectSubtreeConsumers(model.componentGrid, "0,0");
   assert.equal(consumers.length, 1);
   assert.equal(consumers[0].location, "1,0");
 });
 
-test("collectMeasurementConsumers: walks into nested children", () => {
+test("collectSubtreeConsumers: walks into nested children", () => {
   // Consumer is buried two levels deep inside non-classically-controlled groups; the walker still
   // finds it. The wrappers carry no classical ref in their `.controls`.
   const model = build(
@@ -76,7 +75,7 @@ test("collectMeasurementConsumers: walks into nested children", () => {
       [group("Outer", [[group("Inner", [[_ccx(1, 0, 0)]])]])],
     ]),
   );
-  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  const consumers = collectSubtreeConsumers(model.componentGrid, "0,0");
   // Only the leaf X is a logical consumer.
   assert.equal(
     consumers.length,
@@ -88,7 +87,7 @@ test("collectMeasurementConsumers: walks into nested children", () => {
   assert.equal(consumers[0].op.gate, "X");
 });
 
-test("collectMeasurementConsumers: ancestor groups with propagated .targets are NOT flagged", () => {
+test("collectSubtreeConsumers: ancestor groups with propagated .targets are NOT flagged", () => {
   // Simulates the post-`_deepRefreshDerivedTargets` state where the outer group's `.targets` cache
   // has propagated the classical ref upward. Inspecting `.targets` (instead of just leaf consumers)
   // would flag the Outer group and cascade-delete its unrelated sibling Y. The consumer scan must
@@ -103,7 +102,7 @@ test("collectMeasurementConsumers: ancestor groups with propagated .targets are 
     t.qubit === 0 ? { qubit: 0, result: 0 } : t,
   );
   const model = build(circuit(3, [[_mGate(0, 0)], [outer]]));
-  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  const consumers = collectSubtreeConsumers(model.componentGrid, "0,0");
   assert.equal(
     consumers.length,
     1,
@@ -116,7 +115,7 @@ test("collectMeasurementConsumers: ancestor groups with propagated .targets are 
 
   // End-to-end: removing the M with this consumer set must leave the Y intact inside the
   // (now-shrunken) Outer group.
-  removeMeasurementWithDependents(
+  removeOperationWithDependents(
     model,
     "0,0",
     consumers.map((c) => c.op),
@@ -125,34 +124,34 @@ test("collectMeasurementConsumers: ancestor groups with propagated .targets are 
   expectOp(at(model, "0,0"), { Outer: { children: [["Y"]] } });
 });
 
-test("collectMeasurementConsumers: classical-ref must MATCH (qubit, result); other Ms don't trigger", () => {
+test("collectSubtreeConsumers: classical-ref must MATCH (qubit, result); other Ms don't trigger", () => {
   // Two Ms on different wires; the consumer references only M_1.
   const model = build(
     circuit(3, [[_mGate(0, 0)], [_mGate(1, 0)], [_ccx(2, 1, 0)]]),
   );
   assert.equal(
-    collectMeasurementConsumers(model.componentGrid, "0,0").length,
+    collectSubtreeConsumers(model.componentGrid, "0,0").length,
     0,
     "M_0 has no consumer (the consumer references M_1's (q1, r0))",
   );
   assert.equal(
-    collectMeasurementConsumers(model.componentGrid, "1,0").length,
+    collectSubtreeConsumers(model.componentGrid, "1,0").length,
     1,
     "M_1's consumer is the classically-controlled X",
   );
 });
 
 // ---------------------------------------------------------------------------
-// removeMeasurementWithDependents
+// removeOperationWithDependents
 // ---------------------------------------------------------------------------
 
-test("removeMeasurementWithDependents: deletes M and all classical-ref consumers", () => {
+test("removeOperationWithDependents: deletes M and all classical-ref consumers", () => {
   const model = build(
     circuit(3, [[_mGate(0, 0)], [_ccx(1, 0, 0)], [_ccx(2, 0, 0)]]),
   );
-  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  const consumers = collectSubtreeConsumers(model.componentGrid, "0,0");
   assert.equal(consumers.length, 2);
-  removeMeasurementWithDependents(
+  removeOperationWithDependents(
     model,
     "0,0",
     consumers.map((c) => c.op),
@@ -161,13 +160,13 @@ test("removeMeasurementWithDependents: deletes M and all classical-ref consumers
   expectGrid(model, []);
 });
 
-test("removeMeasurementWithDependents: M's location is re-derived after the cascade collapses columns", () => {
+test("removeOperationWithDependents: M's location is re-derived after the cascade collapses columns", () => {
   // Consumer alone in col 0 collapses col 0; M shifts from col 1 down to col 0. The action layer
   // re-derives M by ref, not by the now-stale "1,0".
   const model = build(circuit(2, [[_ccx(1, 0, 0)], [_mGate(0, 0)]]));
-  const consumers = collectMeasurementConsumers(model.componentGrid, "1,0");
+  const consumers = collectSubtreeConsumers(model.componentGrid, "1,0");
   assert.equal(consumers.length, 1);
-  removeMeasurementWithDependents(
+  removeOperationWithDependents(
     model,
     "1,0",
     consumers.map((c) => c.op),
@@ -175,7 +174,7 @@ test("removeMeasurementWithDependents: M's location is re-derived after the casc
   expectGrid(model, []);
 });
 
-test("removeMeasurementWithDependents: surviving Ms' result-index renumbering propagates to their consumers", () => {
+test("removeOperationWithDependents: surviving Ms' result-index renumbering propagates to their consumers", () => {
   // M_a → result 0, M_b → result 1, both on wire 0. A consumer references (0, 1) — M_b. Deleting
   // M_a renumbers M_b from result 1 → 0; the consumer's ref must remap to (0, 0) or the next render
   // throws "Classical register ID 1 invalid".
@@ -183,10 +182,10 @@ test("removeMeasurementWithDependents: surviving Ms' result-index renumbering pr
     circuit(2, [[_mGate(0, 0)], [_mGate(0, 1)], [_ccx(1, 0, 1)]]),
   );
   // M_a has no consumers (the ccx references M_b, not M_a).
-  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  const consumers = collectSubtreeConsumers(model.componentGrid, "0,0");
   assert.equal(consumers.length, 0, "M_a has no direct consumers");
 
-  removeMeasurementWithDependents(model, "0,0", []);
+  removeOperationWithDependents(model, "0,0", []);
 
   // The surviving ccx's classical-ref must remap (0,1) → (0,0) to track M_b's new result index.
   expectOp(at(model, "1,0"), { X: { ctrls: [{ q: 0, r: 0 }] } });
@@ -199,22 +198,22 @@ test("removeMeasurementWithDependents: surviving Ms' result-index renumbering pr
 });
 
 // ---------------------------------------------------------------------------
-// moveMeasurementWithDependents
+// moveOperationWithDependents
 // ---------------------------------------------------------------------------
 
-test("moveMeasurementWithDependents: surviving consumer's classical-ref tracks the M's new wire", () => {
+test("moveOperationWithDependents: surviving consumer's classical-ref tracks the M's new wire", () => {
   // M on wire 0, consumer in a later column on wire 2 with classical-ref (0, 0). M moves down to
   // wire 1; the consumer's ref must become (1, 0).
   const model = build(circuit(3, [[_mGate(0, 0)], [_ccx(2, 0, 0)]]));
   // Target column 0 is strictly before consumer column 1 → survives.
-  const moved = moveMeasurementWithDependents(
+  const moved = moveOperationWithDependents(
     model,
     "0,0",
     "0,0",
     0,
     1,
+    /* movingControl */ false,
     /* insertNewColumn */ false,
-    [],
   );
   assert.ok(moved);
 
@@ -222,22 +221,21 @@ test("moveMeasurementWithDependents: surviving consumer's classical-ref tracks t
   expectOp(at(model, "1,0"), { X: { ctrls: [{ q: 1, r: 0 }] } });
 });
 
-test("moveMeasurementWithDependents: invalidated consumer is cascade-deleted", () => {
+test("moveOperationWithDependents: invalidated consumer is cascade-deleted", () => {
   // M@col 0, ccx consumer@col 1, unrelated H@col 2. Moving M to "2,0" lands it in a column after
-  // the ccx, so the consumer is now in an earlier column — invalidated — and gets deleted.
+  // the ccx, so the consumer is now in an earlier column — stranded — and the wrapper self-detects
+  // and cascade-deletes it.
   const model = build(
     circuit(3, [[_mGate(0, 0)], [_ccx(1, 0, 0)], [gate("H", 2)]]),
   );
-  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
-  // Hand the single consumer in as invalidated directly.
-  const moved = moveMeasurementWithDependents(
+  const moved = moveOperationWithDependents(
     model,
     "0,0",
     "2,0",
     0,
     0,
+    /* movingControl */ false,
     /* insertNewColumn */ false,
-    consumers.map((c) => c.op),
   );
   assert.ok(moved);
   // The ccx should be gone; only M and H remain.
@@ -252,7 +250,7 @@ test("moveMeasurementWithDependents: invalidated consumer is cascade-deleted", (
   );
 });
 
-test("moveMeasurementWithDependents: consumer of an UNMOVED M whose result index gets renumbered is also remapped", () => {
+test("moveOperationWithDependents: consumer of an UNMOVED M whose result index gets renumbered is also remapped", () => {
   // Two Ms on wire 0 (results 0 and 1). A consumer of the SECOND M references (0, 1). Moving the
   // FIRST M to wire 1 renumbers the remaining wire-0 M down to result 0, so the consumer must remap
   // (0, 1) → (0, 0).
@@ -260,16 +258,16 @@ test("moveMeasurementWithDependents: consumer of an UNMOVED M whose result index
     circuit(3, [[_mGate(0, 0)], [_mGate(0, 1)], [_ccx(2, 0, 1)]]),
   );
 
-  // Move M_first from wire 0 to wire 1. invalidatedConsumers=[] — the consumer is downstream of
-  // M_second (unmoved).
-  const moved = moveMeasurementWithDependents(
+  // Move M_first from wire 0 to wire 1. The consumer is downstream of M_second (unmoved), so the
+  // move strands nothing; the wrapper self-detects zero to delete.
+  const moved = moveOperationWithDependents(
     model,
     "0,0",
     "0,0",
     0,
     1,
+    /* movingControl */ false,
     /* insertNewColumn */ false,
-    [],
   );
   assert.ok(moved);
 
@@ -278,24 +276,24 @@ test("moveMeasurementWithDependents: consumer of an UNMOVED M whose result index
   expectOp(at(model, "2,0"), { X: { ctrls: [{ q: 0, r: 0 }] } });
 });
 
-test("moveMeasurementWithDependents: M with no consumers behaves like a regular move", () => {
+test("moveOperationWithDependents: M with no consumers behaves like a regular move", () => {
   // Sanity check: the cascade overhead is a no-op when there's no consumer to remap or invalidate.
   const model = build(circuit(2, [[_mGate(0, 0)]]));
-  const moved = moveMeasurementWithDependents(
+  const moved = moveOperationWithDependents(
     model,
     "0,0",
     "0,0",
     0,
     1,
+    /* movingControl */ false,
     /* insertNewColumn */ false,
-    [],
   );
   assert.ok(moved);
   // M moved from wire 0 to wire 1; no consumer to remap.
   expectOp(at(model, "0,0"), { Measure: { qubits: [1] } });
 });
 
-test("moveMeasurementWithDependents: moving an M onto a wire that already has multiple Ms-with-consumers does not double-remap M results", () => {
+test("moveOperationWithDependents: moving an M onto a wire that already has multiple Ms-with-consumers does not double-remap M results", () => {
   // `_applyClassicalRefRemap` must skip producer registers (`.results` on measurements) and only
   // remap consumer classical refs. Otherwise, after `_updateMeasurementLines` authoritatively
   // renumbers result indices on the affected wire, walking those producer values back through the
@@ -322,14 +320,14 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
   // 0's doc order is M_c, M_a, M_b → _updateMeasurementLines assigns r=0, 1, 2 respectively. The
   // keyRemap must rewrite every consumer: C_a "0:0" → "0:1" (M_a moved down) C_b "0:1" → "0:2" (M_b
   // moved down) C_c "1:0" → "0:0" (M_c switched wires)
-  const moved = moveMeasurementWithDependents(
+  const moved = moveOperationWithDependents(
     model,
     "2,0",
     "0,0",
     1,
     0,
+    /* movingControl */ false,
     /* insertNewColumn */ true,
-    [],
   );
   assert.ok(moved);
 
@@ -410,11 +408,11 @@ test("moveMeasurementWithDependents: moving an M onto a wire that already has mu
 // ---------------------------------------------------------------------------
 // Plain moveOperation on a bare measurement (no dependents wrapper)
 //
-// The drag layer routes an M-move through `moveMeasurementWithDependents` only when the MOVED M
-// itself has consumers. A bare M with no consumers falls straight through to `moveOperation`. If
-// that M shares a wire with OTHER Ms that DO have consumers, moving it renumbers those Ms via
-// `updateMeasurementLines` — and the classical-result token pass must repoint their consumers so
-// the links don't dangle.
+// The drag layer now routes every move through `moveOperationWithDependents`, but `moveOperation`
+// on its own must still keep classical links consistent: moving a bare M off a shared wire
+// renumbers the OTHER Ms on that wire via the classical-result token pass, which must repoint their
+// consumers so the links don't dangle. This suite exercises `moveOperation` directly to pin that
+// down independent of the wrapper.
 // ---------------------------------------------------------------------------
 
 test("moveOperation: bare M with no consumers, moved off a shared wire, reindexes a sibling M's consumer", () => {
@@ -470,4 +468,109 @@ test("moveOperation: bare M carries its own consumer onto the new wire", () => {
   assert.ok(moved);
   expectOp(at(model, "0,0"), { Measure: { qubits: [1] } });
   expectOp(at(model, "1,0"), { X: { ctrls: [{ q: 1, r: 0 }] } });
+});
+
+// ---------------------------------------------------------------------------
+// countStrandedConsumers agrees with the committed cascade
+//
+// The prompt layer counts stranded consumers analytically (no move performed); the commit path
+// (`moveOperationWithDependents`) re-derives the set from the real post-move grid. If the two ever
+// disagree, the confirmation dialog's "delete N" would lie. These tests pin agreement across the
+// injection-decision branches: plain merge, forced new column, overlap-forced injection, and a
+// group carrying several producers.
+// ---------------------------------------------------------------------------
+
+// Count every classically-controlled consumer op anywhere in the grid. Survivors keep their control;
+// only stranded consumers are deleted, so (before − after) is exactly the cascade-delete count.
+const _countConsumers = (/** @type {any} */ model) => {
+  let n = 0;
+  const walk = (/** @type {any[]} */ grid) => {
+    for (const col of grid) {
+      for (const op of col.components) {
+        if (
+          op.kind === "unitary" &&
+          op.controls?.some((/** @type {any} */ c) => c.result !== undefined)
+        ) {
+          n++;
+        }
+        if (op.children) walk(op.children);
+      }
+    }
+  };
+  walk(model.componentGrid);
+  return n;
+};
+
+// Assert the predictor's count equals the number of consumers the real commit deletes. `buildModel`
+// is called twice so the prediction and the commit each run on a pristine circuit.
+const _assertPreviewMatchesCommit = (
+  /** @type {() => any} */ buildModel,
+  /** @type {[string, string, number, number, boolean, boolean]} */ moveArgs,
+  /** @type {string} */ label,
+) => {
+  const predicted = countStrandedConsumers(buildModel(), ...moveArgs);
+  const model = buildModel();
+  const before = _countConsumers(model);
+  moveOperationWithDependents(model, ...moveArgs);
+  const deleted = before - _countConsumers(model);
+  assert.equal(
+    predicted,
+    deleted,
+    `${label}: preview predicted ${predicted}, commit deleted ${deleted}`,
+  );
+};
+
+test("countStrandedConsumers agrees with commit: M merged past its consumer", () => {
+  // M moves into a later column (past its consumer), no injection → consumer stranded.
+  _assertPreviewMatchesCommit(
+    () => build(circuit(3, [[_mGate(0, 0)], [_ccx(1, 0, 0)], [gate("H", 2)]])),
+    ["0,0", "2,0", 0, 0, false, false],
+    "merge past consumer",
+  );
+});
+
+test("countStrandedConsumers agrees with commit: insertNewColumn just left of consumer", () => {
+  // Forced new column spliced in AT the consumer's column → M lands strictly before it → survives.
+  _assertPreviewMatchesCommit(
+    () => build(circuit(3, [[_mGate(0, 0)], [gate("H", 1)], [_ccx(1, 0, 0)]])),
+    ["0,0", "2,0", 0, 0, false, true],
+    "insertNewColumn before consumer",
+  );
+});
+
+test("countStrandedConsumers agrees with commit: overlap-forced injection at the target column", () => {
+  // The target column already holds a gate on the M's landing wire, so addOp is forced to splice a
+  // new column even without the flag — the predictor must replay that overlap decision.
+  _assertPreviewMatchesCommit(
+    () => build(circuit(3, [[_mGate(0, 0)], [_ccx(1, 0, 0)], [gate("X", 0)]])),
+    ["0,0", "2,0", 0, 0, false, false],
+    "overlap-forced injection",
+  );
+});
+
+test("countStrandedConsumers agrees with commit: group carrying two producers past both consumers", () => {
+  // The whole group acts as one producer at its landed column; both external consumers strand in a
+  // single pass and the predictor must count both.
+  _assertPreviewMatchesCommit(
+    () =>
+      build(
+        circuit(4, [
+          [group("G", [[_mGate(0, 0), _mGate(1, 0)]])],
+          [_ccx(2, 0, 0)],
+          [_ccx(3, 1, 0)],
+          [gate("H", 0)],
+        ]),
+      ),
+    ["0,0", "3,0", 0, 0, false, false],
+    "group two producers past both",
+  );
+});
+
+test("countStrandedConsumers agrees with commit: move strands nothing (survivor repoint only)", () => {
+  // A wire-changing move that keeps the M before its consumer: no deletion, predictor must report 0.
+  _assertPreviewMatchesCommit(
+    () => build(circuit(3, [[_mGate(0, 0)], [_ccx(1, 0, 0)]])),
+    ["0,0", "0,0", 0, 2, false, false],
+    "survivor repoint only",
+  );
 });

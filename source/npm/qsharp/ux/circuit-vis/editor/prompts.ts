@@ -5,16 +5,14 @@
 // delete/move confirmation flows and the argument-collection flow that use them.
 
 import {
-  collectMeasurementConsumers,
-  moveMeasurementWithDependents,
-  moveOperation,
-  removeMeasurementWithDependents,
+  collectSubtreeConsumers,
+  moveOperationWithDependents,
+  countStrandedConsumers,
   removeOperation,
+  removeOperationWithDependents,
 } from "../actions/circuitActions.js";
 import { CircuitModel } from "../data/circuitModel.js";
-import { Location } from "../data/location.js";
-import { Operation, Parameter } from "../data/circuit.js";
-import { findOperation } from "../utils.js";
+import { Parameter } from "../data/circuit.js";
 import {
   isValidAngleExpression,
   normalizeAngleExpression,
@@ -99,60 +97,45 @@ export const createConfirmPrompt = (
 };
 
 /**
- * Delete an operation. If the op is a measurement with downstream classical consumers, prompt the
- * user first; on confirm, the measurement is removed along with every dependent op. The
- * non-measurement / no-consumer paths pass straight through to
- * [`removeOperation`](../actions/circuitActions.ts).
+ * Delete an operation. If it would strand downstream classical consumers (ops referencing a
+ * measurement result produced inside the deleted subtree), prompt first and cascade-delete them on
+ * confirm; otherwise pass straight through to `removeOperation`. Kind-agnostic — one prompt covers a
+ * group carrying any number of producers.
  *
- * `renderFn` runs once on every path that mutates the model. On cancel, nothing mutates and
- * `renderFn` is NOT called.
+ * `renderFn` runs once on every mutating path; on cancel nothing mutates and it is NOT called.
  */
 export const deleteOperationWithConfirmation = (
   model: CircuitModel,
   location: string,
   renderFn: () => void,
 ): void => {
-  const op = findOperation(model.componentGrid, location);
-  if (op != null && op.kind === "measurement") {
-    const consumers = collectMeasurementConsumers(
-      model.componentGrid,
-      location,
-    );
-    if (consumers.length > 0) {
-      const n = consumers.length;
-      const message =
-        n === 1
-          ? `Deleting this measurement will also delete 1 dependent operation that references its classical result. Continue?`
-          : `Deleting this measurement will also delete ${n} dependent operations that reference its classical result. Continue?`;
-      createConfirmPrompt(message, (confirmed) => {
-        if (!confirmed) return;
-        removeMeasurementWithDependents(
-          model,
-          location,
-          consumers.map((c) => c.op),
-        );
-        renderFn();
-      });
-      return;
-    }
+  const consumers = collectSubtreeConsumers(model.componentGrid, location);
+  if (consumers.length > 0) {
+    const message = _buildConsumerCascadeMessage("Deleting", consumers.length);
+    createConfirmPrompt(message, (confirmed) => {
+      if (!confirmed) return;
+      removeOperationWithDependents(
+        model,
+        location,
+        consumers.map((c) => c.op),
+      );
+      renderFn();
+    });
+    return;
   }
   removeOperation(model, location);
   renderFn();
 };
 
 /**
- * Move an operation. If the op is a measurement with downstream classical consumers, prompt before
- * committing when the move materially changes what they reference: it cascade-deletes any consumer
- * that would end up at-or-before the M's new column, and (on a wire-changing move) repoints the
- * survivors at the M's new qubit. A same-wire move that only renumbers result indices is cosmetic
- * and skips the prompt. Non-measurement / no-consumer paths pass straight through to
- * [`moveOperation`](../actions/circuitActions.ts).
+ * Move an operation. Previews the move on a clone to find any downstream classical consumers it
+ * would strand: strands none — commit directly, no prompt; strands some — prompt, then commit and
+ * cascade-delete them on confirm. One prompt covers the whole move; surviving consumers are
+ * repointed by the move's token pass.
  *
- * `movingControl` MUST be threaded through unchanged. The drag controller routes every non-clone
- * drag through here, including control-dot drags on ordinary unitaries; hardcoding `false` would
- * make `_moveY`'s single-leg branch rewrite the op onto the control's wire (turning CNOT(target=q1,
- * ctrl=q0) into a self-controlled X on q0). The M-consumer path passes `false` to
- * `moveMeasurementWithDependents` since Ms have no `controls`.
+ * `movingControl` MUST be threaded through unchanged — the drag controller routes control-dot drags
+ * through here, and hardcoding `false` would make `_moveY` rewrite the op onto the control's wire
+ * (turning CNOT(target=q1, ctrl=q0) into a self-controlled X on q0).
  */
 export const moveOperationWithConfirmation = (
   model: CircuitModel,
@@ -164,76 +147,7 @@ export const moveOperationWithConfirmation = (
   insertNewColumn: boolean,
   renderFn: () => void,
 ): void => {
-  const sourceOp = findOperation(model.componentGrid, sourceLocation);
-  if (sourceOp != null && sourceOp.kind === "measurement") {
-    const consumers = collectMeasurementConsumers(
-      model.componentGrid,
-      sourceLocation,
-    );
-    if (consumers.length > 0) {
-      // Partition consumers into those that survive the move and those whose reference it
-      // invalidates (cascade-deleted). A consumer survives iff the M's final column ends up strictly
-      // before it. `insertNewColumn` shifts that boundary: the M then lands in a fresh column
-      // spliced in AT `targetLocation` — strictly before whatever was there — so a consumer at the
-      // drop column survives; without it the M shares the target column and only strictly-later
-      // consumers survive. Runs in pre-move coordinates (splicing preserves relative column order).
-      const targetLocParsed = Location.parse(targetLocation);
-      const invalidated: { op: Operation; location: string }[] = [];
-      for (const c of consumers) {
-        const cLoc = Location.parse(c.location);
-        const consumerSurvives = insertNewColumn
-          ? !cLoc.inEarlierColumnThan(targetLocParsed)
-          : targetLocParsed.inEarlierColumnThan(cLoc);
-        if (!consumerSurvives) {
-          invalidated.push(c);
-        }
-      }
-
-      // Prompt when the move deletes a consumer or changes the M's wire (repointing survivors to a
-      // new qubit). A same-wire move only renumbers result indices — cosmetic — so it skips the
-      // prompt. Report survivors in the message only on a wire change, else a delete-triggered
-      // prompt would claim to "update" consumers whose reference didn't really move.
-      const isVerticalMove = sourceWire !== targetWire;
-      if (invalidated.length > 0 || isVerticalMove) {
-        const survivorsToReport = isVerticalMove
-          ? consumers.length - invalidated.length
-          : 0;
-        const message = _buildMoveMConsumerMessage(
-          survivorsToReport,
-          invalidated.length,
-        );
-        createConfirmPrompt(message, (confirmed) => {
-          if (!confirmed) return;
-          moveMeasurementWithDependents(
-            model,
-            sourceLocation,
-            targetLocation,
-            sourceWire,
-            targetWire,
-            insertNewColumn,
-            invalidated.map((c) => c.op),
-          );
-          renderFn();
-        });
-        return;
-      }
-
-      // Horizontal, non-destructive move: apply directly (still via the dependents path so surviving
-      // consumers get their derived-target/overlap cleanup), no prompt.
-      moveMeasurementWithDependents(
-        model,
-        sourceLocation,
-        targetLocation,
-        sourceWire,
-        targetWire,
-        insertNewColumn,
-        [],
-      );
-      renderFn();
-      return;
-    }
-  }
-  moveOperation(
+  const strandedCount = countStrandedConsumers(
     model,
     sourceLocation,
     targetLocation,
@@ -242,31 +156,42 @@ export const moveOperationWithConfirmation = (
     movingControl,
     insertNewColumn,
   );
-  renderFn();
+
+  const commit = () => {
+    moveOperationWithDependents(
+      model,
+      sourceLocation,
+      targetLocation,
+      sourceWire,
+      targetWire,
+      movingControl,
+      insertNewColumn,
+    );
+    renderFn();
+  };
+
+  if (strandedCount === 0) {
+    commit();
+    return;
+  }
+
+  const message = _buildConsumerCascadeMessage("Moving", strandedCount);
+  createConfirmPrompt(message, (confirmed) => {
+    if (!confirmed) return;
+    commit();
+  });
 };
 
 /**
- * Build the body text for the M-move confirmation prompt. Emits a move-only, delete-only, or
- * combined clause depending on which consumer buckets are non-empty, pluralized per-clause.
+ * Build the confirmation body for an action that will cascade-delete `count` stranded classical-ref
+ * consumers. `verb` names the action ("Moving" / "Deleting").
  */
-const _buildMoveMConsumerMessage = (
-  survivors: number,
-  invalidated: number,
-): string => {
-  const opWord = (n: number): string =>
-    n === 1 ? "1 dependent operation" : `${n} dependent operations`;
-  const willBeUpdated = `${opWord(survivors)} will be updated to reference this measurement's new position`;
-  const willBeDeleted = `${opWord(invalidated)} would end up before this measurement in document order and will be deleted`;
-
-  if (survivors > 0 && invalidated > 0) {
-    return `Moving this measurement: ${willBeUpdated}; ${willBeDeleted}. Continue?`;
-  }
-  if (survivors > 0) {
-    return `Moving this measurement: ${willBeUpdated}. Continue?`;
-  }
-  // invalidated > 0 (the caller only enters this branch when consumers.length > 0, so at least one
-  // bucket is non-empty).
-  return `Moving this measurement: ${willBeDeleted}. Continue?`;
+const _buildConsumerCascadeMessage = (verb: string, count: number): string => {
+  const clause =
+    count === 1
+      ? "1 dependent operation that references a measurement result"
+      : `${count} dependent operations that reference a measurement result`;
+  return `${verb} this operation will also delete ${clause}. Continue?`;
 };
 
 /**

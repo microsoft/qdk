@@ -32,6 +32,33 @@ const _isClassicallyControlled = (operation: Operation): boolean => {
 };
 
 /**
+ * Decide whether landing an op into `existingColumn` needs a fresh column spliced in (vs. merging
+ * into it). Forced by the caller's `insertNewColumn`, a classically-controlled op, or a wire-range
+ * overlap with any occupant (skipping `originalOperation`, the op being moved). A trailing slot
+ * (`existingColumn == null`) has nothing to overlap, so only the flags can force it.
+ *
+ * `movedSpan` is the op's `getMinMaxRegIdx` range at its landing wires. Shared by `addOp` (commit)
+ * and the move-prompt predictor so both agree on the landed column.
+ */
+const willInsertNewColumn = (
+  existingColumn: Column | undefined,
+  movedSpan: [number, number],
+  movedIsClassicallyControlled: boolean,
+  insertNewColumn: boolean,
+  originalOperation: Operation | null,
+): boolean => {
+  if (insertNewColumn || movedIsClassicallyControlled) return true;
+  if (existingColumn == null) return false;
+  const [minTarget, maxTarget] = movedSpan;
+  for (const op of existingColumn.components) {
+    if (op === originalOperation) continue;
+    const [opMin, opMax] = getMinMaxRegIdx(op);
+    if (doesOverlap([minTarget, maxTarget], [opMin, opMax])) return true;
+  }
+  return false;
+};
+
+/**
  * Add an operation to the circuit at the specified location.
  */
 const addOp = (
@@ -44,27 +71,16 @@ const addOp = (
 ) => {
   const [colIndex, opIndex] = targetLastIndex;
 
-  insertNewColumn =
-    insertNewColumn || _isClassicallyControlled(sourceOperation);
-
-  // Overlap check only applies when inserting into an EXISTING column: two ops can't occupy the
-  // same wire range in one column (a column is a single time-step), so an overlap forces a fresh
-  // column. A trailing slot (`colIndex === length`, no column there yet) has nothing to overlap.
   const existingColumn = targetOperationParent[colIndex];
-  if (!insertNewColumn && existingColumn != null) {
-    const [minTarget, maxTarget] = getMinMaxRegIdx(sourceOperation);
-    for (const op of existingColumn.components) {
-      if (op === originalOperation) continue;
+  const insertNew = willInsertNewColumn(
+    existingColumn,
+    getMinMaxRegIdx(sourceOperation),
+    _isClassicallyControlled(sourceOperation),
+    insertNewColumn,
+    originalOperation,
+  );
 
-      const [opMinTarget, opMaxTarget] = getMinMaxRegIdx(op);
-      if (doesOverlap([minTarget, maxTarget], [opMinTarget, opMaxTarget])) {
-        insertNewColumn = true;
-        break;
-      }
-    }
-  }
-
-  if (insertNewColumn) {
+  if (insertNew) {
     // `splice` at `colIndex === length` appends, so a trailing new column needs no placeholder.
     targetOperationParent.splice(colIndex, 0, {
       components: [sourceOperation],
@@ -218,4 +234,6 @@ export {
   removeOp,
   resolveOverlappingOperations,
   resolveOverlappingOperationsRecursive,
+  willInsertNewColumn,
+  _isClassicallyControlled,
 };

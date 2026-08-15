@@ -7,6 +7,7 @@ import { Location } from "../data/location.js";
 import {
   findOperation,
   findParentArray,
+  getMinMaxRegIdx,
   getOperationRegisters,
 } from "../utils.js";
 import {
@@ -21,7 +22,8 @@ import {
   resequenceClassicalResults,
   findLocationByRef,
   collectExternalProducerLocations,
-  collectMeasurementConsumers,
+  collectSubtreeConsumers,
+  findInvalidatedConsumers,
 } from "./circuit-actions/classicalRefs.js";
 import {
   deepRefreshDerivedTargets,
@@ -36,6 +38,8 @@ import {
   removeOp,
   resolveOverlappingOperations,
   resolveOverlappingOperationsRecursive,
+  willInsertNewColumn,
+  _isClassicallyControlled,
 } from "./circuit-actions/gridPrimitives.js";
 import {
   collectMeasurementWires,
@@ -221,109 +225,139 @@ const moveOperation = (
 };
 
 /**
- * Move a measurement that has downstream classical consumers, propagating the effects to those
- * consumers.
- *
- * Wraps `moveOperation` with the bookkeeping to keep the classical producer→consumer graph
- * consistent. The caller (the editor's prompt layer) is expected to have already:
- *   1. Called `collectMeasurementConsumers` on the M.
- *   2. Partitioned the result against `targetLocation` by
- *      [`Location.inEarlierColumnThan`](../data/location.ts) into survivors (their classical refs
- *      ride the move automatically) and invalidated consumers (passed as `invalidatedConsumers`,
- *      cascade-deleted).
- *   3. Confirmed the cascade with the user.
- *
- * Ref reconciliation is handled inside `moveOperation` by the classical-result token pass, which
- * repoints every surviving consumer — of the moved M and of any OTHER M renumbered on the affected
- * wires — at its producer's final `(qubit, result)`. This wrapper only adds the cascade-delete of
- * invalidated consumers and the post-move span/collision cleanup.
- *
- * Ordering: move first, then cascade-delete — the pre-move `targetLocation` is still valid against
- * the unmodified grid, and cascade-delete uses object-reference predicates that survive the move's
- * column splices.
- *
- * Returns the moved M op, or `null` if `moveOperation` refused it.
+ * Count the classical consumers a move would strand, without moving. Treats the moved subtree as
+ * one producer landing at a single column: a consumer survives iff that column is strictly earlier.
+ * Prompt-only; the commit path re-derives the exact set on the real post-move grid, so both agree.
  */
-const moveMeasurementWithDependents = (
+const countStrandedConsumers = (
   model: CircuitModel,
   sourceLocation: string,
   targetLocation: string,
   sourceWire: number,
   targetWire: number,
+  movingControl: boolean,
   insertNewColumn: boolean,
-  invalidatedConsumers: Operation[],
-): Operation | null => {
-  const mOp = findOperation(model.componentGrid, sourceLocation);
-  if (mOp == null || mOp.kind !== "measurement") return null;
+): number => {
+  const grid = model.componentGrid;
 
-  // Move M. `moveOperation`'s classical-result token pass handles its wire change, column
-  // placement, the result-index renumbering, AND repointing every surviving
-  // consumer (of this M and of other Ms renumbered on the affected wires).
-  const movedM = moveOperation(
+  // 1. Subtree + its consumers, else nothing to strand.
+  const subtree = findOperation(grid, sourceLocation);
+  if (subtree == null) return 0;
+  const consumers = collectSubtreeConsumers(grid, sourceLocation);
+  if (consumers.length === 0) return 0;
+
+  // 2. Target column (never the root scope).
+  const targetLoc = Location.parse(targetLocation);
+  const last = targetLoc.last();
+  if (last == null) return 0;
+
+  // 3. Bail if the move would be refused (lands before an external producer).
+  for (const pLoc of collectExternalProducerLocations(grid, sourceLocation)) {
+    if (!Location.parse(pLoc).inEarlierColumnThan(targetLoc)) return 0;
+  }
+
+  // 4. Post-vertical-move span: clone one op, run the real moveY (no grid touch).
+  const [colIndex, opIndex] = last;
+  const movedClone: Operation = JSON.parse(JSON.stringify(subtree));
+  moveY(movedClone, sourceWire, targetWire, movingControl);
+
+  // 5. Replay addOp's injection decision -> landing column (colIndex - 0.5 if injected).
+  const parentArray = findParentArray(grid, targetLocation) ?? grid;
+  const inject = willInsertNewColumn(
+    parentArray[colIndex],
+    getMinMaxRegIdx(movedClone),
+    _isClassicallyControlled(subtree),
+    insertNewColumn,
+    subtree,
+  );
+  const landing = targetLoc
+    .parent()
+    .child(inject ? colIndex - 0.5 : colIndex, opIndex);
+
+  // 6. Stranded = consumers whose column isn't strictly after the landing column.
+  let stranded = 0;
+  for (const c of consumers) {
+    if (!landing.inEarlierColumnThan(Location.parse(c.location))) stranded++;
+  }
+  return stranded;
+};
+
+/**
+ * Move an operation, then cascade-delete the classical consumers it strands. `moveOperation`'s
+ * token pass already repoints surviving consumers; this self-detects the stranded ones via
+ * `findInvalidatedConsumers` on the post-move grid and removes them, then refreshes derived targets
+ * and resolves overlaps.
+ *
+ * Kind-agnostic and self-detecting (caller hands in no invalidated set), so a group stranding
+ * several consumers deletes them all in one pass. Callers that must confirm first use
+ * `countStrandedConsumers`. Returns the moved op, or `null` if the move was refused.
+ */
+const moveOperationWithDependents = (
+  model: CircuitModel,
+  sourceLocation: string,
+  targetLocation: string,
+  sourceWire: number,
+  targetWire: number,
+  movingControl: boolean,
+  insertNewColumn: boolean,
+): Operation | null => {
+  const moved = moveOperation(
     model,
     sourceLocation,
     targetLocation,
     sourceWire,
     targetWire,
-    /* movingControl */ false,
+    movingControl,
     insertNewColumn,
   );
-  if (movedM == null) return null;
+  if (moved == null) return null;
 
-  // Cascade-delete invalidated consumers AFTER the move. The predicate matches on object identity,
-  // so shifted locations don't matter.
-  const invalidatedSet = new Set(invalidatedConsumers);
-  if (invalidatedSet.size > 0) {
-    _findAndRemoveOperations(model, (op) => invalidatedSet.has(op));
+  // Cascade-delete the stranded consumers, matched by identity so delete-driven location drift
+  // doesn't matter.
+  const stranded = findInvalidatedConsumers(model.componentGrid);
+  if (stranded.length > 0) {
+    const doomed = new Set(stranded.map((c) => c.op));
+    _findAndRemoveOperations(model, (op) => doomed.has(op));
   }
 
-  // Consumers' visual spans may have changed, widening or narrowing group `.targets` caches and
-  // introducing new collisions. Re-derive bottom-up and resolve recursively (same pattern as
-  // `moveQubit`).
+  // Spans may have changed; re-derive targets bottom-up and resolve overlaps (same as `moveQubit`).
   deepRefreshDerivedTargets(model.componentGrid);
   resolveOverlappingOperationsRecursive(model.componentGrid);
 
-  return movedM;
+  return moved;
 };
 
 /**
- * Remove a measurement and cascade-delete every op that depends on its classical outputs.
+ * Remove an operation and cascade-delete every consumer of a classical output produced in its
+ * subtree. The prompt layer collects `consumers` up front (via `collectSubtreeConsumers`) and
+ * passes them in — detection must run BEFORE the remove because `removeOperation` renumbers
+ * survivors by key, which can reuse a vacated index.
  *
- * Same handoff contract as `moveMeasurementWithDependents`: the prompt layer collects consumers,
- * confirms with the user, then calls this with the consumer set.
- *
- * Cascade-delete consumers FIRST so `removeOperation`'s ancestor refresh runs against a grid with
- * no dangling classical refs to the deleted M (whose location may shift in the cascade, so we look
- * it back up by object reference).
- *
- * Result-index propagation: `removeOperation` renumbers the surviving producers on the deleted M's
- * wire(s) and repoints their consumers via the classical-result token pass, so no separate remap is
- * needed here. (The deleted M's own consumers were already cascade-deleted above.)
+ * Deletes the consumers first (matched by identity), then removes the subtree (re-derived by ref,
+ * since the cascade may shift its location), then refreshes derived targets and resolves overlaps.
  */
-const removeMeasurementWithDependents = (
+const removeOperationWithDependents = (
   model: CircuitModel,
-  mLocation: string,
+  location: string,
   consumers: Operation[],
 ): void => {
-  const mOp = findOperation(model.componentGrid, mLocation);
-  if (mOp == null) return;
+  const op = findOperation(model.componentGrid, location);
+  if (op == null) return;
 
-  // Cascade-delete the consumers. The predicate matches on object identity, so location-string
-  // drift doesn't matter.
+  // Cascade-delete the consumers, matched by identity so location drift doesn't matter.
   if (consumers.length > 0) {
     const consumerSet = new Set(consumers);
     _findAndRemoveOperations(model, (op) => consumerSet.has(op));
   }
 
-  // M's location may have shifted in the cascade; re-derive by ref. `removeOperation` renumbers the
-  // surviving producers on M's wire(s) and repoints their consumers via the token pass.
-  const newMLoc = findLocationByRef(model.componentGrid, mOp);
-  if (newMLoc != null) {
-    removeOperation(model, newMLoc);
+  // Location may have shifted in the cascade; re-derive by ref. `removeOperation` renumbers the
+  // surviving producers on the affected wire(s) and repoints their consumers.
+  const newLoc = findLocationByRef(model.componentGrid, op);
+  if (newLoc != null) {
+    removeOperation(model, newLoc);
   }
 
-  // Cascade-deleted consumer groups may have narrowed spans; refresh derived targets and resolve
-  // overlaps defensively (same as the move path).
+  // Refresh derived targets and resolve overlaps (same as the move path).
   deepRefreshDerivedTargets(model.componentGrid);
   resolveOverlappingOperationsRecursive(model.componentGrid);
 };
@@ -776,12 +810,13 @@ export {
   addControl,
   addOperation,
   collectExternalProducerLocations,
-  collectMeasurementConsumers,
-  moveMeasurementWithDependents,
+  collectSubtreeConsumers,
+  countStrandedConsumers,
+  moveOperationWithDependents,
   moveOperation,
   moveQubit,
   removeControl,
-  removeMeasurementWithDependents,
+  removeOperationWithDependents,
   removeOperation,
   removeQubit,
   removeQubitWithDependents,
