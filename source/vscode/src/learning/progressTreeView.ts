@@ -153,7 +153,9 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       ? `Completed${activity.completedAt ? ` \u00b7 ${new Date(activity.completedAt).toLocaleString()}` : ""}`
       : activity.type === "exercise"
         ? "Exercise"
-        : "Lesson";
+        : activity.type === "code-cell"
+          ? "Code Cell"
+          : "Lesson";
     // Vary the id by `isCurrent` so VS Code drops the stale selection when the
     // active activity changes (e.g. after pressing Next in the lesson panel).
     item.id = isCurrent

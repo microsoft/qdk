@@ -72,9 +72,9 @@ export function initLearning(
           // If it turns out there's a way to get events about a notebook
           // other than the active one, the only negative consequence will
           // be not registering completion.
-          void learningService.goToExerciseByCellId(cellId, "notebook");
+          void learningService.goToActivityByCellId(cellId, "notebook");
           if (change.executionSummary.success) {
-            void learningService.markExerciseCompleteByCellId(cellId);
+            void learningService.markActivityCompleteByCellId(cellId);
           }
         }
       }

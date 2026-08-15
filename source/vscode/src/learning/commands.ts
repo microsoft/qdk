@@ -201,7 +201,7 @@ export function registerLearningCommands(
 
         // Navigate to the exercise so the service state matches.
         if (cellId) {
-          await service.goToExerciseByCellId(cellId, "notebook");
+          await service.goToActivityByCellId(cellId, "notebook");
         }
 
         await vscode.commands.executeCommand("workbench.action.chat.open", {
@@ -222,11 +222,10 @@ export function registerLearningCommands(
           return;
         }
 
-        // The button is offered on every cell, so the cell may not be an
-        // exercise. Only move the service's position when it is one.
         const cellId = resolveCellId(arg);
-        if (cellId && service.isExerciseCellId(cellId)) {
-          await service.goToExerciseByCellId(cellId, "notebook");
+        if (cellId) {
+          // This will no-op if it's not an activity cell
+          void (await service.goToActivityByCellId(cellId, "notebook"));
         }
 
         await vscode.commands.executeCommand("workbench.action.chat.open", {

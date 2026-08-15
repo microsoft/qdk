@@ -49,6 +49,7 @@ import type {
   UnitSummary,
   NotebookCatalogCourse,
   NotebookCatalogUnit,
+  CodeCellContent,
 } from "./types.js";
 
 /**
@@ -370,14 +371,14 @@ export class LearningService {
   }
 
   /**
-   * Navigate to the exercise activity whose `cellId` matches the given
+   * Navigate to the activity whose `id` matches the given
    * notebook cell ID. Returns `true` if the position was updated.
    * Only meaningful for python-notebook courses.
    *
    * Updates the position silently — does **not** fire the state-change
    * event, so the lesson panel won't pop up or rearrange the editor layout.
    */
-  async goToExerciseByCellId(
+  async goToActivityByCellId(
     cellId: string,
     source?: TelemetrySource,
   ): Promise<boolean> {
@@ -385,12 +386,12 @@ export class LearningService {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
-    if (!exercise) {
+    const activity = unit.activities.find((e) => e.id === cellId);
+    if (!activity) {
       return false;
     }
     // Only move if we're not already on this exercise.
-    if (this.position.activityId === exercise.cellId) {
+    if (this.position.activityId === activity.id) {
       return true;
     }
 
@@ -398,7 +399,7 @@ export class LearningService {
     ws.progressData.position = {
       courseId: this.activeCourse.id,
       unitId: unit.id,
-      activityId: exercise.cellId,
+      activityId: activity.id,
     };
     await this.saveProgress();
     if (source) {
@@ -408,16 +409,16 @@ export class LearningService {
   }
 
   /**
-   * Mark the exercise activity with the given cell ID as complete.
+   * Mark the activity with the given cell ID as complete.
    * Returns `true` if the exercise was found and marked (or already complete).
    * Fires the state-change event so the treeview updates.
    */
-  async markExerciseCompleteByCellId(cellId: string): Promise<boolean> {
+  async markActivityCompleteByCellId(cellId: string): Promise<boolean> {
     if (!isNotebookCourse(this.activeCourse)) {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    const exercise = unit.notebookExercises?.find((e) => e.cellId === cellId);
+    const exercise = unit.activities.find((e) => e.id === cellId);
     if (!exercise) {
       log.warn(`Unable to find exercise corresponding to cell ${cellId}`);
       return false;
@@ -425,7 +426,7 @@ export class LearningService {
     const location: ActivityLocation = {
       courseId: this.activeCourse.id,
       unitId: unit.id,
-      activityId: exercise.cellId,
+      activityId: exercise.id,
     };
     if (this.isComplete(location)) {
       return true;
@@ -524,16 +525,19 @@ export class LearningService {
   }
 
   /**
-   * Returns `true` if the given cell ID corresponds to an exercise in the
-   * current unit. Always `false` if the course isn't a python-notebook
-   * course or there are no exercises.
+   * Returns `true` if the given cell ID corresponds to an activity in the
+   * current unit (optionally, of a particular type).
    */
-  isExerciseCellId(cellId: string): boolean {
+  isActivityCellId(cellId: string, type?: CatalogActivity["type"]): boolean {
     if (!isNotebookCourse(this.activeCourse)) {
       return false;
     }
     const unit = this.findUnit(this.position.unitId);
-    return unit.notebookExercises?.some((ex) => ex.cellId === cellId) ?? false;
+    return (
+      unit.activities.some(
+        (ex) => (!type || ex.type === type) && ex.id === cellId,
+      ) ?? false
+    );
   }
 
   /**
@@ -555,21 +559,21 @@ export class LearningService {
       return undefined;
     }
 
-    const exerciseInfo = unit.notebookExercises?.find(
-      (ex) => ex.cellId === cellId,
-    );
+    const activity = unit.activities.find((activity) => activity.id === cellId);
 
     let content: ActivityContent;
-    if (exerciseInfo) {
+    if (activity?.type === "exercise") {
       content = {
         type: "exercise",
         id: cellId,
-        title: exerciseInfo.title,
-        description: exerciseInfo.description,
+        title: activity.title,
+        description: activity.description,
         filePath: `${notebookUri}#${cellId}`,
         isComplete: false,
-        hasMultipleSolutions: exerciseInfo.solutions.length > 1,
+        hasMultipleSolutions: activity.solutionCodes.length > 1,
       } satisfies ExerciseContent;
+    } else if (activity?.type === "code-cell") {
+      content = { type: "code-cell", id: cellId, title: activity.title };
     } else {
       content = {
         type: "lesson-text",
@@ -586,14 +590,14 @@ export class LearningService {
     return {
       location,
       unitTitle: unit.title,
-      activityTitle: exerciseInfo?.title ?? cellId,
+      activityTitle: activity?.title ?? cellId,
       content,
     };
   }
 
   /**
    * The notebook cell ID backing the current activity — the inverse of
-   * {@link goToExerciseByCellId}. `undefined` when the course isn't a
+   * {@link goToActivityByCellId}. `undefined` when the course isn't a
    * python-notebook course or the activity has no associated cell.
    */
   getCurrentExerciseCellId(): string | undefined {
@@ -1330,9 +1334,9 @@ export class LearningService {
       );
     }
 
-    // Lesson (text or example)
+    // Lesson (text or example) or code cell
     const codeTools: ActionGroup =
-      activity.example && primary !== "run"
+      activity.type === "lesson" && activity.example && primary !== "run"
         ? [{ key: "r", label: "Run", action: "run" }]
         : [];
     const aiGroup: ActionGroup = [
@@ -1402,25 +1406,14 @@ export class LearningService {
     const ws = this.requireWorkspace();
 
     if (activity.type === "exercise") {
-      // Python-notebook exercises live in the notebook — show their
-      // description as lesson text so the panel renders something useful.
-      // CONSIDER: It would be nice to sanitize activity.description before
-      // rendering it as HTML/markdown, but the user has to trust the workspace
-      // before our extension even runs.  Also we don't use the learning panel
-      // for notebook courses.
-      if (isNotebookCourse(this.activeCourse)) {
-        return {
-          type: "lesson-text",
-          content: activity.description,
-        } satisfies LessonTextContent;
-      }
-
-      const fileUri = vscode.Uri.joinPath(
-        ws.learningContentRoot,
-        "exercises",
-        kata.id,
-        `${activity.id}.qs`,
-      );
+      const fileUri = isNotebookCourse(this.activeCourse)
+        ? ""
+        : vscode.Uri.joinPath(
+            ws.learningContentRoot,
+            "exercises",
+            kata.id,
+            `${activity.id}.qs`,
+          );
       return {
         type: "exercise",
         id: activity.id,
@@ -1430,6 +1423,14 @@ export class LearningService {
         isComplete: this.isComplete(location),
         hasMultipleSolutions: activity.solutionCodes.length > 1,
       } satisfies ExerciseContent;
+    }
+
+    if (activity.type === "code-cell") {
+      return {
+        type: "code-cell",
+        id: activity.id,
+        title: activity.title,
+      } satisfies CodeCellContent;
     }
 
     // Lesson with a code example

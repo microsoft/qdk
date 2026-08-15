@@ -2,7 +2,11 @@
 // Licensed under the MIT License.
 
 import { log } from "qsharp-lang";
-import type { NotebookExerciseInfo } from "./types.js";
+import type {
+  CatalogActivity,
+  CatalogCodeCell,
+  CatalogExercise,
+} from "./types.js";
 
 /**
  * Authoring model for `python-notebook` course units.
@@ -63,21 +67,21 @@ type ParsedNotebook = RawNotebook & { cells: RawCell[] };
  * or cell is skipped, so a bad notebook degrades to fewer exercises rather
  * than an unloadable course. `unitLabel` identifies the unit in those logs.
  */
-export function parseNotebookExercises(
+export function parseNotebookActivities(
   text: string,
   unitLabel: string,
-): NotebookExerciseInfo[] {
+): CatalogActivity[] {
   const cells = readCells(text, unitLabel);
   if (!cells) {
     return [];
   }
 
-  const exercises: NotebookExerciseInfo[] = [];
+  const activities: CatalogActivity[] = [];
 
   // The exercise most recently seen, and therefore the one that any
   // subsequent authoring cells belong to. `undefined` until the first
   // exercise cell, which makes leading authoring cells detectable as orphans.
-  let current: NotebookExerciseInfo | undefined;
+  let current: CatalogExercise | undefined;
 
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
@@ -101,21 +105,32 @@ export function parseNotebookExercises(
           continue;
         }
 
+        const isExercise = tags.includes(EXERCISE_TAG);
+
         // This is a terrible fallback name, but it shouldn't actually happen
         const title =
           extractTitleFromPrecedingCell(cells, i) ?? `Cell ${cellId}`;
-        const exercise = {
-          cellId: cellId,
-          title,
-          description: "", // Not actually used for notebook exercises
-          hints: [],
-          solutions: [],
-          solutionExplanation: "",
-        };
-        exercises.push(exercise);
+        const activity = isExercise
+          ? ({
+              type: "exercise",
+              id: cellId,
+              title,
+              description: "", // Not actually used for notebook exercises
+              hints: [],
+              solutionCodes: [],
+              solutionExplanation: "",
+              placeholderCode: "", // We could fill this in but there are no consumers
+              sourceIds: [],
+            } satisfies CatalogExercise)
+          : ({
+              type: "code-cell",
+              id: cellId,
+              title,
+            } satisfies CatalogCodeCell);
+        activities.push(activity);
 
-        if (tags.includes(EXERCISE_TAG)) {
-          current = exercise;
+        if (isExercise) {
+          current = activity as CatalogExercise;
         }
 
         continue;
@@ -141,7 +156,7 @@ export function parseNotebookExercises(
 
     if (!hasExpectedKind(cell, authoringTag)) {
       log.warn(
-        `Learning: ignoring a "${authoringTag}" cell for exercise "${current.cellId}" ` +
+        `Learning: ignoring a "${authoringTag}" cell for exercise "${current.id}" ` +
           `in unit "${unitLabel}": expected a ${expectedKind(authoringTag)} cell.`,
       );
       continue;
@@ -153,13 +168,13 @@ export function parseNotebookExercises(
         current.hints.push(source);
         break;
       case "solution":
-        current.solutions.push(source);
+        current.solutionCodes.push(source);
         break;
       case "explanation":
         if (current.solutionExplanation) {
           log.warn(
             `Learning: ignoring an extra "explanation" cell for exercise ` +
-              `"${current.cellId}" in unit "${unitLabel}".`,
+              `"${current.id}" in unit "${unitLabel}".`,
           );
           break;
         }
@@ -168,7 +183,7 @@ export function parseNotebookExercises(
     }
   }
 
-  return exercises;
+  return activities;
 }
 
 /**
