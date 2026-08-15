@@ -37,24 +37,6 @@ class SeparableCode(SubsystemCode):
     def blocks(self) -> tuple[SubsystemCode, ...]:
         return self._blocks
 
-    def __add__(self, addend: SubsystemCode) -> "SeparableCode":
-        add_blocks = addend.blocks if isinstance(addend, SeparableCode) else (addend,)
-        return SeparableCode(*(tuple(self.blocks) + tuple(add_blocks)))
-
-    def __iadd__(self, addend: SubsystemCode) -> "SeparableCode":
-        return self + addend
-
-    def __sub__(self, subtrahend: SubsystemCode) -> "SeparableCode":
-        sub_blocks = (
-            set(subtrahend.blocks)
-            if isinstance(subtrahend, SeparableCode)
-            else {subtrahend}
-        )
-        return SeparableCode(*(set(self.blocks) - sub_blocks))
-
-    def __isub__(self, subtrahend: SubsystemCode) -> "SeparableCode":
-        return self - subtrahend
-
 
 def _are_disjoint(*blocks: SubsystemCode) -> bool:
     supports = [block.support for block in blocks]

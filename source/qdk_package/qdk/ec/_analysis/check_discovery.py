@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import cast
 
@@ -14,8 +14,8 @@ from qodec.circuits import Program
 from .._readouts import flag_slots, observables_as_xor_map, observe_count_of
 from .._references import Atom, Equation, Outcome, StabilizerSign, outcomes_of
 from .propagation.interpreter import program_of, walk_program
-from .propagation.pauli import Pauli, PauliCharacter, parse_term
-from .propagation.pauli_remap import encoding_qubit_relocation, flat_logical_slots
+from .propagation.pauli import Pauli, PauliCharacter, relabel
+from .propagation.pauli_remap import declared_pauli_of, encoding_qubit_relocation
 
 
 @dataclass(frozen=True)
@@ -323,7 +323,6 @@ def _stabilizer_probes(
 def _declared_observable_probes(
     gadget: qc.Gadget,
 ) -> list[tuple[str, Pauli | None]]:
-    flat_map = flat_logical_slots(gadget.inputs)
     program = program_of(gadget)
     partners = {
         qubit: program.qubit_count + offset
@@ -337,61 +336,10 @@ def _declared_observable_probes(
         if not isinstance(action, Observe):
             continue
         for observable in action.observables:
-            characters: dict[int, PauliCharacter] = {}
-            for token in observable.pauli.split():
-                basis, flat_index = parse_term(token)
-                encoding, local_index = flat_map[flat_index]
-                relocation = encoding_qubit_relocation(encoding)
-                for local, character in _declared_logical_chars(
-                    encoding, local_index, basis
-                ):
-                    target = partners[relocation[local]]
-                    characters[target] = _pauli_xor(
-                        characters.get(target, "I"), character
-                    )
-            specs.append(
-                (
-                    str(position),
-                    Pauli(
-                        {
-                            qubit: character
-                            for qubit, character in characters.items()
-                            if character != "I"
-                        }
-                    ),
-                )
-            )
+            probe = declared_pauli_of(gadget.inputs, observable.pauli)
+            specs.append((str(position), relabel(probe, partners)))
             position += 1
     return specs
-
-
-def _declared_logical_chars(
-    encoding: qc.Encoding, local_index: int, basis: str
-) -> Iterator[tuple[int, PauliCharacter]]:
-    code = encoding.code
-    if basis == "X":
-        operators = [list(code.x)[local_index]]
-    elif basis == "Z":
-        operators = [list(code.z)[local_index]]
-    elif basis == "Y":
-        operators = [list(code.x)[local_index], list(code.z)[local_index]]
-    else:
-        raise ValueError(f"unsupported declared Pauli basis {basis!r}")
-    for operator in operators:
-        for token in str(operator).split():
-            character, index = parse_term(token)
-            if character != "I":
-                yield index, character
-
-
-def _pauli_xor(left: PauliCharacter, right: PauliCharacter) -> PauliCharacter:
-    if left == "I":
-        return right
-    if right == "I":
-        return left
-    if left == right:
-        return "I"
-    return next(item for item in ("X", "Y", "Z") if item not in (left, right))
 
 
 __all__ = [

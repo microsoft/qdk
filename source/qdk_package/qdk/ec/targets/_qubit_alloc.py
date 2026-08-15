@@ -11,11 +11,11 @@ single function :func:`remap_call_source`.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-
 import stim
 
 import qodec as qc
+
+from .._operands import operand_of, qubit_labels
 
 
 def _gadget_qubit_table(
@@ -144,15 +144,12 @@ class PhysicalQubitAllocator:
 def _resolve_block_name(
     operand_binding: qc.instructions.InstructionCall.Argument,
 ) -> str:
-    """Return the block name from an ``InstructionCall`` operand binding.
+    """Return the block name an ``InstructionCall`` operand binding carries.
 
-    Bindings are typically plain strings; the integer-binding form
-    (e.g. ``Qubit(usize)`` returning ``int``) is treated as a single
-    block name via ``str()``.
+    A binding names a whole block here, not the qubits within it, so its labels
+    are re-joined rather than taken apart.
     """
-    if isinstance(operand_binding, str):
-        return operand_binding
-    return str(operand_binding)
+    return operand_of(qubit_labels(operand_binding))
 
 
 def remap_call_source(

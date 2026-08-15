@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import Any, Mapping, TYPE_CHECKING
 
 from paulimer import DensePauli
 
-from ..._typed_ir import value_tokens
+from ..._operands import qubit_labels
 from .pauli import Pauli, parse_term
 
 if TYPE_CHECKING:
@@ -35,15 +35,16 @@ def call_qubit_map(call: Any, stride: int) -> dict[int, int]:
     result: dict[int, int] = {}
     flat = 0
     for value in call.inputs.values():
-        for token in value_tokens(value):
-            block_index = int(token)
+        for label in qubit_labels(value):
+            block_index = int(label)
             for offset in range(stride):
                 result[flat] = block_index * stride + offset
                 flat += 1
     return result
 
 
-def remap_pauli(pauli_str: str, qubit_map: dict[int, int]) -> Pauli:
+def remap_pauli(pauli_str: str, qubit_map: Mapping[int, int]) -> Pauli:
+    """The Pauli ``pauli_str`` names, each term placed through ``qubit_map``."""
     characters: dict[int, "PauliCharacter"] = {}
     for token in pauli_str.split():
         basis, index = parse_term(token)
@@ -52,34 +53,19 @@ def remap_pauli(pauli_str: str, qubit_map: dict[int, int]) -> Pauli:
     return Pauli(characters)
 
 
-def remap_pauli_str(
-    pauli_str: str,
-    qubit_map: dict[int, int],
-    local_map: dict[int, int],
-) -> str:
-    tokens = []
-    for token in pauli_str.split():
-        basis, index = parse_term(token)
-        tokens.append(f"{basis}_{local_map[qubit_map[index]]}")
-    return " ".join(tokens)
-
-
-def dense_pauli(text: str, qubit_count: int) -> DensePauli:
-    return DensePauli.from_sparse(Pauli(text), qubit_count)
-
-
 def build_clifford_images(
     generators: dict[str, str],
     qubit_map: dict[int, int],
     local_map: dict[int, int],
     qubit_count: int,
 ) -> list[DensePauli]:
+    placement = {index: local_map[qubit] for index, qubit in qubit_map.items()}
     images: dict[tuple[str, int], DensePauli] = {}
     for lhs, rhs in generators.items():
         lhs_basis, lhs_index = parse_term(lhs.strip())
-        local_qubit = local_map[qubit_map[lhs_index]]
-        rhs_dense = remap_pauli_str(rhs.strip(), qubit_map, local_map)
-        images[(lhs_basis, local_qubit)] = dense_pauli(rhs_dense, qubit_count)
+        images[(lhs_basis, placement[lhs_index])] = DensePauli.from_sparse(
+            remap_pauli(rhs.strip(), placement), qubit_count
+        )
 
     result = []
     for qubit in range(qubit_count):
@@ -87,7 +73,7 @@ def build_clifford_images(
             result.append(
                 images.get(
                     (basis, qubit),
-                    dense_pauli(f"{basis}_{qubit}", qubit_count),
+                    DensePauli.from_sparse(Pauli({qubit: basis}), qubit_count),
                 )
             )
     return result

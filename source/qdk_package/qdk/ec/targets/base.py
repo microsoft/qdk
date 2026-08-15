@@ -30,6 +30,11 @@ Targetlike = TypeVar("Targetlike")
 #: A callable that binds a qodec to a target-like executor.
 Factory = Callable[[qc.Qodec], Targetlike]
 
+#: A callable that binds a qodec and the target below it to a composed executor.
+ComposedFactory = Callable[
+    [qc.Qodec, "Target[Result]"], "ComposableTarget[Result, Result]"
+]
+
 
 class Target(Generic[Result_co]):
     """Generic, qodec-bound view onto a program executor.
@@ -66,16 +71,22 @@ class Sampler(Protocol):
 
 
 class ComposableTarget(Target[Readout], Generic[Readin, Readout]):
-    """A Target that realizes one lowering by composing with the layer below.
+    """A Target that realizes one lowering over the layer below it.
 
-    ``compose_with`` injects the lower target (the layer immediately below this
-    one). After wiring, ``execute`` lowers its program one step, delegates to
-    that lower target, and lifts the result back up. ``Readin`` is the lower
-    target's result type; ``Readout`` is this layer's.
+    ``below`` is the target for the layer immediately beneath this one, taken at
+    construction. :meth:`execute` lowers its program one step, delegates to
+    ``below``, and lifts the result back up. ``Readin`` is ``below``'s result
+    type; ``Readout`` is this layer's.
     """
 
-    def compose_with(self, target: Target[Readin]) -> None:
-        raise NotImplementedError
+    def __init__(self, qodec: qc.Qodec, below: Target[Readin]) -> None:
+        super().__init__(qodec)
+        self._below = below
+
+    @property
+    def below(self) -> Target[Readin]:
+        """The target for the layer immediately beneath this one."""
+        return self._below
 
     def execute(self, program: Program, *, shots: int) -> Readout:
         raise NotImplementedError
@@ -86,15 +97,15 @@ class CompositeTarget(Target[Result]):
 
     Each adjacent layer pair (``qodec.slice(i, i + 2)``) is one lowering. The
     bottom lowering is executed directly by ``runtime``; each upper lowering is
-    realized by a ``ComposableTarget`` that ``compose_with`` the layer below it.
-    ``execute`` delegates to the top of the wired stack.
+    realized by a ``ComposableTarget`` built over the layer below it.
+    ``execute`` delegates to the top of the stack.
     """
 
     def __init__(
         self,
         qodec: qc.Qodec,
         runtime: Factory[Target[Result]],
-        processors: Factory[ComposableTarget[Result, Result]],
+        processors: ComposedFactory[Result],
     ) -> None:
         super().__init__(qodec)
         if len(qodec.layers) < 2:
@@ -104,15 +115,11 @@ class CompositeTarget(Target[Result]):
             )
         # One simple qodec per lowering: slice(i, i + 2) covers layers i and i+1.
         layers = [qodec.slice(i, i + 2) for i in range(len(qodec.layers) - 1)]
-        # The floor (bottom) lowering is run by the runtime; the upper lowerings
-        # are realized by ComposableTargets, ordered top to bottom.
-        self._runtime: Target[Result] = runtime(layers[-1])
-        self._processors = [processors(layer) for layer in layers[:-1]]
-        # Wire the stack bottom-up: each processor composes with the one below it.
-        below: Target[Result] = self._runtime
-        for processor in reversed(self._processors):
-            processor.compose_with(below)
-            below = processor
+        # The floor (bottom) lowering is run by the runtime; each upper lowering
+        # is built over the one below it, so the stack assembles bottom-up.
+        below: Target[Result] = runtime(layers[-1])
+        for layer in reversed(layers[:-1]):
+            below = processors(layer, below)
         self._top = below
 
     def execute(self, program: Program, *, shots: int) -> Result:

@@ -4,10 +4,9 @@
 They are intended to follow `RecursiveLowering`, which always emits
 namespaced labels of the form ``"<block_name>.<index>"``.
 
-Relocation operates on a flat program: it walks every call's
-``inputs`` and ``outputs``, splits each value into whitespace-separated
-qubit-label tokens, and rewrites each token through a label-to-label
-map. Tokens that don't appear in the map pass through unchanged.
+Relocation operates on a flat program: it walks every qubit label of
+every call and rewrites it through a label-to-label map. Labels absent
+from the map pass through unchanged.
 """
 
 from __future__ import annotations
@@ -15,10 +14,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Hashable
 
-from ..._typed_ir import value_to_string as _value_to_string
-from ..._typed_ir import value_tokens as _value_tokens
+from ..._operands import QubitLabel, label_text, map_call_labels, qubit_labels
 
-import qodec as qc
 from qodec.circuits import Program
 
 from .compiler import CompileResult
@@ -32,7 +29,7 @@ class Relocate:
     namespaced source labels (``"alice.0"``) or per-block prefix-style
     expansions (see `Relocate.from_block_placement`).
 
-    Tokens not in the map pass through unchanged.
+    Labels not in the map pass through unchanged.
     """
 
     def __init__(self, label_map: Mapping[str, Hashable]) -> None:
@@ -66,8 +63,8 @@ class Relocate:
 class AutoRelocate:
     """Renumber qubit labels to consecutive integers in first-seen order.
 
-    Walks the program once to collect every distinct qubit-label token,
-    then assigns each label an integer index starting from ``start``.
+    Walks the program once to collect every distinct qubit label, then
+    assigns each an integer index starting from ``start``.
     """
 
     def __init__(self, *, start: int = 0) -> None:
@@ -78,52 +75,21 @@ class AutoRelocate:
         seen: set[str] = set()
         for call in program.instructions:
             for value in (*call.inputs.values(), *call.outputs.values()):
-                for token in _value_tokens(value):
-                    if token in seen:
+                for label in qubit_labels(value):
+                    text = label_text(label)
+                    if text in seen:
                         continue
-                    if _is_int_token(token):
-                        # Pure-integer tokens don't need re-mapping if we want
-                        # them to keep their numeric meaning. But for "renumber
-                        # in first-seen order" we treat all labels uniformly.
-                        pass
-                    seen.add(token)
-                    labels.append(token)
+                    seen.add(text)
+                    labels.append(text)
         label_map = {label: str(self._start + i) for i, label in enumerate(labels)}
         return CompileResult(program=_remap_program(program, label_map))
 
 
 def _remap_program(program: Program, label_map: Mapping[str, str]) -> Program:
-    new_calls: list[qc.instructions.InstructionCall] = []
-    for call in program.instructions:
-        new_inputs: dict[str, qc.instructions.InstructionCall.Argument] = {
-            n: _remap_value(v, label_map) for n, v in call.inputs.items()
-        }
-        new_outputs: dict[str, qc.instructions.InstructionCall.Argument] = {
-            n: _remap_value(v, label_map) for n, v in call.outputs.items()
-        }
-        new_calls.append(
-            qc.instructions.InstructionCall(
-                call.mnemonic,
-                inputs=new_inputs,
-                outputs=new_outputs,
-                parameters=call.parameters,
-            )
-        )
-    return Program(new_calls, program.isa)
+    def relabel(label: QubitLabel) -> QubitLabel:
+        return label_map.get(label_text(label), label)
 
-
-def _remap_value(
-    value: qc.instructions.InstructionCall.Argument, label_map: Mapping[str, str]
-) -> str:
-    tokens = _value_tokens(value)
-    if not tokens:
-        return _value_to_string(value)
-    return " ".join(label_map.get(token, token) for token in tokens)
-
-
-def _is_int_token(token: str) -> bool:
-    try:
-        int(token)
-        return True
-    except ValueError:
-        return False
+    return Program(
+        [map_call_labels(call, relabel) for call in program.instructions],
+        program.isa,
+    )

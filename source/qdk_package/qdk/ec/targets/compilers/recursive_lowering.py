@@ -25,8 +25,7 @@ from __future__ import annotations
 
 import qodec as qc
 
-from ..._typed_ir import value_to_string as _value_to_string
-from ..._typed_ir import value_tokens as _value_tokens
+from ..._operands import QubitLabel, map_call_labels, qubit_labels
 
 from qodec.circuits import Program
 
@@ -89,13 +88,13 @@ def _apply_translation(
                 f"to {target_isa.name!r}"
             )
         gadget = gadgets[call.mnemonic]
-        remap = _build_namespaced_remap(gadget, call, call.mnemonic)
+        remap = build_namespaced_remap(gadget, call, call.mnemonic)
         for body_call in gadget.circuit.instructions:
-            lowered.append(_remap_call(body_call, remap))
+            lowered.append(remap_call(body_call, remap))
     return Program(lowered, target_isa)
 
 
-def _build_namespaced_remap(
+def build_namespaced_remap(
     gadget: qc.Gadget,
     call: qc.instructions.InstructionCall,
     mnemonic: str,
@@ -143,59 +142,26 @@ def _build_namespaced_remap(
                 *body_call.outputs.values(),
             )
             for value in operand_values:
-                for token in _value_tokens(value):
-                    try:
-                        internal_qubit = int(token)
-                    except ValueError:
-                        continue
-                    if internal_qubit not in remap:
-                        remap[internal_qubit] = f"{instance_prefix}#{internal_qubit}"
+                for label in qubit_labels(value):
+                    if isinstance(label, int) and label not in remap:
+                        remap[label] = f"{instance_prefix}#{label}"
     return remap
 
 
-def _remap_call(
+def remap_call(
     call: qc.instructions.InstructionCall,
     remap: dict[int, str],
 ) -> qc.instructions.InstructionCall:
-    """Return a copy of ``call`` with every qubit operand remapped."""
+    """Return a copy of ``call`` with every authored qubit index placed.
+
+    Labels absent from ``remap`` pass through: symbolic labels are already
+    placed, and authored indices with no encoding entry are the gadget's
+    ancillas, which keep their own numbering.
+    """
     if not remap:
         return call
-    new_inputs: dict[str, qc.instructions.InstructionCall.Argument] = {
-        name: _remap_qubits(value, remap) for name, value in call.inputs.items()
-    }
-    new_outputs: dict[str, qc.instructions.InstructionCall.Argument] = {
-        name: _remap_qubits(value, remap) for name, value in call.outputs.items()
-    }
-    return qc.instructions.InstructionCall(
-        call.mnemonic,
-        inputs=new_inputs,
-        outputs=new_outputs,
-        parameters=call.parameters,
-    )
 
+    def placed(label: QubitLabel) -> QubitLabel:
+        return remap.get(label, label) if isinstance(label, int) else label
 
-def _remap_qubits(
-    value: qc.instructions.InstructionCall.Argument, remap: dict[int, str]
-) -> str:
-    """Remap each whitespace-separated qubit-index token in ``value``.
-
-    Tokens that don't parse as integers (e.g., classical bit names) are
-    passed through unchanged. Integer tokens missing from ``remap`` also
-    pass through unchanged (these are the gadget's ancilla / scratch
-    qubits, which keep their authored integer indices).
-    """
-    tokens = _value_tokens(value)
-    if not tokens:
-        return _value_to_string(value)
-    out_tokens: list[str] = []
-    for token in tokens:
-        try:
-            qubit = int(token)
-        except ValueError:
-            out_tokens.append(token)
-            continue
-        if qubit in remap:
-            out_tokens.append(remap[qubit])
-        else:
-            out_tokens.append(token)
-    return " ".join(out_tokens)
+    return map_call_labels(call, placed)

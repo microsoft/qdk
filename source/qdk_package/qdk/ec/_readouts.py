@@ -72,43 +72,66 @@ class ReadoutSlot:
     equation: Equation
 
 
-def readout_slots(gadget: qc.Gadget) -> tuple[ReadoutSlot, ...]:
-    """Every bound entry of ``gadget.readouts``: observables first, then flags.
+@dataclass(frozen=True)
+class GadgetReadouts:
+    """Every bound entry of ``gadget.readouts``, already split by kind.
 
     A gadget may bind fewer entries than its instruction declares; only the
     entries actually present are reported, which is what lets the auditor see an
     unbound observable as a missing slot rather than crash on it.
+    """
+
+    slots: tuple[ReadoutSlot, ...]
+    observables: tuple[ReadoutSlot, ...]
+    flags: tuple[ReadoutSlot, ...]
+
+
+def readouts_of(gadget: qc.Gadget) -> GadgetReadouts:
+    """Bind ``gadget.readouts`` to its slots: observables first, then flags.
+
+    This is the one place the observable/flag boundary is derived. Consumers
+    that want both kinds take this value once rather than deriving it per view.
     """
     observe = observe_count_of(gadget.implements)
     flags = list(gadget.implements.flags)
     slots = []
     for position, entry in enumerate(gadget.readouts):
         flag_index = position - observe
-        if flag_index < 0:
-            name = str(position)
-        elif flag_index < len(flags):
+        if 0 <= flag_index < len(flags):
             name = flags[flag_index]
         else:
             name = str(position)
         slots.append(
             ReadoutSlot(position, name, flag_index >= 0, readout_equation(entry))
         )
-    return tuple(slots)
+    return GadgetReadouts(
+        tuple(slots),
+        tuple(slot for slot in slots if not slot.is_flag),
+        tuple(slot for slot in slots if slot.is_flag),
+    )
+
+
+def readout_slots(gadget: qc.Gadget) -> tuple[ReadoutSlot, ...]:
+    """Every bound entry of ``gadget.readouts``: observables first, then flags."""
+    return readouts_of(gadget).slots
 
 
 def observable_slots(gadget: qc.Gadget) -> tuple[ReadoutSlot, ...]:
     """The gadget's bound observables — its Pauli-bearing readouts."""
-    return tuple(slot for slot in readout_slots(gadget) if not slot.is_flag)
+    return readouts_of(gadget).observables
 
 
 def flag_slots(gadget: qc.Gadget) -> tuple[ReadoutSlot, ...]:
     """The gadget's bound flags — decoder-blind side-channel bits."""
-    return tuple(slot for slot in readout_slots(gadget) if slot.is_flag)
+    return readouts_of(gadget).flags
 
 
 def observables_as_xor_map(gadget: qc.Gadget) -> dict[str, list[int]]:
     """Gadget observables: positional name → measurement-record XOR."""
-    return {slot.name: outcomes_of(slot.equation) for slot in observable_slots(gadget)}
+    return {
+        slot.name: outcomes_of(slot.equation)
+        for slot in readouts_of(gadget).observables
+    }
 
 
 def set_gadget_readouts(
@@ -137,6 +160,7 @@ def set_gadget_readouts(
 
 
 __all__ = [
+    "GadgetReadouts",
     "ReadoutSlot",
     "as_readout",
     "flag_slots",
@@ -145,5 +169,6 @@ __all__ = [
     "observe_count_of",
     "readout_equation",
     "readout_slots",
+    "readouts_of",
     "set_gadget_readouts",
 ]

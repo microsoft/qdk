@@ -23,8 +23,8 @@ from qodec.circuits import Program
 
 from .compilers import Compiler, RecursiveLowering
 from .compilers.recursive_lowering import (
-    _build_namespaced_remap,
-    _remap_call,
+    build_namespaced_remap,
+    remap_call,
 )
 from .results import Batch
 from .._readouts import observable_slots, readout_slots
@@ -116,11 +116,10 @@ class StimEmitter:
         self._stim_layer = qodec.layers[-2]
         self._stim_source_isa = qodec.layers[-2].isa
         self._stim_target_isa = qodec.layers[-1].isa
-        # With a caller-supplied compiler the program arrives pre-lowered to the
-        # bottom edge, so there is only ever one decoding surface to emit.
-        # Without one, every extra lowering edge carries its own checks and
-        # readouts, which have to be composed down to physical records
-        # (``_build_circuit_recursive``) rather than discarded.
+        # A caller-supplied compiler pre-lowers the program to the bottom edge,
+        # so there is only ever one decoding surface to emit. Without one, every
+        # extra lowering edge carries its own checks and readouts, which have to
+        # be composed down to physical records rather than discarded.
         self._composes_layers = compiler is None and layer_count > 2
         if compiler is None:
             pre_bottom = qodec.slice(0, layer_count - 1)
@@ -135,6 +134,16 @@ class StimEmitter:
     @property
     def qodec(self) -> qc.Qodec:
         return self._qodec
+
+    @property
+    def composes_layers(self) -> bool:
+        """Whether emission folds every lowering edge's decoding surface down.
+
+        Composed emission resolves boundary signs against declared frames
+        (:data:`~qdk.ec.targets._recursive_emit.FrameSourcing` ``"declared"``);
+        single-edge emission uses the positional fallback.
+        """
+        return self._composes_layers
 
     @property
     def compiler(self) -> Compiler:
@@ -234,7 +243,7 @@ class StimEmitter:
         ``False`` for flag observables (one per ``gadget.flags`` entry).
         """
         program_coerced = coerce_program(program, self._qodec.layers[0].isa)
-        if self._recursive:
+        if self._composes_layers:
             # Logical observables come from the *top* layer's gadget
             # readouts (intermediate readouts are consumed as body records,
             # not emitted as observables).
@@ -318,7 +327,7 @@ class StimEmitter:
                 # (stim treats `MPAD 0 1` as "pad one record asserted to 0
                 # and another asserted to 1"). Virtual stabilizer
                 # placeholders for absent prior gadgets should all be 0.
-                combined.append("MPAD", [0] * padding)
+                combined.append("MPAD", [0] * padding, [])
                 virtual_records_available += padding
                 global_measurement_count += padding
 
@@ -437,7 +446,7 @@ class StimEmitter:
                     f"intermediate layer; the layer-composing emitter only "
                     f"supports flags on the top-level program"
                 )
-            remap = _build_namespaced_remap(
+            remap = build_namespaced_remap(
                 gadget,
                 call,
                 call.mnemonic,
@@ -446,7 +455,7 @@ class StimEmitter:
             child_layer = self._qodec.layers[level + 1]
             body_records: list[frozenset[int]] = []
             for body_call in gadget.circuit.instructions:
-                child_call = _remap_call(body_call, remap)
+                child_call = remap_call(body_call, remap)
                 child_exposed = self._emit_call(state, child_call, level + 1)
                 child_gadget = child_layer.gadgets[child_call.mnemonic]
                 for slot in observable_slots(child_gadget):
@@ -455,7 +464,7 @@ class StimEmitter:
 
         frames = state.frames[level]
         self._emit_composed_detectors(state, gadget, provenance, frames)
-        update_frame_maps(gadget, provenance, frames, seed_deterministic=True)
+        update_frame_maps(gadget, provenance, frames, sourcing="declared")
         return exposed_readout_records(gadget, provenance, frames)
 
     def _emit_composed_detectors(
@@ -468,11 +477,13 @@ class StimEmitter:
         for check in parse_equations(gadget.checks):
             if _has_out_stab(check):
                 continue
-            records = resolve_records(check, provenance, frames, gadget, strict=True)
+            records = resolve_records(
+                check, provenance, frames, gadget, sourcing="declared"
+            )
             targets = [
                 stim.target_rec(-(state.global_rec - r)) for r in sorted(records)
             ]
-            state.combined.append("DETECTOR", targets)
+            state.combined.append("DETECTOR", targets, [])
 
 
 class StimSampler(Target[Batch]):
@@ -640,7 +651,7 @@ def _append_gadget_directives(
                 targets.append(
                     stim.target_rec(-(n + 1 + stab_offset_from_end[sign.key]))
                 )
-        combined.append("DETECTOR", targets)
+        combined.append("DETECTOR", targets, [])
 
     # Flags are emitted as observables too, so the sampled column layout matches
     # the gadget's own readout order: observables first, then flags.
@@ -652,7 +663,7 @@ def _append_gadget_directives(
             observable_offset + offset,
         )
 
-    update_frame_maps(gadget, provenance, frames, seed_deterministic=False)
+    update_frame_maps(gadget, provenance, frames, sourcing="positional")
     return len(emitted)
 
 
@@ -697,7 +708,7 @@ def _inject_noise(circuit: stim.Circuit, noise: dict[str, float]) -> stim.Circui
                 name in ("CX", "CZ", "CY") and "p_data" in noise and noise["p_data"] > 0
             ):
                 for i in range(0, len(qubit_targets), 2):
-                    noisy.append(name, qubit_targets[i : i + 2])
+                    noisy.append(name, qubit_targets[i : i + 2], [])
                     noisy.append(
                         "DEPOLARIZE2",
                         qubit_targets[i : i + 2],

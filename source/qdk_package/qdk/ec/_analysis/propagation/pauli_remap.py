@@ -7,7 +7,7 @@ from typing import Literal, TYPE_CHECKING
 
 import qodec as qc
 
-from .pauli import Pauli, characters_of_string
+from .pauli import Pauli, characters_of_string, parse_term
 
 if TYPE_CHECKING:
     from paulimer import PauliCharacter
@@ -92,6 +92,79 @@ def logical_chars(code: qc.Code, basis: Basis) -> list[dict[int, "PauliCharacter
     """Characters of the code's logical operators in one basis, in order."""
     operators = code.x if basis == "X" else code.z
     return [characters_of_string(str(operator)) for operator in operators]
+
+
+def declared_pauli_of(encodings: Sequence[qc.Encoding], declared: str) -> Pauli:
+    """The physical Pauli a declared logical operator names over ``encodings``.
+
+    ``declared`` is an instruction action operand such as ``"X_0 Z_1"``. Its
+    token ``<basis>_<t>`` names the ``t``-th entry of :func:`flat_logical_slots`.
+    """
+    return logical_pauli_of(
+        encodings, [parse_term(token) for token in declared.split()]
+    )
+
+
+def logical_pauli_of(
+    encodings: Sequence[qc.Encoding],
+    terms: Iterable[tuple[str, int]],
+) -> Pauli:
+    """The physical Pauli named by ``(basis, flat logical qubit)`` terms.
+
+    A ``Y`` term names the product of that logical qubit's X and Z
+    representatives; terms landing on the same physical qubit are multiplied.
+    """
+    slots = flat_logical_slots(encodings)
+    characters: dict[int, "PauliCharacter"] = {}
+    for basis, flat_index in terms:
+        if flat_index >= len(slots):
+            raise ValueError(
+                f"logical qubit {flat_index} is beyond the {len(slots)} the "
+                f"gadget's encodings carry"
+            )
+        encoding, local_index = slots[flat_index]
+        relocation = encoding_qubit_relocation(encoding)
+        for local, character in _representative_chars(
+            encoding.code, local_index, basis
+        ):
+            qubit = relocation[local]
+            characters[qubit] = _product(characters.get(qubit, "I"), character)
+    return Pauli(
+        {
+            qubit: character
+            for qubit, character in characters.items()
+            if character != "I"
+        }
+    )
+
+
+def _representative_chars(
+    code: qc.Code, local_index: int, basis: str
+) -> Iterator[tuple[int, "PauliCharacter"]]:
+    """Characters of the representative(s) one declared basis letter selects."""
+    if basis == "X":
+        operators = [list(code.x)[local_index]]
+    elif basis == "Z":
+        operators = [list(code.z)[local_index]]
+    elif basis == "Y":
+        operators = [list(code.x)[local_index], list(code.z)[local_index]]
+    else:
+        raise ValueError(f"unsupported declared Pauli basis {basis!r}")
+    for operator in operators:
+        for qubit, character in characters_of_string(str(operator)).items():
+            if character != "I":
+                yield qubit, character
+
+
+def _product(left: "PauliCharacter", right: "PauliCharacter") -> "PauliCharacter":
+    """The unsigned product of two Pauli characters."""
+    if left == "I":
+        return right
+    if right == "I":
+        return left
+    if left == right:
+        return "I"
+    return next(item for item in ("X", "Y", "Z") if item not in (left, right))
 
 
 def _flat_logical_chars(code: qc.Code) -> Iterator[dict[int, "PauliCharacter"]]:

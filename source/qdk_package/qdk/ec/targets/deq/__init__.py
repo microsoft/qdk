@@ -1,14 +1,21 @@
-"""Deq interchange and decoded execution."""
+"""Deq interchange and decoded execution.
+
+Only :class:`DeqOptions` is importable without ``deq`` installed; every other
+export stays behind :func:`__getattr__` so this module can be imported to reach
+the options type alone.
+"""
 
 from __future__ import annotations
 
 import importlib
 from typing import TYPE_CHECKING, Any
 
-_EXPORTS = {
+from .options import DeqOptions
+
+#: Exports whose module needs the ``deq`` (or ``stim``) backend installed.
+_LAZY_EXPORTS = {
     "Biased": (".target", "Biased"),
     "DeqLerTarget": (".target", "DeqLerTarget"),
-    "DeqOptions": (".options", "DeqOptions"),
     "LerResult": (".target", "LerResult"),
     "NoiseModel": (".target", "NoiseModel"),
     "SI1000": (".target", "SI1000"),
@@ -19,12 +26,12 @@ _EXPORTS = {
     "to_stim_source": (".interchange", "to_stim_source"),
 }
 
-__all__ = list(_EXPORTS)
+__all__ = ["DeqOptions", *_LAZY_EXPORTS]
 
 
 def __getattr__(name: str) -> Any:
     try:
-        module_name, symbol = _EXPORTS[name]
+        module_name, symbol = _LAZY_EXPORTS[name]
     except KeyError as error:
         raise AttributeError(
             f"module {__name__!r} has no attribute {name!r}"
@@ -47,7 +54,6 @@ if TYPE_CHECKING:
         to_jit_library as to_jit_library,
         to_stim_source as to_stim_source,
     )
-    from .options import DeqOptions as DeqOptions
     from .target import (
         Biased as Biased,
         DeqLerTarget as DeqLerTarget,
@@ -55,17 +61,3 @@ if TYPE_CHECKING:
         NoiseModel as NoiseModel,
         SI1000 as SI1000,
     )
-
-__all__ = [
-    "Biased",
-    "DeqLerTarget",
-    "DeqOptions",
-    "LerResult",
-    "NoiseModel",
-    "SI1000",
-    "from_deq",
-    "to_deq",
-    "to_deq_source",
-    "to_jit_library",
-    "to_stim_source",
-]

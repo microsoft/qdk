@@ -13,6 +13,7 @@ no import cycle.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from typing import Literal
 
 import stim
 
@@ -34,6 +35,20 @@ StabilizerFrames = dict[tuple[int, int], frozenset[int]]
 
 #: ``(encoding entry, basis, index) -> records whose XOR carries its sign``.
 LogicalFrames = dict[tuple[int, Basis, int], frozenset[int]]
+
+#: Where a gadget's boundary signs come from.
+#:
+#: ``"declared"`` means every referenced sign is seeded by an upstream
+#: ``out[...]`` declaration: an unseeded input stabilizer is an under-specified
+#: qodec, and a preparation's undeclared-source sign seeds the empty record set
+#: (an empty XOR being ``+1``). ``"positional"`` is the single-edge fallback for
+#: qodecs that do not declare their preparation frames: an unseeded sign
+#: resolves to the empty set and the emitter reaches into the preceding
+#: gadget's records by position instead.
+#:
+#: The two answers move together, so they are one value rather than a pair of
+#: booleans that could disagree.
+FrameSourcing = Literal["declared", "positional"]
 
 
 def _has_out_stab(check: Equation) -> bool:
@@ -96,16 +111,13 @@ def resolve_records(
     frames: FrameMaps,
     gadget: qc.Gadget,
     *,
-    strict: bool = False,
+    sourcing: FrameSourcing = "positional",
 ) -> set[int]:
     """XOR-resolve a parity equation to the physical records carrying its value.
 
     An outcome maps through ``provenance``; an ``in`` stabilizer or logical sign
-    maps to the frame currently carrying that sign.
-
-    With ``strict``, an ``in`` stabilizer sign with no seeded frame is an
-    under-specified qodec and raises; otherwise it resolves to the empty set,
-    which is what the single-edge path's positional fallback relies on. An
+    maps to the frame currently carrying that sign. ``sourcing`` decides what an
+    unseeded ``in`` stabilizer sign means — see :data:`FrameSourcing`. An
     unseeded *logical* sign is always the empty set: a deterministic ``+1``
     representative.
     """
@@ -118,7 +130,7 @@ def resolve_records(
             )
         records ^= set(provenance[index])
     for sign in stabilizer_signs_of(equation, side="in"):
-        if strict and sign.key not in frames.stabilizers:
+        if sourcing == "declared" and sign.key not in frames.stabilizers:
             raise NotImplementedError(
                 f"gadget {gadget.implements.mnemonic!r}: input stabilizer "
                 f"frame {sign.key} has not been seeded by any prior gadget; "
@@ -152,7 +164,7 @@ def update_frame_maps(
     provenance: Provenance,
     frames: FrameMaps,
     *,
-    seed_deterministic: bool,
+    sourcing: FrameSourcing,
 ) -> None:
     """Apply this gadget's ``out[...]`` sign declarations to ``frames``.
 
@@ -163,13 +175,10 @@ def update_frame_maps(
 
     A gadget's output state must be a valid codeword of its declared output
     encoding, so every output-code stabilizer has a well-defined boundary sign,
-    and a gadget should declare ``out[<e>].stabilizers[i]`` for every ``i``.
-    With ``seed_deterministic``, a declaration with neither readouts nor an
-    input frame — a preparation asserting a deterministic sign — seeds the empty
-    record set, an empty XOR being ``+1``. Without it that declaration is left
-    unset so downstream references fall back to the positional virtual-record
-    model, which is what qodecs that do not yet declare their preparation frames
-    still rely on.
+    and a gadget should declare ``out[<e>].stabilizers[i]`` for every ``i``. A
+    declaration with neither readouts nor an input frame — a preparation
+    asserting a deterministic sign — is seeded or left unset according to
+    ``sourcing`` (see :data:`FrameSourcing`).
     """
     checks = parse_equations(gadget.checks)
 
@@ -179,7 +188,7 @@ def update_frame_maps(
         if not outs:
             continue
         sourced = outcomes_of(check) or stabilizer_signs_of(check, side="in")
-        if not sourced and not seed_deterministic:
+        if not sourced and sourcing == "positional":
             continue
         records = _stabilizer_source_records(check, provenance, frames)
         for sign in outs:
@@ -220,7 +229,9 @@ def exposed_readout_records(
         )
     return {
         slot.name: frozenset(
-            resolve_records(slot.equation, provenance, frames, gadget, strict=True)
+            resolve_records(
+                slot.equation, provenance, frames, gadget, sourcing="declared"
+            )
         )
         for slot in slots
     }
