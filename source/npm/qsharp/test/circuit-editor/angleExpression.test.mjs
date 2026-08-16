@@ -15,6 +15,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  evaluateAngleExpression,
   isValidAngleExpression,
   normalizeAngleExpression,
 } from "../../dist/ux/circuit-vis/angleExpression.js";
@@ -156,6 +157,57 @@ test("isValidAngleExpression: adjacent factors without an operator are invalid",
   // is added later, this test should be updated to expect `true`.)
   assert.equal(isValidAngleExpression("2π"), false);
   assert.equal(isValidAngleExpression("π2"), false);
+});
+
+// ---------------------------------------------------------------------------
+// Generated circuit args
+// ---------------------------------------------------------------------------
+
+test("isValidAngleExpression: every form the circuit generator emits is valid", () => {
+  // Circuit generation renders a rotation angle symbolically when it is a clean multiple or
+  // fraction of π, and falls back to four decimals otherwise. Those strings land in the
+  // operation's `args` and flow straight back into the Edit Argument prompt, so the validator has
+  // to accept all of them. Keep this list in sync with the emitted forms; the explicit `*` in
+  // "2 * π / 3" is load-bearing, since the implicit-multiplication test above shows "2π" would be
+  // rejected.
+  const emitted = [
+    "0",
+    "π",
+    "-π",
+    "3 * π",
+    "-3 * π",
+    "π / 4",
+    "-π / 4",
+    "π / 99",
+    "2 * π / 3",
+    "-15 * π / 16",
+    "0.7854",
+    "-0.3000",
+  ];
+  for (const expr of emitted) {
+    assert.equal(isValidAngleExpression(expr), true, `rejected ${expr}`);
+  }
+});
+
+test("evaluateAngleExpression: generated symbolic args evaluate to their angle", () => {
+  // The state-visualization worker evaluates `args[0]` through this same helper, so a symbolic
+  // arg has to produce the angle it stands for.
+  const cases = [
+    ["0", 0],
+    ["π", Math.PI],
+    ["-π", -Math.PI],
+    ["3 * π", 3 * Math.PI],
+    ["π / 4", Math.PI / 4],
+    ["-π / 4", -Math.PI / 4],
+    ["2 * π / 3", (2 * Math.PI) / 3],
+  ];
+  for (const [expr, expected] of cases) {
+    const actual = evaluateAngleExpression(expr);
+    assert.ok(
+      actual !== undefined && Math.abs(actual - expected) < 1e-12,
+      `${expr} evaluated to ${actual}, expected ${expected}`,
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------

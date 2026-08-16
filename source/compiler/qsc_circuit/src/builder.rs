@@ -5,6 +5,7 @@
 pub(crate) mod tests;
 
 use crate::{
+    angle_format::format_angle,
     circuit::{
         Circuit, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit, Register,
         SourceLocation, Unitary, operation_list_to_grid,
@@ -73,7 +74,7 @@ impl Tracer for CircuitTracer {
         theta: Option<f64>,
     ) {
         let called_at = LogicalStack::from_evaluator_trace(stack);
-        let display_args: Vec<String> = theta.map(|p| format!("{p:.4}")).into_iter().collect();
+        let display_args: Vec<String> = theta.map(format_angle).into_iter().collect();
         let controls = if self.config.prune_classical_qubits {
             // Any controls that are known to be classically one can be removed, so this
             // will return the updated controls list.

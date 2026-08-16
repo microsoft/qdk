@@ -19,6 +19,7 @@ use std::{iter::Peekable, mem::take};
 
 use crate::{
     Circuit, Error, TracerConfig,
+    angle_format::format_angle,
     builder::{
         CallableId, GateInputs, LogicalStack, LogicalStackEntry, LogicalStackEntryLocation, LoopId,
         OperationListBuilder, OperationReceiver, PackageOffset, Scope, ScopeStack, SourceLookup,
@@ -1325,6 +1326,10 @@ fn callable_spec<'a>(
 
     let gate_spec = known_gate_spec(&callable.name);
 
+    // Only a known gate's argument is guaranteed to be a rotation angle; a custom callable's
+    // double operand is classified the same way but can be any value.
+    let is_known_gate = gate_spec.is_some();
+
     let gate_spec = if let Some(gate_spec) = gate_spec {
         gate_spec
     } else {
@@ -1422,7 +1427,11 @@ fn callable_spec<'a>(
                 },
                 Literal::Double(d) => match operand_type {
                     OperandType::Arg => {
-                        args.push(format!("{d:.4}"));
+                        if is_known_gate {
+                            args.push(format_angle(*d));
+                        } else {
+                            args.push(format!("{d:.4}"));
+                        }
                     }
                     _ => {
                         return Err(Error::UnsupportedFeature(
