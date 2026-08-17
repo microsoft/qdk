@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any
 
 
@@ -13,12 +13,6 @@ class System:
     Attributes:
         name: Human-readable specification name.
         qubits_per_node: Number of physical qubits available in one node.
-        cnot_time: CNOT gate duration in nanoseconds.
-        cnot_error_rate: Error probability for a CNOT gate.
-        one_qubit_time: Single-qubit gate duration in nanoseconds.
-        one_qubit_error_rate: Error probability for a single-qubit gate.
-        measurement_time: Measurement duration in nanoseconds.
-        measurement_error_rate: Error probability for a measurement.
         target_year: Calendar year targeted by the specification.
         lifetime_in_years: Expected operating lifetime of the system.
         uptime: Fraction of each year during which the system is available.
@@ -31,12 +25,6 @@ class System:
 
     name: str
     qubits_per_node: int
-    cnot_time: int
-    cnot_error_rate: float
-    one_qubit_time: int
-    one_qubit_error_rate: float
-    measurement_time: int
-    measurement_error_rate: float
     target_year: int
     lifetime_in_years: float
     uptime: float
@@ -117,7 +105,7 @@ class JsonSpec:
     def from_dict(cls, data: Mapping[str, Any]) -> JsonSpec:
         """Create a specification from decoded JSON data."""
         return cls(
-            system=System(**data["system"]),
+            system=System(**_known_fields(data["system"], System)),
             fixed_units=[FixedUnit(**item) for item in data["fixed_units"]],
             scaled_units=[ScaledUnit(**item) for item in data["scaled_units"]],
             opex=[OpExUnit(**item) for item in data["opex"]],
@@ -128,3 +116,10 @@ class JsonSpec:
         """Load a specification from a JSON file."""
         with open(path, encoding="utf-8") as file:
             return cls.from_dict(json.load(file))
+
+
+def _known_fields(
+    data: Mapping[str, Any], dataclass_type: type[Any]
+) -> dict[str, Any]:
+    field_names = {field.name for field in fields(dataclass_type)}
+    return {name: value for name, value in data.items() if name in field_names}
