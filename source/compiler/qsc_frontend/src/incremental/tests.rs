@@ -349,6 +349,40 @@ fn errors_across_multiple_lines() {
 }
 
 #[test]
+fn recursive_udt_reported_once_across_fragments() {
+    let store = PackageStore::new(compile::core());
+    let mut compiler = Compiler::new(
+        &store,
+        &Vec::new(),
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    let mut unit = CompileUnit::new(store.peek_package_id());
+
+    let errors = compiler
+        .compile_fragments(
+            &mut unit,
+            "line_1",
+            "struct Foo { Bar : Foo }",
+            fail_on_error,
+        )
+        .expect_err("should fail");
+    assert_eq!(
+        errors
+            .iter()
+            .filter_map(|e| e.code().map(|c| c.to_string()))
+            .collect::<Vec<_>>(),
+        vec!["Qdk.Qsc.TypeCk.RecursiveUdt".to_string()]
+    );
+
+    // The checker is long-lived across fragments, so the already-reported type must not be
+    // re-reported when a later fragment is compiled.
+    compiler
+        .compile_fragments(&mut unit, "line_2", "let x = 1;", fail_on_error)
+        .expect("should succeed");
+}
+
+#[test]
 fn continue_after_parse_error() {
     let store = PackageStore::new(compile::core());
     let mut compiler = Compiler::new(

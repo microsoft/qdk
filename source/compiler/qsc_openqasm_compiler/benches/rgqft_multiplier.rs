@@ -5,7 +5,7 @@ use std::hint::black_box;
 use std::sync::Arc;
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use qdk_openqasm_parser::io::InMemorySourceResolver;
+use qdk_openqasm::io::InMemorySourceResolver;
 use qsc_openqasm_compiler::{
     CompilerConfig, OutputSemantics, ProgramType, QasmCompileUnit, QubitSemantics,
     compiler::parse_and_compile_to_qsharp_ast_with_config,

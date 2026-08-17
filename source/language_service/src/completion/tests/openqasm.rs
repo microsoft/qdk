@@ -92,6 +92,27 @@ fn annotation_after_at_offers_qdk_annotations() {
 }
 
 #[test]
+fn annotation_name_boundaries_offer_only_annotations() {
+    for source in [
+        "OPENQASM 3.0;\n@↘qdk.qir.profile\ndef foo() {}",
+        "OPENQASM 3.0;\n@qdk.↘qir.profile\ndef foo() {}",
+        "OPENQASM 3.0;\n@qdk.qir.profile↘\ndef foo() {}",
+    ] {
+        check_single_file(
+            source,
+            &["qdk.qir.profile", "foo"],
+            &expect![[r#"
+                found, sorted:
+                  "qdk.qir.profile" (Interface)
+
+                not found:
+                  "foo"
+            "#]],
+        );
+    }
+}
+
+#[test]
 fn pragma_name_position_offers_supported_pragmas() {
     check_single_file(
         indoc! {r#"
@@ -126,6 +147,47 @@ fn pragma_partial_name_offers_supported_pragmas() {
 }
 
 #[test]
+fn pragma_name_boundaries_offer_only_pragmas() {
+    for source in [
+        "OPENQASM 3.0;\ndef foo() {}\n#pragma ↘qdk.qir.profile",
+        "OPENQASM 3.0;\ndef foo() {}\n#pragma qdk.↘qir.profile",
+        "OPENQASM 3.0;\ndef foo() {}\n#pragma qdk.qir.profile↘",
+    ] {
+        check_single_file(
+            source,
+            &["qdk.qir.profile", "foo"],
+            &expect![[r#"
+                found, sorted:
+                  "qdk.qir.profile" (Keyword)
+
+                not found:
+                  "foo"
+            "#]],
+        );
+    }
+}
+
+#[test]
+fn incomplete_pragma_introducer_uses_name_fallback() {
+    for source in [
+        "OPENQASM 3.0;\n#↘",
+        "OPENQASM 3.0;\n#pr↘",
+        "OPENQASM 3.0;\n#pragma↘",
+        "OPENQASM 3.0;\r#pr↘",
+    ] {
+        check_single_file(
+            source,
+            &["qdk.box.open", "qdk.qir.profile"],
+            &expect![[r#"
+                found, sorted:
+                  "qdk.box.open" (Keyword)
+                  "qdk.qir.profile" (Keyword)
+            "#]],
+        );
+    }
+}
+
+#[test]
 fn pragma_profile_value_offers_profiles() {
     check_single_file(
         indoc! {r#"
@@ -146,6 +208,67 @@ fn pragma_profile_value_offers_profiles() {
               "Adaptive_RIF" (Keyword)
               "Base" (Keyword)
               "Unrestricted" (Keyword)
+        "#]],
+    );
+}
+
+#[test]
+fn directive_value_boundaries_do_not_offer_names() {
+    for source in [
+        "OPENQASM 3.0;\nint ordinary_local;\n#pragma qdk.qir.profile ↘Base",
+        "OPENQASM 3.0;\nint ordinary_local;\n#pragma qdk.qir.profile Ba↘se",
+        "OPENQASM 3.0;\nint ordinary_local;\n@qdk.qir.profile ↘Base\ndef foo() {}",
+        "OPENQASM 3.0;\nint ordinary_local;\n@qdk.qir.profile Ba↘se\ndef foo() {}",
+    ] {
+        check_single_file(
+            source,
+            &["Base", "ordinary_local", "qdk.qir.profile"],
+            &expect![[r#"
+                found, sorted:
+                  "Base" (Keyword)
+
+                not found:
+                  "ordinary_local"
+                  "qdk.qir.profile"
+            "#]],
+        );
+    }
+}
+
+#[test]
+fn malformed_directives_stay_scoped() {
+    check_single_file(
+        "OPENQASM 3.0;\ninput int ordinary_local;\n@!↘malformed",
+        &["qdk.qir.profile", "ordinary_local"],
+        &expect![
+            "found, sorted:\n  \"qdk.qir.profile\" (Interface)\n\nnot found:\n  \"ordinary_local\"\n"
+        ],
+    );
+    check_single_file(
+        "OPENQASM 3.0;\ninput int ordinary_local;\n#pragma !malformed↘",
+        &["qdk.qir.profile", "ordinary_local"],
+        &expect![[r#"
+            found, sorted:
+              "qdk.qir.profile" (Keyword)
+
+            not found:
+              "ordinary_local"
+        "#]],
+    );
+}
+
+#[test]
+fn directive_context_stops_at_newline() {
+    check_single_file(
+        "OPENQASM 3.0;\n#pragma qdk.qir.profile Base\ninput int ordinary_local;\n↘",
+        &["if", "qdk.qir.profile", "Base"],
+        &expect![[r#"
+            found, sorted:
+              "if" (Keyword)
+
+            not found:
+              "qdk.qir.profile"
+              "Base"
         "#]],
     );
 }
@@ -204,6 +327,33 @@ fn annotation_profile_value_offers_profiles() {
               "Unrestricted" (Keyword)
         "#]],
     );
+}
+
+#[test]
+fn annotation_profile_value_at_eof_offers_profiles() {
+    for source in [
+        "OPENQASM 3.0;\n@qdk.qir.profile ↘",
+        "OPENQASM 3.0;\n@qdk.qir.profile Ba↘se",
+    ] {
+        check_single_file(
+            source,
+            &[
+                "Base",
+                "Adaptive_RI",
+                "Adaptive_RIF",
+                "Adaptive",
+                "Unrestricted",
+            ],
+            &expect![[r#"
+                found, sorted:
+                  "Adaptive" (Keyword)
+                  "Adaptive_RI" (Keyword)
+                  "Adaptive_RIF" (Keyword)
+                  "Base" (Keyword)
+                  "Unrestricted" (Keyword)
+            "#]],
+        );
+    }
 }
 
 #[test]

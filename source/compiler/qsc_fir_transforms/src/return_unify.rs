@@ -647,7 +647,7 @@ fn process_callable_returns(
 /// Intrinsics have no explicit body block, so the result is empty.
 fn get_callable_body_blocks(callable: &CallableDecl) -> Vec<BlockId> {
     match &callable.implementation {
-        CallableImpl::Intrinsic => Vec::new(),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => Vec::new(),
         CallableImpl::Spec(spec_impl) => {
             let mut blocks = vec![spec_impl.body.block];
             for spec in functored_specs(spec_impl) {
@@ -655,7 +655,6 @@ fn get_callable_body_blocks(callable: &CallableDecl) -> Vec<BlockId> {
             }
             blocks
         }
-        CallableImpl::SimulatableIntrinsic(spec) => vec![spec.block],
     }
 }
 

@@ -374,7 +374,9 @@ fn summarize_callable(package: &Package, callable_name: &str) -> String {
     )];
 
     match &decl.implementation {
-        CallableImpl::Intrinsic => lines.push("  intrinsic".to_string()),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            lines.push("  intrinsic".to_string());
+        }
         CallableImpl::Spec(spec_impl) => {
             push_spec_summary(package, "body", &spec_impl.body, &mut lines);
             for (label, spec) in [
@@ -386,9 +388,6 @@ fn summarize_callable(package: &Package, callable_name: &str) -> String {
                     push_spec_summary(package, label, spec, &mut lines);
                 }
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            push_spec_summary(package, "simulatable", spec, &mut lines);
         }
     }
 

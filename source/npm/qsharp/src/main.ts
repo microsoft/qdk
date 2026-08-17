@@ -213,6 +213,7 @@ export * as utils from "./utils.js";
 export { log } from "./log.js";
 export { QscEventTarget } from "./compiler/events.js";
 export { QdkDiagnostics } from "./diagnostics.js";
+export { DiagnosticsPublisher } from "./language-service/diagnosticsPublisher.js";
 export { default as samples } from "./samples.generated.js";
 export { default as openqasm_samples } from "./openqasm-samples.generated.js";
 export {
@@ -233,6 +234,7 @@ export type {
   LanguageServiceEvent,
   LanguageServiceTestCallablesEvent,
 } from "./language-service/language-service.js";
+export type { DiagnosticsPublisherImpl } from "./language-service/diagnosticsPublisher.js";
 export type { ProjectLoader } from "./project.js";
 export type { CircuitGroup as CircuitData } from "./data-structures/circuit.js";
 export type { LogLevel } from "./log.js";
