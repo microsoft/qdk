@@ -93,7 +93,7 @@ const OPID_PAULI_NOISE_1Q = 128u;
 const OPID_PAULI_NOISE_2Q = 129u;
 const OPID_LOSS_NOISE = 130u;
 const OPID_CORRELATED_NOISE = 131u;
-const OPID_READOUT_NOISE = 133u;
+const OPID_READOUT_NOISE = 132u;
 
 // If the application of noise results in a custom matrix, it will have been stored in the shot buffer
 // These OPIDs indicate to use that matrix and for how many qubits. (The qubit ids are in the original Op)

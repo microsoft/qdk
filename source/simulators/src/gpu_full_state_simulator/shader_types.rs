@@ -164,7 +164,7 @@ pub enum OpID {
     PauliNoise2Q = 129,
     LossNoise = 130,
     CorrelatedNoise = 131,
-    ReadoutNoise = 133,
+    ReadoutNoise = 132,
 }
 
 impl OpID {
@@ -219,7 +219,7 @@ impl TryFrom<u32> for OpID {
             129 => Ok(Self::PauliNoise2Q),
             130 => Ok(Self::LossNoise),
             131 => Ok(Self::CorrelatedNoise),
-            133 => Ok(Self::ReadoutNoise),
+            132 => Ok(Self::ReadoutNoise),
             invalid => Err(invalid),
         }
     }
