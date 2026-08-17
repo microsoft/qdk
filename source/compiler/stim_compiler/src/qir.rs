@@ -1387,7 +1387,7 @@ impl<'noise> Compiler<'noise> {
             if factors.is_empty() {
                 continue;
             }
-            self.decompose_pauli_product(&factors, negated, &mut f);
+            self.decompose_pauli_product_operation(&factors, negated, &mut f);
         }
     }
 
@@ -1583,6 +1583,9 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_classical_control(pauli, result_id, qubit);
     }
 
+    /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
+    /// qubit index, with identity factors removed. Rejects anti-Hermitian products and
+    /// represents an overall phase of -1 as a negation.
     fn canonicalize_pauli_product(
         &mut self,
         instruction: &Instruction,
@@ -1634,7 +1637,10 @@ impl<'noise> Compiler<'noise> {
         Some((canonical_factors, negated))
     }
 
-    fn decompose_pauli_product(
+    /// Runs an operation on a Pauli product by reducing it to one qubit. Each factor is
+    /// first rotated to the Z basis, then CNOTs combine their parity onto the first
+    /// qubit. After `f` runs on that qubit, the CNOTs and rotations are reversed.
+    fn decompose_pauli_product_operation(
         &mut self,
         factors: &[PauliFactor],
         negated: bool,
