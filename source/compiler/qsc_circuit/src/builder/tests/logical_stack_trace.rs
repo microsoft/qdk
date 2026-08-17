@@ -294,6 +294,126 @@ fn qubit_alloc_in_loop() {
 }
 
 #[test]
+fn tuple_qubit_initializer_break_releases_allocated_prefix() {
+    check_trace(
+        indoc! {"
+        operation Main() : Unit {
+            for _ in 0..0 {
+                use (first, second) = (
+                    Qubit(),
+                    Qubit[if true { break } else { 2 }]
+                );
+            }
+        }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:3:12 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:3:12 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn tuple_qubit_initializer_fallthrough_releases_each_leaf_once() {
+    check_trace(
+        indoc! {"
+        operation Main() : Unit {
+            use (first, second) = (Qubit(), Qubit[2]);
+        }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:27 -> qubit_allocate(q_0)
+            Main@A.qs:1:36 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:21:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:21:29[1] -> (1)@qsharp-library-source:core/qir.qs:22:23 -> qubit_allocate(q_1)
+            Main@A.qs:1:36 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:21:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:21:29[2] -> (2)@qsharp-library-source:core/qir.qs:22:23 -> qubit_allocate(q_2)
+            Main@A.qs:1:36 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:39:8 -> loop: qs@qsharp-library-source:core/qir.qs:39:20[1] -> (1)@qsharp-library-source:core/qir.qs:40:12 -> qubit_release(q_1)
+            Main@A.qs:1:36 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:39:8 -> loop: qs@qsharp-library-source:core/qir.qs:39:20[2] -> (2)@qsharp-library-source:core/qir.qs:40:12 -> qubit_release(q_2)
+            Main@A.qs:1:27 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn nested_tuple_qubit_initializer_break_releases_allocated_prefix_once() {
+    check_trace(
+        indoc! {"
+        operation Main() : Unit {
+            for _ in 0..0 {
+                use (first, (second, third)) = (
+                    Qubit(),
+                    (Qubit(), Qubit[if true { break } else { 2 }])
+                );
+            }
+        }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:3:12 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:4:13 -> qubit_allocate(q_1)
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:4:13 -> qubit_release(q_1)
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:3:12 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn tuple_qubit_initializer_continue_cleans_prefix_before_next_iteration() {
+    check_trace(
+        indoc! {"
+        operation Main() : Unit {
+            mutable iteration = 0;
+            while iteration < 2 {
+                set iteration += 1;
+                use (first, second) = (
+                    Qubit(),
+                    Qubit[if iteration == 1 { continue } else { 1 }]
+                );
+            }
+        }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:2:4 -> loop: iteration < 2@A.qs:2:24[1] -> (1)@A.qs:5:12 -> qubit_allocate(q_0)
+            Main@A.qs:2:4 -> loop: iteration < 2@A.qs:2:24[1] -> (1)@A.qs:5:12 -> qubit_release(q_0)
+            Main@A.qs:2:4 -> loop: iteration < 2@A.qs:2:24[2] -> (2)@A.qs:5:12 -> qubit_allocate(q_0)
+            Main@A.qs:2:4 -> loop: iteration < 2@A.qs:2:24[2] -> (2)@A.qs:6:12 -> AllocateQubitArray@qsharp-library-source:core/qir.qs:21:8 -> loop: 0..size - 1@qsharp-library-source:core/qir.qs:21:29[1] -> (1)@qsharp-library-source:core/qir.qs:22:23 -> qubit_allocate(q_1)
+            Main@A.qs:2:4 -> loop: iteration < 2@A.qs:2:24[2] -> (2)@A.qs:6:12 -> ReleaseQubitArray@qsharp-library-source:core/qir.qs:39:8 -> loop: qs@qsharp-library-source:core/qir.qs:39:20[1] -> (1)@qsharp-library-source:core/qir.qs:40:12 -> qubit_release(q_1)
+            Main@A.qs:2:4 -> loop: iteration < 2@A.qs:2:24[2] -> (2)@A.qs:5:12 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
+fn scoped_tuple_qubit_initializer_break_releases_allocated_prefix_without_running_body() {
+    check_trace(
+        indoc! {"
+        operation Main() : Unit {
+            for _ in 0..0 {
+                use (first, second) = (
+                    Qubit(),
+                    Qubit[if true { break } else { 2 }]
+                ) {
+                    H(first);
+                    X(second[0]);
+                }
+            }
+        }
+        "},
+        "A.Main()",
+        ExecGraphConfig::Debug,
+        &expect![[r#"
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:3:12 -> qubit_allocate(q_0)
+            Main@A.qs:1:4 -> loop: @A.qs:1:18[1] -> (1)@A.qs:3:12 -> qubit_release(q_0)
+        "#]],
+    );
+}
+
+#[test]
 fn nested_callables() {
     check_trace(
         indoc! {"

@@ -675,12 +675,16 @@ pub enum ExprKind {
     BinOp(BinOp, Box<Expr>, Box<Expr>),
     /// A block: `{ ... }`.
     Block(Block),
+    /// A break out of the innermost enclosing loop: `break`.
+    Break,
     /// A call: `a(b)`.
     Call(Box<Expr>, Box<Expr>),
     /// A closure that fixes the vector of local variables as arguments to the callable item.
     Closure(Vec<NodeId>, LocalItemId),
     /// A conjugation: `within { ... } apply { ... }`.
     Conjugate(Block, Block),
+    /// A continuation to the next iteration of the innermost enclosing loop: `continue`.
+    Continue,
     /// A failure: `fail "message"`.
     Fail(Box<Expr>),
     /// A field accessor: `a::F` or `a.F`.
@@ -699,9 +703,11 @@ pub enum ExprKind {
     Index(Box<Expr>, Box<Expr>),
     /// A literal.
     Lit(Lit),
+    /// A parallel expression: `parallel a` or `parallel within n a`.
+    Parallel(Option<Box<Expr>>, Box<Expr>),
     /// A range: `start..step..end`, `start..end`, `start...`, `...end`, or `...`.
     Range(Option<Box<Expr>>, Option<Box<Expr>>, Option<Box<Expr>>),
-    /// A repeat-until loop with an optional fixup: `repeat { ... } until a fixup { ... }`.
+    /// A repeat-until loop with an optional fixup: `repeat { ... } until condition fixup { ... }`.
     Repeat(Block, Box<Expr>, Option<Block>),
     /// A return: `return a`.
     Return(Box<Expr>),
@@ -742,9 +748,11 @@ impl Display for ExprKind {
             }
             ExprKind::BinOp(op, lhs, rhs) => display_bin_op(indent, *op, lhs, rhs)?,
             ExprKind::Block(block) => write!(indent, "Expr Block: {block}")?,
+            ExprKind::Break => write!(indent, "Break")?,
             ExprKind::Call(callable, arg) => display_call(indent, callable, arg)?,
             ExprKind::Closure(args, callable) => display_closure(indent, args, *callable)?,
             ExprKind::Conjugate(within, apply) => display_conjugate(indent, within, apply)?,
+            ExprKind::Continue => write!(indent, "Continue")?,
             ExprKind::Err => write!(indent, "Err")?,
             ExprKind::Fail(e) => write!(indent, "Fail: {e}")?,
             ExprKind::Field(expr, field) => display_field(indent, expr, field)?,
@@ -753,6 +761,7 @@ impl Display for ExprKind {
             ExprKind::If(cond, body, els) => display_if(indent, cond, body, els.as_deref())?,
             ExprKind::Index(array, index) => display_index(indent, array, index)?,
             ExprKind::Lit(lit) => write!(indent, "Lit: {lit}")?,
+            ExprKind::Parallel(limit, expr) => display_parallel(indent, limit.as_deref(), expr)?,
             ExprKind::Range(start, step, end) => {
                 display_range(indent, start.as_deref(), step.as_deref(), end.as_deref())?;
             }
@@ -937,6 +946,20 @@ fn display_index(mut indent: Indented<Formatter>, array: &Expr, index: &Expr) ->
     indent = set_indentation(indent, 1);
     write!(indent, "\n{array}")?;
     write!(indent, "\n{index}")?;
+    Ok(())
+}
+
+fn display_parallel(
+    mut indent: Indented<Formatter>,
+    limit: Option<&Expr>,
+    body: &Expr,
+) -> fmt::Result {
+    write!(indent, "Parallel:")?;
+    indent = set_indentation(indent, 1);
+    if let Some(l) = limit {
+        write!(indent, "\nLimit: {l}")?;
+    }
+    write!(indent, "\nBody: {body}")?;
     Ok(())
 }
 

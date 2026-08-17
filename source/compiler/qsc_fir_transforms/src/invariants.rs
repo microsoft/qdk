@@ -42,7 +42,7 @@ mod test_utils;
 use crate::fir_builder::functored_specs;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableDecl, CallableImpl, ExecGraphConfig, ExecGraphDebugNode,
-    ExecGraphNode, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, LocalItemId,
+    ExecGraphNode, Expr, ExprId, ExprKind, Field, Functor, ItemId, ItemKind, Lit, LocalItemId,
     LocalVarId, Package, PackageId, PackageLookup, PackageStore, Pat, PatId, PatKind, Res,
     SpecDecl, Stmt, StmtId, StmtKind, StoreItemId, StringComponent, UnOp,
 };
@@ -333,11 +333,7 @@ fn check_reachable_spec_exec_graphs(store: &PackageStore, reachable: &FxHashSet<
                     }
                 }
             }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                check_spec_exec_graph(package, spec, &format!("{name}/sim_intrinsic"));
-                check_spec_exec_graph_ranges(package, spec, &format!("{name}/sim_intrinsic"));
-            }
-            CallableImpl::Intrinsic => {}
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         }
     }
 }
@@ -605,14 +601,7 @@ fn check_callable_non_unit_block_tails(package: &Package, decl: &CallableDecl) {
                 }
             }
         }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            check_spec_block_tail(
-                package,
-                spec,
-                &format!("callable '{callable_name}' simulatable intrinsic"),
-            );
-        }
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
     }
 
     crate::walk_utils::for_each_expr_in_callable_impl(
@@ -712,33 +701,115 @@ fn check_non_unit_block_tail(package: &Package, block_id: BlockId, context: &str
 }
 
 /// Returns `true` if evaluating `expr_id` never yields a value because it always
-/// diverges (via `fail` or `return`).
+/// diverges (via `fail`, `return`, or a compound control-flow expression whose
+/// evaluated path always diverges).
 ///
 /// Typeck assigns a divergent expression a fresh divergent type that defaults to
 /// `Unit` when left unconstrained, so a divergent trailing expression can
 /// legitimately carry a type that differs from its enclosing non-Unit block. The
 /// predicate stays conservative: any unrecognized shape is treated as
-/// non-divergent so genuine value-type mismatches still surface.
+/// non-divergent so genuine value-type mismatches still surface. A `while` body
+/// contributes only when the first condition is provably `true`; its condition
+/// always contributes when evaluating it diverges.
 fn expr_diverges(package: &Package, expr_id: ExprId) -> bool {
+    expr_diverges_with_known_bools(package, expr_id, &FxHashMap::default())
+}
+
+fn expr_diverges_with_known_bools(
+    package: &Package,
+    expr_id: ExprId,
+    known_bools: &FxHashMap<LocalVarId, bool>,
+) -> bool {
     match &package.get_expr(expr_id).kind {
         ExprKind::Fail(_) | ExprKind::Return(_) => true,
-        ExprKind::Block(block_id) => block_diverges(package, *block_id),
-        ExprKind::If(_, then, Some(els)) => {
-            expr_diverges(package, *then) && expr_diverges(package, *els)
+        ExprKind::Block(block_id) => {
+            block_diverges_with_known_bools(package, *block_id, known_bools)
+        }
+        ExprKind::If(cond, then, Some(els)) => {
+            let no_known_bools = FxHashMap::default();
+            let branch_known_bools = if known_bool_value(package, *cond, known_bools).is_some() {
+                known_bools
+            } else {
+                &no_known_bools
+            };
+            expr_diverges_with_known_bools(package, *then, branch_known_bools)
+                && expr_diverges_with_known_bools(package, *els, branch_known_bools)
+        }
+        ExprKind::While(cond, body) => {
+            expr_diverges_with_known_bools(package, *cond, known_bools)
+                || (known_bool_value(package, *cond, known_bools) == Some(true)
+                    && block_diverges_with_known_bools(package, *body, known_bools))
         }
         _ => false,
     }
 }
 
-/// Returns `true` if `block_id` ends in a divergent trailing expression.
-fn block_diverges(package: &Package, block_id: BlockId) -> bool {
+/// Returns `true` if evaluating `block_id` cannot complete normally.
+///
+/// Loop unification lowers `repeat` to a block that initializes a synthetic
+/// Boolean condition to `true` before a `while`. Track that narrow constant
+/// fact so the guaranteed first iteration remains visible in FIR. Any other
+/// evaluated statement clears the facts because it may mutate a tracked local.
+fn block_diverges_with_known_bools(
+    package: &Package,
+    block_id: BlockId,
+    inherited_known_bools: &FxHashMap<LocalVarId, bool>,
+) -> bool {
     let block = package.get_block(block_id);
-    let Some(&stmt_id) = block.stmts.last() else {
-        return false;
-    };
-    match &package.get_stmt(stmt_id).kind {
-        StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => expr_diverges(package, *expr_id),
-        StmtKind::Local(..) | StmtKind::Item(_) => false,
+    let mut known_bools = inherited_known_bools.clone();
+
+    for &stmt_id in &block.stmts {
+        match &package.get_stmt(stmt_id).kind {
+            StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => {
+                if expr_diverges_with_known_bools(package, *expr_id, &known_bools) {
+                    return true;
+                }
+                known_bools.clear();
+            }
+            StmtKind::Local(_, pat_id, expr_id) => {
+                if expr_diverges_with_known_bools(package, *expr_id, &known_bools) {
+                    return true;
+                }
+
+                let value = known_bool_value(package, *expr_id, &known_bools);
+                let pat = package.get_pat(*pat_id);
+                if let (PatKind::Bind(ident), Ty::Prim(Prim::Bool), Some(value)) =
+                    (&pat.kind, &pat.ty, value)
+                {
+                    known_bools.insert(ident.id, value);
+                } else {
+                    known_bools.clear();
+                }
+            }
+            StmtKind::Item(_) => {}
+        }
+    }
+
+    false
+}
+
+/// Evaluates the side-effect-free Boolean subset used by synthesized loop
+/// conditions from literals and previously proven local values.
+fn known_bool_value(
+    package: &Package,
+    expr_id: ExprId,
+    known_bools: &FxHashMap<LocalVarId, bool>,
+) -> Option<bool> {
+    match &package.get_expr(expr_id).kind {
+        ExprKind::Lit(Lit::Bool(value)) => Some(*value),
+        ExprKind::Var(Res::Local(id), _) => known_bools.get(id).copied(),
+        ExprKind::UnOp(UnOp::NotL, operand) => {
+            known_bool_value(package, *operand, known_bools).map(|value| !value)
+        }
+        ExprKind::BinOp(BinOp::AndL, lhs, rhs) => Some(
+            known_bool_value(package, *lhs, known_bools)?
+                && known_bool_value(package, *rhs, known_bools)?,
+        ),
+        ExprKind::BinOp(BinOp::OrL, lhs, rhs) => Some(
+            known_bool_value(package, *lhs, known_bools)?
+                || known_bool_value(package, *rhs, known_bools)?,
+        ),
+        _ => None,
     }
 }
 
@@ -877,6 +948,12 @@ fn check_expr_sub_ids(package: &Package, parent_expr: ExprId, kind: &ExprKind) {
             assert_expr(*cond);
             assert_block(*block);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                assert_expr(*l);
+            }
+            assert_expr(*body);
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -942,10 +1019,7 @@ fn check_reachable_invariants(
                         check_spec_decl_types(store, item_pkg, spec, level);
                     }
                 }
-                CallableImpl::SimulatableIntrinsic(spec) => {
-                    check_spec_decl_types(store, item_pkg, spec, level);
-                }
-                CallableImpl::Intrinsic => {}
+                CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
             }
 
             if enforces_stage(level, StageCheck::Mono) {
@@ -1109,12 +1183,10 @@ fn collect_return_flag_locals(package: &Package) -> FxHashSet<LocalVarId> {
         .collect()
 }
 
-/// Returns the root blocks of a callable's specializations (body plus any
-/// functor specializations or simulatable-intrinsic body).
+/// Returns the root blocks of a callable's body and functor specializations.
 fn callable_root_blocks(decl: &CallableDecl) -> Vec<BlockId> {
     match &decl.implementation {
-        CallableImpl::Intrinsic => Vec::new(),
-        CallableImpl::SimulatableIntrinsic(spec) => vec![spec.block],
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => Vec::new(),
         CallableImpl::Spec(spec_impl) => {
             let mut blocks = vec![spec_impl.body.block];
             for spec in [&spec_impl.adj, &spec_impl.ctl, &spec_impl.ctl_adj]
@@ -1314,6 +1386,12 @@ fn scan_expr_for_operand_flag_writes(
                 }
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit {
+                scan_expr_for_operand_flag_writes(package, *l, true, flag_locals, callable_name);
+            }
+            scan_expr_for_operand_flag_writes(package, *body, true, flag_locals, callable_name);
+        }
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}
     }
 }
@@ -1413,16 +1491,7 @@ fn check_callable_input_pattern_shapes(package: &Package, decl: &CallableDecl) {
                 }
             }
         }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            if let Some(pat_id) = spec.input {
-                check_tuple_pat_shape_matches_type(
-                    package,
-                    pat_id,
-                    &format!("callable '{callable_name}' simulatable intrinsic input"),
-                );
-            }
-        }
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
     }
 }
 
@@ -1935,16 +2004,7 @@ fn check_local_var_consistency(package: &Package, decl: &CallableDecl) {
                 }
             }
         }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            check_spec_local_var_consistency(
-                package,
-                decl,
-                "simulatable intrinsic",
-                spec,
-                &callable_scope,
-            );
-        }
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
     }
 }
 
@@ -2154,7 +2214,11 @@ fn check_configured_exec_graph(
                 | ExecGraphDebugNode::RetFrame
                 | ExecGraphDebugNode::LoopIteration => {}
             },
-            ExecGraphNode::Store | ExecGraphNode::Unit | ExecGraphNode::Ret => {}
+            ExecGraphNode::Store
+            | ExecGraphNode::Unit
+            | ExecGraphNode::ParStart(_)
+            | ExecGraphNode::ParEnd
+            | ExecGraphNode::Ret => {}
         }
     }
 }
@@ -2245,10 +2309,7 @@ fn check_expr_id_ownership(
                 }
                 v
             }
-            CallableImpl::SimulatableIntrinsic(spec) => {
-                vec![(spec, "sim")]
-            }
-            CallableImpl::Intrinsic => continue,
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => continue,
         };
 
         let seen = seen_by_package.entry(item_id.package).or_default();

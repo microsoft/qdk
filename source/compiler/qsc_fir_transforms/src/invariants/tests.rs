@@ -14,12 +14,12 @@ use crate::invariants::test_utils::{
     inject_nested_tuple_bound_arrow_local, inject_nested_tuple_eq_in_if_branch,
     inject_non_copy_struct, inject_non_tuple_field_path_target,
     inject_non_unit_assignment_expression_type, inject_stale_local_var,
-    inject_stale_local_var_in_callable, inject_tuple_arity_mismatch, inject_ty_param,
-    inject_udt_callable_output, inject_udt_expr_type, inject_udt_expr_type_in_callable,
+    inject_tuple_arity_mismatch, inject_ty_param, inject_udt_callable_output, inject_udt_expr_type,
+    inject_udt_expr_type_in_callable,
 };
 use crate::test_utils::{
     PipelineStage, assert_panics_with, compile_and_run_pipeline_to,
-    compile_and_run_pipeline_to_with_library,
+    compile_and_run_pipeline_to_with_library, find_callable_body_block,
 };
 
 use qsc_fir::fir::LocalVarId;
@@ -138,22 +138,6 @@ const NESTED_TUPLE_LITERAL_INSIDE_IF: &str = r#"
     }
 "#;
 
-const SIMULATABLE_INTRINSIC_BODY: &str = r#"
-    namespace Test {
-        @SimulatableIntrinsic()
-        operation MyMeasurement(q : Qubit) : Result {
-            let r = M(q);
-            r
-        }
-
-        @EntryPoint()
-        operation Main() : Result {
-            use q = Qubit();
-            MyMeasurement(q)
-        }
-    }
-"#;
-
 #[test]
 fn invariant_passes_with_valid_local_var() {
     let (store, pkg_id) = compile_and_run_pipeline_to(SIMPLE_LOCAL_VAR, PipelineStage::Mono);
@@ -254,6 +238,74 @@ fn divergent_nested_if_fail_tail_passes_block_tail() {
     "#;
     let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
     check(&store, pkg_id, InvariantLevel::PostAll);
+}
+
+#[test]
+fn divergent_while_true_fail_body_passes_block_tail() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Int {
+                while true {
+                    fail "hello"
+                }
+                0
+            }
+        }
+    "#;
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
+    check(&store, pkg_id, InvariantLevel::PostAll);
+}
+
+#[test]
+fn divergent_repeat_fail_body_passes_block_tail() {
+    // Repeat lowering appends a synthetic condition update after the original
+    // body and wraps it in a while loop. The divergence check must still see
+    // the earlier fail when validating the enclosing non-Unit callable body.
+    let source = r#"
+        namespace Test {
+            @EntryPoint(Adaptive)
+            operation Main() : Int {
+                repeat {
+                    fail "hello"
+                } until 1 < 2
+                0
+            }
+        }
+    "#;
+    let (store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Full);
+    check(&store, pkg_id, InvariantLevel::PostAll);
+}
+
+#[test]
+fn non_entered_while_body_does_not_exempt_mismatched_block_tail() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                while false {
+                    fail "unreachable"
+                }
+                0
+            }
+        }
+    "#;
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::Defunc);
+    let body_id = find_callable_body_block(store.get(pkg_id), "Main");
+    // Leave the Unit-typed while as the tail of an Int block. Its unreachable
+    // fail body must not exempt the resulting type mismatch.
+    let removed = store
+        .get_mut(pkg_id)
+        .blocks
+        .get_mut(body_id)
+        .expect("body block should exist")
+        .stmts
+        .pop();
+    assert!(removed.is_some(), "body should have a value tail to remove");
+
+    assert_panics_with("Non-Unit block-tail invariant violation", || {
+        check(&store, pkg_id, InvariantLevel::PostDefunc);
+    });
 }
 
 #[test]
@@ -676,31 +728,6 @@ fn post_arg_promote_catches_functor_wrapper_stale_item_signature() {
     inject_callable_output_type(&mut store, pkg_id, "Foo", Ty::Prim(Prim::Int));
     assert_panics_with("PostArgPromote/PostAll call invariant violation", || {
         check(&store, pkg_id, InvariantLevel::PostArgPromote);
-    });
-}
-
-#[test]
-fn post_mono_catches_stale_local_in_simulatable_intrinsic_body() {
-    let (mut store, pkg_id) =
-        compile_and_run_pipeline_to(SIMULATABLE_INTRINSIC_BODY, PipelineStage::Mono);
-    inject_stale_local_var_in_callable(
-        &mut store,
-        pkg_id,
-        "MyMeasurement",
-        LocalVarId::from(9999u32),
-    );
-    assert_panics_with("LocalVarId consistency", || {
-        check(&store, pkg_id, InvariantLevel::PostMono);
-    });
-}
-
-#[test]
-fn post_all_catches_simulatable_intrinsic_body_type_violation() {
-    let (mut store, pkg_id) =
-        compile_and_run_pipeline_to(SIMULATABLE_INTRINSIC_BODY, PipelineStage::Full);
-    inject_udt_expr_type_in_callable(&mut store, pkg_id, "MyMeasurement");
-    assert_panics_with("contains Ty::Udt after UDT erasure", || {
-        check(&store, pkg_id, InvariantLevel::PostAll);
     });
 }
 

@@ -10,6 +10,35 @@ use qsc_data_structures::target::TargetCapabilityFlags;
 use qsc_rir::rir::{BlockId, CallableId};
 
 #[test]
+fn deeply_nested_singleton_for_loops_with_break_compile() {
+    let program = get_rir_program(indoc! {
+        r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                for p in [q] {
+                    for p in [q] {
+                        for p in [q] {
+                            for p in [q] {
+                                for p in [q] {
+                                    for p in [q] {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        "#,
+    });
+
+    assert_eq!(program.num_qubits, 1);
+}
+
+#[test]
 fn unitary_call_within_a_for_loop_unrolled() {
     let program = get_rir_program(indoc! {
         r#"

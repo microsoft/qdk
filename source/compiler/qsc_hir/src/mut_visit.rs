@@ -130,6 +130,7 @@ pub fn walk_stmt(vis: &mut impl MutVisitor, stmt: &mut Stmt) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
     vis.visit_span(&mut expr.span);
 
@@ -181,6 +182,12 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
             vis.visit_expr(array);
             vis.visit_expr(index);
         }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(limit) = limit {
+                vis.visit_expr(limit);
+            }
+            vis.visit_expr(expr);
+        }
         ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(expr);
         }
@@ -226,7 +233,9 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
             vis.visit_expr(cond);
             vis.visit_block(block);
         }
-        ExprKind::Closure(_, _)
+        ExprKind::Break
+        | ExprKind::Closure(_, _)
+        | ExprKind::Continue
         | ExprKind::Err
         | ExprKind::Hole
         | ExprKind::Lit(_)

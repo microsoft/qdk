@@ -223,6 +223,7 @@ fn walker_visits_nested_expression_kinds_in_program() {
             ExprKind::UpdateField(_, _, _) => "UpdateField",
             ExprKind::Var(_, _) => "Var",
             ExprKind::While(_, _) => "While",
+            ExprKind::Parallel(_, _) => "Parallel",
         };
         kinds.push(kind_str.to_string());
     });
@@ -1030,6 +1031,63 @@ fn given_if_then_only_is_not_side_effect_free() {
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
 
+/// Finds the first call whose callee resolves to an item in another package.
+fn find_foreign_call(package: &Package, pkg_id: PackageId) -> ExprId {
+    package
+        .exprs
+        .iter()
+        .find_map(|(expr_id, expr)| {
+            let ExprKind::Call(callee_id, _) = expr.kind else {
+                return None;
+            };
+            let ExprKind::Var(Res::Item(item_id), _) = &package.get_expr(callee_id).kind else {
+                return None;
+            };
+            (item_id.package != pkg_id).then_some(expr_id)
+        })
+        .expect("a call to a foreign callable should exist")
+}
+
+#[test]
+fn given_foreign_length_call_is_discardable_only_with_total_foreign() {
+    // `Length` lives in the core package, so the single-package walker cannot
+    // open its declaration and must reject it. Supplying it as a known-total
+    // foreign callable is what makes the call provably discardable.
+    let (store, pkg_id) = compile_to_fir("function Main() : Int { Length([1, 2, 3]) }");
+    let package = store.get(pkg_id);
+    let call = find_foreign_call(package, pkg_id);
+
+    assert!(
+        !expr_is_safe_to_discard(package, pkg_id, call),
+        "a foreign callee must be rejected without resolved totality"
+    );
+
+    let total_foreign = collect_total_foreign_callables(&store);
+    assert!(
+        !total_foreign.is_empty(),
+        "the core `Length` intrinsic should be collected"
+    );
+    assert!(
+        expr_is_safe_to_discard_with_total_foreign(package, pkg_id, call, &total_foreign),
+        "a resolved total foreign callee should be discardable"
+    );
+}
+
+#[test]
+fn given_foreign_fallible_function_call_is_not_discardable() {
+    // `Repeated` is a core function that fails on a negative length, so it is
+    // never collected as total and stays non-discardable.
+    let (store, pkg_id) = compile_to_fir("function Main() : Int[] { Repeated(1, 3) }");
+    let package = store.get(pkg_id);
+    let call = find_foreign_call(package, pkg_id);
+
+    let total_foreign = collect_total_foreign_callables(&store);
+    assert!(
+        !expr_is_safe_to_discard_with_total_foreign(package, pkg_id, call, &total_foreign),
+        "a fallible foreign function must not become discardable"
+    );
+}
+
 #[test]
 fn structural_walker_covers_blocks_locals_and_spec_inputs() {
     // A controlled operation with a nested block (the `if` body) and tuple-pattern
@@ -1187,5 +1245,131 @@ fn structural_walker_from_expr_root_covers_nested_blocks() {
     assert!(
         tuple_pats >= 1,
         "expected the nested tuple Local pat to be visited, got {tuple_pats}"
+    );
+}
+
+#[test]
+fn given_parallel_of_lit_is_side_effect_free() {
+    // A parallel expression whose body is a pure literal is side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let body = int_lit(&mut package, &mut assigner, 42);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(None, body),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_parallel_with_limit_of_lits_is_side_effect_free() {
+    // A parallel-within-limit expression where both limit and body are pure is side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let limit = int_lit(&mut package, &mut assigner, 4);
+    let body = int_lit(&mut package, &mut assigner, 42);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(Some(limit), body),
+        Span::default(),
+    );
+    assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_parallel_with_fail_in_body_is_not_side_effect_free() {
+    // A parallel expression with a failing body is not side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let fail_expr = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from("boom"))]),
+        Span::default(),
+    );
+    let body = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::UNIT,
+        ExprKind::Fail(fail_expr),
+        Span::default(),
+    );
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(None, body),
+        Span::default(),
+    );
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn given_parallel_with_fail_in_limit_is_not_side_effect_free() {
+    // A parallel-within-limit expression where the limit is a fail expr is not side-effect free.
+    let mut package = Package::default();
+    let mut assigner = Assigner::default();
+    let fail_expr = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::String),
+        ExprKind::String(vec![StringComponent::Lit(Rc::from("boom"))]),
+        Span::default(),
+    );
+    let limit = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Fail(fail_expr),
+        Span::default(),
+    );
+    let body = int_lit(&mut package, &mut assigner, 42);
+    let e = alloc_expr(
+        &mut package,
+        &mut assigner,
+        Ty::Prim(Prim::Int),
+        ExprKind::Parallel(Some(limit), body),
+        Span::default(),
+    );
+    assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
+}
+
+#[test]
+fn walker_visits_parallel_expression() {
+    let (store, pkg_id) = compile_to_fir(
+        "operation Main() : Int {
+                 parallel {
+                     1 + 2
+                 }
+             }",
+    );
+    let package = store.get(pkg_id);
+    let block_id = find_callable_block(package, "Main");
+
+    let mut kinds: Vec<String> = Vec::new();
+    for_each_expr_in_block(package, block_id, &mut |_id, expr| {
+        let kind_str = match &expr.kind {
+            ExprKind::Parallel(_, _) => "Parallel",
+            ExprKind::BinOp(_, _, _) => "BinOp",
+            ExprKind::Lit(_) => "Lit",
+            ExprKind::Block(_) => "Block",
+            _ => "Other",
+        };
+        kinds.push(kind_str.to_string());
+    });
+    // The walker should visit the Parallel expression and its nested children.
+    assert!(
+        kinds.contains(&"Parallel".to_string()),
+        "walker should visit Parallel expression; found: {kinds:?}"
+    );
+    assert!(
+        kinds.contains(&"BinOp".to_string()),
+        "walker should visit BinOp inside Parallel body; found: {kinds:?}"
     );
 }

@@ -472,6 +472,18 @@ impl<'a> Context<'a> {
                 Lit::String(_) => converge(Ty::Prim(Prim::String)),
             },
             ExprKind::Paren(expr) => self.infer_expr(expr),
+            ExprKind::Parallel(limit, body) => {
+                let limit_diverges = if let Some(limit) = limit {
+                    let limit_span = limit.span;
+                    let limit = self.infer_expr(limit);
+                    self.inferrer.eq(limit_span, Ty::Prim(Prim::Int), limit.ty);
+                    limit.diverges
+                } else {
+                    false
+                };
+                let body = self.infer_expr(body);
+                body.diverge_if(limit_diverges)
+            }
             ExprKind::Path(path) => self.infer_path_kind(expr, path),
             ExprKind::Range(start, step, end) => {
                 let mut diverges = false;
@@ -600,6 +612,10 @@ impl<'a> Context<'a> {
                 self.typed_holes.push((expr.id, expr.span));
                 converge(self.inferrer.fresh_ty(TySource::not_divergent(expr.span)))
             }
+            // A break or continue expression diverges, like return or fail. Using a
+            // fresh divergent type variable lets it compose in operand position, so
+            // `let x = if c { break } else { 3 };` infers `x : Int`.
+            ExprKind::Break | ExprKind::Continue => self.diverge(),
             ExprKind::Err | ast::ExprKind::Struct(ast::PathKind::Err(_), ..) => converge(Ty::Err),
         };
 

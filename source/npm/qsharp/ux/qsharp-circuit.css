@@ -254,6 +254,23 @@
     fill: var(--vscode-editor-selectionBackground, #ec7063);
     fill-opacity: 50%;
   }
+
+  /*
+   * D4 Stage B ghost-border overlay. Painted by `DragController`
+   * while shift is held mid-drag and the cursor hovers a shift-
+   * extend dropzone, to preview the destination group's new wire
+   * span if the user released here. Single translucent rect; no
+   * hover state because it's a passive visualization.
+   */
+  .shift-extend-ghost {
+    fill: var(--vscode-editor-selectionBackground, #ec7063);
+    fill-opacity: 15%;
+    stroke: var(--vscode-editor-selectionBackground, #ec7063);
+    stroke-opacity: 60%;
+    stroke-width: 2;
+    stroke-dasharray: 6 4;
+    pointer-events: none;
+  }
   .grab {
     cursor: grab;
   }

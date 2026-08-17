@@ -677,6 +677,12 @@ fn is_openqasm_file(language_id: &str) -> bool {
 }
 
 impl CompilationState {
+    /// The version of `uri` that the client last told us about and that has since been
+    /// applied. `None` if we haven't processed any update for the document yet.
+    pub(crate) fn get_open_document_version(&self, uri: &str) -> Option<u32> {
+        self.open_documents.get(uri).map(|doc| doc.version)
+    }
+
     pub(crate) fn get_compilation(&self, uri: &str) -> Option<&Compilation> {
         let compilation_uri = &self
             .open_documents

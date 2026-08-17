@@ -208,6 +208,12 @@ impl<'a> Visitor<'a> for Checker<'a> {
             ExprKind::While(condition_expr_id, body_block_id) => {
                 self.check_expr_while(expr_id, *condition_expr_id, *body_block_id);
             }
+            ExprKind::Parallel(limit_id, expr_id) => {
+                if let Some(limit_id) = limit_id {
+                    self.visit_expr(*limit_id);
+                }
+                self.visit_expr(*expr_id);
+            }
             _ => self.check_expr(expr_id),
         }
     }
@@ -433,7 +439,7 @@ impl<'a> Checker<'a> {
         if let ExprKind::Var(Res::Local(local_var_id), _) = expr.kind {
             let maybe_ident = self.find_local_var_ident(local_var_id);
             if let Some(ident) = maybe_ident {
-                return ident.name.starts_with('@');
+                return ident.name.starts_with('.');
             }
         }
 

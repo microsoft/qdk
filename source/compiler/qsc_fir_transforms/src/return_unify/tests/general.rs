@@ -107,7 +107,7 @@ fn multiple_guard_clauses() {
                     };
                 }
 
-                if not __has_returned {
+                if (not __has_returned) {
                     if false {
                         {
                             __ret_val = 2;
@@ -116,7 +116,7 @@ fn multiple_guard_clauses() {
                     }
 
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     if true {
                         {
                             __ret_val = 3;
@@ -128,7 +128,7 @@ fn multiple_guard_clauses() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -217,7 +217,7 @@ fn both_branches_return_with_qubit_scope() {
                         };
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 __ret_val
@@ -260,7 +260,7 @@ fn return_in_nested_block() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         5
                     } else {
                         __ret_val
@@ -364,44 +364,6 @@ callable Main: input_ty=Unit, output_ty=Unit
         [0] Local(Immutable, q: Qubit): Call[ty=Qubit]
         [1] Semi Call[ty=Unit]
         [2] Semi Call[ty=Unit]"#]],
-    );
-}
-
-#[test]
-fn simulatable_intrinsic_body_is_return_unified() {
-    check_structure(
-        indoc! {r#"
-            namespace Test {
-                @SimulatableIntrinsic()
-                operation Foo() : Int {
-                    mutable i = 0;
-                    while i < 3 {
-                        if i == 1 {
-                            return i;
-                        }
-                        i += 1;
-                    }
-                    -1
-                }
-
-                @EntryPoint()
-                operation Main() : Int {
-                    Foo()
-                }
-            }
-        "#},
-        &["Foo", "Main"],
-        &expect![[r#"
-            callable Foo: input_ty=Unit, output_ty=Int
-                simulatable: block_ty=Int
-                    [0] Local(Mutable, _.has_returned: Bool): Lit(Bool(false))
-                    [1] Local(Mutable, _.ret_val: Int): Lit(Int(0))
-                    [2] Local(Mutable, i: Int): Lit(Int(0))
-                    [3] Expr While[ty=Unit]
-                    [4] Expr If(cond=Var[ty=Bool], then=Var[ty=Int], else=Block[ty=Int])
-            callable Main: input_ty=Unit, output_ty=Int
-                body: block_ty=Int
-                    [0] Expr Call[ty=Int]"#]],
     );
 }
 
@@ -533,13 +495,13 @@ fn return_bool_in_dynamic_branch() {
                 let _generated_ident_44 : Bool = {
                     false
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_44
                     } else {
                         __ret_val
@@ -584,10 +546,10 @@ fn multiple_returns_in_helper_function() {
                     };
                 }
 
-                if not __has_returned {
+                if (not __has_returned) {
                     if x < 0 {
                         {
-                            __ret_val = -1;
+                            __ret_val = (-1);
                             __has_returned = true;
                         };
                     }
@@ -596,7 +558,7 @@ fn multiple_returns_in_helper_function() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -647,10 +609,10 @@ fn return_unit_after_side_effects() {
                     };
                 }
 
-                if not __has_returned {
+                if (not __has_returned) {
                     Y(q);
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
@@ -695,23 +657,23 @@ fn bare_return_with_dead_code() {
                         __has_returned = true;
                     };
                 };
-                let x : Int = if not __has_returned {
+                let x : Int = if (not __has_returned) {
                     1
                 } else {
                     0
                 };
-                let _generated_ident_45 : Int = if not __has_returned {
+                let _generated_ident_45 : Int = if (not __has_returned) {
                     x + 2
                 } else {
                     0
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         _generated_ident_45
                     } else {
                         __ret_val
@@ -755,7 +717,7 @@ fn nested_if_with_returns_at_different_levels() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         {
                             __ret_val = 2;
                             __has_returned = true;
@@ -766,7 +728,7 @@ fn nested_if_with_returns_at_different_levels() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         3
                     } else {
                         __ret_val
@@ -843,7 +805,7 @@ fn guard_clause_with_existing_else_and_remaining() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         2
                     } else {
                         __ret_val
@@ -892,7 +854,7 @@ fn deeply_nested_block_with_return() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         x
                     } else {
                         __ret_val
@@ -946,10 +908,10 @@ fn return_after_dynamic_branch_with_dead_code() {
                         __has_returned = true;
                     };
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     Y(q);
                 };
-                if not __has_returned {
+                if (not __has_returned) {
                     __quantum__rt__qubit_release(q);
                 };
                 if __has_returned {
@@ -988,10 +950,10 @@ fn for_loop_with_early_return() {
                 mutable __ret_val : Int = 0;
                 {
                     let _range_id_30 : Range = 0..10;
-                    mutable _index_id_33 : Int = _range_id_30::Start;
-                    let _step_id_38 : Int = _range_id_30::Step;
-                    let _end_id_43 : Int = _range_id_30::End;
-                    while not __has_returned and _step_id_38 > 0 and _index_id_33 <= _end_id_43 or _step_id_38 < 0 and _index_id_33 >= _end_id_43 {
+                    mutable _index_id_33 : Int = _range_id_30.Start;
+                    let _step_id_38 : Int = _range_id_30.Step;
+                    let _end_id_43 : Int = _range_id_30.End;
+                    while ((not __has_returned)) and (((_step_id_38 > 0) and (_index_id_33 <= _end_id_43)) or ((_step_id_38 < 0) and (_index_id_33 >= _end_id_43))) {
                         let i : Int = _index_id_33;
                         if i == 5 {
                             {
@@ -1000,7 +962,7 @@ fn for_loop_with_early_return() {
                             };
                         }
 
-                        if not __has_returned {
+                        if (not __has_returned) {
                             _index_id_33 += _step_id_38;
                         };
                     }
@@ -1010,8 +972,8 @@ fn for_loop_with_early_return() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
-            -1
+                    if (not __has_returned) {
+                        (-1)
                     } else {
                         __ret_val
                     }
@@ -1312,6 +1274,280 @@ fn simple_if_expr_init_with_return_recovers_structured_branch() {
                         30
                     }
 
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_body_without_returns_passes_through() {
+    // A parallel block without any return statements should pass through unchanged.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                parallel {
+                    let x = 1;
+                    x + 2
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            operation Main() : Int {
+                parallel {
+                    let x : Int = 1;
+                    x + 2
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_limit_without_returns_passes_through() {
+    // A parallel-within-limit block without any return statements should pass through unchanged.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                parallel within 4 {
+                    let x = 1;
+                    x + 2
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            operation Main() : Int {
+                parallel within 4 {
+                    let x : Int = 1;
+                    x + 2
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_body_is_unified() {
+    // A return statement inside a parallel body should be unified using
+    // the flag/slot pattern, with the parallel expression preserved.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel {
+                    if true {
+                        return 42;
+                    }
+                    0
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = parallel {
+                    if true {
+                        {
+                            __ret_val = 42;
+                            __has_returned = true;
+                        };
+                    }
+
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_body_without_explicit_block_is_unified() {
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel (1 + return 42);
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                parallel {
+                    let _ : Int = 1;
+                    {
+                        __ret_val = 42;
+                        __has_returned = true;
+                    };
+                };
+                __ret_val
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_body_with_remaining_code() {
+    // A return statement inside a parallel body with code after the parallel
+    // expression exercises the flag-guarding of remaining statements.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                let y = parallel {
+                    if true {
+                        return 42;
+                    }
+                    0
+                };
+                y + 1
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let y : Int = parallel {
+                    if true {
+                        {
+                            __ret_val = 42;
+                            __has_returned = true;
+                        };
+                    }
+
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if (not __has_returned) {
+                        y + 1
+                    } else {
+                        __ret_val
+                    }
+                }
+
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_within_limit_body() {
+    // A return inside the body of a parallel-within-limit expression should be unified.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel within 4 {
+                    if true {
+                        return 99;
+                    }
+                    0
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __trailing_result : Int = parallel within 4 {
+                    if true {
+                        {
+                            __ret_val = 99;
+                            __has_returned = true;
+                        };
+                    }
+
+                    0
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    __trailing_result
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn return_inside_parallel_within_limit_expr() {
+    // A return inside the limit expression of a parallel-within exercises
+    // return unification in the limit operand position.
+    check_no_returns_q(
+        indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            function Main() : Int {
+                parallel within (if true { return 10; } else { 4 }) {
+                    let x = 1;
+                    x + 2
+                }
+            }
+        }
+    "#},
+        &expect![[r#"
+            function Main() : Int {
+                mutable __has_returned : Bool = false;
+                mutable __ret_val : Int = 0;
+                let __operand_tmp_0 : Int = if true {
+                    {
+                        __ret_val = 10;
+                        __has_returned = true;
+                    };
+                } else {
+                    4
+                };
+                if __has_returned {
+                    __ret_val
+                } else {
+                    if (not __has_returned) {
+                        parallel within __operand_tmp_0 {
+                            let x : Int = 1;
+                            x + 2
+                        }
+
+                    } else {
+                        __ret_val
+                    }
                 }
 
             }

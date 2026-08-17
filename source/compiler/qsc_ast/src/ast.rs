@@ -877,10 +877,14 @@ pub enum ExprKind {
     BinOp(BinOp, Box<Expr>, Box<Expr>),
     /// A block: `{ ... }`.
     Block(Box<Block>),
+    /// A break out of the innermost enclosing loop: `break`.
+    Break,
     /// A call: `a(b)`.
     Call(Box<Expr>, Box<Expr>),
     /// A conjugation: `within { ... } apply { ... }`.
     Conjugate(Box<Block>, Box<Block>),
+    /// A continuation to the next iteration of the innermost enclosing loop: `continue`.
+    Continue,
     /// An expression with invalid syntax that can't be parsed.
     #[default]
     Err,
@@ -906,13 +910,15 @@ pub enum ExprKind {
     Lambda(CallableKind, Box<Pat>, Box<Expr>),
     /// A literal.
     Lit(Box<Lit>),
+    /// A parallel expression: `parallel a`, optionally including a limit: `parallel within n a`
+    Parallel(Option<Box<Expr>>, Box<Expr>),
     /// Parentheses: `(a)`.
     Paren(Box<Expr>),
     /// A path: `a` or `a.b`.
     Path(PathKind),
     /// A range: `start..step..end`, `start..end`, `start...`, `...end`, or `...`.
     Range(Option<Box<Expr>>, Option<Box<Expr>>, Option<Box<Expr>>),
-    /// A repeat-until loop with an optional fixup: `repeat { ... } until a fixup { ... }`.
+    /// A repeat-until loop with an optional fixup: `repeat { ... } until condition fixup { ... }`.
     Repeat(Box<Block>, Box<Expr>, Option<Box<Block>>),
     /// A return: `return a`.
     Return(Box<Expr>),
@@ -941,8 +947,10 @@ impl Display for ExprKind {
             }
             ExprKind::BinOp(op, lhs, rhs) => display_bin_op(indent, *op, lhs, rhs)?,
             ExprKind::Block(block) => write!(indent, "Expr Block: {block}")?,
+            ExprKind::Break => write!(indent, "Break")?,
             ExprKind::Call(callable, arg) => display_call(indent, callable, arg)?,
             ExprKind::Conjugate(within, apply) => display_conjugate(indent, within, apply)?,
+            ExprKind::Continue => write!(indent, "Continue")?,
             ExprKind::Err => write!(indent, "Err")?,
             ExprKind::Fail(e) => write!(indent, "Fail: {e}")?,
             ExprKind::Field(expr, id) => display_field(indent, expr, id)?,
@@ -953,6 +961,7 @@ impl Display for ExprKind {
             ExprKind::Interpolate(components) => display_interpolate(indent, components)?,
             ExprKind::Lambda(kind, param, expr) => display_lambda(indent, *kind, param, expr)?,
             ExprKind::Lit(lit) => write!(indent, "Lit: {lit}")?,
+            ExprKind::Parallel(limit, body) => display_parallel(indent, limit.as_deref(), body)?,
             ExprKind::Paren(e) => write!(indent, "Paren: {e}")?,
             ExprKind::Path(p) => write!(indent, "Path: {p}")?,
             ExprKind::Range(start, step, end) => {
@@ -1123,6 +1132,20 @@ fn display_interpolate(
         }
     }
 
+    Ok(())
+}
+
+fn display_parallel(
+    mut indent: Indented<Formatter>,
+    limit: Option<&Expr>,
+    body: &Expr,
+) -> fmt::Result {
+    write!(indent, "Parallel:")?;
+    indent = set_indentation(indent, 1);
+    if let Some(l) = limit {
+        write!(indent, "\nLimit: {l}")?;
+    }
+    write!(indent, "\nBody: {body}")?;
     Ok(())
 }
 

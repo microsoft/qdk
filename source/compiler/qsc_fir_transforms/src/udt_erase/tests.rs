@@ -1898,33 +1898,33 @@ fn nested_udt_mixing_scalar_and_tuple_fields_erased() {
     check_before_after_udt_erase(
         source,
         &expect![[r#"
-        BEFORE:
-        newtype Inner = (Int, Int);
-        newtype Outer = (Int, __UDT_Item_1__Package_2_);
-        function Main() : Int {
-            let o : __UDT_Item_2__Package_2_ = new Outer {
-                S = 10,
-                P = new Inner {
-                    A = 1,
-                    B = 2
-                }
+            BEFORE:
+            newtype Inner = (Int, Int);
+            newtype Outer = (Int, __UDT_Item_1__Package_2_);
+            function Main() : Int {
+                let o : __UDT_Item_2__Package_2_ = new Outer {
+                    S = 10,
+                    P = new Inner {
+                        A = 1,
+                        B = 2
+                    }
 
-            };
-            o::S + o::P::A
-        }
-        // entry
-        Main()
+                };
+                o::S + o::P::A
+            }
+            // entry
+            Main()
 
-        AFTER:
-        newtype Inner = (Int, Int);
-        newtype Outer = (Int, __UDT_Item_1__Package_2_);
-        function Main() : Int {
-            let o : (Int, (Int, Int)) = (10, (1, 2));
-            o::Item < 0 > + o::Item < 1 >::Item < 0 >
-        }
-        // entry
-        Main()
-    "#]],
+            AFTER:
+            newtype Inner = (Int, Int);
+            newtype Outer = (Int, __UDT_Item_1__Package_2_);
+            function Main() : Int {
+                let o : (Int, (Int, Int)) = (10, (1, 2));
+                o::Item < 0 > + o::Item < 1 >::Item < 0 >
+            }
+            // entry
+            Main()
+        "#]],
     );
 }
 
@@ -2068,69 +2068,4 @@ fn cross_package_udt_copy_update_semantic_equivalence() {
     "};
 
     check_semantic_equivalence_with_library(lib_source, user_source);
-}
-
-/// Verifies that a `@SimulatableIntrinsic()` operation in a library package
-/// whose signature takes and returns a struct defined in that library has its
-/// UDT types correctly erased. The simulatable intrinsic body is preserved
-/// for simulation and must be rewritten just like a normal spec body.
-#[test]
-fn cross_package_simulatable_intrinsic_with_struct_param_and_return() {
-    use crate::test_utils::compile_to_fir_with_library;
-
-    let lib_source = indoc! {"
-        namespace TestLib {
-            struct Pair { Fst: Int, Snd: Int }
-
-            @SimulatableIntrinsic()
-            operation TransformPair(p: Pair) : Pair {
-                new Pair { Fst = p.Snd, Snd = p.Fst }
-            }
-
-            export Pair, TransformPair;
-        }
-    "};
-    let user_source = indoc! {"
-        import TestLib.*;
-
-        @EntryPoint()
-        operation Main() : (Int, Int) {
-            let p = new Pair { Fst = 1, Snd = 2 };
-            let swapped = TransformPair(p);
-            (swapped.Fst, swapped.Snd)
-        }
-    "};
-
-    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
-    let mut assigners = crate::package_assigners::PackageAssigners::new(&store, pkg_id);
-    erase_udts(&mut store, pkg_id, &mut assigners);
-
-    // Run post-UDT-erase invariants to confirm no Ty::Udt survives in
-    // reachable packages and no Field::Path on non-tuple types remains.
-    crate::invariants::check(
-        &store,
-        pkg_id,
-        crate::invariants::InvariantLevel::PostUdtErase,
-    );
-
-    // Verify the library callable's SimulatableIntrinsic body is non-empty
-    // (erasure must rewrite the body, not discard it).
-    let reachable = crate::reachability::collect_reachable_from_entry(&store, pkg_id);
-    for store_id in &reachable {
-        if store_id.package == pkg_id {
-            continue;
-        }
-        let ext_package = store.get(store_id.package);
-        let item = ext_package.get_item(store_id.item);
-        if let ItemKind::Callable(decl) = &item.kind
-            && let CallableImpl::SimulatableIntrinsic(spec) = &decl.implementation
-        {
-            let block = ext_package.get_block(spec.block);
-            assert!(
-                !block.stmts.is_empty(),
-                "SimulatableIntrinsic callable '{}' body should have non-empty stmts after UDT erasure",
-                decl.name.name
-            );
-        }
-    }
 }

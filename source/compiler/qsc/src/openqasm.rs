@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::vec;
 
-use qdk_openqasm_parser::io::SourceResolver;
+use qdk_openqasm::io::SourceResolver;
 use qsc_data_structures::error::WithSource;
 use qsc_data_structures::target::Profile;
 use qsc_frontend::compile::PackageStore;
@@ -16,16 +16,29 @@ pub use qsc_openqasm_compiler::{
 };
 use qsc_passes::PackageType;
 
+pub use qdk_openqasm::{
+    analyze, analyze_all, analyze_and_resolve, analyze_parse_result, parse, parse_all,
+    parse_and_resolve,
+};
+
 pub mod io {
-    pub use qdk_openqasm_parser::io::*;
+    pub use qdk_openqasm::io::*;
 }
 
 pub mod parser {
-    pub use qdk_openqasm_parser::parser::*;
+    pub use qdk_openqasm::parser::*;
+}
+
+pub mod source {
+    pub use qdk_openqasm::source::*;
+}
+
+pub mod span {
+    pub use qdk_openqasm::span::*;
 }
 
 pub mod semantic {
-    pub use qdk_openqasm_parser::semantic::*;
+    pub use qdk_openqasm::semantic::*;
 }
 
 pub mod error {
@@ -34,7 +47,7 @@ pub mod error {
 }
 
 pub mod completion {
-    pub use qdk_openqasm_parser::parser::completion::*;
+    pub use qdk_openqasm::parser::completion::*;
 }
 
 pub mod compiler {
@@ -42,7 +55,7 @@ pub mod compiler {
 }
 
 pub mod stdlib {
-    pub use qdk_openqasm_parser::stdlib::*;
+    pub use qdk_openqasm::stdlib::*;
 }
 
 use crate::compile::package_store_with_stdlib;

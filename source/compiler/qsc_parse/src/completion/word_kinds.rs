@@ -86,6 +86,8 @@ bitflags! {
         const Auto = keyword_bit(Keyword::Auto);
         const Body = keyword_bit(Keyword::Body);
         const Borrow = keyword_bit(Keyword::Borrow);
+        const Break = keyword_bit(Keyword::Break);
+        const Continue = keyword_bit(Keyword::Continue);
         const Controlled = keyword_bit(Keyword::Controlled);
         const ControlledUpper = keyword_bit(Keyword::ControlledUpper);
         const Ctl = keyword_bit(Keyword::Ctl);
@@ -115,6 +117,7 @@ bitflags! {
         const Open = keyword_bit(Keyword::Open);
         const Operation = keyword_bit(Keyword::Operation);
         const Or = keyword_bit(Keyword::Or);
+        const Parallel = keyword_bit(Keyword::Parallel);
         const PauliI = keyword_bit(Keyword::PauliI);
         const PauliX = keyword_bit(Keyword::PauliX);
         const PauliY = keyword_bit(Keyword::PauliY);

@@ -158,6 +158,34 @@ fn complex_expr_not_assignable() {
 }
 
 #[test]
+fn block_target_of_indexed_update_not_assignable() {
+    // `<lhs> w/= i <- v` lowers to `ExprKind::AssignIndex` carrying `<lhs>`
+    // as written, so this rejection is what keeps a compound expression out of
+    // an `AssignIndex` container. Both `qsc_fir_transforms` normalize passes
+    // exclude that container from their operand enumeration and never scan it
+    // for a buried `Return`; that is only sound because a non-`Var` target
+    // fails here first. The sibling `complex_expr_not_assignable` covers the
+    // plain `Assign` form, which is a different `ExprKind`.
+    check(
+        indoc! {"{
+            mutable arr = [1, 2, 3];
+            mutable other = [9, 9, 9];
+            set { let _ = other; arr } w/= 0 <- 42;
+        }"},
+        &expect![[r#"
+            [
+                Unassignable(
+                    Span {
+                        lo: 70,
+                        hi: 92,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
 fn lambda_mutable_closure() {
     check(
         indoc! {"{

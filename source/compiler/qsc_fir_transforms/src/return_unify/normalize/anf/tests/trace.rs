@@ -12,6 +12,58 @@
 use super::*;
 
 #[test]
+fn range_struct_and_string_prefixes_preserve_order() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            struct Pair { First : Int, Second : Int }
+            @EntryPoint()
+            operation Main() : Int {
+                use rangePrefix = Qubit();
+                use structPrefix = Qubit();
+                let range = {
+                    X(rangePrefix);
+                    Reset(rangePrefix);
+                    1
+                }..{ return 7; 2 }..3;
+                let pair = new Pair {
+                    First = {
+                        X(structPrefix);
+                        Reset(structPrefix);
+                        4
+                    },
+                    Second = { return 8; 5 }
+                };
+                range.Start + pair.First
+            }
+        }
+    "#});
+}
+
+#[test]
+fn controlled_adjoint_nondefaultable_prefix_preserves_shape() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation Target(q : Qubit) : Unit is Adj + Ctl {
+                body ... { X(q); }
+                adjoint auto;
+                controlled (controls, ...) { Controlled X(controls, q); }
+                controlled adjoint auto;
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                use control = Qubit();
+                use target = Qubit();
+                X(control);
+                (Controlled Adjoint Target)([control], { return 7; target });
+                Reset(control);
+                Reset(target);
+                0
+            }
+        }
+    "#});
+}
+
+#[test]
 fn return_in_call_arg_skips_sibling_arg_quantum_effects() {
     // `Add({ return 5; 0 }, { X(q); Reset(q); 0 })`: the first argument returns
     // before the second is evaluated, so the `X`/`Reset` on the right must
@@ -149,6 +201,78 @@ fn earlier_sibling_operands_evaluate_in_source_order_before_lift() {
                 use q2 = Qubit();
                 let x = Pick({ X(q1); 1 }, { Reset(q2); 2 }, { return 5; 3 });
                 x
+            }
+        }
+    "#});
+}
+
+#[test]
+fn nested_return_preserves_effectful_outer_callee() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            operation Apply(pair : (Int, Int)) : Unit {}
+
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                ({ X(q); Reset(q); Apply })((0, { return 5; 1 }));
+                0
+            }
+        }
+    "#});
+}
+
+#[test]
+fn update_field_evaluates_replacement_before_record() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            struct Pair { First : Int, Second : Int }
+
+            @EntryPoint()
+            operation Main() : Int {
+                use recordQubit = Qubit();
+                use replacementQubit = Qubit();
+                let pair = new Pair { First = 1, Second = 2 };
+                let updated = {
+                    X(recordQubit);
+                    Reset(recordQubit);
+                    pair
+                } w/ First <- {
+                    X(replacementQubit);
+                    Reset(replacementQubit);
+                    return 7;
+                    9
+                };
+                updated.First
+            }
+        }
+    "#});
+}
+
+#[test]
+fn update_index_evaluates_index_and_replacement_before_container() {
+    check_semantic_equivalence(indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Int {
+                use indexQubit = Qubit();
+                use replacementQubit = Qubit();
+                use containerQubit = Qubit();
+                let updated = {
+                    X(containerQubit);
+                    Reset(containerQubit);
+                    [1, 2]
+                } w/ {
+                    X(indexQubit);
+                    Reset(indexQubit);
+                    0
+                } <- {
+                    X(replacementQubit);
+                    Reset(replacementQubit);
+                    return 7;
+                    9
+                };
+                updated[0]
             }
         }
     "#});

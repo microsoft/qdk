@@ -588,7 +588,7 @@ mod q_driven {
                         };
                     }
 
-                    let __trailing_result : Int = if not __has_returned {
+                    let __trailing_result : Int = if (not __has_returned) {
                         0
                     } else {
                         __ret_val
@@ -613,7 +613,7 @@ mod q_driven {
                         };
                     }
 
-                    let __trailing_result : Int = if not __has_returned {
+                    let __trailing_result : Int = if (not __has_returned) {
                         0
                     } else {
                         __ret_val

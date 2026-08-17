@@ -220,7 +220,7 @@ function initService<
     // Only the target is included to distinguish errors; message
     // content is omitted for privacy.
     if (level === 1) {
-      postTelemetryMessage({ id: "wasm-error", data: { target } });
+      postTelemetryMessage({ id: "wasm-error", data: { panicTarget: target } });
     }
 
     if (log.getLogLevel() < level) {

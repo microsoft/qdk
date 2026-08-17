@@ -337,6 +337,12 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
         ExprKind::Paren(expr) | ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(expr);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit.as_ref() {
+                vis.visit_expr(l);
+            }
+            vis.visit_expr(body);
+        }
         ExprKind::Path(path) => vis.visit_path_kind(path),
         ExprKind::Range(start, step, end) => {
             if let Some(s) = start.as_ref() {
@@ -373,7 +379,11 @@ pub fn walk_expr<'a>(vis: &mut impl Visitor<'a>, expr: &'a Expr) {
             vis.visit_expr(cond);
             vis.visit_block(block);
         }
-        ExprKind::Err | ExprKind::Hole | ExprKind::Lit(_) => {}
+        ExprKind::Break
+        | ExprKind::Continue
+        | ExprKind::Err
+        | ExprKind::Hole
+        | ExprKind::Lit(_) => {}
     }
 }
 

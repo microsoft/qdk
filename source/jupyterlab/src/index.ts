@@ -51,7 +51,7 @@ function registerQSharpLanguage(
     },
     {
       token: "keyword",
-      regex: String.raw`(if|elif|else|repeat|until|fixup|for|in|return|fail|within|apply)\b`,
+      regex: String.raw`(if|elif|else|repeat|until|fixup|for|in|while|break|continue|return|fail|within|apply)\b`,
       beginWord: true,
     },
     {

@@ -646,7 +646,7 @@ fn triple_param_decomposes() {
             BEFORE:
             newtype Triple = (Int, Int, Int);
             function Sum(t : (Int, Int, Int)) : Int {
-                t::Item < 0 > + t::Item < 1 > + t::Item < 2 >
+                (t::Item < 0 > + t::Item < 1 >) + t::Item < 2 >
             }
             function Main() : Int {
                 Sum(1, 2, 3)
@@ -657,7 +657,7 @@ fn triple_param_decomposes() {
             AFTER:
             newtype Triple = (Int, Int, Int);
             function Sum(t_0 : Int, t_1 : Int, t_2 : Int) : Int {
-                t_0 + t_1 + t_2
+                (t_0 + t_1) + t_2
             }
             function Main() : Int {
                 Sum(1, 2, 3)
@@ -1502,7 +1502,7 @@ fn multiple_tuple_params_promotion_behavior() {
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a : (Int, Int), b : (Int, Int)) : Int {
-                a::Item < 0 > + a::Item < 1 > + b::Item < 0 > + b::Item < 1 >
+                ((a::Item < 0 > + a::Item < 1 >) + b::Item < 0 >) + b::Item < 1 >
             }
             function Main() : Int {
                 Add((1, 2), (3, 4))
@@ -1514,7 +1514,7 @@ fn multiple_tuple_params_promotion_behavior() {
             newtype A = (Int, Int);
             newtype B = (Int, Int);
             function Add(a_0 : Int, a_1 : Int, b_0 : Int, b_1 : Int) : Int {
-                a_0 + a_1 + b_0 + b_1
+                ((a_0 + a_1) + b_0) + b_1
             }
             function Main() : Int {
                 Add(1, 2, 3, 4)
@@ -2242,43 +2242,6 @@ fn aggregate_argument_expression_is_bound_once_before_field_projection() {
 }
 
 #[test]
-fn simulatable_intrinsic_tuple_parameter_is_not_promoted() {
-    // A `@SimulatableIntrinsic` callable with a UDT parameter is skipped by
-    // arg_promote and keeps its signature. Like a regular `body intrinsic`,
-    // it has no FIR-usable body (it is codegen-only), so the full pipeline
-    // rejects such a signature in the intrinsic precheck before arg_promote
-    // runs. This drives arg_promote directly on the FIR to prove the pass
-    // itself leaves the signature untouched (and never hits the intrinsic
-    // gate's `unreachable!()` arms).
-    let source = "struct Pair { X : Int, Y : Int }
-        @SimulatableIntrinsic()
-        operation MeasurePair(p : Pair) : Int {
-            p.X + p.Y
-        }
-        @EntryPoint()
-        operation Main() : Int {
-            let pair = new Pair { X = 1, Y = 2 };
-            MeasurePair(pair)
-        }";
-
-    let (mut store, pkg_id) = compile_to_fir(source);
-
-    let mut assigners = PackageAssigners::new(&store, pkg_id);
-    arg_promote(&mut store, pkg_id, &mut assigners);
-
-    let package = store.get(pkg_id);
-    // Signature unchanged: parameter stays a single whole binding.
-    assert_eq!(
-        callable_input_binding_names(package, "MeasurePair"),
-        vec!["p"]
-    );
-
-    // Call site keeps the whole argument (not flattened into projections).
-    let call_shapes = extract_call_shapes(&store, pkg_id, "Main");
-    expect!["MeasurePair(pair)"].assert_eq(&call_shapes);
-}
-
-#[test]
 fn regular_intrinsic_tuple_parameter_is_not_promoted() {
     // A regular `body intrinsic` callable with a tuple parameter is skipped by
     // arg_promote and keeps its tuple signature. The full pipeline rejects such
@@ -2301,17 +2264,13 @@ fn regular_intrinsic_tuple_parameter_is_not_promoted() {
 #[test]
 fn intrinsic_nested_tuple_parameter_is_not_promoted() {
     // An intrinsic callable with a *nested* (depth >= 2) tuple parameter is
-    // skipped by arg_promote regardless of intrinsic flavor: both a
-    // `@SimulatableIntrinsic` and a regular `body intrinsic` keep their
-    // tuple-shaped signature, and their call sites keep the whole nested-tuple
-    // argument (never decomposed into multi-index leaf projections). This also
-    // guards the `unreachable!()` arms behind the intrinsic gate, proving the
-    // gate still excludes intrinsics upstream (no panic).
-    //
-    // Like a regular `body intrinsic`, a simulatable intrinsic has no
-    // FIR-usable body (codegen-only), so the full pipeline rejects these
-    // signatures in the intrinsic precheck before arg_promote runs. This drives
-    // arg_promote directly on the FIR to exercise the pass in isolation.
+    // skipped by arg_promote: a regular `body intrinsic` keeps its tuple-shaped
+    // signature, and its call site keeps the whole nested-tuple argument (never
+    // decomposed into multi-index leaf projections). This also guards the
+    // `unreachable!()` arms behind the intrinsic gate, proving the gate still
+    // excludes intrinsics upstream (no panic). The full pipeline rejects this
+    // signature in the intrinsic precheck before arg_promote runs, so this
+    // drives arg_promote directly on the FIR to exercise the pass in isolation.
     fn assert_nested_tuple_param_untouched(source: &str, callable: &str, expected_call: &str) {
         let (mut store, pkg_id) = compile_to_fir(source);
 
@@ -2336,24 +2295,6 @@ fn intrinsic_nested_tuple_parameter_is_not_promoted() {
         );
     }
 
-    // `@SimulatableIntrinsic` flavor: signature and call site both untouched.
-    assert_nested_tuple_param_untouched(
-        "@SimulatableIntrinsic()
-        operation MeasureNested(p : (Int, (Int, Int))) : Int {
-            let (a, (b, c)) = p;
-            a + b + c
-        }
-        @EntryPoint()
-        operation Main() : Int {
-            let nested = (1, (2, 3));
-            MeasureNested(nested)
-        }",
-        "MeasureNested",
-        "MeasureNested(nested)",
-    );
-
-    // Regular `body intrinsic` flavor: same skip behavior on a literal nested
-    // tuple argument.
     assert_nested_tuple_param_untouched(
         "operation Foo(p : (Int, (Int, Int))) : Unit { body intrinsic; }
         @EntryPoint()
@@ -2815,7 +2756,7 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
                 let a : Int = x::Item < 0 >::Item < 0 >;
                 let b : Int = x::Item < 0 >::Item < 1 >;
                 let c : Int = x::Item < 1 >;
-                a + b + c
+                (a + b) + c
             }
             function Main() : Int {
                 let x : ((Int, Int), Int) = ((10, 20), 30);
@@ -2829,7 +2770,7 @@ fn nested_non_udt_tuple_destructure_is_promoted() {
                 let a : Int = x_0_0;
                 let b : Int = x_0_1;
                 let c : Int = x_1;
-                a + b + c
+                (a + b) + c
             }
             function Main() : Int {
                 let ((x_0_0 : Int, x_0_1 : Int), x_1 : Int) = ((10, 20), 30);
@@ -2858,7 +2799,7 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
                 let b : Int = x::Item < 1 >::Item < 0 >;
                 let c : Int = x::Item < 1 >::Item < 1 >::Item < 0 >;
                 let d : Int = x::Item < 1 >::Item < 1 >::Item < 1 >;
-                a + b + c + d
+                ((a + b) + c) + d
             }
             function Main() : Int {
                 let x : (Int, (Int, (Int, Int))) = (10, (20, (30, 40)));
@@ -2873,7 +2814,7 @@ fn deeply_nested_tuple_destructure_param_promotes_temp_free() {
                 let b : Int = x_1_0;
                 let c : Int = x_1_1_0;
                 let d : Int = x_1_1_1;
-                a + b + c + d
+                ((a + b) + c) + d
             }
             function Main() : Int {
                 let (x_0 : Int, (x_1_0 : Int, (x_1_1_0 : Int, x_1_1_1 : Int))) = (10, (20, (30, 40)));
@@ -3018,7 +2959,7 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
                 let b0 : Int = b::Item < 0 >::Item < 0 >;
                 let b1 : Int = b::Item < 0 >::Item < 1 >;
                 let b2 : Int = b::Item < 1 >;
-                a0 + a1 + a2 + b0 + b1 + b2
+                ((((a0 + a1) + a2) + b0) + b1) + b2
             }
             function Main() : Int {
                 Foo((1, (2, 3)), ((4, 5), 6))
@@ -3034,7 +2975,7 @@ fn flat_abi_multiple_distinct_nested_params_on_one_callable() {
                 let b0 : Int = b_0_0;
                 let b1 : Int = b_0_1;
                 let b2 : Int = b_1;
-                a0 + a1 + a2 + b0 + b1 + b2
+                ((((a0 + a1) + a2) + b0) + b1) + b2
             }
             function Main() : Int {
                 Foo(1, 2, 3, 4, 5, 6)

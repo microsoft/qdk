@@ -8,15 +8,18 @@ use super::tests_common::{
     CALL_TO_CYCLIC_OPERATION_WITH_DYNAMIC_ARGUMENT, CALL_UNRESOLVED_FUNCTION, CUSTOM_MEASUREMENT,
     CUSTOM_MEASUREMENT_WITH_SIMULATABLE_INTRINSIC_ATTR, CUSTOM_RESET,
     CUSTOM_RESET_WITH_SIMULATABLE_INTRINSIC_ATTR, DYNAMIC_ARRAY_BINARY_OP,
-    LOOP_WITH_DYNAMIC_CONDITION, MEASUREMENT_WITHIN_DYNAMIC_SCOPE, MINIMAL,
-    RETURN_WITHIN_DYNAMIC_SCOPE, USE_CLOSURE_FUNCTION, USE_DYNAMIC_BIG_INT, USE_DYNAMIC_BOOLEAN,
-    USE_DYNAMIC_DOUBLE, USE_DYNAMIC_FUNCTION, USE_DYNAMIC_INDEX, USE_DYNAMIC_INT,
-    USE_DYNAMIC_LHS_EXP_BINOP, USE_DYNAMIC_OPERATION, USE_DYNAMIC_PAULI, USE_DYNAMIC_QUBIT,
-    USE_DYNAMIC_RANGE, USE_DYNAMIC_RHS_EXP_BINOP, USE_DYNAMIC_STRING, USE_DYNAMIC_UDT,
-    USE_DYNAMICALLY_SIZED_ARRAY, USE_ENTRY_POINT_INT_ARRAY_IN_TUPLE,
-    USE_ENTRY_POINT_STATIC_BIG_INT, USE_ENTRY_POINT_STATIC_BOOL, USE_ENTRY_POINT_STATIC_DOUBLE,
-    USE_ENTRY_POINT_STATIC_INT, USE_ENTRY_POINT_STATIC_INT_IN_TUPLE, USE_ENTRY_POINT_STATIC_PAULI,
-    USE_ENTRY_POINT_STATIC_RANGE, USE_ENTRY_POINT_STATIC_STRING, check, check_for_exe,
+    LOOP_WITH_DYNAMIC_CONDITION, MEASUREMENT_WITHIN_DYNAMIC_SCOPE, MINIMAL, PARALLEL_STATIC_BODY,
+    PARALLEL_WITH_DYNAMIC_BRANCH, PARALLEL_WITH_INDIRECT_BRANCH_VIA_CALL,
+    PARALLEL_WITHIN_DYNAMIC_LIMIT, PARALLEL_WITHIN_STATIC_LIMIT, RETURN_WITHIN_DYNAMIC_SCOPE,
+    USE_CLOSURE_FUNCTION, USE_DYNAMIC_BIG_INT, USE_DYNAMIC_BOOLEAN, USE_DYNAMIC_DOUBLE,
+    USE_DYNAMIC_FUNCTION, USE_DYNAMIC_INDEX, USE_DYNAMIC_INT, USE_DYNAMIC_LHS_EXP_BINOP,
+    USE_DYNAMIC_OPERATION, USE_DYNAMIC_PAULI, USE_DYNAMIC_QUBIT, USE_DYNAMIC_RANGE,
+    USE_DYNAMIC_RHS_EXP_BINOP, USE_DYNAMIC_STRING, USE_DYNAMIC_UDT, USE_DYNAMICALLY_SIZED_ARRAY,
+    USE_ENTRY_POINT_INT_ARRAY_IN_TUPLE, USE_ENTRY_POINT_STATIC_BIG_INT,
+    USE_ENTRY_POINT_STATIC_BOOL, USE_ENTRY_POINT_STATIC_DOUBLE, USE_ENTRY_POINT_STATIC_INT,
+    USE_ENTRY_POINT_STATIC_INT_IN_TUPLE, USE_ENTRY_POINT_STATIC_PAULI,
+    USE_ENTRY_POINT_STATIC_RANGE, USE_ENTRY_POINT_STATIC_STRING, capability_error_kinds, check,
+    check_for_exe,
 };
 use expect_test::{Expect, expect};
 use qsc_data_structures::target::TargetCapabilityFlags;
@@ -171,8 +174,8 @@ fn use_of_dynamic_qubit_yields_errors() {
                 ),
                 UseOfDynamicQubit(
                     Span {
-                        lo: 146,
-                        hi: 162,
+                        lo: 142,
+                        hi: 158,
                     },
                 ),
             ]
@@ -933,6 +936,168 @@ fn binary_op_with_dynamic_array_error() {
                     Span {
                         lo: 66,
                         hi: 97,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+/// Source shape that drives `qsc_fir_transforms`' ANF operand lift to pin an
+/// arrow-typed, effectful operand (`GetOp(q)`) to a `mutable` spine temp ahead
+/// of the return-bearing argument.
+///
+/// The callable value is statically known (`Inc`) and the guard `go` is a
+/// literal `false`, so nothing here is measurement-dependent: the program is
+/// base-profile legal as written.
+const EFFECTFUL_ARROW_OPERAND_PIN: &str = r#"
+    namespace Test {
+        function Inc(x : Int) : Int { x + 1 }
+        operation GetOp(q : Qubit) : (Int -> Int) {
+            X(q);
+            Inc
+        }
+        operation Foo() : Result {
+            use q = Qubit();
+            let go = false;
+            let x = GetOp(q)({
+                if go { return Zero; }
+                5
+            });
+            if x > 5 {
+                X(q);
+            }
+            M(q)
+        }
+    }"#;
+
+#[test]
+fn effectful_arrow_operand_pin_source_is_base_profile_legal() {
+    // Establishes the premise for the `mutable` arrow pin's capability
+    // coverage: this program is base-profile clean *before* any FIR transform
+    // runs. The companion assertion that the transform's mutable pin keeps it
+    // clean lives in `qsc_fir_transforms` as
+    // `effectful_arrow_pin_stays_base_profile_legal`, because this harness
+    // analyzes untransformed FIR — `qsc_passes` never invokes
+    // `qsc_fir_transforms`, and it cannot, since that crate depends on this one.
+    //
+    // The standalone assertion below is deliberate and must not be folded into
+    // the snapshot: this suite is routinely regenerated with `UPDATE_EXPECT=1`,
+    // which would silently rewrite an empty `[]` into whatever diagnostics a
+    // regression introduced, turning the test green while erasing its meaning.
+    assert_eq!(
+        capability_error_kinds(EFFECTFUL_ARROW_OPERAND_PIN, TargetCapabilityFlags::empty()),
+        Vec::<String>::new(),
+        "the effectful arrow pin source must be base-profile clean pre-transform"
+    );
+    check_profile(
+        EFFECTFUL_ARROW_OPERAND_PIN,
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_with_static_body_yields_no_errors() {
+    check_profile(
+        PARALLEL_STATIC_BODY,
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_with_static_limit_yields_no_errors() {
+    check_profile(
+        PARALLEL_WITHIN_STATIC_LIMIT,
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_with_dynamic_branch_yields_error() {
+    check_profile(
+        PARALLEL_WITH_DYNAMIC_BRANCH,
+        &expect![[r#"
+            [
+                UseOfDynamicBool(
+                    Span {
+                        lo: 107,
+                        hi: 122,
+                    },
+                ),
+                UseOfDynamicBool(
+                    Span {
+                        lo: 199,
+                        hi: 200,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_with_dynamic_limit_yields_error() {
+    check_profile(
+        PARALLEL_WITHIN_DYNAMIC_LIMIT,
+        &expect![[r#"
+            [
+                UseOfDynamicBool(
+                    Span {
+                        lo: 107,
+                        hi: 122,
+                    },
+                ),
+                UseOfDynamicBool(
+                    Span {
+                        lo: 160,
+                        hi: 161,
+                    },
+                ),
+                UseOfDynamicInt(
+                    Span {
+                        lo: 160,
+                        hi: 161,
+                    },
+                ),
+                UseOfDynamicLimitInParallelExpr(
+                    Span {
+                        lo: 160,
+                        hi: 161,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_with_indirect_branch_via_call_yields_error() {
+    check_profile(
+        PARALLEL_WITH_INDIRECT_BRANCH_VIA_CALL,
+        &expect![[r#"
+            [
+                UseOfDynamicBool(
+                    Span {
+                        lo: 79,
+                        hi: 91,
+                    },
+                ),
+                UseOfDynamicBool(
+                    Span {
+                        lo: 217,
+                        hi: 223,
+                    },
+                ),
+                UseOfDynamicBranchingInParallelExpr(
+                    Span {
+                        lo: 217,
+                        hi: 223,
                     },
                 ),
             ]

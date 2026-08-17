@@ -186,14 +186,14 @@ fn while_body_with_call_arg_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : Int = 0;
                 mutable i : Int = 0;
-                while not __has_returned and i < 3 {
+                while ((not __has_returned)) and (i < 3) {
                     let _ : ((Int, Int) -> Int) = Add;
                     let _ : Int = 0;
                     {
                         __ret_val = 42;
                         __has_returned = true;
                     };
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -201,8 +201,8 @@ fn while_body_with_call_arg_return() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
-            -1
+                    if (not __has_returned) {
+                        (-1)
                     } else {
                         __ret_val
                     }
@@ -252,7 +252,7 @@ fn local_init_retype_in_call_arg_fix() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         Identity(x)
                     } else {
                         __ret_val
@@ -302,7 +302,7 @@ fn nested_block_middle_of_block_fix() {
 
                     2
                 };
-                let y : Int = if not __has_returned {
+                let y : Int = if (not __has_returned) {
                     3
                 } else {
                     0
@@ -310,7 +310,7 @@ fn nested_block_middle_of_block_fix() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         y
                     } else {
                         __ret_val
@@ -359,7 +359,7 @@ fn flag_fallback_handles_arrow_return() {
                 mutable __has_returned : Bool = false;
                 mutable __ret_val : (Int -> Int) = __return_unify_fail_5;
                 mutable i : Int = 0;
-                while not __has_returned and i < 3 {
+                while ((not __has_returned)) and (i < 3) {
                     if i == n {
                         {
                             __ret_val = / * closure item = 3 captures = [] * / _lambda_3;
@@ -367,7 +367,7 @@ fn flag_fallback_handles_arrow_return() {
                         };
                     }
 
-                    if not __has_returned {
+                    if (not __has_returned) {
                         i += 1;
                     };
                 }
@@ -375,7 +375,7 @@ fn flag_fallback_handles_arrow_return() {
                 if __has_returned {
                     __ret_val
                 } else {
-                    if not __has_returned {
+                    if (not __has_returned) {
                         / * closure item = 4 captures = [] * / _lambda_4
                     } else {
                         __ret_val
@@ -424,7 +424,7 @@ fn flag_fallback_supports_post_return_range_local_initializer() {
     let rendered = crate::pretty::write_package_qsharp(&store, pkg_id);
 
     assert!(
-        rendered.contains("let r : Range = if not _.has_returned {"),
+        rendered.contains("let r : Range = if (not _.has_returned) {"),
         "post-return range local initializers should be guarded by flag-lowering",
     );
     // The post-return `let r` initializer is guarded by flag-lowering and
@@ -432,11 +432,11 @@ fn flag_fallback_supports_post_return_range_local_initializer() {
     // (the `dead_local` simplifier rule does not eliminate it). After the
     // `let_folding` rule fires, the `_.trailing_result` binding is inlined
     // into the trailing merge, preserving the bind-then-check pattern as
-    // `if _.has_returned _.ret_val else { if not _.has_returned { <tail> } else _.ret_val }`
+    // `if _.has_returned _.ret_val else { if (not _.has_returned) { <tail> } else _.ret_val }`
     // (the synthesized names carry the `.` sentinel in the verbatim Debug dump).
     assert!(
         rendered.contains(
-            "if _.has_returned _.ret_val else {\n            if not _.has_returned {\n                r::Start\n            } else _.ret_val\n        }"
+            "if _.has_returned _.ret_val else {\n            if (not _.has_returned) {\n                r.Start\n            } else _.ret_val\n        }"
         ),
         "final trailing expression should preserve the bind-then-check pattern (now inlined into the trailing merge)\n{rendered}",
     );

@@ -660,6 +660,15 @@ impl LocalsLookup for LocalsComputeKindMap {
 }
 
 impl LocalsComputeKindMap {
+    pub fn has_same_compute_kinds(&self, other: &Self) -> bool {
+        self.0.iter().count() == other.0.iter().count()
+            && self.0.iter().all(|(local_var_id, local)| {
+                other
+                    .find_local_compute_kind(local_var_id)
+                    .is_some_and(|other_local| local.compute_kind == other_local.compute_kind)
+            })
+    }
+
     pub fn aggregate_compute_kind(&mut self, local_var_id: LocalVarId, delta: ComputeKind) {
         let local_compute_kind = self
             .0

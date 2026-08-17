@@ -154,7 +154,7 @@ fn common_expr_kinds_render() {
                     if arr[0] > 0 {
                         arr[0]
                     } else {
-            -1
+                        (-1)
                     }
 
                 }
@@ -348,4 +348,66 @@ fn ty_rendering_handles_param_and_arrow_with_functors() {
         functors: FunctorSet::Value(FunctorSetValue::Empty),
     }));
     assert_eq!(ty_as_qsharp(&func), "(Int -> Int)");
+}
+
+#[test]
+fn parallel_expression_renders() {
+    check_render(
+        indoc! {r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel {
+                        use q = Qubit();
+                        H(q);
+                    }
+                }
+            }
+        "#},
+        &expect![[r#"
+            operation Main() : Unit {
+                body {
+                    parallel {
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        H(q);
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_limit_renders() {
+    check_render(
+        indoc! {r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    parallel within 4 {
+                        use q = Qubit();
+                        H(q);
+                    }
+                }
+            }
+        "#},
+        &expect![[r#"
+            operation Main() : Unit {
+                body {
+                    parallel within 4 {
+                        let q : Qubit = __quantum__rt__qubit_allocate();
+                        H(q);
+                        __quantum__rt__qubit_release(q);
+                    }
+
+                }
+            }
+            // entry
+            Main()
+        "#]],
+    );
 }

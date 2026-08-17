@@ -19,6 +19,7 @@ Core submodules (always available):
 - :mod:`qdk.estimator` — the legacy Microsoft Resource Estimator API.
 - :mod:`qdk.qre` — the next-generation Resource Estimator (QRE v3).
 - :mod:`qdk.code` — namespace populated with user-defined Q# and OpenQASM callables.
+- :mod:`qdk.test_utils` — utilities for testing Q# code.
 
 Frequently used utilities are also re-exported at the package root for
 convenience: :func:`~qdk.qsharp.init`, :func:`~qdk.qsharp.dump_machine`,
