@@ -521,9 +521,9 @@ fn unexpected_token_after_targets_is_error() {
     check(
         "H 0 )",
         &expect![[r#"
-            Qdk.Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.Expected
 
-              x expected newline, found close(paren)
+              x expected a valid target, found close(paren)
                ,----
              1 | H 0 )
                :     ^

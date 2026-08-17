@@ -555,10 +555,10 @@ impl<'a> Parser<'a> {
             paren_hi = Some(self.expect_token(TokenKind::Close(Paren))?.span.hi);
         }
 
-        while let Some(token) = self.peek() {
-            if !Self::is_target_start(&token) {
-                break;
-            }
+        while self
+            .peek()
+            .is_some_and(|token| !matches!(token.kind, TokenKind::Newline | TokenKind::Open(Brace)))
+        {
             targets.push(self.parse_target()?);
         }
 
@@ -578,22 +578,6 @@ impl<'a> Parser<'a> {
             args,
             targets,
         })
-    }
-
-    fn is_target_start(token: &Token) -> bool {
-        match token.kind {
-            TokenKind::Uint
-            | TokenKind::Rec
-            | TokenKind::Sweep
-            | TokenKind::Bang
-            | TokenKind::PauliTarget
-            | TokenKind::LossTarget => true,
-            // Not valid target starts, but consumed here so `parse_target` can
-            // report a precise "expected a valid target" error instead of a
-            // confusing "expected newline".
-            TokenKind::Double | TokenKind::Star | TokenKind::InstructionName => true,
-            _ => false,
-        }
     }
 
     fn parse_target(&mut self) -> Option<Target> {
