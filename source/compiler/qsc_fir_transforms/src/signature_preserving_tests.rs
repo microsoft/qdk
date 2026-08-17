@@ -104,6 +104,27 @@ fn prepare_pinned(source: &str, target: &str) -> (PackageStore, PackageId, Store
 }
 
 #[test]
+fn signature_preserving_subpipeline_rejects_uncollapsed_store() {
+    let (mut store, pkg_id) = compile_to_fir(
+        r#"
+        namespace Test {
+            @SimulatableIntrinsic()
+            operation Override() : Unit {}
+            @EntryPoint()
+            operation Main() : Unit {}
+        }
+        "#,
+    );
+
+    assert_panics_with(
+        "FIR transform pipeline requires simulatable intrinsics to be collapsed",
+        || {
+            let _ = run_signature_preserving_subpipeline(&mut store, pkg_id, &[]);
+        },
+    );
+}
+
+#[test]
 fn subpipeline_rewrites_pinned_early_dynamic_return() {
     let (mut store, pkg_id, pinned) = prepare_pinned(PINNED_ARROW_EARLY_RETURN, "Pinned");
 

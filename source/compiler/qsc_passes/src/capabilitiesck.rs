@@ -208,6 +208,12 @@ impl<'a> Visitor<'a> for Checker<'a> {
             ExprKind::While(condition_expr_id, body_block_id) => {
                 self.check_expr_while(expr_id, *condition_expr_id, *body_block_id);
             }
+            ExprKind::Parallel(limit_id, expr_id) => {
+                if let Some(limit_id) = limit_id {
+                    self.visit_expr(*limit_id);
+                }
+                self.visit_expr(*expr_id);
+            }
             _ => self.check_expr(expr_id),
         }
     }

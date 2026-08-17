@@ -223,18 +223,9 @@ fn collect_targets_in_callable_impl(
     targets: &mut Vec<ConditionTarget>,
 ) {
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             collect_targets_in_spec_impl(package, package_id, spec_impl, targets);
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            collect_targets_in_block(
-                package,
-                package_id,
-                spec_decl.block,
-                spec_decl.block,
-                targets,
-            );
         }
     }
 }

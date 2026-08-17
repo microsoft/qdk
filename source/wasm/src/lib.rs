@@ -270,9 +270,10 @@ pub fn get_ast(program: ProgramConfig) -> Result<String, String> {
     if is_openqasm_program(&program) {
         let (sources, _capabilities) = into_openqasm_arg(program);
         // OpenQASM has two ASTs: the original OpenQASM AST and the Q# AST it lowers
-        // to. Show both so the original is available for debugging. Compiler errors
-        // are ignored here so the (partial) AST still renders, matching the Q# path.
-        let qasm_ast = qsc::openqasm::semantic::parse_sources(&sources).program;
+        // to. The semantic AST intentionally keeps broadcast calls compact, with one
+        // gate call per source statement. Compiler errors are ignored here so the
+        // (partial) AST still renders, matching the Q# path.
+        let qasm_ast = qsc::openqasm::analyze_all(&sources).program;
         let (store, package_id) = compile_openqasm_to_store(&sources);
         let unit = store
             .get(package_id)

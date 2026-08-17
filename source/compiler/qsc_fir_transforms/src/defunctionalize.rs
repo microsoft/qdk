@@ -36,6 +36,19 @@
 //! - **Diagnostics:** [`Error::ExcessiveSpecializations`] is a non-fatal
 //!   warning. Other errors are fatal because the intermediate FIR may violate
 //!   downstream invariants.
+//! - **Relies on an acyclic UDT graph.** Several type walks in this pass and
+//!   its submodules expand `Ty::Udt` through the referenced type's definition
+//!   and keep descending, with no visited set — `ty_contains_arrow_through_udts`,
+//!   `analysis::extract_arrow_params_from_ty`, `analysis::output_path_resolves_to_arrow`,
+//!   and the `resolve_udt_ty` helpers. They terminate only because a
+//!   user-defined type cannot reference itself. The Q# type checker enforces
+//!   this in `qsc_frontend::typeck::check`, rejecting any cyclic declaration
+//!   with `Qdk.Qsc.TypeCk.RecursiveUdt` before HIR passes run; the guarantee
+//!   covers the package under compilation and extends to the whole store only
+//!   where dependency errors are also gated. Q# has no indirection primitive,
+//!   so `A[]` and `A -> Int` are descended through exactly as a bare `A` is and
+//!   are equally fatal — this pass is where the arrow-mediated case was
+//!   originally observed to overflow the stack.
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
 //!   `crate::exec_graph_rebuild` repairs exec graphs later.
 
@@ -910,6 +923,8 @@ pub(crate) fn ty_contains_arrow(ty: &Ty) -> bool {
 /// callable whose parameter is a UDT containing a callable field keeps the loop
 /// running until that nested callable field is specialized. The rewrite helpers
 /// still use `ty_contains_arrow`, where UDTs intentionally remain opaque.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn ty_contains_arrow_through_udts(store: &PackageStore, ty: &Ty) -> bool {
     match ty {
         Ty::Arrow(_) => true,
@@ -1520,6 +1535,7 @@ pub(super) fn has_multiple_forwarded_callable_arrays(
     static_callable_array_positions(package, group).len() >= 2
 }
 
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 fn resolve_udt_ty(package: &Package, ty: &Ty) -> Ty {
     match ty {
         Ty::Udt(Res::Item(item_id)) => {

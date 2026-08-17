@@ -2369,6 +2369,109 @@ fn test_reset_attr_on_function_issues_error() {
 }
 
 #[test]
+fn test_simulatable_intrinsic_attr_on_generic_operation_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation Foo<'T>(value : 'T) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicOnGenericCallable(
+                    Span {
+                        lo: 63,
+                        hi: 65,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_generic_function_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                function Foo<'T>(value : 'T) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicOnGenericCallable(
+                    Span {
+                        lo: 62,
+                        hi: 64,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_arrow_param_issues_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation Foo(op : Qubit => Unit) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicArrowParam(
+                    Span {
+                        lo: 63,
+                        hi: 81,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_nested_arrow_param_issues_one_error() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation Foo(value : Int, (op : Qubit => Unit, flag : Bool)) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            [
+                InvalidSimulatableIntrinsicArrowParam(
+                    Span {
+                        lo: 77,
+                        hi: 95,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}
+
+#[test]
+fn test_simulatable_intrinsic_attr_on_dump_operation_arrow_param_is_allowed() {
+    check_errors(
+        indoc! {r#"
+            namespace Test {
+                @SimulatableIntrinsic()
+                operation DumpOperation(count : Int, op : Qubit[] => Unit) : Unit {}
+            }
+        "#},
+        &expect![[r#"
+            []
+        "#]],
+    );
+}
+
+#[test]
 fn item_docs() {
     check_hir(
         "/// This is a namespace.
@@ -3164,6 +3267,128 @@ fn lower_break_continue_in_repeat() {
                                         Stmt 10 [61-70]: Semi: Expr 11 [61-69] [Type Unit]: Continue
                                     Expr 12 [87-91] [Type Bool]: Lit: Bool(true)
                                     <no fixup>
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn parallel_without_block_lowers_into_block() {
+    check_hir(
+        indoc! {"
+            operation Main() : Unit {
+                parallel true;
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-46] (Public):
+                    Namespace (Ident 11 [0-46] "test"): Item 1
+                Item 1 [0-46] (Internal):
+                    Parent: 0
+                    Callable 0 [0-46] (operation):
+                        name: Ident 1 [10-14] "Main"
+                        input: Pat 2 [14-16] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-46]: Impl:
+                            Block 4 [24-46] [Type Unit]:
+                                Stmt 5 [30-44]: Semi: Expr 6 [30-43] [Type Bool]: Parallel:
+                                    Body: Expr 10 [0-0] [Type Bool]: Expr Block: Block 9 [0-0] [Type Bool]:
+                                        Stmt 8 [0-0]: Expr: Expr 7 [39-43] [Type Bool]: Lit: Bool(true)
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn parallel_with_block_lowers_into_existing_block() {
+    check_hir(
+        indoc! {"
+            operation Main() : Unit {
+                parallel {true};
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-48] (Public):
+                    Namespace (Ident 11 [0-48] "test"): Item 1
+                Item 1 [0-48] (Internal):
+                    Parent: 0
+                    Callable 0 [0-48] (operation):
+                        name: Ident 1 [10-14] "Main"
+                        input: Pat 2 [14-16] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-48]: Impl:
+                            Block 4 [24-48] [Type Unit]:
+                                Stmt 5 [30-46]: Semi: Expr 6 [30-45] [Type Bool]: Parallel:
+                                    Body: Expr 7 [39-45] [Type Bool]: Expr Block: Block 8 [39-45] [Type Bool]:
+                                        Stmt 9 [40-44]: Expr: Expr 10 [40-44] [Type Bool]: Lit: Bool(true)
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn parallel_limited_without_block_lowers_into_block() {
+    check_hir(
+        indoc! {"
+            operation Main() : Unit {
+                parallel within 3 true;
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-55] (Public):
+                    Namespace (Ident 12 [0-55] "test"): Item 1
+                Item 1 [0-55] (Internal):
+                    Parent: 0
+                    Callable 0 [0-55] (operation):
+                        name: Ident 1 [10-14] "Main"
+                        input: Pat 2 [14-16] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-55]: Impl:
+                            Block 4 [24-55] [Type Unit]:
+                                Stmt 5 [30-53]: Semi: Expr 6 [30-52] [Type Bool]: Parallel:
+                                    Limit: Expr 7 [46-47] [Type Int]: Lit: Int(3)
+                                    Body: Expr 11 [0-0] [Type Bool]: Expr Block: Block 10 [0-0] [Type Bool]:
+                                        Stmt 9 [0-0]: Expr: Expr 8 [48-52] [Type Bool]: Lit: Bool(true)
+                        adj: <none>
+                        ctl: <none>
+                        ctl-adj: <none>"#]],
+    );
+}
+
+#[test]
+fn parallel_limited_with_block_lowers_into_existing_block() {
+    check_hir(
+        indoc! {"
+            operation Main() : Unit {
+                parallel within 3 {true};
+            }
+        "},
+        &expect![[r#"
+            Package:
+                Item 0 [0-57] (Public):
+                    Namespace (Ident 12 [0-57] "test"): Item 1
+                Item 1 [0-57] (Internal):
+                    Parent: 0
+                    Callable 0 [0-57] (operation):
+                        name: Ident 1 [10-14] "Main"
+                        input: Pat 2 [14-16] [Type Unit]: Unit
+                        output: Unit
+                        functors: empty set
+                        body: SpecDecl 3 [0-57]: Impl:
+                            Block 4 [24-57] [Type Unit]:
+                                Stmt 5 [30-55]: Semi: Expr 6 [30-54] [Type Bool]: Parallel:
+                                    Limit: Expr 7 [46-47] [Type Int]: Lit: Int(3)
+                                    Body: Expr 8 [48-54] [Type Bool]: Expr Block: Block 9 [48-54] [Type Bool]:
+                                        Stmt 10 [49-53]: Expr: Expr 11 [49-53] [Type Bool]: Lit: Bool(true)
                         adj: <none>
                         ctl: <none>
                         ctl-adj: <none>"#]],

@@ -95,7 +95,7 @@ block_14:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @X(ptr %var_2) {
+define internal void @X(ptr %var_2) {
 block_15:
   call void @__quantum__qis__x__body(ptr %var_2)
   ret void
@@ -103,7 +103,7 @@ block_15:
 
 declare void @__quantum__qis__x__body(ptr)
 
-define void @CNOT(ptr %var_10, ptr %var_11) {
+define internal void @CNOT(ptr %var_10, ptr %var_11) {
 block_16:
   call void @__quantum__qis__cx__body(ptr %var_10, ptr %var_11)
   ret void
@@ -111,7 +111,7 @@ block_16:
 
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
-define void @Rx(double %var_15, ptr %var_16) {
+define internal void @Rx(double %var_15, ptr %var_16) {
 block_17:
   call void @__quantum__qis__rx__body(double %var_15, ptr %var_16)
   ret void
@@ -121,7 +121,7 @@ declare void @__quantum__qis__rx__body(double, ptr)
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-define void @Reset(ptr %var_23) {
+define internal void @Reset(ptr %var_23) {
 block_18:
   call void @__quantum__qis__reset__body(ptr %var_23)
   ret void

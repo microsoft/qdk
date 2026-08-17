@@ -30,6 +30,7 @@ test("devDiagnostics configuration works", async () => {
   try {
     // Collect diagnostics events as they are raised
     const diagnosticEvents = [];
+    let notify = () => {};
     languageService.addEventListener("diagnostics", (event) => {
       diagnosticEvents.push({
         uri: event.detail.uri,
@@ -37,12 +38,22 @@ test("devDiagnostics configuration works", async () => {
           code: diag.code,
         })),
       });
+      notify();
     });
+
+    // The update loop yields to the host event loop before applying updates, so how
+    // many turns this takes isn't something the test can predict.
+    const nextDiagnostics = () =>
+      new Promise((resolve) => {
+        notify = resolve;
+      });
 
     // Enable dev diagnostics
     await languageService.updateConfiguration({
       devDiagnostics: true,
     });
+
+    const gotDiagnostics = nextDiagnostics();
 
     // Update a document
     await languageService.updateDocument(
@@ -52,7 +63,7 @@ test("devDiagnostics configuration works", async () => {
       "qsharp",
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await gotDiagnostics;
 
     // Should have received diagnostic events
     assert.deepEqual(diagnosticEvents, [
@@ -69,11 +80,13 @@ test("devDiagnostics configuration works", async () => {
     // Test disabling dev diagnostics
     diagnosticEvents.length = 0;
 
+    const gotClearedDiagnostics = nextDiagnostics();
+
     await languageService.updateConfiguration({
       devDiagnostics: false,
     });
 
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await gotClearedDiagnostics;
 
     // Diagnostics should be cleared
     assert.deepEqual(diagnosticEvents, [

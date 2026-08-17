@@ -10,6 +10,7 @@ use crate::{
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
+use miette::Diagnostic;
 use qsc_ast::{
     assigner::Assigner as AstAssigner,
     ast::{Block, Expr, Idents, NodeId, Package, Pat, Path, PathKind, QubitInit, TopLevelNode},
@@ -6204,4 +6205,306 @@ fn call_expr_non_tuple_expr() {
             Error(Type(Error(TyMismatch(TyInfo { kind: Prim(Int), display: "Int" }, TyInfo { kind: Prim(Double), display: "Double" }, Span { lo: 58, hi: 59 }))))
         "##]],
     );
+}
+
+#[test]
+fn recursive_struct_direct() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { Bar : Foo }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 40 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_newtype_direct() {
+    check(
+        indoc! {"
+            namespace A {
+                newtype Foo = Foo;
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 32, hi: 35 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_through_array() {
+    check(
+        indoc! {"
+            namespace A {
+                newtype Tree = (Data : Int, Children : Tree[]);
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Tree", span: Span { lo: 46, hi: 63 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_through_nested_array() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { Children : Foo[][] }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 49 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_through_tuple_only() {
+    check(
+        indoc! {"
+            namespace A {
+                newtype Foo = (Int, Foo);
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 32, hi: 42 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_through_arrow() {
+    check(
+        indoc! {"
+            namespace A {
+                struct SelfApp { Run : SelfApp -> (Int -> Int) }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "SelfApp", span: Span { lo: 35, hi: 64 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_mutual() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { B : Bar }
+                struct Bar { F : Foo }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 38 } })))
+            Error(Type(Error(RecursiveUdt { name: "Bar", span: Span { lo: 58, hi: 65 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_mutual_across_namespaces() {
+    // The cycle is closed by resolved item identity, not by shared namespace or bare name.
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { B : B.Bar }
+            }
+            namespace B {
+                struct Bar { F : A.Foo }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 40 } })))
+            Error(Type(Error(RecursiveUdt { name: "Bar", span: Span { lo: 76, hi: 85 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_mutual_through_arrow_and_tuple() {
+    // Neither field names the other type directly; the edge only exists inside a callable
+    // output tuple.
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { F : Int -> (Bool, Bar) }
+                struct Bar { F : Int -> (Bool, Foo) }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 53 } })))
+            Error(Type(Error(RecursiveUdt { name: "Bar", span: Span { lo: 73, hi: 95 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_chain() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Leaf { M : Mid }
+                struct Mid { T : Top }
+                struct Top { L : Leaf }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Leaf", span: Span { lo: 32, hi: 39 } })))
+            Error(Type(Error(RecursiveUdt { name: "Mid", span: Span { lo: 59, hi: 66 } })))
+            Error(Type(Error(RecursiveUdt { name: "Top", span: Span { lo: 86, hi: 94 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_independent_cycles_all_reported() {
+    // Two disjoint cycles in one compilation: the check does not stop at the first component.
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { B : Bar }
+                struct Bar { F : Foo }
+                struct Baz { Q : Qux }
+                struct Qux { Z : Baz }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 38 } })))
+            Error(Type(Error(RecursiveUdt { name: "Bar", span: Span { lo: 58, hi: 65 } })))
+            Error(Type(Error(RecursiveUdt { name: "Baz", span: Span { lo: 85, hi: 92 } })))
+            Error(Type(Error(RecursiveUdt { name: "Qux", span: Span { lo: 112, hi: 119 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_multiple_fields_reports_once() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Foo { X : Foo, Y : Foo }
+            }
+        "},
+        "",
+        &expect![[r#"
+            Error(Type(Error(RecursiveUdt { name: "Foo", span: Span { lo: 31, hi: 38 } })))
+        "#]],
+    );
+}
+
+#[test]
+fn recursive_udt_reported_at_use_site_program() {
+    // Despite `SelfApp` being constructed, field-accessed, and passed around, the cycle is
+    // reported exactly once and at the declaration, never at a use site. Inference still
+    // completes: every use site below gets a concrete type, with no cascading errors.
+    check(
+        indoc! {"
+            namespace A {
+                struct SelfApp { Run : SelfApp -> (Int -> Int) }
+                function Apply(s : SelfApp) : Int { (s.Run(s))(1) }
+                @EntryPoint()
+                operation Main() : Int {
+                    let f = new SelfApp { Run = s -> x -> x };
+                    Apply(f)
+                }
+            }
+        "},
+        "",
+        &expect![[r##"
+            #23 85-98 "(s : SelfApp)" : UDT<"SelfApp": Item 1 (Package 2)>
+            #24 86-97 "s : SelfApp" : UDT<"SelfApp": Item 1 (Package 2)>
+            #32 105-122 "{ (s.Run(s))(1) }" : Int
+            #34 107-120 "(s.Run(s))(1)" : Int
+            #35 107-117 "(s.Run(s))" : (Int -> Int)
+            #36 108-116 "s.Run(s)" : (Int -> Int)
+            #37 108-113 "s.Run" : (UDT<"SelfApp": Item 1 (Package 2)> -> (Int -> Int))
+            #39 108-109 "s" : UDT<"SelfApp": Item 1 (Package 2)>
+            #40 110-113 "Run" : (UDT<"SelfApp": Item 1 (Package 2)> -> (Int -> Int))
+            #41 113-116 "(s)" : UDT<"SelfApp": Item 1 (Package 2)>
+            #42 114-115 "s" : UDT<"SelfApp": Item 1 (Package 2)>
+            #45 117-120 "(1)" : Int
+            #46 118-119 "1" : Int
+            #50 138-140 "()" : ?
+            #53 159-161 "()" : Unit
+            #57 168-243 "{\n        let f = new SelfApp { Run = s -> x -> x };\n        Apply(f)\n    }" : Int
+            #59 182-183 "f" : UDT<"SelfApp": Item 1 (Package 2)>
+            #61 186-219 "new SelfApp { Run = s -> x -> x }" : UDT<"SelfApp": Item 1 (Package 2)>
+            #66 206-217 "s -> x -> x" : (UDT<"SelfApp": Item 1 (Package 2)> -> (Int -> Int))
+            #67 206-207 "s" : UDT<"SelfApp": Item 1 (Package 2)>
+            #69 211-217 "x -> x" : (Int -> Int)
+            #70 211-212 "x" : Int
+            #72 216-217 "x" : Int
+            #76 229-237 "Apply(f)" : Int
+            #77 229-234 "Apply" : (UDT<"SelfApp": Item 1 (Package 2)> -> Int)
+            #80 234-237 "(f)" : UDT<"SelfApp": Item 1 (Package 2)>
+            #81 235-236 "f" : UDT<"SelfApp": Item 1 (Package 2)>
+            Error(Type(Error(RecursiveUdt { name: "SelfApp", span: Span { lo: 35, hi: 64 } })))
+        "##]],
+    );
+}
+
+#[test]
+fn acyclic_udt_chain_is_allowed() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Leaf { V : Int }
+                struct Mid { L : Leaf }
+                struct Top { M : Mid }
+            }
+        "},
+        "",
+        &expect![[r#""#]],
+    );
+}
+
+#[test]
+fn acyclic_udt_through_arrays_and_arrows_is_allowed() {
+    check(
+        indoc! {"
+            namespace A {
+                struct Leaf { V : Int }
+                struct Holder { Many : Leaf[], Make : Leaf -> Leaf, Pairs : (Leaf, Leaf[])[] }
+            }
+        "},
+        "",
+        &expect![[r#""#]],
+    );
+}
+
+#[test]
+fn recursive_udt_diagnostic_code() {
+    let (_, _, errors) = compile(
+        indoc! {"
+            namespace A {
+                struct Foo { Bar : Foo }
+            }
+        "},
+        "",
+        false,
+    );
+
+    let codes: Vec<_> = errors
+        .iter()
+        .filter_map(|e| Diagnostic::code(e).map(|c| c.to_string()))
+        .collect();
+
+    assert_eq!(codes, vec!["Qdk.Qsc.TypeCk.RecursiveUdt".to_string()]);
 }

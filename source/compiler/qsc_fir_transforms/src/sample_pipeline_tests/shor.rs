@@ -236,12 +236,7 @@ fn shor_sample_full_pipeline_reachable_items() {
             body intrinsic;
         }
         function Fact(actual : Bool, message : String) : Unit {
-            body ... {
-                if (not actual) {
-                    fail message;
-                }
-
-            }
+            body intrinsic;
         }
         operation CH(control : Qubit, target : Qubit) : Unit is Adj {
             body ... {

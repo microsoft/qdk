@@ -72,14 +72,14 @@ block_3:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @CreateEntangledPair(ptr %var_1, ptr %var_2) {
+define internal void @CreateEntangledPair(ptr %var_1, ptr %var_2) {
 block_4:
   call void @H(ptr %var_1)
   call void @CNOT(ptr %var_1, ptr %var_2)
   ret void
 }
 
-define void @H(ptr %var_3) {
+define internal void @H(ptr %var_3) {
 block_5:
   call void @__quantum__qis__h__body(ptr %var_3)
   ret void
@@ -87,7 +87,7 @@ block_5:
 
 declare void @__quantum__qis__h__body(ptr)
 
-define void @CNOT(ptr %var_4, ptr %var_5) {
+define internal void @CNOT(ptr %var_4, ptr %var_5) {
 block_6:
   call void @__quantum__qis__cx__body(ptr %var_4, ptr %var_5)
   ret void
@@ -99,7 +99,7 @@ declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
 declare i1 @__quantum__rt__read_result(ptr)
 
-define void @SuperdenseEncode(i1 %var_18, i1 %var_19, ptr %var_20) {
+define internal void @SuperdenseEncode(i1 %var_18, i1 %var_19, ptr %var_20) {
 block_7:
   br i1 %var_18, label %block_8, label %block_9
 block_8:
@@ -114,7 +114,7 @@ block_11:
   ret void
 }
 
-define void @Z(ptr %var_21) {
+define internal void @Z(ptr %var_21) {
 block_12:
   call void @__quantum__qis__z__body(ptr %var_21)
   ret void
@@ -122,7 +122,7 @@ block_12:
 
 declare void @__quantum__qis__z__body(ptr)
 
-define void @X(ptr %var_22) {
+define internal void @X(ptr %var_22) {
 block_13:
   call void @__quantum__qis__x__body(ptr %var_22)
   ret void
@@ -130,7 +130,7 @@ block_13:
 
 declare void @__quantum__qis__x__body(ptr)
 
-define void @H__Adj(ptr %var_24) {
+define internal void @H__Adj(ptr %var_24) {
 block_14:
   call void @__quantum__qis__h__body(ptr %var_24)
   ret void
@@ -138,7 +138,7 @@ block_14:
 
 declare void @__quantum__qis__cz__body(ptr, ptr)
 
-define void @Reset(ptr %var_38) {
+define internal void @Reset(ptr %var_38) {
 block_15:
   call void @__quantum__qis__reset__body(ptr %var_38)
   ret void

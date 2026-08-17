@@ -17,6 +17,9 @@ pub enum CompilerErrorKind {
     #[error("annotations only valid on def and gate statements")]
     #[diagnostic(code("Qdk.Qasm.Compiler.InvalidAnnotationTarget"))]
     InvalidAnnotationTarget(#[label] Span),
+    #[error("invalid compact gate broadcast: {0}")]
+    #[diagnostic(code("Qdk.Qasm.Compiler.InvalidBroadcastExpansion"))]
+    InvalidBroadcastExpansion(String, #[label] Span),
     #[error("gate expects {0} qubit arguments, but {1} were provided")]
     #[diagnostic(code("Qdk.Qasm.Compiler.InvalidNumberOfQubitArgs"))]
     InvalidNumberOfQubitArgs(usize, usize, #[label] Span),

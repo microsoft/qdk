@@ -913,8 +913,40 @@ pub enum ExecGraphNode {
     Unit,
     /// The end of the control flow graph.
     Ret,
+    /// The start of a parallel region, with a value indicating whether it has a limit.
+    ParStart(ParKind),
+    /// The end of a parallel region
+    ParEnd,
     /// A node only to be executed in debug mode.
     Debug(ExecGraphDebugNode),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The kind of a parallel region.
+pub enum ParKind {
+    /// A parallel region with a limit.
+    Limited,
+    /// A parallel region without a limit.
+    Unlimited,
+}
+
+impl From<bool> for ParKind {
+    fn from(b: bool) -> Self {
+        if b {
+            ParKind::Limited
+        } else {
+            ParKind::Unlimited
+        }
+    }
+}
+
+impl Display for ParKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ParKind::Limited => write!(f, "Limited"),
+            ParKind::Unlimited => write!(f, "Unlimited"),
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -1085,6 +1117,8 @@ pub enum ExprKind {
     If(ExprId, ExprId, Option<ExprId>),
     /// An index accessor: `a[b]`.
     Index(ExprId, ExprId),
+    /// A parallel expression: `parallel a` or `parallel within n a`.
+    Parallel(Option<ExprId>, ExprId),
     /// A literal.
     Lit(Lit),
     /// A range: `start..step..end`, `start..end`, `start...`, `...end`, or `...`.
@@ -1132,6 +1166,13 @@ impl Display for ExprKind {
             ExprKind::Hole => write!(indent, "Hole")?,
             ExprKind::If(cond, body, els) => display_if(indent, *cond, *body, *els)?,
             ExprKind::Index(array, index) => display_index(indent, *array, *index)?,
+            ExprKind::Parallel(limit, e) => {
+                if let Some(limit) = limit {
+                    write!(indent, "Parallel({limit}): {e}")?;
+                } else {
+                    write!(indent, "Parallel: {e}")?;
+                }
+            }
             ExprKind::Lit(lit) => write!(indent, "Lit: {lit}")?,
             ExprKind::Range(start, step, end) => display_range(indent, *start, *step, *end)?,
             ExprKind::Return(e) => write!(indent, "Return: {e}")?,

@@ -532,6 +532,15 @@ impl<'a> HirQSharpGen<'a> {
             ExprKind::Struct(res, copy, fields) => {
                 self.emit_struct(res, copy.as_deref(), fields);
             }
+            ExprKind::Parallel(limit, expr) => {
+                self.write("parallel");
+                if let Some(l) = limit {
+                    self.write(" within ");
+                    self.emit_expr(l);
+                }
+                self.write(" ");
+                self.emit_expr(expr);
+            }
             ExprKind::Err => self.write("/* err */"),
         }
     }
