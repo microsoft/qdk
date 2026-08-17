@@ -1,8 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-// Worker-safe exports for state visualization.
-// Intentionally avoids importing UI modules (DOM/CSS).
+// Worker-safe exports for state visualization. Intentionally avoids importing UI modules (DOM/CSS).
 
 export {
   computeAmpMapForCircuit,
@@ -15,4 +14,4 @@ export {
   type PrepareStateVizOptions,
 } from "./stateVizPrep.js";
 
-export type { Circuit as CircuitModel } from "../../circuit.js";
+export type { Circuit as CircuitModel } from "../../data/circuit.js";

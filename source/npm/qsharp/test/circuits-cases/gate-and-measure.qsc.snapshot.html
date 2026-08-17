@@ -15,7 +15,7 @@
           <svg
             xmlns="http://www.w3.org/2000/svg"
             class="toolbox-panel-svg"
-            height="362"
+            height="306"
             width="100%"
           >
             <g class="gate" data-type="RX" toolbox-item="true">
@@ -236,21 +236,6 @@
                 />
               </g>
             </g>
-            <g
-              class="svg-run-button"
-              tabindex="0"
-              role="button"
-              visibility="hidden"
-            >
-              <rect
-                x="1"
-                y="310"
-                width="90"
-                height="40"
-                class="svg-run-button-rect"
-              />
-              <text x="46" y="330" class="svg-run-button-text">Run</text>
-            </g>
           </svg>
         </div>
       </div>
@@ -362,110 +347,112 @@
               </g>
             </g>
           </g>
-          <g class="ghost-qubit-layer" style="display: none">
-            <line
-              x1="40"
-              x2="190"
-              y1="168"
-              y2="168"
-              class="qubit-wire ghost-opacity"
-            />
-            <text
-              font-size="16"
-              x="20"
-              y="168"
-              text-anchor="start"
-              dominant-baseline="middle"
-              data-wire="1"
-              class="qs-maintext qs-qubit-label ghost-opacity"
-            >
-              |
-              <tspan class="qs-mathtext">ψ</tspan>
-              <tspan baseline-shift="sub" font-size="65%">1</tspan>
-              ⟩
-            </text>
-          </g>
-          <g class="dropzone-layer" style="display: none">
-            <rect
-              class="dropzone"
-              x="62"
-              y="46"
-              width="24"
-              height="40"
-              data-dropzone-location="0,0"
-              data-dropzone-wire="0"
-              data-dropzone-inter-column="true"
-            />
-            <rect
-              class="dropzone"
-              x="62"
-              y="148"
-              width="24"
-              height="40"
-              data-dropzone-location="0,1"
-              data-dropzone-wire="1"
-              data-dropzone-inter-column="true"
-            />
-            <rect
-              class="dropzone"
-              x="80"
-              y="148"
-              width="40"
-              height="40"
-              data-dropzone-location="0,1"
-              data-dropzone-wire="1"
-              data-dropzone-inter-column="false"
-            />
-            <rect
-              class="dropzone"
-              x="114"
-              y="46"
-              width="24"
-              height="40"
-              data-dropzone-location="1,0"
-              data-dropzone-wire="0"
-              data-dropzone-inter-column="true"
-            />
-            <rect
-              class="dropzone"
-              x="114"
-              y="148"
-              width="24"
-              height="40"
-              data-dropzone-location="1,1"
-              data-dropzone-wire="1"
-              data-dropzone-inter-column="true"
-            />
-            <rect
-              class="dropzone"
-              x="132"
-              y="148"
-              width="40"
-              height="40"
-              data-dropzone-location="1,1"
-              data-dropzone-wire="1"
-              data-dropzone-inter-column="false"
-            />
-            <rect
-              class="dropzone"
-              x="166"
-              y="46"
-              width="24"
-              height="40"
-              data-dropzone-location="2,0"
-              data-dropzone-wire="0"
-              data-dropzone-inter-column="false"
-            />
-            <rect
-              class="dropzone"
-              x="166"
-              y="148"
-              width="24"
-              height="40"
-              data-dropzone-location="2,0"
-              data-dropzone-wire="1"
-              data-dropzone-inter-column="false"
-            />
+          <g class="editor-overlay">
+            <g class="ghost-qubit-layer" style="display: none">
+              <line
+                x1="40"
+                x2="190"
+                y1="168"
+                y2="168"
+                class="qubit-wire ghost-opacity"
+              />
+              <text
+                font-size="16"
+                x="20"
+                y="168"
+                text-anchor="start"
+                dominant-baseline="middle"
+                data-wire="1"
+                class="qs-maintext qs-qubit-label ghost-opacity"
+              >
+                |
+                <tspan class="qs-mathtext">ψ</tspan>
+                <tspan baseline-shift="sub" font-size="65%">1</tspan>
+                ⟩
+              </text>
+            </g>
+            <g class="dropzone-layer" style="display: none">
+              <rect
+                class="dropzone"
+                x="62"
+                y="46"
+                width="24"
+                height="40"
+                data-dropzone-location="0,0"
+                data-dropzone-wire="0"
+                data-dropzone-inter-column="true"
+              />
+              <rect
+                class="dropzone"
+                x="62"
+                y="148"
+                width="24"
+                height="40"
+                data-dropzone-location="0,1"
+                data-dropzone-wire="1"
+                data-dropzone-inter-column="true"
+              />
+              <rect
+                class="dropzone"
+                x="80"
+                y="148"
+                width="40"
+                height="40"
+                data-dropzone-location="0,1"
+                data-dropzone-wire="1"
+                data-dropzone-inter-column="false"
+              />
+              <rect
+                class="dropzone"
+                x="114"
+                y="46"
+                width="24"
+                height="40"
+                data-dropzone-location="1,0"
+                data-dropzone-wire="0"
+                data-dropzone-inter-column="true"
+              />
+              <rect
+                class="dropzone"
+                x="114"
+                y="148"
+                width="24"
+                height="40"
+                data-dropzone-location="1,1"
+                data-dropzone-wire="1"
+                data-dropzone-inter-column="true"
+              />
+              <rect
+                class="dropzone"
+                x="132"
+                y="148"
+                width="40"
+                height="40"
+                data-dropzone-location="1,1"
+                data-dropzone-wire="1"
+                data-dropzone-inter-column="false"
+              />
+              <rect
+                class="dropzone"
+                x="166"
+                y="46"
+                width="24"
+                height="40"
+                data-dropzone-location="2,0"
+                data-dropzone-wire="0"
+                data-dropzone-inter-column="false"
+              />
+              <rect
+                class="dropzone"
+                x="166"
+                y="148"
+                width="24"
+                height="40"
+                data-dropzone-location="2,0"
+                data-dropzone-wire="1"
+                data-dropzone-inter-column="false"
+              />
+            </g>
           </g>
         </svg>
       </div>

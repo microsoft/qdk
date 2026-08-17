@@ -92,11 +92,18 @@ pub mod test_utils;
 pub(crate) mod walk_utils;
 
 use miette::Diagnostic;
-use qsc_fir::fir::{ExecGraphIdx, ItemKind, PackageId, PackageStore, StoreItemId};
+use qsc_fir::{
+    fir::{
+        CallableImpl, ExecGraphIdx, ExprKind, Global, ItemKind, PackageId, PackageLookup,
+        PackageStore, PackageStoreLookup, Res, StoreItemId,
+    },
+    ty::Ty,
+};
 use rustc_hash::FxHashSet;
 use thiserror::Error;
 
 use crate::package_assigners::PackageAssigners;
+pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 
 /// Kinds of callable specializations that carry execution graphs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -109,8 +116,6 @@ pub(crate) enum CallableSpecKind {
     Ctl,
     /// The controlled-adjoint specialization.
     CtlAdj,
-    /// A simulatable intrinsic with an explicit body block.
-    SimulatableIntrinsic,
 }
 
 /// An empty execution graph range for synthesized FIR nodes that do not
@@ -288,15 +293,24 @@ fn run_pipeline_to_impl(
         return result;
     }
 
-    let mut result = PipelineResult::default();
-
     let mut assigners = PackageAssigners::new(store, package_id);
+    assigners.seed_all(store);
+    collapse_simulatable_intrinsics(store);
+    let package_ids = store.iter().map(|(id, _)| id).collect::<Vec<_>>();
+    for package_id in package_ids {
+        let _ = gc_unreachable::gc_unreachable(store.get_mut(package_id));
+    }
+    assert_no_simulatable_intrinsics(store);
+
+    let mut result = PipelineResult::default();
 
     monomorphize::monomorphize(store, package_id, &mut assigners);
     invariants::check(store, package_id, invariants::InvariantLevel::PostMono);
     if matches!(stage, PipelineStage::Mono) {
         return result;
     }
+
+    lower_codegen_noop_intrinsic_calls(store, &mut assigners);
 
     let (ru_errors, skipped) = return_unify::unify_returns(store, package_id, &mut assigners);
     let (ru_warnings, ru_fatal): (Vec<_>, Vec<_>) = ru_errors
@@ -483,6 +497,149 @@ fn run_arg_promote_stages(
         skipped,
     );
     matches!(stage, PipelineStage::TupleDecompose2)
+}
+
+fn collapse_simulatable_intrinsics(store: &mut PackageStore) {
+    let package_ids = store
+        .iter()
+        .map(|(package_id, _)| package_id)
+        .collect::<Vec<_>>();
+    for package_id in package_ids {
+        for item in store.get_mut(package_id).items.values_mut() {
+            let ItemKind::Callable(decl) = &mut item.kind else {
+                continue;
+            };
+            if matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_)) {
+                decl.implementation = CallableImpl::Intrinsic;
+            }
+        }
+    }
+}
+
+/// Removes callable-valued arguments from code generation no-op intrinsic calls
+/// before defunctionalization.
+///
+/// Partial evaluation normally recognizes these intrinsics by literal name and
+/// emits no call for them. Defunctionalization runs earlier, however, and would
+/// reject a callable argument such as the operation passed to `DumpOperation`
+/// before partial evaluation can apply that policy. This rewrite replaces only
+/// direct calls to known no-op intrinsics that contain an arrow-typed argument.
+/// Calls without callable values remain intact for partial evaluation.
+///
+/// Removing the no-op call must not remove observable argument evaluation.
+/// Arguments proven total and side-effect-free are discarded; all others are
+/// evaluated once, in source order, in a synthesized block that returns unit.
+/// If a retained argument still has arrow type, the call is left unchanged
+/// rather than unsafely discarding or evaluating a callable value.
+fn lower_codegen_noop_intrinsic_calls(store: &mut PackageStore, assigners: &mut PackageAssigners) {
+    // Discover rewrites under an immutable store borrow. Applying them in a
+    // second phase permits fresh FIR allocation from each owning package's
+    // assigner without invalidating the arena iteration.
+    let mut calls = Vec::new();
+    for (package_id, package) in store.iter() {
+        for (expr_id, expr) in &package.exprs {
+            let ExprKind::Call(callee_id, args_id) = expr.kind else {
+                continue;
+            };
+            // Restrict the rewrite to direct item calls so intrinsic identity
+            // is statically known. Dynamic or locally-bound callees are left to
+            // the normal defunctionalization diagnostics.
+            let ExprKind::Var(Res::Item(item_id), _) = package.get_expr(callee_id).kind else {
+                continue;
+            };
+            let Some(Global::Callable(decl)) = store.get_global(StoreItemId {
+                package: item_id.package,
+                item: item_id.item,
+            }) else {
+                continue;
+            };
+            if matches!(decl.implementation, CallableImpl::Intrinsic)
+                && is_codegen_noop_intrinsic(&decl.name.name)
+            {
+                // FIR represents a multi-parameter argument as a tuple and a
+                // single parameter directly. Normalize both shapes to source-
+                // ordered top-level arguments for filtering and sequencing.
+                let args = match &package.get_expr(args_id).kind {
+                    ExprKind::Tuple(args) => args.clone(),
+                    _ => vec![args_id],
+                };
+                // Ordinary no-op calls need no early rewrite. Intervene only
+                // when an argument contains callable type residue that would
+                // otherwise prevent defunctionalization from converging.
+                if !args.iter().any(|arg_id| {
+                    crate::defunctionalize::ty_contains_arrow(&package.get_expr(*arg_id).ty)
+                }) {
+                    continue;
+                }
+                // Safe arguments, including closure construction with no
+                // observable evaluation, can disappear with the no-op call.
+                // Retain every fallible or effectful argument for sequencing.
+                let retained_args = args
+                    .into_iter()
+                    .filter(|arg_id| {
+                        !crate::walk_utils::expr_is_safe_to_discard(package, package_id, *arg_id)
+                    })
+                    .collect::<Vec<_>>();
+                // Fail closed if purity analysis could not discard every
+                // callable value. Synthesizing a statement that evaluates an
+                // arrow value would preserve the residue this pass must remove.
+                if retained_args
+                    .iter()
+                    .any(|arg_id| matches!(package.get_expr(*arg_id).ty, Ty::Arrow(_)))
+                {
+                    continue;
+                }
+                calls.push((package_id, expr_id, expr.span, retained_args));
+            }
+        }
+    }
+
+    for (package_id, expr_id, span, retained_args) in calls {
+        let assigner = assigners.get_mut(store, package_id);
+        let package = store.get_mut(package_id);
+        let kind = if retained_args.is_empty() {
+            ExprKind::Tuple(Vec::new())
+        } else {
+            // A block of semicolon statements preserves left-to-right argument
+            // evaluation while discarding each value. The trailing unit gives
+            // the replacement the original no-op call's result type.
+            let mut statements = retained_args
+                .into_iter()
+                .map(|arg_id| {
+                    let arg_span = package.get_expr(arg_id).span;
+                    crate::fir_builder::alloc_semi_stmt(package, assigner, arg_id, arg_span)
+                })
+                .collect::<Vec<_>>();
+            let unit = crate::fir_builder::alloc_unit_expr(package, assigner, span);
+            statements.push(crate::fir_builder::alloc_expr_stmt(
+                package, assigner, unit, span,
+            ));
+            let block =
+                crate::fir_builder::alloc_block(package, assigner, statements, Ty::UNIT, span);
+            ExprKind::Block(block)
+        };
+        let expr = package
+            .exprs
+            .get_mut(expr_id)
+            .expect("codegen no-op call should exist");
+        expr.kind = kind;
+        expr.ty = Ty::UNIT;
+    }
+}
+
+fn assert_no_simulatable_intrinsics(store: &PackageStore) {
+    assert!(
+        store
+            .iter()
+            .all(|(_, package)| package.items.values().all(|item| {
+                !matches!(
+                    &item.kind,
+                    ItemKind::Callable(decl)
+                        if matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_))
+                )
+            })),
+        "FIR transform pipeline requires simulatable intrinsics to be collapsed"
+    );
 }
 
 /// Runs the backend stages after all structural transforms: pinned-item
@@ -824,12 +981,15 @@ pub fn run_pipeline_with_diagnostics(
 /// # Panics
 ///
 /// Panics if the package has no entry expression (the codegen path guarantees
-/// one exists after the main pipeline runs).
+/// one exists after the main pipeline runs), or if a simulatable intrinsic has
+/// not been collapsed by the main pipeline.
 pub fn run_signature_preserving_subpipeline(
     store: &mut PackageStore,
     package_id: PackageId,
     seeds: &[StoreItemId],
 ) -> PipelineResult {
+    assert_no_simulatable_intrinsics(store);
+
     let mut result = PipelineResult::default();
 
     let mut assigners = PackageAssigners::new(store, package_id);

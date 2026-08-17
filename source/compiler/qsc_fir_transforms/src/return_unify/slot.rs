@@ -596,6 +596,8 @@ fn create_default_value_kind(
 }
 
 /// Read-only check whether `ty` has a synthesizable classical default.
+///
+/// Unguarded UDT recursion; terminates only because the frontend rejects cyclic UDTs.
 pub(super) fn is_type_defaultable(package: &Package, package_id: PackageId, ty: &Ty) -> bool {
     match ty {
         Ty::Prim(

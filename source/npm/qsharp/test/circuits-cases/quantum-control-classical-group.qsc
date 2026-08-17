@@ -1,0 +1,57 @@
+{
+  "_comment": "Classically-controlled group (`if (c_0)`) on q2,q3 with an EXTRA quantum control on q1 — the post-B5 mixed-controls scenario. Verifies that the classical ref renders as the dashed `c_0` circle attached to the box's left edge while the quantum control on q1 renders as a standard solid control dot on its qubit wire (NOT as a classical circle). The snapshot harness force-expands all groups via renderDepth, so this exercises the expanded branch of `_groupedOperations`; the collapsed branch reuses the same `_getQuantumControlYs` + `_renderQuantumGroupControls` path.",
+  "circuits": [
+    {
+      "qubits": [
+        { "id": 0, "numResults": 1 },
+        { "id": 1, "numResults": 0 },
+        { "id": 2, "numResults": 0 },
+        { "id": 3, "numResults": 0 }
+      ],
+      "componentGrid": [
+        {
+          "components": [
+            {
+              "kind": "measurement",
+              "gate": "Measure",
+              "qubits": [{ "qubit": 0 }],
+              "results": [{ "qubit": 0, "result": 0 }]
+            }
+          ]
+        },
+        {
+          "components": [
+            {
+              "kind": "unitary",
+              "gate": "if",
+              "children": [
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "H",
+                      "targets": [{ "qubit": 2 }]
+                    }
+                  ]
+                },
+                {
+                  "components": [
+                    {
+                      "kind": "unitary",
+                      "gate": "X",
+                      "targets": [{ "qubit": 3 }]
+                    }
+                  ]
+                }
+              ],
+              "targets": [{ "qubit": 2 }, { "qubit": 3 }],
+              "controls": [{ "qubit": 1 }, { "qubit": 0, "result": 0 }],
+              "isConditional": true
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "version": 1
+}

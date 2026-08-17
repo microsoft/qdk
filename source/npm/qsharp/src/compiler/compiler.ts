@@ -16,6 +16,7 @@ import {
   ProjectType,
 } from "../../lib/web/qsc_wasm.js";
 import { log } from "../log.js";
+import { createHostYield } from "../language-service/language-service.js";
 import type {
   IServiceProxy,
   ServiceProtocol,
@@ -138,9 +139,11 @@ export class Compiler implements ICompiler {
         fetchGithub: async () => "",
         findManifestDirectory: async () => null,
       },
+      createHostYield(),
     );
     languageService.update_document("code", 1, code, "qsharp");
-    // Yield to let the language service update loop handle the update
+    // Yield to let the language service update loop pick up the update. Closing the
+    // loop below is what makes it stop absorbing and apply what it has.
     await Promise.resolve();
     languageService.stop_update_loop();
     await update_loop;

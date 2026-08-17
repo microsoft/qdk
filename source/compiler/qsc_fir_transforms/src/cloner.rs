@@ -145,12 +145,11 @@ impl FirCloner {
         target: &mut Package,
     ) -> CallableImpl {
         match callable_impl {
-            CallableImpl::Intrinsic => CallableImpl::Intrinsic,
+            CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+                CallableImpl::Intrinsic
+            }
             CallableImpl::Spec(spec_impl) => {
                 CallableImpl::Spec(self.clone_spec_impl(source, spec_impl, target))
-            }
-            CallableImpl::SimulatableIntrinsic(spec_decl) => {
-                CallableImpl::SimulatableIntrinsic(self.clone_spec_decl(source, spec_decl, target))
             }
         }
     }
@@ -690,6 +689,10 @@ impl FirCloner {
                 self.clone_expr(source, *cond, target),
                 self.clone_block(source, *block, target),
             ),
+            ExprKind::Parallel(limit, expr) => ExprKind::Parallel(
+                limit.map(|e| self.clone_expr(source, e, target)),
+                self.clone_expr(source, *expr, target),
+            ),
         }
     }
 
@@ -705,6 +708,8 @@ impl FirCloner {
             ExecGraphNode::Jump(_)
             | ExecGraphNode::JumpIf(_)
             | ExecGraphNode::JumpIfNot(_)
+            | ExecGraphNode::ParStart(_)
+            | ExecGraphNode::ParEnd
             | ExecGraphNode::Store
             | ExecGraphNode::Unit
             | ExecGraphNode::Ret => node,

@@ -12,7 +12,10 @@
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "${workspaceFolder}/samples/"
       ],
-      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
+      ]
     },
     {
       // Launches the extension in "web extension" mode (like vscode.dev).
@@ -26,7 +29,10 @@
         "--extensionDevelopmentKind=web",
         "${workspaceFolder}/samples/"
       ],
-      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
+      ]
     },
     {
       // Use when developing in WSL.
@@ -43,7 +49,10 @@
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "${workspaceFolder}/samples/"
       ],
-      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
+      ]
     },
     {
       // Use when developing in Codespaces.
@@ -61,7 +70,10 @@
         "--extensionDevelopmentPath=${workspaceFolder}/source/vscode",
         "${workspaceFolder}/samples/"
       ],
-      "outFiles": ["${workspaceFolder}/source/vscode/out/**/*.js"]
+      "outFiles": [
+        "${workspaceFolder}/source/vscode/out/**/*.js",
+        "${workspaceFolder}/source/npm/qsharp/dist/**/*.js"
+      ]
     }
   ]
 }

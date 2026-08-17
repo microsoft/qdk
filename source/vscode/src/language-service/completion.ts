@@ -51,6 +51,7 @@ class QSharpCompletionItemProvider implements vscode.CompletionItemProvider {
     const start = performance.now();
     const completions = await this.languageService.getCompletions(
       document.uri.toString(),
+      document.version,
       position,
     );
     const end = performance.now();
@@ -132,6 +133,11 @@ class QSharpCompletionItemProvider implements vscode.CompletionItemProvider {
       results = results.concat(this.openqasm_samples);
     }
 
-    return results;
+    // Preserves `isIncomplete`, which is what makes VS Code ask again on the next
+    // keystroke instead of filtering this list client-side.
+    return new vscode.CompletionList(
+      results,
+      completions.isIncomplete === true,
+    );
   }
 }

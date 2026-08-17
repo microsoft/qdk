@@ -24,7 +24,6 @@ enum CallableSpecKind {
     Adj,
     Ctl,
     CtlAdj,
-    SimulatableIntrinsic,
 }
 
 /// Formats the body spec exec graph of the entry callable as a string for
@@ -107,12 +106,7 @@ fn callable_local_names(
                 }
             }
         }
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            if let Some(input_pat) = spec.input {
-                collect_pat_names(package, input_pat, &mut names);
-            }
-        }
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
     }
 
     names
@@ -190,7 +184,6 @@ fn format_callable_spec_exec_graph(
             .ctl_adj
             .as_ref()
             .expect("controlled adjoint spec should exist"),
-        (CallableSpecKind::SimulatableIntrinsic, CallableImpl::SimulatableIntrinsic(spec)) => spec,
         _ => panic!("requested spec kind is not present on '{callable_name}'"),
     };
 
@@ -223,6 +216,8 @@ fn format_exec_graph_nodes(
             ExecGraphNode::Ret => format!("{index}: Ret"),
             ExecGraphNode::Store => format!("{index}: Store"),
             ExecGraphNode::Unit => format!("{index}: Unit"),
+            ExecGraphNode::ParStart(kind) => format!("{index}: ParStart({kind})"),
+            ExecGraphNode::ParEnd => format!("{index}: ParEnd"),
             ExecGraphNode::Debug(_) => {
                 unreachable!("NoDebug exec graph should not contain debug nodes")
             }
@@ -244,8 +239,9 @@ fn format_store_callable_exec_graph(
     let local_names = callable_local_names(package, decl);
     let spec = match &decl.implementation {
         CallableImpl::Spec(spec_impl) => &spec_impl.body,
-        CallableImpl::SimulatableIntrinsic(spec) => spec,
-        CallableImpl::Intrinsic => panic!("callable '{}' should have a body", decl.name.name),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{}' should have a body", decl.name.name)
+        }
     };
 
     format_exec_graph_nodes(
@@ -271,8 +267,9 @@ fn clear_store_callable_exec_graph(
 
     match &mut decl.implementation {
         CallableImpl::Spec(spec_impl) => spec_impl.body.exec_graph = Default::default(),
-        CallableImpl::SimulatableIntrinsic(spec) => spec.exec_graph = Default::default(),
-        CallableImpl::Intrinsic => panic!("callable '{}' should have a body", decl.name.name),
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{}' should have a body", decl.name.name)
+        }
     }
 }
 
@@ -292,10 +289,9 @@ fn callable_body_exec_graph_len(
             .exec_graph
             .select_ref(ExecGraphConfig::NoDebug)
             .len(),
-        CallableImpl::SimulatableIntrinsic(spec) => {
-            spec.exec_graph.select_ref(ExecGraphConfig::NoDebug).len()
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            panic!("callable '{}' should have a body", decl.name.name)
         }
-        CallableImpl::Intrinsic => panic!("callable '{}' should have a body", decl.name.name),
     }
 }
 
@@ -856,34 +852,6 @@ fn controlled_adjoint_spec_exec_graph_rebuilds_semantic_order() {
 }
 
 #[test]
-fn simulatable_intrinsic_spec_exec_graph_rebuilds_semantic_order() {
-    check_callable_spec_exec_graph(
-        "@SimulatableIntrinsic()
-        operation MyMeasurement(q : Qubit) : Result {
-            H(q);
-            M(q)
-        }
-        @EntryPoint()
-        operation Main() : Result {
-            use q = Qubit();
-            MyMeasurement(q)
-        }",
-        "MyMeasurement",
-        CallableSpecKind::SimulatableIntrinsic,
-        &expect![[r#"
-            0: H
-            1: Store
-            2: Var(q)
-            3: Call
-            4: M
-            5: Store
-            6: Var(q)
-            7: Call
-            8: Ret"#]],
-    );
-}
-
-#[test]
 fn exec_graph_entry_expression_rebuilt_correctly() {
     check_exec_graph(
         "function Main() : Int { let x = 1 + 2; let y = x * 3; y }",
@@ -1181,5 +1149,66 @@ fn residual_hole_in_rebuilt_body_panics() {
         || {
             super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
         },
+    );
+}
+
+#[test]
+fn parallel_without_limit_emits_par_start_and_end() {
+    check_exec_graph(
+        indoc! {"
+            struct Pair { Fst: Int, Snd: Int }
+            @EntryPoint()
+            operation Main() : Int {
+                let p = new Pair { Fst = 1, Snd = 2 };
+                parallel {
+                    p.Fst + p.Snd
+                }
+            }
+        "},
+        &expect![[r#"
+            0: Expr(ExprId(4)) [Lit(Int(1))]
+            1: Store
+            2: Expr(ExprId(5)) [Lit(Int(2))]
+            3: Store
+            4: Expr(ExprId(3)) [Tuple(len=2)]
+            5: Bind(PatId(1))
+            6: ParStart(Unlimited)
+            7: Expr(ExprId(13)) [Var]
+            8: Store
+            9: Expr(ExprId(14)) [Var]
+            10: Expr(ExprId(8)) [BinOp(Add)]
+            11: ParEnd
+            12: Ret"#]],
+    );
+}
+
+#[test]
+fn parallel_within_limit_emits_par_start_with_limit() {
+    check_exec_graph(
+        indoc! {"
+            struct Pair { Fst: Int, Snd: Int }
+            @EntryPoint()
+            operation Main() : Int {
+                let p = new Pair { Fst = 3, Snd = 4 };
+                parallel within p.Fst {
+                    p.Fst + p.Snd
+                }
+            }
+        "},
+        &expect![[r#"
+            0: Expr(ExprId(4)) [Lit(Int(3))]
+            1: Store
+            2: Expr(ExprId(5)) [Lit(Int(4))]
+            3: Store
+            4: Expr(ExprId(3)) [Tuple(len=2)]
+            5: Bind(PatId(1))
+            6: Expr(ExprId(15)) [Var]
+            7: ParStart(Limited)
+            8: Expr(ExprId(16)) [Var]
+            9: Store
+            10: Expr(ExprId(17)) [Var]
+            11: Expr(ExprId(10)) [BinOp(Add)]
+            12: ParEnd
+            13: Ret"#]],
     );
 }

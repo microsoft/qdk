@@ -51,7 +51,7 @@ block_3:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @X(ptr %var_1) {
+define internal void @X(ptr %var_1) {
 block_4:
   call void @__quantum__qis__x__body(ptr %var_1)
   ret void

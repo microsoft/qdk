@@ -703,7 +703,6 @@ fn flag_lowering_guards_local_after_return_semantic() {
 //
 // Specialization tests (Adj/Ctl, no single entry point output):
 //   - explicit_specialization_bodies_are_return_unified
-//   - simulatable_intrinsic_body_is_return_unified
 //   - all_four_specializations_with_return_in_loop
 //
 // No-return or identity tests (no transform to validate):

@@ -365,6 +365,12 @@ pub fn walk_expr(vis: &mut impl MutVisitor, expr: &mut Expr) {
         ExprKind::Paren(expr) | ExprKind::Return(expr) | ExprKind::UnOp(_, expr) => {
             vis.visit_expr(expr);
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(l) = limit.as_mut() {
+                vis.visit_expr(l);
+            }
+            vis.visit_expr(body);
+        }
         ExprKind::Path(path) => vis.visit_path_kind(path),
         ExprKind::Range(start, step, end) => {
             for s in start.iter_mut() {
