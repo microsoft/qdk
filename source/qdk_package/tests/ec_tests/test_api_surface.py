@@ -11,8 +11,6 @@ asserts they are *not* importable, which is what keeps the flat shape honest.
 from __future__ import annotations
 
 import importlib
-import subprocess
-import sys
 
 import pytest
 
@@ -71,16 +69,6 @@ _SURFACE: dict[str, tuple[str, ...]] = {
         "why_not_equivalent",
     ),
     "qdk.ec.lint": ("Report", "Severity", "diagnose", "why_not_valid"),
-    # targets / deploy
-    "qdk.ec.targets": (
-        "Sampler",
-        "Target",
-        "TargetModel",
-        "circuit_distance_of",
-        "encodable_gates_of",
-        "encode_qir",
-        "run_qir_encoded",
-    ),
 }
 
 #: Submodules the package root must expose.
@@ -93,7 +81,6 @@ _SUBMODULES = (
     "faults",
     "lint",
     "readouts",
-    "targets",
 )
 
 #: The spec's bracketed headings are conceptual; these must not be modules.
@@ -131,29 +118,6 @@ def test_conceptual_headings_are_not_modules(name: str) -> None:
     assert not hasattr(qdk.ec, name)
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module(f"qdk.ec.{name}")
-
-
-def test_importing_qdk_ec_does_not_import_the_optional_backends() -> None:
-    """``pip install qdk[ec]`` must work without the ``ec-backends`` extra.
-
-    The submodules themselves are cheap to import; what has to stay deferred is
-    the optional third-party backends that only :mod:`qdk.ec.targets` needs.
-    """
-    # Run in a fresh interpreter: purging ``sys.modules`` in-process would give
-    # the rest of the suite duplicate module objects.
-    script = (
-        "import sys, qdk.ec;"
-        "loaded = {'stim', 'mwpf', 'deq'} & {m.split('.')[0] for m in sys.modules};"
-        "assert not loaded, f'backends imported eagerly: {sorted(loaded)}';"
-        "assert qdk.ec.targets.StimSampler is not None;"
-        "assert 'stim' in sys.modules, 'backend not loaded on first use'"
-    )
-
-    result = subprocess.run(
-        [sys.executable, "-c", script], capture_output=True, text=True, check=False
-    )
-
-    assert result.returncode == 0, result.stderr
 
 
 def test_unknown_attribute_raises_attribute_error() -> None:

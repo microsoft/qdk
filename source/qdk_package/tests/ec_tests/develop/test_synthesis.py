@@ -1,8 +1,7 @@
 """``qdk.ec.qodec_from_code`` — synthesizing a qodec from a code.
 
 The suite is organised around what synthesis promises: a *structurally* valid
-qodec, whose gadgets are *semantically* verified, that *round-trips*, and that
-is actually *runnable* on a target.
+qodec whose gadgets are *semantically* verified and that *round-trips*.
 """
 
 from __future__ import annotations
@@ -13,7 +12,6 @@ import pytest
 import qodec as qc
 
 from ec_tests.testing import code_catalog as catalog
-from ec_tests.testing.optional import requires_stim
 from ec_tests.testing.qodecs import c4
 import qdk.ec as ec
 from qdk.ec import action, distance, lint
@@ -476,184 +474,7 @@ def test_an_unnamed_code_requires_an_explicit_name() -> None:
         qodec_from_code(code)
 
 
-# ── Execution ───────────────────────────────────────────────────────────────
-
-
-@requires_stim
-def test_a_synthesized_qodec_samples_without_detections_when_noiseless(
-    steane: qc.Qodec,
-) -> None:
-    import numpy as np
-
-    from qdk.ec import targets
-
-    program = _memory_program(steane)
-    sampler = targets.StimSampler(steane)
-
-    shots = np.asarray(sampler.execute(program, shots=64))
-    events = sampler.emitter.detection_events(program, shots)
-
-    assert events.shape[1] > 0, "the synthesized qodec produced no detectors"
-    assert events.sum() == 0
-
-
-@requires_stim
-def test_a_synthesized_qodec_detects_noise(steane: qc.Qodec) -> None:
-    import numpy as np
-
-    from qdk.ec import targets
-
-    program = _memory_program(steane)
-    sampler = targets.StimSampler(steane, noise={"p_data": 0.05, "p_meas": 0.05})
-
-    shots = np.asarray(sampler.execute(program, shots=512))
-    fired = sampler.emitter.detection_events(program, shots).any(axis=1)
-
-    assert fired.mean() > 0.1
-
-
-@requires_stim
-def test_a_detector_error_model_can_be_built(steane: qc.Qodec) -> None:
-    from qdk.ec import targets
-
-    dem = targets.detector_error_model_of(
-        steane, _memory_program(steane), {"p_data": 0.001, "p_meas": 0.001}
-    )
-
-    assert str(dem).strip()
-
-
-@requires_stim
-def test_idle_gadget_has_a_circuit_level_distance(steane: qc.Qodec) -> None:
-    from qdk.ec import targets
-
-    distance, _ = targets.gadget_distance_of(
-        steane.layers[0].gadgets["idle"], targets.depolarizing(0.001)
-    )
-
-    assert distance >= 1
-
-
-# ── Fault tolerance ─────────────────────────────────────────────────────────
-#
-# The point of synthesis is that the artifact inherits the code's protection.
-# These are the tests that hold it to that.
-
-#: Codes whose full memory experiment composes end to end, with their distance.
-MEMORY_CODES = [
-    ("steane", catalog.make_steane_code, 3),
-    (
-        "surface3",
-        lambda: catalog.make_rotated_surface_code(x_distance=3, z_distance=3),
-        3,
-    ),
-]
-
-
-@requires_stim
-@pytest.mark.parametrize(
-    ("label", "factory", "distance"),
-    MEMORY_CODES,
-    ids=[case[0] for case in MEMORY_CODES],
-)
-def test_synthesized_circuit_distance_equals_the_code_distance(
-    label: str, factory, distance: int
-) -> None:
-    """The headline guarantee: a distance-d code yields a distance-d circuit."""
-    from qdk.ec import targets
-
-    built = qodec_from_code(_code(label, factory))
-
-    measured = targets.circuit_distance_of(
-        built, ec.memory_program(built), max_weight=6
-    )
-
-    assert measured == distance
-
-
-@requires_stim
-@pytest.mark.parametrize(
-    ("label", "factory", "distance"),
-    MEMORY_CODES,
-    ids=[case[0] for case in MEMORY_CODES],
-)
-def test_the_naive_circuit_loses_distance_and_flags_recover_it(
-    label: str, factory, distance: int
-) -> None:
-    """Pins *why* flag qubits are there, not just that they are.
-
-    Unflagged extraction lets one ancilla fault propagate into a weight-2 hook
-    error, capping the circuit at distance 2 no matter the code (Chao &
-    Reichardt, arXiv:1705.02329).
-    """
-    from qdk.ec import targets
-
-    code = _code(label, factory)
-    naive = qodec_from_code(code, flags=0, name=f"{label}_naive")
-    flagged = qodec_from_code(code, name=f"{label}_flagged")
-
-    naive_distance = targets.circuit_distance_of(
-        naive, ec.memory_program(naive), max_weight=6
-    )
-    flagged_distance = targets.circuit_distance_of(
-        flagged, ec.memory_program(flagged), max_weight=6
-    )
-
-    assert naive_distance < distance
-    assert flagged_distance == distance
-
-
-@requires_stim
-def test_extra_rounds_do_not_rescue_the_naive_circuit() -> None:
-    """Distinguishes hook errors from the separate measurement-error problem."""
-    from qdk.ec import targets
-
-    naive = qodec_from_code(
-        _code("steane", catalog.make_steane_code), flags=0, name="steane_naive"
-    )
-
-    by_rounds = {
-        rounds: targets.circuit_distance_of(
-            naive, ec.memory_program(naive, rounds=rounds), max_weight=6
-        )
-        for rounds in (1, 2, 3)
-    }
-
-    assert set(by_rounds.values()) == {2}
-
-
-@requires_stim
-def test_verify_distance_accepts_a_sound_build() -> None:
-    built = qodec_from_code(
-        _code("steane", catalog.make_steane_code), verify_distance=True
-    )
-
-    notes = synthesis_notes(built)
-    assert notes["code_distance"] == 3
-    assert notes["circuit_distance"] == 3
-
-
-@requires_stim
-def test_verify_distance_rejects_a_deficient_build() -> None:
-    """The guarantee is checked, not assumed."""
-    code = _code("steane", catalog.make_steane_code)
-
-    with pytest.raises(ValueError, match="short of the code distance"):
-        qodec_from_code(code, flags=0, verify_distance=True, name="steane_bad")
-
-
-@requires_stim
-def test_memory_program_composes_into_a_well_formed_circuit(
-    steane: qc.Qodec,
-) -> None:
-    """A non-deterministic detector would mean checks and circuits disagree."""
-    from qdk.ec import targets
-
-    circuit = targets.StimEmitter(steane, noise=None).build_circuit(
-        ec.memory_program(steane, rounds=2)
-    )
-
-    circuit.detector_error_model()  # raises if any detector is non-deterministic
+# ── Memory programs ─────────────────────────────────────────────────────────
 
 
 def test_memory_program_reports_missing_instructions() -> None:
@@ -673,20 +494,3 @@ def test_memory_program_has_the_expected_shape(steane: qc.Qodec) -> None:
         "idle",
         "measure_z",
     ]
-
-
-def _memory_program(qodec: qc.Qodec):
-    """prepare_z / idle / measure_z over the qodec's logical ISA."""
-    from qodec.circuits import Program
-
-    isa = qodec.layers[0].isa
-
-    def call(mnemonic: str) -> qc.instructions.InstructionCall:
-        instruction = isa.instruction(mnemonic)
-        inputs = {str(i): "q" for i in range(len(list(instruction.inputs)))}
-        outputs = {str(i): "q" for i in range(len(list(instruction.outputs)))}
-        if not inputs and not outputs:
-            return qc.instructions.InstructionCall(mnemonic)
-        return qc.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
-
-    return Program([call(m) for m in ("prepare_z", "idle", "measure_z")], isa)

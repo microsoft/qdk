@@ -8,10 +8,6 @@ exactly.
 Both accept ``**options`` selecting a solver: :class:`ExhaustiveSolverOptions`
 for an exact search, or :class:`MwpfSolverOptions` for the matching-based
 bound (needs the ``mwpf`` backend).
-
-The *circuit-level* analogue — the distance a compiled circuit achieves, which
-is the number that says whether an artifact inherits its code's protection —
-lives in :mod:`qdk.ec.targets`.
 """
 
 from __future__ import annotations

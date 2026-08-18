@@ -1,4 +1,4 @@
-"""``qdk.ec`` — develop, test, and deploy quantum error correction schemes.
+"""``qdk.ec`` — develop and test quantum error correction schemes.
 
 A *qodec* is a declarative description of a compilation pipeline together with
 the quantum error correction schemes that lower each layer of that pipeline.
@@ -46,18 +46,11 @@ Verify that a qodec does what its author intended.
 * :mod:`~qdk.ec.lint` — run a rule set over a qodec and get structured
   diagnostics.
 
-Deploy
-------
-* :mod:`~qdk.ec.targets` — target-conditioned evaluation and execution backends:
-  samplers, detector error models, circuit-level distance, and running an
-  ordinary QIR program under a qodec.
-
 Installing
 ----------
 ``qdk.ec`` and its dependencies are an optional extra of the ``qdk`` package::
 
-    pip install "qdk[ec]"              # authoring and analysis
-    pip install "qdk[ec,ec-backends]"  # ... plus the stim / mwpf backends
+    pip install "qdk[ec]"
 
 Example
 -------
@@ -77,7 +70,6 @@ from . import (
     faults,
     lint,
     readouts,
-    targets,
 )
 from ._completion import complete_gadget, complete_qodec
 from ._io import from_yaml, load_yaml, save_yaml, to_yaml
@@ -100,7 +92,6 @@ __all__ = [
     "readouts",
     "save_yaml",
     "synthesis_notes",
-    "targets",
     "to_yaml",
 ]
 
