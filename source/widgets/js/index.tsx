@@ -22,12 +22,6 @@ import {
 } from "qsharp-lang/ux";
 import markdownIt from "markdown-it";
 import "./widgets.css";
-// KaTeX's stylesheet (with fonts inlined as data URLs by esbuild) so
-// rendered math in widgets -- e.g. the Bloch sphere trace -- lays out
-// correctly. Unlike the VS Code and playground hosts, which link a
-// separate katex.min.css, the widget injects its CSS inline into the
-// notebook output, so the fonts must be self-contained.
-import "katex/dist/katex.min.css";
 
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - there are no types for this

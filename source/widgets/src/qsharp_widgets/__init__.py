@@ -214,7 +214,7 @@ class Circuit(anywidget.AnyWidget):
 
 class BlochSphere(anywidget.AnyWidget):
     _esm = pathlib.Path(__file__).parent / "static" / "index.js"
-    _css = pathlib.Path(__file__).parent / "static" / "index.css"
+    _css = pathlib.Path(__file__).parent / "static" / "bloch.css"
 
     comp = traitlets.Unicode("BlochSphere").tag(sync=True)
     initial_gates = traitlets.Unicode("").tag(sync=True)
