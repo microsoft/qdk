@@ -76,13 +76,13 @@ fn fractions_are_reported_in_lowest_terms() {
 
 #[test]
 fn denominators_beyond_the_simple_fraction_ceiling_fall_back() {
-    assert_eq!(format_angle(PI / 100.0), "0.0314");
+    assert_eq!(format_angle(PI / 129.0), "0.0244");
 }
 
 #[test]
 fn magnitudes_beyond_the_fraction_ceiling_fall_back() {
     // Not a whole multiple, and larger than any recognized fraction.
-    assert_eq!(format_angle(16.5 * PI), "51.8363");
+    assert_eq!(format_angle(64.5 * PI), "202.6327");
 }
 
 #[test]
