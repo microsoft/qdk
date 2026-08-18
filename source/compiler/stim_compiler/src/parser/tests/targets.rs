@@ -221,15 +221,15 @@ fn pauli_product_negated_first_factor() {
     check(
         "MPP !X0*Y1",
         &expect![[r#"
-        Circuit [0-10]:
-            items:
-                Instruction [0-10]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-10]:
-                            kind: PauliProduct(-Pauli(X 0)*Pauli(Y 1))"#]],
+            Circuit [0-10]:
+                items:
+                    Instruction [0-10]:
+                        name: MPP
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-10]:
+                                kind: PauliProduct(Pauli(-X 0)*Pauli(Y 1))"#]],
     );
 }
 
@@ -238,32 +238,32 @@ fn pauli_product_negated_second_factor() {
     check(
         "MPP X0*!Y1",
         &expect![[r#"
-        Circuit [0-10]:
-            items:
-                Instruction [0-10]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-10]:
-                            kind: PauliProduct(-Pauli(X 0)*Pauli(Y 1))"#]],
+            Circuit [0-10]:
+                items:
+                    Instruction [0-10]:
+                        name: MPP
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-10]:
+                                kind: PauliProduct(Pauli(X 0)*Pauli(-Y 1))"#]],
     );
 }
 
 #[test]
-fn pauli_product_double_negation_cancels() {
+fn pauli_product_preserves_factor_negations() {
     check(
         "MPP !X0*!Y1",
         &expect![[r#"
-        Circuit [0-11]:
-            items:
-                Instruction [0-11]:
-                    name: MPP
-                    tag: <none>
-                    args: <empty>
-                    targets:
-                        Target [4-11]:
-                            kind: PauliProduct(Pauli(X 0)*Pauli(Y 1))"#]],
+            Circuit [0-11]:
+                items:
+                    Instruction [0-11]:
+                        name: MPP
+                        tag: <none>
+                        args: <empty>
+                        targets:
+                            Target [4-11]:
+                                kind: PauliProduct(Pauli(-X 0)*Pauli(-Y 1))"#]],
     );
 }
 
@@ -310,14 +310,14 @@ fn pauli_product_trailing_combiner_is_error() {
     check(
         "MPP X0*\n",
         &expect![[r#"
-        Qdk.Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected pauli_target, found newline
-           ,----
-         1 | MPP X0*
-           :        ^
-           `----
-    "#]],
+              x expected pauli, found newline
+               ,----
+             1 | MPP X0*
+               :        ^
+               `----
+        "#]],
     );
 }
 
@@ -326,14 +326,14 @@ fn pauli_product_double_combiner_is_error() {
     check(
         "MPP X0**Y1",
         &expect![[r#"
-        Qdk.Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected pauli_target, found star
-           ,----
-         1 | MPP X0**Y1
-           :        ^
-           `----
-    "#]],
+              x expected pauli, found star
+               ,----
+             1 | MPP X0**Y1
+               :        ^
+               `----
+        "#]],
     );
 }
 
@@ -342,14 +342,14 @@ fn pauli_product_with_loss_factor_is_error() {
     check(
         "MPP X0*L1",
         &expect![[r#"
-        Qdk.Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.ExpectedToken
 
-          x expected pauli_target, found loss_target
-           ,----
-         1 | MPP X0*L1
-           :        ^^
-           `----
-    "#]],
+              x expected pauli, found loss
+               ,----
+             1 | MPP X0*L1
+               :        ^^
+               `----
+        "#]],
     );
 }
 

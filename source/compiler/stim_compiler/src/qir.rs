@@ -1376,11 +1376,11 @@ impl<'noise> Compiler<'noise> {
     ) {
         self.unsupported_args(instruction);
         for target in &instruction.targets {
-            let Some((factors, negated)) = self.expect_pauli_product(instruction, target) else {
+            let Some(factors) = self.expect_pauli_targets(instruction, target) else {
                 continue;
             };
             let Some((factors, negated)) =
-                self.canonicalize_pauli_product(instruction, target, factors, negated)
+                self.canonicalize_pauli_product(instruction, target, factors)
             else {
                 continue;
             };
@@ -1590,10 +1590,9 @@ impl<'noise> Compiler<'noise> {
         &mut self,
         instruction: &Instruction,
         target: &Target,
-        mut factors: Vec<PauliFactor>,
-        negated: bool,
-    ) -> Option<(Vec<PauliFactor>, bool)> {
-        let mut phase = if negated { 2 } else { 0 };
+        mut factors: Vec<PauliTarget>,
+    ) -> Option<(Vec<PauliTarget>, bool)> {
+        let mut phase = 0;
         // must be stable so that same-qubit factors keep their relative order
         factors.sort_by_key(|factor| factor.qubit);
 
@@ -1601,6 +1600,9 @@ impl<'noise> Compiler<'noise> {
         for same_qubit_factors in factors.chunk_by(|a, b| a.qubit == b.qubit) {
             let mut accumulated = None;
             for factor in same_qubit_factors {
+                if factor.negated {
+                    phase = (phase + 2) % 4;
+                }
                 accumulated = match accumulated {
                     None => Some(factor.pauli),
                     Some(pauli) => {
@@ -1611,7 +1613,8 @@ impl<'noise> Compiler<'noise> {
                 };
             }
             if let Some(pauli) = accumulated {
-                canonical_factors.push(PauliFactor {
+                canonical_factors.push(PauliTarget {
+                    negated: false,
                     pauli,
                     qubit: same_qubit_factors[0].qubit,
                 });
@@ -1642,7 +1645,7 @@ impl<'noise> Compiler<'noise> {
     /// qubit. After `f` runs on that qubit, the CNOTs and rotations are reversed.
     fn decompose_pauli_product_operation(
         &mut self,
-        factors: &[PauliFactor],
+        factors: &[PauliTarget],
         negated: bool,
         f: impl FnOnce(&mut Self, u32, bool),
     ) {
@@ -1942,22 +1945,19 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         target: &Target,
     ) -> Option<(FaultChar, u32)> {
-        match target.kind {
-            TargetKind::Loss { value } => Some((FaultChar::Loss, value)),
-            TargetKind::Pauli {
-                pauli,
-                value,
-                negated,
-            } => {
-                if negated {
-                    self.push_error(Error::NegatedTarget {
-                        instruction: instruction.name.clone(),
-                        span: target.span,
-                    });
-                    return None;
-                }
-                Some((FaultChar::from_pauli(pauli), value))
+        match &target.kind {
+            TargetKind::Loss { value } => Some((FaultChar::Loss, *value)),
+            TargetKind::Pauli(pauli_target) if pauli_target.negated => {
+                self.push_error(Error::NegatedTarget {
+                    instruction: instruction.name.clone(),
+                    span: target.span,
+                });
+                None
             }
+            TargetKind::Pauli(pauli_target) => Some((
+                FaultChar::from_pauli(pauli_target.pauli),
+                pauli_target.qubit,
+            )),
             _ => {
                 self.push_error(Error::UnsupportedTarget {
                     instruction: instruction.name.clone(),
@@ -1983,24 +1983,14 @@ impl<'noise> Compiler<'noise> {
         Some((value, negated))
     }
 
-    fn expect_pauli_product(
+    fn expect_pauli_targets(
         &mut self,
         instruction: &Instruction,
         target: &Target,
-    ) -> Option<(Vec<PauliFactor>, bool)> {
+    ) -> Option<Vec<PauliTarget>> {
         match &target.kind {
-            TargetKind::PauliProduct { negated, factors } => Some((factors.clone(), *negated)),
-            TargetKind::Pauli {
-                negated,
-                pauli,
-                value,
-            } => Some((
-                vec![PauliFactor {
-                    pauli: *pauli,
-                    qubit: *value,
-                }],
-                *negated,
-            )),
+            TargetKind::PauliProduct { factors } => Some(factors.clone()),
+            TargetKind::Pauli(pauli_target) => Some(vec![*pauli_target]),
             _ => {
                 self.push_error(Error::UnsupportedTarget {
                     instruction: instruction.name.clone(),

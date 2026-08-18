@@ -109,29 +109,12 @@ impl Display for Target {
 
 #[derive(Debug)]
 pub enum TargetKind {
-    Qubit {
-        negated: bool,
-        value: u32,
-    },
-    MeasurementRecord {
-        negated: bool,
-        value: u32,
-    },
-    SweepBit {
-        value: u32,
-    },
-    Pauli {
-        negated: bool,
-        pauli: Pauli,
-        value: u32,
-    },
-    Loss {
-        value: u32,
-    },
-    PauliProduct {
-        negated: bool,
-        factors: Vec<PauliFactor>,
-    },
+    Qubit { negated: bool, value: u32 },
+    MeasurementRecord { negated: bool, value: u32 },
+    SweepBit { value: u32 },
+    Pauli(PauliTarget),
+    PauliProduct { factors: Vec<PauliTarget> },
+    Loss { value: u32 },
 }
 
 impl Display for TargetKind {
@@ -152,20 +135,10 @@ impl Display for TargetKind {
                 }
             }
             TargetKind::SweepBit { value } => write!(f, "SweepBit({value})"),
-            TargetKind::Pauli {
-                negated,
-                pauli,
-                value,
-            } => {
-                if *negated {
-                    write!(f, "Pauli(-{pauli} {value})")
-                } else {
-                    write!(f, "Pauli({pauli} {value})")
-                }
-            }
+            TargetKind::Pauli(target) => write!(f, "{target}"),
             TargetKind::Loss { value } => write!(f, "Loss({value})"),
-            TargetKind::PauliProduct { negated, factors } => {
-                write!(f, "PauliProduct({}", if *negated { "-" } else { "" })?;
+            TargetKind::PauliProduct { factors } => {
+                write!(f, "PauliProduct(")?;
                 for (index, factor) in factors.iter().enumerate() {
                     if index > 0 {
                         write!(f, "*")?;
@@ -226,14 +199,21 @@ impl FromStr for Pauli {
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct PauliFactor {
+pub struct PauliTarget {
+    pub negated: bool,
     pub pauli: Pauli,
     pub qubit: u32,
 }
 
-impl Display for PauliFactor {
+impl Display for PauliTarget {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Pauli({} {})", self.pauli, self.qubit)
+        write!(
+            f,
+            "Pauli({}{} {})",
+            if self.negated { "-" } else { "" },
+            self.pauli,
+            self.qubit
+        )
     }
 }
 
@@ -595,18 +575,18 @@ impl<'a> Parser<'a> {
                 negated,
                 value: self.extract_uint(first_token)?,
             },
-            TokenKind::PauliTarget if self.peek().is_some_and(|t| t.kind == TokenKind::Star) => {
+            TokenKind::Pauli if self.peek().is_some_and(|t| t.kind == TokenKind::Star) => {
                 self.parse_pauli_product(first_token, &mut span, negated)?
             }
-            TokenKind::PauliTarget => {
-                let (pauli, value) = self.parse_pauli_target(first_token)?;
-                TargetKind::Pauli {
+            TokenKind::Pauli => {
+                let (pauli, qubit) = self.extract_pauli_and_qubit(first_token)?;
+                TargetKind::Pauli(PauliTarget {
                     negated,
                     pauli,
-                    value,
-                }
+                    qubit,
+                })
             }
-            TokenKind::LossTarget => TargetKind::Loss {
+            TokenKind::Loss => TargetKind::Loss {
                 value: self.extract_prefix_and_suffix(first_token)?.1,
             },
             TokenKind::Rec => {
@@ -668,31 +648,39 @@ impl<'a> Parser<'a> {
         &mut self,
         token: Token,
         span: &mut Span,
-        mut negated: bool,
+        negated: bool,
     ) -> Option<TargetKind> {
-        let (pauli, qubit) = self.parse_pauli_target(token)?;
+        let (pauli, qubit) = self.extract_pauli_and_qubit(token)?;
 
-        let mut factors = vec![PauliFactor { pauli, qubit }];
+        let mut factors = vec![PauliTarget {
+            negated,
+            pauli,
+            qubit,
+        }];
         while self
             .next_if(|token| token.kind == TokenKind::Star)
             .is_some()
         {
-            negated ^= self
+            let negated = self
                 .next_if(|token| token.kind == TokenKind::Bang)
                 .is_some();
-            let token = self.expect_token(TokenKind::PauliTarget)?;
+            let token = self.expect_token(TokenKind::Pauli)?;
             span.hi = token.span.hi;
-            let (pauli, qubit) = self.parse_pauli_target(token)?;
-            factors.push(PauliFactor { pauli, qubit });
+            let (pauli, qubit) = self.extract_pauli_and_qubit(token)?;
+            factors.push(PauliTarget {
+                negated,
+                pauli,
+                qubit,
+            });
         }
 
-        Some(TargetKind::PauliProduct { negated, factors })
+        Some(TargetKind::PauliProduct { factors })
     }
 
-    fn parse_pauli_target(&mut self, token: Token) -> Option<(Pauli, u32)> {
+    fn extract_pauli_and_qubit(&mut self, token: Token) -> Option<(Pauli, u32)> {
         let (prefix, value) = self.extract_prefix_and_suffix(token)?;
         let Ok(pauli) = prefix.parse::<Pauli>() else {
-            unreachable!("lexer guarantees a valid Pauli target");
+            unreachable!("lexer guarantees a valid Pauli");
         };
 
         Some((pauli, value))
