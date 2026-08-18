@@ -112,6 +112,25 @@ fn inverted_gate_implements_adj_functor() {
     );
 }
 
+#[test]
+fn broadcast_inverted_gate_infers_functor_once_and_emits_each_application() {
+    let src = "
+    gate test_gate q {}
+    qubit[2] q;
+    inv @ test_gate q;
+    ";
+    check_qasm_to_qsharp(
+        src,
+        &expect![[r#"
+            import Std.OpenQASM.Intrinsic.*;
+            operation test_gate(q : Qubit) : Unit is Adj {}
+            borrow q = Qubit[2];
+            Adjoint test_gate(q[0]);
+            Adjoint test_gate(q[1]);
+        "#]],
+    );
+}
+
 /// The pow modifier can have negative arguments,
 /// which means applying pow of the inverse.
 /// Therefore, the pow functor requires gates to

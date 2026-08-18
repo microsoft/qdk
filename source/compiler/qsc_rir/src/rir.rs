@@ -376,6 +376,7 @@ impl Display for FcmpConditionCode {
 #[derive(Clone, Debug)]
 pub enum Instruction {
     Store(Operand, Variable),
+    StoreArray(Vec<Operand>, Variable),
     Call(
         CallableId,
         Vec<Operand>,
@@ -432,6 +433,9 @@ impl Display for Instruction {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
+            Self::StoreArray(value, variable) => {
+                write_store_array_instruction(f, value, *variable)?;
+            }
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
             Self::Call(callable_id, args, variable, metadata) => {
                 write_call(f, *callable_id, args, *variable, metadata.as_deref())?;
@@ -784,6 +788,23 @@ impl PartialEq for ArrayLiteral {
     fn eq(&self, other: &Self) -> bool {
         self.ty == other.ty && self.contents == other.contents
     }
+}
+
+fn write_store_array_instruction(
+    f: &mut Formatter,
+    value: &[Operand],
+    variable: Variable,
+) -> fmt::Result {
+    let mut indent = set_indentation(indented(f), 0);
+    write!(indent, "{variable} = StoreArray [")?;
+    for (index, operand) in value.iter().enumerate() {
+        write!(indent, "{operand}")?;
+        if index != value.len() - 1 {
+            write!(indent, ", ")?;
+        }
+    }
+    write!(indent, "]")?;
+    Ok(())
 }
 
 fn write_binary_instruction(

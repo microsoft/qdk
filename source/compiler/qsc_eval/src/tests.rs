@@ -105,6 +105,132 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     }
 }
 
+/// Same as [`check_expr`], but compiles an additional user-authored library package that the
+/// entry package depends on. Package ids are `core` = 0, `std` = 1, `lib` = 2, entry = 3.
+fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
+    let mut fir_lowerer = qsc_lowerer::Lowerer::new();
+    let mut core = compile::core();
+    run_core_passes(&mut core);
+    let fir_store = fir::PackageStore::new();
+    // store can be empty since core doesn't have any dependencies
+    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let mut store = PackageStore::new(core);
+
+    let mut std = compile::std(&store, TargetCapabilityFlags::all());
+    assert!(std.errors.is_empty());
+    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
+    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
+    let std_id = store.insert(std);
+
+    let lib_sources = SourceMap::new([("lib".into(), lib.into())], None);
+    let mut lib_unit = compile(
+        &store,
+        &[(std_id, None)],
+        lib_sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    assert!(lib_unit.errors.is_empty(), "{:?}", lib_unit.errors);
+    let lib_pass_errors = run_default_passes(store.core(), &mut lib_unit, PackageType::Lib);
+    assert!(lib_pass_errors.is_empty(), "{lib_pass_errors:?}");
+    let lib_fir = fir_lowerer.lower_package(&lib_unit.package, &fir_store);
+    let lib_id = store.insert(lib_unit);
+
+    let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
+    let mut unit = compile(
+        &store,
+        &[(std_id, None), (lib_id, None)],
+        sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
+    assert!(pass_errors.is_empty(), "{pass_errors:?}");
+    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
+    let entry = unit_fir.entry_exec_graph.clone();
+    let id = store.insert(unit);
+
+    let mut fir_store = fir::PackageStore::new();
+    fir_store.insert(
+        map_hir_package_to_fir(qsc_hir::hir::PackageId::CORE),
+        core_fir,
+    );
+    fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
+    fir_store.insert(map_hir_package_to_fir(lib_id), lib_fir);
+    fir_store.insert(map_hir_package_to_fir(id), unit_fir);
+
+    let mut out = Vec::new();
+    match eval_graph(
+        entry,
+        &mut SparseSim::new(),
+        &fir_store,
+        ExecGraphConfig::NoDebug,
+        map_hir_package_to_fir(id),
+        &mut Env::default(),
+        &mut GenericReceiver::new(&mut out),
+    ) {
+        Ok(value) => expect.assert_eq(&value.to_string()),
+        Err((err, _)) => expect.assert_debug_eq(&err),
+    }
+}
+
+fn check_output(file: &str, expr: &str, expect: &Expect) {
+    let mut fir_lowerer = qsc_lowerer::Lowerer::new();
+    let mut core = compile::core();
+    run_core_passes(&mut core);
+    let fir_store = fir::PackageStore::new();
+    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let mut store = PackageStore::new(core);
+
+    let mut std = compile::std(&store, TargetCapabilityFlags::all());
+    assert!(std.errors.is_empty());
+    assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
+    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
+    let std_id = store.insert(std);
+
+    let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
+    let mut unit = compile(
+        &store,
+        &[(std_id, None)],
+        sources,
+        TargetCapabilityFlags::all(),
+        LanguageFeatures::default(),
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
+    assert!(pass_errors.is_empty(), "{pass_errors:?}");
+    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
+    let entry = unit_fir.entry_exec_graph.clone();
+    let id = store.insert(unit);
+
+    let mut fir_store = fir::PackageStore::new();
+    fir_store.insert(
+        map_hir_package_to_fir(qsc_hir::hir::PackageId::CORE),
+        core_fir,
+    );
+    fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
+    fir_store.insert(map_hir_package_to_fir(id), unit_fir);
+
+    let mut out = Vec::new();
+    match eval_graph(
+        entry,
+        &mut SparseSim::new(),
+        &fir_store,
+        ExecGraphConfig::NoDebug,
+        map_hir_package_to_fir(id),
+        &mut Env::default(),
+        &mut GenericReceiver::new(&mut out),
+    ) {
+        Ok(_) => expect.assert_eq(
+            std::str::from_utf8(&out)
+                .expect("output should be valid UTF-8")
+                .trim_end(),
+        ),
+        Err((err, _)) => panic!("unexpected error: {err:?}"),
+    }
+}
+
 fn check_partial_eval_stmt(
     file: &str,
     expr: &str,
@@ -4258,5 +4384,325 @@ fn partial_eval_stmt_function_calls_from_library() {
                 Pats:
                     Pat 0 [5-6] [Type (Int)[]]: Bind: Ident 0 [5-6] "x""#]],
         &expect!["3"],
+    );
+}
+
+// Without parallel, released qubits have their IDs recycled on subsequent allocations.
+#[test]
+fn parallel_baseline_qubit_ids_recycled_without_parallel() {
+    check_output(
+        "",
+        indoc! {r#"{
+            // q1 and q2 are allocated and released inside the inner block
+            { use q1 = Qubit(); Message($"{q1}"); use q2 = Qubit(); Message($"{q2}"); }
+            // q1 and q2 are now released; next allocations reuse the same IDs
+            use q3 = Qubit();
+            Message($"{q3}");
+            use q4 = Qubit();
+            Message($"{q4}");
+        }"#},
+        &expect!["Qubit0\nQubit1\nQubit0\nQubit1"],
+    );
+}
+
+// Inside a parallel expression qubits are allocated fresh even after a sibling is released,
+// because all releases are deferred until the parallel block ends.
+// This mirrors the baseline test but with `parallel` wrapping the outermost block.
+#[test]
+fn parallel_defers_qubit_release() {
+    check_output(
+        "",
+        indoc! {r#"parallel {
+            // q1 and q2 are allocated and released inside the inner block
+            { use q1 = Qubit(); Message($"{q1}"); use q2 = Qubit(); Message($"{q2}"); }
+            // inside parallel their release is deferred, so q3 and q4 get fresh ids
+            use q3 = Qubit();
+            Message($"{q3}");
+            use q4 = Qubit();
+            Message($"{q4}");
+        }"#},
+        &expect!["Qubit0\nQubit1\nQubit2\nQubit3"],
+    );
+}
+
+// After the outer parallel block ends its deferred releases become available, so a
+// second parallel block can reuse those qubit IDs.
+#[test]
+fn parallel_releases_available_after_block_ends() {
+    check_output(
+        "",
+        indoc! {r#"{
+            parallel {
+                use q = Qubit();
+                Message($"first:{q}");
+            }
+            parallel {
+                use q = Qubit();
+                Message($"second:{q}");
+            }
+        }"#},
+        &expect!["first:Qubit0\nsecond:Qubit0"],
+    );
+}
+
+// In nested parallel expressions the inner block's qubits are not available to the outer
+// block and defferred until the outer parallel finishes.
+#[test]
+fn parallel_nested_defers_inner_releases_to_outer() {
+    check_output(
+        "",
+        indoc! {r#"parallel {
+            use outer = Qubit();
+            Message($"outer:{outer}");
+            parallel {
+                use inner1 = Qubit();
+                Message($"inner1:{inner1}");
+                use inner2 = Qubit();
+                Message($"inner2:{inner2}");
+            }
+            // inner qubits are now deferred in the outer layer, so a fresh id is allocated
+            use outer2 = Qubit();
+            Message($"outer2:{outer2}");
+        }"#},
+        &expect!["outer:Qubit0\ninner1:Qubit1\ninner2:Qubit2\nouter2:Qubit3"],
+    );
+}
+
+// parallel within N defers qubit release but once N qubits have been deferred the pool
+// is replenished and IDs are reused.
+#[test]
+fn parallel_within_reuses_ids_after_limit() {
+    check_output(
+        "",
+        indoc! {r#"parallel within 2 {
+            // Each nested block releases its qubit before the next allocation.
+            { use q1 = Qubit(); Message($"{q1}"); }
+            { use q2 = Qubit(); Message($"{q2}"); }
+            // 2 qubits have now been deferred; limit reached so q3 and q4 reuse ids
+            { use q3 = Qubit(); Message($"{q3}"); }
+            { use q4 = Qubit(); Message($"{q4}"); }
+        }"#},
+        &expect!["Qubit0\nQubit1\nQubit0\nQubit1"],
+    );
+}
+
+// Nested parallel within: the outer layer has a limit of 6 and the inner has a limit of 2.
+// Each of the 3 iterations allocates a qubit outside the inner parallel (tracked by the
+// outer layer) plus 4 qubits inside the inner parallel (2 fresh, 2 reused via inner limit).
+// After 2 iterations the outer layer has accumulated 6+ deferred qubits, so iteration 3
+// triggers outer replenishment and reuses IDs from the outer pool (Qubit0, 1, 2 reappear).
+#[test]
+fn parallel_within_nested_defers_through_outer_limit() {
+    check_output(
+        "",
+        indoc! {r#"parallel within 6 { for _ in 0..2 {
+            { use q0 = Qubit(); Message($"{q0}"); }
+            parallel within 2 {
+                { use q1 = Qubit(); Message($"{q1}"); }
+                { use q2 = Qubit(); Message($"{q2}"); }
+                { use q3 = Qubit(); Message($"{q3}"); }
+                { use q4 = Qubit(); Message($"{q4}"); }
+            }
+        } }"#},
+        &expect![[r#"
+            Qubit0
+            Qubit1
+            Qubit2
+            Qubit1
+            Qubit2
+            Qubit3
+            Qubit4
+            Qubit5
+            Qubit4
+            Qubit5
+            Qubit0
+            Qubit1
+            Qubit2
+            Qubit1
+            Qubit2"#]],
+    );
+}
+
+// Same as above but the outer parallel has no limit. The inner parallel within 2 still
+// reuses within each iteration, but the outer unlimited layer never triggers
+// replenishment so every iteration allocates fresh IDs at the outer level (Qubit6, 7, 8
+// in iteration 3 instead of reusing Qubit0, 1, 2).
+#[test]
+fn parallel_nested_unlimited_outer_defers_all() {
+    check_output(
+        "",
+        indoc! {r#"parallel { for _ in 0..2 {
+            { use q0 = Qubit(); Message($"{q0}"); }
+            parallel within 2 {
+                { use q1 = Qubit(); Message($"{q1}"); }
+                { use q2 = Qubit(); Message($"{q2}"); }
+                { use q3 = Qubit(); Message($"{q3}"); }
+                { use q4 = Qubit(); Message($"{q4}"); }
+            }
+        } }"#},
+        &expect![[r#"
+            Qubit0
+            Qubit1
+            Qubit2
+            Qubit1
+            Qubit2
+            Qubit3
+            Qubit4
+            Qubit5
+            Qubit4
+            Qubit5
+            Qubit6
+            Qubit7
+            Qubit8
+            Qubit7
+            Qubit8"#]],
+    );
+}
+
+#[test]
+fn early_return_from_parallel_releases_qubits() {
+    check_output(
+        indoc! {r#"
+            operation Inner() : Unit {
+                parallel {
+                    { use q = Qubit(); Message($"{q}"); }
+                    { use q = Qubit(); Message($"{q}"); return (); }
+                }
+            }
+            operation Main() : Unit {
+                Inner();
+                use q = Qubit();
+                Message($"{q}");
+            }
+        "#},
+        "",
+        &expect![[r#"
+            Qubit0
+            Qubit1
+            Qubit0"#]],
+    );
+}
+
+#[test]
+fn parallel_borrow_dirty_qubit_does_not_error_at_par_end() {
+    check_expr(
+        "",
+        "{
+             use a = Qubit(); X(a);
+             parallel { borrow q = Qubit(); X(q); }
+             Reset(a);
+         }",
+        &expect!["()"],
+    );
+}
+
+#[test]
+fn parallel_within_use_after_borrow_flag_checks_nonzero_release() {
+    check_expr(
+        "",
+        "{
+             parallel within 1 {
+                 { borrow c = Qubit(); }
+                 { use a = Qubit(); X(a); }
+             }
+         }",
+        &expect![[r#"
+            ReleasedQubitNotZero(
+                0,
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 3480,
+                        hi: 3568,
+                    },
+                },
+            )
+        "#]],
+    );
+}
+
+#[test]
+fn parallel_within_borrow_of_recycled_qubit_does_not_error_at_par_end() {
+    check_expr(
+        "",
+        "{
+             parallel within 1 {
+                 { use a = Qubit(); }
+                 { borrow b = Qubit(); X(b); }
+             }
+         }",
+        &expect!["()"],
+    );
+}
+
+/// The span reported for an intrinsic call is attributed to the package that declares the
+/// callable. When caller and callee live in the same package, `PackageId(2)` is the entry package.
+#[test]
+fn intrinsic_callee_span_uses_own_package() {
+    check_expr(
+        indoc! {"
+            namespace Test {
+                operation Unrecognized() : Unit {
+                    body intrinsic;
+                }
+            }
+        "},
+        "Test.Unrecognized()",
+        &expect![[r#"
+            UnknownIntrinsic(
+                "Unrecognized",
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 41,
+                        hi: 104,
+                    },
+                },
+            )
+        "#]],
+    );
+}
+
+/// When the callee lives in a dependency, the reported span must be attributed to the callee's
+/// package (`PackageId(2)`, the lib) rather than the package that is currently executing
+/// (`PackageId(3)`, the entry package). Attributing it to the caller yields an offset that does
+/// not exist in the caller's sources.
+#[test]
+fn intrinsic_callee_span_uses_callee_package_not_caller_package() {
+    check_expr_with_lib(
+        indoc! {"
+            namespace Lib {
+                operation Unrecognized() : Unit {
+                    body intrinsic;
+                }
+                export Unrecognized;
+            }
+        "},
+        indoc! {"
+            namespace Test {
+                operation Caller() : Unit {
+                    Lib.Unrecognized();
+                }
+            }
+        "},
+        "Test.Caller()",
+        &expect![[r#"
+            UnknownIntrinsic(
+                "Unrecognized",
+                PackageSpan {
+                    package: PackageId(
+                        2,
+                    ),
+                    span: Span {
+                        lo: 20,
+                        hi: 83,
+                    },
+                },
+            )
+        "#]],
     );
 }

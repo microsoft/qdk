@@ -10,9 +10,25 @@ export const LEARNING_WORKSPACE_RELATIVE_PATH = `./${LEARNING_WORKSPACE_FOLDER}`
 /** Well-known file that marks a workspace folder as a katas workspace. */
 export const LEARNING_FILE = "qdk-learning.json";
 
+/** Subfolder (under the learning folder) that holds notebook courses. */
+export const LEARNING_COURSES_SUBDIR = "courses";
+
+/** Filename describing a notebook course. */
+export const COURSE_MANIFEST_FILE = "course.json";
+
 /** Context key set when a learning workspace is detected. */
 export const LEARNING_WORKSPACE_DETECTED_CONTEXT =
   "qsharp-vscode.learningWorkspaceDetected";
+
+/** Suffix of the learner-editable working copy of a course notebook. */
+export const WORKBOOK_SUFFIX = ".workbook.ipynb";
+
+/**
+ * Context key set while the active notebook editor is a course workbook.
+ * Scopes notebook toolbar actions to learning content.
+ */
+export const LEARNING_NOTEBOOK_ACTIVE_CONTEXT =
+  "qsharp-vscode.learningNotebookActive";
 
 /** Course ID for the built-in Quantum Katas. */
 export const KATAS_COURSE_ID = "katas";

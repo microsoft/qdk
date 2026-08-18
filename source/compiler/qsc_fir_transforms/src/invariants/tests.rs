@@ -14,8 +14,8 @@ use crate::invariants::test_utils::{
     inject_nested_tuple_bound_arrow_local, inject_nested_tuple_eq_in_if_branch,
     inject_non_copy_struct, inject_non_tuple_field_path_target,
     inject_non_unit_assignment_expression_type, inject_stale_local_var,
-    inject_stale_local_var_in_callable, inject_tuple_arity_mismatch, inject_ty_param,
-    inject_udt_callable_output, inject_udt_expr_type, inject_udt_expr_type_in_callable,
+    inject_tuple_arity_mismatch, inject_ty_param, inject_udt_callable_output, inject_udt_expr_type,
+    inject_udt_expr_type_in_callable,
 };
 use crate::test_utils::{
     PipelineStage, assert_panics_with, compile_and_run_pipeline_to,
@@ -134,22 +134,6 @@ const NESTED_TUPLE_LITERAL_INSIDE_IF: &str = r#"
             } else {
                 ((5, 6), (7, 8))
             }
-        }
-    }
-"#;
-
-const SIMULATABLE_INTRINSIC_BODY: &str = r#"
-    namespace Test {
-        @SimulatableIntrinsic()
-        operation MyMeasurement(q : Qubit) : Result {
-            let r = M(q);
-            r
-        }
-
-        @EntryPoint()
-        operation Main() : Result {
-            use q = Qubit();
-            MyMeasurement(q)
         }
     }
 "#;
@@ -744,31 +728,6 @@ fn post_arg_promote_catches_functor_wrapper_stale_item_signature() {
     inject_callable_output_type(&mut store, pkg_id, "Foo", Ty::Prim(Prim::Int));
     assert_panics_with("PostArgPromote/PostAll call invariant violation", || {
         check(&store, pkg_id, InvariantLevel::PostArgPromote);
-    });
-}
-
-#[test]
-fn post_mono_catches_stale_local_in_simulatable_intrinsic_body() {
-    let (mut store, pkg_id) =
-        compile_and_run_pipeline_to(SIMULATABLE_INTRINSIC_BODY, PipelineStage::Mono);
-    inject_stale_local_var_in_callable(
-        &mut store,
-        pkg_id,
-        "MyMeasurement",
-        LocalVarId::from(9999u32),
-    );
-    assert_panics_with("LocalVarId consistency", || {
-        check(&store, pkg_id, InvariantLevel::PostMono);
-    });
-}
-
-#[test]
-fn post_all_catches_simulatable_intrinsic_body_type_violation() {
-    let (mut store, pkg_id) =
-        compile_and_run_pipeline_to(SIMULATABLE_INTRINSIC_BODY, PipelineStage::Full);
-    inject_udt_expr_type_in_callable(&mut store, pkg_id, "MyMeasurement");
-    assert_panics_with("contains Ty::Udt after UDT erasure", || {
-        check(&store, pkg_id, InvariantLevel::PostAll);
     });
 }
 

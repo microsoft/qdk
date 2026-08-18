@@ -1,9 +1,59 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::tests::{check_qasm_to_qsharp, compile_qasm_to_qir};
+use crate::tests::{check_qasm_to_qsharp, compile, compile_qasm_to_qir};
 use expect_test::expect;
 use miette::Report;
+use qsc::target::Profile;
+
+fn assert_broadcast_operation_multiplicity(profile: &str) -> miette::Result<(), Vec<Report>> {
+    let source = format!(
+        r#"
+        include "stdgates.inc";
+        #pragma qdk.qir.profile {profile}
+        qubit[3] qs;
+        output bit[3] results;
+        h qs;
+        results = measure qs;
+        "#,
+    );
+
+    let qir = compile_qasm_to_qir(&source)?;
+    assert_eq!(qir.matches("call void @__quantum__qis__h__body").count(), 3);
+    assert_eq!(qir.matches("call void @__quantum__qis__m__body").count(), 3);
+    Ok(())
+}
+
+#[test]
+fn broadcast_base_profile_preserves_operation_multiplicity() -> miette::Result<(), Vec<Report>> {
+    assert_broadcast_operation_multiplicity("Base")
+}
+
+#[test]
+fn broadcast_adaptive_ri_profile_preserves_operation_multiplicity()
+-> miette::Result<(), Vec<Report>> {
+    assert_broadcast_operation_multiplicity("Adaptive_RI")
+}
+
+#[test]
+fn broadcast_adaptive_rif_profile_preserves_operation_multiplicity()
+-> miette::Result<(), Vec<Report>> {
+    assert_broadcast_operation_multiplicity("Adaptive_RIF")
+}
+
+#[test]
+fn broadcast_unrestricted_profile_is_selected() -> miette::Result<(), Vec<Report>> {
+    let unit = compile(
+        r#"
+        include "stdgates.inc";
+        #pragma qdk.qir.profile Unrestricted
+        qubit[3] qs;
+        h qs;
+        "#,
+    )?;
+    assert_eq!(unit.profile, Some(Profile::Unrestricted));
+    Ok(())
+}
 
 #[test]
 fn profile_pragma_compiles_with_adaptive_ri() -> miette::Result<(), Vec<Report>> {
