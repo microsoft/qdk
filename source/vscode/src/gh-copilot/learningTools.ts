@@ -221,6 +221,23 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(() => {
       const r = this.service.getHintContext("chat");
+      // The serialized state attempt to identify the actually active cell,
+      // whereas the hint state is solely based on activity-level progress,
+      // so the two can get out of sync.  Since they should agree when the
+      // user is on an exercise cell and since this tool only makes sense
+      // on exercise cells, report failure to copilot if they disagree.
+      const selectedState = this.serializeState();
+      const hintLocation = r.state.position.location;
+      const selectedLocation = selectedState.position.location;
+      if (
+        hintLocation.courseId !== selectedLocation.courseId ||
+        hintLocation.unitId !== selectedLocation.unitId ||
+        hintLocation.activityId !== selectedLocation.activityId
+      ) {
+        throw new CopilotToolError(
+          "The active cell doesn't appear to be an exercise and only exercise cells have associated hints",
+        );
+      }
       return { result: r.result };
     });
   }
