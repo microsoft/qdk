@@ -606,7 +606,9 @@ export class LearningService {
     }
     const { activity } = this.findCurrentActivity();
     // For python-notebook courses the activity ID is the cell ID.
-    return activity.type === "exercise" ? activity.id : undefined;
+    return activity.type === "exercise" || activity.type === "code-cell"
+      ? activity.id
+      : undefined;
   }
 
   /** Enumerate all available courses. */
@@ -1054,10 +1056,7 @@ export class LearningService {
     action: "navigate" | "run" | "check" | "hint" | "solution" | "reset",
     source: TelemetrySource,
   ): void {
-    const activityType =
-      this.findCurrentActivity().activity.type === "exercise"
-        ? "exercise"
-        : "lesson";
+    const activityType = this.findCurrentActivity().activity.type;
     sendTelemetryEvent(
       EventType.LearningActivityAction,
       { action, activityType, source },
