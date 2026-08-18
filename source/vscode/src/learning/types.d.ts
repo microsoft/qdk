@@ -37,7 +37,8 @@ export interface CurrentActivity {
 export type ActivityContent =
   | LessonTextContent
   | LessonExampleContent
-  | ExerciseContent;
+  | ExerciseContent
+  | CodeCellContent;
 
 export interface LessonTextContent {
   type: "lesson-text";
@@ -64,6 +65,12 @@ export interface ExerciseContent {
   isComplete: boolean;
   /** True when multiple reference solutions exist for this exercise. */
   hasMultipleSolutions: boolean;
+}
+
+export interface CodeCellContent {
+  type: "code-cell";
+  id: string;
+  title: string;
 }
 
 // ─── Actions ───
@@ -93,7 +100,7 @@ export type ActionGroup = ActionBinding[];
 
 // ─── Progress ───
 
-export type ActivityKind = "lesson" | "exercise";
+export type ActivityKind = CatalogActivity["type"];
 
 export interface ActivityProgress {
   id: string;
@@ -246,6 +253,12 @@ export interface CatalogExercise {
   solutionExplanation: string;
 }
 
+export interface CatalogCodeCell {
+  type: "code-cell";
+  id: string;
+  title: string;
+}
+
 export interface CatalogLesson {
   type: "lesson";
   id: string;
@@ -260,39 +273,17 @@ export interface CatalogLesson {
   content?: string;
 }
 
-export type CatalogActivity = CatalogExercise | CatalogLesson;
-
-/**
- * Exercise metadata for a `python-notebook` unit, parsed from cell tags in
- * the authored notebook. Provides hints, solutions, and descriptions for the
- * chat LM tools without requiring cell execution.
- */
-export interface NotebookExerciseInfo {
-  /** Stable cell ID (from the notebook's cell metadata) for this exercise. */
-  cellId: string;
-  title: string;
-  description: string;
-  hints: string[];
-  /** Reference solutions, one per `solution`-tagged cell. */
-  solutions: string[];
-  solutionExplanation: string;
-}
+export type CatalogActivity = CatalogExercise | CatalogCodeCell | CatalogLesson;
 
 export interface CatalogUnit {
   id: string;
   title: string;
   activities: CatalogActivity[];
-  /**
-   * Exercise metadata for python-notebook courses, parsed from the authored
-   * notebook's cell tags. Used by chat LM tools for hints/solutions.
-   */
-  notebookExercises?: NotebookExerciseInfo[];
   /** URI of the authored notebook for this unit. Set for python-notebook courses. */
   sourceNotebookUri?: Uri;
 }
 
 export interface NotebookCatalogUnit extends CatalogUnit {
-  notebookExercises: NotebookExerciseInfo[];
   sourceNotebookUri: Uri;
 }
 

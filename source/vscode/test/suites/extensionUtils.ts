@@ -32,7 +32,7 @@ export function setTestGithubEndpoint(url: string) {
   testGithubEndpoint = url;
 }
 
-export async function activateExtension(): Promise<ExtensionApi> {
+export async function activateExtension() {
   // Check for pre-release or stable builds of the extension, as could be in release pipeline
   const ext =
     vscode.extensions.getExtension("quantum.qsharp-lang-vscode-dev") ??
@@ -43,7 +43,7 @@ export async function activateExtension(): Promise<ExtensionApi> {
   }
 
   if (ext.isActive) {
-    return ext.exports as ExtensionApi;
+    return;
   }
 
   const start = performance.now();
@@ -73,8 +73,6 @@ export async function activateExtension(): Promise<ExtensionApi> {
   console.log(
     `qsharp-tests: activate() completed in ${performance.now() - start}ms`,
   );
-
-  return extensionApi;
 }
 
 /**

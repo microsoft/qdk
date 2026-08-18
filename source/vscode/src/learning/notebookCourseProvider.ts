@@ -11,13 +11,12 @@ import {
 } from "./constants.js";
 import type { CourseProvider } from "./courseProvider.js";
 import { ensureParentDir, uriExists } from "./fsUtils.js";
-import { parseNotebookExercises } from "./notebookExercises.js";
+import { parseNotebookActivities } from "./notebookExercises.js";
 import type {
-  CatalogExercise,
+  CatalogActivity,
   CourseEnvironment,
   NotebookCatalogCourse,
   NotebookCatalogUnit,
-  NotebookExerciseInfo,
 } from "./types.js";
 
 /** Bundled courses live under this path inside the extension. */
@@ -192,43 +191,27 @@ export class NotebookCourseProvider implements CourseProvider {
         );
         continue;
       }
-      const { notebookExercises, sourceNotebookUri } =
-        await this.parseNotebookUnit(unitDir, manifestUnit);
+      const { activities, sourceNotebookUri } = await this.parseNotebookUnit(
+        unitDir,
+        manifestUnit,
+      );
       if (!sourceNotebookUri) {
         log.warn(
           `Skipping unit "${manifestUnit.id}" in course "${id}": notebook not found.`,
         );
         continue;
       }
-      if (!notebookExercises) {
+      if (!activities) {
         log.warn(
           `Skipping unit "${manifestUnit.id}" in course "${id}": unit has no activities.`,
         );
         continue;
       }
 
-      // Surface each notebook exercise as a catalog activity so it appears
-      // in the progress tree and can be navigated to.
-      const activities = notebookExercises.map(
-        (ex) =>
-          ({
-            type: "exercise",
-            id: ex.cellId,
-            title: ex.title,
-            description: ex.description,
-            placeholderCode: "",
-            sourceIds: [],
-            hints: ex.hints,
-            solutionCodes: ex.solutions,
-            solutionExplanation: ex.solutionExplanation,
-          }) satisfies CatalogExercise,
-      );
-
       units.push({
         id: manifestUnit.id,
         title: manifestUnit.title,
         activities,
-        notebookExercises,
         sourceNotebookUri,
       });
     }
@@ -257,7 +240,7 @@ export class NotebookCourseProvider implements CourseProvider {
     unitDir: vscode.Uri,
     unit: ManifestUnit,
   ): Promise<{
-    notebookExercises?: NotebookExerciseInfo[];
+    activities?: CatalogActivity[];
     sourceNotebookUri?: vscode.Uri;
   }> {
     // Find the source notebook file in the unit dir. Materialized working
@@ -295,11 +278,11 @@ export class NotebookCourseProvider implements CourseProvider {
     // Exercise metadata lives in the authored notebook, marked up with cell
     // tags. Read it here so it's available before materialization.
     const notebookText = await tryReadText(sourceNotebookUri);
-    const notebookExercises = notebookText
-      ? parseNotebookExercises(notebookText, unit.id)
+    const activities = notebookText
+      ? parseNotebookActivities(notebookText, unit.id)
       : undefined;
 
-    return { notebookExercises, sourceNotebookUri };
+    return { activities, sourceNotebookUri };
   }
 }
 
