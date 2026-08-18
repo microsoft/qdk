@@ -9,9 +9,9 @@ fn pauli_targets() {
     check(
         "X0 Y12 Z345",
         &expect![[r#"
-            pauli_target(X0) [0-2]
-            pauli_target(Y12) [3-6]
-            pauli_target(Z345) [7-11]"#]],
+            pauli_literal(X0) [0-2]
+            pauli_literal(Y12) [3-6]
+            pauli_literal(Z345) [7-11]"#]],
     );
 }
 
@@ -20,8 +20,8 @@ fn loss_targets() {
     check(
         "L0 L12",
         &expect![[r#"
-            loss_target(L0) [0-2]
-            loss_target(L12) [3-6]"#]],
+            loss_literal(L0) [0-2]
+            loss_literal(L12) [3-6]"#]],
     );
 }
 
@@ -56,10 +56,10 @@ fn pauli_product() {
     check(
         "X0*!Y2",
         &expect![[r#"
-            pauli_target(X0) [0-2]
+            pauli_literal(X0) [0-2]
             star(*) [2-3]
             bang(!) [3-4]
-            pauli_target(Y2) [4-6]"#]],
+            pauli_literal(Y2) [4-6]"#]],
     );
 }
 
@@ -80,7 +80,7 @@ fn large_indices_are_still_targets() {
     check(
         "X4294967296 L4294967296",
         &expect![[r#"
-            pauli_target(X4294967296) [0-11]
-            loss_target(L4294967296) [12-23]"#]],
+            pauli_literal(X4294967296) [0-11]
+            loss_literal(L4294967296) [12-23]"#]],
     );
 }

@@ -65,8 +65,8 @@ pub enum TokenKind {
     Uint,            // unsigned integers
     Double,          // floating-point numbers
     InstructionName, // H, X, CNOT, etc.
-    PauliTarget,     // X1, Y2, Z3, etc.
-    LossTarget,      // L1, L2, L3, etc.
+    PauliLiteral,    // X1, Y2, Z3, etc.
+    LossLiteral,     // L1, L2, L3, etc.
     Rec,             // rec[- ...]
     Sweep,           // sweep[...]
     Tag,             // "[...]"
@@ -84,8 +84,8 @@ impl Display for TokenKind {
             TokenKind::Uint => f.write_str("uint"),
             TokenKind::Double => f.write_str("double"),
             TokenKind::InstructionName => f.write_str("instruction_name"),
-            TokenKind::PauliTarget => f.write_str("pauli_target"),
-            TokenKind::LossTarget => f.write_str("loss_target"),
+            TokenKind::PauliLiteral => f.write_str("pauli_literal"),
+            TokenKind::LossLiteral => f.write_str("loss_literal"),
             TokenKind::Rec => f.write_str("rec"),
             TokenKind::Sweep => f.write_str("sweep"),
             TokenKind::Tag => f.write_str("tag"),
@@ -234,8 +234,8 @@ impl<'a> Lexer<'a> {
                 TokenKind::Sweep
             }
             _ => match identifier.split_at_checked(1) {
-                Some(("X" | "Y" | "Z", digits)) if is_ascii_uint(digits) => TokenKind::PauliTarget,
-                Some(("L", digits)) if is_ascii_uint(digits) => TokenKind::LossTarget,
+                Some(("X" | "Y" | "Z", digits)) if is_ascii_uint(digits) => TokenKind::PauliLiteral,
+                Some(("L", digits)) if is_ascii_uint(digits) => TokenKind::LossLiteral,
                 _ => TokenKind::InstructionName,
             },
         }
