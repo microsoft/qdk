@@ -11,7 +11,7 @@ use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
     MeasurementResult, OutputRecord, Simulator,
     bytecode::{self, runtime::run_shot as adaptive_run_shot},
-    cpu_full_state_simulator::{NoiselessSimulator, NoisySimulator},
+    cpu_full_state_simulator::FullStateSimulator,
     noise_config::{self, CumulativeNoiseConfig},
     stabilizer_simulator::StabilizerSimulator,
 };
@@ -95,35 +95,19 @@ pub fn run_cpu_full_state<'py>(
     noise_config: Option<&Bound<'py, NoiseConfig>>,
     seed: Option<u32>,
 ) -> PyResult<Py<PyAny>> {
-    if noise_config.is_some() {
-        let make_simulator = |num_qubits, num_results, seed, noise| {
-            NoisySimulator::new(num_qubits as usize, num_results as usize, seed, noise)
-        };
-        py_run(
-            py,
-            input,
-            num_qubits,
-            num_results,
-            shots,
-            noise_config,
-            seed,
-            make_simulator,
-        )
-    } else {
-        let make_simulator = |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig>| {
-            NoiselessSimulator::new(num_qubits as usize, num_results as usize, seed, ())
-        };
-        py_run(
-            py,
-            input,
-            num_qubits,
-            num_results,
-            shots,
-            noise_config,
-            seed,
-            make_simulator,
-        )
-    }
+    let make_simulator = |num_qubits, num_results, seed, noise| {
+        FullStateSimulator::new(num_qubits as usize, num_results as usize, seed, noise)
+    };
+    py_run(
+        py,
+        input,
+        num_qubits,
+        num_results,
+        shots,
+        noise_config,
+        seed,
+        make_simulator,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -321,17 +305,11 @@ pub fn run_cpu_adaptive<'py>(
         noise_config::NoiseConfig::NOISELESS
     };
 
-    let output = if noise_config.is_some() {
-        let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
-            NoisySimulator::new(num_qubits, num_results, seed, noise)
-        };
-        run_adaptive(&program, shots, seed, noise, make_simulator)
-    } else {
-        let make_simulator = |num_qubits, num_results, seed, _noise: Arc<CumulativeNoiseConfig>| {
-            NoiselessSimulator::new(num_qubits, num_results, seed, ())
-        };
-        run_adaptive(&program, shots, seed, noise, make_simulator)
+    let make_simulator = |num_qubits, num_results, seed, noise: Arc<CumulativeNoiseConfig>| {
+        FullStateSimulator::new(num_qubits, num_results, seed, noise)
     };
+
+    let output = run_adaptive(&program, shots, seed, noise, make_simulator);
 
     output_records_to_pylist(py, output)
 }

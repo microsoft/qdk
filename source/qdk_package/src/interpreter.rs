@@ -676,7 +676,7 @@ impl Interpreter {
             Some(operation_name.into()),
             None,
         );
-        let res = qsc::openqasm::semantic::parse_sources(&sources);
+        let res = qsc::openqasm::analyze_all(&sources);
         let unit = compile_to_qsharp_ast_with_config(res, config);
         let (sources, errors, mut package, _, _) = unit.into_tuple();
 
@@ -1083,6 +1083,35 @@ impl Interpreter {
                     .collect::<Vec<_>>()
                     .join("\n"),
             )),
+        }
+    }
+
+    #[pyo3(signature=(entry_expr=None, callable=None, args=None))]
+    fn trace(
+        &mut self,
+        py: Python,
+        entry_expr: Option<&str>,
+        callable: Option<Py<PyAny>>,
+        args: Option<Py<PyAny>>,
+    ) -> PyResult<crate::qre::Trace> {
+        let results = if let Some(entry_expr) = entry_expr {
+            ::qre::trace_expr(&mut self.interpreter, entry_expr)
+        } else {
+            let callable = callable.ok_or_else(|| {
+                QSharpError::new_err("either entry_expr or callable must be specified")
+            })?;
+            let callable = extract_callable_value(py, &callable)?;
+            let (input_ty, output_ty) = self
+                .interpreter
+                .global_callable_ty(&callable)
+                .ok_or(QSharpError::new_err("callable not found"))?;
+            let args = args_to_values(&self.interpreter, py, args, &input_ty, &output_ty)?;
+            ::qre::trace_call(&mut self.interpreter, callable, args)
+        };
+
+        match results {
+            Ok(trace) => Ok(crate::qre::Trace::from_qre_trace(trace)),
+            Err(errors) => Err(QSharpError::new_err(format_errors(errors))),
         }
     }
 }

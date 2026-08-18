@@ -535,20 +535,20 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
 
         declare void @__quantum__rt__initialize(ptr)
 
-        define void @phase_by(i64 %var_0, i64 %var_1, ptr %var_2) {
+        define internal void @phase_by(i64 %var_0, i64 %var_1, ptr %var_2) {
         block_1:
           call void @rz(i64 %var_0, i64 %var_1, ptr %var_2)
           ret void
         }
 
-        define void @rz(i64 %var_3, i64 %var_4, ptr %var_5) {
+        define internal void @rz(i64 %var_3, i64 %var_4, ptr %var_5) {
         block_2:
           %var_42 = call double @AngleAsDouble(i64 %var_3, i64 %var_4)
           call void @Rz(double %var_42, ptr %var_5)
           ret void
         }
 
-        define double @AngleAsDouble(i64 %var_6, i64 %var_7) {
+        define internal double @AngleAsDouble(i64 %var_6, i64 %var_7) {
         block_3:
           %var_9 = alloca i64
           %var_14 = alloca i64
@@ -634,7 +634,7 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           ret double %var_41
         }
 
-        define void @Rz(double %var_44, ptr %var_45) {
+        define internal void @Rz(double %var_44, ptr %var_45) {
         block_17:
           call void @__quantum__qis__rz__body(double %var_44, ptr %var_45)
           ret void
@@ -1589,6 +1589,28 @@ fn broadcast_with_qubit_and_register() -> miette::Result<(), Vec<Report>> {
     "#]]
     .assert_eq(&qsharp);
     Ok(())
+}
+
+#[test]
+fn broadcast_with_hardware_qubit_and_register_reports_unsupported_hardware() {
+    let source = r#"
+        include "stdgates.inc";
+        qubit[2] targets;
+        cx $0, targets;
+    "#;
+
+    let Err(errors) = compile_qasm_to_qsharp(source) else {
+        panic!("Expected error");
+    };
+
+    let diagnostics = format!("{errors:?}");
+    assert!(diagnostics.contains("Qdk.Qasm.Compiler.NotSupported"));
+    assert_eq!(
+        diagnostics
+            .matches("hardware qubit operands are not supported")
+            .count(),
+        2
+    );
 }
 
 #[test]

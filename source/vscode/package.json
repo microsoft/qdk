@@ -27,7 +27,8 @@
     "onDebugResolve:qsharp",
     "onDebugDynamicConfigurations:qsharp",
     "onFileSystem:qsharp-vfs",
-    "onWebviewPanel:qsharp-webview"
+    "onWebviewPanel:qsharp-webview",
+    "onWebviewPanel:qsharp-webview.bloch"
   ],
   "extensionKind": [
     "workspace",
@@ -295,6 +296,9 @@
           "when": "resourceLangId == qsharp"
         },
         {
+          "command": "qsharp-vscode.showBloch"
+        },
+        {
           "command": "qsharp-vscode.showCircuit",
           "when": "resourceLangId == qsharp || resourceLangId == openqasm"
         },
@@ -327,6 +331,10 @@
           "when": "false"
         },
         {
+          "command": "qsharp-vscode.learningResetUnit",
+          "when": "false"
+        },
+        {
           "command": "qsharp-vscode.learningShowActivity",
           "when": "false"
         },
@@ -340,6 +348,18 @@
         },
         {
           "command": "qsharp-vscode.learningAskInChat",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningSwitchCourse",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningNotebookHint",
+          "when": "false"
+        },
+        {
+          "command": "qsharp-vscode.learningNotebookExplain",
           "when": "false"
         }
       ],
@@ -371,6 +391,19 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "qsharp-vscode.learningSwitchCourse",
+          "group": "inline",
+          "when": "view == qsharp-vscode.learningTree && (viewItem == course || viewItem == coursePython)"
+        },
+        {
+          "command": "qsharp-vscode.learningSwitchCourse",
+          "when": "view == qsharp-vscode.learningTree && (viewItem == course || viewItem == coursePython)"
+        },
+        {
+          "command": "qsharp-vscode.learningResetUnit",
+          "when": "view == qsharp-vscode.learningTree && viewItem == unitPython"
+        },
         {
           "command": "qsharp-vscode.workspaceOpenPortal",
           "group": "inline",
@@ -417,7 +450,21 @@
         {
           "command": "qsharp-vscode.learningAskInChat",
           "group": "inline",
-          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == lesson || viewItem == exercise || viewItem == example)"
+          "when": "view == qsharp-vscode.learningTree && (viewItem == continue || viewItem == unit || viewItem == unitPython || viewItem == lesson || viewItem == exercise || viewItem == example)"
+        }
+      ],
+      "notebook/toolbar": [
+        {
+          "command": "qsharp-vscode.learningResetUnit",
+          "when": "qsharp-vscode.learningNotebookActive",
+          "group": "navigation@110"
+        }
+      ],
+      "notebook/cell/title": [
+        {
+          "command": "qsharp-vscode.learningNotebookExplain",
+          "when": "notebookType == 'jupyter-notebook' && qsharp-vscode.learningWorkspaceDetected",
+          "group": "inline/cell@50"
         }
       ],
       "explorer/context": [
@@ -550,6 +597,11 @@
       {
         "command": "qsharp-vscode.showHelp",
         "title": "Help",
+        "category": "QDK"
+      },
+      {
+        "command": "qsharp-vscode.showBloch",
+        "title": "Bloch sphere",
         "category": "QDK"
       },
       {
@@ -695,10 +747,34 @@
         "icon": "$(discard)"
       },
       {
+        "command": "qsharp-vscode.learningResetUnit",
+        "title": "Reset Unit",
+        "category": "QDK Learning",
+        "icon": "$(discard)"
+      },
+      {
         "command": "qsharp-vscode.learningShowActivity",
         "title": "Show Current Activity",
         "category": "QDK Learning",
         "icon": "$(mortar-board)"
+      },
+      {
+        "command": "qsharp-vscode.learningSwitchCourse",
+        "title": "Switch Course",
+        "category": "QDK Learning",
+        "icon": "$(arrow-swap)"
+      },
+      {
+        "command": "qsharp-vscode.learningNotebookHint",
+        "title": "Ask for a Hint",
+        "category": "QDK Learning",
+        "icon": "$(comment-discussion-sparkle)"
+      },
+      {
+        "command": "qsharp-vscode.learningNotebookExplain",
+        "title": "Explain",
+        "category": "QDK Learning",
+        "icon": "$(comment-discussion-sparkle)"
       }
     ],
     "breakpoints": [
@@ -1327,6 +1403,75 @@
         "inputSchema": {
           "type": "object",
           "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-list-courses",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningListCourses",
+        "displayName": "QDK Learning: List Courses",
+        "modelDescription": "List all available learning courses (loaded or not) with their ids, titles, kinds, and the id of the currently-active course. Use the course ids with switch-course or goto.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-switch-course",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningSwitchCourse",
+        "displayName": "QDK Learning: Switch Course",
+        "modelDescription": "Switch the active learning course. Moves to the first incomplete activity in that course and updates the panel. Use a courseId from list-courses.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "courseId": {
+              "type": "string",
+              "description": "ID of the course to switch to (from list-courses)."
+            }
+          },
+          "required": [
+            "courseId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-course-info",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningCourseInfo",
+        "displayName": "QDK Learning: Course Info",
+        "modelDescription": "Return the descriptor (title, shortDescription, kind, environment) for a course. Defaults to the active course when no courseId is provided.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "courseId": {
+              "type": "string",
+              "description": "ID of the course. Omit for the active course."
+            }
+          },
           "required": [],
           "additionalProperties": false
         }

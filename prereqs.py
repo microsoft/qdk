@@ -18,7 +18,7 @@ rust_ver = (1, 95, 0)  # Ensure Rust version 1.95 or later is installed
 node_ver = (22, 14, 0)
 rust_fmt_ver = (1, 9, 0)  # Current version when Rust 1.95 shipped
 clippy_ver = (0, 1, 95)
-wasm_bindgen_ver = (0, 2, 114)
+wasm_bindgen_ver = (0, 2, 127)
 binaryen_ver = 123
 
 platform_sys = platform.system().lower()  # 'windows', 'darwin', or 'linux'

@@ -2,18 +2,39 @@
 // Licensed under the MIT License.
 
 import {
+  DiagnosticsPublisher,
   ILanguageService,
   VSDiagnostic,
   qsharpLibraryUriScheme,
 } from "qsharp-lang";
 import * as vscode from "vscode";
-import { qsharpLanguageId, toVsCodeDiagnostic } from "../common";
+import { isQdkDocument, qsharpLanguageId, toVsCodeDiagnostic } from "../common";
+
+/** How long after the last edit to wait before refreshing squiggles. */
+const idleDelayMs = 300;
+
+/** Upper bound on how long sustained typing can withhold a refresh. */
+const maxDelayMs = 1500;
 
 export function startLanguageServiceDiagnostics(
   languageService: ILanguageService,
 ): vscode.Disposable[] {
   const diagCollection =
     vscode.languages.createDiagnosticCollection(qsharpLanguageId);
+
+  const publisher = new DiagnosticsPublisher({
+    publish: (uri, diagnostics) =>
+      diagCollection.set(
+        vscode.Uri.parse(uri),
+        diagnostics.map((d) => toVsCodeDiagnostic(d)),
+      ),
+    schedule: (callback, delayMs) => {
+      const handle = setTimeout(callback, delayMs);
+      return () => clearTimeout(handle);
+    },
+    delayMs: idleDelayMs,
+    maxDelayMs,
+  });
 
   async function onDiagnostics(evt: {
     detail: {
@@ -30,20 +51,40 @@ export function startLanguageServiceDiagnostics(
       return;
     }
 
-    diagCollection.set(
-      uri,
-      diagnostics.diagnostics.map((d) => toVsCodeDiagnostic(d)),
-    );
+    publisher.onDiagnosticsUpdate(diagnostics.uri, diagnostics.diagnostics);
   }
 
   languageService.addEventListener("diagnostics", onDiagnostics);
+
+  // Feed edit events to the DiagnosticsPublisher
+  const diagnosticsPublisherEditTracker =
+    vscode.workspace.onDidChangeTextDocument((evt) => {
+      const uri = evt.document.uri;
+
+      if (uri.scheme === "output") {
+        // NB: this fires for output window changes, so it's very important not to cause
+        // output window changes in response (i.e. to avoid a cycle).
+        return;
+      }
+
+      // Dirty-state and encoding changes raise this event too, with no edit behind them.
+      if (evt.contentChanges.length === 0) {
+        return;
+      }
+
+      publisher.onEdit(
+        isQdkDocument(evt.document) ? uri.toString() : undefined,
+      );
+    });
 
   return [
     {
       dispose: () => {
         languageService.removeEventListener("diagnostics", onDiagnostics);
+        publisher.dispose();
       },
     },
+    diagnosticsPublisherEditTracker,
     diagCollection,
   ];
 }

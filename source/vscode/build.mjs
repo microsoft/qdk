@@ -34,6 +34,7 @@ const platformBuildOptions = {
     entryPoints: [
       join(thisDir, "src", "webview/webview.tsx"),
       join(thisDir, "src", "webview/editor.tsx"),
+      join(thisDir, "src", "webview/bloch.tsx"),
       join(thisDir, "src", "learning/webview/webview-client.tsx"),
     ],
     define: {
@@ -255,6 +256,7 @@ export async function watchVsCode() {
       join(thisDir, "src", "debugger/debug-service-worker.ts"),
       join(thisDir, "src", "webview/webview.tsx"),
       join(thisDir, "src", "webview/editor.tsx"),
+      join(thisDir, "src", "webview/bloch.tsx"),
     ],
     platform: "browser",
     outdir: join(thisDir, "out", "browser"),

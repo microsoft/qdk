@@ -99,6 +99,7 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn check_var_usage(
     program: &mut Program,
     block_id: crate::rir::BlockId,
@@ -112,6 +113,14 @@ fn check_var_usage(
             Instruction::Store(operand, variable) => {
                 if let crate::rir::Operand::Variable(var) = operand {
                     used_vars.insert(var.variable_id);
+                }
+                stored_vars.insert(variable.variable_id);
+            }
+            Instruction::StoreArray(operands, variable) => {
+                for operand in operands {
+                    if let crate::rir::Operand::Variable(var) = operand {
+                        used_vars.insert(var.variable_id);
+                    }
                 }
                 stored_vars.insert(variable.variable_id);
             }

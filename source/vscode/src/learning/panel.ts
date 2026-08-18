@@ -7,11 +7,13 @@
  * the learning feature.
  */
 
+import { log } from "qsharp-lang";
 import * as vscode from "vscode";
 import { qsharpExtensionId } from "../common.js";
 import { LEARNING_FILE, LEARNING_TREE_VIEW_ID } from "./constants.js";
+import { isNotebookCourse } from "./courseLayout.js";
 import type { LearningService } from "./service.js";
-import type { TelemetrySource } from "./types.js";
+import type { LearningState, TelemetrySource } from "./types.js";
 import type {
   HostToWebviewMessage,
   ResultAction,
@@ -48,14 +50,24 @@ export class LessonPanelManager {
   ) {}
 
   /**
+   * True when the active course is a python-notebook course. Those courses
+   * use the notebook itself as the primary surface, so the lesson panel is
+   * never shown for them.
+   */
+  private get isNotebookCourse(): boolean {
+    return (
+      this.service.initialized &&
+      isNotebookCourse(this.service.getActiveCourseInfo())
+    );
+  }
+
+  /**
    * Show or create the Lesson panel.
+   *
+   * No-op for python-notebook courses — the notebook is the primary surface
+   * there, so there is nothing for the panel to add.
    */
   async show(): Promise<void> {
-    if (this.panel) {
-      this.panel.reveal(vscode.ViewColumn.One);
-      return;
-    }
-
     const ok = await this.service.tryInitialize();
     if (!ok) {
       vscode.window.showWarningMessage(
@@ -64,20 +76,20 @@ export class LessonPanelManager {
       return;
     }
 
+    if (this.isNotebookCourse) {
+      return;
+    }
+
+    if (this.panel) {
+      this.panel.reveal(vscode.ViewColumn.One);
+      return;
+    }
+
     this.panel = vscode.window.createWebviewPanel(
       "qsharp-lesson",
       "Lesson",
       { viewColumn: vscode.ViewColumn.One, preserveFocus: false },
-      {
-        enableScripts: true,
-        enableFindWidget: true,
-        retainContextWhenHidden: true,
-        localResourceRoots: [
-          vscode.Uri.joinPath(this.extensionUri, "out"),
-          vscode.Uri.joinPath(this.extensionUri, "resources"),
-          this.service.learningContentRoot,
-        ],
-      },
+      this.getWebviewOptions(),
     );
 
     this.panel.iconPath = {
@@ -111,7 +123,17 @@ export class LessonPanelManager {
       return;
     }
 
+    if (this.isNotebookCourse) {
+      // The active course no longer uses the panel — drop the serialized one.
+      panel.dispose();
+      return;
+    }
+
     this.panel = panel;
+
+    // Restored panels predate any webview-option changes, so re-apply the
+    // current options before re-rendering.
+    this.panel.webview.options = this.getWebviewOptions();
 
     // Re-set HTML — webview resource URIs change across sessions.
     this.panel.webview.html = this.getWebviewContent(this.panel.webview);
@@ -148,10 +170,16 @@ export class LessonPanelManager {
     // Listen for state changes from the service.
     this.disposables.push(
       this.service.onDidChangeState(() => {
-        if (this.panel) {
-          this.sendState();
-          this.openCurrentCodeEditor().catch(() => {});
+        if (!this.panel) {
+          return;
         }
+        if (this.isNotebookCourse) {
+          // Switched into a course that doesn't use the panel.
+          this.panel.dispose();
+          return;
+        }
+        this.sendState();
+        this.openCurrentCodeEditor().catch(() => {});
       }),
     );
   }
@@ -160,7 +188,7 @@ export class LessonPanelManager {
     this.panel?.dispose();
     // Close any lingering code editor tabs.
     if (this.service.initialized) {
-      this.closeStaleEditorTabs(undefined).catch(() => {});
+      this.service.closeStaleEditorTabs(undefined).catch(() => {});
     }
     for (const d of this.disposables) {
       d.dispose();
@@ -179,11 +207,34 @@ export class LessonPanelManager {
     }
   }
 
+  /**
+   * The state payload to attach to a webview message, or `undefined` when
+   * there is no panel to send it to.
+   *
+   * Every message carrying state must resolve it through here, because the
+   * panel check has to happen *before* the message is built.
+   * {@link sendMessage}'s own guard runs too late: by then the state argument
+   * has already been evaluated.
+   */
+  private panelState(): LearningState | undefined {
+    if (!this.panel || !this.service.initialized) {
+      return undefined;
+    }
+    if (this.isNotebookCourse) {
+      // The panel disposes itself as soon as the service switches into a
+      // course that doesn't use it, so this is not expected to happen.
+      log.warn("The lesson panel is not used for python-notebook courses.");
+      return undefined;
+    }
+    return this.service.getState();
+  }
+
   private sendState(): void {
-    if (!this.service.initialized) {
+    const state = this.panelState();
+    if (!state) {
       return;
     }
-    this.sendMessage({ command: "state", state: this.service.getState() });
+    this.sendMessage({ command: "state", state });
   }
 
   /**
@@ -199,16 +250,12 @@ export class LessonPanelManager {
   /**
    * If the current position is an exercise or example, open the
    * corresponding .qs file in the secondary editor column.
-   * Closes any previously-opened code editor tabs that are no longer current.
    */
   private async openCurrentCodeEditor(): Promise<void> {
     if (!this.service.initialized) {
       return;
     }
     const fileUri = this.service.getCurrentCodeFileUri();
-
-    // Close stale editor tabs that don't match the current file.
-    await this.closeStaleEditorTabs(fileUri);
 
     if (fileUri) {
       // Set a left/right two-column layout so the lesson panel stays in the
@@ -224,45 +271,19 @@ export class LessonPanelManager {
     }
   }
 
-  /**
-   * Close any open editor tabs whose URI falls under the QDK Learning root
-   * that don't match {@link keepUri}.
-   * When {@link keepUri} is undefined, all code editor tabs are closed.
-   */
-  private async closeStaleEditorTabs(
-    keepUri: vscode.Uri | undefined,
-  ): Promise<void> {
-    const learningRoot = this.service.learningContentRoot.toString();
-    const keepStr = keepUri?.toString();
-
-    const staleTabs: vscode.Tab[] = [];
-    for (const group of vscode.window.tabGroups.all) {
-      for (const tab of group.tabs) {
-        if (tab.input instanceof vscode.TabInputText) {
-          const tabUriStr = tab.input.uri.toString();
-          if (tabUriStr.startsWith(learningRoot) && tabUriStr !== keepStr) {
-            staleTabs.push(tab);
-          }
-        }
-      }
-    }
-    if (staleTabs.length > 0) {
-      await vscode.window.tabGroups.close(staleTabs);
-    }
-  }
-
   private sendResult<Action extends ResultAction>(
     action: Action,
     result: ResultPayload<Action>,
   ): void {
-    if (!this.service.initialized) {
+    const state = this.panelState();
+    if (!state) {
       return;
     }
     this.sendMessage({
       command: "result",
       action,
       result,
-      state: this.service.getState(),
+      state,
     } as Extract<HostToWebviewMessage, { command: "result" }>);
   }
 
@@ -301,6 +322,12 @@ export class LessonPanelManager {
 
     if (msg.command === "focusProgress") {
       await vscode.commands.executeCommand(`${LEARNING_TREE_VIEW_ID}.focus`);
+      return;
+    }
+
+    if (msg.command === "switchCourse") {
+      await this.service.switchCourse(msg.courseId, "panel");
+      this.sendState();
       return;
     }
 
@@ -376,6 +403,27 @@ export class LessonPanelManager {
     );
   }
 
+  /**
+   * Webview options for the lesson panel.
+   *
+   * Command URIs are deliberately not enabled: the panel only renders
+   * built-in course content, so nothing needs to invoke VS Code commands
+   * from inside the webview.
+   */
+  private getWebviewOptions(): vscode.WebviewPanelOptions &
+    vscode.WebviewOptions {
+    return {
+      enableScripts: true,
+      enableFindWidget: true,
+      retainContextWhenHidden: true,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.extensionUri, "out"),
+        vscode.Uri.joinPath(this.extensionUri, "resources"),
+        this.service.learningContentRoot,
+      ],
+    };
+  }
+
   private getWebviewContent(webview: vscode.Webview): string {
     const extensionUri = this.extensionUri;
     const cspSource = webview.cspSource;
@@ -415,13 +463,14 @@ export class LessonPanelManager {
   private async checkSolutionAndSendResult(
     source?: TelemetrySource,
   ): Promise<boolean> {
-    const { result, state } = await this.service.checkSolution(source);
-    this.sendMessage({
-      command: "result",
-      action: "check",
-      result,
-      state,
-    });
+    const { result } = await this.service.checkSolution(source);
+    // Checking is async, so the panel may have gone away while it ran (a
+    // course switch disposes it). The result still goes back to the caller —
+    // there's just no webview left to render it.
+    const state = this.panelState();
+    if (state) {
+      this.sendMessage({ command: "result", action: "check", result, state });
+    }
     return result.passed;
   }
 }

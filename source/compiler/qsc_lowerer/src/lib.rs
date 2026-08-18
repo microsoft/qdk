@@ -153,6 +153,7 @@ pub struct Lowerer {
     assigner: Assigner,
     exec_graph: ExecGraphBuilder,
     fir_increment: FirIncrement,
+    parallel_count: u32,
 }
 
 impl Default for Lowerer {
@@ -173,6 +174,7 @@ impl Lowerer {
             assigner: Assigner::new(),
             exec_graph: ExecGraphBuilder::default(),
             fir_increment: FirIncrement::default(),
+            parallel_count: 0,
         }
     }
 
@@ -693,6 +695,17 @@ impl Lowerer {
                 let index = self.lower_expr(index);
                 fir::ExprKind::Index(container, index)
             }
+            hir::ExprKind::Parallel(limit, expr) => {
+                let limit = limit.as_ref().map(|l| self.lower_expr(l));
+
+                self.exec_graph
+                    .push(ExecGraphNode::ParStart(limit.is_some().into()));
+                self.parallel_count += 1;
+                let expr = self.lower_expr(expr);
+                self.exec_graph.push(ExecGraphNode::ParEnd);
+                self.parallel_count -= 1;
+                fir::ExprKind::Parallel(limit, expr)
+            }
             hir::ExprKind::Lit(lit) => lower_lit(lit),
             hir::ExprKind::Range(start, step, end) => {
                 let start = start.as_ref().map(|s| self.lower_expr(s));
@@ -708,6 +721,13 @@ impl Lowerer {
             }
             hir::ExprKind::Return(expr) => {
                 let expr = self.lower_expr(expr);
+                for _ in 0..self.parallel_count {
+                    // If we are returning from a parallel block, we need to push a ParEnd node for each
+                    // parallel block that we are returning from. This is because the ParStart node will
+                    // have been pushed for each parallel block, and we need to ensure that the execution
+                    // graph is balanced.
+                    self.exec_graph.push(ExecGraphNode::ParEnd);
+                }
                 self.exec_graph.push_ret();
                 fir::ExprKind::Return(expr)
             }
@@ -812,7 +832,8 @@ impl Lowerer {
             | fir::ExprKind::Block(..)
             | fir::ExprKind::If(..)
             | fir::ExprKind::Return(..)
-            | fir::ExprKind::While(..) => {}
+            | fir::ExprKind::While(..)
+            | fir::ExprKind::Parallel(..) => {}
 
             fir::ExprKind::Assign(..)
             | fir::ExprKind::AssignField(..)

@@ -5,6 +5,7 @@
     "lib": ["WebWorker", "ES2022"],
     "outDir": "../dist",
     "declaration": true,
+    "sourceMap": true,
     "strict": true /* enable all strict type-checking options */,
     "isolatedModules": true,
     "skipLibCheck": false /* to catch errors in the wasm-bindgen generated .d.ts */,
