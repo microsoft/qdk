@@ -1,9 +1,7 @@
-"""Skip markers for the optional backends ``qdk.ec.targets`` can drive.
+"""Skip markers for dependencies that may be absent in source environments.
 
-``qdk[ec]`` installs the analysis and authoring tooling; the simulator and
-decoder backends are a separate ``qdk[ec-backends]`` extra. Tests that need one
-of them carry the matching marker so a bare ``qdk[ec]`` install still runs a
-green suite.
+Published ``qdk[ec]`` installs MWPF, but source checkouts do not necessarily
+have the package installed. Tests that need it carry this marker.
 """
 
 from __future__ import annotations
@@ -16,11 +14,10 @@ import pytest
 def _requires(module: str) -> pytest.MarkDecorator:
     return pytest.mark.skipif(
         find_spec(module) is None,
-        reason=f"{module} is not installed (pip install 'qdk[ec-backends]')",
+        reason=f"{module} is not installed (pip install 'qdk[ec]')",
     )
 
 
 requires_mwpf = _requires("mwpf")
-requires_stim = _requires("stim")
 
-__all__ = ["requires_mwpf", "requires_stim"]
+__all__ = ["requires_mwpf"]

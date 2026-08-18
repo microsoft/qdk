@@ -1,15 +1,18 @@
+---
+description: Develop and test quantum error correction schemes with qdk.ec
+---
+
 # `qdk.ec`
 
-**Develop, test, and deploy quantum error correction schemes.**
+**Develop and test quantum error correction schemes.**
 
-Taking a quantum error correction scheme from a paper to a production pipeline
-usually means writing a bespoke simulation to convince yourself it works, and then
-coordinating with several teams to teach a compilation pipeline about it.
+Taking a quantum error correction scheme from a paper to a declarative artifact
+requires deriving checks and readouts, validating circuits, and keeping the
+results consistent as the design changes.
 
-`qdk.ec` closes that gap around one artifact: a **qodec** — a declarative
+`qdk.ec` closes that gap around one artifact: a **qodec**, a declarative
 description of a compilation pipeline together with the error correction schemes
-that lower each layer of it. Because a qodec is just data, the file you test
-against a local simulator is the file you hand to the compilation pipeline.
+that lower each layer of it.
 
 The [`qodec`](https://github.com/microsoft/qodec) package owns that representation:
 codes, instruction sets, gadgets, and lowering layers. `qdk.ec` operates directly
@@ -21,8 +24,7 @@ the Pauli/Clifford algebra and exact stabilizer simulation underneath.
 `qdk.ec` is an optional extra of the `qdk` package:
 
 ```bash
-pip install "qdk[ec]"               # authoring and analysis
-pip install "qdk[ec,ec-backends]"   # ... plus the stim / mwpf backends
+pip install "qdk[ec]"
 ```
 
 `qdk.ec` is never imported by `import qdk`, so a plain install pays nothing for it.
@@ -47,7 +49,7 @@ preserves authored flag bindings, and returns a new `qodec.Gadget` without mutat
 the draft. `complete_qodec` does the same for every gadget of every layer.
 
 If you are starting from a bare stabilizer code rather than a draft qodec,
-`qodec_from_code` synthesizes the whole artifact — a logical instruction set and a
+`qodec_from_code` synthesizes the whole artifact: a logical instruction set and a
 verified circuit behind each of its instructions:
 
 ```python
@@ -64,90 +66,35 @@ qodec = qodec_from_code(code)
 print(sorted(qodec.layers[0].gadgets))    # idle, measure_x, measure_z, prepare_x, ...
 print(synthesis_notes(qodec)["omitted"])  # anything that could not be synthesized
 ```
+
 Every synthesized gadget is completed *and* verified against the action it declares,
 so an instruction ships only if its circuit provably implements it. Syndrome
-extraction uses flag qubits, so the artifact inherits the code's distance rather
-than losing it to hook errors; pass `verify_distance=True` to have that measured
-and enforced.
+extraction uses flag qubits to catch hook errors that would otherwise propagate
+from an ancilla onto multiple data qubits.
 
 ### Test
 
-One module per question computes typed facts about a qodec — `action`, `checks`,
+One module per question computes typed facts about a qodec: `action`, `checks`,
 `code`, `distance`, `faults`, `readouts`. `qdk.ec.equivalence` compares two
 artifacts, and `qdk.ec.lint` applies expectations and produces policy-bearing
 diagnostics.
 
 ```python
 import qdk.ec as ec
-from qdk.ec import action, equivalence, lint, targets
+from qdk.ec import action, distance, equivalence, lint
 
 qodec = ec.load_yaml("protocol.qodec.yaml")
 gadget = qodec.layers[0].gadgets["idle"]
+code = next(iter(qodec.codes.values()))
 
 expected = action.declared_action_of(gadget)
 actual = action.realized_action_of(gadget)
 report = lint.diagnose(qodec)
-
-distance, witness = targets.gadget_distance_of(gadget, targets.depolarizing(0.001))
+code_distance, witness = distance.code_distance_of(code)
 ```
 
 Diagnostics carry stable rule IDs, severities, locations, summaries, and details.
 Structural errors prevent dependent semantic rules from running.
-
-### Deploy
-
-`qdk.ec.targets` evaluates, adapts, and executes qodec programs under external
-assumptions. Exact noiseless propagation used for intrinsic discovery is internal
-to the profiling modules; target simulation is reserved for noise, shots, and
-backend semantics.
-
-```python
-import qodec as qc
-from qodec.circuits import Program
-
-import qdk.ec as ec
-from qdk.ec import targets
-
-qodec = ec.load_yaml("protocol.qodec.yaml")
-program = Program(
-    [
-        qc.instructions.InstructionCall("prepare", outputs={"0": "q"}),
-        qc.instructions.InstructionCall("measure", inputs={"0": "q"}),
-    ],
-    qodec.layers[0].isa,
-)
-
-sampler = targets.StimSampler(qodec, noise={"p_data": 0.001, "p_meas": 0.001})
-batch = sampler.execute(program, shots=100_000)
-```
-
-### Running an existing program under a qodec
-
-You do not have to write a qodec program by hand to use one. Pass a qodec to
-`qdk.simulation.run_qir` and an ordinary QIR program — compiled from Q#, OpenQASM,
-or anything else — runs with its qubits encoded, its logical outcomes decoded back
-into ordinary results:
-
-```python
-import qdk
-import qdk.ec as ec
-from qdk import qsharp
-from qdk.simulation import NoiseConfig, run_qir
-
-qsharp.init(target_profile=qdk.TargetProfile.Adaptive)
-qir = qsharp.compile("{ use q = Qubit(); X(q); MResetZ(q) }")
-
-noise = NoiseConfig()
-noise.x.x = 0.05
-
-qodec = ec.load_yaml("c4.qodec.yaml")
-run_qir(qir, shots=100, type="clifford", noise=noise, qodec=qodec)
-```
-
-Shots in which the code detected an error are discarded, so fewer than `shots`
-results may come back — that is what an error-*detecting* code buys. See
-`qdk.ec.targets.run_qir_encoded` for the full options and
-`encodable_gates_of(qodec)` for what a given qodec can express.
 
 ## Layout
 
@@ -166,61 +113,42 @@ qdk/ec/
 ├── readouts.py          what measurement outcomes mean
 ├── equivalence.py       does one artifact match another?
 ├── lint/                rules, diagnostics, reports, diagnose()
-├── _analysis/           private engines (propagation, algebra, solvers)
-└── targets/
-    ├── model.py         target fault-model boundary
-    ├── distance.py      target-conditioned and circuit-level distance
-    ├── dem.py           target-conditioned detector error models
-    ├── compilers/       lowering and relocation
-    ├── deq/             decoded execution and qodec/deq interchange
-    ├── qir.py           run an ordinary QIR program under a qodec
-    ├── stim.py
-    ├── qdk_sim.py
-    └── paulimer.py
+└── _analysis/           private engines (propagation, algebra, solvers)
 ```
 
 The dependency direction is:
 
 ```text
-qodec + paulimer
-        |
-    _analysis
-        |
+qodec + paulimer + binar + mwpf
+                 |
+             _analysis
+                 |
   profiling modules (action, checks, code, distance, faults, readouts)
-   /         |          \
-develop   equivalence   targets
-functions  + lint          |
-                    target model + backend
-
-qodec -> targets.compilers -> targets.{stim, qdk_sim, deq}
+                 |
+       develop functions + equivalence + lint
 ```
 
 Public functions accept qodec objects directly. `qodec.Code` is the public code
 type; code characteristics such as syndrome, logical effect, and an encoding
 Clifford live in `qdk.ec.code`, with distance in `qdk.ec.distance`.
 
-## Optional backends
+## Dependencies
 
-The `ec` extra installs the qodec-facing profiling and linting surface. Backend
-and solver dependencies are isolated:
+The `ec` extra installs the qodec object model, Pauli and binary algebra,
+collection helpers, and the MWPF solver used by distance bounds:
 
-- `stim` — stim emission, sampling, and target-conditioned detector error models
-- `mwpf` — MWPF-backed distance bounds
-- `deq` — decoded execution and deq interchange (not published to PyPI)
-
-`qdk.ec` passes decoder configuration through to `deq`. It does not define a
-decoder protocol or wrap individual decoder implementations.
+* `qodec`
+* `paulimer`
+* `binar`
+* `more-itertools`
+* `mwpf`
 
 ## Examples
 
-[`samples/notebooks/qdk_ec/qdk_ec_simple_demo.ipynb`](../../../../samples/notebooks/qdk_ec/qdk_ec_simple_demo.ipynb)
-is the shortest introduction: one program run noiseless, noisy, and noisy with
-error correction applied.
-
 [`samples/notebooks/qdk_ec/qdk_ec_walkthrough.ipynb`](../../../../samples/notebooks/qdk_ec/qdk_ec_walkthrough.ipynb)
-walks the whole lifecycle on the [[4,2,2]] error-detecting code.
+walks through authoring, profiling, completion, and linting on the [[4,2,2]]
+error-detecting code.
 
 [`samples/notebooks/qdk_ec/qodec_from_code.ipynb`](../../../../samples/notebooks/qdk_ec/qodec_from_code.ipynb)
-takes the Steane code from a list of stabilizers to a sampled memory experiment
-with `qodec_from_code`, without writing a circuit by hand, and measures that the
-result really does inherit the code's distance.
+takes the Steane code from a list of stabilizers to a complete qodec with
+`qodec_from_code`, without writing a circuit by hand.

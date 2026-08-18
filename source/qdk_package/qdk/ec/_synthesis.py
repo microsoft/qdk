@@ -33,13 +33,8 @@ such fault announce itself. This is the ``t``-flag construction of Chamberland &
 Beverland (arXiv:1708.02246), whose ``t = 1`` case is Chao & Reichardt's
 two-extra-qubit circuit for distance-3 codes (arXiv:1705.02329).
 
-The default ``t`` is ``(d - 1) // 2`` for a code of distance ``d``. The
-resulting artifact inherits the code's protection: for the Steane and rotated
-surface codes, ``qdk.ec.targets.circuit_distance_of`` measures a compiled memory
-experiment at distance 3, matching the codes, where the unflagged circuit
-measures 2. Pass ``flags=0`` to get that naive circuit deliberately, and
-``verify_distance=True`` to have synthesis measure the finished artifact and
-refuse one that falls short.
+The default ``t`` is ``(d - 1) // 2`` for a code of distance ``d``. Pass
+``flags=0`` to synthesize the naive, non-fault-tolerant circuit deliberately.
 
 Checks and readouts are *not* hand-derived: each synthesized gadget is a draft
 that :func:`~qdk.ec._completion.complete_gadget` finishes by exact
@@ -78,9 +73,7 @@ Rather than guess which case applies, :func:`qodec_from_code` keeps only the
 instructions whose gadgets complete *and* verify, and records every omission
 with its reason under the returned qodec's
 ``metadata["qdk.ec"]["synthesis"]["omitted"]`` (see :func:`synthesis_notes`).
-Pass ``strict=True`` to turn any omission into an exception instead, and
-``verify_distance=True`` to additionally hold the finished artifact to the
-code's distance.
+Pass ``strict=True`` to turn any omission into an exception instead.
 """
 
 from __future__ import annotations
@@ -572,9 +565,7 @@ def _rebound(gadget: qc.Gadget, instruction: Instruction) -> qc.Gadget:
 def memory_program(qodec: qc.Qodec, *, rounds: int = 1) -> "Program":
     """The standard memory experiment over a synthesized ``qodec``.
 
-    ``prepare_z``, then ``rounds`` of ``idle``, then ``measure_z`` — the
-    circuit whose fault distance should equal the code distance, and the one
-    :func:`~qdk.ec.targets.circuit_distance_of` is meant to score.
+    ``prepare_z``, then ``rounds`` of ``idle``, then ``measure_z``.
 
     Raises :class:`ValueError` if ``qodec`` lacks any of those instructions,
     which is what happens when synthesis had to omit them.
@@ -613,7 +604,6 @@ def qodec_from_code(
     name: Optional[str] = None,
     description: Optional[str] = None,
     flags: Optional[int] = None,
-    verify_distance: bool = False,
     strict: bool = False,
 ) -> qc.Qodec:
     """Synthesize a runnable qodec that implements ``code``.
@@ -641,14 +631,6 @@ def qodec_from_code(
         Chamberland & Beverland's ``t``-flag construction calls for; this costs
         one distance computation. Pass ``0`` for the naive, non-fault-tolerant
         circuit, or an explicit count to skip the distance computation.
-    verify_distance:
-        When ``True``, lower a memory experiment through the finished qodec and
-        measure its fault distance with
-        :func:`~qdk.ec.targets.circuit_distance_of`, raising if it falls short
-        of the code distance. This turns the package's central promise — that
-        the artifact inherits the code's protection — into a checked property
-        rather than an assumption. Requires the ``stim`` backend, and costs a
-        circuit-distance search.
     strict:
         When ``True``, raise if any instruction's gadget fails to complete or
         to verify. When ``False`` (the default) such instructions are omitted
@@ -681,8 +663,6 @@ def qodec_from_code(
         flags = max(0, (code_distance - 1) // 2)
     elif flags < 0:
         raise ValueError(f"flags must be non-negative; got {flags}")
-    else:
-        code_distance = None
 
     physical = _physical_isa()
     block = Block(resolved_name, encodes=logical_count)
@@ -776,26 +756,6 @@ def qodec_from_code(
         ),
         metadata=metadata,
     )
-
-    if verify_distance:
-        from .targets.distance import circuit_distance_of
-
-        if code_distance is None:
-            code_distance, _ = code_distance_of(code)
-        measured = circuit_distance_of(
-            built, memory_program(built), max_weight=max(4, code_distance + 2)
-        )
-        notes = metadata[_METADATA_KEY]["synthesis"]  # type: ignore[index]
-        notes["code_distance"] = code_distance  # type: ignore[index]
-        notes["circuit_distance"] = measured  # type: ignore[index]
-        built.metadata = metadata
-        if measured < code_distance:
-            raise ValueError(
-                f"synthesized qodec for {resolved_name!r} has circuit distance "
-                f"{measured}, short of the code distance {code_distance}; the "
-                f"artifact would not deliver the protection the code promises "
-                f"(flags_per_stabilizer={flags})"
-            )
 
     return built
 

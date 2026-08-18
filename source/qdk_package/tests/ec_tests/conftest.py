@@ -13,9 +13,8 @@ from importlib.util import find_spec
 
 import pytest
 
-#: Third-party modules every ``qdk.ec`` test needs. Backend-specific extras
-#: (``stim``, ``mwpf``, ``deq``) are skipped per-module by the tests that use
-#: them.
+#: Third-party modules every ``qdk.ec`` test needs. MWPF-backed tests carry a
+#: per-test skip marker for source environments where it is not installed.
 _REQUIRED = ("hypothesis", "numpy", "paulimer", "qodec")
 
 _MISSING = [name for name in _REQUIRED if find_spec(name) is None]

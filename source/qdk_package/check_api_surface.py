@@ -183,7 +183,7 @@ _UNRESOLVED_WARNED: set[str] = set()
 def _lazy_getattr(mod: types.ModuleType, mod_name: str, sym_name: str):
     """``getattr`` that tolerates a lazy module attribute failing to resolve.
 
-    Modules with a lazy ``__getattr__`` (e.g. ``qdk.ec.targets``) import an
+    Modules with a lazy ``__getattr__`` import an
     optional backend on first attribute access. When that backend is not
     installed the access raises rather than returning ``None``; such a symbol
     simply cannot be scanned, so it is reported once and skipped.
