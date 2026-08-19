@@ -165,11 +165,10 @@ export class LearningService {
     return this.requireWorkspace().workspaceRoot;
   }
 
-  async getJupyterEnvironmentPath(): Promise<
-    { id: string; path: string } | undefined
-  > {
+  async getJupyterEnvironmentPath(
+    courseId: string,
+  ): Promise<{ id: string; path: string } | undefined> {
     const ws = this.requireWorkspace();
-    const courseId = ws.progressData.position.courseId;
     const saved = ws.progressData.pythonEnvironments[courseId];
     if (saved) {
       if (await uriExists(vscode.Uri.file(saved.path))) {
