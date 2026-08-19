@@ -66,12 +66,54 @@ results = run("BellPair()", shots=1000, noise=(0.005, 0.0, 0.0))
 Histogram(results)
 ```
 
+## OpenQASM parsing and analysis
+
+The preview `qdk.openqasm.parser` and `qdk.openqasm.semantic` modules expose
+read-only syntax and semantic trees. `parse` is recovery-oriented and returns
+diagnostics on its result rather than raising; `analyze` additionally resolves
+symbols, checks types, and evaluates constants. Node, symbol, and diagnostic
+spans are global, half-open UTF-8 byte ranges resolved through the immutable
+document the result owns.
+
+```python
+from qdk.openqasm import analyze, dumps, parse
+
+parsed = parse(
+    'OPENQASM 3.0; include "defs.inc"; qubit q; local q;',
+    path="memory://workspace/main.qasm",
+    includes={"memory://workspace/defs.inc": "gate local q { x q; }"},
+)
+assert not parsed.has_errors
+assert parsed.program.document is parsed.document
+assert dumps(parsed.program).startswith("OPENQASM 3.0;")
+
+analysis = analyze("OPENQASM 3.0; int value = missing;")
+assert analysis.has_errors
+diagnostic = analysis.diagnostics[0]
+source_range = analysis.document.source_map.range_from_span(diagnostic.labels[0].span)
+assert source_range.source_id == analysis.document.entry.id
+```
+
+Both trees compare and hash structurally, ignoring source position and the
+document a node came from, so the same construct written twice compares equal.
+Resolved types and constant values are structured nodes rather than strings, so
+dispatch over them with `isinstance`. `QASMVisitor` walks either tree, and
+`dumps` writes canonical source for a whole syntactic program. Most class names
+appear in both layers, so `parser.SyntaxNode` and `semantic.SemanticNode` answer
+which tree a value came from.
+
+These APIs are in preview and may change between QDK releases. Run
+`help(qdk.openqasm.parser)` and `help(qdk.openqasm.semantic)` for the full
+contracts, including include resolution, the shared-class exception, the
+canonical format's guarantees, and the visitor's context protocol.
+
 ## Public API Surface
 
 Submodules:
 
 - `qdk.qsharp` – Q# interpreter functions: `init`, `eval`, `run`, `compile`, `circuit`, `estimate`, `dump_machine`, `dump_circuit`, `dump_operation`, and related types.
-- `qdk.openqasm` – OpenQASM compilation and execution.
+- `qdk.openqasm` – OpenQASM compilation, execution, parsing, semantic analysis,
+  source navigation, visitors, and canonical serialization.
 - `qdk.estimator` – resource estimation utilities.
 - `qdk.simulation` – noise-aware simulation utilities: `NeutralAtomDevice`, `NoiseConfig`, `run_qir`, `DensityMatrixSimulator`, `StateVectorSimulator`, and related types.
 - `qdk.code` – dynamic namespace populated at runtime with user-defined Q# and OpenQASM callables.

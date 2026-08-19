@@ -13,16 +13,15 @@ use crate::{
     fs::file_system,
     generic_estimator::register_generic_estimator_submodule,
     interop::{
-        circuit_qasm_program, compile_qasm_program_to_qir, compile_qasm_to_qsharp,
         compile_stim_to_qir, create_filesystem_from_py, get_operation_name, get_output_semantics,
-        get_program_type, get_search_path, resource_estimate_qasm_program, run_qasm_program,
-        sanitize_name,
+        get_program_type, get_search_path, sanitize_name,
     },
     interpreter::data_interop::{
         PrimitiveKind, TypeIR, TypeKind, UdtFields, UdtIR, UdtValue, collect_udt_fields,
         pyobj_to_value, type_ir_from_qsharp_ty, value_to_pyobj,
     },
     noisy_simulator::register_noisy_simulator_submodule,
+    openqasm::register_openqasm_types,
     qir_simulation::{
         IdleNoiseParams, LossPolicy, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{
@@ -107,6 +106,8 @@ fn verify_classes_are_sendable() {
     is_send::<NoiseTable>();
     is_send::<IdleNoiseParams>();
     is_send::<LossPolicy>();
+
+    crate::openqasm::verify_interop_struct_traits();
 }
 
 #[pymodule]
@@ -149,16 +150,11 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     register_noisy_simulator_submodule(py, m)?;
     register_generic_estimator_submodule(m)?;
     register_qre_submodule(m)?;
-    // QASM interop
-    m.add("QasmError", py.get_type::<QasmError>())?;
     m.add("StimError", py.get_type::<StimError>())?;
-    m.add_function(wrap_pyfunction!(resource_estimate_qasm_program, m)?)?;
-    m.add_function(wrap_pyfunction!(run_qasm_program, m)?)?;
-    m.add_function(wrap_pyfunction!(circuit_qasm_program, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_qasm_program_to_qir, m)?)?;
-    m.add_function(wrap_pyfunction!(compile_qasm_to_qsharp, m)?)?;
     m.add_function(wrap_pyfunction!(compile_stim_to_qir, m)?)?;
     m.add_function(wrap_pyfunction!(compile_visual_circuit_to_qsharp, m)?)?;
+    // QASM interop
+    register_openqasm_types(py, m)?;
     Ok(())
 }
 
@@ -271,21 +267,19 @@ impl From<TargetProfile> for Profile {
 #[derive(Clone, Copy, Default, PartialEq)]
 #[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
 #[allow(non_camel_case_types)]
-/// Represents the output semantics for OpenQASM 3 compilation.
-/// Each has implications on the output of the compilation
-/// and the semantic checks that are performed.
+/// Controls which classical values a compiled OpenQASM program returns.
+///
+/// The selected mode also controls the semantic checks applied to output
+/// declarations.
 pub(crate) enum OutputSemantics {
-    /// The output is in Qiskit format meaning that the output
-    /// is all of the classical registers, in reverse order
-    /// in which they were added to the circuit with each
-    /// bit within each register in reverse order.
+    /// Returns all classical registers in reverse declaration order, with the
+    /// bits in each register also reversed to match Qiskit conventions.
     #[default]
     Qiskit,
-    /// [OpenQASM 3 has two output modes](https://openqasm.com/language/directives.html#input-output)
-    /// - If the programmer provides one or more `output` declarations, then
-    ///     variables described as outputs will be returned as output.
-    ///     The spec make no mention of endianness or order of the output.
-    /// - Otherwise, assume all of the declared variables are returned as output.
+    /// Follows `OpenQASM 3 output semantics
+    /// <https://openqasm.com/language/directives.html#input-output>`_: returns
+    /// variables declared as ``output``, or all declared classical variables when
+    /// the program has no explicit outputs.
     OpenQasm,
     /// No output semantics are applied. The entry point returns `Unit`.
     ResourceEstimation,
@@ -335,21 +329,19 @@ impl From<OutputSemantics> for qsc::openqasm::OutputSemantics {
 #[derive(Clone, Copy, Default, PartialEq)]
 #[pyclass(eq, eq_int, from_py_object, module = "qdk._native")]
 #[allow(non_camel_case_types)]
-/// Represents the type of compilation output to create
+/// Controls how OpenQASM source is introduced into a Q# context.
 pub enum ProgramType {
-    /// Creates an operation in a namespace as if the program is a standalone
-    /// file. Inputs are lifted to the operation params. Output are lifted to
-    /// the operation return type. The operation is marked as `@EntryPoint`
-    /// as long as there are no input parameters.
+    /// Treats the source as a stand-alone program. The generated operation takes
+    /// declared classical inputs as parameters, allocates declared qubits
+    /// internally, and returns declared outputs. It is marked as an entry point
+    /// when it has no input parameters.
     #[default]
     File,
-    /// Programs are compiled to a standalone function. Inputs are lifted to
-    /// the operation params. Output are lifted to the operation return type.
+    /// Creates a callable operation whose parameters include declared classical
+    /// inputs and qubits, and whose return value contains declared outputs.
     Operation,
-    /// Creates a list of statements from the program. This is useful for
-    /// interactive environments where the program is a list of statements
-    /// imported into the current scope.
-    /// This is also useful for testing individual statements compilation.
+    /// Evaluates the source as interactive fragments, adding its declarations to
+    /// the current scope and returning the value of its final statement.
     Fragments,
 }
 
@@ -1256,7 +1248,7 @@ create_exception!(
     module,
     QasmError,
     pyo3::exceptions::PyException,
-    "An error returned from the OpenQASM parser."
+    "An error raised while parsing, analyzing, compiling, or running OpenQASM."
 );
 
 create_exception!(
