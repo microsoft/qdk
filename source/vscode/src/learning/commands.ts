@@ -271,7 +271,33 @@ async function openCourseNotebook(
     log.warn("No notebook associated with the current position.");
     return;
   }
-  const cellId = service.getCurrentExerciseCellId();
+
+  let opened = false;
+
+  // Try to open via the Jupyter extension's unstable API so the course's
+  // Python environment is automatically set as the active kernel.
+  try {
+    const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
+    const api = await jupyter?.activate();
+    if (api && typeof api.openNotebook === "function") {
+      const envPath = await service.getJupyterEnvironmentPath();
+      if (envPath) {
+        await api.openNotebook(notebookUri, envPath);
+        opened = true;
+      } else {
+        log.info("Didn't find a course virtual environment to use in notebook");
+      }
+    }
+    if (!opened) {
+      log.warn(
+        "Jupyter openNotebook API is not available; falling back to generic open.",
+      );
+    }
+  } catch (e) {
+    log.warn(
+      `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
+    );
+  }
 
   await vscode.commands.executeCommand(
     "vscode.openWith",
@@ -279,6 +305,8 @@ async function openCourseNotebook(
     "jupyter-notebook",
     { viewColumn: vscode.ViewColumn.Active, preview: false },
   );
+
+  const cellId = service.getCurrentExerciseCellId();
 
   if (options?.reveal === "top") {
     revealNotebookTop(notebookUri);

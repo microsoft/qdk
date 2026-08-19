@@ -94,45 +94,45 @@ async function getPythonEnvsApi(): Promise<PythonEnvironmentApi | undefined> {
   }
 }
 
-function isInWorkspaceRoot(env: PythonEnvironment, root: vscode.Uri): boolean {
+function isEnvInFolder(env: PythonEnvironment, folder: vscode.Uri): boolean {
   const envStr = vscode.Uri.file(env.sysPrefix).toString();
-  const rootStr = root.toString();
-  return envStr.startsWith(rootStr + "/");
+  const folderStr = folder.toString();
+  return envStr.startsWith(folderStr + "/");
 }
 
-// Look for an environment in the workspace root.
-// Prefer the active environment if it's in the root.
-async function getWorkspaceRootEnv(
+// Find a venv whose sysPrefix is in the given folder.
+// Prefer the active environment if it qualifies.
+async function getEnvInFolder(
   api: PythonEnvironmentApi,
-  root: vscode.Uri,
+  folder: vscode.Uri,
 ): Promise<PythonEnvironment | undefined> {
-  log.trace(`Searching for existing venvs in ${root.fsPath}`);
+  log.trace(`Searching for existing venvs in ${folder.fsPath}`);
 
-  await api.refreshEnvironments(root);
+  await api.refreshEnvironments(folder);
 
   // This can return the global environment, for example, so we have to check
-  // whether it's actually
-  const activeEnv = await api.getEnvironment(root);
-  if (activeEnv && isInWorkspaceRoot(activeEnv, root)) {
+  // whether it's actually in the folder.
+  const activeEnv = await api.getEnvironment(folder);
+  if (activeEnv && isEnvInFolder(activeEnv, folder)) {
     log.trace(`Preferring active venv in ${activeEnv.environmentPath.fsPath}`);
     return activeEnv;
   }
 
-  const allEnvs = await api.getEnvironments(root);
-  const matchingEnvs = allEnvs.filter((env) => isInWorkspaceRoot(env, root));
+  const allEnvs = await api.getEnvironments(folder);
+  const matchingEnvs = allEnvs.filter((env) => isEnvInFolder(env, folder));
   if (matchingEnvs.length == 0) {
-    log.trace(`Found no venvs in ${root.fsPath}`);
+    log.trace(`Found no venvs in ${folder.fsPath}`);
     return undefined;
   }
 
   if (matchingEnvs.length > 1) {
     log.warn(
-      `Found multiple venvs in ${root.fsPath} - using ${matchingEnvs[0].environmentPath}`,
+      `Found multiple venvs in ${folder.fsPath} - using ${matchingEnvs[0].environmentPath}`,
     );
   }
 
   log.trace(
-    `Found existing venv in ${root.fsPath} - using ${matchingEnvs[0].environmentPath}`,
+    `Found existing venv in ${folder.fsPath} - using ${matchingEnvs[0].environmentPath}`,
   );
   return matchingEnvs[0];
 }
@@ -157,19 +157,29 @@ function getActiveWorkspaceRoot(): vscode.Uri | undefined {
   return result;
 }
 
-export async function getExistingQuantumVenv(): Promise<
-  vscode.Uri | undefined
-> {
+export async function getVenvInFolder(
+  folder: vscode.Uri,
+): Promise<{ id: string; path: string } | undefined> {
   const api = await getPythonEnvsApi();
   if (!api) {
     return undefined;
   }
+  const env = await getEnvInFolder(api, folder);
+  if (!env || !isEnvInFolder(env, folder)) {
+    return undefined;
+  }
+  return { id: env.envId.id, path: env.environmentPath.fsPath };
+}
+
+export async function getExistingQuantumVenv(): Promise<
+  vscode.Uri | undefined
+> {
   const root = getActiveWorkspaceRoot();
   if (!root) {
     return undefined;
   }
-  const env = await getWorkspaceRootEnv(api, root);
-  return env?.environmentPath;
+  const info = await getVenvInFolder(root);
+  return info ? vscode.Uri.file(info.path) : undefined;
 }
 
 export async function createQuantumVenv(): Promise<{ action: string }> {
@@ -192,7 +202,7 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
     selectedPackages.map((item) => item.label),
   );
 
-  const existingEnv = await getWorkspaceRootEnv(api, root);
+  const existingEnv = await getEnvInFolder(api, root);
   if (existingEnv) {
     // Copilot should already have confirmed that the user is willing to update
     // the existing workspace
@@ -254,7 +264,7 @@ export async function createQuantumVenvForCommand(): Promise<void> {
     root = picked.uri;
   }
 
-  const existingEnv = await getWorkspaceRootEnv(api, root);
+  const existingEnv = await getEnvInFolder(api, root);
   if (existingEnv) {
     const choice = await vscode.window.showQuickPick(
       ["Update existing environment", "Cancel"],

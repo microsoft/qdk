@@ -5,6 +5,7 @@ import { log } from "qsharp-lang";
 import { getExerciseSources } from "qsharp-lang/katas-md";
 import * as vscode from "vscode";
 import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
+import { getVenvInFolder } from "../pythonEnvs.js";
 import { ProgramRunStatus, runProgram } from "../run.js";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
 import { createCourseProvider, toDescriptor } from "./courseProvider.js";
@@ -127,6 +128,7 @@ export class LearningService {
   readonly onDidChangeProgress = this._onDidChangeProgress.event;
 
   private _progressFileWatcher: vscode.FileSystemWatcher | undefined;
+  private _jupyterEnvSubscription: vscode.Disposable | undefined;
   private _writingProgress = false;
   private _initPromise: Promise<boolean> | undefined;
   /** Whether {@link _initPromise} was started with `createIfMissing`. */
@@ -161,6 +163,18 @@ export class LearningService {
   /** The workspace folder that owns the learning content. */
   get workspaceFolder(): vscode.Uri {
     return this.requireWorkspace().workspaceRoot;
+  }
+
+  async getJupyterEnvironmentPath(): Promise<
+    { id: string; path: string } | undefined
+  > {
+    const ws = this.requireWorkspace();
+    const courseId = ws.progressData.position.courseId;
+    const saved = ws.progressData.pythonEnvironments[courseId];
+    if (saved) {
+      return saved;
+    }
+    return await getVenvInFolder(ws.workspaceRoot);
   }
 
   /**
@@ -255,6 +269,7 @@ export class LearningService {
     this._onDidChangeState.dispose();
     this._onDidChangeProgress.dispose();
     this._progressFileWatcher?.dispose();
+    this._jupyterEnvSubscription?.dispose();
     for (const d of this._disposables) {
       d.dispose();
     }
@@ -1617,6 +1632,7 @@ export class LearningService {
     }
 
     ws.progressData = parsed as ProgressFileData;
+    ws.progressData.pythonEnvironments ??= {};
 
     // Validate saved position references a known course, unit, and activity.
     // Accept the passed-in default if they're not valid.
@@ -1672,10 +1688,16 @@ export class LearningService {
       },
       completions: {},
       startedAt: new Date().toISOString(),
+      pythonEnvironments: {},
     };
   }
 
   private async saveProgress(): Promise<void> {
+    await this.writeProgressFile();
+    this.emitProgress();
+  }
+
+  private async writeProgressFile(): Promise<void> {
     const ws = this.requireWorkspace();
     const json = JSON.stringify(ws.progressData, null, 2);
     this._writingProgress = true;
@@ -1694,7 +1716,6 @@ export class LearningService {
     } finally {
       this._writingProgress = false;
     }
-    this.emitProgress();
   }
 
   async reloadProgress(): Promise<void> {
@@ -1774,6 +1795,56 @@ export class LearningService {
     this._progressFileWatcher.onDidDelete(onDelete);
 
     this.emitProgress();
+    void this.startJupyterEnvWatcher();
+  }
+
+  private async startJupyterEnvWatcher(): Promise<void> {
+    if (this._jupyterEnvSubscription) {
+      return;
+    }
+    try {
+      const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
+      const api = await jupyter?.activate();
+      if (!api?.onDidChangePythonEnvironment || !api?.getPythonEnvironment) {
+        return;
+      }
+      this._jupyterEnvSubscription = api.onDidChangePythonEnvironment(
+        (uri: vscode.Uri) => {
+          void this.onJupyterEnvChanged(api, uri);
+        },
+      );
+    } catch {
+      log.info("Jupyter extension not available; skipping kernel watch.");
+    }
+  }
+
+  private async onJupyterEnvChanged(
+    jupyterApi: {
+      getPythonEnvironment(
+        uri: vscode.Uri,
+      ): { id: string; path: string } | undefined;
+    },
+    uri: vscode.Uri,
+  ): Promise<void> {
+    if (!this.workspace) {
+      return;
+    }
+    const resolved = this.resolveWorkbookLocation(uri);
+    if (!resolved) {
+      return;
+    }
+    const env = jupyterApi.getPythonEnvironment(uri);
+    if (!env) {
+      return;
+    }
+    const { id, path } = env;
+    const { course } = resolved;
+    const existing = this.workspace.progressData.pythonEnvironments[course.id];
+    if (existing?.id === id && existing?.path === path) {
+      return;
+    }
+    this.workspace.progressData.pythonEnvironments[course.id] = { id, path };
+    await this.writeProgressFile();
   }
 
   private emitProgress(): void {
