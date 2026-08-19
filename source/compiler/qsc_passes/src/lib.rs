@@ -316,7 +316,7 @@ pub fn run_rca_for_callable(
     capabilities: TargetCapabilityFlags,
 ) -> Vec<Error> {
     let package = fir_store.get(callable.package);
-    let package_compute_properties = compute_properties.get(callable.package);
+    let package_compute_properties = compute_properties.get(callable.package, false);
     let capabilities_errors = check_supported_capabilities_for_callable(
         package,
         package_compute_properties,
