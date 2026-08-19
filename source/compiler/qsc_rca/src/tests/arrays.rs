@@ -375,7 +375,7 @@ fn check_rca_for_mutable_array_assign_index_in_dynamic_context() {
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicArray)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -400,7 +400,7 @@ fn check_rca_for_mutable_array_assign_index_dynamic_content_in_dynamic_context()
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );
@@ -425,7 +425,7 @@ fn check_rca_for_mutable_array_assign_index_dynamic_nested_array_content_in_dyna
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicallySizedArray | QubitAllocation)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicArray | QubitAllocation)
                     value_kind: Variable
                 dynamic_param_applications: <empty>"#]],
     );

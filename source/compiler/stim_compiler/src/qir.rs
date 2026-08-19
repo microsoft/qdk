@@ -4,11 +4,13 @@
 #[cfg(test)]
 mod tests;
 
-use crate::parser::*;
-use miette::Diagnostic;
 use qdk_simulators::noise_config::{
     LossPolicy, NoiseConfig, NoiseTable, PauliAndLossString, encode_pauli,
 };
+
+use crate::parser::*;
+use Pauli::{X, Y, Z};
+use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::FxHashMap;
 use std::fmt::Write;
@@ -480,6 +482,12 @@ pub enum Error {
     #[error("a REPEAT count of zero is not supported")]
     #[diagnostic(code("Qdk.Stim.Compiler.ZeroRepeatCount"))]
     ZeroRepeatCount {
+        #[label]
+        span: Span,
+    },
+    #[error("Pauli product must be Hermitian")]
+    #[diagnostic(code("Qdk.Stim.Compiler.AntiHermitianPauliProduct"))]
+    AntiHermitianPauliProduct {
         #[label]
         span: Span,
     },
@@ -1334,7 +1342,17 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Generalized Pauli Product Gates
-            "MPP" | "SPP" | "SPP_DAG" => self.unsupported(instruction),
+            "MPP" => self.broadcast_pauli_product(instruction, |s, q, invert| {
+                s.op_measure("m", q, invert);
+            }),
+            "SPP" | "SPP_DAG" => self.broadcast_pauli_product(instruction, |s, q, negated| {
+                let invert = (instruction.name == "SPP_DAG") ^ negated;
+                if invert {
+                    s.op_adj("s", q);
+                } else {
+                    s.op("s", q);
+                }
+            }),
 
             // Control Flow
             "REPEAT" | "SELECT" => self.push_error(Error::InstructionWithoutBlock {
@@ -1410,6 +1428,28 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         self.for_each_qubit(instruction, |s, q| noise(s, q, probability));
+    }
+
+    fn broadcast_pauli_product(
+        &mut self,
+        instruction: &Instruction,
+        mut f: impl FnMut(&mut Self, u32, bool),
+    ) {
+        self.unsupported_args(instruction);
+        for target in &instruction.targets {
+            let Some(factors) = self.expect_pauli_targets(instruction, target) else {
+                continue;
+            };
+            let Some((factors, negated)) =
+                self.canonicalize_pauli_product(instruction, target, factors)
+            else {
+                continue;
+            };
+            if factors.is_empty() {
+                continue;
+            }
+            self.decompose_pauli_product_operation(&factors, negated, &mut f);
+        }
     }
 
     fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
@@ -1617,6 +1657,115 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_classical_control(pauli, result_id, qubit);
     }
 
+    /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
+    /// qubit index, with identity factors removed. Rejects anti-Hermitian products and
+    /// represents an overall phase of -1 as a negation.
+    fn canonicalize_pauli_product(
+        &mut self,
+        instruction: &Instruction,
+        target: &Target,
+        mut factors: Vec<PauliTarget>,
+    ) -> Option<(Vec<PauliTarget>, bool)> {
+        let mut phase = 0;
+        // must be stable so that same-qubit factors keep their relative order
+        factors.sort_by_key(|factor| factor.qubit);
+
+        let mut canonical_factors = Vec::new();
+        for same_qubit_factors in factors.chunk_by(|a, b| a.qubit == b.qubit) {
+            let mut accumulated = None;
+            for factor in same_qubit_factors {
+                if factor.negated {
+                    phase = (phase + 2) % 4;
+                }
+                accumulated = match accumulated {
+                    None => Some(factor.pauli),
+                    Some(pauli) => {
+                        let (product, product_phase) = pauli.multiply(factor.pauli);
+                        phase = (phase + product_phase) % 4;
+                        product
+                    }
+                };
+            }
+            if let Some(pauli) = accumulated {
+                canonical_factors.push(PauliTarget {
+                    negated: false,
+                    pauli,
+                    qubit: same_qubit_factors[0].qubit,
+                });
+            }
+        }
+
+        if phase % 2 != 0 {
+            // a phase of i or -i makes the product anti-Hermitian, so it has no measurable eigenvalues
+            self.push_error(Error::AntiHermitianPauliProduct { span: target.span });
+            return None;
+        }
+        if canonical_factors.is_empty() && instruction.name == "MPP" {
+            // TODO: an empty product measures the identity, which needs support for appending to measurement records
+            self.push_error(Error::UnsupportedTarget {
+                instruction: instruction.name.clone(),
+                span: target.span,
+            });
+            return None;
+        }
+
+        // a phase of i^2 = -1 flips the measurement result
+        let negated = phase == 2;
+        Some((canonical_factors, negated))
+    }
+
+    /// Runs an operation on a Pauli product by reducing it to one qubit. Each factor is
+    /// first rotated to the Z basis, then CNOTs combine their parity onto the first
+    /// qubit. After `f` runs on that qubit, the CNOTs and rotations are reversed.
+    fn decompose_pauli_product_operation(
+        &mut self,
+        factors: &[PauliTarget],
+        negated: bool,
+        f: impl FnOnce(&mut Self, u32, bool),
+    ) {
+        let focus_qubit = factors[0].qubit;
+
+        for factor in factors {
+            self.rotate_to_z_basis(factor.pauli, factor.qubit);
+        }
+
+        // accumulate the parity of every qubit into the focus qubit
+        for factor in factors.iter().skip(1) {
+            self.op_2("cx", factor.qubit, focus_qubit);
+        }
+
+        f(self, focus_qubit, negated);
+
+        for factor in factors.iter().skip(1).rev() {
+            self.op_2("cx", factor.qubit, focus_qubit);
+        }
+        for factor in factors.iter().rev() {
+            self.rotate_from_z_basis(factor.pauli, factor.qubit);
+        }
+    }
+
+    fn rotate_to_z_basis(&mut self, pauli: Pauli, qubit: u32) {
+        match pauli {
+            X => self.op("h", qubit),
+            Y => {
+                self.op_adj("s", qubit);
+                self.op("h", qubit);
+            }
+            Z => (),
+        }
+    }
+
+    fn rotate_from_z_basis(&mut self, pauli: Pauli, qubit: u32) {
+        match pauli {
+            X => self.op("h", qubit),
+            Y => {
+                self.op("h", qubit);
+                self.op("s", qubit);
+            }
+            Z => (),
+        }
+    }
+
     fn op(&mut self, intrinsic: &str, qubit: StimQubitId) {
         let q = self.id_map.allocate_qubit(qubit);
         self.writer.write_qis_call(intrinsic, &[q]);
@@ -1656,6 +1805,21 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q0, q1]);
     }
 
+    fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[StimQubitId]) {
+        let ids: Vec<QubitId> = qubits
+            .iter()
+            .map(|&qubit| self.id_map.allocate_qubit(qubit))
+            .collect();
+        let name = self.noise_accumulator.get_or_insert_intrinsic(table);
+        self.writer.write_noise_call(&name, &ids);
+    }
+
+    fn op_readout_noise(&mut self, probability: f64, result_id: ResultId) {
+        if probability > 0.0 {
+            self.writer.write_readout_noise_call(probability, result_id);
+        }
+    }
+
     fn build_noise_table(
         &mut self,
         num_qubits: u32,
@@ -1674,21 +1838,6 @@ impl<'noise> Compiler<'noise> {
                 self.push_error(error);
                 None
             }
-        }
-    }
-
-    fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[StimQubitId]) {
-        let ids: Vec<QubitId> = qubits
-            .iter()
-            .map(|&qubit| self.id_map.allocate_qubit(qubit))
-            .collect();
-        let name = self.noise_accumulator.get_or_insert_intrinsic(table);
-        self.writer.write_noise_call(&name, &ids);
-    }
-
-    fn op_readout_noise(&mut self, probability: f64, result_id: ResultId) {
-        if probability > 0.0 {
-            self.writer.write_readout_noise_call(probability, result_id);
         }
     }
 
@@ -1881,22 +2030,19 @@ impl<'noise> Compiler<'noise> {
         instruction: &Instruction,
         target: &Target,
     ) -> Option<(FaultChar, StimQubitId)> {
-        match target.kind {
-            TargetKind::Loss { value } => Some((FaultChar::Loss, value)),
-            TargetKind::Pauli {
-                pauli,
-                value,
-                negated,
-            } => {
-                if negated {
-                    self.push_error(Error::NegatedTarget {
-                        instruction: instruction.name.clone(),
-                        span: target.span,
-                    });
-                    return None;
-                }
-                Some((FaultChar::from_pauli(pauli), value))
+        match &target.kind {
+            TargetKind::Loss { value } => Some((FaultChar::Loss, *value)),
+            TargetKind::Pauli(pauli_target) if pauli_target.negated => {
+                self.push_error(Error::NegatedTarget {
+                    instruction: instruction.name.clone(),
+                    span: target.span,
+                });
+                None
             }
+            TargetKind::Pauli(pauli_target) => Some((
+                FaultChar::from_pauli(pauli_target.pauli),
+                pauli_target.qubit,
+            )),
             _ => {
                 self.push_error(Error::UnsupportedTarget {
                     instruction: instruction.name.clone(),
@@ -1920,6 +2066,24 @@ impl<'noise> Compiler<'noise> {
             return None;
         };
         Some((value, negated))
+    }
+
+    fn expect_pauli_targets(
+        &mut self,
+        instruction: &Instruction,
+        target: &Target,
+    ) -> Option<Vec<PauliTarget>> {
+        match &target.kind {
+            TargetKind::PauliProduct { factors } => Some(factors.clone()),
+            TargetKind::Pauli(pauli_target) => Some(vec![*pauli_target]),
+            _ => {
+                self.push_error(Error::UnsupportedTarget {
+                    instruction: instruction.name.clone(),
+                    span: target.span,
+                });
+                None
+            }
+        }
     }
 
     fn expect_arg(&mut self, instruction: &Instruction) -> Option<f64> {

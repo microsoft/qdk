@@ -86,6 +86,71 @@ fn compile_source_to_qir_result(
     )
 }
 
+#[test]
+fn dump_operation_is_codegen_noop_across_restricted_profiles() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Std.Diagnostics.DumpOperation(1, qs => H(qs[0]));
+            }
+        }
+    "#;
+
+    for profile in [Profile::Base, Profile::AdaptiveRI, Profile::AdaptiveRIF] {
+        let qir = compile_source_to_qir(source, profile.into());
+        assert!(
+            !qir.contains("DumpOperation"),
+            "expected DumpOperation to emit no call, declaration, or symbol for {profile:?}:\n{qir}"
+        );
+    }
+}
+
+#[test]
+fn codegen_noop_intrinsic_preserves_effectful_arguments() {
+    let source = r#"
+        namespace Test {
+            operation CountAfterMeasurement(q : Qubit) : Int {
+                M(q);
+                1
+            }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                Std.Diagnostics.DumpOperation(
+                    CountAfterMeasurement(q),
+                    qs => H(qs[0])
+                );
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::AdaptiveRI.into());
+    assert!(
+        qir.contains("__quantum__qis__m__body"),
+        "expected the effectful DumpOperation argument to remain in generated QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn fact_is_codegen_noop_after_simulatable_intrinsic_collapse() {
+    let source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                Std.Diagnostics.Fact(false, "message");
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert!(
+        !qir.contains("Fact"),
+        "expected Fact to emit no QIR symbol:\n{qir}"
+    );
+}
+
 /// Compiles `lib_source` as a separate library package, then generates QIR for
 /// `user_source` with that library as a dependency. The library's namespaces are
 /// visible to the user program without an alias, so user code can reference them
@@ -5773,16 +5838,339 @@ fn operand_continue_in_controlled_call_skips_consumer_and_following_statement_in
 }
 
 #[test]
+fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_locally_constant_array()
+ {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function ValueAt(arr : Int[], idx : Int) : Int {
+                arr[idx]
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let arr = [if M(q) == One { 1 } else { 0 }, if M(q) == One { 1 } else { 0 }];
+                ValueAt(arr, if M(q) == One { 1 } else { 0 })
+            }
+        }
+    "#};
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_2 = alloca i64
+          %var_5 = alloca i64
+          %var_8 = alloca i64
+          %var_9 = alloca [2 x i64]
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          store i64 1, ptr %var_2
+          br label %block_3
+        block_2:
+          store i64 0, ptr %var_2
+          br label %block_3
+        block_3:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_3, label %block_4, label %block_5
+        block_4:
+          store i64 1, ptr %var_5
+          br label %block_6
+        block_5:
+          store i64 0, ptr %var_5
+          br label %block_6
+        block_6:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+          %var_6 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+          br i1 %var_6, label %block_7, label %block_8
+        block_7:
+          store i64 1, ptr %var_8
+          br label %block_9
+        block_8:
+          store i64 0, ptr %var_8
+          br label %block_9
+        block_9:
+          %var_14 = load i64, ptr %var_2
+          %var_15 = load i64, ptr %var_5
+          %var_9_0 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 0
+          store i64 %var_14, ptr %var_9_0
+          %var_9_1 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 1
+          store i64 %var_15, ptr %var_9_1
+          %var_17 = load i64, ptr %var_8
+          %var_10 = getelementptr i64, ptr %var_9, i64 %var_17
+          %var_18 = load i64, ptr %var_10
+          call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+        declare i1 @__quantum__rt__read_result(ptr)
+
+        declare void @__quantum__rt__int_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="3" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emit_locally_constant_array()
+ {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function ValueAt(arr : Int[], idx : Int) : Int {
+                arr[idx]
+            }
+            @EntryPoint()
+            operation Main() : Int {
+                use q = Qubit();
+                let arr = [if M(q) == One { 1 } else { 0 }, if M(q) == One { 1 } else { 0 }];
+                ValueAt(arr, 0)
+            }
+        }
+    "#};
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_2 = alloca i64
+          %var_5 = alloca i64
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          store i64 1, ptr %var_2
+          br label %block_3
+        block_2:
+          store i64 0, ptr %var_2
+          br label %block_3
+        block_3:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_3, label %block_4, label %block_5
+        block_4:
+          store i64 1, ptr %var_5
+          br label %block_6
+        block_5:
+          store i64 0, ptr %var_5
+          br label %block_6
+        block_6:
+          %var_8 = load i64, ptr %var_2
+          call void @__quantum__rt__int_record_output(i64 %var_8, ptr @0)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+        declare i1 @__quantum__rt__read_result(ptr)
+
+        declare void @__quantum__rt__int_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
+fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_multiple_locally_constant_array()
+ {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            function ValueAt(arr : Int[][], idx : Int) : Int[] {
+                [arr[0][idx], arr[1][idx]]
+            }
+            @EntryPoint()
+            operation Main() : Int[] {
+                use q = Qubit();
+                let arr = [[if M(q) == One { 1 } else { 0 }, if M(q) == One { 1 } else { 0 }],
+                    [if M(q) == One { 1 } else { 0 }, if M(q) == One { 1 } else { 0 }, if M(q) == One { 1 } else { 0 }]];
+                ValueAt(arr, if M(q) == One { 1 } else { 0 })
+            }
+        }
+    "#};
+
+    let qir = compile_source_to_qir(source, Profile::Adaptive.into());
+    expect![[r#"
+        @0 = internal constant [4 x i8] c"0_a\00"
+        @1 = internal constant [6 x i8] c"1_a0i\00"
+        @2 = internal constant [6 x i8] c"2_a1i\00"
+
+        define i64 @ENTRYPOINT__main() #0 {
+        block_0:
+          %var_2 = alloca i64
+          %var_5 = alloca i64
+          %var_8 = alloca i64
+          %var_11 = alloca i64
+          %var_14 = alloca i64
+          %var_17 = alloca i64
+          %var_18 = alloca [2 x i64]
+          %var_19 = alloca [3 x i64]
+          call void @__quantum__rt__initialize(ptr null)
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
+          %var_0 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_0, label %block_1, label %block_2
+        block_1:
+          store i64 1, ptr %var_2
+          br label %block_3
+        block_2:
+          store i64 0, ptr %var_2
+          br label %block_3
+        block_3:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 1 to ptr))
+          %var_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
+          br i1 %var_3, label %block_4, label %block_5
+        block_4:
+          store i64 1, ptr %var_5
+          br label %block_6
+        block_5:
+          store i64 0, ptr %var_5
+          br label %block_6
+        block_6:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 2 to ptr))
+          %var_6 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 2 to ptr))
+          br i1 %var_6, label %block_7, label %block_8
+        block_7:
+          store i64 1, ptr %var_8
+          br label %block_9
+        block_8:
+          store i64 0, ptr %var_8
+          br label %block_9
+        block_9:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 3 to ptr))
+          %var_9 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 3 to ptr))
+          br i1 %var_9, label %block_10, label %block_11
+        block_10:
+          store i64 1, ptr %var_11
+          br label %block_12
+        block_11:
+          store i64 0, ptr %var_11
+          br label %block_12
+        block_12:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 4 to ptr))
+          %var_12 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 4 to ptr))
+          br i1 %var_12, label %block_13, label %block_14
+        block_13:
+          store i64 1, ptr %var_14
+          br label %block_15
+        block_14:
+          store i64 0, ptr %var_14
+          br label %block_15
+        block_15:
+          call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 5 to ptr))
+          %var_15 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 5 to ptr))
+          br i1 %var_15, label %block_16, label %block_17
+        block_16:
+          store i64 1, ptr %var_17
+          br label %block_18
+        block_17:
+          store i64 0, ptr %var_17
+          br label %block_18
+        block_18:
+          %var_28 = load i64, ptr %var_2
+          %var_29 = load i64, ptr %var_5
+          %var_18_0 = getelementptr [2 x i64], ptr %var_18, i64 0, i64 0
+          store i64 %var_28, ptr %var_18_0
+          %var_18_1 = getelementptr [2 x i64], ptr %var_18, i64 0, i64 1
+          store i64 %var_29, ptr %var_18_1
+          %var_31 = load i64, ptr %var_8
+          %var_32 = load i64, ptr %var_11
+          %var_33 = load i64, ptr %var_14
+          %var_19_0 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 0
+          store i64 %var_31, ptr %var_19_0
+          %var_19_1 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 1
+          store i64 %var_32, ptr %var_19_1
+          %var_19_2 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 2
+          store i64 %var_33, ptr %var_19_2
+          %var_35 = load i64, ptr %var_17
+          %var_20 = getelementptr i64, ptr %var_18, i64 %var_35
+          %var_36 = load i64, ptr %var_20
+          %var_21 = getelementptr i64, ptr %var_19, i64 %var_35
+          %var_37 = load i64, ptr %var_21
+          call void @__quantum__rt__array_record_output(i64 2, ptr @0)
+          call void @__quantum__rt__int_record_output(i64 %var_36, ptr @1)
+          call void @__quantum__rt__int_record_output(i64 %var_37, ptr @2)
+          ret i64 0
+        }
+
+        declare void @__quantum__rt__initialize(ptr)
+
+        declare void @__quantum__qis__m__body(ptr, ptr) #1
+
+        declare i1 @__quantum__rt__read_result(ptr)
+
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+
+        declare void @__quantum__rt__int_record_output(i64, ptr)
+
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="6" }
+        attributes #1 = { "irreversible" }
+
+        ; module flags
+
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+        !8 = !{i32 1, !"ir_functions", i1 true}
+    "#]].assert_eq(&qir);
+}
+
+#[test]
 fn foreign_table_lookup_callable_generates_qir() {
     let source = indoc::indoc! {r#"
         operation Invoke() : Unit {
             use address = Qubit[1];
             use output = Qubit[1];
             Std.TableLookup.Select([[false], [true]], address, output);
-
-            // Adjoint of Select does not work until support for static sized, dynamic content arrays is added.
-            // See related issue: https://github.com/microsoft/qdk/issues/3388
-            // Adjoint Std.TableLookup.Select([[false], [true]], address, output);
+            Adjoint Std.TableLookup.Select([[false], [true]], address, output);
         }
     "#};
     for profile in [Profile::AdaptiveRI, Profile::AdaptiveRIF, Profile::Adaptive] {

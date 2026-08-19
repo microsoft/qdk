@@ -19,7 +19,6 @@
 /source/noisy_simulator @swernli @orpuente-MS
 /library @swernli @orpuente-MS
 /source/npm @billti @amcasey @ScottCarda-MS
-/source/pip @billti @idavis @amcasey
 /source/qdk_package @billti @idavis @amcasey
 /source/qdk_package/qdk/qre @msoeken @brad-lackey @jwhogabo
 /source/playground @billti @amcasey

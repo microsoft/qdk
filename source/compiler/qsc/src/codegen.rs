@@ -726,6 +726,12 @@ pub mod qir {
                 exprs.push(*cond);
                 blocks.push(*block_id);
             }
+            qsc_fir::fir::ExprKind::Parallel(limit, body) => {
+                if let Some(limit) = limit {
+                    exprs.push(*limit);
+                }
+                exprs.push(*body);
+            }
         }
         (exprs, blocks)
     }

@@ -12,7 +12,7 @@ use expect_test::expect;
 use indoc::indoc;
 use miette::Diagnostic;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::longest_common_prefix, span::Span,
+    language_features::LanguageFeatures, source::longest_common_folder_prefix, span::Span,
 };
 use qsc_hir::{
     global,
@@ -1401,28 +1401,28 @@ fn bad_filename_implicit_namespace_best_effort_fixup() {
 
 #[test]
 fn test_longest_common_prefix_1() {
-    assert_eq!(longest_common_prefix(&["/a/b/c", "/a/b/d"]), "/a/b/");
+    assert_eq!(longest_common_folder_prefix(&["/a/b/c", "/a/b/d"]), "/a/b/");
 }
 
 #[test]
 fn test_longest_common_prefix_2() {
-    assert_eq!(longest_common_prefix(&["foo", "bar"]), "");
+    assert_eq!(longest_common_folder_prefix(&["foo", "bar"]), "");
 }
 
 #[test]
 fn test_longest_common_prefix_3() {
-    assert_eq!(longest_common_prefix(&["baz", "bar"]), "");
+    assert_eq!(longest_common_folder_prefix(&["baz", "bar"]), "");
 }
 
 #[test]
 fn test_longest_common_prefix_4() {
-    assert_eq!(longest_common_prefix(&["baz", "bar"]), "");
+    assert_eq!(longest_common_folder_prefix(&["baz", "bar"]), "");
 }
 
 #[test]
 fn test_longest_common_prefix_5() {
     assert_eq!(
-        longest_common_prefix(&[
+        longest_common_folder_prefix(&[
             "code\\project\\src\\Main.qs",
             "code\\project\\src\\Helper.qs"
         ]),
@@ -1433,34 +1433,34 @@ fn test_longest_common_prefix_5() {
 #[test]
 fn test_longest_common_prefix_6() {
     assert_eq!(
-        longest_common_prefix(&["code/project/src/Bar.qs", "code/project/src/Baz.qs"]),
+        longest_common_folder_prefix(&["code/project/src/Bar.qs", "code/project/src/Baz.qs"]),
         "code/project/src/"
     );
 }
 
 #[test]
 fn test_longest_common_prefix_two_relative_paths() {
-    expect!["a/"].assert_eq(longest_common_prefix(&["a/b", "a/c"]));
+    expect!["a/"].assert_eq(longest_common_folder_prefix(&["a/b", "a/c"]));
 }
 
 #[test]
 fn test_longest_common_prefix_one_relative_path() {
-    expect!["a/"].assert_eq(longest_common_prefix(&["a/b"]));
+    expect!["a/"].assert_eq(longest_common_folder_prefix(&["a/b"]));
 }
 
 #[test]
 fn test_longest_common_prefix_one_file_name() {
-    expect![""].assert_eq(longest_common_prefix(&["a"]));
+    expect![""].assert_eq(longest_common_folder_prefix(&["a"]));
 }
 
 #[test]
 fn test_longest_common_prefix_only_root_common() {
-    expect!["/"].assert_eq(longest_common_prefix(&["/a/b", "/b/c"]));
+    expect!["/"].assert_eq(longest_common_folder_prefix(&["/a/b", "/b/c"]));
 }
 
 #[test]
 fn test_longest_common_prefix_only_root_common_no_leading() {
-    expect![""].assert_eq(longest_common_prefix(&["a/b", "b/c"]));
+    expect![""].assert_eq(longest_common_folder_prefix(&["a/b", "b/c"]));
 }
 
 #[test]

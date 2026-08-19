@@ -1517,10 +1517,9 @@ fn resolve_callable_return(
             spec_impl.body.block,
             spec_impl.body.input.unwrap_or(decl.input),
         ),
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            (spec_decl.block, spec_decl.input.unwrap_or(decl.input))
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
+            return CalleeLattice::Dynamic;
         }
-        CallableImpl::Intrinsic => return CalleeLattice::Dynamic,
     };
 
     let mut state = LocalState {
@@ -2076,6 +2075,24 @@ fn collect_compound_capture_substitutions_into(
                 );
             }
         }
+        ExprKind::Parallel(limit, body) => {
+            if let Some(limit_id) = limit {
+                collect_compound_capture_substitutions_into(
+                    pkg,
+                    state,
+                    param_substitutions,
+                    *limit_id,
+                    substitutions,
+                );
+            }
+            collect_compound_capture_substitutions_into(
+                pkg,
+                state,
+                param_substitutions,
+                *body,
+                substitutions,
+            );
+        }
         ExprKind::Assign(..)
         | ExprKind::AssignOp(..)
         | ExprKind::AssignField(..)
@@ -2181,6 +2198,10 @@ fn compound_literal_has_residual_leak(
             .into_iter()
             .flatten()
             .any(|&part| compound_literal_has_residual_leak(pkg, substitutions, part)),
+        ExprKind::Parallel(limit, body) => {
+            limit.is_some_and(|limit| compound_literal_has_residual_leak(pkg, substitutions, limit))
+                || compound_literal_has_residual_leak(pkg, substitutions, *body)
+        }
         // A non-pure `Call` (operation callee) and every other un-remappable
         // kind is kept verbatim by the clone, so it leaks if it references any
         // producer local.
@@ -2790,7 +2811,7 @@ fn collect_callable_param_types(
 ) -> FxHashMap<LocalVarId, Ty> {
     let mut map = FxHashMap::default();
     match callable_impl {
-        CallableImpl::Intrinsic => {
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {
             collect_binding_types_from_pat_into(pkg, fallback_input, &mut map);
         }
         CallableImpl::Spec(spec_impl) => {
@@ -2806,13 +2827,6 @@ fn collect_callable_param_types(
                     &mut map,
                 );
             }
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            collect_binding_types_from_pat_into(
-                pkg,
-                spec_decl.input.unwrap_or(fallback_input),
-                &mut map,
-            );
         }
     }
     map
@@ -2890,19 +2904,9 @@ fn build_callable_flow_state(
         closure_capturable_var_types: collect_callable_param_types(pkg, callable_impl, input_pat),
     };
     match callable_impl {
-        CallableImpl::Intrinsic => {}
+        CallableImpl::Intrinsic | CallableImpl::SimulatableIntrinsic(_) => {}
         CallableImpl::Spec(spec_impl) => {
             analyze_spec_flow(pkg, store, spec_impl, &mut state, package_id, recorder);
-        }
-        CallableImpl::SimulatableIntrinsic(spec_decl) => {
-            analyze_block_flow(
-                pkg,
-                store,
-                spec_decl.block,
-                &mut state,
-                package_id,
-                recorder,
-            );
         }
     }
     state
@@ -3473,6 +3477,19 @@ fn analyze_expr_flow(
                     analyze_expr_flow(pkg, store, *e, state, package_id, recorder.as_deref_mut());
                 }
             }
+        }
+        ExprKind::Parallel(limit, expr) => {
+            if let Some(l) = limit {
+                analyze_expr_flow(pkg, store, *l, state, package_id, recorder.as_deref_mut());
+            }
+            analyze_expr_flow(
+                pkg,
+                store,
+                *expr,
+                state,
+                package_id,
+                recorder.as_deref_mut(),
+            );
         }
         // Leaves: no nested expressions to analyze.
         ExprKind::Closure(_, _) | ExprKind::Hole | ExprKind::Lit(_) | ExprKind::Var(_, _) => {}

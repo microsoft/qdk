@@ -339,10 +339,10 @@ extends:
                   python ./prereqs.py --skip-wasm && python ./version.py
                 displayName: Install Prereqs and set version
 
-              # Build platform-agnostic Python wheels: jupyterlab, widgets, and the
-              # qsharp shim (pure Python). The qdk native wheel is built per-platform.
+              # Build platform-agnostic Python wheels: jupyterlab and widgets
+              # (pure Python). The qdk native wheel is built per-platform.
               - script: |
-                  python ./build.py --jupyterlab --widgets --pip --no-check --no-test --no-check-prereqs
+                  python ./build.py --jupyterlab --widgets --no-check --no-test --no-check-prereqs
                 displayName: Build Platform-Agnostic Packages
 
               - script: |

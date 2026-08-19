@@ -31,11 +31,13 @@ impl Location {
         package_store: &PackageStore,
         position_encoding: Encoding,
     ) -> Self {
-        let source = package_store
+        let sources = &package_store
             .get(package_id)
             .expect("package id must exist in store")
-            .sources
+            .sources;
+        let source = sources
             .find_by_offset(span.lo)
+            .or_else(|| sources.iter().last().or_else(|| sources.entry()))
             .expect("source should exist for offset");
 
         Location {
@@ -217,7 +219,51 @@ mod tests {
         .assert_debug_eq(&location);
     }
 
+    #[test]
+    fn from_out_of_bounds_lo_with_entry_only_source_map() {
+        // A source map that has an entry source and no named sources. Falling back
+        // to the last named source finds nothing here, so resolution must continue
+        // on to the entry source.
+        let (store, _, user_package_id) =
+            compile_package_with_sources(SourceMap::new([], Some("Message(\"hi\")".into())));
+
+        let location = Location::from(
+            Span { lo: 1000, hi: 2000 },
+            user_package_id,
+            &store,
+            Encoding::Utf8,
+        );
+
+        // Per [`Range`] spec, out of bounds positions map to EOF
+        expect![[r#"
+            Location {
+                source: "<entry>",
+                range: Range {
+                    start: Position {
+                        line: 0,
+                        column: 13,
+                    },
+                    end: Position {
+                        line: 0,
+                        column: 13,
+                    },
+                },
+            }
+        "#]]
+        .assert_debug_eq(&location);
+    }
+
     fn compile_package() -> (PackageStore, PackageId, PackageId) {
+        compile_package_with_sources(SourceMap::new(
+            [
+                ("foo.qs".into(), "namespace Foo { }".into()),
+                ("bar.qs".into(), "namespace Bar { }".into()),
+            ],
+            None,
+        ))
+    }
+
+    fn compile_package_with_sources(sources: SourceMap) -> (PackageStore, PackageId, PackageId) {
         let mut store = PackageStore::new(compile::core());
         let mut dependencies = Vec::new();
 
@@ -227,13 +273,6 @@ mod tests {
         let std_package_id = store.insert(std);
 
         dependencies.push((std_package_id, None));
-        let sources = SourceMap::new(
-            [
-                ("foo.qs".into(), "namespace Foo { }".into()),
-                ("bar.qs".into(), "namespace Bar { }".into()),
-            ],
-            None,
-        );
         let (unit, _) = compile::compile(
             &store,
             &dependencies,

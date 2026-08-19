@@ -7,7 +7,7 @@
 
 use qsc_eval::val::Value;
 use qsc_fir::{
-    fir::{ExecGraphConfig, ExprKind, ItemKind, PackageLookup, StoreItemId},
+    fir::{CallableImpl, ExecGraphConfig, ExprKind, ItemKind, PackageLookup, StoreItemId},
     validate::validate,
     visit::Visitor,
 };
@@ -967,6 +967,73 @@ fn multiple_generic_instantiations_each_specialized() {
     let package = fir_store.get(fir_pkg_id);
     validate(package, &fir_store);
     invariants::check(&fir_store, fir_pkg_id, invariants::InvariantLevel::PostAll);
+}
+
+#[test]
+fn pipeline_collapses_simulatable_intrinsics_before_monomorphization() {
+    let lib_source = r#"
+        namespace TestLib {
+            @SimulatableIntrinsic()
+            operation ForeignSimulatableIntrinsic(value : Int) : Unit {}
+        }
+    "#;
+    let user_source = r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {}
+        }
+    "#;
+    let (mut store, pkg_id) = compile_to_fir_with_library(lib_source, user_source);
+    let (foreign_pkg_id, simulation_body_block) = store
+        .iter()
+        .find_map(|(package_id, package)| {
+            package.items.values().find_map(|item| {
+                let ItemKind::Callable(decl) = &item.kind else {
+                    return None;
+                };
+                let CallableImpl::SimulatableIntrinsic(spec) = &decl.implementation else {
+                    return None;
+                };
+                (decl.name.name.as_ref() == "ForeignSimulatableIntrinsic")
+                    .then_some((package_id, spec.block))
+            })
+        })
+        .expect("foreign simulatable intrinsic should exist before the pipeline");
+    assert_ne!(foreign_pkg_id, pkg_id);
+
+    run_pipeline_to_successfully(&mut store, pkg_id, PipelineStage::Mono);
+
+    for (package_id, package) in &store {
+        for item in package.items.values() {
+            let ItemKind::Callable(decl) = &item.kind else {
+                continue;
+            };
+            assert!(
+                !matches!(decl.implementation, CallableImpl::SimulatableIntrinsic(_)),
+                "package {package_id} still contains simulatable intrinsic `{}` at Mono",
+                decl.name.name
+            );
+        }
+    }
+    assert!(
+        store.get(foreign_pkg_id).items.values().any(|item| {
+            matches!(
+                &item.kind,
+                ItemKind::Callable(decl)
+                    if decl.name.name.as_ref() == "ForeignSimulatableIntrinsic"
+                        && matches!(decl.implementation, CallableImpl::Intrinsic)
+            )
+        }),
+        "foreign simulatable intrinsic should be collapsed to Intrinsic"
+    );
+    assert!(
+        store
+            .get(foreign_pkg_id)
+            .blocks
+            .get(simulation_body_block)
+            .is_none(),
+        "foreign simulation body block should be collected before Mono"
+    );
 }
 
 #[test]
