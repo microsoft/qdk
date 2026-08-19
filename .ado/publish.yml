@@ -560,7 +560,6 @@ extends:
                   inlineScript: |
                     echo "Command: npm exec -- vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
                     npm exec -- vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
-                workingDirectory: "$(System.DefaultWorkingDirectory)"
 
               - task: AzureCLI@2
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
@@ -572,7 +571,6 @@ extends:
                   inlineScript: |
                     echo "Command: npm exec -- vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
                     npm exec -- vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
-                workingDirectory: "$(System.DefaultWorkingDirectory)"
 
               - script: |
                   dir
