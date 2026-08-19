@@ -701,8 +701,47 @@ impl FirCloner {
             ExecGraphNode::Bind(pat_id) => {
                 ExecGraphNode::Bind(*self.pat_map.get(&pat_id).unwrap_or(&pat_id))
             }
-            ExecGraphNode::Expr(expr_id) => {
-                ExecGraphNode::Expr(*self.expr_map.get(&expr_id).unwrap_or(&expr_id))
+            ExecGraphNode::Expr(expr, span) => {
+                let mut expr = expr;
+                match &mut expr {
+                    qsc_fir::fir::ExecGraphExpr::Expr(expr_id)
+                    | qsc_fir::fir::ExecGraphExpr::Assign(expr_id)
+                    | qsc_fir::fir::ExecGraphExpr::AssignOp {
+                        lhs: expr_id,
+                        op: _,
+                        lhs_span: _,
+                        rhs_span: _,
+                    }
+                    | qsc_fir::fir::ExecGraphExpr::AssignIndex {
+                        lhs: expr_id,
+                        mid_span: _,
+                    } => {
+                        *expr_id = *self.expr_map.get(expr_id).unwrap_or(expr_id);
+                    }
+                    qsc_fir::fir::ExecGraphExpr::Array(_)
+                    | qsc_fir::fir::ExecGraphExpr::ArrayRepeat
+                    | qsc_fir::fir::ExecGraphExpr::BinOp {
+                        op: _,
+                        lhs_span: _,
+                        rhs_span: _,
+                    }
+                    | qsc_fir::fir::ExecGraphExpr::Call {
+                        callee_span: _,
+                        args_span: _,
+                    }
+                    | qsc_fir::fir::ExecGraphExpr::Fail
+                    | qsc_fir::fir::ExecGraphExpr::Index { index_span: _ }
+                    | qsc_fir::fir::ExecGraphExpr::Range {
+                        has_start: _,
+                        has_step: _,
+                        has_end: _,
+                    }
+                    | qsc_fir::fir::ExecGraphExpr::UpdateIndex { mid_span: _ }
+                    | qsc_fir::fir::ExecGraphExpr::Tuple(_)
+                    | qsc_fir::fir::ExecGraphExpr::UnOp(_)
+                    | qsc_fir::fir::ExecGraphExpr::Var(_) => {}
+                }
+                ExecGraphNode::Expr(expr, span)
             }
             // Jump targets are graph-relative indices, not IDs — preserve them.
             ExecGraphNode::Jump(_)
