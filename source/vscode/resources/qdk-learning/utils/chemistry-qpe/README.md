@@ -18,8 +18,8 @@ Both are published as part of the Sphinx site at
 published site works. The default location is an `html` directory beside this
 repo; pass `--docs` to point somewhere else, and `--course` to write elsewhere.
 
-| Script               | What it does                                                                                                           |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `rst_to_notebook.py` | Converts one tutorial chapter to a unit notebook. `RECIPES` holds the per-chapter decisions a human still has to make. |
-| `bake_outputs.py`    | Runs a notebook so its outputs ship with the course.                                                                   |
-| `verify_course.py`   | Checks every unit loads, validates, and carries what the tree needs.                                                   |
+| Script               | What it does                                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `rst_to_notebook.py` | Converts one tutorial chapter to a unit notebook. `RECIPES` holds the per-chapter decisions a human still has to make.      |
+| `bake_outputs.py`    | Runs a notebook so its outputs ship with the course.                                                                        |
+| `verify_course.py`   | Checks every unit loads, validates, and carries what the tree needs. Pass `--allow-outputs` when reviewing baked notebooks. |

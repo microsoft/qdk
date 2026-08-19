@@ -25,7 +25,7 @@ _EXPECTED_CIRCUIT = {
 }
 
 
-def _check_circuit(result):
+def _check_circuit(result: object) -> str | None:
     if not isinstance(result, dict):
         return "Return a dictionary with the three keys named in the exercise."
     missing = sorted(set(_EXPECTED_CIRCUIT) - set(result))

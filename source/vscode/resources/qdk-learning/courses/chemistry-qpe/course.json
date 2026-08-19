@@ -6,37 +6,37 @@
     {
       "id": "overview",
       "title": "Tutorial Overview",
-      "dir": "overview"
+      "dir": "00-overview"
     },
     {
       "id": "energy-and-accuracy",
       "title": "Energy and Accuracy",
-      "dir": "00-energy-and-accuracy"
+      "dir": "01-energy-and-accuracy"
     },
     {
       "id": "describe-molecule",
       "title": "Describing the Molecule",
-      "dir": "01-describe-molecule"
+      "dir": "02-describe-molecule"
     },
     {
       "id": "active-space",
       "title": "Choosing the Active Space",
-      "dir": "02-active-space"
+      "dir": "03-active-space"
     },
     {
       "id": "map-to-qubits",
       "title": "Mapping the Problem to Qubits",
-      "dir": "03-map-to-qubits"
+      "dir": "04-map-to-qubits"
     },
     {
       "id": "trial-state",
       "title": "Preparing the Trial State",
-      "dir": "04-trial-state"
+      "dir": "05-trial-state"
     },
     {
       "id": "iterative-phase-estimation",
       "title": "Iterative Quantum Phase Estimation",
-      "dir": "05-iterative-phase-estimation"
+      "dir": "06-iterative-phase-estimation"
     }
   ],
   "environment": {

@@ -34,7 +34,7 @@ RECIPES = {
         "rst": "index.rst.txt",
         # The landing page is prose and a workflow diagram, so there is nothing to run.
         "py": None,
-        "unit_dir": "overview",
+        "unit_dir": "00-overview",
         "notebook": "overview.ipynb",
         "skip_sections": ["Cumulative assignment"],
         # What survives of the lab-notebook paragraph once its own sentences go.
@@ -49,7 +49,7 @@ RECIPES = {
         "rst": "01_energy_and_accuracy.rst.txt",
         # Conceptual chapter with no companion script, so no setup cells either.
         "py": None,
-        "unit_dir": "00-energy-and-accuracy",
+        "unit_dir": "01-energy-and-accuracy",
         "notebook": "energy_and_accuracy.ipynb",
         "skip_sections": [],
         "extra_regions": [],
@@ -58,7 +58,7 @@ RECIPES = {
     "02": {
         "rst": "02_describing_the_molecule.rst.txt",
         "py": "tutorial_describe_n2.py",
-        "unit_dir": "01-describe-molecule",
+        "unit_dir": "02-describe-molecule",
         "notebook": "describe_molecule.ipynb",
         # A notebook is the example, so the download instructions are noise.
         "skip_sections": ["Example download"],
@@ -85,18 +85,18 @@ RECIPES = {
                 "hint": "Watch the signs. Both energies are negative, so the lower one is the "
                 "more negative number rather than the one closer to zero. `energies` holds a "
                 "basis-set name for each energy, and the function has to return the name.",
-                "solution": "```python\n@exercise\ndef lower_energy_basis():\n"
-                "    return min(energies, key=energies.get)\n```\n\n"
-                "`cc-pvtz` wins. Hartree\u2013Fock is variational, so enlarging the basis can only "
-                "lower the energy. The gap between the two is the basis-set sensitivity, not the "
-                "error of either number.",
+                "solution": "@exercise\ndef lower_energy_basis():\n"
+                "    return min(energies, key=energies.get)\n",
+                "explanation": "For these calculated values, `cc-pvtz` gives the lower "
+                "Hartree\u2013Fock energy. The gap between the two is the basis-set sensitivity, "
+                "not the error of either number.",
             }
         ],
     },
     "03": {
         "rst": "03_choosing_the_active_space.rst.txt",
         "py": "tutorial_choose_active_space.py",
-        "unit_dir": "02-active-space",
+        "unit_dir": "03-active-space",
         "notebook": "active_space.ipynb",
         "skip_sections": ["Example download"],
         # The chapter's excerpts all assume the Hartree-Fock run that precedes them.
@@ -244,17 +244,21 @@ RECIPES = {
                 "hint": "`alpha` and `beta` already count the arrangements for each spin on its "
                 "own. Nothing ties the two choices together, so ask yourself how many "
                 "whole-determinant arrangements a single $\\alpha$ choice can appear in.",
-                "solution": "Return the product of the two counts:\n\n"
-                "```python\nreturn alpha * beta\n```\n\n"
-                "$\\binom{6}{3}=20$, so the refined space holds $20\\times20=400$ determinants, "
-                "down from the 3,136 of the initial CAS $(10,8)$ valence space.",
+                "solution": "@exercise\ndef determinant_count():\n"
+                "    alpha = comb(6, 3)\n"
+                "    beta = comb(6, 3)\n"
+                "    return alpha * beta\n",
+                "explanation": "The function returns the product of the two independent "
+                "occupation counts. $\\binom{6}{3}=20$, so the refined space holds "
+                "$20\\times20=400$ determinants, down from the 3,136 of the initial "
+                "CAS $(10,8)$ valence space.",
             }
         ],
     },
     "04": {
         "rst": "04_putting_the_problem_on_qubits.rst.txt",
         "py": "tutorial_map_n2_to_qubits.py",
-        "unit_dir": "03-map-to-qubits",
+        "unit_dir": "04-map-to-qubits",
         "notebook": "map_to_qubits.ipynb",
         "skip_sections": ["Example download"],
         # Keeps the three quiz-questions in "Running the mapping" without the terminal
@@ -285,10 +289,10 @@ RECIPES = {
                 "cells": [
                     (
                         "md",
-                        "## Running the Chapter 3 workflow\n\n"
+                        "## Running the active-space workflow\n\n"
                         "Everything below starts from the active space selected in "
-                        "Chapter 3. This cell reruns that workflow so the rest of the notebook "
-                        "has a selected space to map. It is the slowest cell here.",
+                        "*Choosing the Active Space*. This cell reruns that workflow so the rest "
+                        "of the notebook has a selected space to map. It is the slowest cell here.",
                     ),
                     ("code", "active_space_result = run_active_space_workflow()\n"),
                 ],
@@ -342,8 +346,8 @@ RECIPES = {
             {
                 "section": "Qubits for the encoded fermionic state",
                 "prompt": "## How many compute qubits\n\n"
-                "The active space selected in Chapter 3 determines the size of the compute "
-                "register under Jordan\u2013Wigner.\n\n"
+                "The selected active space determines the size of the compute register under "
+                "Jordan\u2013Wigner.\n\n"
                 "Complete `compute_qubit_count` so it returns that size.",
                 "code": "from _unit import exercise\n\n\n"
                 "@exercise\n"
@@ -352,9 +356,9 @@ RECIPES = {
                 "hint": "Two traps here. The answer is not the number of spatial orbitals, and "
                 "it does not include the phase-estimation ancilla. Work out what the register "
                 "stores one qubit of. `num_active_spatial_orbitals` is in scope from above.",
-                "solution": "```python\n@exercise\ndef compute_qubit_count():\n"
-                "    return 2 * num_active_spatial_orbitals\n```\n\n"
-                "`12`. Six active spatial orbitals give twelve spin orbitals, and "
+                "solution": "@exercise\ndef compute_qubit_count():\n"
+                "    return 2 * num_active_spatial_orbitals\n",
+                "explanation": "`12`. Six active spatial orbitals give twelve spin orbitals, and "
                 "Jordan\u2013Wigner uses one qubit per spin orbital. The count excludes "
                 "phase-estimation ancillas, workspace qubits, and error-correction overhead.",
             }
@@ -363,7 +367,7 @@ RECIPES = {
     "05": {
         "rst": "05_preparing_the_trial_state.rst.txt",
         "py": "tutorial_prepare_trial_state.py",
-        "unit_dir": "04-trial-state",
+        "unit_dir": "05-trial-state",
         "notebook": "trial_state.ipynb",
         "skip_sections": ["Example download"],
         # The chapter's helper calls this one, which sits outside every marked region.
@@ -413,7 +417,7 @@ RECIPES = {
                         "code",
                         "active_space_result = run_active_space_workflow()\n"
                         "reference_wavefunction = active_space_result.refined_casci_wavefunction\n"
-                        "selected_orbitals = active_space_result.refined_wavefunction.get_orbitals()\n"
+                        "selected_orbitals = active_space_result.refined_orbitals\n"
                         'active_hamiltonian = create("hamiltonian_constructor", "qdk").run(\n'
                         "    selected_orbitals\n"
                         ")\n\n"
@@ -496,17 +500,18 @@ RECIPES = {
                 "hint": "`fidelities` maps each determinant count to its fidelity. You are asked "
                 "for a count, not a fidelity, so you need the keys, filtered by what their "
                 "values do. More than one count may qualify.",
-                "solution": "```python\n@exercise\ndef first_majority_count():\n"
-                "    return min(c for c, f in fidelities.items() if f > 0.5)\n```\n\n"
-                "Two determinants. The one-determinant fidelity is about 0.4825, so no single "
-                "configuration holds a majority of the ground state at this stretched geometry.",
+                "solution": "@exercise\ndef first_majority_count():\n"
+                "    return min(c for c, f in fidelities.items() if f > 0.5)\n",
+                "explanation": "Two determinants. The one-determinant fidelity is about 0.4825, "
+                "so no single configuration holds a majority of the ground state at this "
+                "stretched geometry.",
             }
         ],
     },
     "06": {
         "rst": "06_iterative_phase_estimation.rst.txt",
         "py": "tutorial_run_iqpe.py",
-        "unit_dir": "05-iterative-phase-estimation",
+        "unit_dir": "06-iterative-phase-estimation",
         "notebook": "iterative_phase_estimation.ipynb",
         "skip_sections": ["Example download"],
         # Every marked region here only defines a function, so the pieces that
@@ -546,7 +551,6 @@ RECIPES = {
                 "cells": [
                     (
                         "code",
-                        "import json\n\n"
                         "from IPython.display import Markdown, display\n"
                         "from qdk.widgets import Circuit\n\n"
                         "problem = prepare_iqpe_problem()\n\n"
@@ -628,18 +632,19 @@ RECIPES = {
                 "`problem.mapping` knows how wide the compute register is. For the third, "
                 "compare that width with `num_qubits`, the width of the circuit you rendered, "
                 "and re-read the note above about what the extra wire is.",
-                "solution": "```python\n@exercise\ndef validate_circuit():\n"
+                "solution": "@exercise\ndef validate_circuit():\n"
                 "    compute = problem.mapping.num_compute_qubits\n"
                 "    return {\n"
                 '        "iteration_circuits": len(problem.iteration_circuits),\n'
                 '        "compute_qubits": compute,\n'
                 '        "readout_ancillas": num_qubits - compute,\n'
-                "    }\n```\n\n"
-                "Six, twelve, and one. The rendered circuit is thirteen wires wide, but only "
+                "    }\n",
+                "explanation": "Six, twelve, and one. The rendered circuit is thirteen wires "
+                "wide, but only "
                 "twelve carry the molecule: two per active spatial orbital. The thirteenth is "
                 "the readout ancilla, and it is rebuilt along with the trial state on every "
-                "one of the six iterations, which is why preparation cost from Chapter 5 is "
-                "paid six times over.",
+                "one of the six iterations, which is why the preparation cost from "
+                "*Preparing the Trial State* is paid six times over.",
             },
             {
                 "section": "Molecular energy reconstruction",
@@ -657,9 +662,10 @@ RECIPES = {
                 "hint": "Two steps. First turn the bitstring into the grid index it represents, "
                 "which `int` can do if you tell it the base. Then scale that index by the size "
                 "of the grid, which follows from how many bits the string has.",
-                "solution": "```python\n@exercise\ndef measured_phase():\n"
-                "    return int(measured_bitstring, 2) / 2 ** len(measured_bitstring)\n```\n\n"
-                "The selected grid point `010000` is $k=16$, so $\\varphi = 16/64 = 0.25$.",
+                "solution": "@exercise\ndef measured_phase():\n"
+                "    return int(measured_bitstring, 2) / 2 ** len(measured_bitstring)\n",
+                "explanation": "The selected grid point `010000` is $k=16$, so "
+                "$\\varphi = 16/64 = 0.25$.",
             }
         ],
     },
@@ -1065,7 +1071,7 @@ def quiz(question, body):
     )
 
 
-AUTHORING_TAGS = {"hint", "solution", "exercise"}
+AUTHORING_TAGS = {"hint", "solution", "explanation", "exercise"}
 
 
 def merge_markdown_runs(cells):
@@ -1159,7 +1165,8 @@ def convert(key):
             if skipping:
                 continue
             section = title
-            buffer.append(rewrite(f"## {title}"))
+            display_title = re.sub(r"(?<=\w)--(?=\w)", "\u2013", title)
+            buffer.append(rewrite(f"## {display_title}"))
             continue
         if skipping:
             continue
@@ -1222,7 +1229,16 @@ def convert(key):
                 "current environment."
             ),
         ),
-        ("Before you begin", code("from _unit import check_env\n\ncheck_env()")),
+        (
+            "Before you begin",
+            code(
+                "# If packages are missing, first select a dedicated Python environment/kernel,\n"
+                "# then uncomment the next line and run this cell again.\n"
+                "# %pip install -r ../requirements.txt\n\n"
+                "from _unit import check_env\n\n"
+                "check_env()"
+            ),
+        ),
     ]
     setup = before_you_begin if not py_text else before_you_begin + [
         (
@@ -1263,7 +1279,8 @@ def convert(key):
                 md(spec["prompt"]),
                 code(spec["code"], tags=["exercise"]),
                 md(f"**Hint**\n\n{spec['hint']}", tags=["hint"]),
-                md(f"**Solution**\n\n{spec['solution']}", tags=["solution"]),
+                code(spec["solution"], tags=["solution"]),
+                md(spec["explanation"], tags=["explanation"]),
             ],
         )
 

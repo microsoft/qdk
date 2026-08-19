@@ -22,13 +22,8 @@ __pycache__/
 .idea/
 *.so
 samples/scratch/
-# A stray workspace created by running the extension at the repo root.
-/qdk-learning/
 samples/qdk-learning/
 samples/qdk-learning.json
-# Learner working copies and progress files, wherever a course is opened.
-**/*.workbook.ipynb
-qdk-learning.json
 *.pyd
 /python_doc/
 /logs/

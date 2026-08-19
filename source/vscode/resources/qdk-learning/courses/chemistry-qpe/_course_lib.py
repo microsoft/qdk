@@ -1,4 +1,4 @@
-"""Shared course utilities — the exercise harness and unit completion.
+"""Shared course utilities for the exercise harness.
 
 This module lives at the course root. Per-unit helper files (`_unit.py`) import
 from it and re-export the small surface the notebooks need.
@@ -16,20 +16,17 @@ relevant visuals or output.
 
 from typing import Callable
 
+from IPython.core.getipython import get_ipython
 from IPython.display import HTML, display
 
-# Registry of exercises that have passed in this kernel session.
-_passed: set[str] = set()
+# A learner exercise is a no-argument function whose result is checked.
+ExerciseFunction = Callable[[], object]
 
 # A checker takes the learner's function and verifies it.
-Checker = Callable[[Callable[[], object]], None]
+Checker = Callable[[ExerciseFunction], None]
 
 # Registry of checkers, keyed by exercise function name.
 _checkers: dict[str, Checker] = {}
-
-# Exercise names in registration order. A unit's required set is derived from
-# this, so each exercise name is written exactly once (in its register call).
-_registered: list[str] = []
 
 
 class ExerciseError(AssertionError):
@@ -39,17 +36,13 @@ class ExerciseError(AssertionError):
 def _hide_traceback() -> None:
     """Show only the failure banner for a wrong answer.
 
-    The cell still ends in an error, which is what marks the exercise as not
-    yet complete, but the learner sees the banner instead of a call stack.
-    Errors raised by the learner's own code are untouched and keep theirs.
+    The cell still ends in an error, which marks the exercise as incomplete,
+    but real errors raised by learner code keep their traceback.
     """
-    try:
-        from IPython import get_ipython
-    except ImportError:
-        return
     shell = get_ipython()
     if shell is None:
         return
+
     shell.set_custom_exc((ExerciseError,), lambda *args, **kwargs: None)
 
 
@@ -59,8 +52,6 @@ _hide_traceback()
 def _register(name: str, checker: Checker) -> str:
     """Record a checker under ``name`` and return the name."""
     _checkers[name] = checker
-    if name not in _registered:
-        _registered.append(name)
     return name
 
 
@@ -112,7 +103,7 @@ def _fail(message: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def exercise(fn):
+def exercise(fn: ExerciseFunction) -> ExerciseFunction:
     """Decorator for a learner's exercise function.
 
     Looks up the checker registered for ``fn.__name__`` and runs it. The
@@ -131,7 +122,7 @@ def exercise(fn):
     return fn
 
 
-def _run(fn):
+def _run(fn: ExerciseFunction) -> object:
     """Call the learner's function, keeping the traceback for real errors."""
     try:
         return fn()
@@ -150,10 +141,10 @@ def _run(fn):
 # ---------------------------------------------------------------------------
 
 
-def register_value_exercise(name: str, *, expected) -> str:
+def register_value_exercise(name: str, *, expected: object) -> str:
     """Register an exercise whose function must return ``expected``."""
 
-    def checker(fn) -> None:
+    def checker(fn: ExerciseFunction) -> None:
         actual = _run(fn)
         if actual != expected:
             _fail(
@@ -162,7 +153,6 @@ def register_value_exercise(name: str, *, expected) -> str:
                 "then run it again."
             )
         else:
-            _passed.add(name)
             _pass(f"Correct! <code>{name}()</code> returned {actual!r}.")
 
     return _register(name, checker)
@@ -190,13 +180,12 @@ def register_exercise(
     exercise is recorded as passed.
     """
 
-    def checker(fn) -> None:
+    def checker(fn: ExerciseFunction) -> None:
         result = _run(fn)
         error = validate(result)
         if error:
             _fail(error)
             return
-        _passed.add(name)
         _pass(success_message)
         if on_success is not None:
             on_success(result)

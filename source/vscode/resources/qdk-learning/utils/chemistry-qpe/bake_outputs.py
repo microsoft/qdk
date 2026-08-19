@@ -15,11 +15,11 @@ from nbclient import NotebookClient
 
 COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
 NOTEBOOKS = {
-    "02": "01-describe-molecule/describe_molecule.ipynb",
-    "03": "02-active-space/active_space.ipynb",
-    "04": "03-map-to-qubits/map_to_qubits.ipynb",
-    "05": "04-trial-state/trial_state.ipynb",
-    "06": "05-iterative-phase-estimation/iterative_phase_estimation.ipynb",
+    "02": "02-describe-molecule/describe_molecule.ipynb",
+    "03": "03-active-space/active_space.ipynb",
+    "04": "04-map-to-qubits/map_to_qubits.ipynb",
+    "05": "05-trial-state/trial_state.ipynb",
+    "06": "06-iterative-phase-estimation/iterative_phase_estimation.ipynb",
 }
 NOTEBOOK = COURSE / NOTEBOOKS[sys.argv[1] if len(sys.argv) > 1 else "03"]
 # Defaults to the interpreter running this script, so no kernel needs registering.
@@ -40,7 +40,12 @@ errors = []
 for cell in raw["cells"]:
     if cell["cell_type"] != "code":
         continue
-    if "exercise" in cell.get("metadata", {}).get("tags", []):
+    tags = set(cell.get("metadata", {}).get("tags", []))
+    if "solution" in tags:
+        for out in cell["outputs"]:
+            if out.get("output_type") == "error":
+                errors.append((cell.get("id"), out.get("ename"), out.get("evalue")))
+    if tags & {"exercise", "hint", "solution", "explanation"}:
         cell["outputs"] = []
         cell["execution_count"] = None
         continue
