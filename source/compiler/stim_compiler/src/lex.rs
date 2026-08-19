@@ -65,6 +65,8 @@ pub enum TokenKind {
     Uint,            // unsigned integers
     Double,          // floating-point numbers
     InstructionName, // H, X, CNOT, etc.
+    Pauli,           // X1, Y2, Z3, etc.
+    Loss,            // L1, L2, L3, etc.
     Rec,             // rec[- ...]
     Sweep,           // sweep[...]
     Tag,             // "[...]"
@@ -82,6 +84,8 @@ impl Display for TokenKind {
             TokenKind::Uint => f.write_str("uint"),
             TokenKind::Double => f.write_str("double"),
             TokenKind::InstructionName => f.write_str("instruction_name"),
+            TokenKind::Pauli => f.write_str("pauli"),
+            TokenKind::Loss => f.write_str("loss"),
             TokenKind::Rec => f.write_str("rec"),
             TokenKind::Sweep => f.write_str("sweep"),
             TokenKind::Tag => f.write_str("tag"),
@@ -216,12 +220,9 @@ impl<'a> Lexer<'a> {
 
     fn scan_identifier(&mut self, lo: usize) -> TokenKind {
         self.eat_while(|c| c.is_alphanumeric() || c == '_');
-        let hi: usize = self
-            .chars
-            .peek()
-            .map_or(self.input_len as usize, |(i, _)| *i);
-        // TODO: What if some identifier starts with "rec" but is not a rec token?
-        match &self.input[lo..hi] {
+        let hi: usize = self.pos() as usize;
+        let identifier = &self.input[lo..hi];
+        match identifier {
             "rec" => {
                 self.eat_while(|c| c != ']');
                 self.chars.next_if(|(_, c)| *c == ']');
@@ -232,9 +233,17 @@ impl<'a> Lexer<'a> {
                 self.chars.next_if(|(_, c)| *c == ']');
                 TokenKind::Sweep
             }
-            _ => TokenKind::InstructionName,
+            _ => match identifier.split_at_checked(1) {
+                Some(("X" | "Y" | "Z", digits)) if is_ascii_uint(digits) => TokenKind::Pauli,
+                Some(("L", digits)) if is_ascii_uint(digits) => TokenKind::Loss,
+                _ => TokenKind::InstructionName,
+            },
         }
     }
+}
+
+fn is_ascii_uint(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit())
 }
 
 impl Iterator for Lexer<'_> {

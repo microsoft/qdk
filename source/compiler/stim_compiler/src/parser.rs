@@ -109,26 +109,12 @@ impl Display for Target {
 
 #[derive(Debug)]
 pub enum TargetKind {
-    Qubit {
-        negated: bool,
-        value: u32,
-    },
-    MeasurementRecord {
-        negated: bool,
-        value: u32,
-    },
-    SweepBit {
-        value: u32,
-    },
-    Pauli {
-        negated: bool,
-        pauli: Pauli,
-        value: u32,
-    },
-    Loss {
-        value: u32,
-    },
-    Combiner,
+    Qubit { negated: bool, value: u32 },
+    MeasurementRecord { negated: bool, value: u32 },
+    SweepBit { value: u32 },
+    Pauli(PauliTarget),
+    PauliProduct { factors: Vec<PauliTarget> },
+    Loss { value: u32 },
 }
 
 impl Display for TargetKind {
@@ -149,19 +135,18 @@ impl Display for TargetKind {
                 }
             }
             TargetKind::SweepBit { value } => write!(f, "SweepBit({value})"),
-            TargetKind::Pauli {
-                negated,
-                pauli,
-                value,
-            } => {
-                if *negated {
-                    write!(f, "Pauli(-{pauli} {value})")
-                } else {
-                    write!(f, "Pauli({pauli} {value})")
-                }
-            }
+            TargetKind::Pauli(target) => write!(f, "{target}"),
             TargetKind::Loss { value } => write!(f, "Loss({value})"),
-            TargetKind::Combiner => write!(f, "Combiner"),
+            TargetKind::PauliProduct { factors } => {
+                write!(f, "PauliProduct(")?;
+                for (index, factor) in factors.iter().enumerate() {
+                    if index > 0 {
+                        write!(f, "*")?;
+                    }
+                    write!(f, "{factor}")?;
+                }
+                write!(f, ")")
+            }
         }
     }
 }
@@ -171,6 +156,23 @@ pub enum Pauli {
     X,
     Y,
     Z,
+}
+
+impl Pauli {
+    /// Multiplies two Paulis acting on the same qubit. Returns the resulting Pauli (`None` when
+    /// they cancel to the identity) and the exponent `k` of the accompanying phase `i^k`.
+    pub fn multiply(self, other: Pauli) -> (Option<Pauli>, u8) {
+        use Pauli::{X, Y, Z};
+        match (self, other) {
+            (X, X) | (Y, Y) | (Z, Z) => (None, 0),
+            (X, Y) => (Some(Z), 1),
+            (Y, Z) => (Some(X), 1),
+            (Z, X) => (Some(Y), 1),
+            (Y, X) => (Some(Z), 3),
+            (Z, Y) => (Some(X), 3),
+            (X, Z) => (Some(Y), 3),
+        }
+    }
 }
 
 impl Display for Pauli {
@@ -193,6 +195,25 @@ impl FromStr for Pauli {
             "Z" => Ok(Pauli::Z),
             _ => Err(()),
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PauliTarget {
+    pub negated: bool,
+    pub pauli: Pauli,
+    pub qubit: u32,
+}
+
+impl Display for PauliTarget {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Pauli({}{} {})",
+            if self.negated { "-" } else { "" },
+            self.pauli,
+            self.qubit
+        )
     }
 }
 
@@ -514,10 +535,10 @@ impl<'a> Parser<'a> {
             paren_hi = Some(self.expect_token(TokenKind::Close(Paren))?.span.hi);
         }
 
-        while let Some(token) = self.peek() {
-            if !self.is_target_start(&token) {
-                break;
-            }
+        while self
+            .peek()
+            .is_some_and(|token| !matches!(token.kind, TokenKind::Newline | TokenKind::Open(Brace)))
+        {
             targets.push(self.parse_target()?);
         }
 
@@ -539,43 +560,42 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn is_target_start(&self, token: &Token) -> bool {
-        match token.kind {
-            TokenKind::Uint
-            | TokenKind::Double // can't actually start a target, it's only here for nicer error messages
-            | TokenKind::Rec
-            | TokenKind::Sweep
-            | TokenKind::Bang
-            | TokenKind::Star => true,
-            TokenKind::InstructionName => {
-                let text = self.slice_input(token.span);
-                text.starts_with('X')
-                    || text.starts_with('Y')
-                    || text.starts_with('Z')
-                    || text.starts_with('L') // Starts with Pauli or Loss
-            }
-            _ => false,
-        }
-    }
-
     fn parse_target(&mut self) -> Option<Target> {
         let negated_token = self.next_if(|t| t.kind == TokenKind::Bang);
         let negated = negated_token.is_some();
+
         let first_token = self.expect_any()?;
+        let mut span = Span {
+            lo: negated_token.map_or(first_token.span.lo, |token| token.span.lo),
+            hi: first_token.span.hi,
+        };
 
         let kind = match first_token.kind {
             TokenKind::Uint => TargetKind::Qubit {
                 negated,
-                value: self.extract_uint(first_token, None)?,
+                value: self.extract_uint(first_token)?,
             },
-            TokenKind::InstructionName => self.parse_pauli_or_loss_target(first_token, negated)?,
+            TokenKind::Pauli if self.peek().is_some_and(|t| t.kind == TokenKind::Star) => {
+                self.parse_pauli_product(first_token, &mut span, negated)?
+            }
+            TokenKind::Pauli => {
+                let (pauli, qubit) = self.extract_pauli_and_qubit(first_token)?;
+                TargetKind::Pauli(PauliTarget {
+                    negated,
+                    pauli,
+                    qubit,
+                })
+            }
+            TokenKind::Loss => TargetKind::Loss {
+                value: self.extract_prefix_and_suffix(first_token)?.1,
+            },
             TokenKind::Rec => {
                 // Strips 'rec[-' prefix and trailing ']'.
                 let value_span = Span {
                     lo: first_token.span.lo + 5,
                     hi: first_token.span.hi - 1,
                 };
-                let value = self.extract_uint(first_token, Some(value_span))?;
+                let value = self.extract_uint_from_span(first_token, value_span)?;
                 if value == 0 {
                     self.emit_error(Error::ZeroMeasurementRecord { span: value_span });
                     return None;
@@ -584,18 +604,23 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Sweep => TargetKind::SweepBit {
                 // Strips 'sweep[' prefix and trailing ']'.
-                value: self.extract_uint(
+                value: self.extract_uint_from_span(
                     first_token,
-                    Some(Span {
+                    Span {
                         lo: first_token.span.lo + 6,
                         hi: first_token.span.hi - 1,
-                    }),
+                    },
                 )?,
             },
-            TokenKind::Star => TargetKind::Combiner,
+            TokenKind::Star if negated => {
+                self.emit_error(Error::CannotNegateTarget {
+                    span: first_token.span,
+                });
+                return None;
+            }
             _ => {
                 self.emit_error(Error::Expected {
-                    expected: "a target",
+                    expected: "a valid target",
                     found: first_token.kind,
                     span: first_token.span,
                 });
@@ -605,59 +630,82 @@ impl<'a> Parser<'a> {
 
         if let Some(bang) = negated_token
             && !matches!(
-                kind,
+                &kind,
                 TargetKind::Qubit { .. }
                     | TargetKind::Pauli { .. }
                     | TargetKind::MeasurementRecord { .. }
+                    | TargetKind::PauliProduct { .. }
             )
         {
             self.emit_error(Error::CannotNegateTarget { span: bang.span });
             return None;
         }
 
-        Some(Target {
-            span: Span {
-                lo: negated_token.map_or(first_token.span.lo, |t| t.span.lo),
-                hi: first_token.span.hi,
-            },
-            kind,
-        })
+        Some(Target { span, kind })
     }
 
-    fn parse_pauli_or_loss_target(&mut self, token: Token, negated: bool) -> Option<TargetKind> {
-        let head = self.slice_input(Span {
-            lo: token.span.lo,
-            hi: token.span.lo + 1,
-        });
-        let value_span = Span {
-            lo: token.span.lo + 1,
-            hi: token.span.hi,
-        };
+    fn parse_pauli_product(
+        &mut self,
+        token: Token,
+        span: &mut Span,
+        negated: bool,
+    ) -> Option<TargetKind> {
+        let (pauli, qubit) = self.extract_pauli_and_qubit(token)?;
 
-        if head == "L" {
-            return Some(TargetKind::Loss {
-                value: self.extract_uint(token, Some(value_span))?,
+        let mut factors = vec![PauliTarget {
+            negated,
+            pauli,
+            qubit,
+        }];
+        while self
+            .next_if(|token| token.kind == TokenKind::Star)
+            .is_some()
+        {
+            let negated = self
+                .next_if(|token| token.kind == TokenKind::Bang)
+                .is_some();
+            let token = self.expect_token(TokenKind::Pauli)?;
+            span.hi = token.span.hi;
+            let (pauli, qubit) = self.extract_pauli_and_qubit(token)?;
+            factors.push(PauliTarget {
+                negated,
+                pauli,
+                qubit,
             });
         }
 
-        let Ok(pauli) = head.parse::<Pauli>() else {
-            self.emit_error(Error::Expected {
-                expected: "a Pauli operator (X, Y, or Z)",
-                found: token.kind,
-                span: token.span,
-            });
-            return None;
-        };
-
-        Some(TargetKind::Pauli {
-            negated,
-            pauli,
-            value: self.extract_uint(token, Some(value_span))?,
-        })
+        Some(TargetKind::PauliProduct { factors })
     }
 
-    fn extract_uint(&mut self, token: Token, span: Option<Span>) -> Option<u32> {
-        let span = span.unwrap_or(token.span);
+    fn extract_pauli_and_qubit(&mut self, token: Token) -> Option<(Pauli, u32)> {
+        let (prefix, value) = self.extract_prefix_and_suffix(token)?;
+        let Ok(pauli) = prefix.parse::<Pauli>() else {
+            unreachable!("lexer guarantees a valid Pauli");
+        };
+
+        Some((pauli, value))
+    }
+
+    fn extract_prefix_and_suffix(&mut self, token: Token) -> Option<(&str, u32)> {
+        let suffix = self.extract_uint_from_span(
+            token,
+            Span {
+                lo: token.span.lo + 1,
+                hi: token.span.hi,
+            },
+        )?;
+        let prefix = self.slice_input(Span {
+            lo: token.span.lo,
+            hi: token.span.lo + 1,
+        });
+        Some((prefix, suffix))
+    }
+
+    fn extract_uint(&mut self, token: Token) -> Option<u32> {
+        self.extract_uint_from_span(token, token.span)
+    }
+
+    fn extract_uint_from_span(&mut self, token: Token, span: Span) -> Option<u32> {
         match self.slice_input(span).parse::<u32>() {
             Ok(value) => Some(value),
             Err(error) => {
