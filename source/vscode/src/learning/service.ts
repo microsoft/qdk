@@ -172,7 +172,12 @@ export class LearningService {
     const courseId = ws.progressData.position.courseId;
     const saved = ws.progressData.pythonEnvironments[courseId];
     if (saved) {
-      return saved;
+      if (await uriExists(vscode.Uri.file(saved.path))) {
+        return saved;
+      }
+      log.info(
+        `Persisted venv at ${saved.path} no longer exists; falling back to discovery.`,
+      );
     }
     return await getVenvInFolder(ws.workspaceRoot);
   }
