@@ -79,7 +79,8 @@ Pass ``strict=True`` to turn any omission into an exception instead.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, Optional
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal, Optional
 
 import qodec as qc
 from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
@@ -308,82 +309,6 @@ def _pauli_lines(operator: qc.PauliString) -> list[str]:
     return lines
 
 
-def _logical_token_map(
-    code: qc.Code,
-    block: str,
-    logical_count: int,
-    physical: InstructionSet,
-    data_width: int,
-) -> dict[tuple[str, int], int]:
-    """Resolve which action token names each of the code's logical qubits.
-
-    A ``pauli: X_<t>`` action names a logical qubit by a token index ``t``.
-    That index *should* be the position of the operator in the code's own
-    ``x`` / ``z`` lists, and for every code with ``k <= 4`` it is. It is not in
-    general, so this resolves the correspondence by verification instead.
-
-    The smallest reproduction is the direct sum of three [[4,2,2]] blocks
-    (``k = 6``): the ``x`` tokens come back permuted ``[0, 1, 4, 5, 2, 3]``
-    while the ``z`` tokens are the identity. An X/Z asymmetry rules out a
-    qubit-relocation problem — :func:`~qdk.ec._analysis.propagation.pauli_remap.
-    encoding_relocation` is the identity here — and points at the canonical
-    reordering :func:`~qdk.ec._analysis.circuit_action._standard_form_of`
-    applies when it standardizes the logical generators for comparison. That is
-    a defect in the equivalence machinery, not in this synthesizer, and this map
-    is the workaround until it is fixed upstream; once it is, every lookup
-    resolves to the identity on the first try and this function can go.
-
-    For logical qubit ``j`` this emits the circuit that applies the code's
-    ``j``-th logical operator and finds the token index whose declared action
-    the realized action actually matches. The identity is tried first, so a
-    correct convention costs one check per logical qubit.
-
-    Logical qubits whose token cannot be resolved are absent from the result.
-    """
-    support = [str(qubit) for qubit in range(data_width)]
-    probe_isa = InstructionSet(
-        name=f"{block}__probe",
-        blocks=[Block(block, encodes=logical_count)],
-        instructions=[
-            Instruction(
-                f"probe_{basis.lower()}{token}",
-                inputs=[BlockOperand(block)],
-                outputs=[BlockOperand(block)],
-                action=[PauliAction(f"{basis}_{token}")],
-            )
-            for basis in ("X", "Z")
-            for token in range(logical_count)
-        ],
-    )
-
-    def matches(basis: str, token: int, source: str) -> bool:
-        probe = qc.Gadget(
-            probe_isa.instruction(f"probe_{basis.lower()}{token}"),
-            Circuit(physical, source, format="stim"),
-            inputs=[Encoding(code, support=list(support))],
-            outputs=[Encoding(code, support=list(support))],
-        )
-        try:
-            return gadget_action_mismatch(probe) is None
-        except Exception:  # noqa: BLE001 - an unverifiable probe is not a match
-            return False
-
-    resolved: dict[tuple[str, int], int] = {}
-    for basis, operators in (("X", list(code.x)), ("Z", list(code.z))):
-        taken: set[int] = set()
-        for index, operator in enumerate(operators):
-            source = "\n".join(_pauli_lines(operator)) + "\n"
-            order = [index] + [t for t in range(logical_count) if t != index]
-            for token in order:
-                if token in taken:
-                    continue
-                if matches(basis, token, source):
-                    resolved[(basis, index)] = token
-                    taken.add(token)
-                    break
-    return resolved
-
-
 class _Candidate:
     """One logical instruction plus the circuit that is meant to realize it."""
 
@@ -405,37 +330,46 @@ class _Candidate:
         return self.instruction.mnemonic
 
 
+@dataclass(frozen=True)
+class _SynthesisFailure:
+    stage: Literal["completion", "verification"]
+    kind: str
+    message: str
+
+    def as_metadata(self) -> dict[str, str]:
+        return {
+            "stage": self.stage,
+            "kind": self.kind,
+            "message": self.message,
+        }
+
+    def __str__(self) -> str:
+        return f"{self.stage} {self.kind}: {self.message}"
+
+
 def _candidates(
     code: qc.Code,
     block: str,
     logical_count: int,
     data_width: int,
-    tokens: Mapping[tuple[str, int], int],
     flags: int,
 ) -> list[_Candidate]:
     """Every logical instruction this synthesizer knows how to attempt.
 
-    ``tokens`` maps ``(basis, logical index)`` to the action token index that
-    names that logical qubit (see :func:`_logical_token_map`). ``flags`` is the
-    number of nested flag qubits per stabilizer (see :func:`_syndrome_round`).
+    ``flags`` is the number of nested flag qubits per stabilizer (see
+    :func:`_syndrome_round`).
     """
 
     def operand() -> BlockOperand:
         return BlockOperand(block)
-
-    def token(basis: str, index: int) -> int:
-        return tokens.get((basis, index), index)
 
     stabilizers = list(code.stabilizers)
     syndrome = _syndrome_round(stabilizers, data_width, flags)
     all_data = _targets(range(data_width))
     order = range(logical_count)
 
-    # Stabilize/Observe list *all* logical qubits, so they name them in
-    # resolved-token order: the action's list position is the logical qubit,
-    # and the token is whatever names it.
-    z_tokens = [f"Z_{token('Z', i)}" for i in order]
-    x_tokens = [f"X_{token('X', i)}" for i in order]
+    z_tokens = [f"Z_{index}" for index in order]
+    x_tokens = [f"X_{index}" for index in order]
     z_observables: list[qc.actions.Observable | str] = list(z_tokens)
     x_observables: list[qc.actions.Observable | str] = list(x_tokens)
 
@@ -505,7 +439,7 @@ def _candidates(
                     description=f"Logical X on logical qubit {index}.",
                     inputs=[operand()],
                     outputs=[operand()],
-                    action=[PauliAction(f"X_{token('X', index)}")],
+                    action=[PauliAction(f"X_{index}")],
                 ),
                 _pauli_lines(operator),
                 takes_input=True,
@@ -520,7 +454,7 @@ def _candidates(
                     description=f"Logical Z on logical qubit {index}.",
                     inputs=[operand()],
                     outputs=[operand()],
-                    action=[PauliAction(f"Z_{token('Z', index)}")],
+                    action=[PauliAction(f"Z_{index}")],
                 ),
                 _pauli_lines(operator),
                 takes_input=True,
@@ -560,6 +494,35 @@ def _rebound(gadget: qc.Gadget, instruction: Instruction) -> qc.Gadget:
         parameters=dict(gadget.parameters),
         metadata=dict(gadget.metadata),
     )
+
+
+def _attempt_candidate(
+    candidate: _Candidate,
+    instruction: Instruction,
+    code: qc.Code,
+    physical: InstructionSet,
+    data_width: int,
+) -> qc.Gadget | _SynthesisFailure:
+    draft = _draft(candidate, instruction, code, physical, data_width)
+    try:
+        gadget = complete_gadget(draft)
+    except (KeyError, ValueError, NotImplementedError) as error:
+        return _SynthesisFailure(
+            "completion",
+            type(error).__name__,
+            str(error),
+        )
+    try:
+        mismatch = gadget_action_mismatch(gadget)
+    except (KeyError, ValueError, NotImplementedError) as error:
+        return _SynthesisFailure(
+            "verification",
+            type(error).__name__,
+            str(error),
+        )
+    if mismatch is not None:
+        return _SynthesisFailure("verification", "ActionMismatch", mismatch)
+    return gadget
 
 
 def memory_program(qodec: qc.Qodec, *, rounds: int = 1) -> "Program":
@@ -666,12 +629,7 @@ def qodec_from_code(
 
     physical = _physical_isa()
     block = Block(resolved_name, encodes=logical_count)
-    tokens = _logical_token_map(
-        code, resolved_name, logical_count, physical, data_width
-    )
-    candidates = _candidates(
-        code, resolved_name, logical_count, data_width, tokens, flags
-    )
+    candidates = _candidates(code, resolved_name, logical_count, data_width, flags)
 
     # First pass: draft every candidate against a provisional ISA, then let
     # completion and the declared-vs-realized action check decide which
@@ -683,34 +641,25 @@ def qodec_from_code(
     )
 
     completed: list[tuple[_Candidate, qc.Gadget]] = []
-    omitted: dict[str, str] = {}
-
-    def reject(mnemonic: str, reason: str) -> None:
-        if strict:
-            raise ValueError(
-                f"could not synthesize {mnemonic!r} for code "
-                f"{resolved_name!r}: {reason}"
-            )
-        omitted[mnemonic] = reason
+    omitted: dict[str, dict[str, str]] = {}
 
     for candidate in candidates:
-        draft = _draft(
+        attempt = _attempt_candidate(
             candidate,
             provisional.instruction(candidate.mnemonic),
             code,
             physical,
             data_width,
         )
-        try:
-            gadget = complete_gadget(draft)
-        except Exception as error:  # noqa: BLE001 - completion is an arbiter
-            reject(candidate.mnemonic, f"{type(error).__name__}: {error}")
+        if isinstance(attempt, _SynthesisFailure):
+            if strict:
+                raise ValueError(
+                    f"could not synthesize {candidate.mnemonic!r} for code "
+                    f"{resolved_name!r}: {attempt}"
+                )
+            omitted[candidate.mnemonic] = attempt.as_metadata()
             continue
-        mismatch = gadget_action_mismatch(gadget)
-        if mismatch is not None:
-            reject(candidate.mnemonic, f"action mismatch: {mismatch}")
-            continue
-        completed.append((candidate, gadget))
+        completed.append((candidate, attempt))
 
     if not completed:
         raise ValueError(

@@ -19,7 +19,7 @@ from ..._analysis.circuit_action import (
     declared_action_of,
     realized_action_of,
 )
-from ..._analysis.declaration import lift_declaration
+from ..._analysis.declaration_issues import declaration_issues
 from ...lint._diagnostic import Diagnostic, Phase
 from ...lint._readout_check import readout_disagreements
 from ...lint._rule import Rule
@@ -45,7 +45,7 @@ class MissingObservableRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for missing in lift_declaration(gadget).missing_observables:
+        for missing in declaration_issues(gadget).missing_observables:
             yield Diagnostic(
                 self.name,
                 self.severity,
@@ -65,7 +65,7 @@ class MissingFlagRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for missing in lift_declaration(gadget).missing_flags:
+        for missing in declaration_issues(gadget).missing_flags:
             yield Diagnostic(
                 self.name,
                 self.severity,
@@ -85,7 +85,7 @@ class UnsupportedActionAtomRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for atom_name in lift_declaration(gadget).unsupported_atoms:
+        for atom_name in declaration_issues(gadget).unsupported_atoms:
             yield Diagnostic(
                 self.name,
                 self.severity,
@@ -106,7 +106,7 @@ class FlagContentRule:
 
     def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
         gadget = _gadget(target)
-        for flag_name in lift_declaration(gadget).bound_flags:
+        for flag_name in declaration_issues(gadget).bound_flags:
             yield Diagnostic(
                 self.name,
                 self.severity,

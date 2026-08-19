@@ -11,6 +11,7 @@ from paulimer import OutcomeCompleteSimulation, UnitaryOpcode
 from qodec.actions import Observe
 from qodec.circuits import Program
 
+from .._layout import ProgramLayout
 from .._readouts import flag_slots, observables_as_xor_map, observe_count_of
 from .._references import Atom, Equation, Outcome, StabilizerSign, outcomes_of
 from .propagation.interpreter import program_of, walk_program
@@ -58,11 +59,12 @@ def simulate_program(
 def choi_prepare(gadget: qc.Gadget) -> OutcomeCompleteSimulation:
     program = program_of(gadget)
     input_qubits = _input_data_qubits(gadget)
-    simulation = _fresh_sim(program.qubit_count + len(input_qubits))
+    qubit_count = ProgramLayout.of(program).total_qubits
+    simulation = _fresh_sim(qubit_count + len(input_qubits))
     for offset, data_qubit in enumerate(input_qubits):
         simulation.apply_unitary(
             UnitaryOpcode.PrepareBell,
-            [data_qubit, program.qubit_count + offset],
+            [data_qubit, qubit_count + offset],
         )
     return simulation
 
@@ -324,8 +326,9 @@ def _declared_observable_probes(
     gadget: qc.Gadget,
 ) -> list[tuple[str, Pauli | None]]:
     program = program_of(gadget)
+    qubit_count = ProgramLayout.of(program).total_qubits
     partners = {
-        qubit: program.qubit_count + offset
+        qubit: qubit_count + offset
         for offset, qubit in enumerate(_input_data_qubits(gadget))
     }
     specs: list[tuple[str, Pauli | None]] = [

@@ -5,6 +5,7 @@ from __future__ import annotations
 from paulimer import OutcomeCompleteSimulation, PauliGroup
 from qodec.circuits import Program
 
+from ..._layout import ProgramLayout
 from .frames import FrameGroup, PauliFrame
 from .interpreter import walk_for_outcome_code
 from .pauli import Pauli
@@ -18,7 +19,7 @@ def stabilizer_group_of(program: Program) -> PauliGroup:
 def evolution_of(stabilizers: PauliGroup, *, program: Program) -> list[PauliFrame]:
     sparse_inputs = list(stabilizers.generators)
     walk = walk_for_outcome_code(program, input_stabilizers=sparse_inputs)
-    qubit_count = program.qubit_count
+    qubit_count = ProgramLayout.of(program).total_qubits
     for sparse in sparse_inputs:
         if sparse.support:
             qubit_count = max(qubit_count, max(sparse.support) + 1)

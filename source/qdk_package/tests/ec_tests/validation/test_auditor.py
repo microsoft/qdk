@@ -194,6 +194,48 @@ def test_structural_error_skips_semantic_phase(rep3_qodec: qc.Qodec) -> None:
     assert "gadget/readout-mismatch" not in rules_fired
 
 
+def test_structural_error_only_skips_semantics_for_its_target(
+    rep3_qodec: qc.Qodec,
+) -> None:
+    class _StructuralOnIdle:
+        name = "test/structural-idle"
+        severity = Severity.ERROR
+        phase = Phase.STRUCTURAL
+        target = qc.Gadget
+
+        def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+            if isinstance(target, qc.Gadget) and target.implements.mnemonic == "idle":
+                yield Diagnostic(self.name, self.severity, "invalid idle", "idle")
+
+    class _SemanticOnMeasure:
+        name = "test/semantic-measure"
+        severity = Severity.ERROR
+        phase = Phase.SEMANTIC
+        target = qc.Gadget
+
+        def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+            if (
+                isinstance(target, qc.Gadget)
+                and target.implements.mnemonic == "measure_z"
+            ):
+                yield Diagnostic(
+                    self.name,
+                    self.severity,
+                    "invalid measurement",
+                    "measure_z",
+                )
+
+    report = Auditor(rules=[_StructuralOnIdle(), _SemanticOnMeasure()]).audit_layer(
+        rep3_qodec.layers[0],
+        qodec=rep3_qodec,
+    )
+
+    assert {(item.rule, item.where) for item in report.diagnostics} == {
+        ("test/structural-idle", "idle"),
+        ("test/semantic-measure", "measure_z"),
+    }
+
+
 # ----------------------------------------------------------------------------
 # gadget/incomplete-output-frame
 # ----------------------------------------------------------------------------

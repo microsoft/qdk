@@ -130,8 +130,11 @@ class FrameGroup:
         factors = self.unframed.factorization_of(target)
         if factors is None:
             return None
-        frame_of = {framed.pauli: framed.frame for framed in self.generators}
-        return [PauliFrame(factor, frame_of[factor]) for factor in factors]
+        frame_of = {abs(framed.pauli): framed.frame for framed in self.generators}
+        return [
+            PauliFrame(factor, frame_of.get(abs(factor), frozenset()))
+            for factor in factors
+        ]
 
     def frame_of(self, target: Pauli) -> frozenset[int]:
         factors = self.factorization_of(target)

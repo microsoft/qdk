@@ -7,19 +7,15 @@ from typing import Callable, Iterable, Mapping, Sequence, Union
 from warnings import warn
 
 import qodec as qc
-from paulimer import PauliGroup, symplectic_form_of
+from paulimer import PauliGroup
 from qodec.actions import Stabilize
 from qodec.circuits import Program
 
+from .._layout import ProgramLayout
 from .propagation.conditional import conditional_choi_state
 from .propagation.frames import FrameGroup, PauliFrame
-from .propagation.groups import subgroup_of
 from .propagation.interpreter import program_of
-from .propagation.isa_actions import (
-    block_stride,
-    call_qubit_map,
-    remap_pauli,
-)
+from .propagation.isa_actions import remap_pauli
 from .propagation.pauli import (
     Pauli,
     complex_conjugate_of,
@@ -52,10 +48,10 @@ class CircuitAction:
 def input_qubits_of(program: Program) -> frozenset[int]:
     seen: set[int] = set()
     prepared: set[int] = set()
-    stride = block_stride(program.isa)
+    layout = ProgramLayout.of(program)
     for call in program.instructions:
         instruction = program.lookup(call.mnemonic)
-        qubit_map = call_qubit_map(call, stride)
+        qubit_map = layout.call_qubit_map(call)
         for action in instruction.action:
             touched: set[int] = set()
             if isinstance(action, Stabilize):
@@ -70,7 +66,7 @@ def input_qubits_of(program: Program) -> frozenset[int]:
             else:
                 touched |= set(qubit_map.values())
             seen |= touched
-    return frozenset(range(program.qubit_count)) - prepared
+    return frozenset(range(layout.total_qubits)) - prepared
 
 
 def action_of(
@@ -114,7 +110,9 @@ def _action_of(
     ).group
     auxiliary = {auxiliary_origin + offset for offset in range(len(input_qubits))}
     physical_support = frozenset(
-        range(program.qubit_count) if output_support is None else output_support
+        range(ProgramLayout.of(program).total_qubits)
+        if output_support is None
+        else output_support
     )
     stabilizers_out, stabilizers_in, logicals = choi.partition(over=physical_support)
     auxiliary_to_input = {
@@ -171,7 +169,7 @@ def _aux_origin_of(
     codespace_projector: Sequence[Pauli],
     output_support: Sequence[int] | None,
 ) -> int:
-    support = set(range(program.qubit_count)) | set(input_qubits)
+    support = set(range(ProgramLayout.of(program).total_qubits)) | set(input_qubits)
     for stabilizer in codespace_projector:
         support |= set(stabilizer.support)
     if output_support is not None:
@@ -198,16 +196,34 @@ def _decode(
     )
     observables = _logical_form_of(action.observables, with_respect_to=code_in)
     stabilizers = _logical_form_of(action.stabilizers, with_respect_to=code_out)
-    logicals_in = [code_in.logical_action_of(key) for key in action.mapping]
-    logicals_out = [
-        PauliFrame(code_out.logical_action_of(value.pauli), value.frame)
-        for value in action.mapping.values()
+    input_generators = [
+        _quotient_of(key, action.observables.unframed) for key in action.mapping
     ]
-    decoded = CircuitAction(
-        observables, stabilizers, dict(zip(logicals_in, logicals_out))
+    output_generators = FrameGroup(
+        _quotient_framed(value, action.stabilizers) for value in action.mapping.values()
     )
-    decoded.mapping = _standard_form_of(decoded.mapping, decoded)
-    return decoded
+    indexed_inputs = FrameGroup(
+        PauliFrame(generator, frozenset({index}))
+        for index, generator in enumerate(input_generators)
+    )
+    mapping = {}
+    for basis_element in code_in.logical_basis:
+        target = _quotient_of(basis_element, action.observables.unframed)
+        if not target.weight:
+            continue
+        factorization = indexed_inputs.factorization_of(target)
+        if factorization is None:
+            continue
+        factors: frozenset[int] = frozenset()
+        for factor in factorization:
+            factors ^= factor.frame
+        output = output_generators.subgroup(
+            [[index in factors for index in range(len(input_generators))]]
+        ).generators[0]
+        mapping[code_in.logical_action_of(target)] = PauliFrame(
+            code_out.logical_action_of(output.pauli), output.frame
+        ) * (target.phase**3)
+    return CircuitAction(observables, stabilizers, mapping)
 
 
 def _phase_of(pauli: Pauli, *, within: PauliGroup) -> Pauli:
@@ -280,65 +296,12 @@ def _validate_group(group: PauliGroup, *, against: SubsystemCode) -> None:
         raise ValueError("Code support does not include the circuit support.")
 
 
-def _standard_form_of(
-    mapping: Mapping[Pauli, PauliFrame], action: CircuitAction
-) -> dict[Pauli, PauliFrame]:
-    input_group = PauliGroup(
-        [_quotient_of(key, action.observables.unframed) for key in mapping]
-    )
-    output_group = FrameGroup(
-        _quotient_framed(value, action.stabilizers) for value in mapping.values()
-    )
-    indicators = list(_standard_indicators_of(input_group))
-    standard_in = subgroup_of(input_group, indicated_by=indicators)
-    standard_out = output_group.subgroup(indicators)
-    symplectic_indicators = list(
-        _indicators_of(standard_in, transformed_by=symplectic_form_of)
-    )
-    symplectic_in = subgroup_of(
-        standard_in, indicated_by=symplectic_indicators
-    ).generators
-    symplectic_out = standard_out.subgroup(symplectic_indicators).generators
-    return {
-        abs(operator_in): operator_out * (operator_in.phase**3)
-        for operator_in, operator_out in zip(symplectic_in, symplectic_out)
-    }
-
-
 def _quotient_of(pauli: Pauli, group: PauliGroup) -> Pauli:
     return (PauliGroup([pauli]) % group).generators[0]
 
 
 def _quotient_framed(framed: PauliFrame, group: FrameGroup) -> PauliFrame:
     return (FrameGroup([framed]) % group).generators[0]
-
-
-def _standard_indicators_of(group: PauliGroup) -> Iterable[list[bool]]:
-    return _indicators_of(
-        group,
-        transformed_by=lambda generators: PauliGroup(generators).standard_generators,
-    )
-
-
-def _indicators_of(
-    group: PauliGroup,
-    transformed_by: Callable[[Sequence[Pauli]], Iterable[Pauli]],
-) -> Iterable[list[bool]]:
-    generator_count = len(group.generators)
-    if generator_count == 0:
-        return
-    base = max(group.support) + 1 if group.support else 0
-    primary_map = {qubit: qubit for qubit in group.support}
-    generators = [
-        relabel(generator, primary_map) * Pauli({base + index: "Z"})
-        for index, generator in enumerate(group.generators)
-    ]
-    for generator in transformed_by(generators):
-        indicator = [False] * generator_count
-        for index in generator.support:
-            if index >= base:
-                indicator[index - base] = True
-        yield indicator
 
 
 def _unsigned(group: PauliGroup) -> PauliGroup:
@@ -352,11 +315,9 @@ def are_equivalent_mod_paulis(action1: CircuitAction, action2: CircuitAction) ->
         action2.stabilizers.unframed
     ):
         return False
-    mapping1 = _standard_form_of(action1.mapping, action1)
-    mapping2 = _standard_form_of(action2.mapping, action2)
-    return _abs_of(mapping1.keys()) == _abs_of(mapping2.keys()) and _abs_of(
-        value.pauli for value in mapping1.values()
-    ) == _abs_of(value.pauli for value in mapping2.values())
+    mapping1 = {abs(key): abs(value.pauli) for key, value in action1.mapping.items()}
+    mapping2 = {abs(key): abs(value.pauli) for key, value in action2.mapping.items()}
+    return mapping1 == mapping2
 
 
 def _abs_of(iterable: Iterable[Pauli]) -> list[Pauli]:
@@ -397,15 +358,15 @@ def are_outcome_equivalent(action1: CircuitAction, action2: CircuitAction) -> bo
 def _outcome_items(
     action: CircuitAction,
 ) -> list[tuple[complex, frozenset[int], bool]]:
-    mapping = _standard_form_of(action.mapping, action)
     items = []
     for framed in action.observables.standardized().generators:
         items.append((framed.pauli.phase, framed.frame, False))
     for framed in action.stabilizers.standardized().generators:
         items.append((framed.pauli.phase, framed.frame, False))
-    for key in mapping:
+    mapping = sorted(action.mapping.items(), key=lambda item: str(item[0]))
+    for key, _ in mapping:
         items.append((key.phase, frozenset(), False))
-    for value in mapping.values():
+    for _, value in mapping:
         items.append((value.pauli.phase, value.frame, True))
     return items
 
@@ -422,10 +383,10 @@ def declared_program_of(gadget: qc.Gadget) -> Program:
         action=list(instruction.action),
     )
     isa = _declared_isa(synthetic)
-    binding = [*range(input_count), *range(output_count)]
     call = qc.instructions.InstructionCall(
         instruction.mnemonic,
-        inputs={str(index): value for index, value in enumerate(binding)},
+        inputs={str(index): index for index in range(input_count)},
+        outputs={str(index): index for index in range(output_count)},
     )
     return Program([call], isa)
 

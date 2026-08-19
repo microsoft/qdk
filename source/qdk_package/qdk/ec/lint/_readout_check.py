@@ -8,6 +8,7 @@ from typing import Iterable
 from binar import BitVector
 import qodec as qc
 
+from .._layout import ProgramLayout
 from .._readouts import observables_as_xor_map
 from .._analysis.circuit_action import realized_codes_of
 from .._analysis.propagation.conditional import (
@@ -87,7 +88,7 @@ def _realization_input_observables(
         input_qubits=input_qubits,
         codespace_projector=tuple(code_in.stabilizers),
     )
-    physical_support = frozenset(range(program.qubit_count))
+    physical_support = frozenset(range(ProgramLayout.of(program).total_qubits))
     _, input_group, _ = result.group.partition(over=physical_support)
     auxiliary = {result.aux_origin + offset for offset in range(len(input_qubits))}
     auxiliary_to_input = {
