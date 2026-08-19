@@ -1342,8 +1342,8 @@ impl<'noise> Compiler<'noise> {
             }),
 
             // Generalized Pauli Product Gates
-            "MPP" => self.broadcast_pauli_product(instruction, |s, q, invert| {
-                s.op_measure("m", q, invert);
+            "MPP" => self.broadcast_pauli_product_measure(instruction, |s, q, negated| {
+                s.op_measure("m", q, negated)
             }),
             "SPP" | "SPP_DAG" => self.broadcast_pauli_product(instruction, |s, q, negated| {
                 let invert = (instruction.name == "SPP_DAG") ^ negated;
@@ -1396,6 +1396,27 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
+    fn for_each_pauli_product(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, StimQubitId, bool),
+    ) {
+        for target in &instruction.targets {
+            let Some(factors) = self.expect_pauli_targets(instruction, target) else {
+                continue;
+            };
+            let Some((factors, negated)) =
+                self.canonicalize_pauli_product(instruction, target, factors)
+            else {
+                continue;
+            };
+            if factors.is_empty() {
+                continue;
+            }
+            self.decompose_pauli_product_operation(&factors, negated, &mut operation);
+        }
+    }
+
     fn broadcast(
         &mut self,
         instruction: &Instruction,
@@ -1433,23 +1454,24 @@ impl<'noise> Compiler<'noise> {
     fn broadcast_pauli_product(
         &mut self,
         instruction: &Instruction,
-        mut f: impl FnMut(&mut Self, u32, bool),
+        operation: impl FnMut(&mut Self, StimQubitId, bool),
     ) {
         self.unsupported_args(instruction);
-        for target in &instruction.targets {
-            let Some(factors) = self.expect_pauli_targets(instruction, target) else {
-                continue;
-            };
-            let Some((factors, negated)) =
-                self.canonicalize_pauli_product(instruction, target, factors)
-            else {
-                continue;
-            };
-            if factors.is_empty() {
-                continue;
-            }
-            self.decompose_pauli_product_operation(&factors, negated, &mut f);
-        }
+        self.for_each_pauli_product(instruction, operation);
+    }
+
+    fn broadcast_pauli_product_measure(
+        &mut self,
+        instruction: &Instruction,
+        mut measure: impl FnMut(&mut Self, StimQubitId, bool) -> ResultId,
+    ) {
+        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
+            return;
+        };
+        self.for_each_pauli_product(instruction, |s, q, negated| {
+            let result_id = measure(s, q, negated);
+            s.op_readout_noise(readout_noise, result_id);
+        });
     }
 
     fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
@@ -1716,12 +1738,12 @@ impl<'noise> Compiler<'noise> {
 
     /// Runs an operation on a Pauli product by reducing it to one qubit. Each factor is
     /// first rotated to the Z basis, then CNOTs combine their parity onto the first
-    /// qubit. After `f` runs on that qubit, the CNOTs and rotations are reversed.
+    /// qubit. After `operation` runs on that qubit, the CNOTs and rotations are reversed.
     fn decompose_pauli_product_operation(
         &mut self,
         factors: &[PauliTarget],
         negated: bool,
-        f: impl FnOnce(&mut Self, u32, bool),
+        operation: impl FnOnce(&mut Self, StimQubitId, bool),
     ) {
         let focus_qubit = factors[0].qubit;
 
@@ -1734,7 +1756,7 @@ impl<'noise> Compiler<'noise> {
             self.op_2("cx", factor.qubit, focus_qubit);
         }
 
-        f(self, focus_qubit, negated);
+        operation(self, focus_qubit, negated);
 
         for factor in factors.iter().skip(1).rev() {
             self.op_2("cx", factor.qubit, focus_qubit);
