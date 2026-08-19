@@ -173,6 +173,7 @@ async function loadLanguageService(
   const wasmUri = vscode.Uri.joinPath(baseUri, "./wasm/qsc_wasm_bg.wasm");
   const wasmBytes = await vscode.workspace.fs.readFile(wasmUri);
   await loadWasmModule(wasmBytes);
+
   const languageService = await getLanguageService({
     findManifestDirectory,
     readFile,
@@ -180,6 +181,7 @@ async function loadLanguageService(
     resolvePath: async (a, b) => resolvePath(a, b),
     fetchGithub: fetchGithubRaw,
   });
+
   await updateLanguageServiceConfiguration(languageService);
   const end = performance.now();
   sendTelemetryEvent(

@@ -180,7 +180,7 @@ block_24:
 
 declare void @__quantum__rt__initialize(ptr)
 
-define void @X(ptr %var_2) {
+define internal void @X(ptr %var_2) {
 block_25:
   call void @__quantum__qis__x__body(ptr %var_2)
   ret void
@@ -188,7 +188,7 @@ block_25:
 
 declare void @__quantum__qis__x__body(ptr)
 
-define void @H(ptr %var_3) {
+define internal void @H(ptr %var_3) {
 block_26:
   call void @__quantum__qis__h__body(ptr %var_3)
   ret void
@@ -196,7 +196,7 @@ block_26:
 
 declare void @__quantum__qis__h__body(ptr)
 
-define void @Z(ptr %var_4) {
+define internal void @Z(ptr %var_4) {
 block_27:
   call void @__quantum__qis__z__body(ptr %var_4)
   ret void
@@ -204,19 +204,19 @@ block_27:
 
 declare void @__quantum__qis__z__body(ptr)
 
-define void @Z__Adj(ptr %var_5) {
+define internal void @Z__Adj(ptr %var_5) {
 block_28:
   call void @__quantum__qis__z__body(ptr %var_5)
   ret void
 }
 
-define void @H__Adj(ptr %var_6) {
+define internal void @H__Adj(ptr %var_6) {
 block_29:
   call void @__quantum__qis__h__body(ptr %var_6)
   ret void
 }
 
-define void @X__Adj(ptr %var_7) {
+define internal void @X__Adj(ptr %var_7) {
 block_30:
   call void @__quantum__qis__x__body(ptr %var_7)
   ret void
@@ -224,7 +224,7 @@ block_30:
 
 declare void @__quantum__qis__ccx__body(ptr, ptr, ptr)
 
-define void @CCH(ptr %var_21, ptr %var_22, ptr %var_23) {
+define internal void @CCH(ptr %var_21, ptr %var_22, ptr %var_23) {
 block_31:
   call void @S(ptr %var_23)
   call void @H(ptr %var_23)
@@ -236,7 +236,7 @@ block_31:
   ret void
 }
 
-define void @S(ptr %var_24) {
+define internal void @S(ptr %var_24) {
 block_32:
   call void @__quantum__qis__s__body(ptr %var_24)
   ret void
@@ -244,7 +244,7 @@ block_32:
 
 declare void @__quantum__qis__s__body(ptr)
 
-define void @T(ptr %var_25) {
+define internal void @T(ptr %var_25) {
 block_33:
   call void @__quantum__qis__t__body(ptr %var_25)
   ret void
@@ -252,13 +252,13 @@ block_33:
 
 declare void @__quantum__qis__t__body(ptr)
 
-define void @CCNOT(ptr %var_26, ptr %var_27, ptr %var_28) {
+define internal void @CCNOT(ptr %var_26, ptr %var_27, ptr %var_28) {
 block_34:
   call void @__quantum__qis__ccx__body(ptr %var_26, ptr %var_27, ptr %var_28)
   ret void
 }
 
-define void @T__Adj(ptr %var_29) {
+define internal void @T__Adj(ptr %var_29) {
 block_35:
   call void @__quantum__qis__t__adj(ptr %var_29)
   ret void
@@ -266,7 +266,7 @@ block_35:
 
 declare void @__quantum__qis__t__adj(ptr)
 
-define void @S__Adj(ptr %var_30) {
+define internal void @S__Adj(ptr %var_30) {
 block_36:
   call void @__quantum__qis__s__adj(ptr %var_30)
   ret void
@@ -274,7 +274,7 @@ block_36:
 
 declare void @__quantum__qis__s__adj(ptr)
 
-define void @CCZ(ptr %var_34, ptr %var_35, ptr %var_36) {
+define internal void @CCZ(ptr %var_34, ptr %var_35, ptr %var_36) {
 block_37:
   call void @H(ptr %var_36)
   call void @CCNOT(ptr %var_34, ptr %var_35, ptr %var_36)
@@ -284,7 +284,7 @@ block_37:
 
 declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-define void @Reset(ptr %var_78) {
+define internal void @Reset(ptr %var_78) {
 block_38:
   call void @__quantum__qis__reset__body(ptr %var_78)
   ret void

@@ -4,6 +4,7 @@
     "target": "ES2022",
     "noEmit": true,
     "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
     "lib": ["DOM", "ES2022"],
     "rootDir": ".",
     "strict": true /* enable all strict type-checking options */,

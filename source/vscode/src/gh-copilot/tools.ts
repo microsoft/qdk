@@ -127,6 +127,21 @@ const toolDefinitions: {
     confirm: async () => learningTools!.confirmInit(),
   },
   {
+    name: "qdk-learning-list-courses",
+    tool: async () => await learningTools!.listCourses(),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-switch-course",
+    tool: async (input) => await learningTools!.switchCourse(input),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
+    name: "qdk-learning-course-info",
+    tool: async (input) => await learningTools!.courseInfo(input),
+    confirm: async () => learningTools!.confirmInit(),
+  },
+  {
     name: "qdk-learning-next",
     tool: async () => await learningTools!.next(),
     confirm: async () => learningTools!.confirmInit(),

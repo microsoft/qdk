@@ -27,7 +27,6 @@ parser = argparse.ArgumentParser(
 parser.add_argument(
     "--cli", action="store_true", help="Build the command-line compiler"
 )
-parser.add_argument("--pip", action="store_true", help="Build the pip wheel")
 parser.add_argument("--widgets", action="store_true", help="Build the Python widgets")
 parser.add_argument("--qdk", action="store_true", help="Build the qdk meta-package")
 parser.add_argument("--wasm", action="store_true", help="Build the WebAssembly files")
@@ -130,7 +129,6 @@ if args.check_prereqs:
 # If no specific project given then build all
 build_all = (
     not args.cli
-    and not args.pip
     and not args.widgets
     and not args.qdk
     and not args.wasm
@@ -141,7 +139,6 @@ build_all = (
     and not args.ci_bench
 )
 build_cli = build_all or args.cli
-build_pip = build_all or args.pip
 build_widgets = build_all or args.widgets
 build_qdk = build_all or args.qdk
 build_wasm = build_all or args.wasm
@@ -168,7 +165,6 @@ wasm_bld = os.path.join(root_dir, "target", "wasm32", build_type)
 samples_src = os.path.join(root_dir, "samples")
 npm_src = os.path.join(qdk_src_dir, "npm", "qsharp")
 play_src = os.path.join(qdk_src_dir, "playground")
-pip_src = os.path.join(qdk_src_dir, "pip")
 widgets_src = os.path.join(qdk_src_dir, "widgets")
 qdk_python_src = os.path.join(qdk_src_dir, "qdk_package")
 wheels_dir = os.path.join(root_dir, "target", "wheels")
@@ -329,6 +325,25 @@ if npm_install_needed:
     step_end()
 
 if args.check:
+    step_start("Checking vendored file provenance")
+    # Stdlib only, so it runs on the ambient interpreter without a venv.
+    subprocess.run(
+        [
+            sys.executable,
+            os.path.join(
+                root_dir,
+                "source",
+                "qdk_openqasm",
+                "vendor-sync",
+                "check_vendor_sync.py",
+            ),
+        ],
+        check=True,
+        text=True,
+        cwd=root_dir,
+    )
+    step_end()
+
     step_start("Running eslint and prettier checks")
     try:
         subprocess.run([npm_cmd, "run", "check"], check=True, text=True, cwd=root_dir)
@@ -516,6 +531,7 @@ if build_qdk:
     step_end()
 
     if args.check or run_tests:
+        step_start("Installing qdk and its test dependencies for checks and tests")
         # The API surface check and the test suite both import the freshly
         # built qdk in-process, which requires the package (with its native
         # extension) and its runtime dependencies to be installed. In editable
@@ -526,6 +542,7 @@ if build_qdk:
         install_python_test_requirements(qdk_python_src, python_bin)
         if not args.editable:
             install_from_wheels(python_bin, "qdk", cwd=qdk_python_src)
+        step_end()
 
     if args.check:
         step_start("Checking qdk public API surface for private type leakage")
@@ -569,52 +586,6 @@ if build_qdk:
             run_python_integration_tests(test_dir, python_bin)
 
             step_end()
-
-if build_pip:
-    step_start("Building the pip package")
-
-    python_bin, pip_env = use_python_env(pip_src)
-
-    if args.editable:
-        editable_install(python_bin, pip_src, env=pip_env)
-    else:
-        # qsharp is now a pure-Python shim depending on qdk.
-        # Build with setuptools (no maturin needed).
-        build_wheel(python_bin, pip_src, env=pip_env)
-    step_end()
-
-    if run_tests:
-        # The qsharp shim tests require qdk (with its native extension) to be
-        # installed.  If qdk was built in this run it is already available;
-        # otherwise check the environment.
-        qdk_available = build_qdk
-        if not qdk_available:
-            python_bin_check, _ = use_python_env(qdk_python_src)
-            result = subprocess.run(
-                [python_bin_check, "-c", "import qdk"],
-                capture_output=True,
-            )
-            qdk_available = result.returncode == 0
-
-        if qdk_available:
-            step_start("Running tests for the qsharp compatibility shim")
-            # Use the qdk environment where qdk and test deps are already installed.
-            python_bin, pip_env = use_python_env(qdk_python_src)
-
-            if not args.editable:
-                install_from_wheels(python_bin, "qsharp", cwd=pip_src)
-
-            run_python_tests(
-                os.path.join(pip_src, "tests"),
-                python_bin,
-                pip_env,
-            )
-            step_end()
-        else:
-            print(
-                "Skipping qsharp shim tests: qdk is not installed. "
-                "Run with --qdk or install qdk first."
-            )
 
 
 if build_widgets:
@@ -747,7 +718,7 @@ if build_jupyterlab:
         build_wheel(python_bin, jupyterlab_src)
     step_end()
 
-if build_pip and build_widgets and build_qdk and args.integration_tests:
+if build_widgets and build_qdk and args.integration_tests:
     step_start("Running notebook samples integration tests")
     # Find all notebooks in the samples directory. Skip some of the samples since these won't run.
     SKIP_NOTEBOOK_PREFIXES = (
@@ -773,8 +744,8 @@ if build_pip and build_widgets and build_qdk and args.integration_tests:
 
     # skip when editable - as the editable install will already be present
     if not args.editable:
-        # Install the qsharp package
-        install_from_wheels(python_bin, "qdk", "qsharp", cwd=pip_src, env=pip_env)
+        # Install the qdk package
+        install_from_wheels(python_bin, "qdk", cwd=samples_src, env=pip_env)
 
         # Install the widgets package from the folder so dependencies are installed properly
         pip_install(python_bin, widgets_src, cwd=widgets_src, env=pip_env)

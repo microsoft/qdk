@@ -27,6 +27,17 @@
 //!   callable bodies in place; the pipeline driver unconditionally rebuilds the
 //!   exec graph of every reachable spec in every reachable package afterwards,
 //!   so this pass no longer tracks or returns which specs it mutated.
+//! - **Relies on an acyclic UDT graph.** `resolve_ty` recurses through `Udt`,
+//!   `Array`, `Tuple`, and `Arrow` with no visited set, which is sound only
+//!   because a user-defined type cannot reference itself. The Q# type checker
+//!   enforces this in `qsc_frontend::typeck::check`, which rejects any cyclic
+//!   declaration with `Qdk.Qsc.TypeCk.RecursiveUdt` before HIR passes run. The
+//!   guarantee covers the package under compilation and extends to the whole
+//!   store only where dependency errors are also gated. Note that no form of
+//!   indirection exempts a cycle: `A[]` and `A -> Int` are erased structurally
+//!   just as a bare `A` is, so a cyclic type has no finite erased form at all —
+//!   a visited-set guard would terminate into a state that still violates
+//!   `PostUdtErase` rather than into a correct one.
 //! - Synthesized expressions use `EMPTY_EXEC_RANGE`;
 //!   [`crate::exec_graph_rebuild`] rebuilds exec graphs later.
 

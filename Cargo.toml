@@ -28,7 +28,7 @@ members = [
     "source/index_map",
     "source/language_service",
     "source/simulators",
-    "source/qdk_openqasm_parser",
+    "source/qdk_openqasm",
     "source/qdk_package",
     "source/qre",
     "source/resource_estimator",
@@ -47,7 +47,7 @@ version = "0.0.0"
 
 [workspace.dependencies]
 binar = "0.1.1"
-bitflags = "2.11"
+bitflags = "2.13"
 memchr = "2.8"
 clap = "4.4"
 criterion = { version = "0.8", default-features = false }
@@ -68,13 +68,13 @@ libfuzzer-sys = "0.4"
 log = "0.4"
 miette = { version = "7.6" }
 thiserror = "2.0"
-nalgebra = { version = "0.34" }
+nalgebra = { version = "0.35" }
 ndarray = "0.17"
 num-bigint = "0.4"
 num-complex = "0.4"
 num-derive = "0.4"
 num-traits = "0.2"
-paulimer = "0.1.2"
+paulimer = "0.2.3"
 pauliverse = "0.1.1"
 pprof = { version = "0.15", features = ["criterion", "flamegraph"] }
 probability = "0.20"
@@ -86,9 +86,9 @@ serde = { version = "1.0", features = ["derive"] }
 serde-wasm-bindgen = "0.6"
 sorted-vec = "0.8"
 sorted-iter = "0.1"
-wasm-bindgen = "0.2.114"
+wasm-bindgen = "0.2.127"
 wasm-bindgen-futures = "0.4"
-rand = "0.10.1"
+rand = "0.10.2"
 serde_json = "1.0"
 pyo3 = "0.29"
 async-trait = "0.1"
