@@ -130,6 +130,7 @@ export class LearningService {
   private _progressFileWatcher: vscode.FileSystemWatcher | undefined;
   private _jupyterEnvSubscription: vscode.Disposable | undefined;
   private _writingProgress = false;
+  private _writeQueue: Promise<void> = Promise.resolve();
   private _initPromise: Promise<boolean> | undefined;
   /** Whether {@link _initPromise} was started with `createIfMissing`. */
   private _initCreates = false;
@@ -1702,24 +1703,32 @@ export class LearningService {
   }
 
   private async writeProgressFile(): Promise<void> {
-    const ws = this.requireWorkspace();
-    const json = JSON.stringify(ws.progressData, null, 2);
-    this._writingProgress = true;
-    try {
-      await vscode.workspace.fs.writeFile(
-        ws.learningFile,
-        new TextEncoder().encode(json),
-      );
-    } catch (err) {
-      throw new Error(
-        `Failed to save learning progress: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-        { cause: err },
-      );
-    } finally {
-      this._writingProgress = false;
-    }
+    // Chain writes so only one is in flight at a time. Each call
+    // re-serializes progressData when its turn comes, so the last
+    // writer always captures every preceding in-memory mutation.
+    const prev = this._writeQueue;
+    const task = (async () => {
+      await prev;
+      const ws = this.requireWorkspace();
+      const json = JSON.stringify(ws.progressData, null, 2);
+      this._writingProgress = true;
+      try {
+        await vscode.workspace.fs.writeFile(
+          ws.learningFile,
+          new TextEncoder().encode(json),
+        );
+      } catch (err) {
+        log.error(
+          `Failed to save learning progress: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      } finally {
+        this._writingProgress = false;
+      }
+    })();
+    this._writeQueue = task;
+    await task;
   }
 
   async reloadProgress(): Promise<void> {
