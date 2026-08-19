@@ -38,6 +38,7 @@ except OSError as e:
 
 from qdk.simulation import run_qir, NoiseConfig
 from qdk.simulation._simulation import GpuSimulator, Result
+from .simulator_test_utils import check_histogram
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -446,6 +447,14 @@ entry:
     call void @__quantum__rt__readout_noise(double 0.0, double 1.0, %Result* inttoptr (i64 1 to %Result*))
 """
 
+PROBABILISTIC_READOUT_NOISE_QIR = READOUT_NOISE_QIR.replace(
+    "readout_noise(double 1.0, double 0.0",
+    "readout_noise(double 0.2, double 0.0",
+).replace(
+    "readout_noise(double 0.0, double 1.0",
+    "readout_noise(double 0.0, double 0.3",
+)
+
 @pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
 def test_readout_noise_flips_measurement_results():
     check_result(
@@ -454,4 +463,21 @@ def test_readout_noise_flips_measurement_results():
         extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
         num_qubits=2,
         num_results=2,
+    )
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_readout_noise_matches_expected_distribution():
+    shots = 10_000
+    counts = get_histogram(
+        PROBABILISTIC_READOUT_NOISE_QIR,
+        extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
+        num_qubits=2,
+        num_results=2,
+        shots=shots,
+    )
+    check_histogram(
+        counts,
+        {"00": 0.24, "01": 0.56, "10": 0.06, "11": 0.14},
+        tolerance=0.04,
     )
