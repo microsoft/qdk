@@ -510,6 +510,8 @@ extends:
                   artifactName: VSIX
                   targetPath: $(System.DefaultWorkingDirectory)/target/vscode
             steps:
+              - checkout: self
+
               # We don't want to check this .npmrc in because it won't work for external contributors.
               # Unlike in the build stage, there doesn't seem to be a task that consumes AZURE_ARTIFACTS_FEED
               # and creates the compliant .npmrc files, so just make a simple one inline.
