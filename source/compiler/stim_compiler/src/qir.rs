@@ -1371,9 +1371,16 @@ impl<'noise> Compiler<'noise> {
             "NOTLEAKED" => self.compile_notleaked(instruction),
 
             // Miscellaneous
-            "PEEK_LOSS" => self.broadcast(instruction, |s, q| {
-                s.op_peek_loss(q);
-            }),
+            "PEEK_LOSS" => {
+                // similar to broadcast_measure, but doesn't allow negated qubits
+                let Some(readout_noise) = self.expect_readout_noise(instruction) else {
+                    return;
+                };
+                self.for_each_qubit(instruction, |s, q| {
+                    let result_id = s.op_peek_loss(q);
+                    s.op_readout_noise(readout_noise, result_id);
+                });
+            }
 
             // Annotations
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
@@ -1834,11 +1841,12 @@ impl<'noise> Compiler<'noise> {
         r
     }
 
-    fn op_peek_loss(&mut self, qubit: u32) {
+    fn op_peek_loss(&mut self, qubit: StimQubitId) -> ResultId {
         let q = self.id_map.allocate_qubit(qubit);
         let r = self.id_map.allocate_record();
         self.id_map.peek_loss_record_ids.insert(r);
         self.writer.write_qis_call("peek_loss", &[q, r]);
+        r
     }
 
     fn op_2(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
