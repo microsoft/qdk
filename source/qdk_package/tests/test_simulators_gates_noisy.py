@@ -10,7 +10,7 @@ from qdk import Result, TargetProfile
 from qdk.simulation import run_qir as _run_qir, NoiseConfig, LossPolicy
 from qdk.simulation._simulation import try_create_gpu_adapter
 from typing import Literal, List, Optional, TypeAlias
-from .simulator_test_utils import check_histogram
+from simulator_test_utils import check_histogram
 
 
 @pytest.fixture(autouse=True, scope="module")

@@ -38,7 +38,7 @@ except OSError as e:
 
 from qdk.simulation import run_qir, NoiseConfig
 from qdk.simulation._simulation import GpuSimulator, Result
-from .simulator_test_utils import check_histogram
+from simulator_test_utils import check_histogram
 
 # ---------------------------------------------------------------------------
 # Helpers

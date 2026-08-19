@@ -19,7 +19,7 @@ from qdk.simulation._simulation import Result
 import qdk
 import qdk.openqasm
 from typing import Literal
-from .simulator_test_utils import check_histogram
+from simulator_test_utils import check_histogram
 
 # ---------------------------------------------------------------------------
 # Helpers
