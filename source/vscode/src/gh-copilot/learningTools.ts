@@ -221,7 +221,7 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(() => {
       const r = this.service.getHintContext("chat");
-      // The serialized state attempt to identify the actually active cell,
+      // The serialized state attempts to identify the actually active cell,
       // whereas the hint state is solely based on activity-level progress,
       // so the two can get out of sync.  Since they should agree when the
       // user is on an exercise cell and since this tool only makes sense
