@@ -1549,7 +1549,7 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn for_each_negated_pair(
+    fn for_each_negatable_pair(
         &mut self,
         instruction: &Instruction,
         mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, bool),
@@ -1585,7 +1585,7 @@ impl<'noise> Compiler<'noise> {
         let Some(readout_noise) = self.expect_readout_noise(instruction) else {
             return;
         };
-        self.for_each_negated_pair(instruction, |s, q0, q1, negated| {
+        self.for_each_negatable_pair(instruction, |s, q0, q1, negated| {
             let result_id = measure(s, q0, q1, negated);
             s.op_readout_noise(readout_noise, result_id);
         });
