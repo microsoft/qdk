@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import type { Uri } from "vscode";
+
 /**
  * Shared types for the QDK Learning feature.
  *
@@ -13,7 +15,7 @@
 
 // ─── Telemetry ───
 
-export type TelemetrySource = "panel" | "chat" | "tree";
+export type TelemetrySource = "panel" | "chat" | "tree" | "notebook";
 
 // ─── Location ───
 
@@ -35,7 +37,8 @@ export interface CurrentActivity {
 export type ActivityContent =
   | LessonTextContent
   | LessonExampleContent
-  | ExerciseContent;
+  | ExerciseContent
+  | CodeCellContent;
 
 export interface LessonTextContent {
   type: "lesson-text";
@@ -62,6 +65,12 @@ export interface ExerciseContent {
   isComplete: boolean;
   /** True when multiple reference solutions exist for this exercise. */
   hasMultipleSolutions: boolean;
+}
+
+export interface CodeCellContent {
+  type: "code-cell";
+  id: string;
+  title: string;
 }
 
 // ─── Actions ───
@@ -91,7 +100,7 @@ export type ActionGroup = ActionBinding[];
 
 // ─── Progress ───
 
-export type ActivityKind = "lesson" | "exercise";
+export type ActivityKind = CatalogActivity["type"];
 
 export interface ActivityProgress {
   id: string;
@@ -136,6 +145,8 @@ export interface HintContext {
 }
 
 export interface LearningState {
+  /** The currently-active course. */
+  course: { id: string; title: string; kind: CourseKind };
   position: CurrentActivity;
   actions: ActionGroup[];
   progress: OverallProgress;
@@ -215,7 +226,9 @@ export type WebviewToHostMessage =
   /** Open Copilot Chat with a learning-context query. */
   | { command: "openChat"; text: string }
   /** Focus the learning progress tree view in the sidebar. */
-  | { command: "focusProgress" };
+  | { command: "focusProgress" }
+  /** Switch to a different course. */
+  | { command: "switchCourse"; courseId: string };
 
 // ─── Catalog ───
 //
@@ -240,6 +253,12 @@ export interface CatalogExercise {
   solutionExplanation: string;
 }
 
+export interface CatalogCodeCell {
+  type: "code-cell";
+  id: string;
+  title: string;
+}
+
 export interface CatalogLesson {
   type: "lesson";
   id: string;
@@ -254,18 +273,80 @@ export interface CatalogLesson {
   content?: string;
 }
 
-export type CatalogActivity = CatalogExercise | CatalogLesson;
+export type CatalogActivity = CatalogExercise | CatalogCodeCell | CatalogLesson;
 
 export interface CatalogUnit {
   id: string;
   title: string;
   activities: CatalogActivity[];
+  /** URI of the authored notebook for this unit. Set for python-notebook courses. */
+  sourceNotebookUri?: Uri;
 }
 
+export interface NotebookCatalogUnit extends CatalogUnit {
+  sourceNotebookUri: Uri;
+}
+
+/** The execution model for a course's activities. */
+export type CourseKind = "qsharp" | "python-notebook";
+
+/**
+ * The complete in-memory model of a loaded course: every unit, activity,
+ * hint and solution. Held by the service for the courses it knows about.
+ *
+ * Being loaded says nothing about whether the course's learner-editable
+ * files exist on disk; see `materializeCourseWorkbooks`.
+ */
 export interface CatalogCourse {
   id: string;
   title: string;
+  shortDescription?: string;
+  /** Execution model for this course. Defaults to `"qsharp"`. */
+  kind: CourseKind;
   units: CatalogUnit[];
+  /**
+   * URI string of the folder the course was loaded from (notebook courses
+   * only). Used to locate notebooks and other assets for materialization.
+   */
+  sourceDir?: string;
+  /** Environment requirements (python-notebook courses). */
+  environment?: CourseEnvironment;
+}
+
+export interface NotebookCatalogCourse extends CatalogCourse {
+  kind: "python-notebook";
+  units: NotebookCatalogUnit[];
+  sourceDir: string;
+  // environment actually is optional
+}
+
+/**
+ * A flat summary of a course, used at UI and serialization boundaries — tree
+ * rows, the course quick pick, and chat tool payloads — where the unit
+ * contents are irrelevant and shouldn't be serialized.
+ *
+ * Derived from a {@link CatalogCourse} via `toDescriptor`.
+ */
+export interface CourseDescriptor {
+  id: string;
+  title: string;
+  shortDescription?: string;
+  kind: CourseKind;
+  /** Optional environment requirements (used by python-notebook courses). */
+  environment?: CourseEnvironment;
+}
+
+/**
+ * Environment requirements for a course (python-notebook courses).
+ * Used for things that can't be specified in `pyproject.toml`.
+ */
+export interface CourseEnvironment {
+  /**
+   * Module names to probe with `importlib.util.find_spec` in the notebook's
+   * environment check cell (e.g. `["qdk", "qdk.widgets"]`). These are
+   * importable module names, not pip package names.
+   */
+  importChecks?: string[];
 }
 
 export interface UnitSummary {

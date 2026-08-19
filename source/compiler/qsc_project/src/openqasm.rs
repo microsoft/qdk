@@ -10,6 +10,15 @@ use qsc_data_structures::target::Profile;
 use rustc_hash::FxHashSet;
 use std::{path::Path, str::FromStr as _, sync::Arc};
 
+fn logical_path(path: &Path) -> Arc<str> {
+    let path = path.to_string_lossy();
+    if cfg!(windows) {
+        Arc::from(path.replace('\\', "/"))
+    } else {
+        Arc::from(path.as_ref())
+    }
+}
+
 pub async fn load_project<T, P: AsRef<Path>>(
     project_host: &T,
     path: P,
@@ -24,7 +33,7 @@ where
     let mut errors = vec![];
     let mut target_profile = None;
 
-    let path = Arc::from(path.as_ref().to_string_lossy().as_ref());
+    let path = logical_path(path.as_ref());
     match source {
         Some(source) => {
             let program = qdk_openqasm::parse(source.clone());
@@ -38,6 +47,7 @@ where
         None => {
             match project_host.read_file(Path::new(path.as_ref())).await {
                 Ok((file, source)) => {
+                    let file = logical_path(Path::new(file.as_ref()));
                     // load the root file
                     let program = qdk_openqasm::parse(source.clone());
                     let program = program.program();
@@ -75,7 +85,7 @@ where
             let target_path = Path::new(include.as_ref());
 
             match project_host.resolve_path(parent_dir, target_path).await {
-                Ok(resolved) => Arc::from(resolved.to_string_lossy().as_ref()),
+                Ok(resolved) => logical_path(&resolved),
                 Err(_) => include.clone(),
             }
         };
@@ -94,6 +104,7 @@ where
             .read_file(Path::new(resolved_path.as_ref()))
             .await
         {
+            let file = logical_path(Path::new(file.as_ref()));
             let program = qdk_openqasm::parse(source.clone());
             let includes = get_includes(program.program(), &file);
             pending_includes.extend(includes);
