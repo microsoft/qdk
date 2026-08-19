@@ -299,12 +299,14 @@ async function openCourseNotebook(
     );
   }
 
-  await vscode.commands.executeCommand(
-    "vscode.openWith",
-    notebookUri,
-    "jupyter-notebook",
-    { viewColumn: vscode.ViewColumn.Active, preview: false },
-  );
+  if (!opened) {
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      notebookUri,
+      "jupyter-notebook",
+      { viewColumn: vscode.ViewColumn.Active, preview: false },
+    );
+  }
 
   const cellId = service.getCurrentExerciseCellId();
 
