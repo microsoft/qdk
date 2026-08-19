@@ -37,6 +37,7 @@ Most QDK features work in two modes:
 | **Noisy simulation**                     | — (Python only)                   | [python.md](./python.md) — Noisy Simulation    |
 | **Q#/OpenQASM in Python and/or Jupyter** | — (inherently Python)             | [python.md](./python.md)                       |
 | **Qiskit / Cirq / PennyLane interop**    | — (inherently Python)             | [python.md](./python.md) — Framework Interop   |
+| **Python environment setup**             | `qdkCreateNotebookVenv`           | `qdkCreateNotebookVenv`                        |
 
 **Quantum Katas**
 

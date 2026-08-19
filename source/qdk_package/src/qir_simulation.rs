@@ -67,6 +67,7 @@ pub enum QirInstructionId {
     DoubleRecordOutput,
     TupleRecordOutput,
     ArrayRecordOutput,
+    ReadoutNoise,
     /// This is really a family of instructions.
     /// All instructions in the intrinsics fields of the [`NoiseConfig`]
     /// are mapped to this `QirInstructionId`.
@@ -88,6 +89,7 @@ pub enum QirInstruction {
         u32,      /* table id */
         Vec<u32>, /* qubit args */
     ),
+    ReadoutNoise(QirInstructionId, f64, f64, u32),
 }
 
 /// Specifies the behavior of a multi-qubit gate when at least one of its
