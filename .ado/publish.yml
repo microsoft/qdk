@@ -203,11 +203,6 @@ extends:
                   python ./prereqs.py --install && python ./version.py
                 displayName: Install Prereqs and set version
 
-              # Below VS Code extension build only needs to run on one platform (Linux x86_64 for now)
-              - script: |
-                  npm install -g @vscode/vsce --userconfig=.npmrc
-                displayName: Install Prereqs for VSCode Extension
-
               # build steps
               # we use xvfb-run to provide a virtual framebuffer for the VS Code tester,
               # which requires a display to run
@@ -216,7 +211,7 @@ extends:
                 displayName: Build VSCode Extension
 
               - script: |
-                  vsce package --pre-release
+                  npm exec -- vsce package --pre-release
                   mkdir -p $(System.DefaultWorkingDirectory)/target/vscode
                   mv *.vsix $(System.DefaultWorkingDirectory)/target/vscode
                 condition: and(succeeded(), eq(variables['BUILD_TYPE'], 'dev'))
@@ -224,7 +219,7 @@ extends:
                 workingDirectory: "$(System.DefaultWorkingDirectory)/source/vscode"
 
               - script: |
-                  vsce package
+                  npm exec -- vsce package
                   mkdir -p $(System.DefaultWorkingDirectory)/target/vscode
                   mv *.vsix $(System.DefaultWorkingDirectory)/target/vscode
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
@@ -241,7 +236,7 @@ extends:
                   MANIFEST_FILE="${VSIX_FNAME_NOEXT}.manifest"
                   SIGNATURE_FILE="${VSIX_FNAME_NOEXT}.signature.p7s"
 
-                  vsce generate-manifest -i $VSIX_FNAME -o $MANIFEST_FILE
+                  npm exec -- vsce generate-manifest -i $VSIX_FNAME -o $MANIFEST_FILE
                   cp $MANIFEST_FILE $SIGNATURE_FILE
 
                   echo "##vso[task.setvariable variable=VSIX_FNAME;]$VSIX_FNAME"
@@ -279,8 +274,8 @@ extends:
                   PendingAnalysisWaitTimeoutMinutes: 5
 
               - script: |
-                  echo "Command: vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                  vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
+                  echo "Command: npm exec -- vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                  npm exec -- vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
                 condition: succeeded()
                 displayName: Confirming signature verification before publishing
 
@@ -527,7 +522,7 @@ extends:
                   workingFile: .npmrc
 
               - script: |
-                  npm install -g @vscode/vsce --userconfig=.npmrc
+                  npm ci --userconfig=.npmrc
                 displayName: Install Prereqs for VSCode Ext Publishing
 
               - script: |
@@ -544,8 +539,8 @@ extends:
                 displayName: Get VSCode Extension, Manifest, and Signature files for Publishing
 
               - script: |
-                  echo "Command: vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                  vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
+                  echo "Command: npm exec -- vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                  npm exec -- vsce verify-signature --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE
                 condition: succeeded()
                 displayName: Reconfirming signature verification before publishing
 
@@ -557,8 +552,8 @@ extends:
                   scriptType: bash
                   scriptLocation: inlineScript
                   inlineScript: |
-                    echo "Command: vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                    vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
+                    echo "Command: npm exec -- vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                    npm exec -- vsce publish --pre-release --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
 
               - task: AzureCLI@2
                 condition: and(succeeded(), ne(variables['BUILD_TYPE'], 'dev'))
@@ -568,8 +563,8 @@ extends:
                   scriptType: bash
                   scriptLocation: inlineScript
                   inlineScript: |
-                    echo "Command: vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
-                    vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
+                    echo "Command: npm exec -- vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE"
+                    npm exec -- vsce publish --azure-credential --packagePath $VSIX_FNAME --manifestPath $MANIFEST_FILE --signaturePath $SIGNATURE_FILE 2>&1 > pub.log
 
               - script: |
                   dir
