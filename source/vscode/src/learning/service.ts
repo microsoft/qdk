@@ -1838,6 +1838,10 @@ export class LearningService {
       return;
     }
     const { id, path } = env;
+    // The Jupyter API is undocumented; guard against shape changes.
+    if (typeof id !== "string" || typeof path !== "string" || !id || !path) {
+      return;
+    }
     const { course } = resolved;
     const existing = this.workspace.progressData.pythonEnvironments[course.id];
     if (existing?.id === id && existing?.path === path) {
