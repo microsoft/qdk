@@ -8,6 +8,7 @@ from typing import Sequence
 from paulimer import OutcomeCompleteSimulation
 from qodec.circuits import Program
 
+from ..._layout import ProgramLayout
 from .frames import FrameGroup
 from .pauli import Pauli
 from .stabilizer import frame_group_of
@@ -31,7 +32,7 @@ def conditional_choi_state(
 ) -> ConditionalChoiResult:
     from ..._analysis.check_discovery import simulate_program
 
-    relevant_qubits: set[int] = set(range(program.qubit_count))
+    relevant_qubits: set[int] = set(range(ProgramLayout.of(program).total_qubits))
     relevant_qubits.update(input_qubits)
     for stabilizer in codespace_projector:
         relevant_qubits.update(stabilizer.support)

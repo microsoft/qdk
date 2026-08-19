@@ -73,32 +73,41 @@ class Auditor:
         targets: Iterable[object],
     ) -> Report:
         target_list = list(targets)
-        diagnostics = list(self._run_phase(qodec, target_list, Phase.STRUCTURAL))
-        if not any(item.severity is Severity.ERROR for item in diagnostics):
-            diagnostics.extend(self._run_phase(qodec, target_list, Phase.SEMANTIC))
+        diagnostics: list[Diagnostic] = []
+        blocked: set[int] = set()
+        for target, item in self._run_phase(qodec, target_list, Phase.STRUCTURAL):
+            diagnostic = self._apply_policy(item)
+            diagnostics.append(diagnostic)
+            if diagnostic.severity is Severity.ERROR:
+                blocked.add(id(target))
+        diagnostics.extend(
+            self._apply_policy(item)
+            for target, item in self._run_phase(qodec, target_list, Phase.SEMANTIC)
+            if id(target) not in blocked
+        )
         if self._include_informational:
-            diagnostics.extend(self._run_phase(qodec, target_list, Phase.INFORMATIONAL))
-        if self._strict:
-            diagnostics = [
-                (
-                    replace(item, severity=Severity.ERROR)
-                    if item.severity is Severity.WARNING
-                    else item
-                )
-                for item in diagnostics
-            ]
+            diagnostics.extend(
+                self._apply_policy(item)
+                for _, item in self._run_phase(qodec, target_list, Phase.INFORMATIONAL)
+            )
         return Report(tuple(diagnostics))
+
+    def _apply_policy(self, diagnostic: Diagnostic) -> Diagnostic:
+        if self._strict and diagnostic.severity is Severity.WARNING:
+            return replace(diagnostic, severity=Severity.ERROR)
+        return diagnostic
 
     def _run_phase(
         self,
         qodec: qc.Qodec,
         targets: list[object],
         phase: Phase,
-    ) -> Iterator[Diagnostic]:
+    ) -> Iterator[tuple[object, Diagnostic]]:
         for rule in filter_rules(self._rules, phase=phase, disabled=self._disabled):
             for target in targets:
                 if isinstance(target, rule.target):
-                    yield from rule(target, qodec=qodec)
+                    for diagnostic in rule(target, qodec=qodec):
+                        yield target, diagnostic
 
     @staticmethod
     def _qodec_targets(qodec: qc.Qodec) -> list[object]:

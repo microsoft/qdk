@@ -349,6 +349,14 @@ def test_synthesized_qodec_round_trips_through_yaml(steane: qc.Qodec) -> None:
     assert sorted(restored.layers[0].gadgets) == sorted(steane.layers[0].gadgets)
 
 
+def test_structured_omissions_round_trip_through_yaml() -> None:
+    built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
+
+    restored = ec.from_yaml(ec.to_yaml(built))
+
+    assert synthesis_notes(restored)["omitted"] == synthesis_notes(built)["omitted"]
+
+
 def test_synthesized_qodec_round_trips_through_disk(
     steane: qc.Qodec, tmp_path: Path
 ) -> None:
@@ -387,13 +395,47 @@ def test_a_non_z_logical_basis_omits_the_gadgets_it_cannot_support() -> None:
     assert set(built.layers[0].isa.instructions) == set(built.layers[0].gadgets)
 
 
-def test_omissions_carry_a_reason() -> None:
+def test_omissions_carry_structured_reasons() -> None:
     built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
 
     assert all(
-        isinstance(reason, str) and reason
+        isinstance(reason, dict)
+        and set(reason) == {"stage", "kind", "message"}
+        and reason["stage"] in {"completion", "verification"}
+        and isinstance(reason["kind"], str)
+        and reason["kind"]
+        and isinstance(reason["message"], str)
+        and reason["message"]
         for reason in synthesis_notes(built)["omitted"].values()
     )
+
+
+def test_unexpected_completion_failure_propagates(monkeypatch) -> None:
+    from qdk.ec import _synthesis
+
+    original = _synthesis.complete_gadget
+
+    def complete_or_fail(gadget: qc.Gadget) -> qc.Gadget:
+        if gadget.implements.mnemonic == "idle":
+            raise RuntimeError("unexpected completion failure")
+        return original(gadget)
+
+    monkeypatch.setattr(_synthesis, "complete_gadget", complete_or_fail)
+
+    with pytest.raises(RuntimeError, match="unexpected completion failure"):
+        qodec_from_code(_code("steane", catalog.make_steane_code))
+
+
+def test_unexpected_verification_failure_propagates(monkeypatch) -> None:
+    from qdk.ec import _synthesis
+
+    def fail_verification(gadget: qc.Gadget) -> str | None:
+        raise RuntimeError("unexpected verification failure")
+
+    monkeypatch.setattr(_synthesis, "gadget_action_mismatch", fail_verification)
+
+    with pytest.raises(RuntimeError, match="unexpected verification failure"):
+        qodec_from_code(_code("steane", catalog.make_steane_code))
 
 
 def test_strict_mode_raises_instead_of_omitting() -> None:
@@ -434,7 +476,7 @@ def test_a_k_equals_two_code_gets_one_pauli_gadget_per_logical_qubit() -> None:
 
 
 def test_logical_pauli_gadgets_are_verified_for_a_large_k_code() -> None:
-    """Guards the action-token resolution: k=6 needs a non-identity map."""
+    """Logical coordinates remain authored-order even when k is large."""
     built = qodec_from_code(_code("iceberg8", lambda: catalog.make_iceberg_code(8)))
 
     pauli_gadgets = {

@@ -2,45 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Mapping, TYPE_CHECKING
+from typing import Mapping, TYPE_CHECKING
 
 from paulimer import DensePauli
 
-from ..._operands import qubit_labels
 from .pauli import Pauli, parse_term
 
 if TYPE_CHECKING:
     from paulimer import PauliCharacter
-
-
-def block_stride(isa: Any) -> int:
-    """Qubits per block instance, for an ISA whose blocks share one width.
-
-    The walker addresses a qubit as ``operand_index * stride + offset`` — the
-    same convention :func:`~.pauli_remap.encoding_relocation` uses to place an
-    encoding. That flat scheme has room for exactly one width: with two, the
-    ranges of differently sized blocks would overlap.
-    """
-    widths = {int(block.encodes) for block in isa.blocks}
-    if len(widths) > 1:
-        raise NotImplementedError(
-            f"instruction set {getattr(isa, 'name', '?')!r} declares blocks of "
-            f"differing widths {sorted(widths)}; exact propagation addresses "
-            "qubits as operand_index * stride, which admits only one width"
-        )
-    return next(iter(widths), 1)
-
-
-def call_qubit_map(call: Any, stride: int) -> dict[int, int]:
-    result: dict[int, int] = {}
-    flat = 0
-    for value in call.inputs.values():
-        for label in qubit_labels(value):
-            block_index = int(label)
-            for offset in range(stride):
-                result[flat] = block_index * stride + offset
-                flat += 1
-    return result
 
 
 def remap_pauli(pauli_str: str, qubit_map: Mapping[int, int]) -> Pauli:

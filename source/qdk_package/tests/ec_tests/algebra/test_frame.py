@@ -5,6 +5,7 @@ readout-discovery path: factoring a target in the group and XOR-ing its
 factors' frames, plus the per-generator ``relabel`` / ``restrict_to`` /
 ``complex_conjugated`` transforms and the support-based ``partition``.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -67,6 +68,12 @@ def test_factorization_of_target_not_in_group_returns_none() -> None:
 def test_factorization_of_identity_returns_empty_list() -> None:
     group = _group([(_z(0), {0}), (_z(1), {1})])
     assert group.factorization_of(Pauli.identity()) == []
+
+
+def test_frame_of_signed_target_ignores_phase_only_factor() -> None:
+    group = _group([(_z(0), {3}), (identity(-1), set())])
+
+    assert group.frame_of(-_z(0)) == frozenset({3})
 
 
 # ── frame_of ────────────────────────────────────────────────────────────────

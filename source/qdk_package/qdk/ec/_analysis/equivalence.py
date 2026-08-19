@@ -1,105 +1,40 @@
-"""Logical-action equivalence between qodec gadgets."""
+"""Equivalence between qodec gadgets."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Iterable
 
 import qodec as qc
 
-from .._readouts import observables_as_xor_map
-from .propagation.interpreter import propagate_input_paulis
-from .propagation.pauli_remap import flat_logical_paulis
+from .circuit_action import realized_action_of
 
 EncodingSignature = tuple[tuple[int, tuple[int, ...]], ...]
 
 
-@dataclass(frozen=True)
-class LogicalImage:
-    output_logical_flips: frozenset[int]
-    observable_flips: frozenset[int]
-
-
-@dataclass(frozen=True)
-class LogicalAction:
-    encoding_in: EncodingSignature
-    encoding_out: EncodingSignature
-    images: tuple[LogicalImage, ...]
-
-
-def logical_action_of(gadget: qc.Gadget) -> LogicalAction:
-    inputs = flat_logical_paulis(gadget.inputs)
-    probes = flat_logical_paulis(gadget.outputs)
-    if not inputs:
-        return LogicalAction(
-            _encoding_signature(gadget.inputs),
-            _encoding_signature(gadget.outputs),
-            (),
-        )
-    deltas, hidden_count, outcome_count = propagate_input_paulis(
-        gadget, inputs, residual_probes=probes
-    )
-    observables = list(observables_as_xor_map(gadget).values())
-    probe_offset = hidden_count + outcome_count
-    images = []
-    for shot in range(len(inputs)):
-        outcome_flips = {
-            outcome
-            for outcome in range(outcome_count)
-            if deltas[hidden_count + outcome, shot]
-        }
-        images.append(
-            LogicalImage(
-                frozenset(
-                    index
-                    for index in range(len(probes))
-                    if deltas[probe_offset + index, shot]
-                ),
-                frozenset(
-                    index
-                    for index, positions in enumerate(observables)
-                    if sum(position in outcome_flips for position in positions) % 2
-                ),
-            )
-        )
-    return LogicalAction(
-        _encoding_signature(gadget.inputs),
-        _encoding_signature(gadget.outputs),
-        tuple(images),
-    )
-
-
 def gadgets_equivalent(left: qc.Gadget, right: qc.Gadget) -> bool:
-    return logical_action_of(left) == logical_action_of(right)
+    return (
+        _encoding_signature(left.inputs) == _encoding_signature(right.inputs)
+        and _encoding_signature(left.outputs) == _encoding_signature(right.outputs)
+        and realized_action_of(left).is_equivalent_to(realized_action_of(right))
+    )
 
 
 def why_not_equivalent(left: qc.Gadget, right: qc.Gadget) -> str:
-    left_action = logical_action_of(left)
-    right_action = logical_action_of(right)
-    if left_action.encoding_in != right_action.encoding_in:
-        return (
-            f"Input encodings differ: {left_action.encoding_in!r} vs "
-            f"{right_action.encoding_in!r}."
-        )
-    if left_action.encoding_out != right_action.encoding_out:
-        return (
-            f"Output encodings differ: {left_action.encoding_out!r} vs "
-            f"{right_action.encoding_out!r}."
-        )
-    for index, (left_image, right_image) in enumerate(
-        zip(left_action.images, right_action.images)
-    ):
-        if left_image != right_image:
-            return (
-                f"Image of input logical Pauli {index} differs: "
-                f"{left_image!r} vs {right_image!r}."
-            )
-    if len(left_action.images) != len(right_action.images):
-        return (
-            f"Input logical-basis size differs: {len(left_action.images)} vs "
-            f"{len(right_action.images)}."
-        )
-    return ""
+    left_inputs = _encoding_signature(left.inputs)
+    right_inputs = _encoding_signature(right.inputs)
+    if left_inputs != right_inputs:
+        return f"Input encodings differ: {left_inputs!r} vs {right_inputs!r}."
+    left_outputs = _encoding_signature(left.outputs)
+    right_outputs = _encoding_signature(right.outputs)
+    if left_outputs != right_outputs:
+        return f"Output encodings differ: {left_outputs!r} vs {right_outputs!r}."
+    left_action = realized_action_of(left)
+    right_action = realized_action_of(right)
+    if left_action.is_equivalent_to(right_action):
+        return ""
+    if left_action.is_equivalent_to(right_action, modulo_paulis=True):
+        return "Logical actions differ in their outcome-dependent Pauli signs."
+    return "Logical actions differ."
 
 
 def _encoding_signature(
@@ -112,9 +47,6 @@ def _encoding_signature(
 
 
 __all__ = [
-    "LogicalAction",
-    "LogicalImage",
     "gadgets_equivalent",
-    "logical_action_of",
     "why_not_equivalent",
 ]

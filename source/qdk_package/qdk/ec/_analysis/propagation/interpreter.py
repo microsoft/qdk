@@ -16,10 +16,9 @@ from qodec.actions import (
 )
 from qodec.circuits import Program
 
+from ..._layout import ProgramLayout
 from .isa_actions import (
-    block_stride,
     build_clifford_images,
-    call_qubit_map,
     remap_pauli,
 )
 from .pauli import Pauli, PauliCharacter, characters_of
@@ -144,7 +143,7 @@ def walk_program(
     on_instruction: Callable[[int], None] | None = None,
 ) -> WalkResult:
     if simulation is None:
-        qubit_count = program.qubit_count
+        qubit_count = ProgramLayout.of(program).total_qubits
         oracle = OutcomeCompleteSimulation.with_capacity(qubit_count, 100, 50)
         oracle.reserve_qubits(qubit_count)
         oracle.reserve_outcomes(50, 50)
@@ -160,10 +159,10 @@ def walk_program(
 
     outcome_count = 0
     observe_rows: list[int] = []
-    stride = block_stride(program.isa)
+    layout = ProgramLayout.of(program)
     for instruction_index, call in enumerate(program.instructions):
         instruction = program.lookup(call.mnemonic)
-        qubit_map = call_qubit_map(call, stride)
+        qubit_map = layout.call_qubit_map(call)
 
         for action in instruction.action:
             if isinstance(action, Stabilize):

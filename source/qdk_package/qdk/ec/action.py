@@ -23,22 +23,15 @@ from ._analysis.circuit_action import (
     input_qubits_of,
     realized_action_of,
 )
-from ._analysis.equivalence import LogicalAction, LogicalImage, logical_action_of
-from ._analysis.declaration import DeclarationLift, lift_declaration
 from ._analysis.propagation.frames import FrameGroup, PauliFrame
 
 __all__ = [
     "CircuitAction",
     "FrameGroup",
-    "LogicalAction",
-    "LogicalImage",
-    "DeclarationLift",
     "PauliFrame",
     "action_of",
     "declared_action_of",
     "gadget_action_mismatch",
     "input_qubits_of",
-    "lift_declaration",
-    "logical_action_of",
     "realized_action_of",
 ]
