@@ -50,6 +50,7 @@ const OP_READ_RESULT: u8 = 0x13;
 const OP_RECORD_OUTPUT: u8 = 0x14;
 const OP_READ_LOSS: u8 = 0x15;
 const OP_PEEK_LOSS: u8 = 0x16;
+const OP_READOUT_NOISE: u8 = 0x17;
 
 // Integer arithmetic
 const OP_ADD: u8 = 0x20;
@@ -479,6 +480,14 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
                 let target = rt.resolve_u64(instr.aux0, flags, 3) as QubitID;
                 let result_id = rt.resolve_u64(instr.aux1, flags, 4) as QubitID;
                 sim.peek_loss(target, result_id);
+                rt.pc += 1;
+            }
+
+            OP_READOUT_NOISE => {
+                let p_zero_as_one = rt.resolve_f64(instr.aux0, flags, 3);
+                let p_one_as_zero = rt.resolve_f64(instr.aux1, flags, 4);
+                let result_id = rt.resolve_u64(instr.aux2, flags, 5) as QubitID;
+                sim.apply_readout_noise(p_zero_as_one, p_one_as_zero, result_id);
                 rt.pc += 1;
             }
 

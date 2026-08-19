@@ -243,6 +243,17 @@ class AggregateGatesPass(pyqir.QirModuleVisitor):
                     pyqir.ptr_id(call.args[0]),
                 )
             )
+        elif callee_name == "__quantum__rt__readout_noise":
+            p_zero_as_one = cast(FloatConstant, call.args[0]).value
+            p_one_as_zero = cast(FloatConstant, call.args[1]).value
+            self.gates.append(
+                (
+                    QirInstructionId.ReadoutNoise,
+                    p_zero_as_one,
+                    p_one_as_zero,
+                    pyqir.ptr_id(call.args[2]),
+                )
+            )
         elif callee_name == "__quantum__rt__result_record_output":
             tag = self._get_value_as_string(call.args[1])
             self.gates.append(

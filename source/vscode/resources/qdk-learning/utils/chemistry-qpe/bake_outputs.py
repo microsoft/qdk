@@ -1,0 +1,68 @@
+"""Execute an authored course notebook so its outputs ship with the course.
+
+Run with the course venv's python. The exercise cell is cleared afterwards:
+that one is the learner's to run.
+
+Usage:  python bake_outputs.py 02
+"""
+
+import json
+import sys
+from pathlib import Path
+
+import nbformat
+from nbclient import NotebookClient
+
+COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
+NOTEBOOKS = {
+    "02": "02-describe-molecule/describe_molecule.ipynb",
+    "03": "03-active-space/active_space.ipynb",
+    "04": "04-map-to-qubits/map_to_qubits.ipynb",
+    "05": "05-trial-state/trial_state.ipynb",
+    "06": "06-iterative-phase-estimation/iterative_phase_estimation.ipynb",
+}
+NOTEBOOK = COURSE / NOTEBOOKS[sys.argv[1] if len(sys.argv) > 1 else "03"]
+# Defaults to the interpreter running this script, so no kernel needs registering.
+KERNEL = sys.argv[2] if len(sys.argv) > 2 else "python3"
+nb = nbformat.read(NOTEBOOK, as_version=4)
+NotebookClient(
+    nb,
+    timeout=1800,
+    allow_errors=True,
+    kernel_name=KERNEL,
+    resources={"metadata": {"path": str(NOTEBOOK.parent)}},
+).execute()
+
+raw = json.loads(nbformat.writes(nb))
+# Widget state is several megabytes and the viewer rebuilds it when the cell runs.
+raw["metadata"].pop("widgets", None)
+errors = []
+for cell in raw["cells"]:
+    if cell["cell_type"] != "code":
+        continue
+    tags = set(cell.get("metadata", {}).get("tags", []))
+    if "solution" in tags:
+        for out in cell["outputs"]:
+            if out.get("output_type") == "error":
+                errors.append((cell.get("id"), out.get("ename"), out.get("evalue")))
+    if tags & {"exercise", "hint", "solution", "explanation"}:
+        cell["outputs"] = []
+        cell["execution_count"] = None
+        continue
+    # The environment check reports on the machine that ran it, so it must not ship.
+    if "check_env" in "".join(cell["source"]):
+        cell["outputs"] = []
+        cell["execution_count"] = None
+        continue
+    for out in cell["outputs"]:
+        if out.get("output_type") == "error":
+            errors.append((cell.get("id"), out.get("ename"), out.get("evalue")))
+
+NOTEBOOK.write_text(
+    json.dumps(raw, indent=1, ensure_ascii=False) + "\n", encoding="utf-8"
+)
+
+code = [c for c in raw["cells"] if c["cell_type"] == "code"]
+print(f"{sum(1 for c in code if c['outputs'])}/{len(code)} code cells carry outputs")
+for cell_id, name, value in errors:
+    print(f"ERROR in {cell_id}: {name}: {value}")

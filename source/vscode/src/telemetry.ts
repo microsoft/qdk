@@ -14,6 +14,7 @@ import {
   isQsharpDocument,
   getPlatformEnv,
 } from "./common";
+import type { CourseKind } from "./learning/types";
 
 export enum EventType {
   InitializePlugin = "Qsharp.InitializePlugin",
@@ -343,13 +344,15 @@ type EventTypes = {
   [EventType.LearningActivityAction]: {
     properties: {
       action: "navigate" | "run" | "check" | "hint" | "solution" | "reset";
-      activityType: "lesson" | "exercise";
-      source: "panel" | "chat" | "tree";
+      activityType: "lesson" | "exercise" | "code-cell";
+      source: "panel" | "chat" | "tree" | "notebook";
     };
     measurements: Empty;
   };
   [EventType.LearningExerciseCompleted]: {
-    properties: Empty;
+    properties: {
+      courseKind: CourseKind;
+    };
     measurements: {
       unitNumber: number;
       exerciseNumber: number;
