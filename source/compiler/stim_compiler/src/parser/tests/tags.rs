@@ -109,9 +109,9 @@ fn tag_in_target_position_is_error() {
     check(
         "H 0 [t]",
         &expect![[r#"
-            Qdk.Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.Expected
 
-              x expected newline, found tag
+              x expected a valid target, found tag
                ,----
              1 | H 0 [t]
                :     ^^^

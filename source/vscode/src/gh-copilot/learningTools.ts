@@ -6,11 +6,13 @@ import {
   LearningService,
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
+  isNotebookCourse,
   resolveNewWorkspaceRoot,
+  type CourseDescriptor,
+  type CurrentActivity,
   type HintContext,
   type UnitSummary,
   type OverallProgress,
-  type CurrentActivity,
   type RunResult,
   type SolutionCheckResult,
 } from "../learning/index.js";
@@ -24,6 +26,8 @@ import { CopilotToolError } from "./types.js";
  * curriculum without needing a separate round-trip.
  */
 export interface SerializedLearningState {
+  /** The currently-active course. */
+  course: Pick<CourseDescriptor, "id" | "title" | "kind">;
   position: CurrentActivity;
   progress: {
     totalActivities: number;
@@ -142,12 +146,69 @@ export class LearningTools {
   }
 
   /**
-   * Read the user's current Q# code at the active exercise or example.
+   * List all available courses (loaded or not) with the active course id.
+   */
+  async listCourses(): Promise<{
+    courses: CourseDescriptor[];
+    activeCourseId: string;
+  }> {
+    await this.ensureInitialized();
+    return {
+      courses: await this.service.getCourses(),
+      activeCourseId: this.service.getActiveCourseId(),
+    };
+  }
+
+  /**
+   * Switch the active course, moving to its first incomplete activity.
+   */
+  async switchCourse(input: { courseId: string }): Promise<StateSnapshot> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      await this.service.switchCourse(input.courseId, "chat");
+      await this.showActivity();
+      return { state: this.serializeState() };
+    });
+  }
+
+  /**
+   * Return the descriptor for a course. Defaults to the active course
+   * when no id is provided.
+   */
+  async courseInfo(input?: { courseId?: string }): Promise<{
+    descriptor: CourseDescriptor | undefined;
+  }> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      const courseId = input?.courseId ?? this.service.getActiveCourseId();
+      const courses = await this.service.getCourses();
+      const descriptor = courses.find((c) => c.id === courseId);
+      return { descriptor };
+    });
+  }
+
+  /**
+   * Read the user's current code at the active exercise or example.
+   * For python-notebook courses, returns the notebook file path.
    */
   async readCode(): Promise<{ code: string; filePath: string }> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
+      if (isNotebookCourse(this.service.getActiveCourseInfo())) {
+        let code = "";
+        // Prefer the cell the user actually has focused in the editor.
+        const editor = vscode.window.activeNotebookEditor;
+        const selection = editor?.selections[0];
+        if (
+          selection && // Implies editor
+          editor.notebook.uri.toString() === uri.toString()
+        ) {
+          const cell = editor.notebook.cellAt(selection.start);
+          code = cell.document.getText();
+        }
+        return { code, filePath: uri.fsPath };
+      }
       const code = await this.service.readUserCode();
       return { code, filePath: uri.fsPath };
     });
@@ -160,6 +221,23 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(() => {
       const r = this.service.getHintContext("chat");
+      // The serialized state attempts to identify the actually active cell,
+      // whereas the hint state is solely based on activity-level progress,
+      // so the two can get out of sync.  Since they should agree when the
+      // user is on an exercise cell and since this tool only makes sense
+      // on exercise cells, report failure to copilot if they disagree.
+      const selectedState = this.serializeState();
+      const hintLocation = r.state.position.location;
+      const selectedLocation = selectedState.position.location;
+      if (
+        hintLocation.courseId !== selectedLocation.courseId ||
+        hintLocation.unitId !== selectedLocation.unitId ||
+        hintLocation.activityId !== selectedLocation.activityId
+      ) {
+        throw new CopilotToolError(
+          "The active cell doesn't appear to be an exercise and only exercise cells have associated hints",
+        );
+      }
       return { result: r.result };
     });
   }
@@ -315,8 +393,14 @@ export class LearningTools {
       ? progress.units.find((u) => u.id === cur)
       : undefined;
 
+    // The notebook activity will be undefined if we're not in a notebook
+    // or if we couldn't identify the current cell for some reason.
+    // In that case, we fall back to the current progress position.
+    const position = this.notebookCurrentActivity() ?? state.position;
+
     return {
-      position: state.position,
+      course: this.service.getActiveCourseInfo(),
+      position,
       progress: {
         totalActivities: progress.stats.totalActivities,
         completedActivities: progress.stats.completedActivities,
@@ -324,5 +408,29 @@ export class LearningTools {
         currentUnitTotal: currentUnit?.total ?? 0,
       },
     };
+  }
+
+  /**
+   * For notebook courses, build CurrentActivity from the selected cell
+   * rather than from the service's stored position.
+   */
+  private notebookCurrentActivity(): CurrentActivity | undefined {
+    const editor = vscode.window.activeNotebookEditor;
+    const selection = editor?.selections[0];
+    if (!selection || !editor) {
+      return undefined;
+    }
+
+    const cell = editor.notebook.cellAt(selection.start);
+    const cellId = cell.metadata?.id;
+    if (typeof cellId !== "string") {
+      return undefined;
+    }
+
+    return this.service.getCurrentActivityForCell(
+      cellId,
+      cell.document.getText(),
+      editor.notebook.uri.toString(),
+    );
   }
 }

@@ -35,21 +35,21 @@ pub(crate) fn assert_arity_consistency(
 ) {
     for (package_id, package) in store {
         let ownership = collect_ownership(package_id, package);
-        let package_props = props.get(package_id);
-
-        for (block_id, generator) in package_props.blocks.iter() {
-            check_entry(
-                package_id,
-                ElementKey::Block(block_id),
-                generator,
-                &ownership,
-            );
-        }
-        for (stmt_id, generator) in package_props.stmts.iter() {
-            check_entry(package_id, ElementKey::Stmt(stmt_id), generator, &ownership);
-        }
-        for (expr_id, generator) in package_props.exprs.iter() {
-            check_entry(package_id, ElementKey::Expr(expr_id), generator, &ownership);
+        for package_props in [props.get(package_id, false), props.get(package_id, true)] {
+            for (block_id, generator) in package_props.blocks.iter() {
+                check_entry(
+                    package_id,
+                    ElementKey::Block(block_id),
+                    generator,
+                    &ownership,
+                );
+            }
+            for (stmt_id, generator) in package_props.stmts.iter() {
+                check_entry(package_id, ElementKey::Stmt(stmt_id), generator, &ownership);
+            }
+            for (expr_id, generator) in package_props.exprs.iter() {
+                check_entry(package_id, ElementKey::Expr(expr_id), generator, &ownership);
+            }
         }
     }
 }

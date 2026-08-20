@@ -318,6 +318,11 @@ pub const OPERATIONS_EXPECT_DEBUG: Expect = expect![[r#"
 pub const OPERATIONS_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 187"];
 pub const OPERATIONS_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 1428"];
 pub const OPERATIONS_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 1621"];
+pub const PARALLEL_EXPECT: Expect = expect!["()"];
+pub const PARALLEL_EXPECT_DEBUG: Expect = expect!["()"];
+pub const PARALLEL_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 22638"];
+pub const PARALLEL_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 7028"];
+pub const PARALLEL_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6398"];
 pub const PARTIALAPPLICATION_EXPECT: Expect = expect![[r#"
     five = incrementByOne(4) => 5
     Incremented array: [2, 3, 4, 5, 6]

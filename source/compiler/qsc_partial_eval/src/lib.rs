@@ -1674,6 +1674,7 @@ impl<'a> PartialEvaluator<'a> {
             Some((store_item_id.item, functor_app)),
             args,
             ctls_arg,
+            self.in_parallel_expr(),
             arrays,
         );
 
@@ -1826,6 +1827,7 @@ impl<'a> PartialEvaluator<'a> {
             Some((store_item_id.item, FunctorApp::default())),
             args,
             ctls_arg,
+            false,
             arrays,
         );
 
@@ -2233,8 +2235,9 @@ impl<'a> PartialEvaluator<'a> {
         store_item_id: StoreItemId,
         functor_app: FunctorApp,
     ) -> bool {
-        let ItemComputeProperties::Callable(callable_compute_properties) =
-            self.compute_properties.get_item(store_item_id)
+        let ItemComputeProperties::Callable(callable_compute_properties) = self
+            .compute_properties
+            .get_item(store_item_id, self.in_parallel_scope())
         else {
             return false;
         };
@@ -2465,6 +2468,7 @@ impl<'a> PartialEvaluator<'a> {
             Some((store_item_id.item, functor_app)),
             body_args,
             None,
+            false,
             Vec::new(),
         );
         self.eval_context.push_block_node(BlockNode {
@@ -3515,7 +3519,9 @@ impl<'a> PartialEvaluator<'a> {
     fn get_expr_compute_kind(&self, expr_id: ExprId) -> ComputeKind {
         let current_package_id = self.get_current_package_id();
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
-        let expr_generator_set = self.compute_properties.get_expr(store_expr_id);
+        let expr_generator_set = self
+            .compute_properties
+            .get_expr(store_expr_id, self.in_parallel_scope());
         let callable_scope = self.eval_context.get_current_scope();
         expr_generator_set.generate_application_compute_kind(&callable_scope.args_compute_kind)
     }
@@ -3524,7 +3530,7 @@ impl<'a> PartialEvaluator<'a> {
         let current_package_id = self.get_current_package_id();
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         self.compute_properties
-            .is_unresolved_callee_expr(store_expr_id)
+            .is_unresolved_callee_expr(store_expr_id, self.in_parallel_scope())
     }
 
     fn get_call_compute_kind(&self, callable_scope: &Scope) -> ComputeKind {
@@ -3535,8 +3541,9 @@ impl<'a> PartialEvaluator<'a> {
                 .expect("callable should be present")
                 .0,
         ));
-        let ItemComputeProperties::Callable(callable_compute_properties) =
-            self.compute_properties.get_item(store_item_id)
+        let ItemComputeProperties::Callable(callable_compute_properties) = self
+            .compute_properties
+            .get_item(store_item_id, self.in_parallel_scope())
         else {
             panic!("item compute properties not found");
         };
@@ -4886,6 +4893,10 @@ impl<'a> PartialEvaluator<'a> {
 
     fn in_parallel_expr(&self) -> bool {
         self.resource_manager.is_delaying_release()
+    }
+
+    fn in_parallel_scope(&self) -> bool {
+        self.eval_context.get_current_scope().in_parallel
     }
 }
 

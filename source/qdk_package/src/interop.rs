@@ -27,7 +27,7 @@ use qsc::hir::PackageId;
 use qsc::interpret::output::Receiver;
 use qsc::interpret::{CircuitEntryPoint, Interpreter, SimType, into_errors};
 use qsc::openqasm::compiler::compile_to_qsharp_ast_with_config;
-use qsc::openqasm::semantic::QasmSemanticParseResult;
+use qsc::openqasm::semantic::AnalysisResult;
 use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
 use qsc::target::Profile;
@@ -108,7 +108,7 @@ pub(crate) fn run_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::openqasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::analyze_all(&sources);
     let (package, source_map, signature, pragma_profile) = compile_qasm_enriching_errors(
         res,
         &operation_name,
@@ -264,7 +264,7 @@ pub(crate) fn resource_estimate_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::openqasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::analyze_all(&sources);
 
     let program_type = ProgramType::File;
     let output_semantics = OutputSemantics::ResourceEstimation;
@@ -353,7 +353,7 @@ pub(crate) fn compile_qasm_program_to_qir(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::openqasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::analyze_all(&sources);
 
     let program_ty = ProgramType::File;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
@@ -372,7 +372,7 @@ pub(crate) fn compile_qasm_program_to_qir(
 }
 
 pub(crate) fn compile_qasm_enriching_errors<S: AsRef<str>>(
-    semantic_parse_result: QasmSemanticParseResult,
+    semantic_parse_result: AnalysisResult,
     operation_name: S,
     program_ty: ProgramType,
     output_semantics: OutputSemantics,
@@ -453,7 +453,7 @@ pub(crate) fn compile_qasm_to_qsharp(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::openqasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::analyze_all(&sources);
 
     let program_ty = get_program_type(&kwargs, || ProgramType::File)?;
     let output_semantics = get_output_semantics(&kwargs, || OutputSemantics::OpenQasm)?;
@@ -636,7 +636,7 @@ pub(crate) fn circuit_qasm_program(
             "Expected OpenQASM project, but got a different type".to_string(),
         ));
     };
-    let res = qsc::openqasm::semantic::parse_sources(&sources);
+    let res = qsc::openqasm::analyze_all(&sources);
 
     let (package, source_map, signature, pragma_profile) = compile_qasm_enriching_errors(
         res,
