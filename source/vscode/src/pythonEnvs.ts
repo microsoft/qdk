@@ -73,8 +73,10 @@ const packagePickItems: vscode.QuickPickItem[] = [
 ];
 
 // pyscf doesn't support Windows
+const isWindows =
+  typeof process !== "undefined" && process.platform === "win32";
 const availablePackagePickItems = packagePickItems.filter(
-  (item) => item.label !== "pyscf" || process.platform !== "win32",
+  (item) => item.label !== "pyscf" || !isWindows,
 );
 
 // Merge selected qdk extras (e.g. qdk + qdk[azure] + qdk[jupyter]) into one specifier.
