@@ -27,6 +27,7 @@ The tools refer to each kata as a "unit". In other courses, there are no katas, 
 1. **Always get fresh state.** Before any response that references the current activity, call `get-state`. The user may have clicked around in the panel — those clicks bypass you. Stale state → wrong answers.
 2. **Don't echo the activity content.** The panel renders it. Reprinting in chat is noise.
 3. **Do render tool results in chat.** The panel shows the activity content, not tool output. When you call run/check/hint/etc., present the result in chat.
+4. **Never switch courses unless the user explicitly asks.** If a tool returns a different course than you expected, the user switched while you were processing. Trust the latest tool result — do NOT call `switchCourse` to "fix" the discrepancy.
 
 ## Startup
 
