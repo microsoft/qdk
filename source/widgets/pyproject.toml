@@ -23,6 +23,7 @@ artifacts = ["src/qsharp_widgets/static/*"]
 build-function = "hatch_jupyter_builder.npm_builder"
 ensured-targets = [
 	"src/qsharp_widgets/static/index.js",
+	"src/qsharp_widgets/static/bloch.js",
 	"src/qsharp_widgets/static/bloch.css",
 ]
 # skip-if-exists = ["src/qsharp_widgets/static/index.js"]
