@@ -52,6 +52,13 @@ const packagePickItems: vscode.QuickPickItem[] = [
     picked: false,
   },
   {
+    label: "pyscf",
+    description: "Python-based Simulations of Chemistry Framework",
+    detail:
+      "Collection of electronic structure methods for molecules and periodic solids",
+    picked: false,
+  },
+  {
     label: "ipykernel",
     description: "Jupyter kernel",
     detail: "Enable Jupyter notebook functionality in VS Code",
@@ -64,6 +71,13 @@ const packagePickItems: vscode.QuickPickItem[] = [
     picked: true,
   },
 ];
+
+// pyscf doesn't support Windows
+function getAvailablePackagePickItems(): vscode.QuickPickItem[] {
+  return packagePickItems.filter(
+    (item) => item.label !== "pyscf" || process.platform !== "win32",
+  );
+}
 
 // Merge selected qdk extras (e.g. qdk + qdk[azure] + qdk[jupyter]) into one specifier.
 function coalesceQdkExtras(packages: string[]): string[] {
@@ -186,7 +200,9 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
   }
 
   // Don't interrupt the chat by showing a picker - just use the defaults
-  const selectedPackages = packagePickItems.filter((item) => item.picked);
+  const selectedPackages = getAvailablePackagePickItems().filter(
+    (item) => item.picked,
+  );
 
   const packagesToInstall = coalesceQdkExtras(
     selectedPackages.map((item) => item.label),
@@ -268,7 +284,7 @@ export async function createQuantumVenvForCommand(): Promise<void> {
   }
 
   const selectedPackages = await vscode.window.showQuickPick(
-    packagePickItems.map((item) => ({ ...item })),
+    getAvailablePackagePickItems().map((item) => ({ ...item })),
     {
       canPickMany: true,
       placeHolder: "Select packages to install",
