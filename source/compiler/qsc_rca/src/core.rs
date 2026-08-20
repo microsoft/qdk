@@ -35,6 +35,7 @@ pub struct Analyzer<'a> {
     package_store_compute_properties: InternalPackageStoreComputeProperties,
     active_contexts: Vec<AnalysisContext>,
     target_capabilities: TargetCapabilityFlags,
+    last_analyzed_compute_kind: Option<ComputeKind>,
     in_parallel_expr: bool,
 }
 
@@ -49,6 +50,7 @@ impl<'a> Analyzer<'a> {
             package_store_compute_properties,
             active_contexts: Vec::<AnalysisContext>::default(),
             target_capabilities,
+            last_analyzed_compute_kind: None,
             in_parallel_expr: false,
         }
     }
@@ -77,10 +79,12 @@ impl<'a> Analyzer<'a> {
         let mut has_dynamic_content = false;
         for expr_id in exprs {
             self.visit_expr(*expr_id);
-            let application_instance = self.get_current_application_instance();
-            let expr_compute_kind = application_instance.get_expr_compute_kind(*expr_id);
+            let expr_compute_kind = self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression");
             compute_kind =
-                compute_kind.aggregate_runtime_features(*expr_compute_kind, default_value_kind);
+                compute_kind.aggregate_runtime_features(expr_compute_kind, default_value_kind);
             has_dynamic_content |= expr_compute_kind.is_variable_value_kind();
         }
 
@@ -104,13 +108,18 @@ impl<'a> Analyzer<'a> {
     ) -> ComputeKind {
         // Visit the value and size expressions to determine their compute kind.
         self.visit_expr(value_expr_id);
+        let value_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(size_expr_id);
+        let size_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The runtime features of the array repeat expression are determined by aggregating the runtime features of both
         // the size and value expressions.
-        let application_instance = self.get_current_application_instance();
-        let size_expr_compute_kind = *application_instance.get_expr_compute_kind(size_expr_id);
-        let value_expr_compute_kind = *application_instance.get_expr_compute_kind(value_expr_id);
         let default_value_kind = ValueKind::Constant;
         let mut compute_kind = ComputeKind::Static;
         compute_kind =
@@ -174,13 +183,19 @@ impl<'a> Analyzer<'a> {
         // Visit the array variable, index and replacement value expressions to determine their compute kind.
         self.visit_expr(array_var_expr_id);
         self.visit_expr(index_expr_id);
+        let index_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(replacement_value_expr_id);
+        let mut replacement_value_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // Since this is an assignment, the compute kind of the local variable (array var expression) needs to be updated.
         // The compute kind of the update is determined by the runtime features of the replacement value expression.
         let application_instance = self.get_current_application_instance();
-        let mut replacement_value_compute_kind =
-            *application_instance.get_expr_compute_kind(replacement_value_expr_id);
 
         let mut default_value_kind = ValueKind::Constant;
         // If we are within a dynamic scope, the compute kind of the assign index expression must be variable and an additional
@@ -219,7 +234,6 @@ impl<'a> Analyzer<'a> {
         // We do not care about the value kind for this kind of expression because it is an assignment, but we still
         // need a default one.
         let default_value_kind = ValueKind::Constant;
-        let index_compute_kind = *application_instance.get_expr_compute_kind(index_expr_id);
         let mut compute_kind = ComputeKind::Static;
         compute_kind =
             compute_kind.aggregate_runtime_features(index_compute_kind, default_value_kind);
@@ -248,12 +262,17 @@ impl<'a> Analyzer<'a> {
     ) -> ComputeKind {
         // Visit the LHS and RHS expressions to determine their compute kind.
         self.visit_expr(lhs_expr_id);
+        let lhs_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(rhs_expr_id);
+        let rhs_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The compute kind of a binary operator expression is the aggregation of its LHS and RHS expressions.
-        let application_instance = self.get_current_application_instance();
-        let lhs_compute_kind = *application_instance.get_expr_compute_kind(lhs_expr_id);
-        let rhs_compute_kind = *application_instance.get_expr_compute_kind(rhs_expr_id);
         let mut compute_kind = ComputeKind::Static;
         compute_kind = compute_kind.aggregate(lhs_compute_kind);
         compute_kind = compute_kind.aggregate(rhs_compute_kind);
@@ -312,12 +331,17 @@ impl<'a> Analyzer<'a> {
     fn analyze_expr_bin_op_exp(&mut self, lhs_expr_id: ExprId, rhs_expr_id: ExprId) -> ComputeKind {
         // Visit the LHS and RHS expressions to determine their compute kind.
         self.visit_expr(lhs_expr_id);
+        let lhs_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(rhs_expr_id);
+        let rhs_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The compute kind of a binary operator expression is the aggregation of its LHS and RHS expressions.
-        let application_instance = self.get_current_application_instance();
-        let lhs_compute_kind = *application_instance.get_expr_compute_kind(lhs_expr_id);
-        let rhs_compute_kind = *application_instance.get_expr_compute_kind(rhs_expr_id);
         let mut compute_kind = ComputeKind::Static;
         compute_kind = compute_kind.aggregate(lhs_compute_kind);
         compute_kind = compute_kind.aggregate(rhs_compute_kind);
@@ -341,10 +365,10 @@ impl<'a> Analyzer<'a> {
     fn analyze_expr_block(&mut self, block_id: BlockId) -> ComputeKind {
         // Visit the block to determine its compute kind.
         self.visit_block(block_id);
-
         // The compute kind of a block expression is the same as the compute kind of the block.
-        let application_instance = self.get_current_application_instance();
-        *application_instance.get_block_compute_kind(block_id)
+        self.last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting a block")
     }
 
     fn analyze_expr_call(
@@ -355,11 +379,17 @@ impl<'a> Analyzer<'a> {
     ) -> ComputeKind {
         // Visit the callee and arguments expressions to determine their compute kind.
         self.visit_expr(callee_expr_id);
+        let callee_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(args_expr_id);
+        let args_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The compute kind of this expression depends on whether the callee expression is dynamic.
-        let application_instance = self.get_current_application_instance();
-        let callee_expr_compute_kind = *application_instance.get_expr_compute_kind(callee_expr_id);
         let mut compute_kind = if callee_expr_compute_kind.is_variable_value_kind() {
             // The value kind of a call expression with an variable callee is variable but its specific variant depends
             // on the expression's type.
@@ -420,8 +450,6 @@ impl<'a> Analyzer<'a> {
         }
 
         // Aggregate the runtime features of the callee and arguments expressions.
-        let callee_expr_compute_kind = *application_instance.get_expr_compute_kind(callee_expr_id);
-        let args_expr_compute_kind = *application_instance.get_expr_compute_kind(args_expr_id);
         compute_kind =
             compute_kind.aggregate_runtime_features(callee_expr_compute_kind, ValueKind::Constant);
         compute_kind =
@@ -703,11 +731,13 @@ impl<'a> Analyzer<'a> {
     fn analyze_expr_fail(&mut self, msg_expr_id: ExprId) -> ComputeKind {
         // Visit the message expression to determine its compute kind.
         self.visit_expr(msg_expr_id);
+        let msg_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The compute kind of the expression is determined from the message expression runtime features plus an
         // additional runtime feature if the message expression is dynamic.
-        let application_instance = self.get_current_application_instance();
-        let msg_expr_compute_kind = *application_instance.get_expr_compute_kind(msg_expr_id);
         let mut compute_kind = ComputeKind::Static;
         compute_kind =
             compute_kind.aggregate_runtime_features(msg_expr_compute_kind, ValueKind::Constant);
@@ -718,11 +748,13 @@ impl<'a> Analyzer<'a> {
     fn analyze_expr_field(&mut self, record_expr_id: ExprId, expr_type: &Ty) -> ComputeKind {
         // Visit the record expression to determine its compute kind.
         self.visit_expr(record_expr_id);
+        let record_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The compute kind of the field expression is determined from the runtime features of the record expression and
         // the value kind adapted to the expression's type.
-        let application_instance = self.get_current_application_instance();
-        let record_expr_compute_kind = *application_instance.get_expr_compute_kind(record_expr_id);
         let runtime_kind = if record_expr_compute_kind.is_variable_value_kind() {
             ValueKind::new_variable_from_type(expr_type)
         } else {
@@ -744,11 +776,13 @@ impl<'a> Analyzer<'a> {
     ) -> ComputeKind {
         // Visit the condition expression to determine its compute kind.
         self.visit_expr(condition_expr_id);
+        let condition_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // If the condition expression is not constant, we push a new dynamic scope.
         let application_instance = self.get_current_application_instance_mut();
-        let condition_expr_compute_kind =
-            *application_instance.get_expr_compute_kind(condition_expr_id);
         let within_dynamic_scope = condition_expr_compute_kind.is_variable_value_kind();
         if within_dynamic_scope {
             application_instance
@@ -758,9 +792,16 @@ impl<'a> Analyzer<'a> {
 
         // Visit the body and otherwise expressions to determine their compute kind.
         self.visit_expr(body_expr_id);
-        if let Some(e) = otherwise_expr_id.as_ref() {
-            self.visit_expr(*e);
-        }
+        let body_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
+        let otherwise_expr_compute_kind = otherwise_expr_id.map(|id| {
+            self.visit_expr(id);
+            self.last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression")
+        });
 
         // Pop the dynamic scope.
         if within_dynamic_scope {
@@ -773,18 +814,12 @@ impl<'a> Analyzer<'a> {
         }
 
         // Aggregate the runtime features of the sub-expressions.
-        let application_instance = self.get_current_application_instance();
         let mut compute_kind = ComputeKind::Static;
-        let condition_expr_compute_kind =
-            *application_instance.get_expr_compute_kind(condition_expr_id);
         compute_kind = compute_kind
             .aggregate_runtime_features(condition_expr_compute_kind, ValueKind::Constant);
-        let body_expr_compute_kind = *application_instance.get_expr_compute_kind(body_expr_id);
         compute_kind =
             compute_kind.aggregate_runtime_features(body_expr_compute_kind, ValueKind::Constant);
-        if let Some(otherwise_expr_id) = otherwise_expr_id {
-            let otherwise_expr_compute_kind =
-                *application_instance.get_expr_compute_kind(otherwise_expr_id);
+        if let Some(otherwise_expr_compute_kind) = otherwise_expr_compute_kind {
             compute_kind = compute_kind
                 .aggregate_runtime_features(otherwise_expr_compute_kind, ValueKind::Constant);
         }
@@ -793,11 +828,7 @@ impl<'a> Analyzer<'a> {
         // runtime features are aggregated.
         let is_any_sub_expr_variable = condition_expr_compute_kind.is_variable_value_kind()
             || body_expr_compute_kind.is_variable_value_kind()
-            || otherwise_expr_id.is_some_and(|e| {
-                application_instance
-                    .get_expr_compute_kind(e)
-                    .is_variable_value_kind()
-            });
+            || otherwise_expr_compute_kind.is_some_and(ComputeKind::is_variable_value_kind);
         if is_any_sub_expr_variable {
             let dynamic_value_kind = if matches!(expr_type, Ty::Array(..)) {
                 // An array coming from a variable conditional should be treated as variable.
@@ -847,13 +878,18 @@ impl<'a> Analyzer<'a> {
     ) -> ComputeKind {
         // Visit the array and index expressions to determine their compute kind.
         self.visit_expr(array_expr_id);
+        let array_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(index_expr_id);
+        let index_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The runtime features of the access by index expression are determined by aggregating the runtime features of
         // the array expression and the index expression.
-        let application_instance = self.get_current_application_instance();
-        let array_expr_compute_kind = *application_instance.get_expr_compute_kind(array_expr_id);
-        let index_expr_compute_kind = *application_instance.get_expr_compute_kind(index_expr_id);
         let mut compute_kind = ComputeKind::Static;
         compute_kind =
             compute_kind.aggregate_runtime_features(array_expr_compute_kind, ValueKind::Constant);
@@ -937,27 +973,32 @@ impl<'a> Analyzer<'a> {
         end_expr_id: Option<ExprId>,
     ) -> ComputeKind {
         // Visit the start, step and end expressions to determine their compute kind.
-        if let Some(e) = start_expr_id.as_ref() {
+        let start_expr_compute_kind = if let Some(e) = start_expr_id.as_ref() {
             self.visit_expr(*e);
-        }
-        if let Some(e) = step_expr_id.as_ref() {
+            self.last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression")
+        } else {
+            ComputeKind::Static
+        };
+        let step_expr_compute_kind = if let Some(e) = step_expr_id.as_ref() {
             self.visit_expr(*e);
-        }
-        if let Some(e) = end_expr_id.as_ref() {
+            self.last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression")
+        } else {
+            ComputeKind::Static
+        };
+        let end_expr_compute_kind = if let Some(e) = end_expr_id.as_ref() {
             self.visit_expr(*e);
-        }
+            self.last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression")
+        } else {
+            ComputeKind::Static
+        };
 
         // The compute kind of a range expression is the aggregation of its start, step and end expressions.
-        let application_instance = self.get_current_application_instance();
-        let start_expr_compute_kind = start_expr_id.map_or(ComputeKind::Static, |e| {
-            *application_instance.get_expr_compute_kind(e)
-        });
-        let step_expr_compute_kind = step_expr_id.map_or(ComputeKind::Static, |e| {
-            *application_instance.get_expr_compute_kind(e)
-        });
-        let end_expr_compute_kind = end_expr_id.map_or(ComputeKind::Static, |e| {
-            *application_instance.get_expr_compute_kind(e)
-        });
         let mut compute_kind = ComputeKind::Static;
         compute_kind = compute_kind.aggregate(start_expr_compute_kind);
         compute_kind = compute_kind.aggregate(step_expr_compute_kind);
@@ -976,6 +1017,10 @@ impl<'a> Analyzer<'a> {
     fn analyze_expr_return(&mut self, value_expr_id: ExprId) -> ComputeKind {
         // Visit the value expression to determine its compute kind.
         self.visit_expr(value_expr_id);
+        let value_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The compute kind of the return expression depends on whether the expression happens within a dynamic scope.
         let application_instance = self.get_current_application_instance();
@@ -989,7 +1034,6 @@ impl<'a> Analyzer<'a> {
         };
 
         // Now just aggregate the runtime features of the value expression.
-        let value_expr_compute_kind = *application_instance.get_expr_compute_kind(value_expr_id);
         compute_kind =
             compute_kind.aggregate_runtime_features(value_expr_compute_kind, ValueKind::Constant);
         compute_kind
@@ -1006,8 +1050,10 @@ impl<'a> Analyzer<'a> {
         if let Some(copy_expr_id) = copy {
             // Visit the copy expression to determine its compute kind.
             self.visit_expr(copy_expr_id);
-            let application_instance = self.get_current_application_instance();
-            let expr_compute_kind = *application_instance.get_expr_compute_kind(copy_expr_id);
+            let expr_compute_kind = self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression");
             compute_kind =
                 compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
             has_variable_sub_exprs |= expr_compute_kind.is_variable_value_kind();
@@ -1016,8 +1062,10 @@ impl<'a> Analyzer<'a> {
         // Visit the fields to determine their compute kind.
         for expr_id in fields.iter().map(|field| field.value) {
             self.visit_expr(expr_id);
-            let application_instance = self.get_current_application_instance();
-            let expr_compute_kind = *application_instance.get_expr_compute_kind(expr_id);
+            let expr_compute_kind = self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression");
             compute_kind =
                 compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
             has_variable_sub_exprs |= expr_compute_kind.is_variable_value_kind();
@@ -1051,9 +1099,9 @@ impl<'a> Analyzer<'a> {
             match component {
                 StringComponent::Expr(expr_id) => {
                     self.visit_expr(*expr_id);
-                    let application_instance = self.get_current_application_instance();
-                    let component_compute_kind =
-                        *application_instance.get_expr_compute_kind(*expr_id);
+                    let component_compute_kind = self.last_analyzed_compute_kind.take().expect(
+                        "last analyzed compute kind should be set after visiting an expression",
+                    );
                     compute_kind = compute_kind
                         .aggregate_runtime_features(component_compute_kind, ValueKind::Constant);
                     has_variable_components |= component_compute_kind.is_variable_value_kind();
@@ -1081,8 +1129,10 @@ impl<'a> Analyzer<'a> {
         let mut has_variable_sub_exprs = false;
         for expr_id in exprs {
             self.visit_expr(*expr_id);
-            let application_instance = self.get_current_application_instance();
-            let expr_compute_kind = *application_instance.get_expr_compute_kind(*expr_id);
+            let expr_compute_kind = self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression");
             compute_kind =
                 compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
             has_variable_sub_exprs |= expr_compute_kind.is_variable_value_kind();
@@ -1101,8 +1151,9 @@ impl<'a> Analyzer<'a> {
         self.visit_expr(operand_expr_id);
 
         // The compute kind of an unary expression is the same as the compute kind of its operand expression.
-        let application_instance = self.get_current_application_instance();
-        *application_instance.get_expr_compute_kind(operand_expr_id)
+        self.last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression")
     }
 
     fn analyze_expr_update_field(
@@ -1112,14 +1163,18 @@ impl<'a> Analyzer<'a> {
     ) -> ComputeKind {
         // Visit the record and replace expressions to determine their compute kind.
         self.visit_expr(record_expr_id);
+        let record_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(replace_expr_id);
+        let replace_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The runtime features of an update field expression are determined by aggregating the runtime features of the
         // record and replace expressions.
-        let application_instance = self.get_current_application_instance();
-        let record_expr_compute_kind = *application_instance.get_expr_compute_kind(record_expr_id);
-        let replace_expr_compute_kind =
-            *application_instance.get_expr_compute_kind(replace_expr_id);
         let mut compute_kind = ComputeKind::Static;
         compute_kind =
             compute_kind.aggregate_runtime_features(record_expr_compute_kind, ValueKind::Constant);
@@ -1144,16 +1199,23 @@ impl<'a> Analyzer<'a> {
     ) -> ComputeKind {
         // Visit the array, index and replacement value expressions to determine their compute kind.
         self.visit_expr(array_expr_id);
+        let array_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(index_expr_id);
+        let index_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         self.visit_expr(replacement_value_expr_id);
+        let replacement_value_expr_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
 
         // The runtime features of an update index expression is determined by aggregating the runtime features of its
         // sub-expressions, with some nuanced considerations.
-        let application_instance = self.get_current_application_instance();
-        let array_expr_compute_kind = *application_instance.get_expr_compute_kind(array_expr_id);
-        let index_expr_compute_kind = *application_instance.get_expr_compute_kind(index_expr_id);
-        let replacement_value_expr_compute_kind =
-            *application_instance.get_expr_compute_kind(replacement_value_expr_id);
         let mut compute_kind = ComputeKind::Static;
         compute_kind =
             compute_kind.aggregate_runtime_features(array_expr_compute_kind, ValueKind::Constant);
@@ -1218,9 +1280,10 @@ impl<'a> Analyzer<'a> {
         let (condition_expr_compute_kind, mut compute_kind) = loop {
             // Visit the condition expression to determine its initial compute kind.
             self.visit_expr(condition_expr_id);
-            let application_instance = self.get_current_application_instance_mut();
-            let mut condition_expr_compute_kind =
-                *application_instance.get_expr_compute_kind(condition_expr_id);
+            let mut condition_expr_compute_kind = self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression");
 
             let package_id = self.get_current_package_id();
             let package = self.package_store.get(package_id);
@@ -1233,26 +1296,27 @@ impl<'a> Analyzer<'a> {
             // it as the stabilization limit.
             let stabilization_limit = AssignmentStmtCounter::new(package).count_in_block(block_id)
                 + AssignmentStmtCounter::new(package).count_in_expr(condition_expr_id);
+            let mut block_compute_kind = None;
             for _ in 0..=stabilization_limit {
                 // If the condition expression is a variable value kind
                 // OR
                 // we are trying to emit loops and the block is dynamic,
                 // then we push a new dynamic scope before visiting the block.
                 let application_instance = self.get_current_application_instance_mut();
-                condition_expr_compute_kind =
-                    *application_instance.get_expr_compute_kind(condition_expr_id);
                 let within_dynamic_scope = condition_expr_compute_kind.is_variable_value_kind()
                     || (should_emit_classical_loop
-                        && application_instance
-                            .find_block_compute_kind(block_id)
-                            .is_some_and(|k| !matches!(k, ComputeKind::Static)));
+                        && block_compute_kind.is_some_and(|k| !matches!(k, ComputeKind::Static)));
                 if within_dynamic_scope {
                     application_instance
                         .active_dynamic_scopes
                         .push(condition_expr_id);
                 }
                 self.visit_expr(condition_expr_id);
+                condition_expr_compute_kind = self.last_analyzed_compute_kind.take().expect(
+                    "last analyzed compute kind should be set after visiting an expression",
+                );
                 self.visit_block(block_id);
+                block_compute_kind = self.last_analyzed_compute_kind.take();
                 if within_dynamic_scope {
                     let application_instance = self.get_current_application_instance_mut();
                     let dynamic_scope_expr_id = application_instance
@@ -1264,8 +1328,8 @@ impl<'a> Analyzer<'a> {
             }
 
             // Return the aggregated runtime features of the condition expression and the block.
-            let application_instance = self.get_current_application_instance();
-            let block_compute_kind = *application_instance.get_block_compute_kind(block_id);
+            let block_compute_kind = block_compute_kind
+                .expect("block compute kind should be set after visiting the block");
             let default_value_kind = ValueKind::Constant;
             let mut compute_kind = ComputeKind::Static;
             compute_kind = compute_kind
@@ -1314,9 +1378,12 @@ impl<'a> Analyzer<'a> {
 
     fn analyze_expr_parallel_limit(&mut self, limit: ExprId) {
         self.visit_expr(limit);
+        let limit_compute_kind = self
+            .last_analyzed_compute_kind
+            .take()
+            .expect("last analyzed compute kind should be set after visiting an expression");
         // A limit on a parallel expression must be static, so we check that here.
         let application_instance = self.get_current_application_instance_mut();
-        let limit_compute_kind = *application_instance.get_expr_compute_kind(limit);
         if !matches!(limit_compute_kind, ComputeKind::Static) {
             // Add the runtime feature of dynamic parallelism to the compute kind of the parallel expression.
             let new_limit_compute_kind = limit_compute_kind.aggregate_runtime_features(
@@ -1387,15 +1454,16 @@ impl<'a> Analyzer<'a> {
         // Analyze the entry expression.
         if let Some(entry_expr_id) = package.entry {
             self.visit_expr(entry_expr_id);
+            let mut entry_compute_kind = self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting an expression");
 
             // An entry expression includes runtime flags for each primitive type in its return type
             // that must be used in output recording.
             let entry_ty = self.get_expr(entry_expr_id).ty.clone();
             let ty_flags = ty_to_runtime_runtime_output_flags(&entry_ty);
             if !ty_flags.is_empty() {
-                let mut entry_compute_kind = *self
-                    .get_current_application_instance()
-                    .get_expr_compute_kind(entry_expr_id);
                 if let ComputeKind::Dynamic {
                     runtime_features, ..
                 } = &mut entry_compute_kind
@@ -1608,7 +1676,7 @@ impl<'a> Analyzer<'a> {
             .clear_current_spec_context()
     }
 
-    fn derive_arg_compute_kinds(&self, args: &Vec<ExprId>) -> Vec<ComputeKind> {
+    fn derive_arg_compute_kinds(&self, args: &[ExprId]) -> Vec<ComputeKind> {
         let application_instance = self.get_current_application_instance();
         let mut args_compute_kinds = Vec::<ComputeKind>::with_capacity(args.len());
         for arg_expr_id in args {
@@ -1997,37 +2065,31 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
 
         // Visit each statement in the block and aggregate its compute kind.
         let mut block_compute_kind = ComputeKind::Static;
+        let mut last_stmt_compute_kind = ComputeKind::Static;
         for stmt_id in &block.stmts {
             // Visiting a statement performs its analysis for the current application instance.
             self.visit_stmt(*stmt_id);
+            last_stmt_compute_kind = self
+                .last_analyzed_compute_kind
+                .take()
+                .expect("last analyzed compute kind should be set after visiting a statement");
 
             // Now, we can query the statement's compute kind and aggregate it to the block's compute kind.
-            let application_instance = self.get_current_application_instance();
-            let stmt_compute_kind = *application_instance.get_stmt_compute_kind(*stmt_id);
             block_compute_kind = block_compute_kind
-                .aggregate_runtime_features(stmt_compute_kind, ValueKind::Constant);
+                .aggregate_runtime_features(last_stmt_compute_kind, ValueKind::Constant);
         }
 
         // Update the block's value kind if its non-unit, based on the value kind of its last statement's expression.
-        if block.ty != Ty::UNIT {
-            let last_stmt_id = block
-                .stmts
-                .last()
-                .expect("block should have at least one statement");
-            let last_stmt = self.get_stmt(*last_stmt_id);
-            if let StmtKind::Expr(last_expr_id) = last_stmt.kind {
-                let application_instance = self.get_current_application_instance();
-                let last_expr_compute_kind =
-                    application_instance.get_expr_compute_kind(last_expr_id);
-                if let ComputeKind::Dynamic { value_kind, .. } = last_expr_compute_kind {
-                    block_compute_kind.aggregate_value_kind(*value_kind);
-                }
-            }
+        if block.ty != Ty::UNIT
+            && let ComputeKind::Dynamic { value_kind, .. } = last_stmt_compute_kind
+        {
+            block_compute_kind.aggregate_value_kind(value_kind);
         }
 
         // Finally, insert the block's compute kind to the application instance.
         let application_instance = self.get_current_application_instance_mut();
         application_instance.insert_block_compute_kind(block_id, block_compute_kind);
+        self.last_analyzed_compute_kind = Some(block_compute_kind);
     }
 
     fn visit_callable_decl(&mut self, decl: &'a CallableDecl) {
@@ -2142,10 +2204,13 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
                 let previous_in_parallel_expr = self.in_parallel_expr;
                 self.in_parallel_expr = true;
                 self.visit_expr(*body);
+                let body_compute_kind = self
+                    .last_analyzed_compute_kind
+                    .take()
+                    .expect("last analyzed compute kind should be set after visiting a parallel body expression");
                 self.in_parallel_expr = previous_in_parallel_expr;
                 // The compute kind of a parallel expression is the same as the compute kind of its inner expression.
-                let application_instance = self.get_current_application_instance();
-                *application_instance.get_expr_compute_kind(*body)
+                body_compute_kind
             }
             ExprKind::Range(start_expr_id, step_expr_id, end_expr_id) => self.analyze_expr_range(
                 start_expr_id.to_owned(),
@@ -2184,6 +2249,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
         // Finally, insert the expression's compute kind in the application instance.
         let application_instance = self.get_current_application_instance_mut();
         application_instance.insert_expr_compute_kind(expr_id, compute_kind);
+        self.last_analyzed_compute_kind = Some(compute_kind);
     }
 
     fn visit_item(&mut self, item: &'a Item) {
@@ -2250,31 +2316,34 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
                 self.visit_expr(*expr_id);
 
                 // The statement's compute kind is the same as the expression's compute kind.
-                let application_instance = self.get_current_application_instance();
-                *application_instance.get_expr_compute_kind(*expr_id)
+                self.last_analyzed_compute_kind
+                    .take()
+                    .expect("last analyzed compute kind should be set after visiting an expression")
             }
             StmtKind::Semi(expr_id) => {
                 // Visit the expression to determine its compute kind.
                 self.visit_expr(*expr_id);
+                let expr_compute_kind = self.last_analyzed_compute_kind.take().expect(
+                    "last analyzed compute kind should be set after visiting an expression",
+                );
 
                 // Use the expression compute kind to construct the statement compute kind, using only the expression
                 // runtime features since the value kind is meaningless for semicolon statements.
-                let application_instance = self.get_current_application_instance();
-                let expr_compute_kind = *application_instance.get_expr_compute_kind(*expr_id);
                 ComputeKind::Static
                     .aggregate_runtime_features(expr_compute_kind, ValueKind::Constant)
             }
             StmtKind::Local(mutability, pat_id, value_expr_id) => {
                 // Visit the expression to determine its compute kind.
                 self.visit_expr(*value_expr_id);
+                let expr_compute_kind = self.last_analyzed_compute_kind.take().expect(
+                    "last analyzed compute kind should be set after visiting an expression",
+                );
 
                 // Bind the expression's compute kind to the pattern.
                 self.bind_expr_compute_kind_to_pattern(*mutability, *pat_id, *value_expr_id);
 
                 // Use the expression compute kind to construct the statement compute kind, using only the expression
                 // runtime features since the value kind is meaningless for local (binding) statements.
-                let application_instance = self.get_current_application_instance();
-                let expr_compute_kind = *application_instance.get_expr_compute_kind(*value_expr_id);
                 ComputeKind::Static
                     .aggregate_runtime_features(expr_compute_kind, ValueKind::Constant)
             }
@@ -2287,6 +2356,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
         // Insert the statements's compute kind into the application instance.
         let application_instance = self.get_current_application_instance_mut();
         application_instance.insert_stmt_compute_kind(stmt_id, compute_kind);
+        self.last_analyzed_compute_kind = Some(compute_kind);
     }
 }
 
