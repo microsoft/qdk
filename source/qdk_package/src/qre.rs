@@ -978,6 +978,11 @@ impl EstimationCollection {
         self.0.successful_estimates()
     }
 
+    #[getter]
+    pub fn errors(&self) -> Vec<String> {
+        self.0.errors().to_vec()
+    }
+
     /// Returns lightweight summaries of ALL successful estimates as a list
     /// of (trace index, isa index, qubits, runtime) tuples.
     #[getter]

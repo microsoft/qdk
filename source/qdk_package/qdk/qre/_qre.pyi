@@ -1197,6 +1197,16 @@ class _EstimationCollection:
         ...
 
     @property
+    def errors(self) -> list[str]:
+        """
+        Return the errors reported by failed estimation jobs.
+
+        Returns:
+            list[str]: The error messages from failed estimates.
+        """
+        ...
+
+    @property
     def all_summaries(self) -> list[tuple[int, int, int, int]]:
         """
         Return lightweight summaries of ALL successful estimates as a list

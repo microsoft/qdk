@@ -8,7 +8,7 @@ use std::{
 
 use rustc_hash::FxHashMap;
 
-use crate::{ISA, ParetoFrontier2D, ParetoItem2D, Property};
+use crate::{Error, ISA, ParetoFrontier2D, ParetoItem2D, Property};
 
 /// Controls how individual error contributions passed to
 /// [`EstimationResult::add_error`] are composed into the total error.
@@ -225,6 +225,8 @@ pub struct EstimationCollection {
     total_jobs: usize,
     successful_estimates: usize,
     isas: Vec<ISA>,
+    /// Errors for failed estimates.
+    errors: Vec<String>,
 }
 
 impl EstimationCollection {
@@ -272,6 +274,15 @@ impl EstimationCollection {
     #[must_use]
     pub fn isas(&self) -> &[ISA] {
         &self.isas
+    }
+
+    pub fn push_error(&mut self, err: &Error) {
+        self.errors.push(err.to_string());
+    }
+
+    #[must_use]
+    pub fn errors(&self) -> &[String] {
+        &self.errors
     }
 }
 
