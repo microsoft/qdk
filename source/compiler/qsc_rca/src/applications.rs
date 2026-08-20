@@ -473,64 +473,55 @@ pub struct ApplicationInstance {
     /// The return type of the application instance.
     return_type: Ty,
     /// The compute kind of the blocks related to the application instance.
-    blocks: FxHashMap<BlockId, ComputeKind>,
+    blocks: Vec<(BlockId, ComputeKind)>,
     /// The compute kind of the statements related to the application instance.
-    stmts: FxHashMap<StmtId, ComputeKind>,
+    stmts: Vec<(StmtId, ComputeKind)>,
     /// The compute kind of the expressions related to the application instance.
-    exprs: FxHashMap<ExprId, ComputeKind>,
+    exprs: Vec<(ExprId, ComputeKind)>,
     pub unresolved_callee_exprs: Vec<ExprId>,
 }
 
+// Default starting capacities for the per-callable application instance data structures.
+const INITIAL_BLOCKS_CAPACITY: usize = 10;
+const INITIAL_STMTS_CAPACITY: usize = 50;
+const INITIAL_EXPRS_CAPACITY: usize = 100;
+
 impl ApplicationInstance {
-    pub fn find_block_compute_kind(&self, id: BlockId) -> Option<&ComputeKind> {
-        self.blocks.get(&id)
+    fn find_expr_compute_kind(&self, id: ExprId) -> Option<&ComputeKind> {
+        self.exprs
+            .iter()
+            .rev()
+            .find(|(expr_id, _)| *expr_id == id)
+            .map(|(_, compute_kind)| compute_kind)
     }
 
-    pub fn find_expr_compute_kind(&self, id: ExprId) -> Option<&ComputeKind> {
-        self.exprs.get(&id)
-    }
-
-    pub fn find_stmt_compute_kind(&self, id: StmtId) -> Option<&ComputeKind> {
-        self.stmts.get(&id)
-    }
-
-    pub fn get_block_compute_kind(&self, id: BlockId) -> &ComputeKind {
-        self.find_block_compute_kind(id)
-            .expect("block compute kind should exist in application instance")
-    }
-
-    pub fn get_expr_compute_kind(&self, id: ExprId) -> &ComputeKind {
+    pub(crate) fn get_expr_compute_kind(&self, id: ExprId) -> &ComputeKind {
         self.find_expr_compute_kind(id)
             .expect("expression compute kind should exist in application instance")
     }
 
-    pub fn get_stmt_compute_kind(&self, id: StmtId) -> &ComputeKind {
-        self.find_stmt_compute_kind(id)
-            .expect("expression compute kind should exist in application instance")
+    pub(crate) fn insert_block_compute_kind(&mut self, id: BlockId, value: ComputeKind) {
+        self.blocks.push((id, value));
     }
 
-    pub fn insert_block_compute_kind(&mut self, id: BlockId, value: ComputeKind) {
-        self.blocks.insert(id, value);
+    pub(crate) fn reset_block_compute_kind(&mut self, id: BlockId) {
+        self.blocks.retain(|(block_id, _)| *block_id != id);
     }
 
-    pub fn reset_block_compute_kind(&mut self, id: BlockId) {
-        self.blocks.remove(&id);
+    pub(crate) fn insert_expr_compute_kind(&mut self, id: ExprId, value: ComputeKind) {
+        self.exprs.push((id, value));
     }
 
-    pub fn insert_expr_compute_kind(&mut self, id: ExprId, value: ComputeKind) {
-        self.exprs.insert(id, value);
+    pub(crate) fn reset_expr_compute_kind(&mut self, id: ExprId) {
+        self.exprs.retain(|(expr_id, _)| *expr_id != id);
     }
 
-    pub fn reset_expr_compute_kind(&mut self, id: ExprId) {
-        self.exprs.remove(&id);
+    pub(crate) fn insert_stmt_compute_kind(&mut self, id: StmtId, value: ComputeKind) {
+        self.stmts.push((id, value));
     }
 
-    pub fn insert_stmt_compute_kind(&mut self, id: StmtId, value: ComputeKind) {
-        self.stmts.insert(id, value);
-    }
-
-    pub fn reset_stmt_compute_kind(&mut self, id: StmtId) {
-        self.stmts.remove(&id);
+    pub(crate) fn reset_stmt_compute_kind(&mut self, id: StmtId) {
+        self.stmts.retain(|(stmt_id, _)| *stmt_id != id);
     }
 
     fn new(
@@ -584,9 +575,9 @@ impl ApplicationInstance {
             active_dynamic_scopes: Vec::new(),
             return_expressions: Vec::new(),
             return_type: return_type.clone(),
-            blocks: FxHashMap::default(),
-            stmts: FxHashMap::default(),
-            exprs: FxHashMap::default(),
+            blocks: Vec::with_capacity(INITIAL_BLOCKS_CAPACITY),
+            stmts: Vec::with_capacity(INITIAL_STMTS_CAPACITY),
+            exprs: Vec::with_capacity(INITIAL_EXPRS_CAPACITY),
             unresolved_callee_exprs: Vec::new(),
         }
     }
@@ -639,9 +630,9 @@ impl ApplicationInstance {
         };
 
         ApplicationInstanceComputeProperties {
-            blocks: self.blocks,
-            stmts: self.stmts,
-            exprs: self.exprs,
+            blocks: self.blocks.into_iter().collect(),
+            stmts: self.stmts.into_iter().collect(),
+            exprs: self.exprs.into_iter().collect(),
             unresolved_callee_exprs: self.unresolved_callee_exprs,
             value_kind,
         }
