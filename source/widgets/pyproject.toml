@@ -6,6 +6,8 @@ build-backend = "hatchling.build"
 name = "qsharp-widgets"
 version = "0.0.0"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE.txt", "KATEX_LICENSE.txt"]
 dependencies = ["anywidget>=0.9.21"]
 
 [project.optional-dependencies]
