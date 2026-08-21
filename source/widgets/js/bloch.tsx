@@ -6,8 +6,7 @@ import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
 import { render as prender } from "preact";
 
-import { BlochSphere } from "../../npm/qsharp/ux/bloch/bloch.js";
-import { setRenderer } from "../../npm/qsharp/ux/renderers.js";
+import { BlochSphere, setRenderer } from "qsharp-lang/ux";
 import "./bloch.css";
 
 const md = markdownIt();
