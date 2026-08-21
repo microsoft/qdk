@@ -517,9 +517,7 @@ test("removeOperation: [ref] removing the sole measurement on a wire resets its 
 // ---------------------------------------------------------------------------
 
 test("addControl on an existing wire bumps qubitUseCounts without growing qubits", () => {
-  const model = new CircuitModel(
-    circuit(2, [[gate("X", 0), gate("H", 1)]]),
-  );
+  const model = new CircuitModel(circuit(2, [[gate("X", 0), gate("H", 1)]]));
   const op = at(model, "0,0");
   assert.equal(model.qubits.length, 2);
 
