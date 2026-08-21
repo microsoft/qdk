@@ -242,9 +242,9 @@ fn malformed_line_is_discarded_during_recovery() {
             X 1
         "},
         &expect![[r#"
-            Qdk.Stim.Parser.ExpectedToken
+            Qdk.Stim.Parser.Expected
 
-              x expected newline, found close(paren)
+              x expected a valid target, found close(paren)
                ,-[1:5]
              1 | H 0 )
                :     ^

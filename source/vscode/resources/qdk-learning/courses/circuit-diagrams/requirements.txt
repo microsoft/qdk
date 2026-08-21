@@ -1,3 +1,0 @@
-qdk[jupyter]>=1.29
-ipympl>=0.10
-ipykernel>=7.3

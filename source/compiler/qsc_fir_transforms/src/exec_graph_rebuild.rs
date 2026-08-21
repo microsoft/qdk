@@ -33,8 +33,8 @@ mod tests;
 use std::ops::Range;
 
 use qsc_fir::fir::{
-    BinOp, BlockId, CallableImpl, ExecGraphDebugNode, ExecGraphIdx, ExecGraphNode, ExprId,
-    ExprKind, ItemKind, LocalItemId, Package, PackageId, PackageLookup, PackageStore,
+    BinOp, BlockId, CallableImpl, ExecGraphDebugNode, ExecGraphExpr, ExecGraphIdx, ExecGraphNode,
+    ExprId, ExprKind, ItemKind, LocalItemId, Package, PackageId, PackageLookup, PackageStore,
     SpecDecl as FirSpecDecl, StmtId, StmtKind, StoreItemId, StringComponent,
 };
 use qsc_fir::ty::Ty;
@@ -338,6 +338,7 @@ fn rebuild_expr(
 ) {
     let graph_start = builder.len();
     let expr = package.get_expr(expr_id);
+    let expr_span = expr.span;
     let kind = expr.kind.clone();
 
     match kind {
@@ -411,13 +412,17 @@ fn rebuild_expr(
             rebuild_expr(package, builder, lhs, ranges);
             builder.truncate(idx);
             rebuild_expr(package, builder, rhs, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Assign(lhs), expr_span));
             builder.push(ExecGraphNode::Unit);
         }
 
         ExprKind::AssignOp(op, lhs, rhs) => {
             let idx = builder.len();
-            let is_array = matches!(package.get_expr(lhs).ty, Ty::Array(..));
+            let lhs_expr = package.get_expr(lhs);
+            let lhs_ty = &lhs_expr.ty;
+            let lhs_span = lhs_expr.span;
+            let rhs_span = package.get_expr(rhs).span;
+            let is_array = matches!(lhs_ty, Ty::Array(..));
             rebuild_expr(package, builder, lhs, ranges);
 
             if is_array {
@@ -445,7 +450,15 @@ fn rebuild_expr(
                 _ => {}
             }
 
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::AssignOp {
+                    op,
+                    lhs,
+                    lhs_span,
+                    rhs_span,
+                },
+                expr_span,
+            ));
             builder.push(ExecGraphNode::Unit);
         }
 
@@ -453,7 +466,7 @@ fn rebuild_expr(
             rebuild_expr(package, builder, replace, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, container, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
             builder.push(ExecGraphNode::Unit);
         }
 
@@ -465,7 +478,14 @@ fn rebuild_expr(
             let idx = builder.len();
             rebuild_expr(package, builder, container, ranges);
             builder.truncate(idx);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            let index_span = package.get_expr(index).span;
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::AssignIndex {
+                    lhs: container,
+                    mid_span: index_span,
+                },
+                expr_span,
+            ));
             builder.push(ExecGraphNode::Unit);
         }
 
@@ -479,12 +499,25 @@ fn rebuild_expr(
         // `ExprKind::ArrayLit` pops after each item. This asymmetry
         // matches the evaluator's expected stack shape for the two
         // array-construction variants.
-        ExprKind::Array(items) | ExprKind::Tuple(items) => {
+        ExprKind::Array(items) => {
             for item_id in &items {
                 rebuild_expr(package, builder, *item_id, ranges);
                 builder.push(ExecGraphNode::Store);
             }
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::Array(items.len()),
+                expr_span,
+            ));
+        }
+        ExprKind::Tuple(items) => {
+            for item_id in &items {
+                rebuild_expr(package, builder, *item_id, ranges);
+                builder.push(ExecGraphNode::Store);
+            }
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::Tuple(items.len()),
+                expr_span,
+            ));
         }
 
         ExprKind::ArrayLit(items) => {
@@ -492,24 +525,33 @@ fn rebuild_expr(
                 rebuild_expr(package, builder, *item_id, ranges);
                 builder.pop();
             }
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
         ExprKind::ArrayRepeat(val, size) => {
             rebuild_expr(package, builder, val, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, size, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::ArrayRepeat, expr_span));
         }
 
-        ExprKind::BinOp(_op, lhs, rhs) => {
+        ExprKind::BinOp(op, lhs, rhs) => {
             // Non-short-circuit binary op (AndL/OrL handled above).
             // Store saves the LHS value so both operands are available
             // when the Expr node evaluates the operation.
+            let lhs_span = package.get_expr(lhs).span;
+            let rhs_span = package.get_expr(rhs).span;
             rebuild_expr(package, builder, lhs, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, rhs, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::BinOp {
+                    op,
+                    lhs_span,
+                    rhs_span,
+                },
+                expr_span,
+            ));
         }
 
         ExprKind::Call(callee, arg) => {
@@ -518,21 +560,33 @@ fn rebuild_expr(
             rebuild_expr(package, builder, callee, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, arg, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            let callee_span = package.get_expr(callee).span;
+            let args_span = package.get_expr(arg).span;
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::Call {
+                    callee_span,
+                    args_span,
+                },
+                expr_span,
+            ));
         }
 
         ExprKind::Index(container, index) => {
             rebuild_expr(package, builder, container, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, index, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            let index_span = package.get_expr(index).span;
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::Index { index_span },
+                expr_span,
+            ));
         }
 
         ExprKind::UpdateField(record, _field, replace) => {
             rebuild_expr(package, builder, replace, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, record, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
         ExprKind::UpdateIndex(lhs, mid, rhs) => {
@@ -541,7 +595,11 @@ fn rebuild_expr(
             rebuild_expr(package, builder, rhs, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, lhs, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            let mid_span = package.get_expr(mid).span;
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::UpdateIndex { mid_span },
+                expr_span,
+            ));
         }
 
         ExprKind::Range(start, step, end) => {
@@ -556,7 +614,14 @@ fn rebuild_expr(
             if let Some(e) = end {
                 rebuild_expr(package, builder, e, ranges);
             }
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(
+                ExecGraphExpr::Range {
+                    has_start: start.is_some(),
+                    has_step: step.is_some(),
+                    has_end: end.is_some(),
+                },
+                expr_span,
+            ));
         }
 
         ExprKind::String(components) => {
@@ -566,27 +631,29 @@ fn rebuild_expr(
                     builder.push(ExecGraphNode::Store);
                 }
             }
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
-        // Simple variants (just Expr(id))
-        ExprKind::Lit(..) | ExprKind::Var(..) => {
-            builder.push(ExecGraphNode::Expr(expr_id));
+        ExprKind::Lit(..) => {
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
+        }
+        ExprKind::Var(res, _) => {
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Var(res), expr_span));
         }
 
         ExprKind::Fail(msg) => {
             rebuild_expr(package, builder, msg, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Fail, expr_span));
         }
 
         ExprKind::Field(container, _) => {
             rebuild_expr(package, builder, container, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
-        ExprKind::UnOp(_, operand) => {
+        ExprKind::UnOp(op, operand) => {
             rebuild_expr(package, builder, operand, ranges);
-            builder.push(ExecGraphNode::Expr(expr_id));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::UnOp(op), expr_span));
         }
 
         ExprKind::Parallel(limit, body) => {

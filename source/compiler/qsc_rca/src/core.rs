@@ -448,7 +448,9 @@ impl<'a> Analyzer<'a> {
         // Analyze the specialization to determine its application generator set.
         let callee_id = GlobalSpecId::from((callee.item, callee.functor_app.functor_set_value()));
         self.analyze_spec(callee_id, callable_decl);
-        let application_generator_set = self.package_store_compute_properties.get_spec(callee_id);
+        let application_generator_set = self
+            .package_store_compute_properties
+            .get_spec(callee_id, self.in_parallel_expr);
 
         // We need to split controls and specialization input arguments so we can derive the correct callable
         // application.
@@ -1359,7 +1361,7 @@ impl<'a> Analyzer<'a> {
             GlobalSpecId::from((current_item_context.id, FunctorSetValue::Empty));
         if self
             .package_store_compute_properties
-            .find_specialization(body_specialization_id)
+            .find_specialization(body_specialization_id, self.in_parallel_expr)
             .is_some()
         {
             return;
@@ -1377,8 +1379,11 @@ impl<'a> Analyzer<'a> {
         };
 
         // Insert the generator set in the entry corresponding to the body specialization of the callable.
-        self.package_store_compute_properties
-            .insert_spec(body_specialization_id, application_generator_set);
+        self.package_store_compute_properties.insert_spec(
+            body_specialization_id,
+            application_generator_set,
+            self.in_parallel_expr,
+        );
     }
 
     fn analyze_item(&mut self, item_id: StoreItemId, item: &'a Item) {
@@ -1433,7 +1438,9 @@ impl<'a> Analyzer<'a> {
         assert!(top_level_context.package_id == package_id);
 
         // Save the analysis of the top-level elements to the corresponding package compute properties.
-        let package_compute_properties = self.package_store_compute_properties.get_mut(package_id);
+        let package_compute_properties = self
+            .package_store_compute_properties
+            .get_mut(package_id, self.in_parallel_expr);
         top_level_context
             .builder
             .save_to_package_compute_properties(package_compute_properties, None);
@@ -1447,7 +1454,7 @@ impl<'a> Analyzer<'a> {
         // 2. Performance (avoids redundant analysis of already-complete specs)
         if self
             .package_store_compute_properties
-            .find_specialization(id)
+            .find_specialization(id, self.in_parallel_expr)
             .is_some()
         {
             return;
@@ -1455,8 +1462,6 @@ impl<'a> Analyzer<'a> {
 
         // Push the context of the callable the specialization belongs to.
         self.push_item_context(id.callable);
-        let previous_in_parallel = self.in_parallel_expr;
-        self.in_parallel_expr = false;
         let package = self.package_store.get(id.callable.package);
         let input_params = package.derive_callable_input_params(callable_decl);
         let current_callable_context = self.get_current_item_context_mut();
@@ -1498,7 +1503,6 @@ impl<'a> Analyzer<'a> {
         // Since we are done analyzing the specialization, pop the active item context.
         let popped_item_id = self.pop_item_context();
         assert!(popped_item_id == id.callable);
-        self.in_parallel_expr = previous_in_parallel;
     }
 
     fn analyze_spec_decl(&mut self, decl: &'a SpecDecl, functor_set_value: FunctorSetValue) {
@@ -1507,7 +1511,7 @@ impl<'a> Analyzer<'a> {
         let global_spec_id = GlobalSpecId::from((current_item_context.id, functor_set_value));
         if self
             .package_store_compute_properties
-            .find_specialization(global_spec_id)
+            .find_specialization(global_spec_id, self.in_parallel_expr)
             .is_some()
         {
             return;
@@ -1522,13 +1526,18 @@ impl<'a> Analyzer<'a> {
         assert!(spec_context.functor_set_value == functor_set_value);
 
         // Save the analysis to the corresponding package compute properties.
-        let package_compute_properties = self.package_store_compute_properties.get_mut(package_id);
+        let package_compute_properties = self
+            .package_store_compute_properties
+            .get_mut(package_id, self.in_parallel_expr);
         let application_generator_set = spec_context
             .builder
             .save_to_package_compute_properties(package_compute_properties, Some(decl.block))
             .expect("applications generator set should be some");
-        self.package_store_compute_properties
-            .insert_spec(global_spec_id, application_generator_set);
+        self.package_store_compute_properties.insert_spec(
+            global_spec_id,
+            application_generator_set,
+            self.in_parallel_expr,
+        );
     }
 
     fn bind_compute_kind_to_ident(
@@ -1765,7 +1774,7 @@ impl<'a> Analyzer<'a> {
         for (stmt_id, _stmt) in &package.stmts {
             if self
                 .package_store_compute_properties
-                .find_stmt((package_id, stmt_id).into())
+                .find_stmt((package_id, stmt_id).into(), self.in_parallel_expr)
                 .is_none()
             {
                 unanalyzed_stmts.push(stmt_id);
@@ -1936,6 +1945,7 @@ impl<'a> Analyzer<'a> {
             self.package_store_compute_properties.insert_stmt(
                 (self.get_current_package_id(), stmt_id).into(),
                 default_generator_set.clone(),
+                self.in_parallel_expr,
             );
         }
     }
@@ -2208,9 +2218,10 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
             ItemKind::Ty(_, _) => {
                 // Items that are not callables do not have compute properties by themselves so we just record them as
                 // such in the package store compute properties data structure.
-                self.package_store_compute_properties.insert_item(
+                self.package_store_compute_properties.insert_ty_item(
                     current_item_context.id,
                     InternalItemComputeProperties::NonCallable,
+                    self.in_parallel_expr,
                 );
             }
         }

@@ -63,7 +63,7 @@ fn non_integer_qubit_index_is_error() {
         &expect![[r#"
             Qdk.Stim.Parser.Expected
 
-              x expected a target, found double
+              x expected a valid target, found double
                ,----
              1 | H 0.5
                :   ^^^

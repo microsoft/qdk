@@ -38,9 +38,9 @@ use output::Receiver;
 use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span};
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
-    ExecGraphDebugNode, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign, Global, Lit,
-    LocalItemId, LocalVarId, PackageId, PackageStoreLookup, ParKind, PatId, PatKind, PrimField,
-    Res, StmtId, StoreItemId, StringComponent, UnOp,
+    ExecGraphDebugNode, ExecGraphExpr, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign,
+    Global, Lit, LocalItemId, LocalVarId, PackageId, PackageStoreLookup, ParKind, PatId, PatKind,
+    PrimField, Res, StmtId, StoreItemId, StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 pub use qsc_hir::hir::PackageSpan;
@@ -777,9 +777,9 @@ impl State {
                     self.eval_bind(env, globals, *pat);
                     continue;
                 }
-                Some(ExecGraphNode::Expr(expr)) => {
+                Some(ExecGraphNode::Expr(expr, span)) => {
                     self.idx += 1;
-                    match self.eval_expr(env, sim, globals, out, *expr) {
+                    match self.eval_expr(env, sim, globals, out, *expr, *span) {
                         Ok(()) => continue,
                         Err(e) => return self.handle_error(e),
                     }
@@ -1042,18 +1042,78 @@ impl State {
         sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
-        expr: ExprId,
+        expr: ExecGraphExpr,
+        span: Span,
     ) -> Result<(), Error> {
-        let expr = globals.get_expr((self.package, expr).into());
-        self.current_span = expr.span;
-        match &expr.kind {
-            ExprKind::Array(arr) => self.eval_arr(arr.len()),
-            ExprKind::ArrayLit(arr) => self.eval_arr_lit(arr, globals),
-            ExprKind::ArrayRepeat(..) => self.eval_arr_repeat(expr.span)?,
-            ExprKind::Assign(lhs, _) => self.eval_assign(env, globals, *lhs)?,
-            ExprKind::AssignOp(op, lhs, rhs) => {
-                let lhs_span = globals.get_expr((self.package, *lhs).into()).span;
-                let rhs_span = globals.get_expr((self.package, *rhs).into()).span;
+        self.current_span = span;
+        // NOTE: the ordering of the match arms here and in nested matches is roughly in order of how often they are expected to be hit,
+        // with the most common cases first. This helps optimize performance for those common cases.
+        match &expr {
+            ExecGraphExpr::Expr(id) => {
+                let expr = globals.get_expr((self.package, *id).into());
+                match &expr.kind {
+                    ExprKind::Lit(lit) => {
+                        self.set_val_register(lit_to_val(lit));
+                    }
+                    ExprKind::String(components) => self.collect_string(components),
+                    ExprKind::ArrayLit(arr) => self.eval_arr_lit(arr, globals),
+                    ExprKind::Closure(args, callable) => {
+                        let closure = resolve_closure(env, self.package, span, args, *callable)?;
+                        self.set_val_register(closure);
+                    }
+                    ExprKind::AssignField(record, field, _) => {
+                        self.eval_update_field(field.clone());
+                        self.eval_assign(env, globals, *record)?;
+                    }
+                    ExprKind::Field(_, field) => self.eval_field(field.clone()),
+                    ExprKind::Struct(res, copy, fields) => self.eval_struct(res, *copy, fields),
+                    ExprKind::UpdateField(_, field, _) => {
+                        self.eval_update_field(field.clone());
+                    }
+                    ExprKind::Array(..)
+                    | ExprKind::ArrayRepeat(..)
+                    | ExprKind::Assign(..)
+                    | ExprKind::AssignOp(..)
+                    | ExprKind::AssignIndex(..)
+                    | ExprKind::BinOp(..)
+                    | ExprKind::Block(..)
+                    | ExprKind::Call(..)
+                    | ExprKind::Fail(..)
+                    | ExprKind::Hole
+                    | ExprKind::If(..)
+                    | ExprKind::Index(..)
+                    | ExprKind::Parallel(..)
+                    | ExprKind::Range(..)
+                    | ExprKind::Return(..)
+                    | ExprKind::UpdateIndex(..)
+                    | ExprKind::Tuple(..)
+                    | ExprKind::UnOp(..)
+                    | ExprKind::Var(..)
+                    | ExprKind::While(..) => {
+                        panic!("unexpected expression kind in exec graph: {:?}", expr.kind)
+                    }
+                }
+            }
+            ExecGraphExpr::Assign(lhs) => self.eval_assign(env, globals, *lhs)?,
+            ExecGraphExpr::Tuple(size) => self.eval_tup(*size),
+            ExecGraphExpr::Var(res) => {
+                self.set_val_register(resolve_binding(env, self.package, *res, span)?);
+            }
+            ExecGraphExpr::Call {
+                callee_span,
+                args_span,
+            } => self.eval_call(env, sim, globals, *callee_span, *args_span, out)?,
+            ExecGraphExpr::BinOp {
+                op,
+                lhs_span,
+                rhs_span,
+            } => self.eval_binop(*op, *lhs_span, *rhs_span)?,
+            ExecGraphExpr::AssignOp {
+                op,
+                lhs,
+                lhs_span,
+                rhs_span,
+            } => {
                 let (is_array, is_unique) =
                     is_updatable_in_place(env, globals.get_expr((self.package, *lhs).into()));
                 if is_array {
@@ -1062,86 +1122,50 @@ impl State {
                         return Ok(());
                     }
                     let rhs_val = self.take_val_register();
-                    self.eval_expr(env, sim, globals, out, *lhs)?;
+                    let ExprKind::Var(res, _) = &globals.get_expr((self.package, *lhs).into()).kind
+                    else {
+                        panic!("lhs of assign op should be a variable");
+                    };
+                    self.set_val_register(resolve_binding(env, self.package, *res, *lhs_span)?);
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
-                self.eval_binop(*op, lhs_span, rhs_span)?;
+                self.eval_binop(*op, *lhs_span, *rhs_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
-            ExprKind::AssignField(record, field, _) => {
-                self.eval_update_field(field.clone());
-                self.eval_assign(env, globals, *record)?;
-            }
-            ExprKind::AssignIndex(lhs, mid, _) => {
-                let mid_span = globals.get_expr((self.package, *mid).into()).span;
+            ExecGraphExpr::Array(size) => self.eval_arr(*size),
+            ExecGraphExpr::UnOp(op) => self.eval_unop(*op),
+            ExecGraphExpr::Index {
+                index_span: rhs_span,
+            } => self.eval_index(*rhs_span)?,
+            ExecGraphExpr::Range {
+                has_start,
+                has_step,
+                has_end,
+            } => self.eval_range(*has_start, *has_step, *has_end),
+            ExecGraphExpr::AssignIndex { lhs, mid_span } => {
                 let (_, is_unique) =
                     is_updatable_in_place(env, globals.get_expr((self.package, *lhs).into()));
                 if is_unique {
-                    self.eval_update_index_in_place(env, globals, *lhs, mid_span)?;
+                    self.eval_update_index_in_place(env, globals, *lhs, *mid_span)?;
                     return Ok(());
                 }
                 self.push_val();
-                self.eval_expr(env, sim, globals, out, *lhs)?;
-                self.eval_update_index(mid_span)?;
+                let lhs_expr = globals.get_expr((self.package, *lhs).into());
+                let ExprKind::Var(res, _) = &lhs_expr.kind else {
+                    panic!("lhs of assign op should be a variable");
+                };
+                self.set_val_register(resolve_binding(env, self.package, *res, lhs_expr.span)?);
+                self.eval_update_index(*mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
-            ExprKind::BinOp(op, lhs, rhs) => {
-                let lhs_span = globals.get_expr((self.package, *lhs).into()).span;
-                let rhs_span = globals.get_expr((self.package, *rhs).into()).span;
-                self.eval_binop(*op, lhs_span, rhs_span)?;
-            }
-            ExprKind::Block(..) => panic!("block expr should be handled by control flow"),
-            ExprKind::Call(callee_expr, args_expr) => {
-                let callable_span = globals.get_expr((self.package, *callee_expr).into()).span;
-                let args_span = globals.get_expr((self.package, *args_expr).into()).span;
-                self.eval_call(env, sim, globals, callable_span, args_span, out)?;
-            }
-            ExprKind::Closure(args, callable) => {
-                let closure = resolve_closure(env, self.package, expr.span, args, *callable)?;
-                self.set_val_register(closure);
-            }
-            ExprKind::Fail(..) => {
+            ExecGraphExpr::UpdateIndex { mid_span } => self.eval_update_index(*mid_span)?,
+            ExecGraphExpr::ArrayRepeat => self.eval_arr_repeat(span)?,
+            ExecGraphExpr::Fail => {
                 return Err(Error::UserFail(
                     self.take_val_register().unwrap_string().to_string(),
-                    self.to_global_span(expr.span),
+                    self.to_global_span(span),
                 ));
-            }
-            ExprKind::Field(_, field) => self.eval_field(field.clone()),
-            ExprKind::Hole => panic!("hole expr should be disallowed by passes"),
-            ExprKind::If(..) => {
-                panic!("if expr should be handled by control flow")
-            }
-            ExprKind::Index(_, rhs) => {
-                let rhs_span = globals.get_expr((self.package, *rhs).into()).span;
-                self.eval_index(rhs_span)?;
-            }
-            ExprKind::Lit(lit) => {
-                self.set_val_register(lit_to_val(lit));
-            }
-            ExprKind::Range(start, step, end) => {
-                self.eval_range(start.is_some(), step.is_some(), end.is_some());
-            }
-            ExprKind::Return(..) => panic!("return expr should be handled by control flow"),
-            ExprKind::Struct(res, copy, fields) => self.eval_struct(res, *copy, fields),
-            ExprKind::String(components) => self.collect_string(components),
-            ExprKind::UpdateIndex(_, mid, _) => {
-                let mid_span = globals.get_expr((self.package, *mid).into()).span;
-                self.eval_update_index(mid_span)?;
-            }
-            ExprKind::Tuple(tup) => self.eval_tup(tup.len()),
-            ExprKind::UnOp(op, _) => self.eval_unop(*op),
-            ExprKind::UpdateField(_, field, _) => {
-                self.eval_update_field(field.clone());
-            }
-            ExprKind::Var(res, _) => {
-                self.set_val_register(resolve_binding(env, self.package, *res, expr.span)?);
-            }
-            ExprKind::While(..) => {
-                panic!("while expr should be handled by control flow")
-            }
-            ExprKind::Parallel(..) => {
-                panic!("parallel expr should be handled by control flow")
             }
         }
 

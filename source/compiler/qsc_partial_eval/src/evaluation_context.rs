@@ -24,7 +24,8 @@ pub struct EvaluationContext {
 impl EvaluationContext {
     /// Creates a new evaluation context.
     pub fn new(package_id: PackageId, initial_block: BlockId) -> Self {
-        let entry_callable_scope = Scope::new(package_id, None, Vec::new(), None, Vec::new());
+        let entry_callable_scope =
+            Scope::new(package_id, None, Vec::new(), None, false, Vec::new());
         Self {
             active_blocks: vec![BlockNode {
                 id: initial_block,
@@ -108,6 +109,8 @@ pub struct Scope {
     pub callable: Option<(LocalItemId, FunctorApp)>,
     /// The compute kind of the arguments passed to the callable.
     pub args_compute_kind: Vec<ComputeKind>,
+    /// Whether the callable is being invoked from inside a parallel expression.
+    pub in_parallel: bool,
     /// The classical environment of the callable, which holds values corresponding to local variables.
     pub env: Env,
     /// Map that holds the values of local variables.
@@ -130,6 +133,7 @@ impl Scope {
         callable: Option<(LocalItemId, FunctorApp)>,
         args: Vec<Arg>,
         ctls_arg: Option<Arg>,
+        in_parallel: bool,
         arrays: Vec<Rc<Vec<Value>>>,
     ) -> Self {
         // Create the environment for the classical evaluator.
@@ -183,6 +187,7 @@ impl Scope {
             package_id,
             callable,
             args_compute_kind,
+            in_parallel,
             env,
             active_block_count: 1,
             hybrid_vars,

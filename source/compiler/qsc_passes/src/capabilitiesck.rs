@@ -63,7 +63,7 @@ pub fn run_rca_pass(
     let compute_properties = analyzer.analyze_all();
     let fir_package = fir_store.get(package_id);
 
-    let package_compute_properties = compute_properties.get(package_id);
+    let package_compute_properties = compute_properties.get(package_id, false);
     let mut errors = check_supported_capabilities(
         fir_package,
         package_compute_properties,
