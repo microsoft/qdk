@@ -704,7 +704,10 @@ const _fillRenderDataX = (
 
             // Subtract startX offset from nested gates and add offset and padding
             let offset: number = groupLeftX - startX + groupPaddingX;
-            if (renderData.classicalControlIds != null) {
+            if (
+              renderData.classicalControlIds != null &&
+              !renderData.displayAsClassicallyControlledGate
+            ) {
               offset += controlCircleOffset;
             }
 
