@@ -233,3 +233,90 @@ test("addOperation: clone-copy that would push a wire below 0 returns null", () 
   assert.equal(result, null, "expected null when shift would underflow");
   assert.equal(JSON.stringify(model.componentGrid), before);
 });
+
+test("clone consumer-producer pair", () => {
+  // Cloning a group that contains a measurement and a classically
+  // controlled op. The clone must shift the quantum legs and the cloned consumer
+  // should consume the cloned producer's result, not the original's.
+  const model = build(
+    circuit(4, [
+      [
+        group("Foo", [
+          [meas(0)],
+          [gate("H", 1, { ctrls: [{ q: 0, r: 0 }], conditional: true })],
+        ]),
+      ],
+    ]),
+  );
+  const sourceFoo = at(model, "0,0");
+
+  // clone Foo, grab on q0, drop on q2 (delta = +2)
+  const cloned = addOperation(
+    model,
+    sourceFoo,
+    "1,0",
+    /* targetWire */ 2,
+    /* insertNewColumn */ false,
+    /* sourceWire */ 0,
+  );
+
+  assert.ok(cloned, "clone returned an op");
+  expectOp(cloned, {
+    Foo: {
+      children: [
+        [{ M: { qubits: [2], results: [{ q: 2, r: 0 }] } }],
+        [{ H: { targets: [3], ctrls: [{ q: 2, r: 0 }], conditional: true } }],
+      ],
+    },
+  });
+});
+
+test("clone consumer-producer pair onto the same wires preserves both pairs", () => {
+  // Cloning this group onto the same wires temporarily gives both measurements the same q0:r0
+  // identity. Resequencing must assign the clone q0:r1 without redirecting the original consumer.
+  const model = build(
+    circuit(4, [
+      [
+        group("Foo", [
+          [meas(0, { result: 0 })],
+          [gate("H", 1, { ctrls: [{ q: 0, r: 0 }], conditional: true })],
+        ]),
+      ],
+    ]),
+  );
+  const sourceFoo = at(model, "0,0");
+
+  // Clone Foo into the next column without changing wires (delta = 0).
+  const cloned = addOperation(
+    model,
+    sourceFoo,
+    "1,0",
+    /* targetWire */ 0,
+    /* insertNewColumn */ false,
+    /* sourceWire */ 0,
+  );
+
+  assert.ok(cloned, "clone returned an op");
+
+  // The original producer-consumer pair must remain on q0:r0. This assertion catches the bug where
+  // the cloned producer overwrites the original producer's reconciliation key and steals its H.
+  expectOp(sourceFoo, {
+    Foo: {
+      children: [
+        [{ M: { qubits: [0], results: [{ q: 0, r: 0 }] } }],
+        [{ H: { targets: [1], ctrls: [{ q: 0, r: 0 }], conditional: true } }],
+      ],
+    },
+  });
+
+  // The clone receives the next result slot, and its consumer must follow that cloned producer.
+  expectOp(cloned, {
+    Foo: {
+      children: [
+        [{ M: { qubits: [0], results: [{ q: 0, r: 1 }] } }],
+        [{ H: { targets: [1], ctrls: [{ q: 0, r: 1 }], conditional: true } }],
+      ],
+    },
+  });
+  assert.equal(model.qubits[0].numResults, 2);
+});

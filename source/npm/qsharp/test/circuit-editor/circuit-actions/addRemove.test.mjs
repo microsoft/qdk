@@ -45,19 +45,19 @@ test("addOperation: basic add to an empty circuit", () => {
   expectGrid(model, [["H"]]);
   // Returned value is the inserted reference (deep-copied from the template).
   assert.equal(added, at(model, "0,0"));
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
-test("addOperation: add on an existing wire bumps its use count without growing qubits", () => {
+test("addOperation: add on the used wire bumps its use count without growing qubits", () => {
   const model = new CircuitModel(emptyCircuit(2));
   addOperation(model, unitary("H"), "0,0", 0);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 
   // Second op on the SAME wire (fresh column 1 to avoid same-column overlap).
   addOperation(model, unitary("X"), "1,0", 0);
 
-  assert.equal(model.qubits.length, 2);
-  assert.deepEqual(model.qubitUseCounts, [2, 0]);
+  assert.equal(model.qubits.length, 1);
+  assert.deepEqual(model.qubitUseCounts, [2]);
   expectGrid(model, [["H"], ["X"]]);
 });
 
@@ -73,6 +73,26 @@ test("addOperation: add on a new wire grows the qubit register by one", () => {
   assert.equal(model.qubits.length, 2);
   assert.deepEqual(model.qubitUseCounts, [1, 1]);
   expectGrid(model, [["H", "X"]]);
+});
+
+test("addOperation: toolbox measurement creates a result on its target wire", () => {
+  const model = new CircuitModel(emptyCircuit(3));
+  /** @type {any} */
+  const toolboxMeasurement = {
+    kind: "measurement",
+    gate: "Measure",
+    qubits: [],
+    results: [],
+  };
+
+  const added = addOperation(model, toolboxMeasurement, "0,0", 2);
+
+  assert.ok(added);
+  assert.deepEqual(/** @type {any} */ (added).qubits, [{ qubit: 2 }]);
+  assert.deepEqual(/** @type {any} */ (added).results, [
+    { qubit: 2, result: 0 },
+  ]);
+  assert.equal(model.qubits[2].numResults, 1);
 });
 
 test("addOperation: add on a wire several IDs past the end bulk-grows the register", () => {
@@ -116,7 +136,7 @@ test("addOperation: an overlapping insert forces a new column even with insertNe
 
   assert.ok(added, "an overlapping insert is resolved, not rejected");
   expectGrid(model, [["X"], ["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [2, 0]);
+  assert.deepEqual(model.qubitUseCounts, [2]);
 });
 
 test("addOperation: a root/empty location returns null", () => {
@@ -139,7 +159,7 @@ test("addOperation: an op index one past the column's append slot returns null",
 
   assert.equal(result, null, "out-of-range op index must be rejected");
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("addOperation: a column index one past the trailing-append slot returns null", () => {
@@ -153,7 +173,7 @@ test("addOperation: a column index one past the trailing-append slot returns nul
 
   assert.equal(result, null, "out-of-range column index must be rejected");
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("addOperation: insertNewColumn at the first column shifts every existing gate right", () => {
@@ -217,7 +237,7 @@ test("addOperation: insertNewColumn at location len+1,0 returns null", () => {
 
   assert.equal(result, null, "out-of-range column index must be rejected");
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 // ---------------------------------------------------------------------------
@@ -297,7 +317,7 @@ test("removeOperation on a root location is a safe no-op", () => {
 
   assert.equal(result, null);
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("removeOperation of the only remaining gate empties the circuit", () => {
@@ -324,7 +344,7 @@ test("removeOperation at an out-of-bounds location is a safe no-op", () => {
   assert.equal(removeOperation(model, "0,9"), null);
 
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("removeOperation at an in-range but empty interior slot is a safe no-op", () => {
@@ -348,19 +368,163 @@ test("removeOperation at an in-range but empty interior slot is a safe no-op", (
 });
 
 // ---------------------------------------------------------------------------
+// add / remove: producer renumbering + consumer repointing
+//
+// Adding or removing a measurement on a wire renumbers the other measurements on that SAME wire and
+// carries their downstream consumers along. The shared edit transaction gives each affected
+// producer and its consumers a temporary identity, then resolves that identity to the producer's
+// final slot. Only edited wires are resequenced; other producers and consumers remain untouched.
+//
+// One shared base circuit exercises all of this. Wire 0 carries three measurements: M0 (no
+// consumer, so it is safe to delete), M1 (feeds TWO consumers, Y and W), and M2 (feeds Z). An
+// independent producer P on wire 2 feeds Q on wire 3 — the untouched-wire control. Each builder
+// performs a single structural edit; the tests below assert individual facts about the result.
+// ---------------------------------------------------------------------------
+
+/**
+ * Base circuit for the renumber/repoint tests. Columns run left-to-right; each cell is the op on
+ * that wire in that column (blank = nothing there).
+ *
+ *          col0    col1   col2   col3   col4   col5
+ *   q0:    M0(r0)  M1(r1) M2(r2)
+ *   q1:                          Y      W      Z
+ *   q2:    P(r0)
+ *   q3:                          Q
+ *
+ * Classical links (consumer → producer it reads):
+ *   Y → M1(q0,r1)   W → M1(q0,r1)   Z → M2(q0,r2)   Q → P(q2,r0)
+ *
+ * So wire 0 holds three producers: M0 (no consumer, safe to delete), M1 (read by TWO consumers,
+ * Y and W), and M2 (read by Z). P on wire 2 → Q on wire 3 is the independent, untouched-wire link.
+ */
+const buildRefBase = () =>
+  new CircuitModel(
+    circuit(qubits(4, { 0: 3, 2: 1 }), [
+      [meas(0, { result: 0, gate: "M0" }), meas(2, { result: 0, gate: "P" })],
+      [meas(0, { result: 1, gate: "M1" })],
+      [meas(0, { result: 2, gate: "M2" })],
+      [
+        gate("Y", 1, { ctrls: [{ q: 0, r: 1 }], conditional: true }),
+        gate("Q", 3, { ctrls: [{ q: 2, r: 0 }], conditional: true }),
+      ],
+      [gate("W", 1, { ctrls: [{ q: 0, r: 1 }], conditional: true })],
+      [gate("Z", 1, { ctrls: [{ q: 0, r: 2 }], conditional: true })],
+    ]),
+  );
+
+/** Top-level op lookup by gate name (every op in the base carries a distinct name). */
+const byGateIn = (/** @type {any} */ model) => {
+  const top = model.componentGrid.flatMap(
+    (/** @type {any} */ c) => c.components,
+  );
+  return (/** @type {string} */ name) =>
+    top.find((/** @type {any} */ op) => op.gate === name);
+};
+
+/** `buildRefBase` + insert a fresh measurement at the FRONT of wire 0 (shifts M0/M1/M2 right). */
+const buildAndAddAtFront = () => {
+  const model = buildRefBase();
+  const added = addOperation(model, meas(0, { gate: "MNew" }), "0,0", 0, true);
+  assert.ok(added, "precondition: the add must succeed");
+  return { model, added, byGate: byGateIn(model) };
+};
+
+/** `buildRefBase` + remove the leading, consumer-less measurement M0 on wire 0. */
+const buildAndRemoveLeading = () => {
+  const model = buildRefBase();
+  removeOperation(model, "0,0");
+  return { model, byGate: byGateIn(model) };
+};
+
+test("addOperation: [ref] the new measurement's temporary token resolves to a real slot", () => {
+  const { added } = buildAndAddAtFront();
+  // Added at the front of wire 0, so it takes r0; the temporary token must be gone.
+  assert.deepEqual(/** @type {any} */ (added).results[0], {
+    qubit: 0,
+    result: 0,
+  });
+});
+
+test("addOperation: [ref] producers ahead renumber and wire-0 numResults grows", () => {
+  const { model, byGate } = buildAndAddAtFront();
+  // New M is r0, so the three originals slide up one slot each.
+  assert.equal(byGate("M0").results[0].result, 1);
+  assert.equal(byGate("M1").results[0].result, 2);
+  assert.equal(byGate("M2").results[0].result, 3);
+  assert.equal(model.qubits[0].numResults, 4);
+});
+
+test("addOperation: [ref] both consumers of M1 follow it to its new slot", () => {
+  const { byGate } = buildAndAddAtFront();
+  // M1 moved r1 → r2; Y and W both read it and must both be carried.
+  expectOp(byGate("Y"), { Y: { ctrls: [{ q: 0, r: 2 }] } });
+  expectOp(byGate("W"), { W: { ctrls: [{ q: 0, r: 2 }] } });
+});
+
+test("addOperation: [ref] the consumer of M2 follows it to its new slot", () => {
+  const { byGate } = buildAndAddAtFront();
+  // M2 moved r2 → r3.
+  expectOp(byGate("Z"), { Z: { ctrls: [{ q: 0, r: 3 }] } });
+});
+
+test("addOperation: [ref] the producer and consumer on the untouched wire are left alone", () => {
+  const { model, byGate } = buildAndAddAtFront();
+  // The edit was on wire 0; wire 2's producer P and its consumer Q must be untouched.
+  assert.equal(byGate("P").results[0].result, 0);
+  assert.equal(model.qubits[2].numResults, 1);
+  expectOp(byGate("Q"), { Q: { ctrls: [{ q: 2, r: 0 }] } });
+});
+
+test("removeOperation: [ref] surviving producers renumber and wire-0 numResults shrinks", () => {
+  const { model, byGate } = buildAndRemoveLeading();
+  // M0 gone, so M1/M2 close up to r0/r1.
+  assert.equal(byGate("M1").results[0].result, 0);
+  assert.equal(byGate("M2").results[0].result, 1);
+  assert.equal(model.qubits[0].numResults, 2);
+});
+
+test("removeOperation: [ref] both consumers of M1 follow it to its new slot", () => {
+  const { byGate } = buildAndRemoveLeading();
+  // M1 moved r1 → r0; Y and W must both be carried.
+  expectOp(byGate("Y"), { Y: { ctrls: [{ q: 0, r: 0 }] } });
+  expectOp(byGate("W"), { W: { ctrls: [{ q: 0, r: 0 }] } });
+});
+
+test("removeOperation: [ref] the consumer of M2 follows it to its new slot", () => {
+  const { byGate } = buildAndRemoveLeading();
+  // M2 moved r2 → r1.
+  expectOp(byGate("Z"), { Z: { ctrls: [{ q: 0, r: 1 }] } });
+});
+
+test("removeOperation: [ref] the producer and consumer on the untouched wire are left alone", () => {
+  const { model, byGate } = buildAndRemoveLeading();
+  assert.equal(byGate("P").results[0].result, 0);
+  assert.equal(model.qubits[2].numResults, 1);
+  expectOp(byGate("Q"), { Q: { ctrls: [{ q: 2, r: 0 }] } });
+});
+
+test("removeOperation: [ref] removing the sole measurement on a wire resets its numResults to undefined", () => {
+  // A gate on wire 1 keeps wire 0 from being trailing-trimmed once its only measurement is gone.
+  const model = new CircuitModel(
+    circuit(qubits(2, { 0: 1 }), [[meas(0, { result: 0 })], [gate("H", 1)]]),
+  );
+  removeOperation(model, "0,0");
+  assert.equal(model.qubits[0].numResults, undefined);
+});
+
+// ---------------------------------------------------------------------------
 // addControl
 // ---------------------------------------------------------------------------
 
 test("addControl on an existing wire bumps qubitUseCounts without growing qubits", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("X"), "0,0", 0);
+  const model = new CircuitModel(circuit(2, [[gate("X", 0), gate("H", 1)]]));
   const op = at(model, "0,0");
   assert.equal(model.qubits.length, 2);
 
   // Control on wire 1 — already in the qubit list, so no growth.
   assert.equal(addControl(model, op, 1), true);
   assert.equal(model.qubits.length, 2);
-  assert.deepEqual(model.qubitUseCounts, [1, 1]);
+  assert.deepEqual(model.qubitUseCounts, [1, 2]);
   expectOp(op, { X: { ctrls: [1] } });
 });
 
