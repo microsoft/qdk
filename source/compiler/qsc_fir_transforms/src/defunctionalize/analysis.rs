@@ -3432,9 +3432,10 @@ fn analyze_spec_flow(
     package_id: PackageId,
     mut recorder: Option<&mut CallRecorder>,
 ) {
-    set_visible_input_bindings(
+    set_visible_spec_input_bindings(
         pkg,
-        spec_impl.body.input.unwrap_or(input_pat),
+        input_pat,
+        spec_impl.body.input,
         &mut state.visible_bindings,
     );
     analyze_block_flow(
@@ -3446,11 +3447,7 @@ fn analyze_spec_flow(
         recorder.as_deref_mut(),
     );
     for spec in functored_specs(spec_impl) {
-        set_visible_input_bindings(
-            pkg,
-            spec.input.unwrap_or(input_pat),
-            &mut state.visible_bindings,
-        );
+        set_visible_spec_input_bindings(pkg, input_pat, spec.input, &mut state.visible_bindings);
         analyze_block_flow(
             pkg,
             store,
@@ -3462,13 +3459,19 @@ fn analyze_spec_flow(
     }
 }
 
-fn set_visible_input_bindings(
+fn set_visible_spec_input_bindings(
     pkg: &Package,
-    input_pat: PatId,
+    callable_input: PatId,
+    spec_input: Option<PatId>,
     visible_bindings: &mut FxHashSet<LocalVarId>,
 ) {
     visible_bindings.clear();
-    collect_pat_local_bindings(pkg, input_pat, visible_bindings);
+    collect_pat_local_bindings(pkg, callable_input, visible_bindings);
+    if let Some(spec_input) = spec_input
+        && spec_input != callable_input
+    {
+        collect_pat_local_bindings(pkg, spec_input, visible_bindings);
+    }
 }
 
 /// Walks a block's statements, propagating callable-flow lattice updates

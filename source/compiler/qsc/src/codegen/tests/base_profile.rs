@@ -629,6 +629,41 @@ fn three_callable_args_all_producers() {
     );
 }
 
+#[test]
+fn indexed_capturing_closures_inside_specialized_clone_select_requested_candidate() {
+    let source = "namespace Test {
+            import Std.Intrinsic.*;
+            import Std.Measurement.*;
+            operation ApplyAt(ops : (Qubit => Unit)[], idx : Int, q : Qubit) : Unit {
+                ops[idx](q);
+            }
+            operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+                seed(q);
+                let firstAngle = 0.1;
+                let secondAngle = 0.2;
+                let ops = [
+                    target => Rx(firstAngle, target),
+                    target => Ry(secondAngle, target)
+                ];
+                ApplyAt(ops, idx, q);
+            }
+            @EntryPoint()
+            operation Main() : Result {
+                use q = Qubit();
+                Outer(H, 1, q);
+                return MResetZ(q);
+            }
+        }";
+
+    let qir = compile_source_to_qir(source, *CAPABILITIES);
+    assert!(
+        qir.contains("__quantum__qis__h__body")
+            && qir.contains("__quantum__qis__ry__body(double 0.2,")
+            && !qir.contains("__quantum__qis__rx__body(double 0.1,"),
+        "expected index 1 to select only the second capturing closure; got:\n{qir}"
+    );
+}
+
 /// A global operation argument alongside two same-target producer closures must
 /// lower to valid Base-profile QIR with the global gate and both rotations
 /// present. The `H` argument resolves to a global while the two `Make(angle)`

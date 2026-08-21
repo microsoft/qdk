@@ -74,6 +74,12 @@ type HofDispatchTarget<'a> = (&'a CallSite, StoreItemId, &'a CallableParam);
 /// `AndL` conjunction at rewrite time.
 type ConditionedHofTarget<'a> = (HofDispatchTarget<'a>, Vec<ExprId>);
 
+#[derive(Clone, Copy)]
+struct CaptureWriterContext {
+    owner_callable: Option<LocalItemId>,
+    destination: CaptureScope,
+}
+
 /// Rewrites call sites in the target package so that higher-order calls are
 /// replaced with direct calls to their specialized counterparts.
 ///
@@ -981,7 +987,7 @@ fn synthesize_index_dispatch_plan(
     for callable in callables {
         let position = indexed_callables
             .iter()
-            .position(|candidate| candidate == callable)?;
+            .position(|candidate| indexed_callable_matches(candidate, callable))?;
         entry_positions.push(position);
     }
 
@@ -1025,6 +1031,36 @@ fn synthesize_index_dispatch_plan(
     }
 
     Some((conditioned, default_idx))
+}
+
+fn indexed_callable_matches(reconstructed: &ConcreteCallable, analyzed: &ConcreteCallable) -> bool {
+    match (reconstructed, analyzed) {
+        (
+            ConcreteCallable::Closure {
+                target: reconstructed_target,
+                captures: reconstructed_captures,
+                functor: reconstructed_functor,
+            },
+            ConcreteCallable::Closure {
+                target: analyzed_target,
+                captures: analyzed_captures,
+                functor: analyzed_functor,
+            },
+        ) => {
+            reconstructed_target == analyzed_target
+                && reconstructed_functor == analyzed_functor
+                && reconstructed_captures.len() == analyzed_captures.len()
+                && reconstructed_captures.iter().zip(analyzed_captures).all(
+                    |(reconstructed, analyzed)| {
+                        reconstructed.local == analyzed.local
+                            && reconstructed.ty == analyzed.ty
+                            && (analyzed.expr.is_none() || reconstructed.expr == analyzed.expr)
+                            && reconstructed.caller_substitutions == analyzed.caller_substitutions
+                    },
+                )
+        }
+        _ => reconstructed == analyzed,
+    }
 }
 
 /// Removes nested `Block([Expr(tail)])` wrappers from an index expression used
@@ -1290,6 +1326,7 @@ fn resolve_concrete_closure_captures(
     captured_vars: &[LocalVarId],
 ) -> Option<Vec<CapturedVar>> {
     let owner_callable = *expr_owner_lookup.get(&owner_expr_id)?;
+    let owner_scope = expr_owner_lookup.scope(&owner_expr_id)?;
     captured_vars
         .iter()
         .map(|&var| {
@@ -1298,7 +1335,7 @@ fn resolve_concrete_closure_captures(
                 .map(|expr_id| package.get_expr(expr_id).ty.clone())
                 .or_else(|| find_var_type_in_callable(package, owner_callable, var))?;
             Some(CapturedVar {
-                local: ScopedLocal::new(var, CaptureScope::Callable(owner_callable)),
+                local: ScopedLocal::new(var, owner_scope),
                 ty,
                 expr,
                 caller_substitutions: Vec::new(),
@@ -3260,9 +3297,25 @@ fn rewrite_one(
 ) {
     let call_expr = package.get_expr(call_site.call_expr_id).clone();
 
-    let ExprKind::Call(callee_id, args_id) = call_expr.kind else {
+    let ExprKind::Call(callee_id, original_args_id) = call_expr.kind else {
         return;
     };
+    let original_args = package.get_expr(original_args_id).clone();
+    let args_id = alloc_expr(
+        package,
+        assigner,
+        original_args.ty,
+        original_args.kind,
+        original_args.span,
+    );
+    let call_expr = package
+        .exprs
+        .get_mut(call_site.call_expr_id)
+        .expect("call expression should exist");
+    let ExprKind::Call(_, call_args_id) = &mut call_expr.kind else {
+        unreachable!("call expression should remain a call");
+    };
+    *call_args_id = args_id;
 
     // Replace callee with the specialized callable reference
     let spec_item_id = ItemId {
@@ -4086,9 +4139,25 @@ fn append_captures_beneath_control_layers(
     assigner: &mut Assigner,
 ) {
     if controlled_layers == 0 {
-        let span = package.get_expr(tuple_id).span;
+        let original = package.get_expr(tuple_id).clone();
+        let span = original.span;
         let capture_ids = allocate_capture_exprs(package, span, destination, captures, assigner);
         let capture_tys: Vec<Ty> = captures.iter().map(|c| c.ty.clone()).collect();
+        if !matches!(original.kind, ExprKind::Tuple(_)) {
+            let payload_id =
+                alloc_expr(package, assigner, original.ty.clone(), original.kind, span);
+            let mut elements = vec![payload_id];
+            elements.extend(capture_ids);
+            let mut tys = vec![original.ty];
+            tys.extend(capture_tys);
+            let tuple_mut = package
+                .exprs
+                .get_mut(tuple_id)
+                .expect("args expr not found");
+            tuple_mut.kind = ExprKind::Tuple(elements);
+            tuple_mut.ty = Ty::Tuple(tys);
+            return;
+        }
         let tuple_mut = package
             .exprs
             .get_mut(tuple_id)
@@ -5492,7 +5561,10 @@ fn branch_split_rewrite(
         orig_args_id,
         span,
         &result_ty,
-        expr_owner_lookup.callable(&call_expr_id),
+        CaptureWriterContext {
+            owner_callable: expr_owner_lookup.callable(&call_expr_id),
+            destination,
+        },
         conditioned,
         default_entry,
         constants,
@@ -5574,7 +5646,7 @@ fn install_branch_split_dispatch<'a>(
     orig_args_id: ExprId,
     span: Span,
     result_ty: &Ty,
-    destination: Option<LocalItemId>,
+    writer: CaptureWriterContext,
     conditioned: Vec<ConditionedHofTarget<'a>>,
     default_entry: HofDispatchTarget<'a>,
     constants: &[(&CallSite, &CallableParam)],
@@ -5593,7 +5665,7 @@ fn install_branch_split_dispatch<'a>(
                 &orig_args,
                 span,
                 result_ty,
-                destination,
+                writer.destination,
                 cs,
                 param,
                 spec_id,
@@ -5606,7 +5678,7 @@ fn install_branch_split_dispatch<'a>(
                 &orig_args,
                 span,
                 result_ty,
-                destination,
+                writer,
                 cs,
                 param,
                 constants,
@@ -5662,7 +5734,7 @@ fn create_branch_call(
     orig_args: &Expr,
     span: Span,
     result_ty: &Ty,
-    destination: Option<LocalItemId>,
+    destination: CaptureScope,
     call_site: &CallSite,
     param: &CallableParam,
     spec_store_id: StoreItemId,
@@ -5750,7 +5822,7 @@ fn create_combined_branch_call(
     orig_args: &Expr,
     span: Span,
     result_ty: &Ty,
-    destination: Option<LocalItemId>,
+    writer: CaptureWriterContext,
     candidate: &CallSite,
     candidate_param: &CallableParam,
     constants: &[(&CallSite, &CallableParam)],
@@ -5823,7 +5895,7 @@ fn create_combined_branch_call(
         build_combined_branch_args_data(
             package,
             orig_args,
-            destination,
+            writer.destination,
             &remove_indices,
             &captures,
             span,
@@ -5833,7 +5905,7 @@ fn create_combined_branch_call(
         build_combined_nested_branch_args_data(
             package,
             orig_args,
-            destination,
+            writer,
             &remove_indices,
             &captures,
             span,
@@ -5865,7 +5937,7 @@ fn create_combined_branch_call(
 fn build_combined_branch_args_data(
     package: &mut Package,
     orig_args: &Expr,
-    destination: Option<LocalItemId>,
+    destination: CaptureScope,
     remove_indices: &[usize],
     captures: &[CapturedVar],
     span: Span,
@@ -5904,19 +5976,21 @@ fn build_combined_branch_args_data(
 fn build_combined_nested_branch_args_data(
     package: &mut Package,
     orig_args: &Expr,
-    destination: Option<LocalItemId>,
+    writer: CaptureWriterContext,
     remove_indices: &[usize],
     captures: &[CapturedVar],
     span: Span,
     assigner: &mut Assigner,
 ) -> (ExprKind, Ty) {
     let remove: FxHashSet<usize> = remove_indices.iter().copied().collect();
-    if let Some((payload_kind, payload_ty)) = remove_top_level_field_from_expr_data(
+    if let Some((payload_kind, payload_ty)) = remove_top_level_field_from_expr_data_with_exprs(
         package,
-        destination,
+        writer.owner_callable,
         orig_args.id,
         &remove,
+        &FxHashSet::default(),
         &[],
+        writer.destination.into(),
         assigner,
     ) {
         if captures.is_empty() {
@@ -5925,7 +5999,8 @@ fn build_combined_nested_branch_args_data(
 
         let payload_id = alloc_expr(package, assigner, payload_ty.clone(), payload_kind, span);
 
-        let capture_ids = allocate_capture_exprs(package, span, destination, captures, assigner);
+        let capture_ids =
+            allocate_capture_exprs(package, span, writer.destination, captures, assigner);
         let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
         let mut elements = vec![payload_id];
         elements.extend(capture_ids);
@@ -5938,7 +6013,8 @@ fn build_combined_nested_branch_args_data(
     if captures.is_empty() {
         (orig_args.kind.clone(), new_ty)
     } else {
-        let capture_ids = allocate_capture_exprs(package, span, destination, captures, assigner);
+        let capture_ids =
+            allocate_capture_exprs(package, span, writer.destination, captures, assigner);
         let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
         let mut elements = match &orig_args.kind {
             ExprKind::Tuple(elements) => elements.clone(),
@@ -6107,7 +6183,7 @@ fn collect_block_local_exprs(
 fn build_branch_args_data(
     package: &mut Package,
     orig_args: &Expr,
-    destination: Option<LocalItemId>,
+    destination: CaptureScope,
     input_path: &[usize],
     captures: &[CapturedVar],
     span: Span,

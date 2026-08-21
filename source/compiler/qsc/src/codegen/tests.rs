@@ -2504,6 +2504,74 @@ fn synthetic_path_generic_target_infers_type_from_callable_arg() {
 }
 
 #[test]
+fn synthetic_path_generic_capturing_closure_concretizes_remaining_input() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation InvokeInt(op : Int => Unit) : Unit {
+                op(1);
+            }
+
+            operation IgnoreFirst<'T>(captured : 'T, value : 'T) : Unit {}
+        }
+    "#};
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("InvokeInt", true), ("IgnoreFirst", true)], caps);
+
+    let generic_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Int(0)].into(),
+        id: fir_id_for(pkg, items["IgnoreFirst"]),
+        functor: FunctorApp::default(),
+    }));
+
+    let qir = callable_args_to_qir(&store, pkg, items["InvokeInt"], &generic_closure, caps);
+    assert!(
+        qir.contains("define i64 @ENTRYPOINT__main()"),
+        "expected a captured generic closure to compile after inferring T = Int:\n{qir}"
+    );
+}
+
+#[test]
+fn synthetic_path_same_generic_target_supports_distinct_runtime_types() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            operation InvokeBoth(intOp : Int => Unit, boolOp : Bool => Unit) : Unit {
+                intOp(1);
+                boolOp(true);
+            }
+
+            operation IgnoreFirst<'T>(captured : 'T, value : 'T) : Unit {
+                use q = Qubit();
+                H(q);
+                Reset(q);
+            }
+        }
+    "#};
+    let caps = Profile::AdaptiveRIF.into();
+    let (store, pkg, items) =
+        compile_and_locate_items(source, &[("InvokeBoth", true), ("IgnoreFirst", true)], caps);
+    let generic_target = fir_id_for(pkg, items["IgnoreFirst"]);
+    let int_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Int(0)].into(),
+        id: generic_target,
+        functor: FunctorApp::default(),
+    }));
+    let bool_closure = Value::Closure(Box::new(qsc_eval::val::Closure {
+        fixed_args: vec![Value::Bool(false)].into(),
+        id: generic_target,
+        functor: FunctorApp::default(),
+    }));
+    let args = Value::Tuple(vec![int_closure, bool_closure].into(), None);
+
+    let qir = callable_args_to_qir(&store, pkg, items["InvokeBoth"], &args, caps);
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__h__body").count(),
+        2,
+        "expected each concrete generic closure instance to preserve its own type:\n{qir}"
+    );
+}
+
+#[test]
 fn callable_args_with_top_level_qubit_value_use_reinvoke_original() {
     let source = indoc::indoc! {r#"
         namespace Test {
@@ -3014,6 +3082,80 @@ fn synthetic_path_controlled_hof_forwarded_capturing_closure_generates_qir() {
     assert!(
         qir.contains("__quantum__qis__cx__body"),
         "expected controlled X (cx) gate from the forwarded select closure in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn functor_capable_returned_wrapper_with_struct_capture_generates_qir() {
+    let source = indoc::indoc! {r#"
+        namespace Test {
+            struct OpParams {
+                enabled : Bool,
+            }
+
+            operation ApplyCaptured(params : OpParams, target : Qubit) : Unit is Adj + Ctl {
+                if params.enabled {
+                    X(target);
+                }
+            }
+
+            operation ApplyOne(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit is Adj + Ctl {
+                body ... {
+                    op(target);
+                }
+                adjoint auto;
+                controlled (controls, ...) {
+                    Controlled op(controls, target);
+                }
+                controlled adjoint auto;
+            }
+
+            function MakeControlledOp(op : Qubit => Unit is Adj + Ctl) : (Qubit, Qubit[]) => Unit is Adj + Ctl {
+                (control, targets) => {
+                    Controlled ApplyOne([control], (op, targets[0]));
+                }
+            }
+
+            operation Run(op : Qubit => Unit is Adj + Ctl) : Result {
+                use control = Qubit();
+                use target = Qubit();
+                X(control);
+                let controlledOp = MakeControlledOp(op);
+                controlledOp(control, [target]);
+                Reset(control);
+                MResetZ(target)
+            }
+        }
+    "#};
+    let capabilities = Profile::Base.into();
+    let (store, package_id, items) = compile_and_locate_items(
+        source,
+        &[("Run", true), ("ApplyCaptured", true)],
+        capabilities,
+    );
+
+    let compile_with_capture = |enabled| {
+        let params = Value::Tuple(vec![Value::Bool(enabled)].into(), None);
+        let captured_op = Value::Closure(Box::new(qsc_eval::val::Closure {
+            fixed_args: vec![params].into(),
+            id: fir_id_for(package_id, items["ApplyCaptured"]),
+            functor: FunctorApp::default(),
+        }));
+        callable_args_to_qir(&store, package_id, items["Run"], &captured_op, capabilities)
+    };
+
+    let enabled_qir = compile_with_capture(true);
+    let disabled_qir = compile_with_capture(false);
+    let controlled_x_call = "call void @__quantum__qis__cx__body";
+    assert_eq!(
+        enabled_qir.matches(controlled_x_call).count(),
+        1,
+        "enabled capture should emit exactly one controlled X call:\n{enabled_qir}"
+    );
+    assert_eq!(
+        disabled_qir.matches(controlled_x_call).count(),
+        0,
+        "disabled capture should not emit a controlled X call:\n{disabled_qir}"
     );
 }
 

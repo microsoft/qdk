@@ -1310,6 +1310,98 @@ fn two_level_cross_hof_closure_array_forwarding_passes_invariants() {
     check_pipeline(source);
 }
 
+#[test]
+fn direct_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let first = 0.1;
+            let second = 0.2;
+            let ops = [target => Rx(first, target), target => Ry(second, target)];
+            ops[idx](q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn aliased_indexed_capturing_closures_inside_specialized_clone_preserve_semantics() {
+    let source = r#"
+        operation Outer(seed : Qubit => Unit, idx : Int, q : Qubit) : Unit {
+            seed(q);
+            let first = 0.1;
+            let second = 0.2;
+            let ops = [target => Rx(first, target), target => Ry(second, target)];
+            let forwarded = ops;
+            forwarded[idx](q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, 1, q);
+        }
+        "#;
+
+    crate::test_utils::check_semantic_equivalence(source);
+}
+
+#[test]
+fn branch_split_inside_specialized_clone_preserves_capture_scope() {
+    let source = r#"
+        operation Apply(op : Qubit => Unit, q : Qubit) : Unit {
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, chooseFirst : Bool, q : Qubit) : Unit {
+            seed(q);
+            let firstAngle = 0.1;
+            let secondAngle = 0.2;
+            let selected = if chooseFirst {
+                target => Rx(firstAngle, target)
+            } else {
+                target => Ry(secondAngle, target)
+            };
+            Apply(selected, q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, true, q);
+        }
+        "#;
+
+    check_pipeline(source);
+}
+
+#[test]
+fn aggregate_capture_inside_specialized_clone_preserves_capture_scope() {
+    let source = r#"
+        operation ApplyPair(pair : (Qubit => Unit, Int), q : Qubit) : Unit {
+            let (op, _) = pair;
+            op(q);
+        }
+
+        operation Outer(seed : Qubit => Unit, q : Qubit) : Unit {
+            seed(q);
+            let angle = 0.25;
+            ApplyPair((target => Rz(angle, target), 42), q);
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Outer(H, q);
+        }
+        "#;
+
+    check_pipeline(source);
+}
+
 /// Regression test for producer-body closure convergence: a producer function
 /// that returns a partial-application closure caused convergence failure when
 /// the closure node survived in the producer body after HOF specialization.
@@ -1454,6 +1546,92 @@ fn callable_returning_closure_with_controlled_callable_captures() {
         }
         "#;
     check_invariants(source);
+}
+
+#[test]
+fn functor_capable_returned_wrapper_with_struct_capture_passes_pipeline() {
+    let captured_wrapper_source = r#"
+        struct OpParams {
+            enabled : Bool,
+        }
+
+        operation ApplyCaptured(params : OpParams, target : Qubit) : Unit is Adj + Ctl {
+            if params.enabled {
+                X(target);
+            }
+        }
+
+        operation ApplyOne(op : Qubit => Unit is Adj + Ctl, target : Qubit) : Unit is Adj + Ctl {
+            body ... {
+                op(target);
+            }
+            adjoint auto;
+            controlled (controls, ...) {
+                Controlled op(controls, target);
+            }
+            controlled adjoint auto;
+        }
+
+        function MakeControlledOp(op : Qubit => Unit is Adj + Ctl) : (Qubit, Qubit[]) => Unit is Adj + Ctl {
+            (control, targets) => {
+                Controlled ApplyOne([control], (op, targets[0]));
+            }
+        }
+
+        operation Run(op : Qubit => Unit is Adj + Ctl) : Result {
+            use control = Qubit();
+            use target = Qubit();
+            X(control);
+            let controlledOp = MakeControlledOp(op);
+            controlledOp(control, [target]);
+            Reset(control);
+            MResetZ(target)
+        }
+
+        operation Main() : Result {
+            Run(ApplyCaptured(new OpParams { enabled = true }, _))
+        }
+        "#;
+    check_pipeline(captured_wrapper_source);
+
+    let sibling_source = r#"
+        operation Repeat(op : Qubit => Unit, n : Int, q : Qubit) : Unit {
+            if n > 0 {
+                op(q);
+                Repeat(X, n - 1, q);
+            }
+        }
+
+        operation Main() : Unit {
+            use q = Qubit();
+            Repeat(H, 2, q);
+        }
+        "#;
+    check_pipeline(sibling_source);
+
+    let (fir_store, fir_pkg_id) = compile_and_defunctionalize(sibling_source);
+    let package = fir_store.get(fir_pkg_id);
+    let h_specialization = package
+        .items
+        .values()
+        .find_map(|item| match &item.kind {
+            ItemKind::Callable(decl)
+                if decl.name.name.starts_with("Repeat") && decl.name.name.contains("{H}") =>
+            {
+                Some(decl.name.name.to_string())
+            }
+            _ => None,
+        })
+        .expect("expected an H-specialized Repeat callable");
+    let h_targets = callable_call_targets_after_defunc(sibling_source, &h_specialization);
+    assert!(
+        h_targets.iter().any(|target| target.contains("{X}")),
+        "H specialization {h_specialization} should call an X sibling specialization, got {h_targets:?}"
+    );
+    assert!(
+        !h_targets.contains(&h_specialization),
+        "H specialization {h_specialization} must not self-loop, got {h_targets:?}"
+    );
 }
 
 /// Two callable arguments passed to a multi-parameter HOF: one partial

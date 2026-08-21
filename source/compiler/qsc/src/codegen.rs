@@ -593,59 +593,56 @@ pub mod qir {
         }
     }
 
-    fn concretize_closure_callable_types(
-        value: &Value,
-        callable_types: &mut rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
-    ) {
-        match value {
-            Value::Tuple(values, _) => {
-                for value in values.iter() {
-                    concretize_closure_callable_types(value, callable_types);
-                }
-            }
-            Value::Array(values) => {
-                for value in values.iter() {
-                    concretize_closure_callable_types(value, callable_types);
-                }
-            }
-            Value::Closure(closure) => {
-                for capture in closure.fixed_args.iter() {
-                    concretize_closure_callable_types(capture, callable_types);
-                }
-                let info = callable_types
-                    .get(&closure.id)
-                    .expect("closure callable type should be pre-computed");
-                let Some(capture_tys) =
-                    closure_capture_ty_hints(&info.formal_ty, closure.fixed_args.len())
-                else {
-                    return;
-                };
-                let mut inferred = rustc_hash::FxHashMap::default();
-                let captures_match =
-                    closure
-                        .fixed_args
-                        .iter()
-                        .zip(&capture_tys)
-                        .all(|(capture, formal_ty)| {
-                            value_ty_for_inference(capture, Some(formal_ty), callable_types)
-                                .is_some_and(|actual_ty| {
-                                    infer_generic_ty_args(formal_ty, &actual_ty, &mut inferred)
-                                })
-                        });
-                if captures_match {
-                    let concrete_ty =
-                        resolve_functor_params_with_inferred(&info.formal_ty, &inferred);
-                    callable_types
-                        .get_mut(&closure.id)
-                        .expect("closure callable type should be pre-computed")
-                        .ty = concrete_ty;
-                }
-            }
-            _ => {}
+    fn closure_callable_ty(
+        closure: &qsc_eval::val::Closure,
+        expected_ty: Option<&qsc_fir::ty::Ty>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) -> qsc_fir::ty::Ty {
+        let info = callable_types
+            .get(&closure.id)
+            .expect("closure callable type should be pre-computed");
+        if info.generics.is_empty() {
+            return info.ty.clone();
         }
+
+        let mut inferred = rustc_hash::FxHashMap::default();
+        if let Some(capture_tys) =
+            closure_capture_ty_hints(&info.formal_ty, closure.fixed_args.len())
+        {
+            for (capture, formal_ty) in closure.fixed_args.iter().zip(&capture_tys) {
+                let Some(actual_ty) =
+                    value_ty_for_inference(capture, Some(formal_ty), callable_types)
+                else {
+                    continue;
+                };
+                let mut candidate = inferred.clone();
+                if infer_generic_ty_args(formal_ty, &actual_ty, &mut candidate) {
+                    inferred = candidate;
+                }
+            }
+        }
+
+        if let Some(expected_ty) = expected_ty {
+            let formal_closure_ty =
+                partial_applied_closure_ty(&info.formal_ty, closure.fixed_args.len());
+            let mut candidate = inferred.clone();
+            if infer_generic_ty_args(&formal_closure_ty, expected_ty, &mut candidate) {
+                inferred = candidate;
+            }
+        }
+
+        for (idx, param) in info.generics.iter().enumerate() {
+            inferred
+                .entry(qsc_fir::ty::ParamId::from(idx))
+                .or_insert_with(|| default_generic_arg(param));
+        }
+
+        let concrete_ty = resolve_params_with_inferred(&info.formal_ty, &inferred);
+        debug_assert!(!ty_contains_param(&concrete_ty));
+        concrete_ty
     }
 
-    fn resolve_functor_params_with_inferred(
+    fn resolve_params_with_inferred(
         ty: &qsc_fir::ty::Ty,
         inferred: &rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
     ) -> qsc_fir::ty::Ty {
@@ -663,23 +660,22 @@ pub mod qir {
                 };
                 Ty::Arrow(Box::new(Arrow {
                     kind: arrow.kind,
-                    input: Box::new(resolve_functor_params_with_inferred(&arrow.input, inferred)),
-                    output: Box::new(resolve_functor_params_with_inferred(
-                        &arrow.output,
-                        inferred,
-                    )),
+                    input: Box::new(resolve_params_with_inferred(&arrow.input, inferred)),
+                    output: Box::new(resolve_params_with_inferred(&arrow.output, inferred)),
                     functors,
                 }))
             }
             Ty::Tuple(items) => Ty::Tuple(
                 items
                     .iter()
-                    .map(|item| resolve_functor_params_with_inferred(item, inferred))
+                    .map(|item| resolve_params_with_inferred(item, inferred))
                     .collect(),
             ),
-            Ty::Array(item) => Ty::Array(Box::new(resolve_functor_params_with_inferred(
-                item, inferred,
-            ))),
+            Ty::Array(item) => Ty::Array(Box::new(resolve_params_with_inferred(item, inferred))),
+            Ty::Param(param) => match inferred.get(param) {
+                Some(GenericArg::Ty(ty)) => ty.clone(),
+                _ => ty.clone(),
+            },
             _ => ty.clone(),
         }
     }
@@ -748,7 +744,7 @@ pub mod qir {
             .blocks
             .get_mut(block_id)
             .expect("callable block should exist");
-        block.ty = resolve_functor_params_with_inferred(&block.ty, inferred);
+        block.ty = resolve_params_with_inferred(&block.ty, inferred);
     }
 
     fn normalize_pat_node_types(
@@ -761,7 +757,7 @@ pub mod qir {
                 .pats
                 .get_mut(pat_id)
                 .expect("callable pattern should exist");
-            pat.ty = resolve_functor_params_with_inferred(&pat.ty, inferred);
+            pat.ty = resolve_params_with_inferred(&pat.ty, inferred);
             match &pat.kind {
                 qsc_fir::fir::PatKind::Tuple(pats) => pats.clone(),
                 qsc_fir::fir::PatKind::Bind(_) | qsc_fir::fir::PatKind::Discard => Vec::new(),
@@ -782,7 +778,7 @@ pub mod qir {
                 .exprs
                 .get_mut(expr_id)
                 .expect("callable expression should exist");
-            expr.ty = resolve_functor_params_with_inferred(&expr.ty, inferred);
+            expr.ty = resolve_params_with_inferred(&expr.ty, inferred);
             child_nodes_for_expr_kind(&expr.kind)
         };
 
@@ -1427,9 +1423,9 @@ pub mod qir {
                 Some(info.ty.clone())
             }
             Value::Closure(closure) => {
-                let info = callable_types.get(&closure.id)?;
+                let full_ty = closure_callable_ty(closure, expected_ty, callable_types);
                 Some(partial_applied_closure_ty(
-                    &info.ty,
+                    &full_ty,
                     closure.fixed_args.len(),
                 ))
             }
@@ -1579,7 +1575,14 @@ pub mod qir {
                 );
             }
             Value::Closure(c) => {
-                return lower_closure_to_expr(package, assigner, c, callable_types, pending_stmts);
+                return lower_closure_to_expr(
+                    package,
+                    assigner,
+                    c,
+                    expected_ty,
+                    callable_types,
+                    pending_stmts,
+                );
             }
             _ => panic!("cannot lower {value:?} to FIR expression"),
         };
@@ -1819,16 +1822,13 @@ pub mod qir {
         package: &mut qsc_fir::fir::Package,
         assigner: &mut qsc_fir::assigner::Assigner,
         closure: &qsc_eval::val::Closure,
+        expected_ty: Option<&qsc_fir::ty::Ty>,
         callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
         pending_stmts: &mut Vec<qsc_fir::fir::StmtId>,
     ) -> qsc_fir::fir::ExprId {
         // Full type of the underlying lifted callable, whose input is the tuple
         // `(captures.., explicit_input)` when the closure has captures.
-        let full_ty = callable_types
-            .get(&closure.id)
-            .expect("Closure callable type must be pre-computed")
-            .ty
-            .clone();
+        let full_ty = closure_callable_ty(closure, expected_ty, callable_types);
 
         if closure.fixed_args.is_empty() {
             // Captureless closure: a direct `Var` reference to the callable suffices;
@@ -2126,8 +2126,7 @@ pub mod qir {
         // Pre-compute callable value types before normalizing concrete callable
         // bodies, so closure values still expose the original generic target
         // signatures needed by monomorphization.
-        let mut callable_types = build_callable_type_map(&fir_store, &concrete_callables);
-        concretize_closure_callable_types(args, &mut callable_types);
+        let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
         normalize_callable_signatures(&mut fir_store, &callable_types);
 
         // Build synthetic Call(Var(target), args) as the entry expression.
