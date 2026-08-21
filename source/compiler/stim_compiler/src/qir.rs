@@ -13,6 +13,7 @@ use Pauli::{X, Y, Z};
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::f64::consts::PI;
 use std::fmt::Write;
 use std::slice::Chunks;
 use thiserror::Error;
@@ -90,6 +91,21 @@ impl QirWriter {
     /// `noise_intrinsic_{id}`
     fn write_noise_call(&mut self, name: &str, qubits: &[QubitId]) {
         self.call_noise_intrinsic(name, qubits);
+    }
+
+    // Writes: `  call void @{name}(double {angle:?}, ptr inttoptr (i64 N to ptr), ...)`
+    fn write_rotation_call(&mut self, intrinsic: &str, angle: f64, qubits: &[QubitId]) {
+        let name = format!("__quantum__qis__{intrinsic}__body");
+        write!(self, "  call void @{name}(double {angle:?}");
+        for &qubit in qubits {
+            write!(self, ", ");
+            self.write_ptr(qubit);
+        }
+        writeln!(self, ")");
+        self.declare(&name, || {
+            let params = vec!["ptr"; qubits.len()].join(", ");
+            format!("declare void @{name}(double, {params})")
+        });
     }
 
     fn call_noise_intrinsic(&mut self, intrinsic: &str, qubits: &[QubitId]) {
@@ -424,6 +440,13 @@ pub enum Error {
     #[error("instruction {instruction} requires an even number of targets")]
     #[diagnostic(code("Qdk.Stim.Compiler.OddTargetCount"))]
     OddTargetCount {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
+    #[error("instruction {instruction} requires a multiple of three targets")]
+    #[diagnostic(code("Qdk.Stim.Compiler.TargetCountNotMultipleOfThree"))]
+    TargetCountNotMultipleOfThree {
         instruction: String,
         #[label]
         span: Span,
@@ -1386,6 +1409,63 @@ impl<'noise> Compiler<'noise> {
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
             | "TICK" => (),
 
+            // Non-Clifford Gates
+            "T" => self.broadcast(instruction, |s, q| s.op("t", q)),
+            "T_DAG" => self.broadcast(instruction, |s, q| s.op_adj("t", q)),
+            "TPP" | "TPP_DAG" => self.broadcast_pauli_product(instruction, |s, q, negated| {
+                let invert = (instruction.name == "TPP_DAG") ^ negated;
+                if invert {
+                    s.op_adj("t", q);
+                } else {
+                    s.op("t", q);
+                }
+            }),
+            "CH" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Clifft decomposition: R_Y(0.25 pi) 1; CX 0 1; R_Y(-0.25 pi) 1
+                s.op_rotation("ry", 0.25 * PI, q1);
+                s.op_2("cx", q0, q1);
+                s.op_rotation("ry", -0.25 * PI, q1);
+            }),
+            "CCZ" => self.broadcast_triple(instruction, |s, q0, q1, q2| {
+                // Clifft decomposition: H 2; CCX 0 1 2; H 2
+                s.op("h", q2);
+                s.op_3("ccx", q0, q1, q2);
+                s.op("h", q2);
+            }),
+            "CCX" => self.broadcast_triple(instruction, |s, q0, q1, q2| {
+                s.op_3("ccx", q0, q1, q2);
+            }),
+            "R_X" | "R_Y" | "R_Z" => self.broadcast_rotation(instruction, |s, angle, q| {
+                s.op_rotation(&instruction.name.to_lowercase().replace("_", ""), angle, q);
+            }),
+            "U3" | "U" => {
+                let Some(angles) = self.expect_args(instruction, 3) else {
+                    return;
+                };
+                self.for_each_qubit(instruction, |s, q| {
+                    s.op_rotation("rz", angles[2], q);
+                    s.op_rotation("ry", angles[0], q);
+                    s.op_rotation("rz", angles[1], q);
+                });
+            }
+            "R_XX" | "R_YY" | "R_ZZ" => {
+                self.broadcast_pair_rotation(instruction, |s, angle, q0, q1| {
+                    s.op_rotation_2(
+                        &instruction.name.to_lowercase().replace("_", ""),
+                        angle,
+                        q0,
+                        q1,
+                    );
+                })
+            }
+            "R_PAULI" => {
+                let Some(angle) = self.expect_arg(instruction) else {
+                    return;
+                };
+                self.for_each_pauli_product(instruction, |s, q, negated| {
+                    s.op_rotation("rz", if negated { -angle } else { angle }, q);
+                });
+            }
             _ => self.unknown(instruction),
         }
     }
@@ -1437,106 +1517,6 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn broadcast(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_qubit(instruction, operation);
-    }
-
-    fn broadcast_measure(
-        &mut self,
-        instruction: &Instruction,
-        mut measure: impl FnMut(&mut Self, StimQubitId, bool) -> ResultId,
-    ) {
-        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
-            return;
-        };
-        self.for_each_negatable_qubit(instruction, |s, q, negated| {
-            let result_id = measure(s, q, negated);
-            s.op_readout_noise(readout_noise, result_id);
-        });
-    }
-
-    fn broadcast_noise(
-        &mut self,
-        instruction: &Instruction,
-        mut noise: impl FnMut(&mut Self, StimQubitId, f64),
-    ) {
-        let Some(probability) = self.expect_arg(instruction) else {
-            return;
-        };
-        self.for_each_qubit(instruction, |s, q| noise(s, q, probability));
-    }
-
-    fn broadcast_pauli_product(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId, bool),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_pauli_product(instruction, operation);
-    }
-
-    fn broadcast_pauli_product_measure(
-        &mut self,
-        instruction: &Instruction,
-        mut measure: impl FnMut(&mut Self, StimQubitId, bool) -> ResultId,
-    ) {
-        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
-            return;
-        };
-        self.for_each_pauli_product(instruction, |s, q, negated| {
-            let result_id = measure(s, q, negated);
-            s.op_readout_noise(readout_noise, result_id);
-        });
-    }
-
-    fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
-        let Some(probability) = self.expect_arg(instruction) else {
-            return;
-        };
-        let mut terms = Vec::with_capacity(instruction.targets.len());
-
-        for target in &instruction.targets {
-            let Some((fault, qubit)) = self.expect_fault_char(instruction, target) else {
-                continue;
-            };
-
-            terms.push((fault, qubit));
-        }
-
-        let row = CorrelatedRow {
-            probability,
-            terms,
-            span: instruction.span,
-        };
-
-        self.noise_accumulator.push_correlated_row(row);
-    }
-
-    fn continue_correlated_noise(&mut self, instruction: &Instruction) {
-        if self.noise_accumulator.current_correlated_group.is_none() {
-            self.push_error(Error::OrphanedElseCorrelatedError {
-                span: instruction.span,
-            });
-            return;
-        }
-        self.accumulate_correlated_noise(instruction);
-    }
-
-    fn finish_correlated_noise(&mut self) {
-        if self.noise_accumulator.current_correlated_group.is_none() {
-            return;
-        }
-        match self.noise_accumulator.flush_correlated_group() {
-            Ok((noise_table, qubits)) => self.op_noise(noise_table, &qubits),
-            Err(error) => self.push_error(error),
-        }
-    }
-
     fn for_each_pair(
         &mut self,
         instruction: &Instruction,
@@ -1575,6 +1555,37 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
+    fn for_each_triple(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
+    ) {
+        let Some(triples) = self.expect_target_triples(instruction) else {
+            return;
+        };
+        for triple in triples {
+            let Some((q0, _)) = self.expect_qubit(instruction, &triple[0], false) else {
+                continue;
+            };
+            let Some((q1, _)) = self.expect_qubit(instruction, &triple[1], false) else {
+                continue;
+            };
+            let Some((q2, _)) = self.expect_qubit(instruction, &triple[2], false) else {
+                continue;
+            };
+            operation(self, q0, q1, q2);
+        }
+    }
+
+    fn broadcast(
+        &mut self,
+        instruction: &Instruction,
+        operation: impl FnMut(&mut Self, StimQubitId),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_qubit(instruction, operation);
+    }
+
     fn broadcast_pair(
         &mut self,
         instruction: &Instruction,
@@ -1582,6 +1593,29 @@ impl<'noise> Compiler<'noise> {
     ) {
         self.unsupported_args(instruction);
         self.for_each_pair(instruction, operation);
+    }
+
+    fn broadcast_triple(
+        &mut self,
+        instruction: &Instruction,
+        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_triple(instruction, operation);
+    }
+
+    fn broadcast_measure(
+        &mut self,
+        instruction: &Instruction,
+        mut measure: impl FnMut(&mut Self, StimQubitId, bool) -> ResultId,
+    ) {
+        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
+            return;
+        };
+        self.for_each_negatable_qubit(instruction, |s, q, negated| {
+            let result_id = measure(s, q, negated);
+            s.op_readout_noise(readout_noise, result_id);
+        });
     }
 
     fn broadcast_pair_measure(
@@ -1598,6 +1632,17 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
+    fn broadcast_noise(
+        &mut self,
+        instruction: &Instruction,
+        mut noise: impl FnMut(&mut Self, StimQubitId, f64),
+    ) {
+        let Some(probability) = self.expect_arg(instruction) else {
+            return;
+        };
+        self.for_each_qubit(instruction, |s, q| noise(s, q, probability));
+    }
+
     fn broadcast_pair_noise(
         &mut self,
         instruction: &Instruction,
@@ -1607,6 +1652,51 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         self.for_each_pair(instruction, |s, q0, q1| noise(s, q0, q1, probability));
+    }
+
+    fn broadcast_pauli_product(
+        &mut self,
+        instruction: &Instruction,
+        operation: impl FnMut(&mut Self, StimQubitId, bool),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_pauli_product(instruction, operation);
+    }
+
+    fn broadcast_pauli_product_measure(
+        &mut self,
+        instruction: &Instruction,
+        mut measure: impl FnMut(&mut Self, StimQubitId, bool) -> ResultId,
+    ) {
+        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
+            return;
+        };
+        self.for_each_pauli_product(instruction, |s, q, negated| {
+            let result_id = measure(s, q, negated);
+            s.op_readout_noise(readout_noise, result_id);
+        });
+    }
+
+    fn broadcast_rotation(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, f64, StimQubitId),
+    ) {
+        let Some(angle) = self.expect_arg(instruction) else {
+            return;
+        };
+        self.for_each_qubit(instruction, |s, q| operation(s, angle, q));
+    }
+
+    fn broadcast_pair_rotation(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, f64, StimQubitId, StimQubitId),
+    ) {
+        let Some(angle) = self.expect_arg(instruction) else {
+            return;
+        };
+        self.for_each_pair(instruction, |s, q0, q1| operation(s, angle, q0, q1));
     }
 
     fn broadcast_controlled(
@@ -1697,6 +1787,49 @@ impl<'noise> Compiler<'noise> {
         };
         let qubit = self.id_map.allocate_qubit(target);
         self.writer.write_classical_control(pauli, result_id, qubit);
+    }
+
+    fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
+        let Some(probability) = self.expect_arg(instruction) else {
+            return;
+        };
+        let mut terms = Vec::with_capacity(instruction.targets.len());
+
+        for target in &instruction.targets {
+            let Some((fault, qubit)) = self.expect_fault_char(instruction, target) else {
+                continue;
+            };
+
+            terms.push((fault, qubit));
+        }
+
+        let row = CorrelatedRow {
+            probability,
+            terms,
+            span: instruction.span,
+        };
+
+        self.noise_accumulator.push_correlated_row(row);
+    }
+
+    fn continue_correlated_noise(&mut self, instruction: &Instruction) {
+        if self.noise_accumulator.current_correlated_group.is_none() {
+            self.push_error(Error::OrphanedElseCorrelatedError {
+                span: instruction.span,
+            });
+            return;
+        }
+        self.accumulate_correlated_noise(instruction);
+    }
+
+    fn finish_correlated_noise(&mut self) {
+        if self.noise_accumulator.current_correlated_group.is_none() {
+            return;
+        }
+        match self.noise_accumulator.flush_correlated_group() {
+            Ok((noise_table, qubits)) => self.op_noise(noise_table, &qubits),
+            Err(error) => self.push_error(error),
+        }
     }
 
     /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
@@ -1813,6 +1946,30 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q]);
     }
 
+    fn op_2(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        self.writer.write_qis_call(intrinsic, &[q0, q1]);
+    }
+
+    fn op_3(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId, q2: StimQubitId) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        let q2 = self.id_map.allocate_qubit(q2);
+        self.writer.write_qis_call(intrinsic, &[q0, q1, q2]);
+    }
+
+    fn op_rotation(&mut self, intrinsic: &str, angle: f64, qubit: StimQubitId) {
+        let qubit = self.id_map.allocate_qubit(qubit);
+        self.writer.write_rotation_call(intrinsic, angle, &[qubit]);
+    }
+
+    fn op_rotation_2(&mut self, intrinsic: &str, angle: f64, q0: StimQubitId, q1: StimQubitId) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        self.writer.write_rotation_call(intrinsic, angle, &[q0, q1]);
+    }
+
     fn op_adj(&mut self, intrinsic: &str, qubit: StimQubitId) {
         let q = self.id_map.allocate_qubit(qubit);
         self.writer.write_qis_adj_call(intrinsic, &[q]);
@@ -1847,12 +2004,6 @@ impl<'noise> Compiler<'noise> {
         self.id_map.peek_loss_record_ids.insert(r);
         self.writer.write_qis_call("peek_loss", &[q, r]);
         r
-    }
-
-    fn op_2(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
-        let q0 = self.id_map.allocate_qubit(q0);
-        let q1 = self.id_map.allocate_qubit(q1);
-        self.writer.write_qis_call(intrinsic, &[q0, q1]);
     }
 
     fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[StimQubitId]) {
@@ -2176,6 +2327,20 @@ impl<'noise> Compiler<'noise> {
             return None;
         }
         Some(instruction.targets.chunks(2))
+    }
+
+    fn expect_target_triples<'a>(
+        &mut self,
+        instruction: &'a Instruction,
+    ) -> Option<Chunks<'a, Target>> {
+        if !instruction.targets.len().is_multiple_of(3) {
+            self.push_error(Error::TargetCountNotMultipleOfThree {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(instruction.targets.chunks(3))
     }
 
     fn expect_readout_noise(&mut self, instruction: &Instruction) -> Option<f64> {

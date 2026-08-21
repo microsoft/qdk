@@ -320,3 +320,89 @@ fn double_sign_recovers_to_a_double() {
             double(+1) [1-3]"#]],
     );
 }
+
+#[test]
+fn unsigned_integer_with_rad_suffix_lexes_as_double() {
+    check("1rad", &expect!["double(1rad) [0-4]"]);
+    check("12rad", &expect!["double(12rad) [0-5]"]);
+    check("123rad", &expect!["double(123rad) [0-6]"]);
+}
+
+#[test]
+fn signed_integer_with_rad_suffix_lexes_as_double() {
+    check("+1rad", &expect!["double(+1rad) [0-5]"]);
+    check("-1rad", &expect!["double(-1rad) [0-5]"]);
+}
+
+#[test]
+fn double_radians() {
+    check("1.0rad", &expect!["double(1.0rad) [0-6]"]);
+    check("3.14rad", &expect!["double(3.14rad) [0-7]"]);
+    check("2e-5rad", &expect!["double(2e-5rad) [0-7]"]);
+    check("-0.01rad", &expect!["double(-0.01rad) [0-8]"]);
+}
+
+#[test]
+fn rad_suffix_preserves_delimiters() {
+    check(
+        "1rad,2rad)",
+        &expect![[r#"
+      double(1rad) [0-4]
+      comma(,) [4-5]
+      double(2rad) [5-9]
+      close(paren)()) [9-10]"#]],
+    );
+}
+
+#[test]
+fn rad_suffix_followed_by_invalid_character_yields_error() {
+    check(
+        "1radX",
+        &expect![[r#"
+      Qdk.Stim.Lex.UnrecognizedCharacter
+
+        x unrecognized character
+         ,----
+       1 | 1radX
+         :     ^
+         `----
+  "#]],
+    );
+    check(
+        "1radx",
+        &expect![[r#"
+      Qdk.Stim.Lex.UnrecognizedCharacter
+
+        x unrecognized character
+         ,----
+       1 | 1radx
+         :     ^
+         `----
+  "#]],
+    );
+    check(
+        "1rad0",
+        &expect![[r#"
+      Qdk.Stim.Lex.UnrecognizedCharacter
+
+        x unrecognized character
+         ,----
+       1 | 1rad0
+         :     ^
+         `----
+  "#]],
+    );
+    check(
+        "1rad_foo",
+        &expect![[r#"
+      Qdk.Stim.Lex.UnrecognizedCharacter
+
+        x unrecognized character
+         ,----
+       1 | 1rad_foo
+         :     ^
+         `----
+
+      instruction_name(foo) [5-8]"#]],
+    );
+}
