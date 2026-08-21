@@ -211,6 +211,22 @@ def estimate(
         total_jobs = collection.total_jobs
         successful = collection.successful_estimates
 
+    if len(collection) == 0:
+        warning_message = "Resource estimation produced zero results.\n"
+        if any(
+            "resource estimation exceeded the maximum allowed error" in err
+            for err in collection.errors
+        ):
+            warning_message += (
+                "This was caused by error exceeding max_error for every trace. "
+                "Try increasing max_error to get results.\n"
+            )
+        if len(collection.errors) > 0:
+            warning_message += "Resource estimation produced the following errors:\n"
+            for err in collection.errors[:10]:
+                warning_message += "  " + err + "\n"
+        print(warning_message)
+
     # Post-process the results and add them to a results table
     table = EstimationTable()
 
