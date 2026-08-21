@@ -443,7 +443,7 @@ pub fn estimate_with_graph(
             let runtime_affecting_ids = &runtime_affecting_ids;
             let isa_index = Arc::clone(&isa_index);
             scope.spawn(move || {
-                let mut local_results: Vec<Result<EstimationResult, Error>> = Vec::new();
+                let mut local_results = Vec::new();
                 loop {
                     let job_idx = next_job.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     if job_idx >= total_jobs {
