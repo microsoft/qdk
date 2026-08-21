@@ -17,6 +17,7 @@ import {
   type SolutionCheckResult,
 } from "../learning/index.js";
 import { CopilotToolError } from "./types.js";
+import { LearningState } from "../learning/types.js";
 
 /**
  * Compact snapshot of the learner's current position and progress.
@@ -386,21 +387,20 @@ export class LearningTools {
    * every tool response.
    */
   private serializeState(): SerializedLearningState {
-    const state = this.service.getState();
+    // The notebook learning state will be undefined if we're not in a notebook
+    // or if we couldn't identify the current cell for some reason.
+    // In that case, we fall back to the current state.
+    const state = this.notebookLearningState() ?? this.service.getState();
+
     const progress = state.progress;
-    const cur = progress.currentPosition?.unitId;
-    const currentUnit = cur
-      ? progress.units.find((u) => u.id === cur)
+    const unitId = progress.currentPosition?.unitId;
+    const currentUnit = unitId
+      ? progress.units.find((u) => u.id === unitId)
       : undefined;
 
-    // The notebook activity will be undefined if we're not in a notebook
-    // or if we couldn't identify the current cell for some reason.
-    // In that case, we fall back to the current progress position.
-    const position = this.notebookCurrentActivity() ?? state.position;
-
     return {
-      course: this.service.getActiveCourseInfo(),
-      position,
+      course: state.course,
+      position: state.position,
       progress: {
         totalActivities: progress.stats.totalActivities,
         completedActivities: progress.stats.completedActivities,
@@ -411,10 +411,10 @@ export class LearningTools {
   }
 
   /**
-   * For notebook courses, build CurrentActivity from the selected cell
+   * For notebook courses, build LearningState from the selected cell
    * rather than from the service's stored position.
    */
-  private notebookCurrentActivity(): CurrentActivity | undefined {
+  private notebookLearningState(): LearningState | undefined {
     const editor = vscode.window.activeNotebookEditor;
     const selection = editor?.selections[0];
     if (!selection || !editor) {
@@ -427,7 +427,7 @@ export class LearningTools {
       return undefined;
     }
 
-    return this.service.getCurrentActivityForCell(
+    return this.service.getLearningStateForCell(
       cellId,
       cell.document.getText(),
       editor.notebook.uri,

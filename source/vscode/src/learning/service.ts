@@ -543,11 +543,11 @@ export class LearningService {
   /**
    * Build a CurrentActivity for the given notebook cell.
    */
-  getCurrentActivityForCell(
+  getLearningStateForCell(
     cellId: string,
     cellText: string,
     notebookUri: vscode.Uri,
-  ): CurrentActivity | undefined {
+  ): LearningState | undefined {
     const resolved = this.resolveWorkbookLocation(notebookUri);
     if (!resolved) {
       return undefined;
@@ -582,11 +582,20 @@ export class LearningService {
       activityId: cellId,
     };
 
-    return {
+    const position = {
       location,
       unitTitle: unit.title,
       activityTitle: activity?.title ?? cellId,
       content,
+    };
+
+    const progress = this.getCourseProgress(course.id);
+
+    return {
+      course,
+      position,
+      progress,
+      actions: [], // Won't be consumed anyway
     };
   }
 
