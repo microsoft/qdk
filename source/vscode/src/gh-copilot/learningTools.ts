@@ -6,7 +6,6 @@ import {
   LearningService,
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
-  isNotebookCourse,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
   type CurrentActivity,
@@ -196,15 +195,13 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
-      if (isNotebookCourse(this.service.getActiveCourseInfo())) {
+      const editor = vscode.window.activeNotebookEditor;
+      if (editor && editor.notebook.uri.toString() === uri.toString()) {
         let code = "";
         // Prefer the cell the user actually has focused in the editor.
-        const editor = vscode.window.activeNotebookEditor;
-        const selection = editor?.selections[0];
-        if (
-          selection && // Implies editor
-          editor.notebook.uri.toString() === uri.toString()
-        ) {
+        const selection = editor.selections[0];
+        if (selection) {
+          // Not guaranteed to be a code cell, but not important enough to check
           const cell = editor.notebook.cellAt(selection.start);
           code = cell.document.getText();
         }
