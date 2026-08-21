@@ -407,6 +407,8 @@ if build_cli:
             # Disable LTO for release tests to speed up compilation
             cargo_test_args.append("--config")
             cargo_test_args.append('profile.release.lto="off"')
+            cargo_test_args.append("--config")
+            cargo_test_args.append("profile.release.codegen-units=16")
         subprocess.run(cargo_test_args, check=True, text=True, cwd=root_dir)
         step_end()
 
