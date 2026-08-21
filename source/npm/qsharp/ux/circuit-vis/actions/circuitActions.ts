@@ -40,7 +40,7 @@ import {
   _isClassicallyControlled,
 } from "./circuit-actions/gridPrimitives.js";
 import {
-  moveAsUnit,
+  shouldMoveAsUnit,
   moveY,
   shiftAllRegisters,
 } from "./circuit-actions/move.js";
@@ -191,7 +191,7 @@ const addOperation = (
     subject.results = [{ qubit: targetWire, result: 0 }];
   }
   const preserveWireLayout =
-    sourceWire !== undefined && moveAsUnit(subject, false);
+    sourceWire !== undefined && shouldMoveAsUnit(subject, false);
   if (preserveWireLayout) {
     const [minWire] = getSubtreeMinMaxWire(subject);
     if (minWire + targetWire - sourceWire < 0) return null;
@@ -267,7 +267,7 @@ const moveOperation = (
   const subject: Operation = JSON.parse(JSON.stringify(originalOperation));
   subject.dataAttributes ??= {};
   subject.dataAttributes["sqore-prev-location"] = sourceLocation;
-  if (moveAsUnit(subject, movingControl)) {
+  if (shouldMoveAsUnit(subject, movingControl)) {
     const [minWire] = getSubtreeMinMaxWire(subject);
     if (minWire + targetWire - sourceWire < 0) return null;
   } else if (targetWire < 0) {
@@ -461,7 +461,7 @@ const removeOperationWithDependents = (
  * limitation. Existing quantum controls in loaded `.qsc` data still render and can be dragged (the
  * `movingControl` path permutes existing controls rather than adding one).
  *
- * Mirrors the structural-shape half of `moveAsUnit`.
+ * Mirrors the structural-shape half of `shouldMoveAsUnit`.
  */
 const _isMultiTargetOrGroup = (op: Operation): boolean => {
   if (op.children != null) return true;

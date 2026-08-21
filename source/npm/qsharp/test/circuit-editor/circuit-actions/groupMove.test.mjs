@@ -6,7 +6,7 @@
 // dropzone, and quantum control-leg drags on multi-target gates. Groups themselves carry classical
 // controls only — the authoring layer refuses quantum controls on groups — so the control-leg drag
 // mechanics are exercised on multi-target gates, which share the same multi-wire-leg shape and
-// single-leg drag path (`_moveAsUnit` returns false whenever a control is moving). Single-target
+// single-leg drag path (`shouldMoveAsUnit` returns false whenever a control is moving). Single-target
 // (CNOT / CCX) control-leg drags are covered separately in the `circuit-actions/` suite.
 
 // @ts-check
@@ -619,9 +619,9 @@ test("moveOperation: moving a gate into a sibling group relocates it across scop
 // ---------------------------------------------------------------
 // Multi-target gate + quantum-control drag.
 //
-// Control-leg drags always take the single-leg path (`_moveAsUnit` returns false when a control is
-// moving), so a multi-target gate with a quantum control exercises the same mechanics a group would
-// — but it's a shape the editor can actually author. Groups support classical controls only,
+// Control-leg drags always take the single-leg path (`shouldMoveAsUnit` returns false when a control
+// is moving), so a multi-target gate with a quantum control exercises the same mechanics a group
+// would — but it's a shape the editor can actually author. Groups support classical controls only,
 // covered by the anchoring tests above.
 // ---------------------------------------------------------------
 

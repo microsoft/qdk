@@ -53,18 +53,15 @@ const moveX = (
 };
 
 /**
- * Move `op` as one rigid unit (shift every register by the same
- * delta) rather than rewiring just the grabbed register?
+ * Check whether moving `op` should shift every register as one rigid unit rather than rewire only
+ * the grabbed register.
  *
- * Yes for multi-wire ops the user grabbed whole: groups (`children`),
- * SWAPs, and multi-qubit measurements — single-leg would tear them
- * apart. No for ordinary controlled gates (1 target + N controls),
- * so each leg drags independently ("rewire one leg of a CNOT").
+ * Groups, SWAPs, and multi-qubit measurements move as units. Ordinary controlled gates move one
+ * leg at a time, and `movingControl` always selects that single-leg behavior.
  *
- * `movingControl` forces single-leg even on a group: dragging a
- * control rewires just that control, it doesn't slide the group.
+ * @returns Whether the operation should move as one rigid unit.
  */
-const moveAsUnit = (op: Operation, movingControl: boolean): boolean => {
+const shouldMoveAsUnit = (op: Operation, movingControl: boolean): boolean => {
   if (movingControl) return false;
   if (op.children != null) return true;
   switch (op.kind) {
@@ -176,7 +173,7 @@ const collectMeasurementWires = (op: Operation, set: Set<number>): void => {
  * `targets`/`results` refresh runs at the end of `moveOperation` instead, against the post-removal
  * children grid (otherwise the parent would keep claiming the departed child's wires).
  *
- * Two semantics, picked per-op by `moveAsUnit`:
+ * Two semantics, picked per-op by `shouldMoveAsUnit`:
  *
  * 1. **Unit-shift** for multi-wire ops (groups, SWAP, multi-qubit
  *    measurement). The grabbed wire acts as a handle: every
@@ -203,8 +200,8 @@ const moveY = (
 ): void => {
   // Group / multi-target / multi-qubit ops: move the whole gate as
   // a unit (shift every register by the same delta). See
-  // `moveAsUnit` for the criteria and rationale.
-  if (moveAsUnit(sourceOperation, movingControl)) {
+  // `shouldMoveAsUnit` for the criteria and rationale.
+  if (shouldMoveAsUnit(sourceOperation, movingControl)) {
     const delta = targetWire - sourceWire;
     if (delta !== 0) shiftAllRegisters(sourceOperation, delta);
     return;
@@ -317,7 +314,7 @@ const moveY = (
 
 export {
   collectMeasurementWires,
-  moveAsUnit,
+  shouldMoveAsUnit,
   moveX,
   moveY,
   shiftAllRegisters,
