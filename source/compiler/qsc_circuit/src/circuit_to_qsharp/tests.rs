@@ -286,6 +286,72 @@ fn circuit_with_rz_gate() {
 }
 
 #[test]
+fn circuit_with_symbolic_angle_args() {
+    // The forms emitted by `angle_format::format_angle`. Bare integers pick up a
+    // trailing dot, and the π binding is injected once for the whole body.
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        { "kind": "unitary", "gate": "Rz", "targets": [{ "qubit": 0 }], "args": ["0"] }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "Rz", "targets": [{ "qubit": 0 }], "args": ["π"] }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "Rz", "targets": [{ "qubit": 0 }], "args": ["3 * π"] }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "Rz", "targets": [{ "qubit": 0 }], "args": ["π / 4"] }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "Rz", "targets": [{ "qubit": 0 }], "args": ["2 * π / 3"] }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "Rz", "targets": [{ "qubit": 0 }], "args": ["-π / 4"] }
+      ]
+    },
+    {
+      "components": [
+        { "kind": "unitary", "gate": "Rz", "targets": [{ "qubit": 0 }], "args": ["0.7854"] }
+      ]
+    }
+  ],
+  "qubits": [{ "id": 0 }]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 1 qubits.
+            operation Test(qs : Qubit[]) : Unit is Ctl + Adj {
+                if Length(qs) < 1 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 1 qubits.";
+                }
+                let π = Std.Math.PI();
+                Rz(0., qs[0]);
+                Rz(π, qs[0]);
+                Rz(3. * π, qs[0]);
+                Rz(π / 4., qs[0]);
+                Rz(2. * π / 3., qs[0]);
+                Rz(-π / 4., qs[0]);
+                Rz(0.7854, qs[0]);
+            }
+
+        "#]],
+    );
+}
+
+#[test]
 fn circuit_with_controlled_gate_multiple_args() {
     check(
         r#"
