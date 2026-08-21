@@ -1901,7 +1901,7 @@ dependencies = [
  "num-traits",
  "probability",
  "qsc",
- "rand 0.10.1",
+ "rand 0.10.2",
  "rustc-hash",
  "serde",
  "thiserror",
