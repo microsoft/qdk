@@ -83,8 +83,7 @@ impl<'a> Analyzer<'a> {
                 .last_analyzed_compute_kind
                 .take()
                 .expect("last analyzed compute kind should be set after visiting an expression");
-            compute_kind =
-                compute_kind.aggregate_runtime_features(expr_compute_kind, default_value_kind);
+            compute_kind.aggregate_runtime_features(expr_compute_kind, default_value_kind);
             has_dynamic_content |= expr_compute_kind.is_variable_value_kind();
         }
 
@@ -122,10 +121,8 @@ impl<'a> Analyzer<'a> {
         // the size and value expressions.
         let default_value_kind = ValueKind::Constant;
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(size_expr_compute_kind, default_value_kind);
-        compute_kind =
-            compute_kind.aggregate_runtime_features(value_expr_compute_kind, default_value_kind);
+        compute_kind.aggregate_runtime_features(size_expr_compute_kind, default_value_kind);
+        compute_kind.aggregate_runtime_features(value_expr_compute_kind, default_value_kind);
 
         if let ComputeKind::Dynamic {
             runtime_features,
@@ -169,8 +166,7 @@ impl<'a> Analyzer<'a> {
 
         // The compute kind of an assign expression is determined by the runtime features of the updated compute kind
         // associated to the local variable.
-        compute_kind =
-            compute_kind.aggregate_runtime_features(updated_compute_kind, default_value_kind);
+        compute_kind.aggregate_runtime_features(updated_compute_kind, default_value_kind);
         compute_kind
     }
 
@@ -202,15 +198,14 @@ impl<'a> Analyzer<'a> {
         // runtime feature is used to mark the array itself as dynamic.
         if !application_instance.active_dynamic_scopes.is_empty() {
             default_value_kind = ValueKind::Variable;
-            replacement_value_compute_kind =
-                replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {
-                    runtime_features: RuntimeFeatureFlags::UseOfDynamicArray,
-                    value_kind: ValueKind::Constant,
-                });
+            replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {
+                runtime_features: RuntimeFeatureFlags::UseOfDynamicArray,
+                value_kind: ValueKind::Constant,
+            });
         }
 
         let mut updated_compute_kind = ComputeKind::Static;
-        updated_compute_kind = updated_compute_kind
+        updated_compute_kind
             .aggregate_runtime_features(replacement_value_compute_kind, default_value_kind);
 
         // If the replacement value expression is variable, the runtime features and value kind of the update have to
@@ -235,14 +230,12 @@ impl<'a> Analyzer<'a> {
         // need a default one.
         let default_value_kind = ValueKind::Constant;
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(index_compute_kind, default_value_kind);
-        compute_kind = compute_kind
-            .aggregate_runtime_features(replacement_value_compute_kind, default_value_kind);
+        compute_kind.aggregate_runtime_features(index_compute_kind, default_value_kind);
+        compute_kind.aggregate_runtime_features(replacement_value_compute_kind, default_value_kind);
 
         // Finally, if the index expression is variable, we aggregate an additional runtime feature.
         if index_compute_kind.is_variable_value_kind() {
-            compute_kind = compute_kind.aggregate_runtime_features(
+            compute_kind.aggregate_runtime_features(
                 ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicIndex,
                     value_kind: default_value_kind,
@@ -274,8 +267,8 @@ impl<'a> Analyzer<'a> {
 
         // The compute kind of a binary operator expression is the aggregation of its LHS and RHS expressions.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind = compute_kind.aggregate(lhs_compute_kind);
-        compute_kind = compute_kind.aggregate(rhs_compute_kind);
+        compute_kind.aggregate(lhs_compute_kind);
+        compute_kind.aggregate(rhs_compute_kind);
 
         if self.in_parallel_expr
             && matches!(bin_op, BinOp::AndL | BinOp::OrL)
@@ -283,7 +276,7 @@ impl<'a> Analyzer<'a> {
         {
             // Binary boolean operators with a variable left-hand side are short-circuiting expressions, which means they incur
             // dynamic branching in code-gen. Since this is a parallel expression, we need to track this as a runtime feature.
-            compute_kind = compute_kind.aggregate_runtime_features(
+            compute_kind.aggregate_runtime_features(
                 ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicBranchingInParallelExpr,
                     value_kind: ValueKind::Constant,
@@ -343,14 +336,14 @@ impl<'a> Analyzer<'a> {
 
         // The compute kind of a binary operator expression is the aggregation of its LHS and RHS expressions.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind = compute_kind.aggregate(lhs_compute_kind);
-        compute_kind = compute_kind.aggregate(rhs_compute_kind);
+        compute_kind.aggregate(lhs_compute_kind);
+        compute_kind.aggregate(rhs_compute_kind);
 
         // As a special case for exp, if the rhs is variable the expression gets an extra runtime feature.
         // This is because we don't emit a native exponential binary operator but unroll it into a sequence
         // of multiplications, which requires the rhs to be known at compile time.
         if rhs_compute_kind.is_variable_value_kind() {
-            compute_kind = compute_kind.aggregate_runtime_features(
+            compute_kind.aggregate_runtime_features(
                 ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicExponent,
                     value_kind: ValueKind::Constant,
@@ -413,14 +406,14 @@ impl<'a> Analyzer<'a> {
             // If the call expression type is either a result or a qubit, it uses dynamic allocation runtime features.
             if let Ty::Prim(Prim::Qubit) = expr_type {
                 // We consider this qubit dynamic so the value kind of this expression must be dynamic and variable.
-                compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
+                compute_kind.aggregate(ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::empty(),
                     value_kind: ValueKind::Variable,
                 });
             }
 
             if let Ty::Prim(Prim::Result) = expr_type {
-                compute_kind = compute_kind.aggregate_runtime_features(
+                compute_kind.aggregate_runtime_features(
                     ComputeKind::Dynamic {
                         runtime_features: RuntimeFeatureFlags::MeasurementWithinDynamicScope,
                         value_kind: ValueKind::Constant,
@@ -450,10 +443,8 @@ impl<'a> Analyzer<'a> {
         }
 
         // Aggregate the runtime features of the callee and arguments expressions.
-        compute_kind =
-            compute_kind.aggregate_runtime_features(callee_expr_compute_kind, ValueKind::Constant);
-        compute_kind =
-            compute_kind.aggregate_runtime_features(args_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(callee_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(args_expr_compute_kind, ValueKind::Constant);
 
         if must_inline
             && let ComputeKind::Dynamic {
@@ -540,8 +531,7 @@ impl<'a> Analyzer<'a> {
         for control_expr in args_controls {
             let control_expr_compute_kind =
                 *application_instance.get_expr_compute_kind(control_expr);
-            compute_kind = compute_kind
-                .aggregate_runtime_features(control_expr_compute_kind, default_value_kind);
+            compute_kind.aggregate_runtime_features(control_expr_compute_kind, default_value_kind);
             has_variable_controls |= control_expr_compute_kind.is_variable_value_kind();
         }
 
@@ -582,7 +572,7 @@ impl<'a> Analyzer<'a> {
                 LocalKind::Immutable(_, dynamic_scope) | LocalKind::Mutable(dynamic_scope) if dynamic_scope.as_ref() == application_instance.active_dynamic_scopes.last()
             );
             if !in_matching_dynamic_scope {
-                compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
+                compute_kind.aggregate(ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicQubitRelease,
                     value_kind: ValueKind::Constant,
                 });
@@ -635,7 +625,7 @@ impl<'a> Analyzer<'a> {
             {
                 // ...then we can emit the callable as an IR function, and we update the compute kind of the call expression to reflect the
                 // capabilities of that IR function.
-                *compute_kind = compute_kind.aggregate(ir_function_compute_kind);
+                compute_kind.aggregate(ir_function_compute_kind);
                 false
             } else {
                 // Otherwise, the callable must be inlined.
@@ -716,8 +706,7 @@ impl<'a> Analyzer<'a> {
         // To determine the compute kind of an UDT call expression, aggregate the runtime features of the arguments
         // expression.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(args_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(args_expr_compute_kind, ValueKind::Constant);
 
         // If any argument to the UDT constructor is dynamic, then the UDT instance is also dynamic and uses an
         // additional runtime feature.
@@ -739,8 +728,7 @@ impl<'a> Analyzer<'a> {
         // The compute kind of the expression is determined from the message expression runtime features plus an
         // additional runtime feature if the message expression is dynamic.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(msg_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(msg_expr_compute_kind, ValueKind::Constant);
 
         compute_kind
     }
@@ -762,8 +750,7 @@ impl<'a> Analyzer<'a> {
         };
 
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(record_expr_compute_kind, runtime_kind);
+        compute_kind.aggregate_runtime_features(record_expr_compute_kind, runtime_kind);
         compute_kind
     }
 
@@ -815,12 +802,10 @@ impl<'a> Analyzer<'a> {
 
         // Aggregate the runtime features of the sub-expressions.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind = compute_kind
-            .aggregate_runtime_features(condition_expr_compute_kind, ValueKind::Constant);
-        compute_kind =
-            compute_kind.aggregate_runtime_features(body_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(condition_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(body_expr_compute_kind, ValueKind::Constant);
         if let Some(otherwise_expr_compute_kind) = otherwise_expr_compute_kind {
-            compute_kind = compute_kind
+            compute_kind
                 .aggregate_runtime_features(otherwise_expr_compute_kind, ValueKind::Constant);
         }
 
@@ -864,7 +849,7 @@ impl<'a> Analyzer<'a> {
                 runtime_features: dynamic_runtime_features,
                 value_kind: dynamic_value_kind,
             };
-            compute_kind = compute_kind.aggregate(dynamic_compute_kind);
+            compute_kind.aggregate(dynamic_compute_kind);
         }
 
         compute_kind
@@ -891,10 +876,8 @@ impl<'a> Analyzer<'a> {
         // The runtime features of the access by index expression are determined by aggregating the runtime features of
         // the array expression and the index expression.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(array_expr_compute_kind, ValueKind::Constant);
-        compute_kind =
-            compute_kind.aggregate_runtime_features(index_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(array_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(index_expr_compute_kind, ValueKind::Constant);
 
         // If the index expression is variable, the value kind of the expression is at least dynamic (possibly variable)
         // and an additional runtime feature is used.
@@ -938,7 +921,7 @@ impl<'a> Analyzer<'a> {
             }
 
             let dynamic_runtime_kind = ValueKind::new_variable_from_type(expr_type);
-            compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
+            compute_kind.aggregate(ComputeKind::Dynamic {
                 runtime_features: dynamic_runtime_features,
                 value_kind: dynamic_runtime_kind,
             });
@@ -1000,13 +983,13 @@ impl<'a> Analyzer<'a> {
 
         // The compute kind of a range expression is the aggregation of its start, step and end expressions.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind = compute_kind.aggregate(start_expr_compute_kind);
-        compute_kind = compute_kind.aggregate(step_expr_compute_kind);
-        compute_kind = compute_kind.aggregate(end_expr_compute_kind);
+        compute_kind.aggregate(start_expr_compute_kind);
+        compute_kind.aggregate(step_expr_compute_kind);
+        compute_kind.aggregate(end_expr_compute_kind);
 
         // Additionally, if the compute kind of the range is variable, mark it with the appropriate runtime feature.
         if compute_kind.is_variable_value_kind() {
-            compute_kind = compute_kind.aggregate(ComputeKind::Dynamic {
+            compute_kind.aggregate(ComputeKind::Dynamic {
                 runtime_features: RuntimeFeatureFlags::UseOfDynamicRange,
                 value_kind: ValueKind::Constant,
             });
@@ -1034,8 +1017,7 @@ impl<'a> Analyzer<'a> {
         };
 
         // Now just aggregate the runtime features of the value expression.
-        compute_kind =
-            compute_kind.aggregate_runtime_features(value_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(value_expr_compute_kind, ValueKind::Constant);
         compute_kind
     }
 
@@ -1054,8 +1036,7 @@ impl<'a> Analyzer<'a> {
                 .last_analyzed_compute_kind
                 .take()
                 .expect("last analyzed compute kind should be set after visiting an expression");
-            compute_kind =
-                compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
+            compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
             has_variable_sub_exprs |= expr_compute_kind.is_variable_value_kind();
         }
 
@@ -1066,8 +1047,7 @@ impl<'a> Analyzer<'a> {
                 .last_analyzed_compute_kind
                 .take()
                 .expect("last analyzed compute kind should be set after visiting an expression");
-            compute_kind =
-                compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
+            compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
             has_variable_sub_exprs |= expr_compute_kind.is_variable_value_kind();
         }
 
@@ -1102,7 +1082,7 @@ impl<'a> Analyzer<'a> {
                     let component_compute_kind = self.last_analyzed_compute_kind.take().expect(
                         "last analyzed compute kind should be set after visiting an expression",
                     );
-                    compute_kind = compute_kind
+                    compute_kind
                         .aggregate_runtime_features(component_compute_kind, ValueKind::Constant);
                     has_variable_components |= component_compute_kind.is_variable_value_kind();
                     has_dynamic_result |= is_any_result(&self.get_expr(*expr_id).ty)
@@ -1133,8 +1113,7 @@ impl<'a> Analyzer<'a> {
                 .last_analyzed_compute_kind
                 .take()
                 .expect("last analyzed compute kind should be set after visiting an expression");
-            compute_kind =
-                compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
+            compute_kind.aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
             has_variable_sub_exprs |= expr_compute_kind.is_variable_value_kind();
         }
 
@@ -1176,10 +1155,8 @@ impl<'a> Analyzer<'a> {
         // The runtime features of an update field expression are determined by aggregating the runtime features of the
         // record and replace expressions.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(record_expr_compute_kind, ValueKind::Constant);
-        compute_kind =
-            compute_kind.aggregate_runtime_features(replace_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(record_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(replace_expr_compute_kind, ValueKind::Constant);
 
         // If either the record or the replace expressions are variable, the update field expression is variable as well.
         if record_expr_compute_kind.is_variable_value_kind()
@@ -1217,11 +1194,10 @@ impl<'a> Analyzer<'a> {
         // The runtime features of an update index expression is determined by aggregating the runtime features of its
         // sub-expressions, with some nuanced considerations.
         let mut compute_kind = ComputeKind::Static;
-        compute_kind =
-            compute_kind.aggregate_runtime_features(array_expr_compute_kind, ValueKind::Constant);
-        compute_kind =
-            compute_kind.aggregate_runtime_features(index_expr_compute_kind, ValueKind::Constant);
-        compute_kind = compute_kind
+
+        compute_kind.aggregate_runtime_features(array_expr_compute_kind, ValueKind::Constant);
+        compute_kind.aggregate_runtime_features(index_expr_compute_kind, ValueKind::Constant);
+        compute_kind
             .aggregate_runtime_features(replacement_value_expr_compute_kind, ValueKind::Constant);
         // If the index expression is variable, an additional runtime feature is used.
         if index_expr_compute_kind.is_variable_value_kind() {
@@ -1229,8 +1205,7 @@ impl<'a> Analyzer<'a> {
                 runtime_features: RuntimeFeatureFlags::UseOfDynamicIndex,
                 value_kind: ValueKind::Constant,
             };
-            compute_kind = compute_kind
-                .aggregate_runtime_features(additional_compute_kind, ValueKind::Constant);
+            compute_kind.aggregate_runtime_features(additional_compute_kind, ValueKind::Constant);
         }
 
         // The value kind of the update index expression is based on the value kind of the array expression.
@@ -1332,10 +1307,9 @@ impl<'a> Analyzer<'a> {
                 .expect("block compute kind should be set after visiting the block");
             let default_value_kind = ValueKind::Constant;
             let mut compute_kind = ComputeKind::Static;
-            compute_kind = compute_kind
+            compute_kind
                 .aggregate_runtime_features(condition_expr_compute_kind, default_value_kind);
-            compute_kind =
-                compute_kind.aggregate_runtime_features(block_compute_kind, default_value_kind);
+            compute_kind.aggregate_runtime_features(block_compute_kind, default_value_kind);
 
             // If the resulting compute kind with dynamic loops would produce errors with the current target capabilities,
             // we need to fall back to marking the loop as classical and re-analyzing.
@@ -1386,7 +1360,8 @@ impl<'a> Analyzer<'a> {
         let application_instance = self.get_current_application_instance_mut();
         if !matches!(limit_compute_kind, ComputeKind::Static) {
             // Add the runtime feature of dynamic parallelism to the compute kind of the parallel expression.
-            let new_limit_compute_kind = limit_compute_kind.aggregate_runtime_features(
+            let mut new_limit_compute_kind = limit_compute_kind;
+            new_limit_compute_kind.aggregate_runtime_features(
                 ComputeKind::Dynamic {
                     runtime_features: RuntimeFeatureFlags::UseOfDynamicLimitInParallelExpr,
                     value_kind: ValueKind::Constant,
@@ -1864,7 +1839,7 @@ impl<'a> Analyzer<'a> {
                 // a UDT variable field since we do not track individual UDT fields).
                 let value_expr_compute_kind =
                     *application_instance.get_expr_compute_kind(value_expr_id);
-                updated_compute_kind = updated_compute_kind.aggregate(value_expr_compute_kind);
+                updated_compute_kind.aggregate(value_expr_compute_kind);
 
                 // If a local is updated within a dynamic scope other than the one it was defined in,
                 // the updated value of the local variable should be dynamic and variable with any additional
@@ -1886,7 +1861,7 @@ impl<'a> Analyzer<'a> {
                         runtime_features: dynamic_runtime_features,
                         value_kind: dynamic_value_kind,
                     };
-                    updated_compute_kind = updated_compute_kind.aggregate(dynamic_compute_kind);
+                    updated_compute_kind.aggregate(dynamic_compute_kind);
                 }
 
                 // If the updated compute kind is dynamic, include additional properties depending on the type of the
@@ -1921,7 +1896,7 @@ impl<'a> Analyzer<'a> {
                             *element_assignee_expr_id,
                             *element_value_expr_id,
                         );
-                        updated_compute_kind = updated_compute_kind.aggregate_runtime_features(
+                        updated_compute_kind.aggregate_runtime_features(
                             element_update_compute_kind,
                             ValueKind::Constant,
                         );
@@ -1933,7 +1908,7 @@ impl<'a> Analyzer<'a> {
                     for element_assignee_expr_id in assignee_exprs {
                         let element_update_compute_kind = self
                             .update_locals_compute_kind(*element_assignee_expr_id, value_expr_id);
-                        updated_compute_kind = updated_compute_kind.aggregate_runtime_features(
+                        updated_compute_kind.aggregate_runtime_features(
                             element_update_compute_kind,
                             ValueKind::Constant,
                         );
@@ -2075,7 +2050,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
                 .expect("last analyzed compute kind should be set after visiting a statement");
 
             // Now, we can query the statement's compute kind and aggregate it to the block's compute kind.
-            block_compute_kind = block_compute_kind
+            block_compute_kind
                 .aggregate_runtime_features(last_stmt_compute_kind, ValueKind::Constant);
         }
 
@@ -2329,8 +2304,10 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
 
                 // Use the expression compute kind to construct the statement compute kind, using only the expression
                 // runtime features since the value kind is meaningless for semicolon statements.
-                ComputeKind::Static
-                    .aggregate_runtime_features(expr_compute_kind, ValueKind::Constant)
+                let mut stmt_compute_kind = ComputeKind::Static;
+                stmt_compute_kind
+                    .aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
+                stmt_compute_kind
             }
             StmtKind::Local(mutability, pat_id, value_expr_id) => {
                 // Visit the expression to determine its compute kind.
@@ -2344,8 +2321,10 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
 
                 // Use the expression compute kind to construct the statement compute kind, using only the expression
                 // runtime features since the value kind is meaningless for local (binding) statements.
-                ComputeKind::Static
-                    .aggregate_runtime_features(expr_compute_kind, ValueKind::Constant)
+                let mut stmt_compute_kind = ComputeKind::Static;
+                stmt_compute_kind
+                    .aggregate_runtime_features(expr_compute_kind, ValueKind::Constant);
+                stmt_compute_kind
             }
             StmtKind::Item(_) => {
                 // An item statement does not have any inherent dynamic properties, so we just treat it as static.
