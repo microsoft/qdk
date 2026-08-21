@@ -9,6 +9,7 @@ mod noise_channels;
 mod noise_channels_broadcasting;
 mod pair_measurements;
 mod pair_measurements_broadcasting;
+mod peek_loss;
 mod repeat;
 mod select_block;
 mod single_qubit_gates;

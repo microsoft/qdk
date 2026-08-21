@@ -545,6 +545,50 @@ def test_read_loss():
 
 
 # =========================================================================
+# OP_PEEK_LOSS — read whether a qubit is lost without collapsing
+# =========================================================================
+
+PEEK_LOSS_QIR = """
+entry:
+  ; Apply s to qubit 0 for its noise side effect. With ``noise.s.loss = 1.0``
+  ; the simulator faults qubit 0 as lost on every shot.
+  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  ; peek_loss behaves like a measurement: it records the loss status of qubit 0
+  ; into result 0 (One when lost) but does not collapse the qubit.
+  call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  ; Because peek_loss did not clear the loss, a later mz on qubit 0 still records Loss.
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+PEEK_LOSS_DECLS = """
+declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_peek_loss():
+  """s (with 100% loss) → peek_loss records loss into a result without collapsing.
+
+  Result 0 is the peek: ``One`` ('1') because qubit 0 is lost. Result 1 is a
+  later mz on the same qubit: ``Loss`` ('L'), showing peek_loss did not clear
+  the loss — it behaves like a measurement but does not collapse state.
+  """
+  qir = format_qir(
+    PEEK_LOSS_QIR,
+    extra_decls=PEEK_LOSS_DECLS,
+    num_qubits=1,
+    num_results=2,
+  )
+  noise = NoiseConfig()
+  noise.s.loss = 1.0
+  results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+  counts = Counter(map_result_list_to_str(r) for r in results)
+  assert counts == {
+    "1L": SHOTS
+  }, f"Expected all {SHOTS} shots to be '1L', got {counts}"
+
+
+# =========================================================================
 # move (OpID 28) — qubit move with associated noise
 # =========================================================================
 
