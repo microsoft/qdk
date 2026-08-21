@@ -686,39 +686,39 @@ def test_clifford_run_joint_rotations_by_clifford_angles_succeeds():
     ], "Expected result of 00 with Clifford rotations."
 
 
-def test_clifford_run_with_t_fails():
+def test_clifford_run_with_t():
     qsharp.init()
     qsharp.eval("""
         operation Main() : Result {
             use q = Qubit();
+            H(q);
             T(q);
+            H(q);
             return MResetZ(q);
         }
         """)
-    try:
-        qsharp.run("Main()", shots=1, type="clifford")
-        assert False, "Expected QSharpError for non-Clifford gate"
-    except QSharpError as e:
-        assert "T gate is not supported in Clifford simulation" in str(e)
+    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="clifford"))
+    assert 4000 < counts[Result.Zero] < 4500
+    assert 500 < counts[Result.One] < 1000
 
 
-def test_clifford_run_with_adjoint_t_fails():
+def test_clifford_run_with_adjoint_t():
     qsharp.init()
     qsharp.eval("""
         operation Main() : Result {
             use q = Qubit();
+            H(q);
             Adjoint T(q);
+            H(q);
             return MResetZ(q);
         }
         """)
-    try:
-        qsharp.run("Main()", shots=1, type="clifford")
-        assert False, "Expected QSharpError for non-Clifford gate"
-    except QSharpError as e:
-        assert "adjoint T gate is not supported in Clifford simulation" in str(e)
+    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="clifford"))
+    assert 4000 < counts[Result.Zero] < 4500
+    assert 500 < counts[Result.One] < 1000
 
 
-def test_clifford_run_with_non_clifford_rotation_fails():
+def test_clifford_run_with_non_clifford_rotation():
     qsharp.init()
     qsharp.eval("""
         operation Main() : Result {
@@ -727,11 +727,9 @@ def test_clifford_run_with_non_clifford_rotation_fails():
             return MResetZ(q);
         }
         """)
-    try:
-        qsharp.run("Main()", shots=1, type="clifford")
-        assert False, "Expected QSharpError for non-Clifford gate"
-    except QSharpError as e:
-        assert "angle must be a multiple of PI/2 in Clifford simulation" in str(e)
+    counts = Counter(qsharp.run("Main()", shots=5000, seed=42, type="clifford"))
+    assert 3600 < counts[Result.Zero] < 4100
+    assert 900 < counts[Result.One] < 1400
 
 
 def test_clifford_run_with_too_many_qubits_fails():
