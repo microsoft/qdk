@@ -1620,11 +1620,13 @@ impl<'a> PartialEvaluator<'a> {
         // moved into the call scope; these are used to generate the `Instruction::Call` at the call
         // site instead of inlining the body. Eligible callees only have scalar/qubit leaf
         // parameters, so the operand mapping below cannot encounter composite values.
-        let ir_function_arg_operands = if matches!(self.get_expr_compute_kind(call_expr_id),
-            ComputeKind::Dynamic {runtime_features, ..} if runtime_features.contains(RuntimeFeatureFlags::MustBeInlined))
-            || self.in_parallel_expr()
+        let ir_function_arg_operands = if self.is_must_inline_call(
+            store_item_id,
+            functor_app,
+            (self.get_current_package_id(), call_expr_id).into(),
+        ) || self.in_parallel_expr()
         {
-            // A call site that has the `MustBeInlined` runtime feature flag set is not eligible to be emitted as an IR function
+            // A call site that has been marked for inlining is not eligible to be emitted as an IR function
             // based on Runtime Capabilities Analysis, so we fall through to the inline path
             // OR we are currently in a parrallel expression which requires that all calls are inlined to ensure the whole parallel
             // ends up in a single block.
@@ -2161,8 +2163,6 @@ impl<'a> PartialEvaluator<'a> {
             .contains(TargetCapabilityFlags::CallSupport)
         {
             // In this case, we know the target can't support any IR function calls, so always return false.
-            // This is needed because when the target does not have that support we don't emit the `MustBeInlined`
-            // capability on the call site.
             return false;
         }
 
@@ -3519,6 +3519,16 @@ impl<'a> PartialEvaluator<'a> {
         let store_expr_id = StoreExprId::from((current_package_id, expr_id));
         self.compute_properties
             .is_unresolved_callee_expr(store_expr_id, self.in_parallel_scope())
+    }
+
+    fn is_must_inline_call(
+        &self,
+        callee: StoreItemId,
+        functor_app: FunctorApp,
+        expr: StoreExprId,
+    ) -> bool {
+        self.compute_properties
+            .is_must_inline_call(&(callee, functor_app).into(), &expr)
     }
 
     fn get_call_compute_kind(&self, callable_scope: &Scope) -> ComputeKind {
