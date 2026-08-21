@@ -4,7 +4,7 @@
 // addOperation: clone-copy of a group preserves shape.
 //
 // Ctrl-drag (clone) of a multi-wire op routes through the same
-// rigid-shift path as `moveOperation`'s `_moveAsUnit`: every
+// rigid-shift path as `moveOperation`'s `shouldMoveAsUnit`: every
 // register in the cloned subtree shifts by the same
 // `targetWire - sourceWire` delta, keeping `.targets` and every
 // nested child wire aligned.

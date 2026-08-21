@@ -38,7 +38,7 @@ import {
 } from "./circuit-actions/gridPrimitives.js";
 import {
   collectMeasurementWires,
-  moveAsUnit,
+  shouldMoveAsUnit,
   moveX,
   moveY,
   shiftAllRegisters,
@@ -156,7 +156,7 @@ const moveOperation = (
   // wire moves to `maxOrigWire + delta`, which can exceed it.
   // Refuse the move if a unit-shift would push any wire below 0
   // (the model has no negative wires); the drop silently no-ops.
-  if (moveAsUnit(newSourceOperation, movingControl)) {
+  if (shouldMoveAsUnit(newSourceOperation, movingControl)) {
     const delta = targetWire - sourceWire;
     const [minOrigWire, maxOrigWire] = getSubtreeMinMaxWire(newSourceOperation);
     if (minOrigWire >= 0 && minOrigWire + delta < 0) {
@@ -439,7 +439,7 @@ const removeMeasurementWithDependents = (
  * @param sourceWire The wire the source op was "grabbed" on. Only
  *   meaningful when clone-dropping a group or multi-target op: the
  *   subtree shifts by `targetWire - sourceWire` to keep its shape
- *   (mirrors `moveOperation`'s `moveAsUnit` path). Omit for fresh
+ *   (mirrors `moveOperation`'s `shouldMoveAsUnit` path). Omit for fresh
  *   toolbox drops, which take the single-leg rewrite below.
  * @returns The added operation or null if the addition was unsuccessful.
  */
@@ -481,7 +481,7 @@ const addOperation = (
   // is always false here — clone-of-a-control routes through
   // addControl + moveOperation, not addOperation.
   const cloneAsUnit =
-    sourceWire !== undefined && moveAsUnit(newSourceOperation, false);
+    sourceWire !== undefined && shouldMoveAsUnit(newSourceOperation, false);
 
   if (cloneAsUnit) {
     // Mirror `moveOperation`'s unit-shift block: refuse if it would
@@ -622,7 +622,7 @@ const _findAndRemoveOperations = (
  * limitation. Existing quantum controls in loaded `.qsc` data still render and can be dragged (the
  * `movingControl` path permutes existing controls rather than adding one).
  *
- * Mirrors the structural-shape half of `moveAsUnit`.
+ * Mirrors the structural-shape half of `shouldMoveAsUnit`.
  */
 const _isMultiTargetOrGroup = (op: Operation): boolean => {
   if (op.children != null) return true;
