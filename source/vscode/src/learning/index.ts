@@ -8,9 +8,13 @@ import {
 } from "./codeLens.js";
 import { registerLearningCommands } from "./commands.js";
 import { LessonPanelManager, registerLessonPanelSerializer } from "./panel.js";
+import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js";
+import { registerNotebookSync } from "./notebookSync.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
+import { WORKBOOK_SUFFIX } from "./constants.js";
 import { registerLearningWelcomeView } from "./welcomeView.js";
+import { isNotebookCourse } from "./courseLayout.js";
 
 export function initLearning(
   context: vscode.ExtensionContext,
@@ -30,14 +34,69 @@ export function initLearning(
       createLearningCodeLensProvider(),
     ),
   );
+  const cellStatusBarProvider =
+    createNotebookCellStatusBarProvider(learningService);
+  context.subscriptions.push(
+    cellStatusBarProvider,
+    vscode.notebooks.registerNotebookCellStatusBarItemProvider(
+      "jupyter-notebook",
+      cellStatusBarProvider,
+    ),
+  );
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeNotebookDocument((e) => {
+      // When a cell finishes executing (executionSummary changes), auto-save
+      // the notebook, check if it corresponds to an exercise in the active
+      // python-notebook course and update focus. If execution succeeded,
+      // mark complete.
+      if (
+        !learningService.initialized ||
+        !isNotebookCourse(learningService.getActiveCourseInfo()) ||
+        !e.notebook.uri.path.endsWith(WORKBOOK_SUFFIX)
+      ) {
+        return;
+      }
+
+      let hasExecutionChange = false;
+      for (const change of e.cellChanges) {
+        if (change.executionSummary !== undefined) {
+          hasExecutionChange = true;
+          const cellId = change.cell.metadata?.id;
+          if (typeof cellId !== "string") {
+            continue;
+          }
+          // We're relying on a bit of magic here: another event listener
+          // updates the active unit (i.e. notebook) when a workbook notebook
+          // is opened and we're relying on that to be correct, rather than
+          // using the URL from the event.
+          // If it turns out there's a way to get events about a notebook
+          // other than the active one, the only negative consequence will
+          // be not registering completion.
+          void learningService.goToActivityByCellId(cellId, "notebook");
+          if (change.executionSummary.success) {
+            void learningService.markActivityCompleteByCellId(cellId);
+          }
+        }
+      }
+      if (hasExecutionChange) {
+        // Moving between notebooks is clumsy when they're unsaved.  Since this
+        // is a working copy we created on the user's behalf, we're free to
+        // auto-save.
+        void e.notebook.save();
+      }
+    }),
+  );
   registerLearningProgressView(context, learningService);
   registerLearningWelcomeView(context, learningService);
   registerLearningCommands(context, learningService, panelManager);
   registerLessonPanelSerializer(context, panelManager);
+  registerNotebookSync(context, learningService);
   return learningService;
 }
 
 export type {
+  CourseDescriptor,
+  CourseKind,
   CurrentActivity,
   HintContext,
   OverallProgress,
@@ -46,6 +105,7 @@ export type {
   UnitSummary,
 } from "./types.js";
 export { LEARNING_WORKSPACE_FOLDER } from "./constants.js";
+export { isNotebookCourse } from "./courseLayout.js";
 export {
   detectLearningWorkspace,
   LearningService,

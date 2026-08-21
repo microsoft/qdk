@@ -39,6 +39,7 @@ import {
   registerChangelogCommand,
 } from "./changelog.js";
 import { getPlatformEnv, toVsCodeRange } from "./common.js";
+import { createQuantumVenvForCommand } from "./pythonEnvs.js";
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -106,6 +107,12 @@ export async function activate(
   if (vscode.env.uiKind !== vscode.UIKind.Web) {
     const learningService = initLearning(context);
     registerLanguageModelTools(context, learningService);
+    context.subscriptions.push(
+      vscode.commands.registerCommand(
+        "qsharp-vscode.createQuantumVenv",
+        createQuantumVenvForCommand,
+      ),
+    );
   }
   // fire-and-forget
   removeDeprecatedCopilotInstructions(context);

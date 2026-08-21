@@ -3,7 +3,7 @@
 
 mod collapsing_gates;
 mod collapsing_gates_broadcasting;
-mod generalize_pauli_product_gates;
+mod generalized_pauli_product_gates;
 mod measurement_record_targets;
 mod noise_channels;
 mod noise_channels_broadcasting;

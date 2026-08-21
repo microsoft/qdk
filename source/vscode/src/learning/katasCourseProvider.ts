@@ -3,17 +3,25 @@
 
 import { getAllKatas } from "qsharp-lang/katas-md";
 import { KATAS_COURSE_ID } from "./constants.js";
+import type { CourseProvider } from "./courseProvider.js";
 import type {
-  CatalogUnit,
-  CatalogCourse,
   CatalogActivity,
+  CatalogCourse,
   CatalogExercise,
+  CatalogUnit,
 } from "./types.js";
 
-/**
- * Load the built-in Quantum Katas as a single `CatalogCourse`.
- */
-export async function loadKatasCourse(): Promise<CatalogCourse> {
+/** Provider for the built-in Quantum Katas course. */
+export class KatasCourseProvider implements CourseProvider {
+  readonly id = "katas-provider";
+
+  async listCourses(): Promise<CatalogCourse[]> {
+    return [await loadKatasCourse()];
+  }
+}
+
+/** Load the built-in Quantum Katas as a single {@link CatalogCourse}. */
+async function loadKatasCourse(): Promise<CatalogCourse> {
   const raw = await getAllKatas();
   const units: CatalogUnit[] = raw.map((kata) => ({
     id: kata.id,
@@ -80,5 +88,12 @@ export async function loadKatasCourse(): Promise<CatalogCourse> {
     }),
   }));
 
-  return { id: KATAS_COURSE_ID, title: "Quantum Katas", units };
+  return {
+    id: KATAS_COURSE_ID,
+    title: "Quantum Katas",
+    shortDescription:
+      "Hands-on quantum computing tutorials and exercises in Q#.",
+    kind: "qsharp",
+    units,
+  };
 }

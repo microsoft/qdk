@@ -139,7 +139,7 @@ impl CompilationContext {
     fn get_package_compute_properties_tuple(&self) -> (&Package, &PackageComputeProperties) {
         (
             self.fir_store.get(self.package_id),
-            self.compute_properties.get(self.package_id),
+            self.compute_properties.get(self.package_id, false),
         )
     }
 }
