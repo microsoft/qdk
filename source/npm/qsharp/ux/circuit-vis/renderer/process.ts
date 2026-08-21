@@ -383,7 +383,6 @@ const _opToRenderData = (
         return globalId ?? reg.result ?? null;
       }) || [];
 
-
     if (hasChildren) {
       renderData.type = GateType.Group;
       if (isExpanded) {
