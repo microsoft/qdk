@@ -247,225 +247,154 @@ const findLocationByRef = (
   return walk(grid, "");
 };
 
-/**
- * Tag every classical register on the move's affected wires with a stable identity (a unique
- * negative token) so producer→consumer links survive the wire-shift and result-renumber. Call BEFORE
- * `moveY`/`_doShift`, then `decodeClassicalResultTokens` afterward to restore real indices.
- *
- * The token lives in the `result` field (a negative sentinel; real indices are ≥ 0) and rides
- * through the move untouched, since `_doShift` only changes `.qubit` and the JSON clone copies the
- * number. Affected wires = every measurement wire the moved subtree touches plus that wire + `delta`
- * (its landing); registers elsewhere keep their real indices.
- *
- * `originalOp` is the pre-move op still in `grid` (skipped, about to be removed); `cloneOp` is its
- * replacement (not yet in `grid`, walked separately). Both share one key→token map so a producer and
- * all its consumers — inside the clone or elsewhere — resolve to the same token.
- *
- * Returns the set of affected wires (source + landing), which `decodeClassicalResultTokens` reuses
- * to refresh each wire's `numResults` counter — no separate measurement-wire sweep needed.
- */
-const encodeClassicalResultTokens = (
+const walkGrid = (
   grid: ComponentGrid,
-  originalOp: Operation,
-  cloneOp: Operation,
-  delta: number,
-): Set<number> => {
-  // Affected wires: the moved subtree's measurement wires (pre-shift, read off the clone) and their
-  // post-shift landings.
-  const affectedWires = new Set<number>();
-  const collectWires = (o: Operation): void => {
-    if (o.kind === "measurement") {
-      for (const q of o.qubits) {
-        affectedWires.add(q.qubit);
-        affectedWires.add(q.qubit + delta);
-      }
-    }
-    if (o.children) {
-      for (const col of o.children) {
-        for (const c of col.components) collectWires(c);
-      }
-    }
-  };
-  collectWires(cloneOp);
-  if (affectedWires.size === 0) return affectedWires;
-
-  // Walk `grid` (skipping the doomed `originalOp` subtree) and `cloneOp`, applying `visit` to each op.
-  const walkAll = (visit: (op: Operation) => void): void => {
-    const walk = (g: ComponentGrid): void => {
-      for (const col of g) {
-        for (const op of col.components) {
-          if (op === originalOp) continue; // about to be removed; its clone is walked below.
-          visit(op);
-          if (op.children) walk(op.children);
-        }
-      }
-    };
-    walk(grid);
-    const walkClone = (o: Operation): void => {
-      visit(o);
-      if (o.children) {
-        for (const col of o.children) {
-          for (const c of col.components) walkClone(c);
-        }
-      }
-    };
-    walkClone(cloneOp);
-  };
-
-  const keyToToken = new Map<string, number>();
-  let nextToken = -1;
-
-  // Pass 1: tokenize producers (measurement `.results`) on affected wires. Record each under its
-  // original `(qubit, result)` key so consumers can find it in pass 2.
-  walkAll((op) => {
-    if (op.kind !== "measurement") return;
-    for (const r of op.results) {
-      if (r.result === undefined || r.result < 0) continue;
-      if (!affectedWires.has(r.qubit)) continue;
-      const key = `${r.qubit}:${r.result}`;
-      let token = keyToToken.get(key);
-      if (token === undefined) {
-        token = nextToken--;
-        keyToToken.set(key, token);
-      }
-      r.result = token;
-    }
-  });
-
-  // Pass 2: point every consumer of a tokenized producer at the same token. A measurement's own
-  // `.results` are producers (already tokenized in pass 1); its `.qubits` are quantum. Every other
-  // op's classical refs (own `.controls`/`.targets` plus derived group caches) are consumers.
-  walkAll((op) => {
-    const regs =
-      op.kind === "measurement" ? op.qubits : getOperationRegisters(op);
-    for (const reg of regs) {
-      if (reg.result === undefined || reg.result < 0) continue;
-      const token = keyToToken.get(`${reg.qubit}:${reg.result}`);
-      if (token !== undefined) reg.result = token;
-    }
-  });
-
-  return affectedWires;
-};
-
-/**
- * Renumber the classical producers on a set of wires and carry their downstream consumers along, in
- * two passes over the grid. `keyOf` maps a register to the value that bridges a producer to its
- * consumers.
- *
- * Pass 1 walks every measurement on a wire in `wires` in document order, keys each producer via
- * `keyOf` (captured BEFORE its index is overwritten), assigns it the next contiguous index on its
- * wire, and records key → final `(qubit, result)`. It then refreshes `model.qubits[wire].numResults`
- * for every wire in `wires`. Pass 2 walks every consumer, keys it via the same `keyOf`, and repoints
- * any whose key was recorded in pass 1. A measurement's own `.results` are producers (renumbered in
- * pass 1); its `.qubits` are quantum; every other op's classical refs are consumers.
- */
-const reconcileClassicalResults = <K>(
-  model: CircuitModel,
-  wires: Set<number>,
-  keyOf: (reg: Register) => K,
+  visit: (op: Operation) => void,
 ): void => {
-  if (wires.size === 0) return;
-
-  const grid = model.componentGrid;
-  const keyToNew = new Map<K, Register>();
-  const perWireCount = new Map<number, number>();
-
-  // Pass 1: renumber producers on the affected wires in document order.
-  const renumber = (g: ComponentGrid): void => {
-    for (const col of g) {
-      for (const op of col.components) {
-        if (op.kind === "measurement") {
-          for (const r of op.results) {
-            if (r.result === undefined || !wires.has(r.qubit)) continue;
-            const key = keyOf(r);
-            const idx = perWireCount.get(r.qubit) ?? 0;
-            perWireCount.set(r.qubit, idx + 1);
-            r.result = idx;
-            keyToNew.set(key, { qubit: r.qubit, result: idx });
-          }
-        }
-        if (op.children) renumber(op.children);
-      }
-    }
-  };
-  renumber(grid);
-
-  // Refresh per-wire `numResults` for every affected wire. A wire left with no measurements resets
-  // to `undefined`.
-  for (const wire of wires) {
-    if (wire >= 0 && wire < model.qubits.length) {
-      const count = perWireCount.get(wire) ?? 0;
-      model.qubits[wire].numResults = count > 0 ? count : undefined;
+  for (const col of grid) {
+    for (const op of col.components) {
+      visit(op);
+      if (op.children) walkGrid(op.children, visit);
     }
   }
+};
 
-  if (keyToNew.size === 0) return;
+const walkOperation = (op: Operation, visit: (op: Operation) => void): void => {
+  visit(op);
+  if (op.children) walkGrid(op.children, visit);
+};
 
-  // Pass 2: repoint every consumer whose key was remapped in pass 1.
-  const repoint = (g: ComponentGrid): void => {
-    for (const col of g) {
-      for (const op of col.components) {
-        const regs =
-          op.kind === "measurement" ? op.qubits : getOperationRegisters(op);
-        for (const reg of regs) {
-          if (reg.result === undefined) continue;
-          const dest = keyToNew.get(keyOf(reg));
-          if (dest !== undefined) {
-            reg.qubit = dest.qubit;
-            reg.result = dest.result;
-          }
-        }
-        if (op.children) repoint(op.children);
+type SubjectIdentity = "preserve" | "fork";
+
+/**
+ * Give every producer and consumer a stable negative identity for one structural edit.
+ */
+const encodeClassicalState = (
+  grid: ComponentGrid,
+  subject?: Operation,
+  subjectIdentity: SubjectIdentity = "fork",
+): Map<number, Register> => {
+  const tokenToOriginal = new Map<number, Register>();
+  const keyToToken = new Map<string, number>();
+  let nextToken = -1;
+  const allocate = (original?: Register): number => {
+    const token = nextToken--;
+    if (original != null) {
+      tokenToOriginal.set(token, {
+        qubit: original.qubit,
+        result: original.result,
+      });
+    }
+    return token;
+  };
+
+  // Encode every existing producer before rewriting any consumers.
+  walkGrid(grid, (op) => {
+    if (op.kind !== "measurement") return;
+    for (const result of op.results) {
+      if (result.result === undefined || result.result < 0) continue;
+      const key = `${result.qubit}:${result.result}`;
+      const token = allocate(result);
+      keyToToken.set(key, token);
+      result.result = token;
+    }
+  });
+
+  // Rewrite every existing consumer with its producer's token.
+  walkGrid(grid, (op) => {
+    const registers =
+      op.kind === "measurement" ? op.qubits : getOperationRegisters(op);
+    for (const register of registers) {
+      if (register.result === undefined || register.result < 0) continue;
+      const token = keyToToken.get(`${register.qubit}:${register.result}`);
+      if (token !== undefined) register.result = token;
+    }
+  });
+
+  if (subject == null) return tokenToOriginal;
+
+  // A moved subject preserves source tokens. An added subject forks new producer identities.
+  const subjectProducerTokens = new Map<string, number>();
+  walkOperation(subject, (op) => {
+    if (op.kind !== "measurement") return;
+    for (const result of op.results) {
+      if (result.result === undefined || result.result < 0) continue;
+      const key = `${result.qubit}:${result.result}`;
+      const token =
+        subjectIdentity === "preserve" ? keyToToken.get(key) : allocate();
+      if (token === undefined) continue;
+      subjectProducerTokens.set(key, token);
+      result.result = token;
+    }
+  });
+
+  // Internal consumers follow the subject's producer token. External consumers retain the token of
+  // the producer in the circuit, or their positive address when that producer is outside the edit.
+  walkOperation(subject, (op) => {
+    const registers =
+      op.kind === "measurement" ? op.qubits : getOperationRegisters(op);
+    for (const register of registers) {
+      if (register.result === undefined || register.result < 0) continue;
+      const key = `${register.qubit}:${register.result}`;
+      const token = subjectProducerTokens.get(key) ?? keyToToken.get(key);
+      if (token !== undefined) register.result = token;
+    }
+  });
+
+  return tokenToOriginal;
+};
+
+/** Assign final positional results and reconnect tokenized consumers after an edit settles. */
+const decodeClassicalState = (
+  model: CircuitModel,
+  tokenToOriginal: Map<number, Register>,
+): void => {
+  const tokenToFinal = new Map<number, Register>();
+  const perWireCount = new Map<number, number>();
+
+  walkGrid(model.componentGrid, (op) => {
+    if (op.kind !== "measurement") return;
+    for (const result of op.results) {
+      if (result.result === undefined) continue;
+      const token = result.result;
+      const index = perWireCount.get(result.qubit) ?? 0;
+      perWireCount.set(result.qubit, index + 1);
+      result.result = index;
+      if (token < 0) {
+        tokenToFinal.set(token, { qubit: result.qubit, result: index });
       }
     }
-  };
-  repoint(grid);
-};
+  });
 
-/**
- * Undo `encodeClassicalResultTokens`: assign real, contiguous result indices to the tokenized
- * producers and repoint their tokenized consumers to the producers' final `(qubit, result)`. Call
- * AFTER the physical move + span resolution, when document order is settled.
- *
- * Keys by the token integer stamped on both producer and consumer by encode — the producer's
- * original `(qubit, result)` is destroyed by the shift, so only the shift-immune token bridges them.
- * Also refreshes `numResults` for every wire in `affectedWires` (the move's source and landing
- * wires), which fully replaces the tail-end `updateMeasurementLines` sweep the move path used to run.
- */
-const decodeClassicalResultTokens = (
-  model: CircuitModel,
-  affectedWires: Set<number>,
-): void => {
-  reconcileClassicalResults(model, affectedWires, (reg) => reg.result!);
-};
+  for (let wire = 0; wire < model.qubits.length; wire++) {
+    const count = perWireCount.get(wire) ?? 0;
+    model.qubits[wire].numResults = count > 0 ? count : undefined;
+  }
 
-/**
- * Resequence classical result indices on a set of wires after a STRUCTURAL edit (plain add / remove
- * of a measurement) and carry every downstream consumer along. The add/remove counterpart to the
- * move path's `decodeClassicalResultTokens`; it needs no encode step because a structural edit never
- * relocates a producer off its wire, so a producer's pre-edit `(qubit, result)` is a stable, unique
- * key its consumers can be matched on directly. A freshly-added measurement carries a sentinel index
- * (`-1`) that shares no key with any real producer, so its (consumer-less) entry never collides.
- */
-const resequenceClassicalResults = (
-  model: CircuitModel,
-  wires: Set<number>,
-): void => {
-  reconcileClassicalResults(
-    model,
-    wires,
-    (reg) => `${reg.qubit}:${reg.result}`,
-  );
+  walkGrid(model.componentGrid, (op) => {
+    const registers =
+      op.kind === "measurement" ? op.qubits : getOperationRegisters(op);
+    for (const register of registers) {
+      if (register.result === undefined || register.result >= 0) continue;
+      const destination =
+        tokenToFinal.get(register.result) ??
+        tokenToOriginal.get(register.result);
+      if (destination !== undefined) {
+        register.qubit = destination.qubit;
+        register.result = destination.result;
+      }
+    }
+  });
 };
 
 export {
-  encodeClassicalResultTokens,
-  decodeClassicalResultTokens,
-  resequenceClassicalResults,
+  encodeClassicalState,
+  decodeClassicalState,
   collectInternalClassicalRegs,
   findLocationByRef,
   collectExternalProducerLocations,
   collectSubtreeConsumers,
   findInvalidatedConsumers,
 };
+
+export type { SubjectIdentity };

@@ -45,19 +45,19 @@ test("addOperation: basic add to an empty circuit", () => {
   expectGrid(model, [["H"]]);
   // Returned value is the inserted reference (deep-copied from the template).
   assert.equal(added, at(model, "0,0"));
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
-test("addOperation: add on an existing wire bumps its use count without growing qubits", () => {
+test("addOperation: add on the used wire bumps its use count without growing qubits", () => {
   const model = new CircuitModel(emptyCircuit(2));
   addOperation(model, unitary("H"), "0,0", 0);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 
   // Second op on the SAME wire (fresh column 1 to avoid same-column overlap).
   addOperation(model, unitary("X"), "1,0", 0);
 
-  assert.equal(model.qubits.length, 2);
-  assert.deepEqual(model.qubitUseCounts, [2, 0]);
+  assert.equal(model.qubits.length, 1);
+  assert.deepEqual(model.qubitUseCounts, [2]);
   expectGrid(model, [["H"], ["X"]]);
 });
 
@@ -73,6 +73,26 @@ test("addOperation: add on a new wire grows the qubit register by one", () => {
   assert.equal(model.qubits.length, 2);
   assert.deepEqual(model.qubitUseCounts, [1, 1]);
   expectGrid(model, [["H", "X"]]);
+});
+
+test("addOperation: toolbox measurement creates a result on its target wire", () => {
+  const model = new CircuitModel(emptyCircuit(3));
+  /** @type {any} */
+  const toolboxMeasurement = {
+    kind: "measurement",
+    gate: "Measure",
+    qubits: [],
+    results: [],
+  };
+
+  const added = addOperation(model, toolboxMeasurement, "0,0", 2);
+
+  assert.ok(added);
+  assert.deepEqual(/** @type {any} */ (added).qubits, [{ qubit: 2 }]);
+  assert.deepEqual(/** @type {any} */ (added).results, [
+    { qubit: 2, result: 0 },
+  ]);
+  assert.equal(model.qubits[2].numResults, 1);
 });
 
 test("addOperation: add on a wire several IDs past the end bulk-grows the register", () => {
@@ -116,7 +136,7 @@ test("addOperation: an overlapping insert forces a new column even with insertNe
 
   assert.ok(added, "an overlapping insert is resolved, not rejected");
   expectGrid(model, [["X"], ["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [2, 0]);
+  assert.deepEqual(model.qubitUseCounts, [2]);
 });
 
 test("addOperation: a root/empty location returns null", () => {
@@ -139,7 +159,7 @@ test("addOperation: an op index one past the column's append slot returns null",
 
   assert.equal(result, null, "out-of-range op index must be rejected");
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("addOperation: a column index one past the trailing-append slot returns null", () => {
@@ -153,7 +173,7 @@ test("addOperation: a column index one past the trailing-append slot returns nul
 
   assert.equal(result, null, "out-of-range column index must be rejected");
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("addOperation: insertNewColumn at the first column shifts every existing gate right", () => {
@@ -217,7 +237,7 @@ test("addOperation: insertNewColumn at location len+1,0 returns null", () => {
 
   assert.equal(result, null, "out-of-range column index must be rejected");
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 // ---------------------------------------------------------------------------
@@ -297,7 +317,7 @@ test("removeOperation on a root location is a safe no-op", () => {
 
   assert.equal(result, null);
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("removeOperation of the only remaining gate empties the circuit", () => {
@@ -324,7 +344,7 @@ test("removeOperation at an out-of-bounds location is a safe no-op", () => {
   assert.equal(removeOperation(model, "0,9"), null);
 
   expectGrid(model, [["H"]]);
-  assert.deepEqual(model.qubitUseCounts, [1, 0]);
+  assert.deepEqual(model.qubitUseCounts, [1]);
 });
 
 test("removeOperation at an in-range but empty interior slot is a safe no-op", () => {
@@ -351,11 +371,9 @@ test("removeOperation at an in-range but empty interior slot is a safe no-op", (
 // add / remove: producer renumbering + consumer repointing
 //
 // Adding or removing a measurement on a wire renumbers the other measurements on that SAME wire and
-// carries their downstream consumers along. `addOperation` / `removeOperation` delegate this to
-// `resequenceClassicalResults`, which keys each producer by its pre-edit `(qubit, result)` so every
-// consumer is repointed to the producer's new slot. A freshly-added measurement enters with a
-// sentinel index (`-1`) that resolves to its real position. Only the edited wire is touched;
-// producers (and their consumers) on other wires are left untouched.
+// carries their downstream consumers along. The shared edit transaction gives each affected
+// producer and its consumers a temporary identity, then resolves that identity to the producer's
+// final slot. Only edited wires are resequenced; other producers and consumers remain untouched.
 //
 // One shared base circuit exercises all of this. Wire 0 carries three measurements: M0 (no
 // consumer, so it is safe to delete), M1 (feeds TWO consumers, Y and W), and M2 (feeds Z). An
@@ -418,9 +436,9 @@ const buildAndRemoveLeading = () => {
   return { model, byGate: byGateIn(model) };
 };
 
-test("addOperation: [ref] the new measurement's sentinel -1 index resolves to a real slot", () => {
+test("addOperation: [ref] the new measurement's temporary token resolves to a real slot", () => {
   const { added } = buildAndAddAtFront();
-  // Added at the front of wire 0, so it takes r0; the sentinel must be gone.
+  // Added at the front of wire 0, so it takes r0; the temporary token must be gone.
   assert.deepEqual(/** @type {any} */ (added).results[0], {
     qubit: 0,
     result: 0,
@@ -499,15 +517,16 @@ test("removeOperation: [ref] removing the sole measurement on a wire resets its 
 // ---------------------------------------------------------------------------
 
 test("addControl on an existing wire bumps qubitUseCounts without growing qubits", () => {
-  const model = new CircuitModel(emptyCircuit(2));
-  addOperation(model, unitary("X"), "0,0", 0);
+  const model = new CircuitModel(
+    circuit(2, [[gate("X", 0), gate("H", 1)]]),
+  );
   const op = at(model, "0,0");
   assert.equal(model.qubits.length, 2);
 
   // Control on wire 1 — already in the qubit list, so no growth.
   assert.equal(addControl(model, op, 1), true);
   assert.equal(model.qubits.length, 2);
-  assert.deepEqual(model.qubitUseCounts, [1, 1]);
+  assert.deepEqual(model.qubitUseCounts, [1, 2]);
   expectOp(op, { X: { ctrls: [1] } });
 });
 
