@@ -13,8 +13,11 @@ use crate::{
 use super::*;
 use expect_test::expect;
 use qsc_data_structures::index_map::IndexMap;
-use qsc_fir::fir::{LocalVarId, Package};
+use qsc_data_structures::span::Span;
+use qsc_fir::fir::{Ident, LocalVarId, Package, Pat, PatId, PatKind};
+use qsc_fir::ty::{Prim, Ty};
 use rustc_hash::FxHashSet;
+use std::rc::Rc;
 
 #[test]
 fn analysis_no_callable_params() {
@@ -5421,6 +5424,34 @@ fn resolve_captures_missing_binding_returns_none() {
     assert!(
         captures.is_none(),
         "missing capture bindings should degrade analysis instead of panicking"
+    );
+}
+
+#[test]
+fn colliding_foreign_pattern_does_not_supply_capture_type() {
+    let mut package = Package::default();
+    let colliding_var = LocalVarId::from(0usize);
+    let foreign_pat_id = PatId::from(0usize);
+    package.pats.insert(
+        foreign_pat_id,
+        Pat {
+            id: foreign_pat_id,
+            span: Span::default(),
+            ty: Ty::Prim(Prim::Int),
+            kind: PatKind::Bind(Ident {
+                id: colliding_var,
+                span: Span::default(),
+                name: Rc::from("foreign"),
+            }),
+        },
+    );
+    let locals = LocalState::default();
+
+    let captures = resolve_captures(&package, &locals, &[colliding_var], &FxHashSet::default());
+
+    assert!(
+        captures.is_none(),
+        "a colliding binding from another callable must not provide scoped type evidence",
     );
 }
 

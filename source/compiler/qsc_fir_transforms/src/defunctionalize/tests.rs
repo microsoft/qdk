@@ -332,6 +332,7 @@ fn run_prepass_and_analysis(
         fir_store,
         fir_pkg_id,
         &reachable,
+        &Default::default(),
         &collapsed_spans,
         &[],
         &total_foreign,

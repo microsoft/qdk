@@ -56,6 +56,7 @@
 //!   `crate::exec_graph_rebuild` repairs exec graphs later.
 
 mod analysis;
+mod captures;
 mod prepass;
 mod rewrite;
 mod specialize;
@@ -229,6 +230,7 @@ pub(crate) fn defunctionalize(
             store,
             package_id,
             &reachable,
+            &specialized_items,
             &collapsed_spans,
             &preserved_direct_lambda_calls,
             &total_foreign,
@@ -269,6 +271,7 @@ pub(crate) fn defunctionalize(
             package_id,
             &analysis,
             &spec_map,
+            &specialized_items,
             assigners,
             &total_foreign,
         );
@@ -456,6 +459,7 @@ fn rewrite_call_sites(
     package_id: PackageId,
     analysis: &AnalysisResult,
     spec_map: &FxHashMap<SpecKey, StoreItemId>,
+    specialized_items: &FxHashSet<StoreItemId>,
     assigners: &mut PackageAssigners,
     total_foreign: &FxHashSet<ItemId>,
 ) {
@@ -474,7 +478,15 @@ fn rewrite_call_sites(
     for pkg_id in packages {
         let assigner = assigners.get_mut(store, pkg_id);
         let package = store.get_mut(pkg_id);
-        rewrite::rewrite(package, pkg_id, analysis, spec_map, assigner, total_foreign);
+        rewrite::rewrite(
+            package,
+            pkg_id,
+            analysis,
+            spec_map,
+            specialized_items,
+            assigner,
+            total_foreign,
+        );
     }
 }
 

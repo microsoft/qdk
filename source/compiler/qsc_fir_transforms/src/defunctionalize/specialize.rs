@@ -22,9 +22,10 @@
 //! [`crate::invariants::InvariantLevel::PostDefunc`] invariant that no
 //! arrow types appear on reachable callable parameters or expressions.
 
+use super::captures::{allocate_capture_exprs, captures_belong_to_destination};
 use super::types::{
-    AnalysisResult, CallSite, CallableParam, CapturedVar, ConcreteCallable, ConcreteCallableKey,
-    Error, SpecKey, compose_functors, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, CaptureScope, CapturedVar, ConcreteCallable,
+    ConcreteCallableKey, Error, ScopedLocal, SpecKey, compose_functors, peel_body_functors,
 };
 use super::{
     build_combined_spec_key, build_combined_spec_key_for_group, build_spec_key,
@@ -96,8 +97,14 @@ type ClosureInfo = Option<ClosureSpecializationInfo>;
 /// themselves concrete callables to be baked directly into the target body.
 struct ClosureSpecializationInfo {
     target: LocalItemId,
-    capture_bindings: Vec<(LocalVarId, Ty)>,
+    capture_bindings: Vec<CaptureBinding>,
     callable_capture: Option<CapturedCallableSpecialization>,
+}
+
+#[derive(Clone)]
+struct CaptureBinding {
+    local: ScopedLocal,
+    ty: Ty,
 }
 
 /// A captured value that is itself a statically-known callable, recorded so the
@@ -109,7 +116,7 @@ struct CapturedCallableSpecialization {
     capture_ty: Ty,
     concrete: ConcreteCallable,
 }
-type SpecializedCaptureKey = (LocalItemId, LocalVarId);
+type SpecializedCaptureKey = (LocalItemId, ScopedLocal);
 
 /// Resolves a `ConcreteCallable` to a compact label for inclusion in
 /// specialized callable names.  For globals, produces the callable name
@@ -788,8 +795,14 @@ fn specialize_many(
     // ascending parameter order, continuing one capture counter across
     // parameters. Capture threading must happen before recovering the assigner
     // because it allocates through the cloner.
-    let (closure_infos, total_captures) =
-        thread_group_closure_captures(&mut cloner, target, &mut new_decl, group, &remapped_params);
+    let (closure_infos, total_captures) = thread_group_closure_captures(
+        &mut cloner,
+        target,
+        &mut new_decl,
+        group,
+        &remapped_params,
+        new_item_id,
+    );
 
     // Recover the assigner from the cloner so all subsequent allocations flow
     // through the shared pipeline assigner.
@@ -800,6 +813,7 @@ fn specialize_many(
     transform_combined_callable_body(
         target,
         package_id,
+        CaptureScope::CloneScope(new_item_id),
         group,
         &remapped_params,
         &closure_infos,
@@ -905,6 +919,7 @@ fn thread_group_closure_captures(
     new_decl: &mut CallableDecl,
     group: &[(&CallSite, &CallableParam)],
     remapped_params: &[CallableParam],
+    clone_item: LocalItemId,
 ) -> (Vec<ClosureInfo>, usize) {
     let mut closure_infos: Vec<ClosureInfo> = Vec::with_capacity(group.len());
     let mut capture_offset = 0usize;
@@ -933,6 +948,7 @@ fn thread_group_closure_captures(
                 remapped_param,
                 &captures_to_thread,
                 capture_offset,
+                clone_item,
             );
             capture_offset += capture_bindings.len();
             closure_infos.push(Some(ClosureSpecializationInfo {
@@ -961,6 +977,7 @@ fn thread_group_closure_captures(
 fn transform_combined_callable_body(
     target: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     group: &[(&CallSite, &CallableParam)],
     remapped_params: &[CallableParam],
     closure_infos: &[ClosureInfo],
@@ -1024,6 +1041,7 @@ fn transform_combined_callable_body(
             transform_callable_body(
                 target,
                 package_id,
+                destination,
                 &impl_clone,
                 remapped_param,
                 &concrete,
@@ -1039,6 +1057,7 @@ fn transform_combined_callable_body(
                     target,
                     &retargeted,
                     package_id,
+                    destination,
                     info.target,
                     &info.capture_bindings,
                     assigner,
@@ -1048,6 +1067,7 @@ fn transform_combined_callable_body(
             transform_callable_body(
                 target,
                 package_id,
+                destination,
                 &impl_clone,
                 remapped_param,
                 &call_site.callable_arg,
@@ -1313,6 +1333,7 @@ fn specialize_one(
             &remapped_param,
             &captures_to_thread,
             0,
+            new_item_id,
         );
         Some(ClosureSpecializationInfo {
             target: closure_target,
@@ -1330,6 +1351,7 @@ fn specialize_one(
     apply_single_param_specialization(
         target,
         package_id,
+        CaptureScope::CloneScope(new_item_id),
         &mut new_decl,
         &remapped_param,
         call_site,
@@ -1437,9 +1459,11 @@ fn build_single_spec_decl(
 /// new input slots and each direct call to the closure target receives the
 /// capture operands; a fully consumed tuple parameter is then dropped rather
 /// than retyped to unit.
+#[allow(clippy::too_many_arguments)]
 fn apply_single_param_specialization(
     target: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     new_decl: &mut CallableDecl,
     remapped_param: &CallableParam,
     call_site: &CallSite,
@@ -1468,6 +1492,7 @@ fn apply_single_param_specialization(
     transform_callable_body(
         target,
         package_id,
+        destination,
         &impl_clone,
         remapped_param,
         &concrete,
@@ -1487,6 +1512,7 @@ fn apply_single_param_specialization(
             target,
             &new_decl.implementation,
             package_id,
+            destination,
             info.target,
             &info.capture_bindings,
             assigner,
@@ -1862,7 +1888,7 @@ fn unique_params_for_removal(params: &[CallableParam]) -> Vec<(&CallableParam, b
 /// unchanged.
 fn concrete_with_threaded_captures(
     concrete: &ConcreteCallable,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
 ) -> ConcreteCallable {
     match concrete {
         ConcreteCallable::Closure {
@@ -1875,9 +1901,9 @@ fn concrete_with_threaded_captures(
                 target: *target,
                 captures: capture_bindings
                     .iter()
-                    .map(|(var, ty)| CapturedVar {
-                        var: *var,
-                        ty: ty.clone(),
+                    .map(|binding| CapturedVar {
+                        local: binding.local,
+                        ty: binding.ty.clone(),
                         expr: None,
                         caller_substitutions: Vec::new(),
                     })
@@ -1997,6 +2023,7 @@ fn ty_contains_arrow_through_udts(package: &Package, ty: &Ty) -> bool {
 fn transform_callable_body(
     package: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     callable_impl: &CallableImpl,
     param: &CallableParam,
     concrete: &ConcreteCallable,
@@ -2011,6 +2038,7 @@ fn transform_callable_body(
             transform_block(
                 package,
                 package_id,
+                destination,
                 spec_impl.body.block,
                 param,
                 concrete,
@@ -2023,6 +2051,7 @@ fn transform_callable_body(
                 transform_block(
                     package,
                     package_id,
+                    destination,
                     adj.block,
                     param,
                     concrete,
@@ -2036,6 +2065,7 @@ fn transform_callable_body(
                 transform_block(
                     package,
                     package_id,
+                    destination,
                     ctl.block,
                     param,
                     concrete,
@@ -2049,6 +2079,7 @@ fn transform_callable_body(
                 transform_block(
                     package,
                     package_id,
+                    destination,
                     ctl_adj.block,
                     param,
                     concrete,
@@ -2068,6 +2099,7 @@ fn transform_callable_body(
 fn transform_block(
     package: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     block_id: qsc_fir::fir::BlockId,
     param: &CallableParam,
     concrete: &ConcreteCallable,
@@ -2085,6 +2117,7 @@ fn transform_block(
         transform_stmt(
             package,
             package_id,
+            destination,
             stmt_id,
             param,
             concrete,
@@ -2130,6 +2163,7 @@ fn find_bind_local_at_field_path(
 fn transform_stmt(
     package: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     stmt_id: qsc_fir::fir::StmtId,
     param: &CallableParam,
     concrete: &ConcreteCallable,
@@ -2144,6 +2178,7 @@ fn transform_stmt(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *expr_id,
                 param,
                 concrete,
@@ -2176,6 +2211,7 @@ fn transform_stmt(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *expr_id,
                 param,
                 concrete,
@@ -2201,6 +2237,7 @@ fn transform_stmt(
 fn transform_expr(
     package: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     expr_id: ExprId,
     param: &CallableParam,
     concrete: &ConcreteCallable,
@@ -2229,6 +2266,7 @@ fn transform_expr(
                 replace_indexed_callable_array_call(
                     package,
                     package_id,
+                    destination,
                     expr_id,
                     callee_id,
                     args_id,
@@ -2304,6 +2342,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     callee_id,
                     param,
                     concrete,
@@ -2315,13 +2354,20 @@ fn transform_expr(
             } else if matches!(concrete, ConcreteCallable::Closure { captures, .. } if captures.is_empty())
             {
                 let concrete = apply_body_functor_to_concrete(concrete, body_functor);
-                rewrite_indexed_closure_dispatch_args(package, args_id, &concrete, assigner);
+                rewrite_indexed_closure_dispatch_args(
+                    package,
+                    destination,
+                    args_id,
+                    &concrete,
+                    assigner,
+                );
             }
 
             // Recurse into the arguments.
             transform_expr(
                 package,
                 package_id,
+                destination,
                 args_id,
                 param,
                 concrete,
@@ -2335,6 +2381,7 @@ fn transform_expr(
             transform_block(
                 package,
                 package_id,
+                destination,
                 *block_id,
                 param,
                 concrete,
@@ -2348,6 +2395,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *cond,
                 param,
                 concrete,
@@ -2359,6 +2407,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *body,
                 param,
                 concrete,
@@ -2371,6 +2420,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     *els_id,
                     param,
                     concrete,
@@ -2385,6 +2435,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *cond,
                 param,
                 concrete,
@@ -2396,6 +2447,7 @@ fn transform_expr(
             transform_block(
                 package,
                 package_id,
+                destination,
                 *block_id,
                 param,
                 concrete,
@@ -2410,6 +2462,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     e,
                     param,
                     concrete,
@@ -2428,6 +2481,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *lhs,
                 param,
                 concrete,
@@ -2439,6 +2493,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *rhs,
                 param,
                 concrete,
@@ -2452,6 +2507,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *a,
                 param,
                 concrete,
@@ -2463,6 +2519,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *b,
                 param,
                 concrete,
@@ -2476,6 +2533,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *a,
                 param,
                 concrete,
@@ -2487,6 +2545,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *b,
                 param,
                 concrete,
@@ -2498,6 +2557,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *c,
                 param,
                 concrete,
@@ -2511,6 +2571,7 @@ fn transform_expr(
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *inner,
                 param,
                 concrete,
@@ -2538,6 +2599,7 @@ fn transform_expr(
                     // non-array value in place.
                     substitute_forwarded_callable(
                         package,
+                        destination,
                         expr_id,
                         concrete,
                         concrete_group,
@@ -2552,12 +2614,20 @@ fn transform_expr(
                 // re-analysis can resolve the inner call site (instead of
                 // leaving a forwarded field access that declines to
                 // `DynamicCallable`).
-                substitute_forwarded_callable(package, expr_id, concrete, concrete_group, assigner);
+                substitute_forwarded_callable(
+                    package,
+                    destination,
+                    expr_id,
+                    concrete,
+                    concrete_group,
+                    assigner,
+                );
                 return;
             }
             transform_expr(
                 package,
                 package_id,
+                destination,
                 *inner_id,
                 param,
                 concrete,
@@ -2572,6 +2642,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     *a,
                     param,
                     concrete,
@@ -2585,6 +2656,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     *b,
                     param,
                     concrete,
@@ -2598,6 +2670,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     *c,
                     param,
                     concrete,
@@ -2614,6 +2687,7 @@ fn transform_expr(
                     transform_expr(
                         package,
                         package_id,
+                        destination,
                         *e,
                         param,
                         concrete,
@@ -2630,6 +2704,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     *c,
                     param,
                     concrete,
@@ -2643,6 +2718,7 @@ fn transform_expr(
                 transform_expr(
                     package,
                     package_id,
+                    destination,
                     f.value,
                     param,
                     concrete,
@@ -2666,7 +2742,14 @@ fn transform_expr(
             // candidate (with its threaded capture) survives and any surviving
             // index stays valid; a single non-array value is substituted in
             // place.
-            substitute_forwarded_callable(package, expr_id, concrete, concrete_group, assigner);
+            substitute_forwarded_callable(
+                package,
+                destination,
+                expr_id,
+                concrete,
+                concrete_group,
+                assigner,
+            );
         }
         ExprKind::Parallel(limit, body) => {
             if let Some(limit) = limit {
@@ -2686,6 +2769,7 @@ fn transform_expr(
                 transform_closure_param_capture(
                     package,
                     package_id,
+                    destination,
                     expr_id,
                     target,
                     capture_idx,
@@ -2712,6 +2796,7 @@ fn transform_expr(
 /// value to emit.
 fn build_callable_value_parts(
     package: &Package,
+    destination: CaptureScope,
     concrete: &ConcreteCallable,
     hint_ty: &Ty,
 ) -> Option<(ExprKind, FunctorApp, Option<Ty>)> {
@@ -2736,6 +2821,9 @@ fn build_callable_value_parts(
             captures,
             functor,
         } => {
+            if !captures_belong_to_destination(destination, captures) {
+                return None;
+            }
             let ty = build_direct_target_callee_ty(package, *target, hint_ty, 0).or_else(|| {
                 package
                     .items
@@ -2752,7 +2840,7 @@ fn build_callable_value_parts(
             });
             Some((
                 ExprKind::Closure(
-                    captures.iter().map(|capture| capture.var).collect(),
+                    captures.iter().map(|capture| capture.local.var).collect(),
                     *target,
                 ),
                 *functor,
@@ -2768,13 +2856,17 @@ fn build_callable_value_parts(
 /// callable values must remain closures so nested HOFs still receive captures.
 fn replace_callable_value(
     package: &mut Package,
+    destination: CaptureScope,
     expr_id: ExprId,
     concrete: &ConcreteCallable,
     assigner: &mut Assigner,
 ) {
-    let Some((base_kind, functor, base_ty)) =
-        build_callable_value_parts(package, concrete, &package.get_expr(expr_id).ty)
-    else {
+    let Some((base_kind, functor, base_ty)) = build_callable_value_parts(
+        package,
+        destination,
+        concrete,
+        &package.get_expr(expr_id).ty,
+    ) else {
         return;
     };
 
@@ -2811,12 +2903,14 @@ fn replace_callable_value(
 /// for a dynamic callable, which has no concrete value to emit.
 fn alloc_callable_value_expr(
     package: &mut Package,
+    destination: CaptureScope,
     span: Span,
     concrete: &ConcreteCallable,
     hint_ty: &Ty,
     assigner: &mut Assigner,
 ) -> Option<ExprId> {
-    let (base_kind, functor, base_ty) = build_callable_value_parts(package, concrete, hint_ty)?;
+    let (base_kind, functor, base_ty) =
+        build_callable_value_parts(package, destination, concrete, hint_ty)?;
     let new_ty = base_ty.unwrap_or_else(|| hint_ty.clone());
 
     Some(alloc_functor_wrapped_expr(
@@ -2835,6 +2929,7 @@ fn alloc_callable_value_expr(
 /// element order is preserved.
 fn reconstruct_callable_array(
     package: &mut Package,
+    destination: CaptureScope,
     expr_id: ExprId,
     concrete_group: &[ConcreteCallable],
     assigner: &mut Assigner,
@@ -2847,9 +2942,14 @@ fn reconstruct_callable_array(
 
     let mut elements = Vec::with_capacity(concrete_group.len());
     for concrete in concrete_group {
-        let Some(element_id) =
-            alloc_callable_value_expr(package, expr.span, concrete, &elem_ty, assigner)
-        else {
+        let Some(element_id) = alloc_callable_value_expr(
+            package,
+            destination,
+            expr.span,
+            concrete,
+            &elem_ty,
+            assigner,
+        ) else {
             // A dynamic candidate cannot be materialized; leave the forwarded
             // parameter in place so re-analysis treats the array as dynamic and
             // falls back to the unspecialized path rather than miscompiling.
@@ -2876,6 +2976,7 @@ fn reconstruct_callable_array(
 /// place with the single concrete value.
 fn substitute_forwarded_callable(
     package: &mut Package,
+    destination: CaptureScope,
     expr_id: ExprId,
     concrete: &ConcreteCallable,
     concrete_group: &[ConcreteCallable],
@@ -2887,9 +2988,9 @@ fn substitute_forwarded_callable(
         } else {
             concrete_group
         };
-        reconstruct_callable_array(package, expr_id, group, assigner);
+        reconstruct_callable_array(package, destination, expr_id, group, assigner);
     } else {
-        replace_callable_value(package, expr_id, concrete, assigner);
+        replace_callable_value(package, destination, expr_id, concrete, assigner);
     }
 }
 
@@ -2922,10 +3023,11 @@ fn indexed_callable_array_param_source(
         .then_some((array_id, index_id))
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn replace_indexed_callable_array_call(
     package: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     call_expr_id: ExprId,
     callee_expr_id: ExprId,
     args_id: ExprId,
@@ -2956,7 +3058,13 @@ fn replace_indexed_callable_array_call(
             first,
             assigner,
         );
-        rewrite_indexed_closure_dispatch_args(package, args_id, branch_callable, assigner);
+        rewrite_indexed_closure_dispatch_args(
+            package,
+            destination,
+            args_id,
+            branch_callable,
+            assigner,
+        );
         return;
     }
 
@@ -2989,6 +3097,7 @@ fn replace_indexed_callable_array_call(
         let call_id = alloc_dispatch_branch_call(
             package,
             package_id,
+            destination,
             span,
             &result_ty,
             item_ty.as_ref(),
@@ -3068,6 +3177,7 @@ fn apply_body_functor_to_concrete(
 fn alloc_dispatch_branch_call(
     package: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     span: Span,
     result_ty: &Ty,
     callee_ty: &Ty,
@@ -3120,6 +3230,7 @@ fn alloc_dispatch_branch_call(
         if let Some(target_input) = target_callable_input(package, *target) {
             rewrite_closure_dispatch_branch_args(
                 package,
+                destination,
                 args_id,
                 captures,
                 &target_input,
@@ -3127,12 +3238,16 @@ fn alloc_dispatch_branch_call(
                 assigner,
             );
         } else {
-            let capture_bindings: Vec<(LocalVarId, Ty)> = captures
+            let capture_bindings: Vec<CaptureBinding> = captures
                 .iter()
-                .map(|capture| (capture.var, capture.ty.clone()))
+                .map(|capture| CaptureBinding {
+                    local: capture.local,
+                    ty: capture.ty.clone(),
+                })
                 .collect();
             prepend_capture_args_to_call(
                 package,
+                destination,
                 args_id,
                 &capture_bindings,
                 controlled_layers,
@@ -3169,6 +3284,7 @@ fn target_callable_input(package: &Package, target: LocalItemId) -> Option<Ty> {
 /// arguments. A non-closure concrete is left unchanged.
 fn rewrite_indexed_closure_dispatch_args(
     package: &mut Package,
+    destination: CaptureScope,
     args_id: ExprId,
     concrete: &ConcreteCallable,
     assigner: &mut Assigner,
@@ -3182,12 +3298,16 @@ fn rewrite_indexed_closure_dispatch_args(
         return;
     };
 
-    let capture_bindings: Vec<(LocalVarId, Ty)> = captures
+    let capture_bindings: Vec<CaptureBinding> = captures
         .iter()
-        .map(|capture| (capture.var, capture.ty.clone()))
+        .map(|capture| CaptureBinding {
+            local: capture.local,
+            ty: capture.ty.clone(),
+        })
         .collect();
     rewrite_closure_target_args(
         package,
+        destination,
         args_id,
         *target,
         &capture_bindings,
@@ -3204,24 +3324,26 @@ fn rewrite_indexed_closure_dispatch_args(
 /// simply prepended to the existing argument tuple.
 fn rewrite_closure_target_args(
     package: &mut Package,
+    destination: CaptureScope,
     args_id: ExprId,
     target: LocalItemId,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
     controlled_layers: usize,
     assigner: &mut Assigner,
 ) {
     if let Some(target_input) = target_callable_input(package, target) {
         let captures: Vec<CapturedVar> = capture_bindings
             .iter()
-            .map(|(var, ty)| CapturedVar {
-                var: *var,
-                ty: ty.clone(),
+            .map(|binding| CapturedVar {
+                local: binding.local,
+                ty: binding.ty.clone(),
                 expr: None,
                 caller_substitutions: Vec::new(),
             })
             .collect();
         rewrite_closure_dispatch_branch_args(
             package,
+            destination,
             args_id,
             &captures,
             &target_input,
@@ -3231,6 +3353,7 @@ fn rewrite_closure_target_args(
     } else {
         prepend_capture_args_to_call(
             package,
+            destination,
             args_id,
             capture_bindings,
             controlled_layers,
@@ -3251,6 +3374,7 @@ fn rewrite_closure_target_args(
 /// and drop the captures on the controlled path.
 fn rewrite_closure_dispatch_branch_args(
     package: &mut Package,
+    destination: CaptureScope,
     args_id: ExprId,
     captures: &[CapturedVar],
     target_input: &Ty,
@@ -3271,6 +3395,7 @@ fn rewrite_closure_dispatch_branch_args(
         // controlled path.
         rewrite_closure_dispatch_branch_args(
             package,
+            destination,
             inner_id,
             captures,
             target_input,
@@ -3287,9 +3412,14 @@ fn rewrite_closure_dispatch_branch_args(
         return;
     }
 
-    let Some((kind, ty)) =
-        build_closure_dispatch_branch_args_data(package, args_id, captures, target_input, assigner)
-    else {
+    let Some((kind, ty)) = build_closure_dispatch_branch_args_data(
+        package,
+        destination,
+        args_id,
+        captures,
+        target_input,
+        assigner,
+    ) else {
         return;
     };
 
@@ -3308,6 +3438,7 @@ fn rewrite_closure_dispatch_branch_args(
 /// ([`grouped_capture_arg_data`]). Returns `None` when neither layout applies.
 fn build_closure_dispatch_branch_args_data(
     package: &mut Package,
+    destination: CaptureScope,
     args_id: ExprId,
     captures: &[CapturedVar],
     target_input: &Ty,
@@ -3327,7 +3458,11 @@ fn build_closure_dispatch_branch_args_data(
         }
     }
 
-    let capture_ids = allocate_capture_exprs(package, original_args.span, captures, assigner);
+    if !captures_belong_to_destination(destination, captures) {
+        return None;
+    }
+    let capture_ids =
+        allocate_capture_exprs(package, original_args.span, destination, captures, assigner);
     let capture_tys: Vec<Ty> = captures.iter().map(|capture| capture.ty.clone()).collect();
 
     let flattened = flattened_capture_arg_data(
@@ -3524,28 +3659,6 @@ fn dispatch_functors_compatible(actual: FunctorSet, expected: FunctorSet) -> boo
 ///
 /// A capture with a recorded initializer expression reuses it; otherwise a
 /// fresh `Var(Res::Local)` reference to the captured variable is synthesized.
-fn allocate_capture_exprs(
-    package: &mut Package,
-    span: Span,
-    captures: &[CapturedVar],
-    assigner: &mut Assigner,
-) -> Vec<ExprId> {
-    let mut ids = Vec::with_capacity(captures.len());
-
-    for capture in captures {
-        if let Some(expr_id) = capture.expr {
-            ids.push(expr_id);
-            continue;
-        }
-
-        let expr_id =
-            alloc_local_var_expr(package, assigner, capture.var, capture.ty.clone(), span);
-        ids.push(expr_id);
-    }
-
-    ids
-}
-
 /// Builds the `ExprKind` and `Ty` for a tuple of the given elements, collapsing
 /// the degenerate cases: an empty list becomes `Unit`, and a single element is
 /// returned as-is rather than wrapped in a one-tuple.
@@ -3809,6 +3922,7 @@ fn apply_target_input_at_control_path(
 fn transform_closure_param_capture(
     package: &mut Package,
     package_id: PackageId,
+    destination: CaptureScope,
     closure_expr_id: ExprId,
     closure_target: LocalItemId,
     capture_idx: usize,
@@ -3817,11 +3931,20 @@ fn transform_closure_param_capture(
     specialized_capture_targets: &mut FxHashSet<SpecializedCaptureKey>,
     assigner: &mut Assigner,
 ) {
+    if let ConcreteCallable::Closure { captures, .. } = concrete
+        && !captures_belong_to_destination(destination, captures)
+    {
+        return;
+    }
+
     // The lambda item is shared across the enclosing callable's functored specs.
     // Only the first referring closure specializes it; sibling closures must not
     // re-run that mutation against the already-rewritten lambda. Each closure
     // still drops the capture from its own capture list independently.
-    let capture_key = (closure_target, param.param_var);
+    let capture_key = (
+        closure_target,
+        ScopedLocal::new(param.param_var, destination),
+    );
     let threaded_operands = if specialized_capture_targets.insert(capture_key) {
         specialize_closure_target_for_captured_param(
             package,
@@ -3848,18 +3971,21 @@ fn transform_closure_param_capture(
     {
         captures.splice(
             capture_idx..=capture_idx,
-            threaded_operands.iter().map(|(var, _)| *var),
+            threaded_operands.iter().map(|binding| binding.local.var),
         );
     }
 }
 
 /// Returns the capture operands a concrete callable expects to be passed
 /// positionally once its captures have been threaded onto its target.
-fn concrete_capture_operands(concrete: &ConcreteCallable) -> Vec<(LocalVarId, Ty)> {
+fn concrete_capture_operands(concrete: &ConcreteCallable) -> Vec<CaptureBinding> {
     match concrete {
         ConcreteCallable::Closure { captures, .. } => captures
             .iter()
-            .map(|capture| (capture.var, capture.ty.clone()))
+            .map(|capture| CaptureBinding {
+                local: capture.local,
+                ty: capture.ty.clone(),
+            })
             .collect(),
         ConcreteCallable::Global { .. } | ConcreteCallable::Dynamic => Vec::new(),
     }
@@ -3882,7 +4008,7 @@ fn specialize_closure_target_for_captured_param(
     capture_ty: &Ty,
     concrete: &ConcreteCallable,
     assigner: &mut Assigner,
-) -> Vec<(LocalVarId, Ty)> {
+) -> Vec<CaptureBinding> {
     // Step 1: Find the corresponding binding in the closure target's input pattern.
     let target_item = package.items.get(closure_target);
     let Some(Item {
@@ -3947,6 +4073,7 @@ fn specialize_closure_target_for_captured_param(
     transform_callable_body(
         package,
         package_id,
+        CaptureScope::Callable(closure_target),
         &target_decl.implementation,
         &closure_param,
         &local_concrete,
@@ -3984,7 +4111,7 @@ struct ReboundConcreteCaptures {
     concrete: ConcreteCallable,
     /// The original caller-scope operands, in the order the target now expects
     /// them, for the enclosing `Closure` expression to carry.
-    operands: Vec<(LocalVarId, Ty)>,
+    operands: Vec<CaptureBinding>,
 }
 
 /// Replaces the capture parameter at `capture_idx` of `closure_target` with one
@@ -4035,12 +4162,15 @@ fn rebind_concrete_captures_to_target_params(
         );
         fresh_pat_ids.push(pat_id);
         fresh_captures.push(CapturedVar {
-            var: local_var,
+            local: ScopedLocal::new(local_var, CaptureScope::Callable(closure_target)),
             ty: capture.ty.clone(),
             expr: None,
             caller_substitutions: Vec::new(),
         });
-        operands.push((capture.var, capture.ty.clone()));
+        operands.push(CaptureBinding {
+            local: capture.local,
+            ty: capture.ty.clone(),
+        });
     }
 
     replace_capture_in_closure_target(package, closure_target, capture_idx, &fresh_pat_ids)?;
@@ -4280,20 +4410,24 @@ fn thread_closure_captures(
     _param: &CallableParam,
     captures: &[CapturedVar],
     name_offset: usize,
-) -> Vec<(LocalVarId, Ty)> {
+    clone_item: LocalItemId,
+) -> Vec<CaptureBinding> {
     if captures.is_empty() {
         return Vec::new();
     }
 
     // Allocate new bindings for each captured variable and build a remap.
-    let mut capture_bindings: Vec<(LocalVarId, Ty)> = Vec::with_capacity(captures.len());
+    let mut capture_bindings = Vec::with_capacity(captures.len());
     let mut new_pat_ids: Vec<PatId> = Vec::new();
     let mut new_tys: Vec<Ty> = Vec::new();
 
     for (i, capture) in captures.iter().enumerate() {
         let new_pat_id = cloner.alloc_pat();
-        let new_local_var = cloner.alloc_local(capture.var);
-        capture_bindings.push((new_local_var, capture.ty.clone()));
+        let new_local_var = cloner.alloc_local(capture.local.var);
+        capture_bindings.push(CaptureBinding {
+            local: ScopedLocal::new(new_local_var, CaptureScope::CloneScope(clone_item)),
+            ty: capture.ty.clone(),
+        });
 
         // `name_offset` continues the capture counter across parameters so a
         // multi-argument specialization gets `_.capture_0`, `_.capture_1`, …
@@ -4489,8 +4623,9 @@ fn prepend_captures_to_calls(
     package: &mut Package,
     call_ids: &[ExprId],
     package_id: PackageId,
+    destination: CaptureScope,
     closure_target: LocalItemId,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
     assigner: &mut Assigner,
 ) {
     for &call_id in call_ids {
@@ -4507,6 +4642,7 @@ fn prepend_captures_to_calls(
             );
             rewrite_closure_target_args(
                 package,
+                destination,
                 args_id,
                 closure_target,
                 capture_bindings,
@@ -4540,8 +4676,9 @@ fn rewrite_closure_target_call_args(
     package: &mut Package,
     callable_impl: &CallableImpl,
     package_id: PackageId,
+    destination: CaptureScope,
     closure_target: LocalItemId,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
     assigner: &mut Assigner,
 ) {
     match callable_impl {
@@ -4551,6 +4688,7 @@ fn rewrite_closure_target_call_args(
                 package,
                 spec_impl.body.block,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4560,6 +4698,7 @@ fn rewrite_closure_target_call_args(
                     package,
                     adj.block,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4570,6 +4709,7 @@ fn rewrite_closure_target_call_args(
                     package,
                     ctl.block,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4580,6 +4720,7 @@ fn rewrite_closure_target_call_args(
                     package,
                     ctl_adj.block,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4599,8 +4740,9 @@ fn rewrite_closure_target_call_args_in_block(
     package: &mut Package,
     block_id: qsc_fir::fir::BlockId,
     package_id: PackageId,
+    destination: CaptureScope,
     closure_target: LocalItemId,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
     assigner: &mut Assigner,
 ) {
     let block = package.get_block(block_id).clone();
@@ -4609,6 +4751,7 @@ fn rewrite_closure_target_call_args_in_block(
             package,
             stmt_id,
             package_id,
+            destination,
             closure_target,
             capture_bindings,
             assigner,
@@ -4627,8 +4770,9 @@ fn rewrite_closure_target_call_args_in_stmt(
     package: &mut Package,
     stmt_id: qsc_fir::fir::StmtId,
     package_id: PackageId,
+    destination: CaptureScope,
     closure_target: LocalItemId,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
     assigner: &mut Assigner,
 ) {
     let stmt = package.get_stmt(stmt_id).clone();
@@ -4639,6 +4783,7 @@ fn rewrite_closure_target_call_args_in_stmt(
             package,
             expr_id,
             package_id,
+            destination,
             closure_target,
             capture_bindings,
             assigner,
@@ -4660,8 +4805,9 @@ fn rewrite_closure_target_call_args_in_expr(
     package: &mut Package,
     expr_id: ExprId,
     package_id: PackageId,
+    destination: CaptureScope,
     closure_target: LocalItemId,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
     assigner: &mut Assigner,
 ) {
     let expr = package.get_expr(expr_id).clone();
@@ -4671,6 +4817,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 callee_id,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4679,6 +4826,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 args_id,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4694,6 +4842,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 );
                 rewrite_closure_target_args(
                     package,
+                    destination,
                     args_id,
                     closure_target,
                     capture_bindings,
@@ -4706,6 +4855,7 @@ fn rewrite_closure_target_call_args_in_expr(
             package,
             block_id,
             package_id,
+            destination,
             closure_target,
             capture_bindings,
             assigner,
@@ -4715,6 +4865,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 cond,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4723,6 +4874,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 body,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4732,6 +4884,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     otherwise,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4743,6 +4896,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 cond,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4751,6 +4905,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 block_id,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4762,6 +4917,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     expr_id,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4779,6 +4935,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 lhs,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4787,6 +4944,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 rhs,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4797,6 +4955,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 a,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4805,6 +4964,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 b,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4813,6 +4973,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 c,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4825,6 +4986,7 @@ fn rewrite_closure_target_call_args_in_expr(
             package,
             inner,
             package_id,
+            destination,
             closure_target,
             capture_bindings,
             assigner,
@@ -4835,6 +4997,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     start,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4845,6 +5008,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     step,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4855,6 +5019,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     end,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4868,6 +5033,7 @@ fn rewrite_closure_target_call_args_in_expr(
                         package,
                         expr_id,
                         package_id,
+                        destination,
                         closure_target,
                         capture_bindings,
                         assigner,
@@ -4881,6 +5047,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     copy,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4891,6 +5058,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     field.value,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4903,6 +5071,7 @@ fn rewrite_closure_target_call_args_in_expr(
                     package,
                     limit,
                     package_id,
+                    destination,
                     closure_target,
                     capture_bindings,
                     assigner,
@@ -4912,6 +5081,7 @@ fn rewrite_closure_target_call_args_in_expr(
                 package,
                 body,
                 package_id,
+                destination,
                 closure_target,
                 capture_bindings,
                 assigner,
@@ -4939,12 +5109,19 @@ fn rewrite_closure_target_call_args_in_expr(
 /// - Allocates capture `Var` `Expr` nodes through `assigner`.
 fn prepend_capture_args_to_call(
     package: &mut Package,
+    destination: CaptureScope,
     args_id: ExprId,
-    capture_bindings: &[(LocalVarId, Ty)],
+    capture_bindings: &[CaptureBinding],
     controlled_layers: usize,
     assigner: &mut Assigner,
 ) {
     if capture_bindings.is_empty() {
+        return;
+    }
+    if capture_bindings
+        .iter()
+        .any(|binding| binding.local.scope != destination)
+    {
         return;
     }
 
@@ -4955,6 +5132,7 @@ fn prepend_capture_args_to_call(
         };
         prepend_capture_args_to_call(
             package,
+            destination,
             inner_id,
             capture_bindings,
             controlled_layers - 1,
@@ -4981,16 +5159,16 @@ fn prepend_capture_args_to_call(
 
     let mut tuple_items = Vec::with_capacity(capture_bindings.len() + 1);
     let mut tuple_tys = Vec::with_capacity(capture_bindings.len() + 1);
-    for (capture_var, capture_ty) in capture_bindings {
+    for binding in capture_bindings {
         let capture_expr_id = alloc_local_var_expr(
             package,
             assigner,
-            *capture_var,
-            capture_ty.clone(),
+            binding.local.var,
+            binding.ty.clone(),
             original_args.span,
         );
         tuple_items.push(capture_expr_id);
-        tuple_tys.push(capture_ty.clone());
+        tuple_tys.push(binding.ty.clone());
     }
     tuple_items.push(preserved_args_id);
     tuple_tys.push(original_args.ty);

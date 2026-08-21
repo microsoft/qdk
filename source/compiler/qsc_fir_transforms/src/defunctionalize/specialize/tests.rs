@@ -111,6 +111,7 @@ fn tuple_element_functors(ty: &Ty, index: usize) -> FunctorSet {
 struct DispatchLayoutFixture {
     package: Package,
     assigner: Assigner,
+    destination: CaptureScope,
     /// The dispatch branch's argument expression, initially the scalar payload.
     args_id: ExprId,
     captures: Vec<CapturedVar>,
@@ -143,6 +144,7 @@ fn make_dispatch_layout_fixture(
     let mut package = Package::default();
     let mut assigner = Assigner::default();
     let span = Span::default();
+    let destination = CaptureScope::CloneScope(LocalItemId::from(0usize));
 
     let op_capture = LocalVarId::from(op_capture_id);
     let payload_local = LocalVarId::from(payload_local_id);
@@ -158,13 +160,13 @@ fn make_dispatch_layout_fixture(
 
     let captures = vec![
         CapturedVar {
-            var: op_capture,
+            local: ScopedLocal::new(op_capture, destination),
             ty: capture_op_ty,
             expr: None,
             caller_substitutions: Vec::new(),
         },
         CapturedVar {
-            var: LocalVarId::from(op_capture_id + 1),
+            local: ScopedLocal::new(LocalVarId::from(op_capture_id + 1), destination),
             ty: capture_tag_ty,
             expr: Some(tag_expr),
             caller_substitutions: Vec::new(),
@@ -174,6 +176,7 @@ fn make_dispatch_layout_fixture(
     DispatchLayoutFixture {
         package,
         assigner,
+        destination,
         args_id,
         captures,
         target_input,
@@ -243,6 +246,7 @@ fn build_and_assert_grouped_dispatch_layout(fixture: &mut DispatchLayoutFixture)
     let original_args_id = fixture.args_id;
     let Some((kind, ty)) = build_closure_dispatch_branch_args_data(
         &mut fixture.package,
+        fixture.destination,
         original_args_id,
         &fixture.captures,
         &fixture.target_input,
@@ -341,6 +345,39 @@ fn dispatch_layout_groups_ctladj_capture_into_empty_target_slot() {
 }
 
 #[test]
+fn callable_and_clone_scope_collision_declines_capture_write() {
+    let mut fixture = make_ctladj_into_empty_fixture(10, 12, 7);
+    let destination_capture = fixture.captures[0].clone();
+    fixture.captures[0].local.scope = CaptureScope::Callable(LocalItemId::from(0usize));
+
+    assert_ne!(
+        fixture.captures[0], destination_capture,
+        "callable and clone domains with the same integer id must remain distinct",
+    );
+
+    let before = fixture.package.get_expr(fixture.args_id).clone();
+    rewrite_closure_dispatch_branch_args(
+        &mut fixture.package,
+        fixture.destination,
+        fixture.args_id,
+        &fixture.captures,
+        &fixture.target_input,
+        0,
+        &mut fixture.assigner,
+    );
+    let after = fixture.package.get_expr(fixture.args_id);
+
+    assert_eq!(
+        after.kind, before.kind,
+        "a numerically colliding capture from another callable must not be written",
+    );
+    assert_eq!(
+        after.ty, before.ty,
+        "a declined write must preserve its type"
+    );
+}
+
+#[test]
 fn dispatch_layout_capability_control_proves_grouped_capture_rewrite_causality() {
     // With capability matching disabled, the `CtlAdj` capture cannot populate
     // the `Empty` slot, so no layout is produced for either fixture.
@@ -351,6 +388,7 @@ fn dispatch_layout_capability_control_proves_grouped_capture_rewrite_causality()
                 make_ctladj_into_empty_fixture(op_capture_id, payload_local_id, tag_value);
             let built = build_closure_dispatch_branch_args_data(
                 &mut fixture.package,
+                fixture.destination,
                 fixture.args_id,
                 &fixture.captures,
                 &fixture.target_input,
@@ -373,6 +411,7 @@ fn dispatch_layout_capability_control_proves_grouped_capture_rewrite_causality()
         let _guard = CapabilityMatchingGuard::disable();
         rewrite_closure_dispatch_branch_args(
             &mut fixture.package,
+            fixture.destination,
             fixture.args_id,
             &fixture.captures,
             &fixture.target_input,
@@ -405,6 +444,7 @@ fn dispatch_layout_capability_control_proves_grouped_capture_rewrite_causality()
     let (repaired_call_id, repaired_callee_id) = add_direct_target_call(&mut repaired);
     rewrite_closure_dispatch_branch_args(
         &mut repaired.package,
+        repaired.destination,
         repaired.args_id,
         &repaired.captures,
         &repaired.target_input,
@@ -521,6 +561,7 @@ fn dispatch_layout_rejects_callable_input_mismatch() {
         );
         let built = build_closure_dispatch_branch_args_data(
             &mut fixture.package,
+            fixture.destination,
             fixture.args_id,
             &fixture.captures,
             &fixture.target_input,

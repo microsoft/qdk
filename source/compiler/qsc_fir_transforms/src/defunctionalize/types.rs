@@ -154,10 +154,32 @@ pub enum ConcreteCallable {
 }
 
 /// A variable captured by a closure.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum CaptureScope {
+    Callable(LocalItemId),
+    #[default]
+    Entry,
+    CloneScope(LocalItemId),
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct ScopedLocal {
+    pub var: LocalVarId,
+    pub scope: CaptureScope,
+}
+
+impl ScopedLocal {
+    #[must_use]
+    pub fn new(var: LocalVarId, scope: CaptureScope) -> Self {
+        Self { var, scope }
+    }
+}
+
+/// A variable captured by a closure.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CapturedVar {
-    /// The captured local variable.
-    pub var: LocalVarId,
+    /// The captured local variable and the allocator domain that owns it.
+    pub local: ScopedLocal,
     /// The type of the captured variable.
     pub ty: Ty,
     /// An optional initializer expression to reuse when the original local is

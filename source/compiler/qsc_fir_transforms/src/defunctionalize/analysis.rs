@@ -26,8 +26,9 @@
 
 use super::rewrite::{ConsumptionSite, EvaluationDisposition, consumed_callable_expr_disposition};
 use super::types::{
-    AnalysisResult, CallSite, CallableParam, CalleeLattice, CapturedVar, ConcreteCallable,
-    DirectCallSite, LatticeStates, compose_functors, peel_body_functors,
+    AnalysisResult, CallSite, CallableParam, CalleeLattice, CaptureScope, CapturedVar,
+    ConcreteCallable, DirectCallSite, LatticeStates, ScopedLocal, compose_functors,
+    peel_body_functors,
 };
 use crate::fir_builder::functored_specs;
 use crate::walk_utils::{
@@ -45,6 +46,7 @@ use qsc_fir::fir::{
 use qsc_fir::ty::Ty;
 use qsc_fir::visit::{self, Visitor};
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::rc::Rc;
 
 /// Combined local variable state for the analysis phase.
 ///
@@ -58,6 +60,8 @@ use rustc_hash::{FxHashMap, FxHashSet};
 /// dispatch.
 #[derive(Default)]
 pub(super) struct LocalState {
+    owner: CaptureScope,
+    clone_items: Rc<FxHashSet<StoreItemId>>,
     callable: FxHashMap<LocalVarId, CalleeLattice>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
@@ -94,6 +98,7 @@ pub(super) fn analyze(
     store: &mut PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
+    specialized_items: &FxHashSet<StoreItemId>,
     collapsed_spans: &FxHashMap<ExprId, Span>,
     preserved_direct_lambda_calls: &[DirectCallSite],
     total_foreign: &FxHashSet<ItemId>,
@@ -104,6 +109,7 @@ pub(super) fn analyze(
             store,
             package_id,
             reachable,
+            specialized_items,
             &hof_params,
             collapsed_spans,
             preserved_direct_lambda_calls,
@@ -303,10 +309,12 @@ struct CallRecorder<'a> {
 /// call sites; foreign bodies (e.g. generic HOFs relocated into their owning
 /// package by monomorphization) record only HOF call sites and closure, local,
 /// or field-projection callees that require defunctionalization.
+#[allow(clippy::too_many_arguments)]
 fn collect_call_sites(
     store: &PackageStore,
     package_id: PackageId,
     reachable: &FxHashSet<StoreItemId>,
+    specialized_items: &FxHashSet<StoreItemId>,
     hof_params: &FxHashMap<StoreItemId, Vec<CallableParam>>,
     collapsed_spans: &FxHashMap<ExprId, Span>,
     preserved_direct_lambda_calls: &[DirectCallSite],
@@ -322,6 +330,7 @@ fn collect_call_sites(
     let mut direct_call_sites = Vec::new();
     let mut unresolved_direct_call_sites = Vec::new();
     let mut lattice_states: LatticeStates = FxHashMap::default();
+    let clone_items = Rc::new(specialized_items.clone());
 
     for &store_id in reachable {
         let body_pkg_id = store_id.package;
@@ -349,6 +358,12 @@ fn collect_call_sites(
                 store,
                 &decl.implementation,
                 decl.input,
+                if specialized_items.contains(&store_id) {
+                    CaptureScope::CloneScope(store_id.item)
+                } else {
+                    CaptureScope::Callable(store_id.item)
+                },
+                Rc::clone(&clone_items),
                 body_pkg_id,
                 Some(&mut recorder),
             );
@@ -373,6 +388,8 @@ fn collect_call_sites(
 
     if let Some(entry_expr_id) = package.entry {
         let mut locals = LocalState {
+            owner: CaptureScope::Entry,
+            clone_items,
             callable: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
@@ -418,14 +435,18 @@ fn collect_call_sites(
 fn closure_captures_are_in_scope(
     pkg: &Package,
     callable: &ConcreteCallable,
+    destination: CaptureScope,
     visible_bindings: &FxHashSet<LocalVarId>,
 ) -> bool {
     let ConcreteCallable::Closure { captures, .. } = callable else {
         return true;
     };
     captures.iter().all(|capture| {
+        if capture.local.scope != destination {
+            return false;
+        }
         capture.expr.map_or_else(
-            || visible_bindings.contains(&capture.var),
+            || visible_bindings.contains(&capture.local.var),
             |expr| {
                 capture_expr_is_in_scope(pkg, expr, visible_bindings, &capture.caller_substitutions)
             },
@@ -683,7 +704,7 @@ fn is_preserved_direct_lifted_lambda_call(
 /// `ConcreteCallable::Dynamic`, the pass's established "cannot specialize"
 /// signal, which keeps the original dynamic dispatch and reports an actionable
 /// `DynamicCallable` diagnostic instead of miscompiling.
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn record_hof_call_sites(
     store: &PackageStore,
     pkg: &Package,
@@ -745,7 +766,12 @@ fn record_hof_call_sites(
         };
         match resolved {
             CalleeLattice::Single(cc)
-                if closure_captures_are_in_scope(pkg, &cc, &locals.visible_bindings) =>
+                if closure_captures_are_in_scope(
+                    pkg,
+                    &cc,
+                    locals.owner,
+                    &locals.visible_bindings,
+                ) =>
             {
                 call_sites.push(CallSite {
                     call_expr_id: expr_id,
@@ -764,7 +790,7 @@ fn record_hof_call_sites(
             }
             CalleeLattice::Multi(candidates) => {
                 if candidates.iter().any(|(cc, _)| {
-                    !closure_captures_are_in_scope(pkg, cc, &locals.visible_bindings)
+                    !closure_captures_are_in_scope(pkg, cc, locals.owner, &locals.visible_bindings)
                 }) {
                     call_sites.push(dynamic_call_site());
                 } else {
@@ -1478,6 +1504,8 @@ fn resolve_callee(
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
             let mut block_state = LocalState {
+                owner: locals.owner,
+                clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
@@ -1669,6 +1697,8 @@ fn resolve_callee_projection(
         ExprKind::Block(block_id) => {
             let block = pkg.get_block(*block_id);
             let mut block_state = LocalState {
+                owner: locals.owner,
+                clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
@@ -1949,6 +1979,15 @@ fn resolve_callable_return(
     };
 
     let mut state = LocalState {
+        owner: if caller_locals
+            .clone_items
+            .contains(&StoreItemId::from((item_id.package, item_id.item)))
+        {
+            CaptureScope::CloneScope(item_id.item)
+        } else {
+            CaptureScope::Callable(item_id.item)
+        },
+        clone_items: Rc::clone(&caller_locals.clone_items),
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
@@ -2007,6 +2046,7 @@ fn resolve_callable_return(
         callee_pkg,
         &state,
         &param_substitutions,
+        caller_locals.owner,
         resolve_callee_projection(
             callee_pkg,
             store,
@@ -2165,12 +2205,19 @@ fn materialize_capture_exprs_from_state(
     pkg: &Package,
     state: &LocalState,
     param_substitutions: &FxHashMap<LocalVarId, ExprId>,
+    caller_owner: CaptureScope,
     resolved: CalleeLattice,
 ) -> CalleeLattice {
     match resolved {
-        CalleeLattice::Single(concrete) => CalleeLattice::Single(
-            materialize_capture_exprs_in_callable(pkg, state, param_substitutions, concrete),
-        ),
+        CalleeLattice::Single(concrete) => {
+            CalleeLattice::Single(materialize_capture_exprs_in_callable(
+                pkg,
+                state,
+                param_substitutions,
+                caller_owner,
+                concrete,
+            ))
+        }
         CalleeLattice::Multi(entries) => CalleeLattice::Multi(
             entries
                 .into_iter()
@@ -2180,6 +2227,7 @@ fn materialize_capture_exprs_from_state(
                             pkg,
                             state,
                             param_substitutions,
+                            caller_owner,
                             concrete,
                         ),
                         condition,
@@ -2200,6 +2248,7 @@ fn materialize_capture_exprs_in_callable(
     pkg: &Package,
     state: &LocalState,
     param_substitutions: &FxHashMap<LocalVarId, ExprId>,
+    caller_owner: CaptureScope,
     concrete: ConcreteCallable,
 ) -> ConcreteCallable {
     match concrete {
@@ -2210,9 +2259,10 @@ fn materialize_capture_exprs_in_callable(
         } => {
             for capture in &mut captures {
                 if let Some(expr) =
-                    resolve_capture_to_caller(pkg, state, param_substitutions, capture.var)
+                    resolve_capture_to_caller(pkg, state, param_substitutions, capture.local.var)
                 {
                     capture.expr = Some(expr);
+                    capture.local.scope = caller_owner;
                     // A resolved capture whose terminal is a producer-scope
                     // compound literal (struct/tuple/array constructor) still
                     // references the producing function's parameters through its
@@ -3138,7 +3188,7 @@ pub(super) fn resolve_captures(
             let expr = resolve_known_callable_capture_expr(pkg, locals, var)
                 .or_else(|| resolve_scoped_capture_expr(pkg, locals, var, scoped_capture_vars));
             Some(CapturedVar {
-                var,
+                local: ScopedLocal::new(var, locals.owner),
                 ty,
                 expr,
                 caller_substitutions: Vec::new(),
@@ -3255,23 +3305,17 @@ fn collect_pat_local_bindings(pkg: &Package, pat_id: PatId, bound: &mut FxHashSe
 ///
 /// Resolution order: the immutable-locals initialiser map (`exprs`), then the
 /// per-callable variable-type map (`var_types`, covering parameters and
-/// immutable `let` bindings), then a package-wide pattern scan as a last
-/// resort. The scoped lookups are preferred because `LocalVarId`s collide
-/// across callables, so the global scan can return an unrelated binding.
+/// immutable `let` bindings). Missing scoped evidence returns `None` because
+/// `LocalVarId`s collide across callables.
 fn find_local_var_type(pkg: &Package, locals: &LocalState, var: LocalVarId) -> Option<Ty> {
     if let Some(&init_expr_id) = locals.exprs.get(&var) {
         Some(pkg.get_expr(init_expr_id).ty.clone())
-    } else if let Some(ty) = locals.closure_capturable_var_types.get(&var) {
+    } else {
         // Enclosing-callable parameter or immutable `let` binding. Resolve
         // against the per-callable variable map; `LocalVarId`s collide across
         // callables, so a package-wide pattern scan would return an unrelated
         // binding.
-        Some(ty.clone())
-    } else {
-        // The variable may come from an outer scope not tracked above. Scan
-        // all patterns as a last resort. This is unreliable when `LocalVarId`s
-        // collide across callables, so the scoped lookups above are preferred.
-        find_var_type_in_pats(pkg, var)
+        locals.closure_capturable_var_types.get(&var).cloned()
     }
 }
 
@@ -3337,23 +3381,6 @@ fn collect_binding_types_from_pat_into(
     }
 }
 
-/// Scans all patterns in a package to find the type of a given `LocalVarId`.
-///
-/// Returns `None` if no binding pattern is found. Valid FIR gives every
-/// `LocalVarId` a corresponding binding pattern, but returning `None` lets
-/// callers degrade analysis for malformed or partially transformed input
-/// instead of panicking.
-fn find_var_type_in_pats(pkg: &Package, var: LocalVarId) -> Option<Ty> {
-    for pat in pkg.pats.values() {
-        if let PatKind::Bind(ident) = &pat.kind
-            && ident.id == var
-        {
-            return Some(pat.ty.clone());
-        }
-    }
-    None
-}
-
 /// Builds flow-sensitive local variable state by performing a single forward
 /// pass over the callable's body.
 ///
@@ -3369,10 +3396,14 @@ fn build_callable_flow_state(
     store: &PackageStore,
     callable_impl: &CallableImpl,
     input_pat: qsc_fir::fir::PatId,
+    owner: CaptureScope,
+    clone_items: Rc<FxHashSet<StoreItemId>>,
     package_id: PackageId,
     recorder: Option<&mut CallRecorder>,
 ) -> LocalState {
     let mut state = LocalState {
+        owner,
+        clone_items,
         callable: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),

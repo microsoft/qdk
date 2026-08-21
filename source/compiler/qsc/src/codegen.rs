@@ -70,6 +70,7 @@ pub mod qir {
     /// from the type expected at that site.
     #[derive(Clone)]
     struct CallableValueInfo {
+        formal_ty: qsc_fir::ty::Ty,
         ty: qsc_fir::ty::Ty,
         generics: Vec<qsc_fir::ty::TypeParameter>,
     }
@@ -505,10 +506,12 @@ pub mod qir {
                 panic!("callable should exist in lowered package");
             };
             let (_, ty) = callable_expr_span_and_ty(fir_store, *id);
-            let normalized_ty = resolve_functor_params(&resolve_udt_ty(fir_store, &ty));
+            let formal_ty = resolve_udt_ty(fir_store, &ty);
+            let normalized_ty = resolve_functor_params(&formal_ty);
             map.insert(
                 *id,
                 CallableValueInfo {
+                    formal_ty,
                     ty: normalized_ty,
                     generics: callable_decl.generics.clone(),
                 },
@@ -527,32 +530,39 @@ pub mod qir {
     /// specializations from closure targets.
     fn normalize_callable_signatures(
         fir_store: &mut qsc_fir::fir::PackageStore,
-        callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
+        callable_types: &rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
     ) {
         use qsc_fir::fir::{CallableImpl, Global, PackageLookup};
 
-        let normalized: Vec<_> = callables
+        let normalized: Vec<_> = callable_types
             .iter()
-            .map(|id| {
+            .map(|(id, info)| {
                 let package = fir_store.get(id.package);
                 let Some(Global::Callable(callable_decl)) = package.get_global(id.item) else {
                     panic!("callable should exist in lowered package");
                 };
                 let normalized_signature = if callable_decl.generics.is_empty() {
-                    let input_pat = package.get_pat(callable_decl.input);
-                    Some((
-                        resolve_functor_params(&resolve_udt_ty(fir_store, &input_pat.ty)),
-                        resolve_functor_params(&resolve_udt_ty(fir_store, &callable_decl.output)),
-                    ))
+                    let qsc_fir::ty::Ty::Arrow(arrow) = &info.ty else {
+                        panic!("callable value should have an arrow type");
+                    };
+                    Some((arrow.input.as_ref().clone(), arrow.output.as_ref().clone()))
                 } else {
                     None
                 };
-                (*id, callable_decl.input, normalized_signature)
+                let mut inferred = rustc_hash::FxHashMap::default();
+                let _ = infer_generic_ty_args(&info.formal_ty, &info.ty, &mut inferred);
+                (*id, callable_decl.input, normalized_signature, inferred)
             })
             .collect();
 
-        for (id, input_pat_id, normalized_signature) in normalized {
+        for (id, input_pat_id, normalized_signature, inferred) in normalized {
             let package = fir_store.get_mut(id.package);
+            let normalized_output_ty = if let Some((input_ty, output_ty)) = normalized_signature {
+                normalize_pattern_node_types(package, input_pat_id, &input_ty);
+                Some(output_ty)
+            } else {
+                None
+            };
             let qsc_fir::fir::ItemKind::Callable(callable_decl) = &mut package
                 .items
                 .get_mut(id.item)
@@ -561,12 +571,7 @@ pub mod qir {
             else {
                 panic!("callable should exist in lowered package");
             };
-            if let Some((input_ty, output_ty)) = normalized_signature {
-                package
-                    .pats
-                    .get_mut(input_pat_id)
-                    .expect("callable input pattern should exist")
-                    .ty = input_ty;
+            if let Some(output_ty) = normalized_output_ty {
                 callable_decl.output = output_ty;
             }
             let CallableImpl::Spec(spec_impl) = &callable_decl.implementation else {
@@ -583,7 +588,125 @@ pub mod qir {
             );
 
             for block_id in block_ids {
-                normalize_block_node_types(package, block_id);
+                normalize_block_node_types(package, block_id, &inferred);
+            }
+        }
+    }
+
+    fn concretize_closure_callable_types(
+        value: &Value,
+        callable_types: &mut rustc_hash::FxHashMap<qsc_fir::fir::StoreItemId, CallableValueInfo>,
+    ) {
+        match value {
+            Value::Tuple(values, _) => {
+                for value in values.iter() {
+                    concretize_closure_callable_types(value, callable_types);
+                }
+            }
+            Value::Array(values) => {
+                for value in values.iter() {
+                    concretize_closure_callable_types(value, callable_types);
+                }
+            }
+            Value::Closure(closure) => {
+                for capture in closure.fixed_args.iter() {
+                    concretize_closure_callable_types(capture, callable_types);
+                }
+                let info = callable_types
+                    .get(&closure.id)
+                    .expect("closure callable type should be pre-computed");
+                let Some(capture_tys) =
+                    closure_capture_ty_hints(&info.formal_ty, closure.fixed_args.len())
+                else {
+                    return;
+                };
+                let mut inferred = rustc_hash::FxHashMap::default();
+                let captures_match =
+                    closure
+                        .fixed_args
+                        .iter()
+                        .zip(&capture_tys)
+                        .all(|(capture, formal_ty)| {
+                            value_ty_for_inference(capture, Some(formal_ty), callable_types)
+                                .is_some_and(|actual_ty| {
+                                    infer_generic_ty_args(formal_ty, &actual_ty, &mut inferred)
+                                })
+                        });
+                if captures_match {
+                    let concrete_ty =
+                        resolve_functor_params_with_inferred(&info.formal_ty, &inferred);
+                    callable_types
+                        .get_mut(&closure.id)
+                        .expect("closure callable type should be pre-computed")
+                        .ty = concrete_ty;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn resolve_functor_params_with_inferred(
+        ty: &qsc_fir::ty::Ty,
+        inferred: &rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
+    ) -> qsc_fir::ty::Ty {
+        use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, GenericArg, Ty};
+
+        match ty {
+            Ty::Arrow(arrow) => {
+                let functors = match arrow.functors {
+                    FunctorSet::Param(param) => match inferred.get(&param) {
+                        Some(GenericArg::Functor(functors)) => *functors,
+                        _ => FunctorSet::Value(FunctorSetValue::Empty),
+                    },
+                    FunctorSet::Infer(_) => FunctorSet::Value(FunctorSetValue::Empty),
+                    FunctorSet::Value(value) => FunctorSet::Value(value),
+                };
+                Ty::Arrow(Box::new(Arrow {
+                    kind: arrow.kind,
+                    input: Box::new(resolve_functor_params_with_inferred(&arrow.input, inferred)),
+                    output: Box::new(resolve_functor_params_with_inferred(
+                        &arrow.output,
+                        inferred,
+                    )),
+                    functors,
+                }))
+            }
+            Ty::Tuple(items) => Ty::Tuple(
+                items
+                    .iter()
+                    .map(|item| resolve_functor_params_with_inferred(item, inferred))
+                    .collect(),
+            ),
+            Ty::Array(item) => Ty::Array(Box::new(resolve_functor_params_with_inferred(
+                item, inferred,
+            ))),
+            _ => ty.clone(),
+        }
+    }
+
+    fn normalize_pattern_node_types(
+        package: &mut qsc_fir::fir::Package,
+        pat_id: qsc_fir::fir::PatId,
+        normalized_ty: &qsc_fir::ty::Ty,
+    ) {
+        use qsc_fir::fir::{PackageLookup, PatKind};
+        use qsc_fir::ty::Ty;
+
+        let child_ids = match (&package.get_pat(pat_id).kind, normalized_ty) {
+            (PatKind::Tuple(child_ids), Ty::Tuple(child_tys)) => {
+                assert_eq!(child_ids.len(), child_tys.len());
+                Some((child_ids.clone(), child_tys.clone()))
+            }
+            _ => None,
+        };
+        package
+            .pats
+            .get_mut(pat_id)
+            .expect("callable input pattern should exist")
+            .ty = normalized_ty.clone();
+        if let Some((child_ids, child_tys)) = child_ids {
+            for (child_id, child_ty) in child_ids.into_iter().zip(&child_tys) {
+                normalize_pattern_node_types(package, child_id, child_ty);
             }
         }
     }
@@ -591,6 +714,7 @@ pub mod qir {
     fn normalize_block_node_types(
         package: &mut qsc_fir::fir::Package,
         block_id: qsc_fir::fir::BlockId,
+        inferred: &rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
     ) {
         let stmt_ids = package
             .blocks
@@ -613,10 +737,10 @@ pub mod qir {
             };
 
             if let Some(pat_id) = pat_id {
-                normalize_pat_node_types(package, pat_id);
+                normalize_pat_node_types(package, pat_id, inferred);
             }
             if let Some(expr_id) = expr_id {
-                normalize_expr_node_types(package, expr_id);
+                normalize_expr_node_types(package, expr_id, inferred);
             }
         }
 
@@ -624,44 +748,49 @@ pub mod qir {
             .blocks
             .get_mut(block_id)
             .expect("callable block should exist");
-        block.ty = resolve_functor_params(&block.ty);
+        block.ty = resolve_functor_params_with_inferred(&block.ty, inferred);
     }
 
-    fn normalize_pat_node_types(package: &mut qsc_fir::fir::Package, pat_id: qsc_fir::fir::PatId) {
+    fn normalize_pat_node_types(
+        package: &mut qsc_fir::fir::Package,
+        pat_id: qsc_fir::fir::PatId,
+        inferred: &rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
+    ) {
         let child_pats = {
             let pat = package
                 .pats
                 .get_mut(pat_id)
                 .expect("callable pattern should exist");
-            pat.ty = resolve_functor_params(&pat.ty);
+            pat.ty = resolve_functor_params_with_inferred(&pat.ty, inferred);
             match &pat.kind {
                 qsc_fir::fir::PatKind::Tuple(pats) => pats.clone(),
                 qsc_fir::fir::PatKind::Bind(_) | qsc_fir::fir::PatKind::Discard => Vec::new(),
             }
         };
         for child_pat in child_pats {
-            normalize_pat_node_types(package, child_pat);
+            normalize_pat_node_types(package, child_pat, inferred);
         }
     }
 
     fn normalize_expr_node_types(
         package: &mut qsc_fir::fir::Package,
         expr_id: qsc_fir::fir::ExprId,
+        inferred: &rustc_hash::FxHashMap<qsc_fir::ty::ParamId, qsc_fir::ty::GenericArg>,
     ) {
         let (child_exprs, child_blocks) = {
             let expr = package
                 .exprs
                 .get_mut(expr_id)
                 .expect("callable expression should exist");
-            expr.ty = resolve_functor_params(&expr.ty);
+            expr.ty = resolve_functor_params_with_inferred(&expr.ty, inferred);
             child_nodes_for_expr_kind(&expr.kind)
         };
 
         for child_expr in child_exprs {
-            normalize_expr_node_types(package, child_expr);
+            normalize_expr_node_types(package, child_expr, inferred);
         }
         for child_block in child_blocks {
-            normalize_block_node_types(package, child_block);
+            normalize_block_node_types(package, child_block, inferred);
         }
     }
 
@@ -1997,8 +2126,9 @@ pub mod qir {
         // Pre-compute callable value types before normalizing concrete callable
         // bodies, so closure values still expose the original generic target
         // signatures needed by monomorphization.
-        let callable_types = build_callable_type_map(&fir_store, &concrete_callables);
-        normalize_callable_signatures(&mut fir_store, &concrete_callables);
+        let mut callable_types = build_callable_type_map(&fir_store, &concrete_callables);
+        concretize_closure_callable_types(args, &mut callable_types);
+        normalize_callable_signatures(&mut fir_store, &callable_types);
 
         // Build synthetic Call(Var(target), args) as the entry expression.
         // This makes the target and all callable args entry-reachable for pipeline transforms.
