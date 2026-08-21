@@ -542,22 +542,17 @@ export class LearningService {
 
   /**
    * Build a CurrentActivity for the given notebook cell.
-   * Returns `undefined` when the active course isn't a notebook course.
    */
   getCurrentActivityForCell(
     cellId: string,
     cellText: string,
-    notebookUri: string,
+    notebookUri: vscode.Uri,
   ): CurrentActivity | undefined {
-    if (!isNotebookCourse(this.activeCourse)) {
+    const resolved = this.resolveWorkbookLocation(notebookUri);
+    if (!resolved) {
       return undefined;
     }
-
-    const unit = this.findCourseUnit(this.activeCourse, this.position.unitId);
-    if (workbookUri(unit).toString() !== notebookUri) {
-      // The argument was based on the editor state and may not match the progress state
-      return undefined;
-    }
+    const { course, unit } = resolved;
 
     const activity = unit.activities.find((activity) => activity.id === cellId);
 
@@ -582,7 +577,7 @@ export class LearningService {
     }
 
     const location: ActivityLocation = {
-      courseId: this.activeCourse.id,
+      courseId: course.id,
       unitId: unit.id,
       activityId: cellId,
     };

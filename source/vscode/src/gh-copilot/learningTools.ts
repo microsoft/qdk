@@ -430,7 +430,7 @@ export class LearningTools {
     return this.service.getCurrentActivityForCell(
       cellId,
       cell.document.getText(),
-      editor.notebook.uri.toString(),
+      editor.notebook.uri,
     );
   }
 }
