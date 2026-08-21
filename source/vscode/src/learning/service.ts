@@ -770,27 +770,24 @@ export class LearningService {
     };
   }
 
-  /** Returns hints and solution explanation for the current exercise, or `null` if none exist. */
-  getHintContext(source?: TelemetrySource): {
-    result: HintContext | null;
-    state: LearningState;
-  } {
+  /** Returns hints and solution explanation for the given exercise, or `undefined` if none exist. */
+  getHintContext(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): HintContext | undefined {
     if (source) {
       this.sendActivityActionTelemetry("hint", source);
     }
 
-    const exercise = this.resolveExercise();
+    const exercise = this.resolveExerciseAt(location);
     const hints = exercise.hints;
     const solutionExplanation = exercise.solutionExplanation;
 
     if (hints.length === 0 && solutionExplanation.length === 0) {
-      return { result: null, state: this.getState() };
+      return undefined;
     }
 
-    return {
-      result: { hints, solutionExplanation },
-      state: this.getState(),
-    };
+    return { hints, solutionExplanation };
   }
 
   getAllSolutions(source?: TelemetrySource): string[] {
@@ -1478,6 +1475,17 @@ export class LearningService {
     const { activity } = this.findCurrentActivity();
     if (activity.type !== "exercise") {
       throw new Error("Current activity is not an exercise");
+    }
+    return activity;
+  }
+
+  private resolveExerciseAt(location: ActivityLocation): CatalogExercise {
+    const ws = this.requireWorkspace();
+    const course = this.requireCourse(ws, location.courseId);
+    const unit = this.findCourseUnit(course, location.unitId);
+    const activity = unit.activities.find((a) => a.id === location.activityId);
+    if (!activity || activity.type !== "exercise") {
+      throw new Error("Specified activity is not an exercise");
     }
     return activity;
   }
