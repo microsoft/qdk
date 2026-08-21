@@ -104,8 +104,7 @@ impl CompilationContext {
 
         // Clear the compute properties of the open package.
         let open_package_id = map_hir_package_to_fir(self.compiler.package_id());
-        let package_compute_properties = compute_properties.get_mut(open_package_id);
-        package_compute_properties.clear();
+        compute_properties.clear_package(open_package_id);
 
         // Analyze the open package without re-analyzing the other packages.
         let analyzer = Analyzer::init_with_compute_properties(

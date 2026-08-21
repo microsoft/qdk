@@ -99,7 +99,7 @@ export function registerLearningCommands(
         await service.tryInitialize({ createIfMissing: true });
 
         await vscode.commands.executeCommand("workbench.action.chat.open", {
-          query: "/qdk-learning Let's start the Quantum Katas.",
+          query: "/qdk-learning Let's start learning.",
           isPartialQuery: false,
         });
       },

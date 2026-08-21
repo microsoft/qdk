@@ -34,7 +34,7 @@ def check(notebook_dir: str | Path | None = None) -> None:
             "from the QDK course folder."
         )
 
-    course = json.loads(course_json_path.read_text())
+    course = json.loads(course_json_path.read_text(encoding="utf-8"))
     env_cfg = course.get("environment", {})
     import_checks = env_cfg.get("importChecks", [])
 
@@ -53,7 +53,8 @@ def check(notebook_dir: str | Path | None = None) -> None:
             ("Packages", ", ".join(f"<code>{m}</code> missing" for m in missing), False)
         )
         errors.append(
-            "Install missing packages by running the following in a new cell, then re-run this cell:"
+            "First select a dedicated Python environment or kernel. Then install the "
+            "missing packages and re-run this cell:"
             f"<pre>  %pip install -r ../requirements.txt</pre>"
         )
     elif import_checks:

@@ -27,8 +27,8 @@ from cirq import (
     ZPowGate,
 )
 
-from qdk.qre import Block, Trace
-from qdk.qre.instruction_ids import (
+from .._qre import Block, Trace
+from ..instruction_ids import (
     CCX,
     CCZ,
     CX,
@@ -363,9 +363,7 @@ class _QidToTraceId(dict):
         return super().__getitem__(key)
 
 
-def h_pow_gate_to_trace(
-    self: HPowGate, context: _CirqTraceBuilder, op: cirq.Operation
-):
+def h_pow_gate_to_trace(self: HPowGate, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert an HPowGate into trace instructions."""
     if _approx_eq(abs(self.exponent), 1):
         yield TraceGate(H, [op.qubits[0]])
@@ -373,9 +371,7 @@ def h_pow_gate_to_trace(
         yield from op._decompose_with_context_(context.decomp_context)  # type: ignore
 
 
-def x_pow_gate_to_trace(
-    self: XPowGate, context: _CirqTraceBuilder, op: cirq.Operation
-):
+def x_pow_gate_to_trace(self: XPowGate, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert an XPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -394,9 +390,7 @@ def x_pow_gate_to_trace(
             yield TraceGate(RX, q, exp * pi)
 
 
-def y_pow_gate_to_trace(
-    self: YPowGate, context: _CirqTraceBuilder, op: cirq.Operation
-):
+def y_pow_gate_to_trace(self: YPowGate, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a YPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent
@@ -415,9 +409,7 @@ def y_pow_gate_to_trace(
             yield TraceGate(RY, q, exp * pi)
 
 
-def z_pow_gate_to_trace(
-    self: ZPowGate, context: _CirqTraceBuilder, op: cirq.Operation
-):
+def z_pow_gate_to_trace(self: ZPowGate, context: _CirqTraceBuilder, op: cirq.Operation):
     """Convert a ZPowGate into trace instructions."""
     q = [op.qubits[0]]
     exp = self.exponent

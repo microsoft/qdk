@@ -21,10 +21,7 @@ mod scaffolding;
 use bitflags::bitflags;
 use indenter::indented;
 use qsc_data_structures::display::core::set_indentation;
-use qsc_data_structures::{
-    index_map::{IndexMap, Iter},
-    target::TargetCapabilityFlags,
-};
+use qsc_data_structures::{index_map::IndexMap, target::TargetCapabilityFlags};
 use qsc_fir::{
     fir::{
         BlockId, ExprId, LocalItemId, PackageId, StmtId, StoreBlockId, StoreExprId, StoreItemId,
@@ -44,109 +41,106 @@ pub use crate::analyzer::Analyzer;
 /// A trait to look for the compute properties of elements in a package store.
 pub trait ComputePropertiesLookup {
     /// Searches for the application generator set of a block with the specified ID.
-    fn find_block(&self, id: StoreBlockId) -> Option<&ApplicationGeneratorSet>;
+    fn find_block(&self, id: StoreBlockId, parallel: bool) -> Option<&ApplicationGeneratorSet>;
     /// Searches for the application generator set of an expression with the specified ID.
-    fn find_expr(&self, id: StoreExprId) -> Option<&ApplicationGeneratorSet>;
+    fn find_expr(&self, id: StoreExprId, parallel: bool) -> Option<&ApplicationGeneratorSet>;
     /// Searches for the compute properties of an item with the specified ID.
-    fn find_item(&self, id: StoreItemId) -> Option<&ItemComputeProperties>;
+    fn find_item(&self, id: StoreItemId, parallel: bool) -> Option<&ItemComputeProperties>;
     /// Searches for the application generator set of a statement with the specified ID.
-    fn find_stmt(&self, id: StoreStmtId) -> Option<&ApplicationGeneratorSet>;
+    fn find_stmt(&self, id: StoreStmtId, parallel: bool) -> Option<&ApplicationGeneratorSet>;
     /// Gets the application generator set of a block.
-    fn get_block(&self, id: StoreBlockId) -> &ApplicationGeneratorSet;
+    fn get_block(&self, id: StoreBlockId, parallel: bool) -> &ApplicationGeneratorSet;
     /// Gets the application generator set of an expression.
-    fn get_expr(&self, id: StoreExprId) -> &ApplicationGeneratorSet;
+    fn get_expr(&self, id: StoreExprId, parallel: bool) -> &ApplicationGeneratorSet;
     /// Gets the compute properties of an item.
-    fn get_item(&self, id: StoreItemId) -> &ItemComputeProperties;
+    fn get_item(&self, id: StoreItemId, parallel: bool) -> &ItemComputeProperties;
     /// Gets the application generator set of a statement.
-    fn get_stmt(&self, id: StoreStmtId) -> &ApplicationGeneratorSet;
+    fn get_stmt(&self, id: StoreStmtId, parallel: bool) -> &ApplicationGeneratorSet;
 }
 
 /// The compute properties of a package store.
 #[derive(Clone, Debug, Default)]
-pub struct PackageStoreComputeProperties(IndexMap<PackageId, PackageComputeProperties>);
+pub struct PackageStoreComputeProperties {
+    // The compute properties for each package in the store, keyed by package ID.
+    props: IndexMap<PackageId, PackageComputeProperties>,
+    // The alternative compute properties for each package if the callables are invoked
+    // from within a parallel expression, keyed by package ID.
+    parallel_props: IndexMap<PackageId, PackageComputeProperties>,
+}
 
 impl ComputePropertiesLookup for PackageStoreComputeProperties {
-    fn find_block(&self, id: StoreBlockId) -> Option<&ApplicationGeneratorSet> {
-        self.get(id.package).blocks.get(id.block)
+    fn find_block(&self, id: StoreBlockId, parallel: bool) -> Option<&ApplicationGeneratorSet> {
+        self.get(id.package, parallel).blocks.get(id.block)
     }
 
-    fn find_expr(&self, id: StoreExprId) -> Option<&ApplicationGeneratorSet> {
-        self.get(id.package).exprs.get(id.expr)
+    fn find_expr(&self, id: StoreExprId, parallel: bool) -> Option<&ApplicationGeneratorSet> {
+        self.get(id.package, parallel).exprs.get(id.expr)
     }
 
-    fn find_item(&self, id: StoreItemId) -> Option<&ItemComputeProperties> {
-        self.get(id.package).items.get(id.item)
+    fn find_item(&self, id: StoreItemId, parallel: bool) -> Option<&ItemComputeProperties> {
+        self.get(id.package, parallel).items.get(id.item)
     }
 
-    fn find_stmt(&self, id: StoreStmtId) -> Option<&ApplicationGeneratorSet> {
-        self.get(id.package).stmts.get(id.stmt)
+    fn find_stmt(&self, id: StoreStmtId, parallel: bool) -> Option<&ApplicationGeneratorSet> {
+        self.get(id.package, parallel).stmts.get(id.stmt)
     }
 
-    fn get_block(&self, id: StoreBlockId) -> &ApplicationGeneratorSet {
-        self.find_block(id)
+    fn get_block(&self, id: StoreBlockId, parallel: bool) -> &ApplicationGeneratorSet {
+        self.find_block(id, parallel)
             .expect("block compute properties not found")
     }
 
-    fn get_expr(&self, id: StoreExprId) -> &ApplicationGeneratorSet {
-        self.find_expr(id)
+    fn get_expr(&self, id: StoreExprId, parallel: bool) -> &ApplicationGeneratorSet {
+        self.find_expr(id, parallel)
             .expect("expression compute properties not found")
     }
 
-    fn get_item(&self, id: StoreItemId) -> &ItemComputeProperties {
-        self.find_item(id)
+    fn get_item(&self, id: StoreItemId, parallel: bool) -> &ItemComputeProperties {
+        self.find_item(id, parallel)
             .expect("item compute properties not found")
     }
 
-    fn get_stmt(&self, id: StoreStmtId) -> &ApplicationGeneratorSet {
-        self.find_stmt(id)
+    fn get_stmt(&self, id: StoreStmtId, parallel: bool) -> &ApplicationGeneratorSet {
+        self.find_stmt(id, parallel)
             .expect("statement compute properties not found")
-    }
-}
-
-impl<'a> IntoIterator for &'a PackageStoreComputeProperties {
-    type IntoIter = qsc_data_structures::index_map::Iter<'a, PackageId, PackageComputeProperties>;
-    type Item = (PackageId, &'a PackageComputeProperties);
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.iter()
     }
 }
 
 impl PackageStoreComputeProperties {
     #[must_use]
-    pub fn get(&self, id: PackageId) -> &PackageComputeProperties {
-        self.0.get(id).expect("package should exist")
+    pub fn get(&self, id: PackageId, parallel: bool) -> &PackageComputeProperties {
+        if parallel {
+            self.parallel_props.get(id).expect("package should exist")
+        } else {
+            self.props.get(id).expect("package should exist")
+        }
     }
 
     #[must_use]
-    pub fn get_mut(&mut self, id: PackageId) -> &mut PackageComputeProperties {
-        self.0.get_mut(id).expect("package should exist")
+    pub fn get_mut(&mut self, id: PackageId, parallel: bool) -> &mut PackageComputeProperties {
+        if parallel {
+            self.parallel_props
+                .get_mut(id)
+                .expect("package should exist")
+        } else {
+            self.props.get_mut(id).expect("package should exist")
+        }
     }
 
-    pub fn insert_block(&mut self, id: StoreBlockId, value: ApplicationGeneratorSet) {
-        self.get_mut(id.package).blocks.insert(id.block, value);
-    }
-
-    pub fn insert_expr(&mut self, id: StoreExprId, value: ApplicationGeneratorSet) {
-        self.get_mut(id.package).exprs.insert(id.expr, value);
-    }
-
-    pub fn insert_item(&mut self, id: StoreItemId, value: ItemComputeProperties) {
-        self.get_mut(id.package).items.insert(id.item, value);
-    }
-
-    pub fn insert_stmt(&mut self, id: StoreStmtId, value: ApplicationGeneratorSet) {
-        self.get_mut(id.package).stmts.insert(id.stmt, value);
-    }
-
-    #[must_use]
-    pub fn iter(&self) -> Iter<'_, PackageId, PackageComputeProperties> {
-        self.0.iter()
+    pub fn clear_package(&mut self, id: PackageId) {
+        self.props
+            .get_mut(id)
+            .expect("package should exist")
+            .clear();
+        self.parallel_props
+            .get_mut(id)
+            .expect("package should exist")
+            .clear();
     }
 
     #[must_use]
-    pub fn is_unresolved_callee_expr(&self, id: StoreExprId) -> bool {
-        self.get(id.package)
+    pub fn is_unresolved_callee_expr(&self, id: StoreExprId, parallel: bool) -> bool {
+        self.get(id.package, parallel)
             .unresolved_callee_exprs
             .contains(&id.expr)
     }

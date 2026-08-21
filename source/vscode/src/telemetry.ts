@@ -344,7 +344,7 @@ type EventTypes = {
   [EventType.LearningActivityAction]: {
     properties: {
       action: "navigate" | "run" | "check" | "hint" | "solution" | "reset";
-      activityType: "lesson" | "exercise";
+      activityType: "lesson" | "exercise" | "code-cell";
       source: "panel" | "chat" | "tree" | "notebook";
     };
     measurements: Empty;

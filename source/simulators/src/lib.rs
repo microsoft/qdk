@@ -15,6 +15,9 @@ pub use sparse_state_simulator::nearly_zero::NearlyZero;
 /// A qubit ID.
 pub type QubitID = usize;
 
+// A result ID.
+pub type ResultID = usize;
+
 /// The result of a mesasurement in the Z-basis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MeasurementResult {
@@ -101,10 +104,10 @@ pub trait Simulator {
     fn swap(&mut self, q1: QubitID, q2: QubitID);
 
     /// `MZ` operation.
-    fn mz(&mut self, target: QubitID, result_id: QubitID);
+    fn mz(&mut self, target: QubitID, result_id: ResultID);
 
     /// `MResetZ` operation.
-    fn mresetz(&mut self, target: QubitID, result_id: QubitID);
+    fn mresetz(&mut self, target: QubitID, result_id: ResultID);
 
     /// `ResetZ` operation.
     fn resetz(&mut self, target: QubitID);
@@ -125,4 +128,8 @@ pub trait Simulator {
     /// Dumps the current state of the simulator in some representation that can be compared
     /// for `PartialEq` up to a global phase. This is meant to be used for testing.
     fn state_dump(&self) -> &Self::StateDumpData;
+
+    /// Applies readout noise to the measurement result with the given `result_id`.
+    /// The probabilities of flipping a 0 to a 1 and a 1 to a 0 are given by `p_zero_as_one` and `p_one_as_zero`, respectively.
+    fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: ResultID);
 }
