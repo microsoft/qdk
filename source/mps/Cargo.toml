@@ -1,0 +1,32 @@
+[package]
+name = "qdk_mps"
+
+version.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["tensor4all-cpu"]
+tensor4all-cpu = [
+	"dep:tensor4all-core",
+	"dep:tensor4all-tensorbackend",
+	"dep:tensor4all-treetn",
+]
+
+[dependencies]
+num-complex = { workspace = true }
+# Keep contract-only WASM builds free of getrandom; workspace inheritance cannot disable defaults.
+rand = { version = "0.10.2", default-features = false, features = ["chacha"] }
+rustc-hash = { workspace = true }
+thiserror = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+tensor4all-core = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "b44786399664d92c5ba5e000c7a471c2a1509280", default-features = false, features = ["tenferro-cpu-faer"], optional = true }
+tensor4all-tensorbackend = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "b44786399664d92c5ba5e000c7a471c2a1509280", default-features = false, features = ["tenferro-cpu-faer"], optional = true }
+tensor4all-treetn = { git = "https://github.com/tensor4all/tensor4all-rs", rev = "b44786399664d92c5ba5e000c7a471c2a1509280", default-features = false, features = ["tenferro-cpu-faer"], optional = true }
+
+[lints]
+workspace = true

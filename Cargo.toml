@@ -27,6 +27,7 @@ members = [
     "source/fuzz",
     "source/index_map",
     "source/language_service",
+    "source/mps",
     "source/simulators",
     "source/qdk_openqasm",
     "source/qdk_package",

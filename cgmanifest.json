@@ -12,6 +12,46 @@
         }
       },
       "developmentDependency": false
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/tensor4all/tensor4all-rs",
+          "commitHash": "b44786399664d92c5ba5e000c7a471c2a1509280"
+        }
+      },
+      "developmentDependency": false
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/tensor4all/tenferro-rs",
+          "commitHash": "b5a106be3133979d78832a0ca3f4d6b57613b3d7"
+        }
+      },
+      "developmentDependency": false
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/tensor4all/strided-rs",
+          "commitHash": "b29e7601ba090aa5eafc65b9bde5d9450282e0d8"
+        }
+      },
+      "developmentDependency": false
+    },
+    {
+      "component": {
+        "type": "git",
+        "git": {
+          "repositoryUrl": "https://github.com/tensor4all/computegraph-rs",
+          "commitHash": "691def2d82fd4367b397d61209449f68e82050b7"
+        }
+      },
+      "developmentDependency": false
     }
   ]
 }
