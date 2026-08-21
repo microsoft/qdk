@@ -1,0 +1,13 @@
+/* Copyright (c) Microsoft Corporation.
+   Licensed under the MIT License. */
+
+/*
+ * The Bloch sphere renders matrices that require KaTeX's fonts for correct
+ * spacing and scalable delimiters. Keep these fonts out of the shared widget
+ * stylesheet so widgets that predate the Bloch sphere retain their original
+ * CSS payload.
+ */
+@import "qsharp-lang/ux/qsharp-ux.css";
+@import "qsharp-lang/ux/bloch/bloch.css";
+@import "./widgets.css";
+@import "katex/dist/katex.min.css";
