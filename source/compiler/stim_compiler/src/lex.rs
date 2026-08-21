@@ -61,20 +61,20 @@ impl Display for Token {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
 pub enum TokenKind {
-    Newline,         // \n
-    Uint,            // unsigned integers
-    Double,          // floating-point numbers
-    InstructionName, // H, X, CNOT, etc.
-    Pauli,           // X1, Y2, Z3, etc.
-    Loss,            // L1, L2, L3, etc.
-    Rec,             // rec[- ...]
-    Sweep,           // sweep[...]
-    Tag,             // "[...]"
-    Open(Delim),     // ( {
-    Close(Delim),    // ) }
-    Star,            // *
-    Bang,            // !
-    Comma,           // ,
+    Newline,            // \n
+    Uint,               // unsigned integers
+    Double(DoubleKind), // floating-point numbers, can be radians or not
+    InstructionName,    // H, X, CNOT, etc.
+    Pauli,              // X1, Y2, Z3, etc.
+    Loss,               // L1, L2, L3, etc.
+    Rec,                // rec[- ...]
+    Sweep,              // sweep[...]
+    Tag,                // "[...]"
+    Open(Delim),        // ( {
+    Close(Delim),       // ) }
+    Star,               // *
+    Bang,               // !
+    Comma,              // ,
 }
 
 impl Display for TokenKind {
@@ -82,7 +82,7 @@ impl Display for TokenKind {
         match self {
             TokenKind::Newline => f.write_str("newline"),
             TokenKind::Uint => f.write_str("uint"),
-            TokenKind::Double => f.write_str("double"),
+            TokenKind::Double(_) => f.write_str("double"),
             TokenKind::InstructionName => f.write_str("instruction_name"),
             TokenKind::Pauli => f.write_str("pauli"),
             TokenKind::Loss => f.write_str("loss"),
@@ -94,6 +94,21 @@ impl Display for TokenKind {
             TokenKind::Star => f.write_str("star"),
             TokenKind::Bang => f.write_str("bang"),
             TokenKind::Comma => f.write_str("comma"),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
+pub enum DoubleKind {
+    Default, // for angles, interpret as half turns (pi radians)
+    Radians,
+}
+
+impl Display for DoubleKind {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            DoubleKind::Default => f.write_str("default"),
+            DoubleKind::Radians => f.write_str("radians"),
         }
     }
 }
@@ -159,60 +174,105 @@ impl<'a> Lexer<'a> {
         true
     }
 
-    fn scan_number(&mut self, lo: u32, signed: bool) -> Result<TokenKind, Error> {
-        // Lexes a number: an optional sign, an integer part, an optional
-        // fractional part, and an optional exponent.
+    fn eat_str(&mut self, expected: &str) -> bool {
+        let pos = self.pos() as usize;
+        if !self.input[pos..].starts_with(expected) {
+            return false;
+        }
 
-        let mut is_double = false;
+        for _ in expected.chars() {
+            let _ = self.chars.next();
+        }
+        true
+    }
+
+    fn require_digits(&mut self, error: Error) -> Result<(), Error> {
+        if self.eat_one_or_more_digits() {
+            Ok(())
+        } else {
+            Err(error)
+        }
+    }
+
+    /// Scans an optional "rad" suffix, which indicates that a number is in radians.
+    /// If the suffix is present, it must be followed by a non-alphanumeric character or the end of the input.
+    ///   "1<rad>", "2.5<rad>", "-6<rad>"
+    fn scan_rad_suffix(&mut self) -> Result<bool, Error> {
+        if !self.eat_str("rad") {
+            return Ok(false);
+        }
+
+        let lo = self.pos();
+        if self
+            .chars
+            .next_if(|(_, c)| c.is_alphanumeric() || *c == '_')
+            .is_some()
+        {
+            return Err(Error::UnrecognizedCharacter {
+                span: Span { lo, hi: self.pos() },
+            });
+        }
+        Ok(true)
+    }
+
+    /// Scans an optional exponent: 'e'/'E', an optional sign, then one or more digits.
+    ///   "1<e9>", "2.5<E-3>", "6<e+2>"
+    /// A bare "1e" or "1e-" (no exponent digits) is an error.
+    fn scan_exponent(&mut self, lo: u32) -> Result<bool, Error> {
+        if self
+            .chars
+            .next_if(|(_, c)| matches!(c, 'e' | 'E'))
+            .is_none()
+        {
+            return Ok(false);
+        }
+
+        self.chars.next_if(|(_, c)| matches!(c, '+' | '-'));
+        let span = Span { lo, hi: self.pos() };
+        self.require_digits(Error::MissingExponentDigits { span })?;
+        Ok(true)
+    }
+
+    /// Scans an optional fractional part: a '.' followed by one or more digits.
+    /// "3<.14>", "0<.5>"
+    /// A '.' with no digits after it ("3.") is an error.
+    fn scan_fraction(&mut self, lo: u32) -> Result<bool, Error> {
+        if self.chars.next_if(|(_, c)| *c == '.').is_none() {
+            return Ok(false);
+        }
+
+        let span = Span { lo, hi: self.pos() };
+        self.require_digits(Error::MissingFractionalDigits { span })?;
+        Ok(true)
+    }
+
+    /// Scans the integer part of a number, which may be signed or unsigned.
+    fn scan_integer_part(&mut self, lo: u32, signed: bool) -> Result<(), Error> {
         if signed {
             // The leading sign was already consumed by the caller:
             //   "<+>1", "<->42", "<+>3.5e-2"
             // This block consumes the integer digits: "+<1>", "-<42>"
-            if !self.eat_one_or_more_digits() {
-                return Err(Error::MissingDigitsAfterSign {
-                    span: Span { lo, hi: self.pos() },
-                });
-            }
-            is_double = true; // A signed number is always a double.
+            let span = Span { lo, hi: self.pos() };
+            self.require_digits(Error::MissingDigitsAfterSign { span })
         } else {
             // The first digit was already consumed by the caller:
             //   "<4>2", "<3>.14"
             // This block consumes the remaining integer digits: "4<2>"
             self.eat_while(|c| c.is_ascii_digit());
+            Ok(())
         }
+    }
 
-        if self.chars.next_if(|(_, c)| *c == '.').is_some() {
-            // Optional fractional part: a '.' followed by one or more digits.
-            //   "3<.14>", "0<.5>"
-            // A '.' with no digits after it ("3.") is an error.
-            if !self.eat_one_or_more_digits() {
-                return Err(Error::MissingFractionalDigits {
-                    span: Span { lo, hi: self.pos() },
-                });
-            }
-            is_double = true;
-        }
-        if self
-            .chars
-            .next_if(|(_, c)| *c == 'e' || *c == 'E')
-            .is_some()
-        {
-            // Optional exponent: 'e'/'E', an optional sign, then one or more digits.
-            //   "1<e9>", "2.5<E-3>", "6<e+2>"
-            // A bare "1e" or "1e-" (no exponent digits) is an error.
-            self.chars.next_if(|(_, c)| *c == '+' || *c == '-');
-            if !self.eat_one_or_more_digits() {
-                return Err(Error::MissingExponentDigits {
-                    span: Span { lo, hi: self.pos() },
-                });
-            }
-            is_double = true;
-        }
+    fn scan_number(&mut self, lo: u32, signed: bool) -> Result<TokenKind, Error> {
+        self.scan_integer_part(lo, signed)?;
+        let has_fraction = self.scan_fraction(lo)?;
+        let has_exponent = self.scan_exponent(lo)?;
+        let has_rad_suffix = self.scan_rad_suffix()?;
 
-        // No '.' and no exponent => an unsigned integer ("42" => Uint);
-        // a sign, '.', or exponent makes it a Double ("-42", "3.14", "1e9").
-        Ok(if is_double {
-            TokenKind::Double
+        Ok(if has_rad_suffix {
+            TokenKind::Double(DoubleKind::Radians)
+        } else if signed || has_fraction || has_exponent {
+            TokenKind::Double(DoubleKind::Default)
         } else {
             TokenKind::Uint
         })
