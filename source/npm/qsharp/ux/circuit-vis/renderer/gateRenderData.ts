@@ -90,4 +90,15 @@ export interface GateRenderData {
     localScope: LayoutScope;
     childScopes: Map<string, LayoutScope>;
   };
+  /**
+   * Whether this classically controlled group can be displayed as a conventional controlled gate
+   * with a dot on its classical control and a vertical classical wire.
+   * Whether a dot is filled or hollow is determined by `isAntiControlled`.
+   */
+  displayAsClassicallyControlledGate: boolean;
+  /**
+   * Whether it should be displayed as classical anti-controlled gate (using a hollow
+   * dot).
+   */
+  isAntiControlled: boolean;
 }

@@ -294,6 +294,8 @@ const _opToRenderData = (
     width: -1,
     topPadding: 0,
     bottomPadding: 0,
+    displayAsClassicallyControlledGate: false,
+    isAntiControlled: false,
   };
 
   if (op == null) return renderData;
@@ -381,14 +383,49 @@ const _opToRenderData = (
         return globalId ?? reg.result ?? null;
       }) || [];
 
+
     if (hasChildren) {
       renderData.type = GateType.Group;
       if (isExpanded) {
         _processChildren(renderData, children!, registers, renderLocations);
 
+        // Display the group as a conventional classically controlled gate only when it contains
+        // one uncontrolled X or unitary gate, all of its targets are strictly on the same side of
+        // the classical control wire, and the condition is either "c_i = |0〉" or "c_i = |1〉".
+        const childGates = renderData.children?.flat() ?? [];
+        const child = childGates[0];
+        const controlY = renderData.controlsY[0];
+        const childTargetYs = child?.targetsY.flat() ?? [];
+        const targetsOnSameSide =
+          controlY != null &&
+          childTargetYs.length > 0 &&
+          (childTargetYs.every((targetY) => targetY < controlY) ||
+            childTargetYs.every((targetY) => targetY > controlY));
+        const hasCompactChild =
+          childGates.length === 1 &&
+          child != null &&
+          (child.type === GateType.X || child.type === GateType.Unitary) &&
+          child.controlsY.length === 0 &&
+          targetsOnSameSide;
+        const controlId = renderData.classicalControlIds?.[0];
+        const zeroCondition = `if: c_${controlId} = |0〉`;
+        const oneCondition = `if: c_${controlId} = |1〉`;
+        if (
+          hasCompactChild &&
+          renderData.controlsY.length === 1 &&
+          typeof controlId === "number" &&
+          (renderData.label === zeroCondition ||
+            renderData.label === oneCondition)
+        ) {
+          renderData.displayAsClassicallyControlledGate = true;
+          renderData.isAntiControlled = renderData.label === zeroCondition;
+        }
+
         // Add additional width for classical control circle. (The group width comes from children
         // layout; it doesn't account for controls.)
-        renderData.width += controlCircleOffset;
+        if (!renderData.displayAsClassicallyControlledGate) {
+          renderData.width += controlCircleOffset;
+        }
       }
     } else {
       // Defensive fallback: a conditional without children is rendered as a unitary.

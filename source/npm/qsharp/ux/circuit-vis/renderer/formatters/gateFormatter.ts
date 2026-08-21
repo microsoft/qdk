@@ -127,9 +127,10 @@ const _createGate = (
 
   const hasClassicalControls =
     renderData.classicalControlIds != null && renderData.controlsY.length > 0;
-  const classicalControlElems: SVGElement[] = hasClassicalControls
-    ? _classicalControls(_gateBoundingBox(renderData).x, renderData)
-    : [];
+  const classicalControlElems: SVGElement[] =
+    hasClassicalControls && !renderData.displayAsClassicallyControlledGate
+      ? _classicalControls(_gateBoundingBox(renderData).x, renderData)
+      : [];
 
   // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
   //
@@ -154,7 +155,10 @@ const _createGate = (
 
   // Zoom button comes last so it's on top of the <a> element if both are present This allows
   // clicking the zoom button without triggering the link
-  const zoomBtn: SVGElement | null = _zoomButton(renderData);
+  const zoomBtn: SVGElement | null =
+    renderData.displayAsClassicallyControlledGate
+      ? null
+      : _zoomButton(renderData);
   if (zoomBtn != null) svgElems = svgElems.concat([zoomBtn]);
 
   const gate = group(svgElems, attributes);
@@ -674,6 +678,33 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
     );
 
     return _createGate([summary], renderData);
+  }
+
+  if (renderData.displayAsClassicallyControlledGate) {
+    const child = renderData.children![0][0];
+    const controlY = renderData.controlsY[0];
+    const targetY = (child.targetsY as (number | number[])[]).flat()[0];
+    const lineOffset = 1;
+    const connectorLines = [-lineOffset, lineOffset].map((offset) => {
+      const connector = line(
+        child.x + offset,
+        controlY,
+        child.x + offset,
+        targetY,
+        "register-classical",
+      );
+      connector.style.pointerEvents = "none";
+      return connector;
+    });
+    const classicalControlDot = controlDot(child.x, controlY, [controlY]);
+    if (renderData.isAntiControlled) {
+      classicalControlDot.classList.add("anti-control-dot");
+    }
+
+    return _createGate(
+      [...connectorLines, classicalControlDot, formatGate(child)],
+      renderData,
+    );
   }
 
   const boundingBox = _gateBoundingBox(renderData);
