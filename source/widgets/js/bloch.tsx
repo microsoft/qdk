@@ -29,22 +29,8 @@ function render({ model, el }: RenderArgs) {
     el.ownerDocument.head.appendChild(forceStyle);
   }
 
-  const onChange = () => {
-    const initialGates = model.get("initial_gates") as string;
-    prender(
-      <BlochSphere
-        initialGates={initialGates}
-        onGatesChanged={(gates) => {
-          model.set("gates", gates);
-          model.save_changes();
-        }}
-      ></BlochSphere>,
-      el,
-    );
-  };
-
-  onChange();
-  model.on("change:initial_gates", onChange);
+  const initialGates = model.get("_initial_gates") as string;
+  prender(<BlochSphere initialGates={initialGates}></BlochSphere>, el);
 }
 
 export default {

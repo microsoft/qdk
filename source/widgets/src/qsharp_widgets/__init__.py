@@ -217,8 +217,12 @@ class BlochSphere(anywidget.AnyWidget):
     _css = pathlib.Path(__file__).parent / "static" / "bloch.css"
 
     comp = traitlets.Unicode("BlochSphere").tag(sync=True)
-    initial_gates = traitlets.Unicode("").tag(sync=True)
-    gates = traitlets.Unicode("").tag(sync=True)
+    _initial_gates = traitlets.Unicode("").tag(sync=True)
+
+    @property
+    def initial_gates(self):
+        """The gate sequence used when the widget was created."""
+        return self._initial_gates
 
     def __init__(self, initial_gates=""):
         """
@@ -232,10 +236,9 @@ class BlochSphere(anywidget.AnyWidget):
           (S', T', SX'); rotations are Rx(angle), Ry(angle), and Rz(angle)
           with the angle in radians. For example: "X H Z" or "H Rx(1.5708) S'".
 
-        The current gate sequence can be read back at any time from the `gates`
-        trait, which stays in sync as gates are applied in the widget.
+        `initial_gates` is read-only after the widget is created.
         """
-        super().__init__(initial_gates=initial_gates, gates=initial_gates)
+        super().__init__(_initial_gates=initial_gates)
 
 
 class Atoms(anywidget.AnyWidget):
