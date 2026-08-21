@@ -20,6 +20,15 @@ type RenderArgs = {
 };
 
 function render({ model, el }: RenderArgs) {
+  // VS Code may inject an opaque widget background after the widget CSS.
+  if (
+    !el.ownerDocument.head.lastChild?.textContent?.includes("widget-css-fix")
+  ) {
+    const forceStyle = el.ownerDocument.createElement("style");
+    forceStyle.textContent = `/* widget-css-fix */ .cell-output-ipywidget-background {background-color: transparent !important;}`;
+    el.ownerDocument.head.appendChild(forceStyle);
+  }
+
   const onChange = () => {
     const initialGates = model.get("initial_gates") as string;
     prender(
