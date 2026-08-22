@@ -339,11 +339,13 @@ export class LearningService {
   }
 
   async goTo(
-    location: { unitId: string; activityId?: string },
+    location: { courseId?: string; unitId: string; activityId?: string },
     source?: TelemetrySource,
   ): Promise<LearningState> {
     const ws = this.requireWorkspace();
-    const course = this.activeCourse;
+    const course = location.courseId
+      ? this.requireCourse(ws, location.courseId)
+      : this.activeCourse;
     const unit = course.units.find((u) => u.id === location.unitId);
     if (!unit || unit.activities.length === 0) {
       throw new Error(`Position not found: ${location.unitId}`);
