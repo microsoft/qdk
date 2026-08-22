@@ -299,6 +299,7 @@ export class LearningService {
 
   async next(source: TelemetrySource): Promise<NavigationResult> {
     const ws = this.requireWorkspace();
+    this.setCourseSelected();
     const currentPos = ws.progressData.position;
     const nextPos = this.nextActivity(currentPos);
 
@@ -326,6 +327,7 @@ export class LearningService {
 
   async previous(source: TelemetrySource): Promise<NavigationResult> {
     const ws = this.requireWorkspace();
+    this.setCourseSelected();
     const prevPos = this.previousActivity(ws.progressData.position);
     if (!prevPos) {
       return { moved: false };
@@ -343,6 +345,7 @@ export class LearningService {
     source?: TelemetrySource,
   ): Promise<LearningState> {
     const ws = this.requireWorkspace();
+    this.setCourseSelected();
     const course = this.activeCourse;
     const unit = course.units.find((u) => u.id === location.unitId);
     if (!unit || unit.activities.length === 0) {
@@ -628,6 +631,29 @@ export class LearningService {
     return { id: course.id, title: course.title, kind: course.kind };
   }
 
+  /** True once the user has explicitly picked a course. */
+  hasUserSelectedCourse(): boolean {
+    const ws = this.workspace;
+    if (!ws) return false;
+    // Missing field (legacy files) → treat as selected.
+    return ws.progressData.courseSelected !== false;
+  }
+
+  /** Persist the fact that the user has engaged with a course. */
+  async setCourseSelectedAndSave(): Promise<void> {
+    const old = this.setCourseSelected();
+    if (old === true) return;
+    await this.saveProgress();
+    this.emitProgress();
+  }
+
+  private setCourseSelected(): boolean | undefined {
+    const ws = this.requireWorkspace();
+    const old = ws.progressData.courseSelected;
+    ws.progressData.courseSelected = true;
+    return old;
+  }
+
   /**
    * Switch the active course, creating its learner-editable files if they
    * don't exist yet, then move the position to the first incomplete
@@ -639,6 +665,7 @@ export class LearningService {
   ): Promise<LearningState> {
     const ws = this.requireWorkspace();
     const course = this.requireCourse(ws, courseId);
+    this.setCourseSelected();
     // Idempotent: existing workbooks are left alone, so this only writes
     // files the first time the learner opens the course.
     // Note: if materializing fails, you basically have to reload the window.
@@ -1672,6 +1699,7 @@ export class LearningService {
       },
       completions: {},
       startedAt: new Date().toISOString(),
+      courseSelected: false,
     };
   }
 

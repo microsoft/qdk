@@ -80,6 +80,8 @@ export class LessonPanelManager {
       return;
     }
 
+    await this.service.setCourseSelectedAndSave();
+
     if (this.panel) {
       this.panel.reveal(vscode.ViewColumn.One);
       return;
@@ -125,6 +127,12 @@ export class LessonPanelManager {
 
     if (this.isNotebookCourse) {
       // The active course no longer uses the panel — drop the serialized one.
+      panel.dispose();
+      return;
+    }
+
+    if (!this.service.hasUserSelectedCourse()) {
+      // No course chosen yet — don't auto-show the panel from a prior session.
       panel.dispose();
       return;
     }

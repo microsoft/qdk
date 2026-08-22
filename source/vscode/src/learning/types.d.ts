@@ -135,6 +135,16 @@ export interface ProgressFileData {
   position: ActivityLocation;
   completions: Record<string, { completedAt: string }>;
   startedAt: string;
+  /**
+   * Set to `true` once the user explicitly picks a course. When `false`
+   * (or absent on legacy files that predate this field), the tree view
+   * shows all courses collapsed so no single course dominates.
+   *
+   * Missing (`undefined`) is treated as `true` for backward compatibility:
+   * existing progress files were written while a course was active, so the
+   * user has already made a choice.
+   */
+  courseSelected?: boolean;
 }
 
 // ─── Bundled state ───
