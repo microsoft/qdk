@@ -196,14 +196,16 @@ export class LearningTools {
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
       const editor = vscode.window.activeNotebookEditor;
-      if (editor && editor.notebook.uri.toString() === uri.toString()) {
+      if (editor) {
         let code = "";
-        // Prefer the cell the user actually has focused in the editor.
-        const selection = editor.selections[0];
-        if (selection) {
-          // Not guaranteed to be a code cell, but not important enough to check
-          const cell = editor.notebook.cellAt(selection.start);
-          code = cell.document.getText();
+        if (editor.notebook.uri.toString() === uri.toString()) {
+          // Prefer the cell the user actually has focused in the editor.
+          const selection = editor.selections[0];
+          if (selection) {
+            // Not guaranteed to be a code cell, but not important enough to check
+            const cell = editor.notebook.cellAt(selection.start);
+            code = cell.document.getText();
+          }
         }
         return { code, filePath: uri.fsPath };
       }
