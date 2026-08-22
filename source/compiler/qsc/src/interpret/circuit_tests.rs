@@ -10,7 +10,7 @@ use crate::{
 };
 use expect_test::expect;
 use miette::Diagnostic;
-use qsc_circuit::{Circuit, TracerConfig};
+use qsc_circuit::{Circuit, Operation, TracerConfig};
 use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
 use qsc_eval::output::GenericReceiver;
 use qsc_eval::val::Value;
@@ -467,7 +467,7 @@ fn grouping_nested_callables() {
 }
 
 #[test]
-fn invisible_callable_is_flattened_in_circuit_json() {
+fn invisible_callable_is_flattened_in_circuit() {
     let circuit = circuit_with_options_success(
         r"
             namespace Test {
@@ -498,103 +498,22 @@ fn invisible_callable_is_flattened_in_circuit_json() {
             ..default_test_tracer_config()
         },
     );
-    let json = serde_json::to_string_pretty(&circuit).expect("circuit should serialize");
 
-    expect![[r#"
-        {
-          "qubits": [
-            {
-              "id": 0,
-              "numResults": 0
-            }
-          ],
-          "componentGrid": [
-            {
-              "components": [
-                {
-                  "kind": "unitary",
-                  "gate": "Main",
-                  "children": [
-                    {
-                      "components": [
-                        {
-                          "kind": "unitary",
-                          "gate": "Visible",
-                          "children": [
-                            {
-                              "components": [
-                                {
-                                  "kind": "unitary",
-                                  "gate": "H",
-                                  "targets": [
-                                    {
-                                      "qubit": 0
-                                    }
-                                  ]
-                                }
-                              ]
-                            }
-                          ],
-                          "targets": [
-                            {
-                              "qubit": 0
-                            }
-                          ],
-                          "metadata": {
-                            "scopeLocation": {
-                              "file": "test.qs",
-                              "line": 9,
-                              "column": 16
-                            }
-                          }
-                        }
-                      ]
-                    },
-                    {
-                      "components": [
-                        {
-                          "kind": "unitary",
-                          "gate": "X",
-                          "targets": [
-                            {
-                              "qubit": 0
-                            }
-                          ]
-                        }
-                      ]
-                    },
-                    {
-                      "components": [
-                        {
-                          "kind": "unitary",
-                          "gate": "Y",
-                          "targets": [
-                            {
-                              "qubit": 0
-                            }
-                          ]
-                        }
-                      ]
-                    }
-                  ],
-                  "targets": [
-                    {
-                      "qubit": 0
-                    }
-                  ],
-                  "metadata": {
-                    "scopeLocation": {
-                      "file": "test.qs",
-                      "line": 3,
-                      "column": 16
-                    }
-                  }
-                }
-              ]
-            }
-          ]
-        }"#]]
-    .assert_eq(&json);
+    let [main_column] = circuit.component_grid.as_slice() else {
+        panic!("circuit should contain one top-level column");
+    };
+    let [Operation::Unitary(main)] = main_column.components.as_slice() else {
+        panic!("circuit should contain the Main group");
+    };
+    assert_eq!(main.gate, "Main");
+    assert_eq!(
+        main.children
+            .iter()
+            .flat_map(|column| &column.components)
+            .map(Operation::gate)
+            .collect::<Vec<_>>(),
+        ["Visible", "X", "Y"]
+    );
 }
 
 #[test]

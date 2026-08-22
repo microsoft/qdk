@@ -1942,7 +1942,6 @@ dependencies = [
  "qsc_project",
  "qsc_rca",
  "rustc-hash",
- "serde_json",
  "thiserror",
 ]
 
