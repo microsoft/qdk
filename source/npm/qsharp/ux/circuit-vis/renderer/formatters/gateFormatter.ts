@@ -683,7 +683,15 @@ const _groupedOperations = (renderData: GateRenderData): SVGElement => {
   if (renderData.displayAsClassicallyControlledGate) {
     const child = renderData.children![0][0];
     const controlY = renderData.controlsY[0];
-    const targetY = (child.targetsY as (number | number[])[]).flat()[0];
+
+    // Find y-coordinate of the qubit closest to the classical wire.
+    const targetsY = (
+      child.targetsY as (number | number[])[]
+    ).flat() as number[];
+    const minTargetY = Math.min(...targetsY);
+    const maxTargetY = Math.max(...targetsY);
+    const targetY = controlY < minTargetY ? minTargetY : maxTargetY;
+
     const lineOffset = 1;
     const connectorLines = [-lineOffset, lineOffset].map((offset) => {
       const connector = line(
