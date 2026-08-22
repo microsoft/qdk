@@ -18,6 +18,13 @@ Both are published as part of the Sphinx site at
 published site works. The default location is an `html` directory beside this
 repo; pass `--docs` to point somewhere else, and `--course` to write elsewhere.
 
+Image assets stored beside `rst_to_notebook.py` are used in place of the ones
+from the built documentation, and the converter embeds them in the notebooks.
+Diagrams are SVG, embedded inline in the Markdown so they follow the active
+theme. `tutorial_qpe_atomic_basis_functions.png` and
+`tutorial_qpe_example_molecular_orbitals.png` stay PNG attachments. Every
+figure needs an `:alt:`, which becomes the SVG's accessible name.
+
 | Script               | What it does                                                                                                                |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `rst_to_notebook.py` | Converts one tutorial chapter to a unit notebook. `RECIPES` holds the per-chapter decisions a human still has to make.      |
