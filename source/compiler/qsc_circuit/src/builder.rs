@@ -563,6 +563,10 @@ fn collapse_if_unnecessary(
         children,
     } = &mut op.kind
     {
+        if source_lookup.is_invisible_callable_scope(scope_stack.current_lexical_scope()) {
+            return Some(take(children));
+        }
+
         if let Scope::Loop(..) = scope_stack.current_lexical_scope() {
             if children.len() == 1 {
                 // remove the loop scope
@@ -625,6 +629,8 @@ pub trait SourceLookup {
     /// Circuit rendering uses this to collapse bookkeeping-only callable
     /// scopes so they do not appear as separate groups in the final diagram.
     fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
+    /// Returns whether a callable scope is annotated with `InvisibleInCircuit`.
+    fn is_invisible_callable_scope(&self, scope: &Scope) -> bool;
 }
 
 impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
@@ -847,6 +853,26 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
         }
 
         !hir_package_contains_callable_origin(unit, offset, name.as_ref())
+    }
+
+    fn is_invisible_callable_scope(&self, scope: &Scope) -> bool {
+        let Some((current_package, offset, name)) = callable_scope_origin_key(self.1, scope) else {
+            return false;
+        };
+
+        let Some(unit) = self.0.get(map_fir_package_to_hir(current_package)) else {
+            return false;
+        };
+
+        unit.package.items.values().any(|item| {
+            let qsc_hir::hir::ItemKind::Callable(decl) = &item.kind else {
+                return false;
+            };
+
+            decl.span.lo == offset
+                && displayable_callable_scope_name(&decl.name.name).as_ref() == name.as_ref()
+                && decl.attrs.contains(&qsc_hir::hir::Attr::InvisibleInCircuit)
+        })
     }
 }
 

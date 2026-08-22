@@ -467,6 +467,137 @@ fn grouping_nested_callables() {
 }
 
 #[test]
+fn invisible_callable_is_flattened_in_circuit_json() {
+    let circuit = circuit_with_options_success(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Visible(q);
+                    Invisible(q);
+                }
+
+                operation Visible(q : Qubit) : Unit {
+                    H(q);
+                }
+
+                @InvisibleInCircuit()
+                operation Invisible(q : Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ",
+        Profile::AdaptiveRIF,
+        CircuitEntryPoint::EntryPoint,
+        CircuitGenerationMethod::Static,
+        TracerConfig {
+            source_locations: false,
+            group_by_scope: true,
+            ..default_test_tracer_config()
+        },
+    );
+    let json = serde_json::to_string_pretty(&circuit).expect("circuit should serialize");
+
+    expect![[r#"
+        {
+          "qubits": [
+            {
+              "id": 0,
+              "numResults": 0
+            }
+          ],
+          "componentGrid": [
+            {
+              "components": [
+                {
+                  "kind": "unitary",
+                  "gate": "Main",
+                  "children": [
+                    {
+                      "components": [
+                        {
+                          "kind": "unitary",
+                          "gate": "Visible",
+                          "children": [
+                            {
+                              "components": [
+                                {
+                                  "kind": "unitary",
+                                  "gate": "H",
+                                  "targets": [
+                                    {
+                                      "qubit": 0
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ],
+                          "targets": [
+                            {
+                              "qubit": 0
+                            }
+                          ],
+                          "metadata": {
+                            "scopeLocation": {
+                              "file": "test.qs",
+                              "line": 9,
+                              "column": 16
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "components": [
+                        {
+                          "kind": "unitary",
+                          "gate": "X",
+                          "targets": [
+                            {
+                              "qubit": 0
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "components": [
+                        {
+                          "kind": "unitary",
+                          "gate": "Y",
+                          "targets": [
+                            {
+                              "qubit": 0
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "targets": [
+                    {
+                      "qubit": 0
+                    }
+                  ],
+                  "metadata": {
+                    "scopeLocation": {
+                      "file": "test.qs",
+                      "line": 3,
+                      "column": 16
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }"#]]
+    .assert_eq(&json);
+}
+
+#[test]
 fn classical_for_loop_is_grouped() {
     let circ = circuit_without_groups(
         r"

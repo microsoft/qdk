@@ -44,6 +44,7 @@ allocator = { path = "../../allocator" }
 criterion = { workspace = true, features = ["cargo_bench_support"] }
 expect-test = { workspace = true }
 indoc = { workspace = true }
+serde_json = { workspace = true }
 
 [lints]
 workspace = true
