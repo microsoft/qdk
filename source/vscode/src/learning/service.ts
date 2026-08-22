@@ -592,7 +592,7 @@ export class LearningService {
     const progress = this.getCourseProgress(course.id);
 
     return {
-      course,
+      course: { id: course.id, title: course.title, kind: course.kind },
       position,
       progress,
       actions: [], // Won't be consumed anyway
