@@ -332,9 +332,13 @@ export class LearningTools {
   async solution(): Promise<{ solutions: string[] } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
-      const solutions = this.service.getAllSolutions("chat");
+      const state = this.serializeState(true); // use editor for solutions
+      const solutions = this.service.getAllSolutions(
+        state.position.location,
+        "chat",
+      );
       await this.showActivity();
-      return { solutions, state: this.serializeState(false) }; // Using active course for solution
+      return { solutions, state };
     });
   }
 

@@ -800,12 +800,20 @@ export class LearningService {
     return { hints, solutionExplanation };
   }
 
-  getAllSolutions(source?: TelemetrySource): string[] {
+  getAllSolutions(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): string[] {
+    const exercise = this.resolveExerciseAt(location);
     if (source) {
-      this.sendActivityActionTelemetry("solution", source);
+      sendTelemetryEvent(
+        EventType.LearningActivityAction,
+        { action: "solution", activityType: exercise.type, source },
+        {},
+      );
     }
 
-    return this.resolveExercise().solutionCodes;
+    return exercise.solutionCodes;
   }
 
   getExerciseFileUri(): vscode.Uri {
