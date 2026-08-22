@@ -468,14 +468,14 @@ fn grouping_nested_callables() {
 
 #[test]
 fn invisible_callable_is_flattened_in_circuit() {
-    let circuit = circuit_with_options_success(
-        r"
+    let code = r"
             namespace Test {
                 @EntryPoint()
                 operation Main() : Unit {
                     use q = Qubit();
                     Visible(q);
                     Invisible(q);
+                    Reset(q);
                 }
 
                 operation Visible(q : Qubit) : Unit {
@@ -488,32 +488,41 @@ fn invisible_callable_is_flattened_in_circuit() {
                     Y(q);
                 }
             }
-        ",
-        Profile::AdaptiveRIF,
-        CircuitEntryPoint::EntryPoint,
-        CircuitGenerationMethod::Static,
-        TracerConfig {
-            source_locations: false,
-            group_by_scope: true,
-            ..default_test_tracer_config()
-        },
-    );
+        ";
 
-    let [main_column] = circuit.component_grid.as_slice() else {
-        panic!("circuit should contain one top-level column");
-    };
-    let [Operation::Unitary(main)] = main_column.components.as_slice() else {
-        panic!("circuit should contain the Main group");
-    };
-    assert_eq!(main.gate, "Main");
-    assert_eq!(
-        main.children
-            .iter()
-            .flat_map(|column| &column.components)
-            .map(Operation::gate)
-            .collect::<Vec<_>>(),
-        ["Visible", "X", "Y"]
-    );
+    for method in [
+        CircuitGenerationMethod::Simulate,
+        CircuitGenerationMethod::ClassicalEval,
+        CircuitGenerationMethod::Static,
+    ] {
+        let circuit = circuit_with_options_success(
+            code,
+            Profile::AdaptiveRIF,
+            CircuitEntryPoint::EntryPoint,
+            method,
+            TracerConfig {
+                source_locations: false,
+                group_by_scope: true,
+                ..default_test_tracer_config()
+            },
+        );
+
+        let [main_column] = circuit.component_grid.as_slice() else {
+            panic!("{method:?} circuit should contain one top-level column");
+        };
+        let [Operation::Unitary(main)] = main_column.components.as_slice() else {
+            panic!("{method:?} circuit should contain the Main group");
+        };
+        assert_eq!(main.gate, "Main", "unexpected gate for {method:?}");
+        assert_eq!(
+            main.children
+                .iter()
+                .flat_map(|column| &column.components)
+                .map(Operation::gate)
+                .collect::<Vec<_>>(),
+            ["Visible", "X", "Y", "|0〉"]
+        );
+    }
 }
 
 #[test]
