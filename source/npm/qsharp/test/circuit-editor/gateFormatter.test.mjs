@@ -24,6 +24,7 @@ import {
   _zoomButton,
   _classicalControls,
   _getQuantumControlYs,
+  formatGate,
 } from "../../dist/ux/circuit-vis/renderer/formatters/gateFormatter.js";
 import { GateType } from "../../dist/ux/circuit-vis/renderer/gateRenderData.js";
 import { controlCircleOffset } from "../../dist/ux/circuit-vis/renderer/constants.js";
@@ -65,9 +66,46 @@ function makeRenderData(overrides = {}) {
     width: 40,
     topPadding: 0,
     bottomPadding: 0,
+    displayAsClassicallyControlledGate: false,
+    isAntiControlled: false,
     ...overrides,
   };
 }
+
+/** @param {boolean} isAntiControlled */
+const compactClassicalControl = (isAntiControlled) => {
+  const child = makeRenderData({ x: 120, targetsY: [[40]] });
+  return makeRenderData({
+    type: GateType.Group,
+    isExpanded: true,
+    x: 120,
+    controlsY: [120],
+    targetsY: [40, 120],
+    label: isAntiControlled ? "if: c_0 = |0〉" : "if: c_0 = |1〉",
+    classicalControlIds: [0],
+    children: [[child]],
+    displayAsClassicallyControlledGate: true,
+    isAntiControlled,
+  });
+};
+
+test("formatGate: renders a compact classical control", () => {
+  const gate = formatGate(compactClassicalControl(false));
+
+  assert.equal(gate.querySelectorAll(".register-classical").length, 2);
+  assert.equal(gate.querySelectorAll(".control-dot").length, 1);
+  assert.equal(gate.querySelector(".anti-control-dot"), null);
+  assert.equal(gate.querySelector(".classically-controlled-btn"), null);
+  assert.equal(gate.querySelector(".gate-control"), null);
+});
+
+test("formatGate: renders a compact classical anti-control", () => {
+  const gate = formatGate(compactClassicalControl(true));
+
+  assert.equal(gate.querySelectorAll(".register-classical").length, 2);
+  assert.equal(gate.querySelectorAll(".control-dot").length, 1);
+  assert.notEqual(gate.querySelector(".anti-control-dot"), null);
+});
 
 // ---------------------------------------------------------------------------
 // _getQuantumControlYs — pure-data filter (no JSDOM needed, but the `beforeEach` setup is harmless)

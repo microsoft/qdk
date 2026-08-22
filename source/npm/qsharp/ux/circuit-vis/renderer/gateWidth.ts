@@ -22,7 +22,10 @@ const getMinGateWidth = ({
   label,
   displayArgs,
   classicalControlIds,
+  displayAsClassicallyControlledGate,
 }: GateRenderData): number => {
+  if (displayAsClassicallyControlledGate) return minGateWidth;
+
   switch (type) {
     case GateType.Measure:
     case GateType.Cnot:

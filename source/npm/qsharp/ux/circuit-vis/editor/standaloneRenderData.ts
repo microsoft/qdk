@@ -40,6 +40,8 @@ const toRenderData = (
     width: -1,
     topPadding: 0,
     bottomPadding: 0,
+    displayAsClassicallyControlledGate: false,
+    isAntiControlled: false,
   };
 
   if (operation === undefined) return renderData;
