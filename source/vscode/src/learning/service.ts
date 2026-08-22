@@ -765,7 +765,10 @@ export class LearningService {
 
     return {
       units,
-      currentPosition: ws.progressData.position,
+      currentPosition:
+        ws.progressData.position.courseId === course.id
+          ? ws.progressData.position
+          : this.firstIncompletePosition(course),
       stats: { totalActivities, completedActivities },
     };
   }
