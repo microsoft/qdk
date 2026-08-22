@@ -278,6 +278,10 @@ export class LearningTools {
   }): Promise<StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
+      const courseId = input.courseId;
+      if (courseId && courseId !== this.service.getActiveCourseId()) {
+        await this.service.switchCourse(courseId, "chat");
+      }
       await this.service.goTo(input, "chat");
       await this.showActivity();
       return { state: this.serializeState(false) }; // workspace state is correct after goto
