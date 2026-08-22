@@ -125,7 +125,7 @@ export class LearningTools {
       }
       await this.ensureInitialized();
     }
-    return { initialized: true, state: this.serializeState() };
+    return { initialized: true, state: this.serializeState(true) }; // match user experience
   }
 
   /**
@@ -167,7 +167,7 @@ export class LearningTools {
     return this.invoke(async () => {
       await this.service.switchCourse(input.courseId, "chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // workspace state is correct after switch
     });
   }
 
@@ -220,7 +220,7 @@ export class LearningTools {
   async hint(): Promise<{ result: HintContext | undefined } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(() => {
-      const state = this.serializeState();
+      const state = this.serializeState(true); // use editor for hints
       const result = this.service.getHintContext(
         state.position.location,
         "chat",
@@ -238,7 +238,7 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(true) }; // no-ops for notebooks, so editor state is more accurate
     });
   }
 
@@ -251,7 +251,7 @@ export class LearningTools {
     return this.invoke(async () => {
       const r = await this.service.next("chat");
       await this.showActivity();
-      return { moved: r.moved, state: this.serializeState() };
+      return { moved: r.moved, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -264,7 +264,7 @@ export class LearningTools {
     return this.invoke(async () => {
       const r = await this.service.previous("chat");
       await this.showActivity();
-      return { moved: r.moved, state: this.serializeState() };
+      return { moved: r.moved, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -280,7 +280,7 @@ export class LearningTools {
     return this.invoke(async () => {
       await this.service.goTo(input, "chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // workspace state is correct after goto
     });
   }
 
@@ -295,7 +295,7 @@ export class LearningTools {
     return this.invoke(async () => {
       const r = await this.service.run(input.shots ?? 1, "chat");
       await this.showActivity();
-      return { result: r.result, state: this.serializeState() };
+      return { result: r.result, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -308,7 +308,7 @@ export class LearningTools {
     return this.invoke(async () => {
       const r = await this.service.checkSolution("chat");
       await this.showActivity();
-      return { result: r.result, state: this.serializeState() };
+      return { result: r.result, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -322,7 +322,7 @@ export class LearningTools {
     return this.invoke(async () => {
       await this.service.resetExercise("chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -334,7 +334,7 @@ export class LearningTools {
     return this.invoke(async () => {
       const solutions = this.service.getAllSolutions("chat");
       await this.showActivity();
-      return { solutions, state: this.serializeState() };
+      return { solutions, state: this.serializeState(false) }; // Using active course for solution
     });
   }
 
@@ -386,11 +386,13 @@ export class LearningTools {
    * Build a compact snapshot of position and progress to attach to
    * every tool response.
    */
-  private serializeState(): SerializedLearningState {
+  private serializeState(considerEditor: boolean): SerializedLearningState {
     // The notebook learning state will be undefined if we're not in a notebook
     // or if we couldn't identify the current cell for some reason.
     // In that case, we fall back to the current state.
-    const state = this.notebookLearningState() ?? this.service.getState();
+    const state =
+      (considerEditor ? this.notebookLearningState() : undefined) ??
+      this.service.getState();
 
     const progress = state.progress;
     const unitId = progress.currentPosition?.unitId;
