@@ -778,11 +778,16 @@ export class LearningService {
     location: ActivityLocation,
     source?: TelemetrySource,
   ): HintContext | undefined {
+    const exercise = this.resolveExerciseAt(location);
     if (source) {
-      this.sendActivityActionTelemetry("hint", source);
+      // Inlined from sendActivityActionTelemetry
+      sendTelemetryEvent(
+        EventType.LearningActivityAction,
+        { action: "hint", activityType: exercise.type, source },
+        {},
+      );
     }
 
-    const exercise = this.resolveExerciseAt(location);
     const hints = exercise.hints;
     const solutionExplanation = exercise.solutionExplanation;
 
