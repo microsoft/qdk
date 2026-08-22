@@ -76,6 +76,10 @@ impl SourceLookup for FakeCompilation {
     fn is_synthesized_callable_scope(&self, _scope: &Scope) -> bool {
         false
     }
+
+    fn is_invisible_callable_scope(&self, _scope: &Scope) -> bool {
+        false
+    }
 }
 
 impl FakeCompilation {

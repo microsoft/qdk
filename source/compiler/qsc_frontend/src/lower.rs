@@ -42,7 +42,7 @@ use self::convert::TyConversionError;
 pub(super) enum Error {
     #[error("unknown attribute {0}")]
     #[diagnostic(help(
-        "supported attributes are: EntryPoint, Config, SimulatableIntrinsic, Measurement, Reset"
+        "supported attributes are: EntryPoint, Config, InvisibleInCircuit, SimulatableIntrinsic, Measurement, Reset"
     ))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.UnknownAttr"))]
     UnknownAttr(String, #[label] Span),
@@ -379,6 +379,17 @@ impl With<'_> {
                         "empty or profile name".to_string(),
                         attr.arg.span,
                     ));
+                    None
+                }
+            },
+            Ok(hir::Attr::InvisibleInCircuit) => match &*attr.arg.kind {
+                ast::ExprKind::Tuple(args) if args.is_empty() => {
+                    Some(hir::Attr::InvisibleInCircuit)
+                }
+                _ => {
+                    self.lowerer
+                        .errors
+                        .push(Error::InvalidAttrArgs("()".to_string(), attr.arg.span));
                     None
                 }
             },

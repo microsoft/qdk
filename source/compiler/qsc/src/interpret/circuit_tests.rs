@@ -10,7 +10,7 @@ use crate::{
 };
 use expect_test::expect;
 use miette::Diagnostic;
-use qsc_circuit::{Circuit, TracerConfig};
+use qsc_circuit::{Circuit, Operation, TracerConfig};
 use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
 use qsc_eval::output::GenericReceiver;
 use qsc_eval::val::Value;
@@ -464,6 +464,65 @@ fn grouping_nested_callables() {
                                                                                          ╘════════════════════════════════
     "#]]
     .assert_eq(&circ);
+}
+
+#[test]
+fn invisible_callable_is_flattened_in_circuit() {
+    let code = r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Visible(q);
+                    Invisible(q);
+                    Reset(q);
+                }
+
+                operation Visible(q : Qubit) : Unit {
+                    H(q);
+                }
+
+                @InvisibleInCircuit()
+                operation Invisible(q : Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        ";
+
+    for method in [
+        CircuitGenerationMethod::Simulate,
+        CircuitGenerationMethod::ClassicalEval,
+        CircuitGenerationMethod::Static,
+    ] {
+        let circuit = circuit_with_options_success(
+            code,
+            Profile::AdaptiveRIF,
+            CircuitEntryPoint::EntryPoint,
+            method,
+            TracerConfig {
+                source_locations: false,
+                group_by_scope: true,
+                ..default_test_tracer_config()
+            },
+        );
+
+        let [main_column] = circuit.component_grid.as_slice() else {
+            panic!("{method:?} circuit should contain one top-level column");
+        };
+        let [Operation::Unitary(main)] = main_column.components.as_slice() else {
+            panic!("{method:?} circuit should contain the Main group");
+        };
+        assert_eq!(main.gate, "Main", "unexpected gate for {method:?}");
+        assert_eq!(
+            main.children
+                .iter()
+                .flat_map(|column| &column.components)
+                .map(Operation::gate)
+                .collect::<Vec<_>>(),
+            ["Visible", "X", "Y", "|0〉"]
+        );
+    }
 }
 
 #[test]
