@@ -1,0 +1,173 @@
+"""Intrinsic Pauli-fault effects of qodec gadgets."""
+
+from __future__ import annotations
+
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass, field
+
+import qodec as qc
+
+from ._readouts import observables_as_xor_map
+from ._references import outcomes_of, parse_equations
+from ._analysis.propagation.interpreter import program_of, propagate_faults
+from ._analysis.propagation.pauli import Pauli, PauliCharacter
+from ._analysis.propagation.pauli_remap import (
+    Basis,
+    encoding_qubit_relocation,
+    logical_chars,
+    remap_to_global,
+)
+
+
+@dataclass(frozen=True)
+class Fault:
+    """A Pauli fault injected after one or more program instructions."""
+
+    errors: dict[int, Pauli]
+
+
+@dataclass(frozen=True)
+class FaultEffect:
+    """The intrinsic semantic effect of one fault-basis element."""
+
+    flipped_checks: frozenset[int] = field(default_factory=frozenset)
+    flipped_observables: frozenset[int] = field(default_factory=frozenset)
+    residuals: dict[int, Pauli] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class FaultProfile:
+    """A positional mapping from an explicit fault basis to its effects."""
+
+    basis: tuple[Fault, ...]
+    effects: tuple[FaultEffect, ...]
+
+    def __len__(self) -> int:
+        return len(self.basis)
+
+    def __iter__(self) -> Iterator[tuple[Fault, FaultEffect]]:
+        return iter(zip(self.basis, self.effects))
+
+
+def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
+    """Map an explicit Pauli fault basis to probability-free effects."""
+    fault_basis = tuple(basis)
+    if not fault_basis:
+        return FaultProfile((), ())
+
+    program = program_of(gadget)
+    checks = [outcomes_of(check) for check in parse_equations(gadget.checks)]
+    observable_map = observables_as_xor_map(gadget)
+    observables = list(observable_map.values())
+    flag_names = set(gadget.implements.flags)
+    flag_indices = {
+        index for index, name in enumerate(observable_map) if name in flag_names
+    }
+    z_probes, z_layout = _build_basis_probes(gadget.outputs, "Z")
+    x_probes, x_layout = _build_basis_probes(gadget.outputs, "X")
+    deltas, hidden_count, outcome_count = propagate_faults(
+        program, fault_basis, z_probes + x_probes
+    )
+    z_offset = hidden_count + outcome_count
+    x_offset = z_offset + len(z_probes)
+    effects = []
+    for fault_index in range(len(fault_basis)):
+        flipped_outcomes = {
+            index
+            for index in range(outcome_count)
+            if deltas[hidden_count + index, fault_index]
+        }
+        flipped_checks = frozenset(
+            index
+            for index, positions in enumerate(checks)
+            if sum(position in flipped_outcomes for position in positions) % 2
+        )
+        flipped_observables = frozenset(
+            index
+            for index, positions in enumerate(observables)
+            if index not in flag_indices
+            and sum(position in flipped_outcomes for position in positions) % 2
+        )
+        z_flips = {
+            index
+            for index in range(len(z_probes))
+            if deltas[z_offset + index, fault_index]
+        }
+        x_flips = {
+            index
+            for index in range(len(x_probes))
+            if deltas[x_offset + index, fault_index]
+        }
+        effects.append(
+            FaultEffect(
+                flipped_checks,
+                flipped_observables,
+                _combine_residual_passes(
+                    gadget.outputs,
+                    z_flips,
+                    z_layout,
+                    x_flips,
+                    x_layout,
+                ),
+            )
+        )
+    return FaultProfile(fault_basis, tuple(effects))
+
+
+def fault_effects_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> list[FaultEffect]:
+    """Return only the effects from :func:`fault_profile_of`."""
+    return list(fault_profile_of(gadget, basis).effects)
+
+
+def _build_basis_probes(
+    encodings: Sequence[qc.Encoding], basis: Basis
+) -> tuple[list[Pauli], list[tuple[int, int]]]:
+    probes = []
+    layout = []
+    for entry, encoding in enumerate(encodings):
+        relocation = encoding_qubit_relocation(encoding)
+        for index, characters in enumerate(logical_chars(encoding.code, basis)):
+            probes.append(remap_to_global(characters, relocation))
+            layout.append((entry, index))
+    return probes, layout
+
+
+def _combine_residual_passes(
+    encodings: Sequence[qc.Encoding],
+    z_flips: set[int],
+    z_layout: list[tuple[int, int]],
+    x_flips: set[int],
+    x_layout: list[tuple[int, int]],
+) -> dict[int, Pauli]:
+    residuals: dict[int, dict[int, PauliCharacter]] = {
+        entry: {} for entry in range(len(encodings))
+    }
+    flips: dict[tuple[int, int], dict[str, bool]] = {}
+    for index, key in enumerate(z_layout):
+        if index in z_flips:
+            flips.setdefault(key, {})["x"] = True
+    for index, key in enumerate(x_layout):
+        if index in x_flips:
+            flips.setdefault(key, {})["z"] = True
+    for (encoding, logical), value in flips.items():
+        x_residual = value.get("x", False)
+        z_residual = value.get("z", False)
+        if x_residual and z_residual:
+            basis: PauliCharacter = "Y"
+        elif x_residual:
+            basis = "X"
+        elif z_residual:
+            basis = "Z"
+        else:
+            continue
+        residuals[encoding][logical] = basis
+    return {name: Pauli(characters) for name, characters in residuals.items()}
+
+
+__all__ = [
+    "Fault",
+    "FaultEffect",
+    "FaultProfile",
+    "fault_effects_of",
+    "fault_profile_of",
+]
