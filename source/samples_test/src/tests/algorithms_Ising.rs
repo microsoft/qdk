@@ -14,7 +14,7 @@ pub const SIMPLE2DISINGORDER2_EXPECT_CIRCUIT: Expect = expect!["generated circui
 pub const SIMPLE2DISINGORDER2_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 20849"];
 pub const SIMPLE2DISINGORDER2_EXPECT_QIR_ADAPTIVE: Expect =
-    expect!["generated QIR of length 11739"];
+    expect!["generated QIR of length 11787"];
 pub const SIMPLE1DISINGORDER1_EXPECT: Expect =
     expect!["[Zero, Zero, Zero, One, One, Zero, Zero, Zero, Zero]"];
 pub const SIMPLE1DISINGORDER1_EXPECT_DEBUG: Expect =
@@ -22,7 +22,7 @@ pub const SIMPLE1DISINGORDER1_EXPECT_DEBUG: Expect =
 pub const SIMPLE1DISINGORDER1_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 12317"];
 pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 18408"];
-pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6557"];
+pub const SIMPLE1DISINGORDER1_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6605"];
 pub const SIMPLE2DISINGORDER1_EXPECT: Expect =
     expect!["[Zero, Zero, Zero, One, One, Zero, One, One, Zero]"];
 pub const SIMPLE2DISINGORDER1_EXPECT_DEBUG: Expect =
@@ -31,4 +31,4 @@ pub const SIMPLE2DISINGORDER1_EXPECT_CIRCUIT: Expect = expect!["generated circui
 pub const SIMPLE2DISINGORDER1_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 16214"];
 pub const SIMPLE2DISINGORDER1_EXPECT_QIR_ADAPTIVE: Expect =
-    expect!["generated QIR of length 11241"];
+    expect!["generated QIR of length 11289"];
