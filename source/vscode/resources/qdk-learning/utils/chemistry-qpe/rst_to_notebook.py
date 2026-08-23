@@ -1125,13 +1125,19 @@ def render_directive(name, argument, options, body):
         return block
     if name in ("figure", "image", "graphviz"):
         filename = image_filename(name, argument)
-        alt = inline(options.get("alt", "")).strip() or legacy_filename(name, argument)
+        alt = inline(options.get("alt", "")).strip()
         picture = image_path(name, argument)
-        image = (
-            inline_svg(picture, alt)
-            if picture.suffix.lower() == ".svg" and picture.is_file()
-            else f"![{alt}](attachment:{filename})"
-        )
+        if picture.suffix.lower() == ".svg" and picture.is_file():
+            if not alt:
+                raise SystemExit(
+                    f"{argument.strip()} needs an :alt: to name the inline SVG"
+                )
+            image = inline_svg(picture, alt)
+        else:
+            image = (
+                f"![{alt or legacy_filename(name, argument)}]"
+                f"(attachment:{filename})"
+            )
         caption = inline(options["caption"]).strip() if "caption" in options else text.strip()
         centred = f"{image}\n\n*{caption}*" if caption else image
         return f'<div style="text-align:center;">\n\n{centred}\n\n</div>'
