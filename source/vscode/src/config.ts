@@ -3,6 +3,7 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
+import type { SimulatorConfig } from "qsharp-lang";
 
 export function getTargetFriendlyName(targetProfile?: string) {
   switch (targetProfile) {
@@ -39,6 +40,46 @@ export function getQubitLossSetting(): number {
     .getConfiguration("Q#.simulation")
     .get<number>("qubitLoss", 0);
   return qubitLoss;
+}
+
+export function getSimulationConfig(): SimulatorConfig {
+  const simulationSettings = vscode.workspace.getConfiguration("Q#.simulation");
+  const type = simulationSettings.get<string>("type", "sparse");
+  if (type === "sparse") {
+    return { type };
+  }
+  if (type !== "clifford") {
+    throw new Error(
+      `Invalid Q#.simulation.type value "${type}". Expected "sparse" or "clifford".`,
+    );
+  }
+
+  const maxQubits = simulationSettings.get<number>("clifford.maxQubits", 1000);
+  if (
+    !Number.isSafeInteger(maxQubits) ||
+    maxQubits < 1 ||
+    maxQubits > 0xffff_ffff
+  ) {
+    throw new Error(
+      "Q#.simulation.clifford.maxQubits must be an integer between 1 and 4294967295.",
+    );
+  }
+  return { type, maxQubits };
+}
+
+export function validateSimulationNoiseSettings(
+  simulation: SimulatorConfig,
+  pauliNoise: number[],
+  qubitLoss: number,
+): void {
+  if (
+    simulation.type === "clifford" &&
+    (pauliNoise.some((probability) => probability !== 0) || qubitLoss !== 0)
+  ) {
+    throw new Error(
+      "Q#.simulation.pauliNoise and Q#.simulation.qubitLoss are not supported by the Clifford simulator. Set them to zero or select the sparse simulator.",
+    );
+  }
 }
 
 export function getShowDevDiagnostics(): boolean {

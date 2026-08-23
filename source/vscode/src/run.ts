@@ -1,12 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { IQSharpError, log } from "qsharp-lang";
+import { IQSharpError, log, type SimulatorConfig } from "qsharp-lang";
 import vscode from "vscode";
 import { loadCompilerWorker } from "./common";
 import { createDebugConsoleEventTarget } from "./debugger/output";
 import { FullProgramConfig, getProgramForDocument } from "./programConfig";
 import { clearCommandDiagnostics } from "./diagnostics";
+import { getSimulationConfig } from "./config";
 
 /**
  * Runs a program in a VS Code terminal using a custom pseudoterminal.
@@ -172,6 +173,10 @@ export function runProgram(
      * If true, the program's return value will not be echoed to onConsoleOut.
      */
     suppressResultOutput?: boolean;
+    /**
+     * The simulator to use (if omitted, defaults to the sparse state-vector simulator).
+     */
+    simulator?: SimulatorConfig;
   },
 ): Promise<ProgramRunResult> {
   return new Promise<ProgramRunResult>(function executeRunProgram(
@@ -252,7 +257,13 @@ export function runProgram(
 
     // Invoke the actual compiler worker.
     worker
-      .run(program, options.entry || "", options.shots || 1, evtTarget)
+      .run(
+        program,
+        options.entry || "",
+        options.shots || 1,
+        options.simulator ?? { type: "sparse" },
+        evtTarget,
+      )
       .catch((e) => {
         log.debug("Error during program run:", e);
 
@@ -331,6 +342,7 @@ async function runOnTerminalOpen(
   const result = await runProgram(extensionUri, program.programConfig, {
     entry,
     shots: 1,
+    simulator: getSimulationConfig(),
     onConsoleOut: (msg) => {
       // replace \n with \r\n for proper terminal display
       msg = msg.replace(/\n/g, "\r\n");

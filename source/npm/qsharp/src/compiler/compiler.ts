@@ -51,6 +51,14 @@ export interface ICompiler {
     eventHandler: IQscEventTarget,
   ): Promise<void>;
 
+  run(
+    program: ProgramConfig,
+    expr: string,
+    shots: number,
+    simulator: SimulatorConfig,
+    eventHandler: IQscEventTarget,
+  ): Promise<void>;
+
   runWithNoise(
     program: ProgramConfig,
     expr: string,
@@ -106,6 +114,10 @@ export type ProgramConfig = (
   /** The type of project. This is used to determine how to load the project. */
   projectType?: ProjectType;
 };
+
+export type SimulatorConfig =
+  | { type: "sparse" }
+  | { type: "clifford"; maxQubits: number };
 
 // WebWorker also support being explicitly terminated to tear down the worker thread
 export type ICompilerWorker = ICompiler & IServiceProxy;
@@ -171,18 +183,57 @@ export class Compiler implements ICompiler {
     expr: string,
     shots: number,
     eventHandler: IQscEventTarget,
+  ): Promise<void>;
+
+  async run(
+    program: ProgramConfig,
+    expr: string,
+    shots: number,
+    simulator: SimulatorConfig,
+    eventHandler: IQscEventTarget,
+  ): Promise<void>;
+
+  async run(
+    program: ProgramConfig,
+    expr: string,
+    shots: number,
+    simulatorOrEventHandler: SimulatorConfig | IQscEventTarget,
+    eventHandler?: IQscEventTarget,
   ): Promise<void> {
+    const simulator =
+      "dispatchEvent" in simulatorOrEventHandler
+        ? { type: "sparse" as const }
+        : simulatorOrEventHandler;
+    const target =
+      "dispatchEvent" in simulatorOrEventHandler
+        ? simulatorOrEventHandler
+        : eventHandler;
+    if (!target) {
+      throw new Error("A compiler event handler must be provided");
+    }
+
     // All results are communicated as events, but if there is a compiler error (e.g. an invalid
     // entry expression or similar), it may throw on run. The caller should expect this promise
     // may reject without all shots running or events firing.
-    await callAndTransformExceptions(async () =>
-      this.wasm.run(
+    await callAndTransformExceptions(async () => {
+      const eventCallback = (msg: string) => onCompilerEvent(msg, target);
+      if (simulator.type === "clifford") {
+        return this.wasm.runWithSimulator(
+          toWasmProgramConfig(program, "unrestricted"),
+          expr,
+          eventCallback,
+          shots!,
+          simulator.type,
+          simulator.maxQubits,
+        );
+      }
+      return this.wasm.run(
         toWasmProgramConfig(program, "unrestricted"),
         expr,
-        (msg: string) => onCompilerEvent(msg, eventHandler!),
+        eventCallback,
         shots!,
-      ),
-    );
+      );
+    });
   }
 
   async runWithNoise(

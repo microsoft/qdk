@@ -18,6 +18,15 @@ The QDK extension currently supports:
 - Q# cell support in Jupyter notebooks. The extension will detect `%%qsharp` magic cells and automatically update the cell language to Q#
 - Integration with Azure Quantum for job submission to quantum hardware providers
 
+## Selecting a local simulator
+
+The **Q# › Simulation: Type** setting controls the simulator used by the **Run program** and **Run file and show histogram** commands:
+
+- `sparse` (default) uses the sparse state-vector simulator and supports arbitrary quantum programs.
+- `clifford` uses the stabilizer simulator for Clifford-only programs. Set **Q# › Simulation › Clifford: Max Qubits** to the maximum number of simultaneously allocated qubits required by the program.
+
+The Clifford simulator reports an error for non-Clifford gates and rotations. The Pauli noise and qubit loss settings are currently supported only by the sparse simulator.
+
 For more information about the QDK and Microsoft Quantum, visit [https://aka.ms/qdk](https://aka.ms/qdk).
 
 ## Contributing

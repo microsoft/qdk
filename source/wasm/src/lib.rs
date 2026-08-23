@@ -12,8 +12,8 @@ use project_system::{
     ProgramConfig, into_openqasm_arg, into_qsc_args, into_qsharp_ast_args, is_openqasm_program,
 };
 use qsc::{
-    LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
-    SparseSim, TargetCapabilityFlags,
+    CliffordSim, LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents,
+    SourceMap, SourceName, SparseSim, TargetCapabilityFlags,
     compile::{self, Dependencies, package_store_with_stdlib},
     format_state_id, get_matrix_latex, get_state_latex,
     hir::PackageId,
@@ -491,14 +491,21 @@ fn run_interpreter<F>(
     shots: u32,
     pauliNoise: &PauliNoise,
     qubitLoss: f64,
+    sim_type: interpret::SimType,
 ) where
     F: FnMut(&str),
 {
     for _ in 0..shots {
-        let result = {
-            let mut sim = SparseSim::new_with_noise(pauliNoise);
-            sim.set_loss(qubitLoss);
-            interpreter.eval_entry_with_sim(&mut sim, out)
+        let result = match sim_type {
+            interpret::SimType::Sparse => {
+                let mut sim = SparseSim::new_with_noise(pauliNoise);
+                sim.set_loss(qubitLoss);
+                interpreter.eval_entry_with_sim(&mut sim, out)
+            }
+            interpret::SimType::Clifford(num_qubits) => {
+                let mut sim = CliffordSim::new(num_qubits);
+                interpreter.eval_entry_with_sim(&mut sim, out)
+            }
         };
         let mut success = true;
         let msg: serde_json::Value = match result {
@@ -525,6 +532,7 @@ fn run_internal_with_features<F>(
     dependencies: &Dependencies,
     pauliNoise: &PauliNoise,
     qubitLoss: f64,
+    sim_type: interpret::SimType,
 ) -> Result<(), Box<interpret::Error>>
 where
     F: FnMut(&str),
@@ -549,7 +557,14 @@ where
         }
     };
 
-    run_interpreter(&mut interpreter, &mut out, shots, pauliNoise, qubitLoss);
+    run_interpreter(
+        &mut interpreter,
+        &mut out,
+        shots,
+        pauliNoise,
+        qubitLoss,
+        sim_type,
+    );
     Ok(())
 }
 
@@ -593,6 +608,57 @@ pub fn runWithNoise(
     shots: u32,
     pauliNoise: &JsValue,
     qubitLoss: &JsValue,
+) -> Result<bool, JsValue> {
+    run_with_simulator_internal(
+        program,
+        expr,
+        event_cb,
+        shots,
+        pauliNoise,
+        qubitLoss,
+        interpret::SimType::Sparse,
+    )
+}
+
+#[wasm_bindgen]
+pub fn runWithSimulator(
+    program: ProgramConfig,
+    expr: &str,
+    event_cb: &js_sys::Function,
+    shots: u32,
+    simulator: &str,
+    num_qubits: u32,
+) -> Result<bool, JsValue> {
+    let sim_type = match simulator {
+        "sparse" => interpret::SimType::Sparse,
+        "clifford" if num_qubits > 0 => interpret::SimType::Clifford(num_qubits as usize),
+        "clifford" => {
+            return Err(JsError::new("Clifford simulator qubit count must be at least 1").into());
+        }
+        _ => {
+            return Err(JsError::new(&format!("Unknown simulator type: {simulator}")).into());
+        }
+    };
+
+    run_with_simulator_internal(
+        program,
+        expr,
+        event_cb,
+        shots,
+        &JsValue::null(),
+        &JsValue::null(),
+        sim_type,
+    )
+}
+
+fn run_with_simulator_internal(
+    program: ProgramConfig,
+    expr: &str,
+    event_cb: &js_sys::Function,
+    shots: u32,
+    pauliNoise: &JsValue,
+    qubitLoss: &JsValue,
+    sim_type: interpret::SimType,
 ) -> Result<bool, JsValue> {
     if !event_cb.is_function() {
         return Err(JsError::new("Events callback function must be provided").into());
@@ -642,7 +708,14 @@ pub fn runWithNoise(
             return Err(emit_run_error(&event_cb, errors));
         }
         let mut out = CallbackReceiver { event_cb };
-        run_interpreter(&mut interpreter, &mut out, shots, &noise, qubitLoss);
+        run_interpreter(
+            &mut interpreter,
+            &mut out,
+            shots,
+            &noise,
+            qubitLoss,
+            sim_type,
+        );
         Ok(true)
     } else {
         let (source_map, capabilities, language_features, store, deps) =
@@ -664,6 +737,7 @@ pub fn runWithNoise(
             &deps[..],
             &noise,
             qubitLoss,
+            sim_type,
         ) {
             Ok(()) => Ok(true),
             Err(e) => Err(JsError::from(e).into()),

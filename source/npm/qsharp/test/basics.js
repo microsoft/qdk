@@ -877,6 +877,80 @@ async function testCompilerError(useWorker) {
 test("compiler error on run", () => testCompilerError(false));
 test("compiler error on run - worker", () => testCompilerError(true));
 
+async function testCompilerRunSupportsClifford(useWorker) {
+  const compiler = useWorker
+    ? getCompilerWorker(compilerWorkerPath)
+    : await getCompiler();
+  const events = new QscEventTarget(true);
+  try {
+    await compiler.run(
+      {
+        sources: [
+          [
+            "test.qs",
+            `operation Main() : Result[] {
+              use qubits = Qubit[4];
+              H(qubits[0]);
+              for qubit in qubits[1...] {
+                CNOT(qubits[0], qubit);
+              }
+              return MResetEachZ(qubits);
+            }`,
+          ],
+        ],
+        languageFeatures: [],
+      },
+      "",
+      1,
+      { type: "clifford", maxQubits: 4 },
+      events,
+    );
+
+    const results = events.getResults();
+    assert.equal(results.length, 1);
+    assert.equal(results[0].success, true);
+    assert.match(results[0].result, /^\[(Zero|One)(, \1){3}\]$/);
+  } finally {
+    if (useWorker) compiler.terminate();
+  }
+}
+
+test("compiler run supports Clifford simulation", () =>
+  testCompilerRunSupportsClifford(false));
+test("compiler run supports Clifford simulation - worker", () =>
+  testCompilerRunSupportsClifford(true));
+
+test("compiler run reports non-Clifford operations", async () => {
+  const compiler = await getCompiler();
+  const events = new QscEventTarget(true);
+  await compiler.run(
+    {
+      sources: [
+        [
+          "test.qs",
+          `operation Main() : Unit {
+            use qubit = Qubit();
+            T(qubit);
+          }`,
+        ],
+      ],
+      languageFeatures: [],
+    },
+    "",
+    1,
+    { type: "clifford", maxQubits: 1 },
+    events,
+  );
+
+  const results = events.getResults();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].success, false);
+  assert.match(
+    results[0].result.errors[0].diagnostic.message,
+    /T gate is not supported in Clifford simulation/,
+  );
+});
+
 test("OpenQASM compile error on run", async () => {
   const compiler = await getCompiler();
   const events = new QscEventTarget(true);
