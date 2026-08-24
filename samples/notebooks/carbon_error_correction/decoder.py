@@ -350,3 +350,37 @@ def decode_results(results, basis: str = "Z"):
             recovery = mult_paulis(recovery, r)
             corrected_logical_results[-1] += [pauli_as_results(recovery, basis=basis)]
     return corrected_logical_results
+
+
+def decode_results2(results, basis: str = "Z"):
+    corrected_logical_results = []
+    for res in results:
+        corrected_logical_results.append([])
+        for shot in res:
+            if shot[0]:
+                corrected_logical_results[-1] += ["PREselect"]
+                continue
+            recovery = "IIIIIIIIIIII"
+            r = None
+            for ec_output in shot[1]:
+                r = recovery_from_syndrome_measurements(ec_output[0], ec_output[1])
+                if r is None:
+                    corrected_logical_results[-1] += ["POSTselect"]
+                    break
+                recovery = mult_paulis(recovery, r)
+            if r is None:
+                corrected_logical_results[-1] += [
+                    pauli_as_results(recovery, basis=basis)
+                ]
+                continue
+            if basis == "Z":
+                r = recovery_from_syndrome_measurements([], shot[2])
+            else:
+                assert basis == "X"
+                r = recovery_from_syndrome_measurements(shot[2], [])
+            if r is None:
+                corrected_logical_results[-1] += ["POSTselect"]
+                continue
+            recovery = mult_paulis(recovery, r)
+            corrected_logical_results[-1] += [pauli_as_results(recovery, basis=basis)]
+    return corrected_logical_results
