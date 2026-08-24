@@ -98,8 +98,11 @@ export function registerLearningCommands(
         // finds it already set up and skips the confirmation prompt.
         await service.tryInitialize({ createIfMissing: true });
 
+        const query = service.hasUserSelectedCourse()
+          ? "/qdk-learning Let's start learning."
+          : "/qdk-learning What courses are available?";
         await vscode.commands.executeCommand("workbench.action.chat.open", {
-          query: "/qdk-learning Let's start learning.",
+          query,
           isPartialQuery: false,
         });
       },
@@ -266,6 +269,7 @@ async function openCourseNotebook(
   service: LearningService,
   options?: { reveal?: "exercise" | "top" },
 ): Promise<void> {
+  await service.setCourseSelectedAndSave();
   const notebookUri = service.getCurrentCodeFileUri();
   if (!notebookUri) {
     log.warn("No notebook associated with the current position.");
