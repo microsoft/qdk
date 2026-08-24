@@ -335,6 +335,10 @@
           "when": "false"
         },
         {
+          "command": "qsharp-vscode.learningOpenNotebook",
+          "when": "false"
+        },
+        {
           "command": "qsharp-vscode.learningShowActivity",
           "when": "false"
         },
@@ -760,6 +764,12 @@
         "title": "Reset Unit",
         "category": "QDK Learning",
         "icon": "$(discard)"
+      },
+      {
+        "command": "qsharp-vscode.learningOpenNotebook",
+        "title": "Open Course Notebook",
+        "category": "QDK Learning",
+        "icon": "$(notebook)"
       },
       {
         "command": "qsharp-vscode.learningShowActivity",
@@ -1667,12 +1677,36 @@
         ],
         "toolReferenceName": "qdkLearningReset",
         "displayName": "QDK Learning: Reset",
-        "modelDescription": "Reset the current exercise to its placeholder code and clear its completion. Destructive — requires confirmation. Only valid on exercises.",
+        "modelDescription": "Reset only the current activity to its original starter code and clear its completion. For python-notebook courses this restores just the current cell (an exercise cell or a plain code cell), leaving the learner's other cells intact. For Q# courses this restores the current exercise's .qs file and is only valid on exercises. Destructive — requires confirmation. To reset an entire unit, use qdk-learning-reset-unit instead.",
         "canBeReferencedInPrompt": true,
         "icon": "./resources/file-icon-light.svg",
         "inputSchema": {
           "type": "object",
           "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      {
+        "name": "qdk-learning-reset-unit",
+        "tags": [
+          "qdk",
+          "qdk-learning",
+          "quantum-katas"
+        ],
+        "toolReferenceName": "qdkLearningResetUnit",
+        "displayName": "QDK Learning: Reset Unit",
+        "modelDescription": "Reset an entire unit: restore every exercise and code example in the unit to its original starter code and clear completion for all of its activities. For python-notebook courses the unit's notebook is re-copied from the original. Destructive — all of the user's work in the unit is lost — requires confirmation. Defaults to the current unit; pass unitId from list-units or get-state to reset a different unit in the active course. To reset only the current exercise, use qdk-learning-reset instead.",
+        "canBeReferencedInPrompt": true,
+        "icon": "./resources/file-icon-light.svg",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "unitId": {
+              "type": "string",
+              "description": "ID of the unit to reset (e.g. 'superposition'). Defaults to the current unit."
+            }
+          },
           "required": [],
           "additionalProperties": false
         }
