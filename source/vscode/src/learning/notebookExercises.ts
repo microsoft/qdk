@@ -214,6 +214,53 @@ export function stripAuthoringCells(
   return `${JSON.stringify(notebook, undefined, 1)}\n`;
 }
 
+/**
+ * Read a single cell's source text out of a notebook's JSON, matched by its
+ * stable nbformat cell ID.
+ */
+export function findCellSource(
+  text: string,
+  cellId: string,
+  unitLabel: string,
+): string | undefined {
+  const cells = readCells(text, unitLabel);
+  const cell = cells?.find((c) => cellIdOf(c) === cellId);
+  return cell ? cellSource(cell) : undefined;
+}
+
+/**
+ * Return the notebook JSON with one cell's source replaced, matched by its
+ * stable nbformat cell ID. The replaced cell's outputs are cleared, since
+ * restored code has not been run.
+ */
+export function replaceCellSource(
+  text: string,
+  cellId: string,
+  newSource: string,
+  unitLabel: string,
+): string | undefined {
+  const notebook = parseNotebook(text, unitLabel);
+  if (!notebook) {
+    return undefined;
+  }
+
+  const cell = notebook.cells.find((c) => cellIdOf(c) === cellId);
+  if (!cell) {
+    return undefined;
+  }
+
+  cell.source = newSource;
+  // A restored cell has never been run, so drop any stale execution state.
+  if (cellKind(cell) === "code") {
+    (cell as { outputs?: unknown }).outputs = [];
+    (cell as { execution_count?: unknown }).execution_count = null;
+  }
+
+  // Match the ipynb serializer's formatting so the file stays diff-stable
+  // once VS Code starts saving it: one space of indent, trailing newline.
+  return `${JSON.stringify(notebook, undefined, 1)}\n`;
+}
+
 // ─── Cell readers ───
 
 /**

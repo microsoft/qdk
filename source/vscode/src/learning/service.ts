@@ -14,6 +14,7 @@ import { promptInstallPythonExtensions } from "./python/extensionUtils.js";
 import {
   materializeCourseWorkbooks,
   rematerializeUnitWorkbook,
+  restoreUnitWorkbookCell,
 } from "./python/materialization.js";
 import {
   KATAS_COURSE_ID,
@@ -622,6 +623,11 @@ export class LearningService {
     };
   }
 
+  /** The type of the activity at the current position. */
+  getCurrentActivityType(): CatalogActivity["type"] {
+    return this.findCurrentActivity().activity.type;
+  }
+
   /**
    * The notebook cell ID backing the current activity — the inverse of
    * {@link goToActivityByCellId}. `undefined` when the course isn't a
@@ -863,11 +869,16 @@ export class LearningService {
 
   getExerciseFileUri(): vscode.Uri {
     const exercise = this.resolveExercise();
+    return this.exerciseFileUri(this.position.unitId, exercise.id);
+  }
+
+  /** URI of the user's working copy of a specific exercise. */
+  private exerciseFileUri(unitId: string, exerciseId: string): vscode.Uri {
     return vscode.Uri.joinPath(
       this.requireWorkspace().learningContentRoot,
       "exercises",
-      this.position.unitId,
-      `${exercise.id}.qs`,
+      unitId,
+      `${exerciseId}.qs`,
     );
   }
 
@@ -876,11 +887,16 @@ export class LearningService {
     if (activity.type !== "lesson" || !activity.example) {
       throw new Error("Current activity is not an example");
     }
+    return this.exampleFileUri(unit.id, activity.example.id);
+  }
+
+  /** URI of the user's working copy of a specific example. */
+  private exampleFileUri(unitId: string, exampleId: string): vscode.Uri {
     return vscode.Uri.joinPath(
       this.requireWorkspace().learningContentRoot,
       "examples",
-      unit.id,
-      `${activity.example.id}.qs`,
+      unitId,
+      `${exampleId}.qs`,
     );
   }
 
@@ -929,22 +945,25 @@ export class LearningService {
   }
 
   /**
-   * Reset the current exercise/unit to its original state and clear
-   * completion status.
+   * Reset the current exercise to its original state and clear its
+   * completion status. For python-notebook courses this restores just the
+   * current cell.
    */
   async resetExercise(source?: TelemetrySource): Promise<void> {
-    // Python-notebook courses: close the notebook, re-copy the entire unit
-    // from source, and clear completion.
     const course = this.activeCourse;
     if (isNotebookCourse(course)) {
+      const cellId = this.getCurrentExerciseCellId();
+      if (!cellId) {
+        throw new Error("The current activity has no code cell to reset.");
+      }
       const unit = this.findCourseUnit(course, this.position.unitId);
-      // Close any open notebook tabs for this unit.
-      await this.closeNotebookTab(workbookUri(unit));
-      // Re-materialize the unit from source.
-      await rematerializeUnitWorkbook(unit);
-      // Clear completion for every activity in the unit, not just the
-      // current one, since the whole unit was re-materialized.
-      this.markUnitIncomplete(course.id, unit);
+      const restored = await restoreUnitWorkbookCell(unit, cellId);
+      if (!restored) {
+        throw new Error(
+          "Could not restore this exercise cell. Reset the whole unit instead.",
+        );
+      }
+      this.markIncomplete(this.requireWorkspace().progressData.position);
       await this.saveProgress();
       this._onDidChangeState.fire(this.getState());
       if (source) {
@@ -969,6 +988,65 @@ export class LearningService {
     if (source) {
       this.sendActivityActionTelemetry("reset", source);
     }
+  }
+
+  /**
+   * Reset an entire unit: restore every learner-editable file in it and clear
+   * completion for all of its activities. Defaults to the current unit, which
+   * must belong to the active course.
+   */
+  async resetUnit(
+    input?: { unitId?: string },
+    source?: TelemetrySource,
+  ): Promise<{ unitId: string; unitTitle: string }> {
+    const course = this.activeCourse;
+    const unitId = input?.unitId ?? this.position.unitId;
+
+    if (isNotebookCourse(course)) {
+      const unit = this.findCourseUnit(course, unitId);
+      // Close any open notebook tabs for this unit before overwriting it.
+      await this.closeNotebookTab(workbookUri(unit));
+      await rematerializeUnitWorkbook(unit);
+      return this.finishUnitReset(course.id, unit, source);
+    }
+
+    const unit = this.findCourseUnit(course, unitId);
+    // Paths use the catalog's own ids, never the caller's.
+    for (const activity of unit.activities) {
+      let uri: vscode.Uri;
+      let code: string;
+      if (activity.type === "exercise") {
+        uri = this.exerciseFileUri(unit.id, activity.id);
+        code = activity.placeholderCode;
+      } else if (activity.type === "lesson" && activity.example) {
+        uri = this.exampleFileUri(unit.id, activity.example.id);
+        code = activity.example.code;
+      } else {
+        continue;
+      }
+      // Save any unsaved edits first so the editor is clean, then overwrite
+      // the file on disk. The editor will pick up the change automatically
+      // because it's no longer dirty.
+      await this.saveOpenDocument(uri);
+      await ensureParentDir(uri);
+      await vscode.workspace.fs.writeFile(uri, new TextEncoder().encode(code));
+    }
+    return this.finishUnitReset(course.id, unit, source);
+  }
+
+  /** Clear the unit's completions and persist, shared by both reset paths. */
+  private async finishUnitReset(
+    courseId: string,
+    unit: CatalogUnit,
+    source?: TelemetrySource,
+  ): Promise<{ unitId: string; unitTitle: string }> {
+    this.markUnitIncomplete(courseId, unit);
+    await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+    if (source) {
+      this.sendActivityActionTelemetry("reset-unit", source);
+    }
+    return { unitId: unit.id, unitTitle: unit.title };
   }
 
   async run(
@@ -1117,7 +1195,14 @@ export class LearningService {
   }
 
   sendActivityActionTelemetry(
-    action: "navigate" | "run" | "check" | "hint" | "solution" | "reset",
+    action:
+      | "navigate"
+      | "run"
+      | "check"
+      | "hint"
+      | "solution"
+      | "reset"
+      | "reset-unit",
     source: TelemetrySource,
   ): void {
     const activityType = this.findCurrentActivity().activity.type;
