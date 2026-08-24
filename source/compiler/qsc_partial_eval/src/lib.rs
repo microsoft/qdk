@@ -4749,7 +4749,8 @@ impl<'a> PartialEvaluator<'a> {
             // that will be stored in the global section of the program. If it matches an existing array literal, we can
             // reuse that identifier, otherwise a new one is generated and stored into the program.
             // The index instruction will then be emitted to index into that array literal.
-            let array_literal = convert_to_array_literal(array, array_package_span, array_elem_ty)?;
+            let array_literal =
+                self.convert_to_array_literal(array, array_package_span, array_elem_ty)?;
             let array_elem_ty = array_literal.ty;
 
             let const_array_id = if let Some(idx) = self
@@ -4884,6 +4885,50 @@ impl<'a> PartialEvaluator<'a> {
 
     fn in_parallel_scope(&self) -> bool {
         self.eval_context.get_current_scope().in_parallel
+    }
+
+    fn convert_to_array_literal(
+        &self,
+        array: &Rc<Vec<Value>>,
+        array_package_span: PackageSpan,
+        array_elem_ty: &Ty,
+    ) -> Result<rir::ArrayLiteral, Error> {
+        let Ok(rir::Ty::Prim(elem_rir_prim_ty)) = map_fir_type_to_rir_type(array_elem_ty) else {
+            return Err(Error::Unexpected(
+                "array with non-primitive RIR type".to_string(),
+                array_package_span,
+            ));
+        };
+
+        let mut elem_literals = Vec::new();
+        for elem in array.iter() {
+            let elem_literal = match elem {
+                Value::Bool(b) => rir::Literal::Bool(*b),
+                Value::Int(i) => rir::Literal::Integer(*i),
+                Value::Double(d) => rir::Literal::Double(*d),
+                Value::Qubit(q) => rir::Literal::Qubit(
+                    self.resource_manager
+                        .map_qubit(q)
+                        .try_into()
+                        .expect("could not convert qubit ID to u32"),
+                ),
+                Value::Result(val::Result::Id(r)) => rir::Literal::Result(
+                    (*r).try_into().expect("could not convert result ID to u32"),
+                ),
+                _ => {
+                    return Err(Error::Unimplemented(
+                        format!("array element type `{}`", elem.type_name()),
+                        array_package_span,
+                    ));
+                }
+            };
+            elem_literals.push(elem_literal);
+        }
+
+        Ok(rir::ArrayLiteral {
+            contents: elem_literals,
+            ty: elem_rir_prim_ty,
+        })
     }
 }
 
@@ -5239,49 +5284,6 @@ fn try_get_eval_var_type(value: &Value) -> Option<VarTy> {
         Value::Var(var) => Some(var.ty),
         _ => None,
     }
-}
-
-fn convert_to_array_literal(
-    array: &Rc<Vec<Value>>,
-    array_package_span: PackageSpan,
-    array_elem_ty: &Ty,
-) -> Result<rir::ArrayLiteral, Error> {
-    let Ok(rir::Ty::Prim(elem_rir_prim_ty)) = map_fir_type_to_rir_type(array_elem_ty) else {
-        return Err(Error::Unexpected(
-            "array with non-primitive RIR type".to_string(),
-            array_package_span,
-        ));
-    };
-
-    let mut elem_literals = Vec::new();
-    for elem in array.iter() {
-        let elem_literal = match elem {
-            Value::Bool(b) => rir::Literal::Bool(*b),
-            Value::Int(i) => rir::Literal::Integer(*i),
-            Value::Double(d) => rir::Literal::Double(*d),
-            Value::Qubit(q) => rir::Literal::Qubit(
-                q.deref()
-                    .0
-                    .try_into()
-                    .expect("could not convert qubit ID to u32"),
-            ),
-            Value::Result(val::Result::Id(r)) => {
-                rir::Literal::Result((*r).try_into().expect("could not convert result ID to u32"))
-            }
-            _ => {
-                return Err(Error::Unimplemented(
-                    format!("array element type `{}`", elem.type_name()),
-                    array_package_span,
-                ));
-            }
-        };
-        elem_literals.push(elem_literal);
-    }
-
-    Ok(rir::ArrayLiteral {
-        contents: elem_literals,
-        ty: elem_rir_prim_ty,
-    })
 }
 
 /// Recursively traverse the given array to collect any arrays with dynamic contents (arrays that contain RIR variables),
