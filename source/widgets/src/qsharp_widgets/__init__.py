@@ -219,11 +219,6 @@ class BlochSphere(anywidget.AnyWidget):
     comp = traitlets.Unicode("BlochSphere").tag(sync=True)
     _initial_gates = traitlets.Unicode("").tag(sync=True)
 
-    @property
-    def initial_gates(self):
-        """The gate sequence used when the widget was created."""
-        return self._initial_gates
-
     def __init__(self, initial_gates=""):
         """
         This function displays an interactive Bloch sphere for exploring
@@ -235,8 +230,6 @@ class BlochSphere(anywidget.AnyWidget):
           X, Y, Z, H, S, T, and SX; adjoints use a trailing apostrophe
           (S', T', SX'); rotations are Rx(angle), Ry(angle), and Rz(angle)
           with the angle in radians. For example: "X H Z" or "H Rx(1.5708) S'".
-
-        `initial_gates` is read-only after the widget is created.
         """
         super().__init__(_initial_gates=initial_gates)
 
