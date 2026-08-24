@@ -656,7 +656,7 @@ impl LocalsComputeKindMap {
             .0
             .get_mut(local_var_id)
             .expect("local compute kind does not exist");
-        local_compute_kind.compute_kind = local_compute_kind.compute_kind.aggregate(delta);
+        local_compute_kind.compute_kind.aggregate(delta);
     }
 
     pub fn find_local_compute_kind(&self, local_var_id: LocalVarId) -> Option<&LocalComputeKind> {
