@@ -135,6 +135,7 @@ export interface ProgressFileData {
   position: ActivityLocation;
   completions: Record<string, { completedAt: string }>;
   startedAt: string;
+  pythonEnvironments: Record<string, { id: string; path: string }>;
 }
 
 // ─── Bundled state ───
