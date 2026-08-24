@@ -51,13 +51,12 @@ pub enum Error {
         #[label("break/continue in a value with no classical default")] Span,
     ),
 
-    #[error("internal error: `break`/`continue` was not eliminated by loop desugaring")]
-    #[diagnostic(code("Qdk.Qsc.LoopUnification.ResidualBreakContinue"))]
+    #[error("unsupported use of `break`/`continue`")]
+    #[diagnostic(code("Qdk.Qsc.LoopUnification.UnsupportedBreakContinue"))]
     #[diagnostic(help(
-        "this indicates a compiler invariant was violated; every `break`/`continue` should be \
-         rewritten to loop-flag writes during desugaring"
+        "this indicates a compiler invariant was violated, please report this as a bug to the compiler team"
     ))]
-    ResidualBreakContinue(#[label("`break`/`continue` survived loop desugaring")] Span),
+    UnsupportedBreakContinue(#[label("unsupported `break`/`continue`")] Span),
 }
 
 pub(crate) struct LoopUni<'a> {
@@ -1405,31 +1404,23 @@ fn expr_always_escapes(expr: &Expr) -> bool {
     }
 }
 
-/// Scans `package` for any raw `break`/`continue` node that survived loop
-/// desugaring and returns one [`Error::ResidualBreakContinue`] per occurrence.
-///
-/// After [`LoopUni`] runs, every `break`/`continue` should have been rewritten to
-/// loop-flag writes, so any surviving raw node signals a violated compiler
-/// invariant. Unlike the per-loop [`EnclosingBreakContinueScan`], this walk is
-/// intentionally not loop-depth aware: once desugaring is complete, no raw
-/// `break`/`continue` should remain anywhere, so every occurrence is a violation.
+/// Scans `package` for any unsupported `break`/`continue` nodes.
 pub(crate) fn check_no_break_continue(package: &Package) -> Vec<Error> {
-    let mut scan = ResidualBreakContinueScan { errors: Vec::new() };
+    let mut scan = UnsupportedBreakContinueScan { errors: Vec::new() };
     scan.visit_package(package);
     scan.errors
 }
 
-/// Read-only visitor that records a [`Error::ResidualBreakContinue`] for each raw
-/// `break`/`continue` node it encounters.
-struct ResidualBreakContinueScan {
+/// Read-only visitor that records a [`Error::BreakContinue`] for each use of `break`/`continue`.
+struct UnsupportedBreakContinueScan {
     errors: Vec<Error>,
 }
 
-impl<'a> Visitor<'a> for ResidualBreakContinueScan {
+impl<'a> Visitor<'a> for UnsupportedBreakContinueScan {
     fn visit_expr(&mut self, expr: &'a Expr) {
         match &expr.kind {
             ExprKind::Break | ExprKind::Continue => {
-                self.errors.push(Error::ResidualBreakContinue(expr.span));
+                self.errors.push(Error::UnsupportedBreakContinue(expr.span));
             }
             _ => {}
         }

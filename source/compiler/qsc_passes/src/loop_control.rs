@@ -44,9 +44,11 @@ enum ForbiddenPosition {
 /// runs on HIR after lambda lifting, so each callable is walked with a fresh loop
 /// depth of zero and needs no lambda special-casing: a `break`/`continue` in a
 /// lambda body binds only to a loop within that same lambda.
+#[allow(clippy::struct_field_names)]
 #[derive(Default)]
 pub(super) struct LoopControl {
     pub(super) errors: Vec<Error>,
+    pub(super) uses_loop_control: bool,
     loop_depth: u32,
     forbidden: Option<ForbiddenPosition>,
 }
@@ -88,6 +90,7 @@ impl<'a> Visitor<'a> for LoopControl {
     fn visit_expr(&mut self, expr: &'a Expr) {
         match &expr.kind {
             ExprKind::Break | ExprKind::Continue => {
+                self.uses_loop_control = true;
                 if let Some(error) = self.control_flow_error(expr.span) {
                     self.errors.push(error);
                 }
