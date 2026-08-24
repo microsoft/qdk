@@ -1383,7 +1383,6 @@ impl<'a> Analyzer<'a> {
             .take()
             .expect("last analyzed compute kind should be set after visiting an expression");
         // A limit on a parallel expression must be static, so we check that here.
-        let application_instance = self.get_current_application_instance_mut();
         if !matches!(limit_compute_kind, ComputeKind::Static) {
             // Add the runtime feature of dynamic parallelism to the compute kind of the parallel expression.
             let new_limit_compute_kind = limit_compute_kind.aggregate_runtime_features(
@@ -1393,7 +1392,7 @@ impl<'a> Analyzer<'a> {
                 },
                 ValueKind::Constant,
             );
-            application_instance.insert_expr_compute_kind(limit, new_limit_compute_kind);
+            self.insert_expr_compute_kind(limit, new_limit_compute_kind);
         }
     }
 
@@ -1475,8 +1474,7 @@ impl<'a> Analyzer<'a> {
                         value_kind: ValueKind::Constant,
                     };
                 }
-                self.get_current_application_instance_mut()
-                    .insert_expr_compute_kind(entry_expr_id, entry_compute_kind);
+                self.insert_expr_compute_kind(entry_expr_id, entry_compute_kind);
             }
         }
         let top_level_context = self.pop_top_level_context();
@@ -1758,6 +1756,24 @@ impl<'a> Analyzer<'a> {
             AnalysisContext::TopLevel(top_level_context) => top_level_context.package_id,
             AnalysisContext::Item(item_context) => item_context.id.package,
         }
+    }
+
+    fn insert_expr_compute_kind(&mut self, expr_id: ExprId, compute_kind: ComputeKind) {
+        let application_instance = self.get_current_application_instance_mut();
+        application_instance.insert_expr_compute_kind(expr_id, compute_kind);
+        self.last_analyzed_compute_kind = Some(compute_kind);
+    }
+
+    fn insert_block_compute_kind(&mut self, block_id: BlockId, compute_kind: ComputeKind) {
+        let application_instance = self.get_current_application_instance_mut();
+        application_instance.insert_block_compute_kind(block_id, compute_kind);
+        self.last_analyzed_compute_kind = Some(compute_kind);
+    }
+
+    fn insert_stmt_compute_kind(&mut self, stmt_id: StmtId, compute_kind: ComputeKind) {
+        let application_instance = self.get_current_application_instance_mut();
+        application_instance.insert_stmt_compute_kind(stmt_id, compute_kind);
+        self.last_analyzed_compute_kind = Some(compute_kind);
     }
 
     fn pop_item_context(&mut self) -> StoreItemId {
@@ -2087,9 +2103,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
         }
 
         // Finally, insert the block's compute kind to the application instance.
-        let application_instance = self.get_current_application_instance_mut();
-        application_instance.insert_block_compute_kind(block_id, block_compute_kind);
-        self.last_analyzed_compute_kind = Some(block_compute_kind);
+        self.insert_block_compute_kind(block_id, block_compute_kind);
     }
 
     fn visit_callable_decl(&mut self, decl: &'a CallableDecl) {
@@ -2247,9 +2261,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
         };
 
         // Finally, insert the expression's compute kind in the application instance.
-        let application_instance = self.get_current_application_instance_mut();
-        application_instance.insert_expr_compute_kind(expr_id, compute_kind);
-        self.last_analyzed_compute_kind = Some(compute_kind);
+        self.insert_expr_compute_kind(expr_id, compute_kind);
     }
 
     fn visit_item(&mut self, item: &'a Item) {
@@ -2354,9 +2366,7 @@ impl<'a> Visitor<'a> for Analyzer<'a> {
         };
 
         // Insert the statements's compute kind into the application instance.
-        let application_instance = self.get_current_application_instance_mut();
-        application_instance.insert_stmt_compute_kind(stmt_id, compute_kind);
-        self.last_analyzed_compute_kind = Some(compute_kind);
+        self.insert_stmt_compute_kind(stmt_id, compute_kind);
     }
 }
 
