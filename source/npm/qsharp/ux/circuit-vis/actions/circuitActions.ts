@@ -405,10 +405,11 @@ const moveOperationWithDependents = (
   if (stranded.length > 0) {
     const doomed = new Set(stranded.map((c) => c.op));
     _findAndRemoveOperations(model, (op) => doomed.has(op));
+  } else {
+    deepRefreshDerivedTargets(model.componentGrid);
   }
 
-  // Spans may have changed; re-derive targets bottom-up and resolve overlaps (same as `moveQubit`).
-  deepRefreshDerivedTargets(model.componentGrid);
+  // Derived targets are refreshed above or by the batch removal; always resolve resulting overlaps.
   resolveOverlappingOperationsRecursive(model.componentGrid);
 
   return moved;
