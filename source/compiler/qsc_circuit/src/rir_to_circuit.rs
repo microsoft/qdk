@@ -91,6 +91,7 @@ pub fn rir_to_circuit(
 /// Recursively traverses the structured control flow, pushing operations and measurement results
 /// to the builder as it goes.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn build_operation_list(
     variable_tracker: &mut VariableTracker,
     program_rir: &Program,
