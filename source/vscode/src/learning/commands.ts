@@ -98,8 +98,11 @@ export function registerLearningCommands(
         // finds it already set up and skips the confirmation prompt.
         await service.tryInitialize({ createIfMissing: true });
 
+        const query = service.hasUserSelectedCourse()
+          ? "/qdk-learning Let's start learning."
+          : "/qdk-learning What courses are available?";
         await vscode.commands.executeCommand("workbench.action.chat.open", {
-          query: "/qdk-learning Let's start learning.",
+          query,
           isPartialQuery: false,
         });
       },
@@ -266,19 +269,53 @@ async function openCourseNotebook(
   service: LearningService,
   options?: { reveal?: "exercise" | "top" },
 ): Promise<void> {
+  await service.setCourseSelectedAndSave();
   const notebookUri = service.getCurrentCodeFileUri();
   if (!notebookUri) {
     log.warn("No notebook associated with the current position.");
     return;
   }
-  const cellId = service.getCurrentExerciseCellId();
 
-  await vscode.commands.executeCommand(
-    "vscode.openWith",
-    notebookUri,
-    "jupyter-notebook",
-    { viewColumn: vscode.ViewColumn.Active, preview: false },
-  );
+  let opened = false;
+
+  // Try to open via the Jupyter extension's unstable API so the course's
+  // Python environment is automatically set as the active kernel.
+  try {
+    // Grab before awaiting, in case it changes while we're yielding
+    // and gets out of sync with notebookUri
+    const courseId = service.getActiveCourseId();
+    const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
+    const api = await jupyter?.activate();
+    if (api && typeof api.openNotebook === "function") {
+      const envPath = await service.getJupyterEnvironmentPath(courseId);
+      if (envPath) {
+        await api.openNotebook(notebookUri, envPath);
+        opened = true;
+      } else {
+        log.info("Didn't find a course virtual environment to use in notebook");
+      }
+    }
+    if (!opened) {
+      log.warn(
+        "Jupyter openNotebook API is not available; falling back to generic open.",
+      );
+    }
+  } catch (e) {
+    log.warn(
+      `Jupyter openNotebook API call failed: ${e}; falling back to generic open.`,
+    );
+  }
+
+  if (!opened) {
+    await vscode.commands.executeCommand(
+      "vscode.openWith",
+      notebookUri,
+      "jupyter-notebook",
+      { viewColumn: vscode.ViewColumn.Active, preview: false },
+    );
+  }
+
+  const cellId = service.getCurrentExerciseCellId();
 
   if (options?.reveal === "top") {
     revealNotebookTop(notebookUri);

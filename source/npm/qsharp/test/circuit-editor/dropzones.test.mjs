@@ -15,7 +15,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import { draw } from "../../dist/ux/circuit-vis/index.js";
 import { Location } from "../../dist/ux/circuit-vis/data/location.js";
-import { circuit, gate, group } from "./_helpers.mjs";
+import { circuit, gate, group, meas, qubits } from "./_helpers.mjs";
 
 const documentTemplate = `<!doctype html><html>
   <head></head>
@@ -265,6 +265,60 @@ test("nested dropzones are clipped to the group's wire extent", () => {
     nested,
     2,
     "nested dropzones must be clipped to Foo's wire extent (wires 0-1)",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Classical-control reach: a group's box can extend up to a classical
+// register it's conditioned on, enclosing intermediate wires no child
+// touches. Those enclosed wires must still get inner dropzones.
+//
+// Here Foo targets only q2 but is conditioned on q0's result, pulling its box
+// up to q0's classical row and enclosing q1. The recursion span uses
+// `getMinMaxRegIdx` (includes the classical row) rounded inward, giving [1, 2]
+// — so q1 is covered while q0's quantum wire (above the row) stays outside.
+// ---------------------------------------------------------------------------
+
+test("nested dropzones cover intermediate wires under a classical-control reach", () => {
+  const cg = singleCircuit(
+    circuit(qubits(3, { 0: 1 }), [
+      [meas(0)],
+      [
+        group("Foo", [[gate("X", 2)]], {
+          expanded: true,
+          ctrls: [{ q: 0, r: 0 }],
+          conditional: true,
+        }),
+      ],
+    ]),
+  );
+
+  const dropzones = renderAndCollectDropzones(cg);
+  // Foo is the only op in top-level column 1 → its inner scope is "1,0-".
+  const nested = nestedUnder(dropzones, "1,0-");
+
+  assert.ok(
+    nested.length > 0,
+    "expected nested dropzones inside the classically-controlled group",
+  );
+
+  // The intermediate wire 1 — enclosed by the box's classical reach but
+  // touched by no child — must carry at least one inner dropzone.
+  const wire1 = nested.filter((d) => d.wire === 1);
+  assert.ok(
+    wire1.length > 0,
+    `intermediate wire 1 must get inner dropzones under the classical reach; got wires: ${JSON.stringify(
+      nested.map((d) => d.wire),
+    )}`,
+  );
+
+  // q0's own quantum wire sits above the classical row, outside the box —
+  // so no inner dropzone should land on wire 0.
+  const wire0 = nested.filter((d) => d.wire === 0);
+  assert.deepEqual(
+    wire0,
+    [],
+    "q0's quantum wire is above the classical row, outside the box — no inner dropzone",
   );
 });
 

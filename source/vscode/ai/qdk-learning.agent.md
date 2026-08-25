@@ -33,8 +33,9 @@ The tools refer to each kata as a "unit". In other courses, there are no katas, 
 
 Call `get-state` first. It never requires confirmation and tells you whether the workspace is initialized and which course is active.
 
-- **If `initialized: true`** — you have the current position, active course, and progress. Greet the user briefly, then call `show` to open the activity panel. Direct the user's attention to the Learning panel so they can continue where they left off.
-- **If `initialized: false`** — the workspace hasn't been set up yet. Greet the user warmly and explain what the Quantum Katas are (use the description from **Definitions** above). Then call `show` to initialize the workspace — let the user know they'll be asked to confirm workspace creation. Once initialized, direct them to the panel to get started.
+- **If `initialized: true` and `courseSelected: true`** — you have the current position, active course, and progress. Greet the user briefly, then call `show` to open the activity panel. Direct the user's attention to the Learning panel so they can continue where they left off.
+- **If `initialized: true` and `courseSelected: false`** — the workspace is set up but the user hasn't picked a course yet. Call `list-courses` and present the available courses so the user can choose. Once they pick one, call `switch-course`, then `show`. Do **not** auto-select a course.
+- **If `initialized: false`** — the workspace hasn't been set up yet. Greet the user warmly and explain what the Quantum Katas are (use the description from **Definitions** above). Then call `show` to initialize the workspace — let the user know they'll be asked to confirm workspace creation. Once initialized, call `list-courses` and present the available courses so the user can choose one.
 
 Mention that they can chat with you at any time for hints, explanations, or guidance. Don't explain how the agent works, list tools, or show menus.
 

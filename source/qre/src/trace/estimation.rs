@@ -10,7 +10,10 @@ use std::{
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{ErrorComposition, EstimationCollection, ISA, ProvenanceGraph, ResultSummary, Trace};
+use crate::{
+    Error, ErrorComposition, EstimationCollection, EstimationResult, ISA, ProvenanceGraph,
+    ResultSummary, Trace,
+};
 
 /// Estimates all (trace, ISA) combinations in parallel, returning only the
 /// successful results collected into an [`EstimationCollection`].
@@ -58,7 +61,7 @@ pub fn estimate_parallel<'a>(
             let tx = tx.clone();
             let next_job = &next_job;
             scope.spawn(move || {
-                let mut local_results = Vec::new();
+                let mut local_results: Vec<Result<EstimationResult, Error>> = Vec::new();
                 loop {
                     // Atomically claim the next job.  Relaxed ordering is
                     // sufficient because there is no dependent data between
@@ -72,14 +75,14 @@ pub fn estimate_parallel<'a>(
                     let trace_idx = job / num_isas;
                     let isa_idx = job % num_isas;
 
-                    if let Ok(mut estimation) =
-                        traces[trace_idx].estimate(isas[isa_idx], max_error, composition)
-                    {
-                        estimation.set_isa_index(isa_idx);
-                        estimation.set_trace_index(trace_idx);
-
-                        local_results.push(estimation);
-                    }
+                    let result = traces[trace_idx]
+                        .estimate(isas[isa_idx], max_error, composition)
+                        .map(|mut estimation| {
+                            estimation.set_isa_index(isa_idx);
+                            estimation.set_trace_index(trace_idx);
+                            estimation
+                        });
+                    local_results.push(result);
                 }
                 // Send all results from this worker in one batch.
                 let _ = tx.send(local_results);
@@ -92,18 +95,23 @@ pub fn estimate_parallel<'a>(
         // Collect results from all workers into the shared collection.
         let mut successful = 0;
         for local_results in rx {
-            if post_process {
-                for result in &local_results {
-                    collection.push_summary(ResultSummary {
-                        trace_index: result.trace_index().unwrap_or(0),
-                        isa_index: result.isa_index().unwrap_or(0),
-                        qubits: result.qubits(),
-                        runtime: result.runtime(),
-                    });
+            for result in local_results {
+                match result {
+                    Ok(result) => {
+                        if post_process {
+                            collection.push_summary(ResultSummary {
+                                trace_index: result.trace_index().unwrap_or(0),
+                                isa_index: result.isa_index().unwrap_or(0),
+                                qubits: result.qubits(),
+                                runtime: result.runtime(),
+                            });
+                        }
+                        successful += 1;
+                        collection.insert(result);
+                    }
+                    Err(error) => collection.push_error(&error),
                 }
             }
-            successful += local_results.len();
-            collection.extend(local_results);
         }
         collection.set_successful_estimates(successful);
     });
@@ -297,6 +305,19 @@ pub fn estimate_with_graph(
     // cartesian product of Pareto-filtered nodes.  Each node carries
     // pre-computed (space, time) values for dominance pruning in Phase 2.
     let mut jobs: Vec<(usize, Vec<CombinationEntry>)> = Vec::new();
+    let mut collection = EstimationCollection::new();
+
+    let min_trace_error = traces
+        .iter()
+        .map(|trace| trace.base_error())
+        .reduce(f64::min)
+        .unwrap_or(0.0);
+    if min_trace_error > max_error {
+        collection.push_error(&Error::MaximumErrorExceeded {
+            actual_error: min_trace_error,
+            max_error,
+        });
+    }
 
     // Use the maximum number of instruction slots across all combinations to
     // size the pruning witness structure.  This will updated while we generate
@@ -407,7 +428,6 @@ pub fn estimate_with_graph(
     // index.
     let isa_index = Arc::new(RwLock::new(ISAIndex::default()));
 
-    let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
 
     std::thread::scope(|scope| {
@@ -447,9 +467,8 @@ pub fn estimate_with_graph(
                         isa.add_node(entry.instruction_id, entry.node.node_index);
                     }
 
-                    if let Ok(mut result) =
-                        traces[*trace_idx].estimate(&isa, Some(max_error), composition)
-                    {
+                    let result = traces[*trace_idx].estimate(&isa, Some(max_error), composition);
+                    if let Ok(mut result) = result {
                         let isa_idx = isa_index
                             .write()
                             .expect("RwLock should not be poisoned")
@@ -458,8 +477,10 @@ pub fn estimate_with_graph(
 
                         result.set_trace_index(*trace_idx);
 
-                        local_results.push(result);
+                        local_results.push(Ok(result));
                         record_success(combination, &pruning_witnesses[*trace_idx]);
+                    } else {
+                        local_results.push(result);
                     }
                 }
                 let _ = tx.send(local_results);
@@ -469,18 +490,23 @@ pub fn estimate_with_graph(
 
         let mut successful = 0;
         for local_results in rx {
-            if post_process {
-                for result in &local_results {
-                    collection.push_summary(ResultSummary {
-                        trace_index: result.trace_index().unwrap_or(0),
-                        isa_index: result.isa_index().unwrap_or(0),
-                        qubits: result.qubits(),
-                        runtime: result.runtime(),
-                    });
+            for result in local_results {
+                match result {
+                    Ok(result) => {
+                        if post_process {
+                            collection.push_summary(ResultSummary {
+                                trace_index: result.trace_index().unwrap_or(0),
+                                isa_index: result.isa_index().unwrap_or(0),
+                                qubits: result.qubits(),
+                                runtime: result.runtime(),
+                            });
+                        }
+                        successful += 1;
+                        collection.insert(result);
+                    }
+                    Err(error) => collection.push_error(&error),
                 }
             }
-            successful += local_results.len();
-            collection.extend(local_results);
         }
         collection.set_successful_estimates(successful);
     });
