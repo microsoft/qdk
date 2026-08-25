@@ -15,8 +15,11 @@ see `test_adaptive_gpu_bytecode.py`.
 import os
 import sys
 from collections import Counter
+import math
 
 import pytest
+from qdk import TargetProfile, qsharp
+from qdk.simulation import NoiseConfig, run_qir
 
 # Skip all tests in this module if QDK_GPU_TESTS is not set
 if not os.environ.get("QDK_GPU_TESTS"):
@@ -63,6 +66,234 @@ def run_shots(qir: str, shots: int = 10_000, seed: int = 42):
     global sim
     sim.set_program(qir)
     return sim.run_shots(shots, seed=seed)
+
+
+TELEPORTED_T_QSHARP = """
+operation TeleportAndRestore(input : Qubit, bell : Qubit, output : Qubit) : Unit {
+    H(bell);
+    CNOT(bell, output);
+    CNOT(input, bell);
+    H(input);
+
+    let inputResult = MResetZ(input);
+    let bellResult = MResetZ(bell);
+    if bellResult == One {
+        X(output);
+    }
+    if inputResult == One {
+        Z(output);
+    }
+    SWAP(input, output);
+}
+
+operation TeleportAndRestoreReporting(input : Qubit, bell : Qubit, output : Qubit) : Result[] {
+    H(bell);
+    CNOT(bell, output);
+    CNOT(input, bell);
+    H(input);
+
+    let inputResult = MResetZ(input);
+    let bellResult = MResetZ(bell);
+    if bellResult == One {
+        X(output);
+    }
+    if inputResult == One {
+        Z(output);
+    }
+    SWAP(input, output);
+    return [inputResult, bellResult];
+}
+
+operation PrepareTeleportedT(qs : Qubit[]) : Unit {
+    let data = [
+        qs[0], qs[1], qs[2], qs[3], qs[4], qs[5], qs[6],
+        qs[7], qs[8], qs[9], qs[16], qs[17], qs[18], qs[19]
+    ];
+
+    for q in data {
+        H(q);
+    }
+    for i in 0 .. Length(data) - 2 {
+        CZ(data[i], data[i + 1]);
+    }
+    CZ(data[Length(data) - 1], data[0]);
+
+    T(qs[2]);
+    T(qs[6]);
+    T(qs[17]);
+    TeleportAndRestore(qs[2], qs[10], qs[11]);
+    TeleportAndRestore(qs[6], qs[12], qs[13]);
+    TeleportAndRestore(qs[17], qs[14], qs[15]);
+}
+
+operation UnprepareGraph(qs : Qubit[]) : Unit {
+    let data = [
+        qs[0], qs[1], qs[2], qs[3], qs[4], qs[5], qs[6],
+        qs[7], qs[8], qs[9], qs[16], qs[17], qs[18], qs[19]
+    ];
+
+    CZ(data[Length(data) - 1], data[0]);
+    for i in 0 .. Length(data) - 2 {
+        CZ(data[i], data[i + 1]);
+    }
+    for q in data {
+        H(q);
+    }
+}
+
+operation TeleportedTEcho() : Result[] {
+    use qs = Qubit[20];
+    PrepareTeleportedT(qs);
+    Adjoint T(qs[2]);
+    Adjoint T(qs[6]);
+    Adjoint T(qs[17]);
+    UnprepareGraph(qs);
+    return MResetEachZ(qs);
+}
+
+operation TeleportedTDistribution() : Result[] {
+    use qs = Qubit[20];
+    PrepareTeleportedT(qs);
+    UnprepareGraph(qs);
+    return MResetEachZ(qs);
+}
+
+operation TeleportedTNoiseReporting() : Result[] {
+    use qs = Qubit[20];
+    let data = [
+        qs[0], qs[1], qs[2], qs[3], qs[4], qs[5], qs[6],
+        qs[7], qs[8], qs[9], qs[16], qs[17], qs[18], qs[19]
+    ];
+
+    for q in data {
+        H(q);
+    }
+    for i in 0 .. Length(data) - 2 {
+        CZ(data[i], data[i + 1]);
+    }
+    CZ(data[Length(data) - 1], data[0]);
+
+    T(qs[2]);
+    T(qs[6]);
+    T(qs[17]);
+    let first = TeleportAndRestoreReporting(qs[2], qs[10], qs[11]);
+    let second = TeleportAndRestoreReporting(qs[6], qs[12], qs[13]);
+    let third = TeleportAndRestoreReporting(qs[17], qs[14], qs[15]);
+
+    Adjoint T(qs[2]);
+    Adjoint T(qs[6]);
+    Adjoint T(qs[17]);
+    UnprepareGraph(qs);
+    return [first[0], second[0], third[0]] + MResetEachZ(qs);
+}
+"""
+
+
+def compile_teleported_t(operation: str) -> str:
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qsharp.eval(TELEPORTED_T_QSHARP)
+    return str(qsharp.compile(f"{operation}()"))
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_teleported_t_echo():
+    results = run_shots(compile_teleported_t("TeleportedTEcho"), shots=8)
+
+    assert results["shot_result_codes"] == [0] * 8
+    assert [map_result_list_to_str(result) for result in results["shot_results"]] == [
+        "0" * 20
+    ] * 8
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_teleported_t_distribution():
+    shots = 256
+    results = run_shots(
+        compile_teleported_t("TeleportedTDistribution"), shots=shots
+    )
+
+    assert results["shot_result_codes"] == [0] * shots
+    shot_results = [
+        map_result_list_to_str(result) for result in results["shot_results"]
+    ]
+    target_bits = (2, 6, 17)
+    expected_one_probability = math.sin(math.pi / 8.0) ** 2
+
+    for result in shot_results:
+        assert len(result) == 20
+        assert all(bit == "0" for i, bit in enumerate(result) if i not in target_bits)
+
+    for bit in target_bits:
+        probability = sum(result[bit] == "1" for result in shot_results) / shots
+        assert abs(probability - expected_one_probability) < 0.07
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_teleported_t_forced_z_fault():
+    qir = compile_teleported_t("TeleportedTEcho")
+    noise = NoiseConfig()
+    noise.t.z = 1.0
+    expected = "".join("1" if i in (2, 6, 17) else "0" for i in range(20))
+
+    for sim_type in ("gpu", "clifford"):
+        results = run_qir(qir, shots=8, noise=noise, seed=42, type=sim_type)
+        assert [map_result_list_to_str(result) for result in results] == [expected] * 8
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_teleported_t_forced_loss():
+    qir = compile_teleported_t("TeleportedTNoiseReporting")
+    noise = NoiseConfig()
+    noise.t.loss = 1.0
+
+    for sim_type in ("gpu", "clifford"):
+        results = run_qir(qir, shots=16, noise=noise, seed=42, type=sim_type)
+        result_strings = [map_result_list_to_str(result) for result in results]
+        assert all(len(result) == 23 for result in result_strings)
+        assert all(result.startswith("LLL") for result in result_strings)
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_teleported_t_probabilistic_loss_matches_clifford():
+    qir = compile_teleported_t("TeleportedTNoiseReporting")
+    shots = 1000
+    loss_probability = 0.1
+    noise = NoiseConfig()
+    noise.t.loss = loss_probability
+    loss_histograms = {}
+
+    for sim_type in ("gpu", "clifford"):
+        results = run_qir(qir, shots=shots, noise=noise, seed=42, type=sim_type)
+        result_strings = [map_result_list_to_str(result) for result in results]
+        assert all(len(result) == 23 for result in result_strings)
+
+        loss_masks = [
+            "".join("L" if result[i] == "L" else "0" for i in range(3))
+            for result in result_strings
+        ]
+        loss_histograms[sim_type] = Counter(loss_masks)
+
+        for bit in range(3):
+            actual = sum(result[bit] == "L" for result in result_strings) / shots
+            assert abs(actual - loss_probability) < 0.04
+
+        no_loss_probability = sum(mask == "000" for mask in loss_masks) / shots
+        assert abs(no_loss_probability - (1.0 - loss_probability) ** 3) < 0.05
+        assert all(result[3:] == "0" * 20 for result in result_strings if "L" not in result[:3])
+
+    support = set(loss_histograms["gpu"]) | set(loss_histograms["clifford"])
+    total_variation_distance = (
+        sum(
+            abs(
+                loss_histograms["gpu"][mask]
+                - loss_histograms["clifford"][mask]
+            )
+            for mask in support
+        )
+        / shots
+        / 2.0
+    )
+    assert total_variation_distance < 0.1
 
 
 # ---------------------------------------------------------------------------
