@@ -484,9 +484,8 @@ impl<'package, T: Handler<'package>> Locator<'_, 'package, T> {
                                 );
                             }
                             hir::ItemKind::Namespace(_, _) => {
-                                panic!(
-                                    "Reference node should not refer to a namespace: {}",
-                                    path.id
+                                unreachable!(
+                                    "namespaces should be filtered out by the `Importable` match above"
                                 )
                             }
                             hir::ItemKind::Export(_, _) => {
