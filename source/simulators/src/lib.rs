@@ -132,7 +132,7 @@ pub trait Simulator {
     fn state_dump(&self) -> &Self::StateDumpData;
 
     /// Measures loss but does not collapse the state. The result is stored in `result_id`.
-    fn peek_loss(&mut self, target: QubitID, result_id: QubitID);
+    fn peek_loss(&mut self, target: QubitID, result_id: ResultID);
 
     /// Applies readout noise to the measurement result with the given `result_id`.
     /// The probabilities of flipping a 0 to a 1 and a 1 to a 0 are given by `p_zero_as_one` and `p_one_as_zero`, respectively.

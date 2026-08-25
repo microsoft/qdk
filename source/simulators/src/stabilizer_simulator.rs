@@ -7,7 +7,7 @@ pub mod branching_state;
 pub mod operation;
 
 use crate::{
-    MeasurementResult, NearlyZero, QubitID, Simulator,
+    MeasurementResult, NearlyZero, QubitID, ResultID, Simulator,
     noise_config::{CumulativeNoiseConfig, Fault, FaultTerm, IntrinsicID, LossPolicy},
 };
 use branching_state::BranchingState;
@@ -221,13 +221,13 @@ impl StabilizerSimulator {
     }
 
     /// Records a z-measurement on the given `target`.
-    fn record_mz(&mut self, target: QubitID, result_id: QubitID) {
+    fn record_mz(&mut self, target: QubitID, result_id: ResultID) {
         let measurement = self.mz_impl(target);
         self.measurements[result_id] = measurement;
     }
 
     /// Records a z-measurement on the given `target` and resets the qubit to the zero state.
-    fn record_mresetz(&mut self, target: QubitID, result_id: QubitID) {
+    fn record_mresetz(&mut self, target: QubitID, result_id: ResultID) {
         let measurement = self.mresetz_impl(target);
         self.measurements[result_id] = measurement;
     }
@@ -705,13 +705,13 @@ impl Simulator for StabilizerSimulator {
         apply_noise!(self, swap, &[q1, q2]);
     }
 
-    fn mz(&mut self, target: QubitID, result_id: QubitID) {
+    fn mz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
         self.record_mz(target, result_id);
         apply_noise!(self, mz, &[target]);
     }
 
-    fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
+    fn mresetz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
         self.record_mresetz(target, result_id);
         apply_noise!(self, mresetz, &[target]);
@@ -730,7 +730,7 @@ impl Simulator for StabilizerSimulator {
         }
     }
 
-    fn correlated_noise_intrinsic(&mut self, intrinsic_id: IntrinsicID, targets: &[usize]) {
+    fn correlated_noise_intrinsic(&mut self, intrinsic_id: IntrinsicID, targets: &[QubitID]) {
         let fault = match self.noise_config.intrinsics.get(&intrinsic_id) {
             Some(correlated_noise) => correlated_noise.sample(&mut self.rng).cloned(),
             None => return,
@@ -774,7 +774,16 @@ impl Simulator for StabilizerSimulator {
         &self.state
     }
 
-    fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: QubitID) {
+    fn peek_loss(&mut self, qubit: QubitID, result_id: ResultID) {
+        let is_lost = self.loss[qubit];
+        self.measurements[result_id] = if is_lost {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
+        };
+    }
+
+    fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: ResultID) {
         let measurement = self.measurements[result_id];
         let sample = self.rng.random_range(0.0..1.0);
         let new_measurement = match measurement {
@@ -783,15 +792,6 @@ impl Simulator for StabilizerSimulator {
             measurement_result => measurement_result,
         };
         self.measurements[result_id] = new_measurement;
-    }
-
-    fn peek_loss(&mut self, qubit: QubitID, result_id: QubitID) {
-        let is_lost = self.loss[qubit];
-        self.measurements[result_id] = if is_lost {
-            MeasurementResult::One
-        } else {
-            MeasurementResult::Zero
-        };
     }
 }
 

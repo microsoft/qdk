@@ -1,24 +1,48 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use super::QubitID;
+use super::{QubitID, ResultID};
 
 /// An extension of the Clifford gates, also including a `Move` operation.
 /// A gate C is Clifford if it conjugates all elements of the Pauli group into
 /// elements of the pauli group. That is, ∀ p ∈ `PauliGroup`, C†pC ∈ `PauliGroup`.
 #[derive(Debug)]
 pub enum Operation {
-    I { target: QubitID },
-    X { target: QubitID },
-    Y { target: QubitID },
-    Z { target: QubitID },
-    H { target: QubitID },
-    S { target: QubitID },
-    SAdj { target: QubitID },
-    SX { target: QubitID },
-    CZ { control: QubitID, target: QubitID },
-    Move { target: QubitID },
-    MResetZ { target: QubitID, result_id: QubitID },
+    I {
+        target: QubitID,
+    },
+    X {
+        target: QubitID,
+    },
+    Y {
+        target: QubitID,
+    },
+    Z {
+        target: QubitID,
+    },
+    H {
+        target: QubitID,
+    },
+    S {
+        target: QubitID,
+    },
+    SAdj {
+        target: QubitID,
+    },
+    SX {
+        target: QubitID,
+    },
+    CZ {
+        control: QubitID,
+        target: QubitID,
+    },
+    Move {
+        target: QubitID,
+    },
+    MResetZ {
+        target: QubitID,
+        result_id: ResultID,
+    },
 }
 
 #[must_use]
