@@ -143,9 +143,9 @@ fn operation_return_type(circuit: &Circuit) -> &'static str {
 
 fn supports_ctl_adj(circuit: &Circuit) -> bool {
     !circuit.component_grid.iter().any(|col| {
-        col.components
-            .iter()
-            .any(|op| !matches!(op, Operation::Unitary(_)))
+        col.components.iter().any(|op| {
+            !matches!(op, Operation::Unitary(unitary) if unitary.classical_controls.is_empty())
+        })
     })
 }
 
@@ -268,7 +268,24 @@ fn generate_unitary_call(
     indent: &str,
 ) -> String {
     let operation_str = operation_call(unitary, qubits);
-    format!("{indent}{operation_str};\n")
+    if unitary.classical_controls.is_empty() {
+        format!("{indent}{operation_str};\n")
+    } else {
+        let condition = unitary
+            .classical_controls
+            .iter()
+            .map(|control| {
+                let register = &control.register;
+                let result_id = register
+                    .result
+                    .expect("classical control should reference a measurement result");
+                let expected_result = if control.inverted { "Zero" } else { "One" };
+                format!("c{}_{result_id} == {expected_result}", register.qubit)
+            })
+            .collect::<Vec<_>>()
+            .join(" and ");
+        format!("{indent}if {condition} {{\n{indent}    {operation_str};\n{indent}}}\n")
+    }
 }
 
 fn generate_ket_call(ket: &Ket, qubits: &FxHashMap<usize, String>, indent: &str) -> String {
