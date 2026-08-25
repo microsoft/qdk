@@ -6,7 +6,6 @@ import {
   LearningService,
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
-  isNotebookCourse,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
   type CurrentActivity,
@@ -17,6 +16,7 @@ import {
   type SolutionCheckResult,
 } from "../learning/index.js";
 import { CopilotToolError } from "./types.js";
+import { LearningState } from "../learning/types.js";
 
 /**
  * Compact snapshot of the learner's current position and progress.
@@ -128,7 +128,7 @@ export class LearningTools {
     return {
       initialized: true,
       courseSelected: this.service.hasUserSelectedCourse(),
-      state: this.serializeState(),
+      state: this.serializeState(true), // match user experience
     };
   }
 
@@ -171,7 +171,7 @@ export class LearningTools {
     return this.invoke(async () => {
       await this.service.switchCourse(input.courseId, "chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // workspace state is correct after switch
     });
   }
 
@@ -199,17 +199,17 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
-      if (isNotebookCourse(this.service.getActiveCourseInfo())) {
+      const editor = vscode.window.activeNotebookEditor;
+      if (editor) {
         let code = "";
-        // Prefer the cell the user actually has focused in the editor.
-        const editor = vscode.window.activeNotebookEditor;
-        const selection = editor?.selections[0];
-        if (
-          selection && // Implies editor
-          editor.notebook.uri.toString() === uri.toString()
-        ) {
-          const cell = editor.notebook.cellAt(selection.start);
-          code = cell.document.getText();
+        if (editor.notebook.uri.toString() === uri.toString()) {
+          // Prefer the cell the user actually has focused in the editor.
+          const selection = editor.selections[0];
+          if (selection) {
+            // Not guaranteed to be a code cell, but not important enough to check
+            const cell = editor.notebook.cellAt(selection.start);
+            code = cell.document.getText();
+          }
         }
         return { code, filePath: uri.fsPath };
       }
@@ -221,28 +221,15 @@ export class LearningTools {
   /**
    * Return all built-in hints for the current exercise.
    */
-  async hint(): Promise<{ result: HintContext | null }> {
+  async hint(): Promise<{ result: HintContext | undefined } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(() => {
-      const r = this.service.getHintContext("chat");
-      // The serialized state attempts to identify the actually active cell,
-      // whereas the hint state is solely based on activity-level progress,
-      // so the two can get out of sync.  Since they should agree when the
-      // user is on an exercise cell and since this tool only makes sense
-      // on exercise cells, report failure to copilot if they disagree.
-      const selectedState = this.serializeState();
-      const hintLocation = r.state.position.location;
-      const selectedLocation = selectedState.position.location;
-      if (
-        hintLocation.courseId !== selectedLocation.courseId ||
-        hintLocation.unitId !== selectedLocation.unitId ||
-        hintLocation.activityId !== selectedLocation.activityId
-      ) {
-        throw new CopilotToolError(
-          "The active cell doesn't appear to be an exercise and only exercise cells have associated hints",
-        );
-      }
-      return { result: r.result };
+      const state = this.serializeState(true); // use editor for hints
+      const result = this.service.getHintContext(
+        state.position.location,
+        "chat",
+      );
+      return { result, state };
     });
   }
 
@@ -255,7 +242,7 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(true) }; // no-ops for notebooks, so editor state is more accurate
     });
   }
 
@@ -264,10 +251,11 @@ export class LearningTools {
    */
   async next(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.next("chat");
       await this.showActivity();
-      return { moved: r.moved, state: this.serializeState() };
+      return { moved: r.moved, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -276,10 +264,11 @@ export class LearningTools {
    */
   async previous(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.previous("chat");
       await this.showActivity();
-      return { moved: r.moved, state: this.serializeState() };
+      return { moved: r.moved, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -293,9 +282,13 @@ export class LearningTools {
   }): Promise<StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
+      const courseId = input.courseId;
+      if (courseId && courseId !== this.service.getActiveCourseId()) {
+        await this.service.switchCourse(courseId, "chat");
+      }
       await this.service.goTo(input, "chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // workspace state is correct after goto
     });
   }
 
@@ -306,10 +299,11 @@ export class LearningTools {
     shots?: number;
   }): Promise<{ result: RunResult } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.run(input.shots ?? 1, "chat");
       await this.showActivity();
-      return { result: r.result, state: this.serializeState() };
+      return { result: r.result, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -318,10 +312,11 @@ export class LearningTools {
    */
   async check(): Promise<{ result: SolutionCheckResult } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.checkSolution("chat");
       await this.showActivity();
-      return { result: r.result, state: this.serializeState() };
+      return { result: r.result, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -331,10 +326,11 @@ export class LearningTools {
    */
   async resetExercise(): Promise<StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       await this.service.resetExercise("chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -344,9 +340,13 @@ export class LearningTools {
   async solution(): Promise<{ solutions: string[] } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
-      const solutions = this.service.getAllSolutions("chat");
+      const state = this.serializeState(true); // use editor for solutions
+      const solutions = this.service.getAllSolutions(
+        state.position.location,
+        "chat",
+      );
       await this.showActivity();
-      return { solutions, state: this.serializeState() };
+      return { solutions, state };
     });
   }
 
@@ -371,6 +371,19 @@ export class LearningTools {
     }
   }
 
+  /**
+   * If the active course isn't a Q# course (i.e. the katas), throw an exception indicating
+   * that the current operation isn't supported.
+   */
+  private throwIfNotQSharpCourse(): void {
+    const { kind } = this.service.getActiveCourseInfo();
+    if (kind !== "qsharp") {
+      throw new CopilotToolError(
+        "This operation is only supported for Q# courses.",
+      );
+    }
+  }
+
   private async showActivity(): Promise<void> {
     await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
   }
@@ -389,22 +402,23 @@ export class LearningTools {
    * Build a compact snapshot of position and progress to attach to
    * every tool response.
    */
-  private serializeState(): SerializedLearningState {
-    const state = this.service.getState();
+  private serializeState(considerEditor: boolean): SerializedLearningState {
+    // The notebook learning state will be undefined if we're not in a notebook
+    // or if we couldn't identify the current cell for some reason.
+    // In that case, we fall back to the current state.
+    const state =
+      (considerEditor ? this.notebookLearningState() : undefined) ??
+      this.service.getState();
+
     const progress = state.progress;
-    const cur = progress.currentPosition?.unitId;
-    const currentUnit = cur
-      ? progress.units.find((u) => u.id === cur)
+    const unitId = progress.currentPosition?.unitId;
+    const currentUnit = unitId
+      ? progress.units.find((u) => u.id === unitId)
       : undefined;
 
-    // The notebook activity will be undefined if we're not in a notebook
-    // or if we couldn't identify the current cell for some reason.
-    // In that case, we fall back to the current progress position.
-    const position = this.notebookCurrentActivity() ?? state.position;
-
     return {
-      course: this.service.getActiveCourseInfo(),
-      position,
+      course: state.course,
+      position: state.position,
       progress: {
         totalActivities: progress.stats.totalActivities,
         completedActivities: progress.stats.completedActivities,
@@ -415,10 +429,10 @@ export class LearningTools {
   }
 
   /**
-   * For notebook courses, build CurrentActivity from the selected cell
+   * For notebook courses, build LearningState from the selected cell
    * rather than from the service's stored position.
    */
-  private notebookCurrentActivity(): CurrentActivity | undefined {
+  private notebookLearningState(): LearningState | undefined {
     const editor = vscode.window.activeNotebookEditor;
     const selection = editor?.selections[0];
     if (!selection || !editor) {
@@ -431,10 +445,10 @@ export class LearningTools {
       return undefined;
     }
 
-    return this.service.getCurrentActivityForCell(
+    return this.service.getLearningStateForCell(
       cellId,
       cell.document.getText(),
-      editor.notebook.uri.toString(),
+      editor.notebook.uri,
     );
   }
 }
