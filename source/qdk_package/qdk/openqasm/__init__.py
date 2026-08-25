@@ -1,36 +1,50 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
-"""OpenQASM tooling for the QDK.
+"""Compile, simulate, and inspect OpenQASM programs.
 
-This module provides functions for compiling, running, estimating, and
-generating circuits from OpenQASM 2.0/3.0 programs.
+For execution workflows, use :func:`run` to simulate a program,
+:func:`compile` to produce QIR, :func:`circuit` to generate a circuit, or
+:func:`import_openqasm` to add declarations to the active QDK context.
+For resource estimation, use :mod:`qdk.qre`; :func:`estimate` is deprecated.
 
-Key exports:
+For source-analysis workflows, use :func:`parse` to inspect the syntax exactly
+as written, or :func:`analyze` to inspect resolved symbols, types, and constant
+values. The :mod:`parser` and :mod:`semantic` modules export the corresponding
+read-only node classes. :class:`QASMVisitor` walks either tree.
 
-- :func:`~qdk.openqasm.import_openqasm` — import an OpenQASM program or
-  fragment into the active Q# interpreter context.
-- :func:`~qdk.openqasm.run` — simulate an OpenQASM program for one or more shots.
-- :func:`~qdk.openqasm.compile` — compile an OpenQASM program to QIR for
-  submission to a hardware target.
-- :func:`~qdk.openqasm.circuit` — synthesize a circuit diagram from an
-  OpenQASM program.
-- :func:`~qdk.openqasm.estimate` — estimate the quantum resources required to
-  run an OpenQASM program (deprecated; use :mod:`qdk.qre` instead).
-- :class:`~qdk.openqasm.ProgramType` — controls how the source is interpreted
-  (``Operation``, ``File``, or ``Fragments``).
-- :class:`~qdk.openqasm.OutputSemantics` — controls measurement output
-  semantics during compilation.
-- :class:`~qdk.openqasm.QasmError` — raised when an OpenQASM source cannot
-  be parsed or compiled.
+Use :func:`dumps` or :func:`dump` to serialize a syntax program to canonical
+OpenQASM. The :mod:`source` module maps node and diagnostic spans back to files,
+lines, and columns.
+
+The parsing, semantic-analysis, source, and serialization APIs are in preview
+and may change between QDK releases.
 """
 
+from . import parser, semantic, source
+from .parser import (
+    QASM3ParsingError,
+    QASMUnparseError,
+    QASMVisitor,
+    dump,
+    dumps,
+    parse,
+    parse_program,
+)
+from .semantic import analyze
+from .source import Position, PositionEncoding, SourceRange
 from ._circuit import circuit
 from ._compile import compile
 from ._estimate import estimate
 from ._import import import_openqasm
 from ._run import run
 from .._native import ProgramType, OutputSemantics, QasmError  # type: ignore
+from ._native_syntax import (
+    Annotation,
+    Expression,
+    QASMNode,
+    Statement,
+)
 
 __all__ = [
     "circuit",
@@ -38,6 +52,24 @@ __all__ = [
     "estimate",
     "import_openqasm",
     "run",
+    "analyze",
+    "parse",
+    "dumps",
+    "dump",
+    "parse_program",
+    "QASM3ParsingError",
+    "QASMUnparseError",
+    "QASMVisitor",
+    "parser",
+    "semantic",
+    "source",
+    "Position",
+    "PositionEncoding",
+    "SourceRange",
+    "QASMNode",
+    "Expression",
+    "Statement",
+    "Annotation",
     "ProgramType",
     "OutputSemantics",
     "QasmError",
