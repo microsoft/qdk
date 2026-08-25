@@ -456,6 +456,16 @@ impl GeneratorSetsBuilder {
                 .unresolved_callee_exprs
                 .push(unresolved_callee_expr_id);
         }
+
+        // Save the mutable fixed size arrays.
+        for mutable_fixed_size_array in inherent_application_compute_properties
+            .mutable_fixed_size_arrays
+            .drain(..)
+        {
+            package_compute_properties
+                .mutable_fixed_size_arrays
+                .push(mutable_fixed_size_array);
+        }
     }
 }
 
@@ -479,6 +489,8 @@ pub struct ApplicationInstance {
     /// The compute kind of the expressions related to the application instance.
     exprs: Vec<(ExprId, ComputeKind)>,
     pub unresolved_callee_exprs: Vec<ExprId>,
+    /// The local variable ids of any mutable fixed size arrays detected during analysis.
+    pub mutable_fixed_size_arrays: Vec<LocalVarId>,
 }
 
 // Default starting capacities for the per-callable application instance data structures.
@@ -579,6 +591,7 @@ impl ApplicationInstance {
             stmts: Vec::with_capacity(INITIAL_STMTS_CAPACITY),
             exprs: Vec::with_capacity(INITIAL_EXPRS_CAPACITY),
             unresolved_callee_exprs: Vec::new(),
+            mutable_fixed_size_arrays: Vec::new(),
         }
     }
 
@@ -635,6 +648,7 @@ impl ApplicationInstance {
             exprs: self.exprs.into_iter().collect(),
             unresolved_callee_exprs: self.unresolved_callee_exprs,
             value_kind,
+            mutable_fixed_size_arrays: self.mutable_fixed_size_arrays,
         }
     }
 }
@@ -687,6 +701,7 @@ struct ApplicationInstanceComputeProperties {
     exprs: FxHashMap<ExprId, ComputeKind>,
     value_kind: Option<ValueKind>,
     unresolved_callee_exprs: Vec<ExprId>,
+    mutable_fixed_size_arrays: Vec<LocalVarId>,
 }
 
 impl ApplicationInstanceComputeProperties {

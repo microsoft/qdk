@@ -22,6 +22,7 @@ use bitflags::bitflags;
 use indenter::indented;
 use qsc_data_structures::display::core::set_indentation;
 use qsc_data_structures::{index_map::IndexMap, target::TargetCapabilityFlags};
+use qsc_fir::fir::LocalVarId;
 use qsc_fir::{
     fir::{
         BlockId, ExprId, LocalItemId, PackageId, StmtId, StoreBlockId, StoreExprId, StoreItemId,
@@ -144,6 +145,18 @@ impl PackageStoreComputeProperties {
             .unresolved_callee_exprs
             .contains(&id.expr)
     }
+
+    #[must_use]
+    pub fn is_mutable_fixed_size_array(
+        &self,
+        id: LocalVarId,
+        package_id: PackageId,
+        parallel: bool,
+    ) -> bool {
+        self.get(package_id, parallel)
+            .mutable_fixed_size_arrays
+            .contains(&id)
+    }
 }
 
 /// The compute properties of a package.
@@ -159,6 +172,8 @@ pub struct PackageComputeProperties {
     pub exprs: IndexMap<ExprId, ApplicationGeneratorSet>,
     /// The expressions that were unresolved callees at analysis time.
     pub unresolved_callee_exprs: FxHashSet<ExprId>,
+    /// The local variable ids of any mutable fixed size arrays detected during analysis.
+    pub mutable_fixed_size_arrays: FxHashSet<LocalVarId>,
 }
 
 impl Default for PackageComputeProperties {
@@ -169,6 +184,7 @@ impl Default for PackageComputeProperties {
             stmts: IndexMap::new(),
             exprs: IndexMap::new(),
             unresolved_callee_exprs: FxHashSet::default(),
+            mutable_fixed_size_arrays: FxHashSet::default(),
         }
     }
 }

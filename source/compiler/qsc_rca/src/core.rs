@@ -196,13 +196,16 @@ impl<'a> Analyzer<'a> {
         let mut default_value_kind = ValueKind::Constant;
         // If we are within a dynamic scope, the compute kind of the assign index expression must be variable and an additional
         // runtime feature is used to mark the array itself as dynamic.
-        if !application_instance.active_dynamic_scopes.is_empty() {
+        let is_dynamic_array = if application_instance.active_dynamic_scopes.is_empty() {
+            false
+        } else {
             default_value_kind = ValueKind::Variable;
             replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {
                 runtime_features: RuntimeFeatureFlags::UseOfDynamicArray,
                 value_kind: ValueKind::Constant,
             });
-        }
+            true
+        };
 
         let mut updated_compute_kind = ComputeKind::Static;
         updated_compute_kind
@@ -223,6 +226,11 @@ impl<'a> Analyzer<'a> {
         application_instance
             .locals_map
             .aggregate_compute_kind(*local_var_id, updated_compute_kind);
+        if is_dynamic_array {
+            application_instance
+                .mutable_fixed_size_arrays
+                .push(*local_var_id);
+        }
 
         // The compute kind of this expression is determined by aggregating the runtime features of the index and
         // replacement expressions.
@@ -1247,7 +1255,11 @@ impl<'a> Analyzer<'a> {
         let mut should_emit_classical_loop =
             self.should_emit_classical_loops() && !self.in_parallel_expr;
         let mut cached_locals_map = if should_emit_classical_loop {
-            Some(self.get_current_application_instance().locals_map.clone())
+            let application_instance = self.get_current_application_instance();
+            Some((
+                application_instance.locals_map.clone(),
+                application_instance.mutable_fixed_size_arrays.clone(),
+            ))
         } else {
             None
         };
@@ -1323,9 +1335,12 @@ impl<'a> Analyzer<'a> {
                 // Revert the calculated compute kinds and re-analyze marking the loop.
                 ClearComputeKinds::new(self).visit_expr(condition_expr_id);
                 ClearComputeKinds::new(self).visit_block(block_id);
-                self.get_current_application_instance_mut().locals_map = cached_locals_map.take().expect(
+                let (cached_locals_map, cached_mutable_fixed_size_arrays) = cached_locals_map.take().expect(
                     "cached locals map should exist when re-analyzing while loop with classical emission",
                 );
+                let application_instance = self.get_current_application_instance_mut();
+                application_instance.locals_map = cached_locals_map;
+                application_instance.mutable_fixed_size_arrays = cached_mutable_fixed_size_arrays;
                 should_emit_classical_loop = false;
             } else {
                 break (condition_expr_compute_kind, compute_kind);
