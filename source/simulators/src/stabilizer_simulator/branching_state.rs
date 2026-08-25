@@ -27,6 +27,7 @@ pub struct BranchingState {
 }
 
 impl BranchingState {
+    /// Creates the all-zero state with an identity Clifford frame.
     pub fn new(num_qubits: usize) -> Self {
         Self {
             clifford: CliffordUnitary::identity(num_qubits),
@@ -35,22 +36,30 @@ impl BranchingState {
     }
 
     #[cfg(test)]
+    /// Returns the number of nonzero computational-basis amplitudes.
     fn branch_count(&self) -> usize {
         self.amplitudes.len()
     }
 
+    /// Applies a Clifford operation represented by `UnitaryOp` to the shared frame.
+    ///
+    /// Despite the general name of `UnitaryOp`, all operations accepted here are
+    /// Clifford operations; non-Clifford rotations are handled by `rotate`.
     pub fn unitary_op(&mut self, operation: UnitaryOp, support: &[usize]) {
         self.clifford.left_mul(operation, support);
     }
 
+    /// Applies a qubit permutation to the shared Clifford frame.
     pub fn permute(&mut self, permutation: &[usize], support: &[usize]) {
         self.clifford.left_mul_permutation(permutation, support);
     }
 
+    /// Applies a Pauli by updating the shared frame without increasing branches.
     pub fn pauli(&mut self, pauli: &SparsePauli) {
         self.clifford.left_mul_pauli(pauli);
     }
 
+    /// Applies a Pauli rotation, branching amplitudes when the rotation is non-Clifford.
     pub fn rotate(&mut self, angle: f64, pauli: &SparsePauli) {
         let pauli = self.clifford.preimage(pauli);
         let identity_coefficient = Complex64::new((angle / 2.0).cos(), 0.0);
@@ -83,6 +92,7 @@ impl BranchingState {
     }
 
     #[must_use]
+    /// Computes a measurement outcome probability without modifying the state.
     pub fn outcome_probability(&self, observable: &SparsePauli, outcome: bool) -> f64 {
         if self.amplitudes.len() == 1 {
             let basis = self
@@ -102,7 +112,13 @@ impl BranchingState {
         projected.project(observable, outcome)
     }
 
+    /// Uses the tableau fast path for a state represented by one amplitude.
     fn project_single_stabilizer(&mut self, observable: &SparsePauli, outcome: bool) -> f64 {
+        assert_eq!(
+            self.amplitudes.len(),
+            1,
+            "single-stabilizer projection requires exactly one amplitude"
+        );
         let (basis, amplitude) = self
             .amplitudes
             .iter()
@@ -143,6 +159,7 @@ impl BranchingState {
         probability
     }
 
+    /// Absorbs a computational-basis state into the shared Clifford frame.
     fn clifford_with_basis_state(&self, basis: &BigUint) -> CliffordUnitary {
         let mut basis_change = CliffordUnitary::identity(self.clifford.num_qubits());
         for qubit in 0..self.clifford.num_qubits() {
@@ -153,6 +170,7 @@ impl BranchingState {
         self.clifford.multiply_with(&basis_change)
     }
 
+    /// Applies a linear combination of the identity and a Pauli to every branch.
     fn apply_linear_pauli(
         &mut self,
         identity_coefficient: Complex64,
@@ -193,10 +211,12 @@ impl BranchingState {
         self.amplitudes = result;
     }
 
+    /// Returns the squared norm of the branch amplitudes.
     fn norm_squared(&self) -> f64 {
         self.amplitudes.values().map(Complex64::norm_sqr).sum()
     }
 
+    /// Renormalizes the state after a rotation or projection.
     fn normalize(&mut self) {
         let norm = self.norm_squared().sqrt();
         assert!(
@@ -210,6 +230,7 @@ impl BranchingState {
         self.scale(1.0 / norm);
     }
 
+    /// Multiplies every branch amplitude by a real scale factor.
     fn scale(&mut self, scale: f64) {
         for amplitude in self.amplitudes.values_mut() {
             *amplitude *= scale;
@@ -316,10 +337,50 @@ mod tests {
     }
 
     #[test]
+    fn arbitrary_ry_has_expected_measurement_probability() {
+        let angle = 0.731;
+        let mut state = BranchingState::new(1);
+        state.rotate(angle, &[paulimer::core::y(0)].into());
+
+        let expected = (angle / 2.0).sin().powi(2);
+        assert!((state.project(&z(0), true) - expected).abs() < 1e-12);
+    }
+
+    #[test]
+    fn arbitrary_rz_has_expected_interference_probability() {
+        let angle = 0.731;
+        let mut state = BranchingState::new(1);
+        state.unitary_op(UnitaryOp::Hadamard, &[0]);
+        state.rotate(angle, &z(0));
+        state.unitary_op(UnitaryOp::Hadamard, &[0]);
+
+        let expected = (angle / 2.0).sin().powi(2);
+        assert!((state.project(&z(0), true) - expected).abs() < 1e-12);
+    }
+
+    #[test]
     fn arbitrary_rxx_correlates_measurement_outcomes() {
         let angle = 0.417;
         let mut state = BranchingState::new(2);
         state.rotate(angle, &[paulimer::core::x(0), paulimer::core::x(1)].into());
+
+        let expected = (angle / 2.0).sin().powi(2);
+        assert!((state.project(&z(0), true) - expected).abs() < 1e-12);
+        assert!((state.project(&z(1), true) - 1.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn arbitrary_rzz_correlates_measurement_outcomes() {
+        let angle = 0.417;
+        let mut state = BranchingState::new(2);
+        state.unitary_op(UnitaryOp::Hadamard, &[0]);
+        state.unitary_op(UnitaryOp::Hadamard, &[1]);
+        state.rotate(
+            angle,
+            &[paulimer::core::z(0), paulimer::core::z(1)].into(),
+        );
+        state.unitary_op(UnitaryOp::Hadamard, &[0]);
+        state.unitary_op(UnitaryOp::Hadamard, &[1]);
 
         let expected = (angle / 2.0).sin().powi(2);
         assert!((state.project(&z(0), true) - expected).abs() < 1e-12);
