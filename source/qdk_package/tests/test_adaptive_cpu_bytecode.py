@@ -638,6 +638,14 @@ PEEK_LOSS_DECLS = """
 declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)
 """
 
+PEEK_LOSS_PRESERVES_STATE_QIR = """
+entry:
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_peek_loss(sim_type):
@@ -660,6 +668,17 @@ def test_peek_loss(sim_type):
     assert counts == {
         "1L": SHOTS
     }, f"Expected all {SHOTS} shots to be '1L', got {counts}"
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_peek_loss_preserves_intact_qubit_state(sim_type):
+    check_result(
+        PEEK_LOSS_PRESERVES_STATE_QIR,
+        "00",
+        extra_decls=PEEK_LOSS_DECLS,
+        num_results=2,
+        sim_type=sim_type,
+    )
 
 
 # =========================================================================
