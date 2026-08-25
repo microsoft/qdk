@@ -94,6 +94,45 @@ fn clifford_simulator_supports_pauli_noise() {
 }
 
 #[test]
+fn clifford_simulator_supports_qubit_loss() {
+    let mut sim = CliffordSim::new(1);
+    sim.set_loss(1.0);
+    let q = sim
+        .qubit_allocate()
+        .expect("Clifford simulator should have capacity");
+
+    let result = sim.m(q).expect("measurement should succeed");
+
+    assert_eq!(result, val::Result::Loss);
+}
+
+#[test]
+fn clifford_legacy_loss_skips_swap() {
+    let mut sim = CliffordSim::new(2);
+    let q0 = sim
+        .qubit_allocate()
+        .expect("Clifford simulator should have capacity");
+    let q1 = sim
+        .qubit_allocate()
+        .expect("Clifford simulator should have capacity");
+    sim.set_loss(1.0);
+    sim.x(q0).expect("X gate should succeed");
+    sim.set_loss(0.0);
+    sim.x(q1).expect("X gate should succeed");
+
+    sim.swap(q0, q1).expect("SWAP gate should succeed");
+
+    assert_eq!(
+        sim.m(q0).expect("measurement should succeed"),
+        val::Result::Loss
+    );
+    assert_eq!(
+        sim.m(q1).expect("measurement should succeed"),
+        val::Result::Val(true)
+    );
+}
+
+#[test]
 fn noiseless_gate() {
     let noise = PauliNoise::from_probabilities(0.0, 0.0, 0.0)
         .expect("noiseless Pauli noise should be constructable.");

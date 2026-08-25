@@ -3,10 +3,7 @@
 
 import { assert } from "chai";
 import * as vscode from "vscode";
-import {
-  getSimulationConfig,
-  validateSimulationNoiseSettings,
-} from "../../../src/config";
+import { getSimulationConfig } from "../../../src/config";
 
 suite("Q# Simulation Configuration Tests", function suite() {
   const simulation = vscode.workspace.getConfiguration("Q#.simulation");
@@ -52,23 +49,6 @@ suite("Q# Simulation Configuration Tests", function suite() {
     assert.throws(
       getSimulationConfig,
       /must be an integer between 1 and 10000/,
-    );
-  });
-
-  test("allows Pauli noise for Clifford simulation", () => {
-    assert.doesNotThrow(() =>
-      validateSimulationNoiseSettings({ type: "clifford", maxQubits: 1000 }, 0),
-    );
-  });
-
-  test("rejects qubit loss for Clifford simulation", () => {
-    assert.throws(
-      () =>
-        validateSimulationNoiseSettings(
-          { type: "clifford", maxQubits: 1000 },
-          0.01,
-        ),
-      /qubitLoss is not supported by the Clifford simulator/,
     );
   });
 });

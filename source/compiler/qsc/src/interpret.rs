@@ -111,9 +111,6 @@ pub enum Error {
     #[error("entry point not found")]
     #[diagnostic(code("Qdk.Qsc.Interpret.NoEntryPoint"))]
     NoEntryPoint,
-    #[error("qubit loss is not supported by the Clifford simulator")]
-    #[diagnostic(code("Qdk.Qsc.Interpret.CliffordQubitLossUnsupported"))]
-    CliffordQubitLossUnsupported,
     #[error("unsupported runtime capabilities for code generation")]
     #[diagnostic(code("Qdk.Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
     UnsupportedRuntimeCapabilities,
@@ -137,16 +134,6 @@ pub enum SimType {
     #[default]
     Sparse,
     Clifford(usize),
-}
-
-fn validate_simulation_options(
-    sim_type: SimType,
-    qubit_loss: Option<f64>,
-) -> std::result::Result<(), Vec<Error>> {
-    if matches!(sim_type, SimType::Clifford(_)) && qubit_loss.is_some_and(|loss| loss != 0.0) {
-        return Err(vec![Error::CliffordQubitLossUnsupported]);
-    }
-    Ok(())
 }
 
 /// A Q# interpreter.
@@ -923,7 +910,6 @@ impl Interpreter {
         seed: Option<u64>,
         sim_type: SimType,
     ) -> InterpretResult {
-        validate_simulation_options(sim_type, qubit_loss)?;
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
@@ -957,6 +943,9 @@ impl Interpreter {
                         None => CliffordSim::new(num_qubits),
                     },
                 };
+                if let Some(loss) = qubit_loss {
+                    sim.set_loss(loss);
+                }
                 if seed.is_some() {
                     sim.set_seed(seed);
                 }
@@ -978,7 +967,6 @@ impl Interpreter {
         seed: Option<u64>,
         sim_type: SimType,
     ) -> InterpretResult {
-        validate_simulation_options(sim_type, qubit_loss)?;
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
@@ -1008,6 +996,9 @@ impl Interpreter {
                         None => CliffordSim::new(num_qubits),
                     },
                 };
+                if let Some(loss) = qubit_loss {
+                    sim.set_loss(loss);
+                }
                 self.run_with_sim(&mut sim, receiver, expr, seed)
             }
         }

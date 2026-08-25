@@ -990,6 +990,47 @@ test("compiler run supports Pauli noise with Clifford simulation", () =>
 test("compiler run supports Pauli noise with Clifford simulation - worker", () =>
   testCompilerRunSupportsCliffordNoise(true));
 
+async function testCompilerRunSupportsCliffordLoss(useWorker) {
+  const compiler = useWorker
+    ? getCompilerWorker(compilerWorkerPath)
+    : await getCompiler();
+  const events = new QscEventTarget(true);
+  try {
+    await compiler.runWithNoise(
+      {
+        sources: [
+          [
+            "test.qs",
+            `operation Main() : Result {
+              use qubit = Qubit();
+              return M(qubit);
+            }`,
+          ],
+        ],
+        languageFeatures: [],
+      },
+      "",
+      1,
+      [0, 0, 0],
+      1,
+      { type: "clifford", maxQubits: 1 },
+      events,
+    );
+
+    const results = events.getResults();
+    assert.equal(results.length, 1);
+    assert.equal(results[0].success, true);
+    assert.equal(results[0].result, "Loss");
+  } finally {
+    if (useWorker) compiler.terminate();
+  }
+}
+
+test("compiler run supports qubit loss with Clifford simulation", () =>
+  testCompilerRunSupportsCliffordLoss(false));
+test("compiler run supports qubit loss with Clifford simulation - worker", () =>
+  testCompilerRunSupportsCliffordLoss(true));
+
 test("compiler run reports non-Clifford operations", async () => {
   const compiler = await getCompiler();
   const events = new QscEventTarget(true);

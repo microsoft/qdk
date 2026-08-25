@@ -173,9 +173,7 @@ pub(crate) fn run_ast(
     loss: f64,
     sim_type: SimType,
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
-    if has_unsupported_qasm_qubit_loss(sim_type, loss) {
-        return Err(vec![interpret::Error::CliffordQubitLossUnsupported]);
-    }
+    let loss = if noise_config.is_none() { loss } else { 0.0 };
     let mut results = Vec::with_capacity(shots);
     for i in 0..shots {
         let result = match sim_type {
@@ -209,6 +207,9 @@ pub(crate) fn run_ast(
                         None => CliffordSim::new(num_qubits),
                     },
                 };
+                if loss > 0.0 {
+                    sim.set_loss(loss);
+                }
                 // If seed is provided, we want to use a different seed for each shot
                 // so that the results are different for each shot, but still deterministic
                 sim.set_seed(seed.map(|s| s + i as u64));
@@ -220,20 +221,6 @@ pub(crate) fn run_ast(
     }
 
     Ok(results)
-}
-
-fn has_unsupported_qasm_qubit_loss(sim_type: SimType, qubit_loss: f64) -> bool {
-    matches!(sim_type, SimType::Clifford(_)) && qubit_loss != 0.0
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn clifford_qasm_rejects_qubit_loss() {
-        assert!(has_unsupported_qasm_qubit_loss(SimType::Clifford(1), 0.1));
-    }
 }
 
 /// Estimates the resource requirements for executing OpenQASM source code.

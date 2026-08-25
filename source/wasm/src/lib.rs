@@ -504,6 +504,7 @@ fn run_interpreter<F>(
             }
             interpret::SimType::Clifford(num_qubits) => {
                 let mut sim = CliffordSim::new_with_pauli_noise(num_qubits, pauliNoise);
+                sim.set_loss(qubitLoss);
                 interpreter.eval_entry_with_sim(&mut sim, out)
             }
         };
@@ -718,12 +719,6 @@ fn run_with_simulator_internal(
 
     // See if the qubitLoss JsValue is a number
     let qubitLoss = qubitLoss.as_f64().unwrap_or(0.0);
-    if matches!(sim_type, interpret::SimType::Clifford(_)) && qubitLoss != 0.0 {
-        return Err(JsError::new(
-            "Qubit loss is not supported by the Clifford simulator; set it to zero or select the sparse simulator",
-        )
-        .into());
-    }
 
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);

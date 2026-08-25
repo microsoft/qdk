@@ -67,17 +67,6 @@ export function getSimulationConfig(): SimulatorConfig {
   return { type, maxQubits };
 }
 
-export function validateSimulationNoiseSettings(
-  simulation: SimulatorConfig,
-  qubitLoss: number,
-): void {
-  if (simulation.type === "clifford" && qubitLoss !== 0) {
-    throw new Error(
-      "Q#.simulation.qubitLoss is not supported by the Clifford simulator. Set it to zero or select the sparse simulator.",
-    );
-  }
-}
-
 export function getShowDevDiagnostics(): boolean {
   return vscode.workspace
     .getConfiguration("Q#")

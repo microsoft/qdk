@@ -1222,8 +1222,10 @@ pub struct CliffordSim {
     num_qubits: usize,
     qubit_id_map: IndexMap<usize, usize>,
     is_noisy: bool,
+    has_noise_config: bool,
     pauli_noise: PauliNoise,
-    pauli_noise_rng: Option<StdRng>,
+    qubit_loss: f64,
+    legacy_noise_rng: Option<StdRng>,
 }
 
 impl CliffordSim {
@@ -1240,8 +1242,10 @@ impl CliffordSim {
             num_qubits,
             qubit_id_map: IndexMap::new(),
             is_noisy: false,
+            has_noise_config: false,
             pauli_noise: PauliNoise::default(),
-            pauli_noise_rng: None,
+            qubit_loss: 0.0,
+            legacy_noise_rng: None,
         }
     }
 
@@ -1253,8 +1257,10 @@ impl CliffordSim {
             num_qubits,
             qubit_id_map: IndexMap::new(),
             is_noisy: true,
+            has_noise_config: true,
             pauli_noise: PauliNoise::default(),
-            pauli_noise_rng: None,
+            qubit_loss: 0.0,
+            legacy_noise_rng: None,
         }
     }
 
@@ -1267,20 +1273,40 @@ impl CliffordSim {
         let mut sim = Self::new(num_qubits);
         sim.is_noisy = true;
         sim.pauli_noise = *noise;
-        sim.pauli_noise_rng = Some(StdRng::from_rng(&mut rand::rng()));
+        sim.legacy_noise_rng = Some(StdRng::from_rng(&mut rand::rng()));
         sim
     }
 
-    fn apply_pauli_noise(&mut self, q: usize) {
-        let Some(rng) = &mut self.pauli_noise_rng else {
+    pub fn set_loss(&mut self, loss: f64) {
+        self.qubit_loss = loss;
+        self.is_noisy =
+            self.has_noise_config || !self.pauli_noise.is_noiseless() || !loss.is_zero();
+        self.legacy_noise_rng = if self.pauli_noise.is_noiseless() && loss.is_zero() {
+            None
+        } else {
+            Some(StdRng::from_rng(&mut rand::rng()))
+        };
+    }
+
+    fn apply_legacy_noise(&mut self, q: usize) {
+        let q_id = self.qubit_id_map[q];
+        if self.sim.is_qubit_lost(q_id) {
+            return;
+        }
+
+        let Some(rng) = &mut self.legacy_noise_rng else {
             return;
         };
+        if rng.random_range(0.0..1.0) < self.qubit_loss {
+            self.sim.lose_qubit(q_id);
+            return;
+        }
+
         let p = rng.random_range(0.0..1.0);
         if p >= self.pauli_noise.distribution[2] {
             return;
         }
 
-        let q_id = self.qubit_id_map[q];
         if p < self.pauli_noise.distribution[0] {
             self.sim.x(q_id);
         } else if p < self.pauli_noise.distribution[1] {
@@ -1288,6 +1314,13 @@ impl CliffordSim {
         } else {
             self.sim.z(q_id);
         }
+    }
+
+    fn can_apply_multi_qubit_gate(&self, qs: &[usize]) -> bool {
+        self.has_noise_config
+            || qs
+                .iter()
+                .all(|q| !self.sim.is_qubit_lost(self.qubit_id_map[*q]))
     }
 
     fn mresetz_noiseless(&mut self, q: usize) -> val::Result {
@@ -1320,37 +1353,43 @@ impl Backend for CliffordSim {
 
     fn cx(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
-        self.sim.cx(ctl_id, q_id);
-        self.apply_pauli_noise(ctl);
-        self.apply_pauli_noise(q);
+        if self.can_apply_multi_qubit_gate(&[ctl, q]) {
+            self.sim.cx(ctl_id, q_id);
+        }
+        self.apply_legacy_noise(ctl);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn cy(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
-        self.sim.cy(ctl_id, q_id);
-        self.apply_pauli_noise(ctl);
-        self.apply_pauli_noise(q);
+        if self.can_apply_multi_qubit_gate(&[ctl, q]) {
+            self.sim.cy(ctl_id, q_id);
+        }
+        self.apply_legacy_noise(ctl);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn cz(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
-        self.sim.cz(ctl_id, q_id);
-        self.apply_pauli_noise(ctl);
-        self.apply_pauli_noise(q);
+        if self.can_apply_multi_qubit_gate(&[ctl, q]) {
+            self.sim.cz(ctl_id, q_id);
+        }
+        self.apply_legacy_noise(ctl);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn h(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.h(q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn m(&mut self, q: usize) -> Result<val::Result, String> {
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         let q_id = self.qubit_id_map[q];
         self.sim.mz(q_id, 0);
         let res = self
@@ -1366,12 +1405,12 @@ impl Backend for CliffordSim {
     }
 
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(self.mresetz_noiseless(q))
     }
 
     fn reset(&mut self, q: usize) -> Result<(), String> {
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         let q_id = self.qubit_id_map[q];
         self.sim.resetz(q_id);
         Ok(())
@@ -1381,16 +1420,18 @@ impl Backend for CliffordSim {
         let q_id = self.qubit_id_map[q];
         check_normalized_angle(theta)?;
         self.sim.rx(theta, q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn rxx(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
         check_normalized_angle(theta)?;
-        self.sim.rxx(theta, q0_id, q1_id);
-        self.apply_pauli_noise(q0);
-        self.apply_pauli_noise(q1);
+        if self.can_apply_multi_qubit_gate(&[q0, q1]) {
+            self.sim.rxx(theta, q0_id, q1_id);
+        }
+        self.apply_legacy_noise(q0);
+        self.apply_legacy_noise(q1);
         Ok(())
     }
 
@@ -1398,16 +1439,18 @@ impl Backend for CliffordSim {
         let q_id = self.qubit_id_map[q];
         check_normalized_angle(theta)?;
         self.sim.ry(theta, q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn ryy(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
         check_normalized_angle(theta)?;
-        self.sim.ryy(theta, q0_id, q1_id);
-        self.apply_pauli_noise(q0);
-        self.apply_pauli_noise(q1);
+        if self.can_apply_multi_qubit_gate(&[q0, q1]) {
+            self.sim.ryy(theta, q0_id, q1_id);
+        }
+        self.apply_legacy_noise(q0);
+        self.apply_legacy_noise(q1);
         Ok(())
     }
 
@@ -1415,66 +1458,70 @@ impl Backend for CliffordSim {
         let q_id = self.qubit_id_map[q];
         check_normalized_angle(theta)?;
         self.sim.rz(theta, q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn rzz(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
         check_normalized_angle(theta)?;
-        self.sim.rzz(theta, q0_id, q1_id);
-        self.apply_pauli_noise(q0);
-        self.apply_pauli_noise(q1);
+        if self.can_apply_multi_qubit_gate(&[q0, q1]) {
+            self.sim.rzz(theta, q0_id, q1_id);
+        }
+        self.apply_legacy_noise(q0);
+        self.apply_legacy_noise(q1);
         Ok(())
     }
 
     fn sadj(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.s_adj(q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn s(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.s(q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn sx(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.sx(q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn swap(&mut self, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-        self.sim.swap(q0_id, q1_id);
-        self.apply_pauli_noise(q0);
-        self.apply_pauli_noise(q1);
+        if self.can_apply_multi_qubit_gate(&[q0, q1]) {
+            self.sim.swap(q0_id, q1_id);
+        }
+        self.apply_legacy_noise(q0);
+        self.apply_legacy_noise(q1);
         Ok(())
     }
 
     fn x(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.x(q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn y(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.y(q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
     fn z(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.z(q_id);
-        self.apply_pauli_noise(q);
+        self.apply_legacy_noise(q);
         Ok(())
     }
 
@@ -1567,14 +1614,14 @@ impl Backend for CliffordSim {
     fn set_seed(&mut self, seed: Option<u64>) {
         if let Some(seed) = seed {
             self.sim.set_seed(seed);
-            if self.pauli_noise_rng.is_some() {
+            if self.legacy_noise_rng.is_some() {
                 // User-provided seeds intentionally make simulation reproducible, not secure.
-                self.pauli_noise_rng = Some(StdRng::seed_from_u64(seed)); // DevSkim: ignore DS148264
+                self.legacy_noise_rng = Some(StdRng::seed_from_u64(seed)); // DevSkim: ignore DS148264
             }
         } else {
             self.sim.set_seed(rand::rng().next_u64());
-            if self.pauli_noise_rng.is_some() {
-                self.pauli_noise_rng = Some(StdRng::from_rng(&mut rand::rng()));
+            if self.legacy_noise_rng.is_some() {
+                self.legacy_noise_rng = Some(StdRng::from_rng(&mut rand::rng()));
             }
         }
     }
