@@ -96,9 +96,9 @@ fn values_that_are_not_related_to_pi_fall_back() {
 #[test]
 fn tolerance_boundary() {
     // Inside the tolerance, still recognized.
-    assert_eq!(format_angle(PI / 4.0 + 1e-11), "π / 4");
+    assert_eq!(format_angle(PI / 4.0 + RADIAN_EPS / 100.0), "π / 4");
     // Outside the tolerance, reported as the decimal it actually is.
-    assert_eq!(format_angle(PI / 4.0 + 1e-6), "0.7854");
+    assert_eq!(format_angle(PI / 4.0 + RADIAN_EPS * 1_000.0), "0.7854");
 }
 
 #[test]

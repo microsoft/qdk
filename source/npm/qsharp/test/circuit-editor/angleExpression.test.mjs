@@ -20,6 +20,9 @@ import {
   normalizeAngleExpression,
 } from "../../dist/ux/circuit-vis/angleExpression.js";
 
+// JavaScript floating-point comparison tolerance, independent of the circuit formatter thresholds.
+const EVALUATION_EPS = 1e-12;
+
 // ---------------------------------------------------------------------------
 // isValidAngleExpression — positive cases
 // ---------------------------------------------------------------------------
@@ -204,7 +207,7 @@ test("evaluateAngleExpression: generated symbolic args evaluate to their angle",
   for (const [expr, expected] of cases) {
     const actual = evaluateAngleExpression(expr);
     assert.ok(
-      actual !== undefined && Math.abs(actual - expected) < 1e-12,
+      actual !== undefined && Math.abs(actual - expected) < EVALUATION_EPS,
       `${expr} evaluated to ${actual}, expected ${expected}`,
     );
   }
