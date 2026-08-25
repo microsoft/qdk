@@ -247,7 +247,7 @@ export class LearningTools {
    */
   async next(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
-    this.requireQSharpCourse();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.next("chat");
       await this.showActivity();
@@ -260,7 +260,7 @@ export class LearningTools {
    */
   async previous(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
-    this.requireQSharpCourse();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.previous("chat");
       await this.showActivity();
@@ -295,7 +295,7 @@ export class LearningTools {
     shots?: number;
   }): Promise<{ result: RunResult } & StateSnapshot> {
     await this.ensureInitialized();
-    this.requireQSharpCourse();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.run(input.shots ?? 1, "chat");
       await this.showActivity();
@@ -308,7 +308,7 @@ export class LearningTools {
    */
   async check(): Promise<{ result: SolutionCheckResult } & StateSnapshot> {
     await this.ensureInitialized();
-    this.requireQSharpCourse();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.checkSolution("chat");
       await this.showActivity();
@@ -322,7 +322,7 @@ export class LearningTools {
    */
   async resetExercise(): Promise<StateSnapshot> {
     await this.ensureInitialized();
-    this.requireQSharpCourse();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       await this.service.resetExercise("chat");
       await this.showActivity();
@@ -367,7 +367,11 @@ export class LearningTools {
     }
   }
 
-  private requireQSharpCourse(): void {
+  /**
+   * If the active course isn't a Q# course (i.e. the katas), throw an exception indicating
+   * that the current operation isn't supported.
+   */
+  private throwIfNotQSharpCourse(): void {
     const { kind } = this.service.getActiveCourseInfo();
     if (kind !== "qsharp") {
       throw new CopilotToolError(
