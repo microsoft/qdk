@@ -207,6 +207,37 @@ fn add_alloca_load_to_block(
                 continue;
             }
 
+            // For array index updates, the array remains a pointer and does not need to be loaded, but we must
+            // update the index and value operands, immediately add the updated instruction, and store the result.
+            Instruction::StoreIndex(op1, op2, var) => {
+                let new_op1 = map_or_load_operand(
+                    op1,
+                    &mut var_map,
+                    &mut block.0,
+                    next_var_id,
+                    should_load_operand(op1, vars_to_alloca),
+                );
+                let new_op2 = map_or_load_operand(
+                    op2,
+                    &mut var_map,
+                    &mut block.0,
+                    next_var_id,
+                    should_load_operand(op2, vars_to_alloca),
+                );
+                let array_operand = Operand::Variable(*var);
+                let new_ptr_var = Variable {
+                    variable_id: *next_var_id,
+                    ty: new_op1.get_type(),
+                };
+                *next_var_id = next_var_id.successor();
+                block
+                    .0
+                    .push(Instruction::Index(array_operand, new_op2, new_ptr_var));
+                block.0.push(Instruction::Store(new_op1, new_ptr_var));
+                // Continue here to avoid pushing the instruction again below.
+                continue;
+            }
+
             // Phi nodes are handled separately in the SSA transformation, but need to be passed through
             // like the unconditional terminators.
             Instruction::Phi(..) | Instruction::Jump(..) | Instruction::Return(None) => {}

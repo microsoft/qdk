@@ -253,6 +253,7 @@ fn get_variable_uses(program: &Program) -> IndexMap<VariableId, Vec<(BlockId, us
                 }
 
                 Instruction::StoreArray(..)
+                | Instruction::StoreIndex(..)
                 | Instruction::Alloca(..)
                 | Instruction::Load(..)
                 | Instruction::Index(..) => {

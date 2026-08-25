@@ -782,11 +782,11 @@ impl RuntimeFeatureFlags {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicArray) {
-            // capabilities |= TargetCapabilityFlags::StaticSizedArrays;
+            capabilities |= TargetCapabilityFlags::StaticSizedArrays;
 
             // For now, we are treating any dynamic array as requiriing higher level constructs,
             // so that we can reject loops over arrays with dynamic contents.
-            capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
+            // capabilities |= TargetCapabilityFlags::HigherLevelConstructs;
         }
         if self.contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) {
             capabilities |= TargetCapabilityFlags::HigherLevelConstructs;

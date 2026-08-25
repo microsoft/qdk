@@ -433,6 +433,7 @@ fn process_variables(
         }
         instruction @ (Instruction::Store(..)
         | Instruction::StoreArray(..)
+        | Instruction::StoreIndex(..)
         | Instruction::BitwiseNot(..)
         | Instruction::Alloca(..)
         | Instruction::Load(..)

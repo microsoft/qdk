@@ -458,6 +458,7 @@ impl GeneratorSetsBuilder {
         }
 
         // Save the mutable fixed size arrays.
+        // TODO: These should be stored on a per-application basis, as they can vary by argument values.
         for mutable_fixed_size_array in inherent_application_compute_properties
             .mutable_fixed_size_arrays
             .drain(..)

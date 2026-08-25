@@ -377,6 +377,7 @@ impl Display for FcmpConditionCode {
 pub enum Instruction {
     Store(Operand, Variable),
     StoreArray(Vec<Operand>, Variable),
+    StoreIndex(Operand, Operand, Variable),
     Call(
         CallableId,
         Vec<Operand>,
@@ -430,11 +431,16 @@ impl Instruction {
 }
 
 impl Display for Instruction {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         match &self {
             Self::Store(value, variable) => write_unary_instruction(f, "Store", value, *variable)?,
             Self::StoreArray(value, variable) => {
                 write_store_array_instruction(f, value, *variable)?;
+            }
+            Self::StoreIndex(value, index, array_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "StoreIndex {value}, {index}, {array_var}")?;
             }
             Self::Jump(block_id) => write!(f, "Jump({})", block_id.0)?,
             Self::Call(callable_id, args, variable, metadata) => {

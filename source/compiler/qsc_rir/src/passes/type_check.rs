@@ -98,6 +98,13 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
                 );
             }
         }
+        Instruction::StoreIndex(value, index, var) => {
+            let Ty::Array(_, elem_ty) = &var.ty else {
+                panic!("expected variable to be of array type");
+            };
+            assert_eq!(index.get_type(), Ty::Prim(Prim::Integer));
+            assert_eq!(value.get_type(), Ty::Prim(*elem_ty));
+        }
 
         Instruction::Convert(_, _)
         | Instruction::Jump(_)

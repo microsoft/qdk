@@ -124,6 +124,16 @@ fn check_var_usage(
                 }
                 stored_vars.insert(variable.variable_id);
             }
+            Instruction::StoreIndex(value, index, variable) => {
+                if let crate::rir::Operand::Variable(var) = value {
+                    used_vars.insert(var.variable_id);
+                }
+                if let crate::rir::Operand::Variable(var) = index {
+                    used_vars.insert(var.variable_id);
+                    index_vars.insert(var.variable_id);
+                }
+                stored_vars.insert(variable.variable_id);
+            }
 
             Instruction::Call(_, operands, variable, _) => {
                 if let Some(var) = variable

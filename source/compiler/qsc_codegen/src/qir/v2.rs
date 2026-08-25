@@ -239,6 +239,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::Index(array_op, index_op, result_var) => {
                 index_to_qir(array_op, index_op, result_var, program)
             }
+            rir::Instruction::StoreIndex(..) => {
+                unreachable!("StoreIndex instructions should be eliminated by passes")
+            }
         }
     }
 }

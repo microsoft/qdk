@@ -111,6 +111,7 @@ pub fn get_variable_assignments(program: &Program) -> IndexMap<VariableId, (Bloc
                 }
                 Instruction::Store(_, var)
                 | Instruction::StoreArray(_, var)
+                | Instruction::StoreIndex(_, _, var)
                 | Instruction::Alloca(var)
                 | Instruction::Load(_, var)
                 | Instruction::Index(_, _, var) => {
@@ -165,6 +166,16 @@ pub(crate) fn map_variable_use_in_block(
                         .collect::<Vec<_>>();
                 } else {
                     // Otherwise drop the store array by continuing the loop.
+                    continue;
+                }
+            }
+            Instruction::StoreIndex(value, index, var) => {
+                if var_stor_to_keep.contains(&var.variable_id) {
+                    // Only keep stores to variables that are in the set to keep.
+                    *value = value.mapped(var_map);
+                    *index = index.mapped(var_map);
+                } else {
+                    // Otherwise drop the store index by continuing the loop.
                     continue;
                 }
             }

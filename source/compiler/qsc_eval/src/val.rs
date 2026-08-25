@@ -237,6 +237,7 @@ pub enum VarTy {
     Integer,
     Double,
     Qubit,
+    Array(usize),
 }
 
 impl Display for VarTy {
@@ -246,6 +247,7 @@ impl Display for VarTy {
             Self::Integer => write!(f, "Integer"),
             Self::Double => write!(f, "Double"),
             Self::Qubit => write!(f, "Qubit"),
+            Self::Array(size) => write!(f, "Array[{size}]"),
         }
     }
 }
