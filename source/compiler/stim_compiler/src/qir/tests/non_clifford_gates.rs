@@ -183,13 +183,13 @@ fn r_x_yields_expected_qir() {
 }
 
 #[test]
-fn r_y_yields_expected_qir() {
+fn r_y_with_negative_angle_yields_expected_qir() {
     check(
-        "R_Y(0.25) 0",
+        "R_Y(-0.25) 0",
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__ry__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__ry__body(double -0.7853981633974483, ptr inttoptr (i64 0 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
@@ -219,13 +219,13 @@ fn r_y_yields_expected_qir() {
 }
 
 #[test]
-fn r_z_yields_expected_qir() {
+fn r_z_with_large_angle_yields_expected_qir() {
     check(
-        "R_Z(0.25) 0",
+        "R_Z(123.432) 0",
         &expect![[r#"
             define i64 @ENTRYPOINT__main() #0 {
               call void @__quantum__rt__initialize(ptr null)
-              call void @__quantum__qis__rz__body(double 0.7853981633974483, ptr inttoptr (i64 0 to ptr))
+              call void @__quantum__qis__rz__body(double 387.77306441789534, ptr inttoptr (i64 0 to ptr))
               call void @__quantum__rt__array_record_output(i64 0, ptr null)
               ret i64 0
             }
