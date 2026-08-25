@@ -5,7 +5,9 @@ Usage:  python verify_course.py [course-directory] [--allow-outputs]
 
 import argparse
 import ast
+import base64
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -31,7 +33,8 @@ EXPECTED_TOTALS = Counter(
         "solutions": 6,
         "explanations": 6,
         "quizzes": 38,
-        "attachments": 11,
+        "attachments": 2,
+        "inline_svgs": 9,
     }
 )
 AUTHORING_KINDS = {
@@ -41,6 +44,25 @@ AUTHORING_KINDS = {
     "explanation": "markdown",
 }
 REGISTER_CALLS = {"register_exercise", "register_value_exercise"}
+EXPECTED_ATTACHMENT_MIMES = {
+    "tutorial_qpe_atomic_basis_functions.png": "image/png",
+    "tutorial_qpe_example_molecular_orbitals.png": "image/png",
+}
+EXPECTED_INLINE_SVGS = {
+    "tutorial_qpe_workflow.svg",
+    "tutorial_qpe_wavefunction_hierarchy.svg",
+    "tutorial_qpe_orbital_partition.svg",
+    "tutorial_qpe_orbital_entropy.svg",
+    "tutorial_qpe_jordan_wigner_parity.svg",
+    "tutorial_qpe_state_preparation_comparison.svg",
+    "tutorial_qpe_phase_wrapping.svg",
+    "tutorial_qpe_iqpe_iteration.svg",
+    "tutorial_qpe_power_one_circuit_overview.svg",
+}
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# Byte 25 of a PNG is the IHDR colour type; 4 and 6 carry an alpha channel.
+PNG_COLOUR_TYPE = 25
+PNG_ALPHA_COLOUR_TYPES = (4, 6)
 
 
 def exercise_names(source: str) -> list[str]:
@@ -86,6 +108,8 @@ print(f"{manifest['title']}  ({len(manifest['units'])} units)")
 
 failed = False
 totals = Counter(units=len(manifest["units"]))
+seen_attachments: set[str] = set()
+seen_inline_svgs: set[str] = set()
 if "id" in manifest:
     print("  [FAIL] course.json must derive its ID from the directory name")
     failed = True
@@ -145,6 +169,13 @@ for unit in manifest["units"]:
                 current_exercise = None
             counts["sections"] += any(tag.startswith("section:") for tag in tags)
             counts["quizzes"] += source.count("<details>")
+            for name in re.findall(r'<svg[^>]+data-asset="([^"]+)"', source):
+                counts["inline_svgs"] += 1
+                if name not in EXPECTED_INLINE_SVGS:
+                    problems.append(f"{cell.id}: unexpected inline SVG {name}")
+                elif name in seen_inline_svgs:
+                    problems.append(f"{cell.id}: duplicate inline SVG {name}")
+                seen_inline_svgs.add(name)
 
             for tag, expected_kind in AUTHORING_KINDS.items():
                 if tag in tags and cell.cell_type != expected_kind:
@@ -188,6 +219,33 @@ for unit in manifest["units"]:
                     problems.append(f"{cell.id}: orphan attachment {name}")
                 if not payload:
                     problems.append(f"{cell.id}: empty attachment {name}")
+                    continue
+
+                mimes = set(payload)
+                expected_mime = EXPECTED_ATTACHMENT_MIMES.get(name)
+                if expected_mime is None:
+                    problems.append(f"{cell.id}: unexpected attachment {name}")
+                    continue
+                if mimes != {expected_mime}:
+                    problems.append(
+                        f"{cell.id}: {name} has MIME types {sorted(mimes)}, "
+                        f"expected {expected_mime}"
+                    )
+                    continue
+                if name in seen_attachments:
+                    problems.append(f"{cell.id}: duplicate attachment {name}")
+                seen_attachments.add(name)
+
+                content = payload[expected_mime]
+                try:
+                    raw = base64.b64decode(content, validate=True)
+                except ValueError:
+                    problems.append(f"{cell.id}: invalid base64 attachment {name}")
+                    continue
+                if not raw.startswith(PNG_SIGNATURE) or len(raw) <= PNG_COLOUR_TYPE:
+                    problems.append(f"{cell.id}: {name} is not a PNG")
+                elif raw[PNG_COLOUR_TYPE] not in PNG_ALPHA_COLOUR_TYPES:
+                    problems.append(f"{cell.id}: {name} has no alpha channel")
 
             if cell.cell_type == "code":
                 counts["code_cells"] += 1
@@ -234,6 +292,7 @@ for unit in manifest["units"]:
                 "explanations",
                 "quizzes",
                 "attachments",
+                "inline_svgs",
             )
         }
     )
@@ -252,11 +311,22 @@ for name, expected in EXPECTED_TOTALS.items():
         print(f"  [FAIL] total {name}: found {totals[name]}, expected {expected}")
         failed = True
 
+missing_attachments = sorted(set(EXPECTED_ATTACHMENT_MIMES) - set(seen_attachments))
+if missing_attachments:
+    print(f"  [FAIL] missing attachments: {', '.join(missing_attachments)}")
+    failed = True
+
+missing_inline_svgs = sorted(EXPECTED_INLINE_SVGS - seen_inline_svgs)
+if missing_inline_svgs:
+    print(f"  [FAIL] missing inline SVGs: {', '.join(missing_inline_svgs)}")
+    failed = True
+
 if not failed:
     print(
         "Verified "
         f"{totals['cells']} cells, {totals['exercises']} exercises, "
-        f"{totals['quizzes']} quizzes, and {totals['attachments']} attachments."
+        f"{totals['quizzes']} quizzes, {totals['inline_svgs']} inline SVGs, "
+        f"and {totals['attachments']} attachments."
     )
 
 raise SystemExit(1 if failed else 0)

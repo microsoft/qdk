@@ -8,11 +8,15 @@ homepage.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[features]
+default = ["gpu"]
+gpu = ["dep:futures", "dep:wgpu"]
+
 [dependencies]
 binar = { workspace = true }
-bytemuck = { workspace = true }
-futures = { workspace = true }
-wgpu = { workspace = true }
+bytemuck = { workspace = true, features = ["derive"] }
+futures = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 rand = { workspace = true }
 nalgebra = { workspace = true }
 ndarray = { workspace = true }
@@ -59,3 +63,4 @@ harness = false
 [[bin]]
 name = "gpu-runner"
 path = "src/bin/gpu-runner.rs"
+required-features = ["gpu"]

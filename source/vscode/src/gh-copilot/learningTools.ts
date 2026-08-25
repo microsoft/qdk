@@ -112,7 +112,7 @@ export class LearningTools {
    */
   async getState(): Promise<
     | { initialized: false; error?: string }
-    | ({ initialized: true } & StateSnapshot)
+    | ({ initialized: true; courseSelected: boolean } & StateSnapshot)
   > {
     if (!this.service.initialized) {
       const progressError = this.service.progressLoadingError;
@@ -125,7 +125,11 @@ export class LearningTools {
       }
       await this.ensureInitialized();
     }
-    return { initialized: true, state: this.serializeState() };
+    return {
+      initialized: true,
+      courseSelected: this.service.hasUserSelectedCourse(),
+      state: this.serializeState(),
+    };
   }
 
   /**

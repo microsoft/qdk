@@ -31,7 +31,7 @@ export function registerLearningProgressView(
   context.subscriptions.push(
     service.onDidChangeProgress((snapshot) => {
       treeDataProvider.update(snapshot);
-      treeView.message = buildTreeMessage(snapshot);
+      treeView.message = buildTreeMessage(snapshot, service);
     }),
     treeView.onDidChangeVisibility((e) => {
       if (e.visible) {
@@ -73,7 +73,7 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       ).length;
       const item = new vscode.TreeItem(
         descriptor.title,
-        isActive
+        isActive && this.service.hasUserSelectedCourse()
           ? vscode.TreeItemCollapsibleState.Expanded
           : vscode.TreeItemCollapsibleState.Collapsed,
       );
@@ -89,8 +89,14 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       item.tooltip = `${descriptor.title}${
         descriptor.shortDescription ? `\n${descriptor.shortDescription}` : ""
       }`;
-      item.id = isActive
-        ? `course:${descriptor.id}:active`
+      // Vary the id when courseSelected changes so VS Code applies the new collapsibleState.
+      const suffix = isActive
+        ? this.service.hasUserSelectedCourse()
+          ? "selected"
+          : "active"
+        : undefined;
+      item.id = suffix
+        ? `course:${descriptor.id}:${suffix}`
         : `course:${descriptor.id}`;
       return item;
     }
@@ -212,7 +218,11 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       // The "Up next" shortcut targets the active course's saved position.
       // Notebook courses don't have a meaningful per-activity position, so the
       // shortcut is only shown for Q# courses.
-      if (isActive && !isNotebookCourse(descriptor)) {
+      if (
+        isActive &&
+        this.service.hasUserSelectedCourse() &&
+        !isNotebookCourse(descriptor)
+      ) {
         const { courseId, unitId, activityId } = progress.currentPosition;
         const unit = progress.units.find((u) => u.id === unitId);
         const activity = unit?.activities.find((a) => a.id === activityId);
@@ -271,9 +281,14 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
 /** Builds the italic summary shown at the top of the tree view. */
 function buildTreeMessage(
   snapshot: OverallProgress | undefined,
+  service: LearningService,
 ): string | undefined {
   if (!snapshot) {
     return undefined;
+  }
+
+  if (!service.hasUserSelectedCourse()) {
+    return "Pick a course to get started!";
   }
 
   const units = snapshot.units;
