@@ -20,6 +20,7 @@ import { JSDOM } from "jsdom";
 import { afterEach, beforeEach, test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  formatGate,
   _createGate,
   _zoomButton,
   _classicalControls,
@@ -68,6 +69,46 @@ function makeRenderData(overrides = {}) {
     ...overrides,
   };
 }
+
+test("formatGate: renders a direct classical control", () => {
+  const gate = formatGate(
+    makeRenderData({
+      classicalControls: [{ y: 120, inverted: false }],
+    }),
+  );
+
+  const connectors = gate.querySelectorAll(".register-classical");
+  assert.equal(connectors.length, 2);
+  assert.deepEqual(
+    [...connectors].map((connector) => [
+      connector.getAttribute("x1"),
+      connector.getAttribute("y1"),
+      connector.getAttribute("x2"),
+      connector.getAttribute("y2"),
+    ]),
+    [
+      ["99", "120", "99", "40"],
+      ["101", "120", "101", "40"],
+    ],
+  );
+  const dot = gate.querySelector(".control-dot");
+  assert.notEqual(dot, null);
+  assert.equal(dot?.getAttribute("cx"), "100");
+  assert.equal(dot?.getAttribute("cy"), "120");
+  assert.equal(gate.querySelector(".anti-control-dot"), null);
+});
+
+test("formatGate: renders a direct inverted classical control", () => {
+  const gate = formatGate(
+    makeRenderData({
+      classicalControls: [{ y: 120, inverted: true }],
+    }),
+  );
+
+  assert.equal(gate.querySelectorAll(".register-classical").length, 2);
+  assert.equal(gate.querySelectorAll(".control-dot").length, 1);
+  assert.notEqual(gate.querySelector(".anti-control-dot"), null);
+});
 
 // ---------------------------------------------------------------------------
 // _getQuantumControlYs — pure-data filter (no JSDOM needed, but the `beforeEach` setup is harmless)

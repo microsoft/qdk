@@ -85,6 +85,17 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
     })
 }
 
+fn classically_controlled_unitary(gate: &str, target: Register, control: Register) -> Operation {
+    let Operation::Unitary(mut unitary) = unitary(gate, vec![target]) else {
+        unreachable!("unitary helper should return a unitary operation");
+    };
+    unitary.classical_controls.push(ClassicalControl {
+        register: control,
+        inverted: false,
+    });
+    Operation::Unitary(unitary)
+}
+
 fn unitary_with_children(gate: &str, targets: Vec<Register>, children: ComponentGrid) -> Operation {
     Operation::Unitary(Unitary {
         gate: gate.to_string(),
@@ -220,6 +231,32 @@ fn control_classical() {
         q_2    ───────── X ──── X ──
     "]]
     .assert_eq(&c.to_string());
+}
+
+#[test]
+fn direct_classical_control_occupies_its_full_wire_range() {
+    let operations = vec![
+        unitary("H", vec![q_reg(0)]),
+        measurement(0, 0),
+        classically_controlled_unitary("X", q_reg(1), c_reg(0, 0)),
+    ];
+    let qubits = vec![qubit_with_results(0, 1), qubit(1)];
+
+    let component_grid = operation_list_to_grid(operations, &qubits);
+
+    assert_eq!(component_grid.len(), 3);
+    assert!(matches!(
+        &component_grid[0].components[..],
+        [Operation::Unitary(unitary)] if unitary.gate == "H"
+    ));
+    assert!(matches!(
+        &component_grid[1].components[..],
+        [Operation::Measurement(_)]
+    ));
+    assert!(matches!(
+        &component_grid[2].components[..],
+        [Operation::Unitary(unitary)] if unitary.gate == "X"
+    ));
 }
 
 #[test]

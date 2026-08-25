@@ -261,6 +261,9 @@ function _collectClassicalControlsFromSourceChildren(
         for (const reg of op.controls ?? []) {
           if (reg.result != null) regs.push(reg);
         }
+        for (const control of op.classicalControls ?? []) {
+          regs.push(control.register);
+        }
       }
       if (op.children != null) {
         regs.push(..._collectClassicalControlsFromSourceChildren(op.children));
@@ -337,6 +340,12 @@ const _opToRenderData = (
 
   // Set y coords
   renderData.controlsY = controls?.map((reg) => _getRegY(reg, registers)) || [];
+  if (op.kind === "unitary" && op.classicalControls != null) {
+    renderData.classicalControls = op.classicalControls.map((control) => ({
+      y: _getRegY(control.register, registers),
+      inverted: control.inverted ?? false,
+    }));
+  }
   renderData.targetsY = targets.map((reg) => _getRegY(reg, registers));
 
   // For classically-controlled ops, include the classical-control sub-wires in `targetsY` so the
@@ -429,7 +438,10 @@ const _opToRenderData = (
   {
     const ownControls =
       op.kind === "unitary"
-        ? (controls ?? []).filter((r) => r.result != null)
+        ? [
+            ...(controls ?? []).filter((r) => r.result != null),
+            ...(op.classicalControls ?? []).map((control) => control.register),
+          ]
         : [];
     const descendantControls: Register[] =
       renderData.children != null

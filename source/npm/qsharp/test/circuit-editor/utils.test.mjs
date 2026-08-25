@@ -292,6 +292,14 @@ test("getWireRange: classically-controlled gate with high classical ref \u2014 r
   assert.deepEqual(getWireRange(op), [{ qubit: 0 }, { qubit: 3, result: 0 }]);
 });
 
+test("getWireRange: direct classical control contributes to the gate extent", () => {
+  const op = u("H", [{ qubit: 0 }]);
+  op.classicalControls = [
+    { register: { qubit: 3, result: 0 }, inverted: true },
+  ];
+  assert.deepEqual(getWireRange(op), [{ qubit: 0 }, { qubit: 3, result: 0 }]);
+});
+
 test("getWireRange: classical refs on the SAME qubit \u2014 lowest-numbered result is the topmost", () => {
   // Multiple classical refs to q0's result rows. r0 sits above r1 (lower-numbered results are drawn
   // topmost). So between q0.r0 and q0.r1, q0.r1 is geometrically lower.

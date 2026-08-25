@@ -1224,9 +1224,14 @@ fn operation_list_to_grid_base(
             Operation::Unitary(u) => &u.controls,
             Operation::Ket(_) => &vec![],
         };
+        let classical_controls = match &op {
+            Operation::Unitary(u) => &u.classical_controls,
+            Operation::Measurement(_) | Operation::Ket(_) => &vec![],
+        };
         let mut all_rows = targets
             .iter()
             .chain(controls.iter())
+            .chain(classical_controls.iter().map(|control| &control.register))
             .map(|r| get_row_for_register(r, &rows))
             .collect::<Vec<_>>();
         all_rows.sort_unstable();

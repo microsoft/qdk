@@ -29,6 +29,14 @@ export enum GateType {
   Invalid,
 }
 
+/** Rendering data for a compact classical control. */
+export interface ClassicalControlRenderData {
+  /** Y coordinate of the classical result wire. */
+  y: number;
+  /** Whether the control is active when the result is Zero. */
+  inverted: boolean;
+}
+
 /**
  * Rendering data used to store information pertaining to a given operation for rendering its
  * corresponding SVG.
@@ -42,6 +50,8 @@ export interface GateRenderData {
   x: number;
   /** Array of y coords of control registers. */
   controlsY: number[];
+  /** Compact classical controls attached to this gate. */
+  classicalControls?: ClassicalControlRenderData[];
   /** Array of y coords of target registers.
    *  For `GateType.Unitary` or `GateType.ControlledUnitary`, this is an array of groups of y
    *  coords, where each group represents a unitary box to be rendered separately.

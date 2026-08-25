@@ -130,11 +130,13 @@ const _createGate = (
   const classicalControlElems: SVGElement[] = hasClassicalControls
     ? _classicalControls(_gateBoundingBox(renderData).x, renderData)
     : [];
+  const compactClassicalControlElems = _compactClassicalControls(renderData);
 
   // If there's a source location, wrap the gate in an SVG <a> element to make it clickable
   //
   // Expanded groups contain clickable child gates, so the group itself should not be clickable.
   // Collapsed groups are rendered as a single summary gate and can be clickable.
+  let gateBodyElems = svgElems;
   if (renderData.link && !(renderData.type === GateType.Group && expanded)) {
     const linkElem = createLinkElement(
       renderData.link.href,
@@ -146,11 +148,12 @@ const _createGate = (
     for (const e of svgElems) {
       linkElem.appendChild(e);
     }
-
-    svgElems = classicalControlElems.concat([linkElem]);
-  } else {
-    svgElems = classicalControlElems.concat(svgElems);
+    gateBodyElems = [linkElem];
   }
+  svgElems = classicalControlElems.concat(
+    compactClassicalControlElems,
+    gateBodyElems,
+  );
 
   // Zoom button comes last so it's on top of the <a> element if both are present This allows
   // clicking the zoom button without triggering the link
@@ -163,6 +166,42 @@ const _createGate = (
   }
 
   return gate;
+};
+
+/** Render compact classical controls on a gate. */
+const _compactClassicalControls = (
+  renderData: GateRenderData,
+): SVGElement[] => {
+  const classicalControls = renderData.classicalControls ?? [];
+  if (classicalControls.length === 0) return [];
+
+  const targetYs = (renderData.targetsY as (number | number[])[]).flat();
+  if (targetYs.length === 0) return [];
+
+  const minTargetY = Math.min(...targetYs);
+  const maxTargetY = Math.max(...targetYs);
+  const elems: SVGElement[] = [];
+
+  for (const control of classicalControls) {
+    const targetY = control.y < minTargetY ? minTargetY : maxTargetY;
+    for (const offset of [-1, 1]) {
+      const connector = line(
+        renderData.x + offset,
+        control.y,
+        renderData.x + offset,
+        targetY,
+        "register-classical",
+      );
+      connector.style.pointerEvents = "none";
+      elems.push(connector);
+    }
+
+    const dot = controlDot(renderData.x, control.y, [control.y]);
+    if (control.inverted) dot.classList.add("anti-control-dot");
+    elems.push(dot);
+  }
+
+  return elems;
 };
 
 /**

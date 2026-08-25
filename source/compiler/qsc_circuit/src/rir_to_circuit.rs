@@ -184,12 +184,12 @@ fn build_operation_list(
                 false,
                 control_results.clone(),
             );
-            
+
             // Decide whether "then" and/or "else" branch should be rendered using compact classical
-            // controls. This means that instead of being showed inside classically conditioned 
+            // controls. This means that instead of being showed inside classically conditioned
             // group, each gate inside branch is shown as classically controlled gate.
             // This happens when "if" condition is simple enough and all gates inside the branch are
-            // single-qubit uncontrolled unitary gates. 
+            // single-qubit uncontrolled unitary gates.
             debug_assert!(
                 classical_controls.is_empty(),
                 "nested conditionals cannot inherit compact classical controls"

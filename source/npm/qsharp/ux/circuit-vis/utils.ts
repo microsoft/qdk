@@ -184,9 +184,9 @@ const getQuantumWireRange = (operation: Operation): [number, number] => {
 };
 
 /**
- * Get every `Register` referenced by an operation, including both its controls and its
- * targets/qubits/results. Returned references are the live objects on the operation, so callers may
- * mutate `reg.qubit` / `reg.result` in place to renumber wires.
+ * Get every `Register` referenced by an operation, including its quantum and classical controls
+ * and its targets/qubits/results. Returned references are the live objects on the operation, so
+ * callers may mutate `reg.qubit` / `reg.result` in place to renumber wires.
  *
  * Mirrors the union that `getMinMaxRegIdx` walks; centralized here so the action layer and the data
  * layer don't each re-spell the per-`kind` switch.
@@ -204,7 +204,12 @@ const getOperationRegisters = (operation: Operation): Register[] => {
       break;
     case "unitary":
       targets = operation.targets;
-      controls = operation.controls || [];
+      controls = [
+        ...(operation.controls || []),
+        ...(operation.classicalControls || []).map(
+          (control) => control.register,
+        ),
+      ];
       break;
     case "ket":
       targets = operation.targets;
