@@ -6,8 +6,8 @@ pub(crate) mod tests;
 
 use crate::{
     circuit::{
-        Circuit, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit, Register,
-        SourceLocation, Unitary, operation_list_to_grid,
+        Circuit, ClassicalControl, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit,
+        Register, SourceLocation, Unitary, operation_list_to_grid,
     },
     operations::QubitParam,
 };
@@ -85,7 +85,11 @@ impl Tracer for CircuitTracer {
             self.wire_map_builder.current(),
             name,
             is_adjoint,
-            &GateInputs { targets, controls },
+            &GateInputs {
+                targets,
+                controls,
+                classical_controls: &[],
+            },
             display_args,
             called_at,
         );
@@ -144,6 +148,7 @@ impl Tracer for CircuitTracer {
             &GateInputs {
                 targets: &qubit_args,
                 controls: &[],
+                classical_controls: &[],
             },
             if classical_args.is_empty() {
                 vec![]
@@ -1201,6 +1206,7 @@ impl OperationOrGroup {
         is_adjoint: bool,
         targets: &[QubitWire],
         controls: &[QubitWire],
+        classical_controls: Vec<ClassicalControl>,
         args: Vec<String>,
     ) -> Self {
         Self::new_single(Operation::Unitary(Unitary {
@@ -1221,6 +1227,7 @@ impl OperationOrGroup {
                     result: None,
                 })
                 .collect(),
+            classical_controls,
             is_adjoint,
             is_conditional: false,
             metadata: None,
@@ -1367,6 +1374,7 @@ impl OperationOrGroup {
                 children: vec![],
                 targets: control_result_registers.clone(),
                 controls: control_result_registers,
+                classical_controls: vec![],
                 is_adjoint: false,
                 metadata,
                 is_conditional: false,
@@ -1589,6 +1597,12 @@ impl OperationListBuilder {
 pub(crate) struct GateInputs<'a> {
     pub(crate) targets: &'a [usize],
     pub(crate) controls: &'a [usize],
+    pub(crate) classical_controls: &'a [ClassicalControlInput],
+}
+
+pub(crate) struct ClassicalControlInput {
+    pub(crate) result_id: usize,
+    pub(crate) inverted: bool,
 }
 
 /// Trait representing a receiver of circuit operations that can accept
@@ -1636,8 +1650,26 @@ impl OperationReceiver for OperationListBuilder {
             .iter()
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
+        let classical_controls = inputs
+            .classical_controls
+            .iter()
+            .map(|control| {
+                let result = wire_map.result_wire(control.result_id);
+                ClassicalControl {
+                    register: Register::classical(result.0, result.1),
+                    inverted: control.inverted,
+                }
+            })
+            .collect();
         self.push_op(
-            OperationOrGroup::new_unitary(name, is_adjoint, &targets, &controls, args),
+            OperationOrGroup::new_unitary(
+                name,
+                is_adjoint,
+                &targets,
+                &controls,
+                classical_controls,
+                args,
+            ),
             call_stack,
             wire_map,
         );

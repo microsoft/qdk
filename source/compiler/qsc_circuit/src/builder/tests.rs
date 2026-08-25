@@ -821,3 +821,51 @@ fn source_locations_for_groups() {
     "#]]
     .assert_eq(&circuit.display_with_groups().to_string());
 }
+
+#[test]
+fn converts_classical_control_result_ids_to_registers() {
+    let mut wire_map = WireMapBuilder::default();
+    wire_map.map_qubit(3, None);
+    wire_map.link_result_to_qubit(3, 7);
+    let mut builder = OperationListBuilder::new(10, vec![], false, false);
+
+    builder.gate(
+        wire_map.current(),
+        "X",
+        false,
+        &GateInputs {
+            targets: &[3],
+            controls: &[],
+            classical_controls: &[
+                ClassicalControlInput {
+                    result_id: 7,
+                    inverted: false,
+                },
+                ClassicalControlInput {
+                    result_id: 7,
+                    inverted: true,
+                },
+            ],
+        },
+        vec![],
+        LogicalStack::default(),
+    );
+
+    let operations = builder.into_operations();
+    let Operation::Unitary(unitary) = &operations[0].op else {
+        panic!("operation should be unitary");
+    };
+    assert_eq!(
+        unitary.classical_controls,
+        vec![
+            ClassicalControl {
+                register: Register::classical(0, 0),
+                inverted: false,
+            },
+            ClassicalControl {
+                register: Register::classical(0, 0),
+                inverted: true,
+            },
+        ]
+    );
+}

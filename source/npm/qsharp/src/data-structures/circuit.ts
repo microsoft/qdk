@@ -165,6 +165,25 @@ export interface Measurement extends BaseOperation {
   results: Register[];
 }
 
+/** A measurement result that controls whether a unitary operation is applied. */
+export interface ClassicalControl {
+  /** Classical register carrying the measurement result. */
+  register: Register;
+  /** Whether the gate is applied when the measurement result is Zero. */
+  inverted?: boolean;
+}
+
+/** Runtime check: is this a valid ClassicalControl? */
+export function isClassicalControl(obj: any): obj is ClassicalControl {
+  return (
+    obj &&
+    typeof obj === "object" &&
+    isRegister(obj.register) &&
+    obj.register.result !== undefined &&
+    (obj.inverted === undefined || typeof obj.inverted === "boolean")
+  );
+}
+
 /**
  * Represents a unitary operation and the registers it acts on.
  */
@@ -175,6 +194,8 @@ export interface Unitary extends BaseOperation {
   targets: Register[];
   /** Control registers the gate acts on. */
   controls?: Register[];
+  /** Classical controls that determine whether the gate is applied. */
+  classicalControls?: ClassicalControl[];
   /** Whether gate is an adjoint operation. */
   isAdjoint?: boolean;
 }
@@ -210,6 +231,10 @@ export function isOperation(obj: any): obj is Operation {
         // controls is optional
         (op.controls === undefined ||
           (Array.isArray(op.controls) && op.controls.every(isRegister))) &&
+        // classicalControls is optional
+        (op.classicalControls === undefined ||
+          (Array.isArray(op.classicalControls) &&
+            op.classicalControls.every(isClassicalControl))) &&
         // isAdjoint is optional
         (op.isAdjoint === undefined || typeof op.isAdjoint === "boolean")
       );

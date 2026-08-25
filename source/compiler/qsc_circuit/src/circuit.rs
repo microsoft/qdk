@@ -275,6 +275,10 @@ pub struct Unitary {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
     pub controls: Vec<Register>,
+    #[serde(rename = "classicalControls")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
+    pub classical_controls: Vec<ClassicalControl>,
     #[serde(rename = "isAdjoint")]
     #[serde(skip_serializing_if = "Not::not")]
     #[serde(default)]
@@ -285,6 +289,16 @@ pub struct Unitary {
     pub is_conditional: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
+}
+
+/// A measurement result that controls whether a unitary operation is applied.
+#[derive(Clone, Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassicalControl {
+    pub register: Register,
+    #[serde(skip_serializing_if = "Not::not")]
+    #[serde(default)]
+    pub inverted: bool,
 }
 
 /// Representation of a gate that will set the target to a specific state.
