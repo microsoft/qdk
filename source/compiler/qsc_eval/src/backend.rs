@@ -1568,7 +1568,8 @@ impl Backend for CliffordSim {
         if let Some(seed) = seed {
             self.sim.set_seed(seed);
             if self.pauli_noise_rng.is_some() {
-                self.pauli_noise_rng = Some(StdRng::seed_from_u64(seed));
+                // User-provided seeds intentionally make simulation reproducible, not secure.
+                self.pauli_noise_rng = Some(StdRng::seed_from_u64(seed)); // DevSkim: ignore DS148264
             }
         } else {
             self.sim.set_seed(rand::rng().next_u64());
