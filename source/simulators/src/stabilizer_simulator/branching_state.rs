@@ -375,10 +375,7 @@ mod tests {
         let mut state = BranchingState::new(2);
         state.unitary_op(UnitaryOp::Hadamard, &[0]);
         state.unitary_op(UnitaryOp::Hadamard, &[1]);
-        state.rotate(
-            angle,
-            &[paulimer::core::z(0), paulimer::core::z(1)].into(),
-        );
+        state.rotate(angle, &[paulimer::core::z(0), paulimer::core::z(1)].into());
         state.unitary_op(UnitaryOp::Hadamard, &[0]);
         state.unitary_op(UnitaryOp::Hadamard, &[1]);
 
