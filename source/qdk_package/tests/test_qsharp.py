@@ -1109,8 +1109,8 @@ def test_circuit_with_static_generation_method() -> None:
         "Foo()", generation_method=qsharp.CircuitGenerationMethod.Static
     )
     assert str(circuit) == dedent("""\
-        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
-                         ╘═══════════ ● ═════════════════
+        q_0    ── H ──── M ──── X ──── |0〉 ──
+                         ╘═════ ● ═══════════
         """)
 
 
@@ -1129,8 +1129,8 @@ def test_circuit_from_qsharp_callable_static() -> None:
         qdk.code.Foo, generation_method=qsharp.CircuitGenerationMethod.Static
     )
     assert str(circuit) == dedent("""\
-        q_0    ── H ──── M ──── if: c_0 = |1〉 ──── |0〉 ──
-                         ╘═══════════ ● ═════════════════
+        q_0    ── H ──── M ──── X ──── |0〉 ──
+                         ╘═════ ● ═══════════
         """)
 
 

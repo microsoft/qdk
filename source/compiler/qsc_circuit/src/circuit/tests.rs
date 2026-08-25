@@ -235,16 +235,22 @@ fn control_classical() {
 
 #[test]
 fn direct_classical_control_occupies_its_full_wire_range() {
+    let mut inverted_control = classically_controlled_unitary("Z", q_reg(1), c_reg(0, 0));
+    let Operation::Unitary(inverted_unitary) = &mut inverted_control else {
+        unreachable!("classically controlled unitary helper should return a unitary operation");
+    };
+    inverted_unitary.classical_controls[0].inverted = true;
     let operations = vec![
         unitary("H", vec![q_reg(0)]),
         measurement(0, 0),
         classically_controlled_unitary("X", q_reg(1), c_reg(0, 0)),
+        inverted_control,
     ];
     let qubits = vec![qubit_with_results(0, 1), qubit(1)];
 
     let component_grid = operation_list_to_grid(operations, &qubits);
 
-    assert_eq!(component_grid.len(), 3);
+    assert_eq!(component_grid.len(), 4);
     assert!(matches!(
         &component_grid[0].components[..],
         [Operation::Unitary(unitary)] if unitary.gate == "H"
@@ -257,6 +263,21 @@ fn direct_classical_control_occupies_its_full_wire_range() {
         &component_grid[2].components[..],
         [Operation::Unitary(unitary)] if unitary.gate == "X"
     ));
+    assert!(matches!(
+        &component_grid[3].components[..],
+        [Operation::Unitary(unitary)] if unitary.gate == "Z"
+    ));
+
+    let circuit = Circuit {
+        qubits,
+        component_grid,
+    };
+    expect![[r"
+        q_0    ── H ──── M ────────────────
+                         ╘═════ ● ════ ○ ══
+        q_1    ──────────────── X ──── Z ──
+    "]]
+    .assert_eq(&circuit.to_string());
 }
 
 #[test]

@@ -222,7 +222,7 @@ impl Operation {
     pub fn is_controlled(&self) -> bool {
         match self {
             Operation::Measurement(_) | Operation::Ket(_) => false,
-            Operation::Unitary(u) => !u.controls.is_empty(),
+            Operation::Unitary(u) => !u.controls.is_empty() || !u.classical_controls.is_empty(),
         }
     }
 
@@ -858,9 +858,11 @@ impl CircuitDisplay<'_> {
         for op in &col.components {
             let target_rows = get_row_indexes(op, register_to_row, true);
             let control_rows = get_row_indexes(op, register_to_row, false);
+            let classical_control_rows = get_classical_control_rows(op, register_to_row);
 
             let mut all_rows = target_rows.clone();
             all_rows.extend(control_rows.iter());
+            all_rows.extend(classical_control_rows.iter().map(|(row, _)| row));
             all_rows.sort_unstable();
 
             // We'll need to know the entire range of rows for this operation so we can
@@ -876,6 +878,7 @@ impl CircuitDisplay<'_> {
                     rows,
                     &target_rows,
                     &control_rows,
+                    &classical_control_rows,
                     column,
                     begin,
                     end,
@@ -912,6 +915,7 @@ impl CircuitDisplay<'_> {
                         rows,
                         &target_rows,
                         &control_rows,
+                        &classical_control_rows,
                         column,
                         begin,
                         end,
@@ -929,6 +933,7 @@ impl CircuitDisplay<'_> {
                     rows,
                     &target_rows,
                     &control_rows,
+                    &classical_control_rows,
                     column,
                     begin,
                     end,
@@ -985,6 +990,7 @@ fn add_operation_to_rows(
     rows: &mut [Row],
     targets: &[usize],
     controls: &[usize],
+    classical_controls: &[(usize, bool)],
     column: usize,
     begin: usize,
     end: usize,
@@ -1007,6 +1013,9 @@ fn add_operation_to_rows(
             } else {
                 row.add_object(column, "●");
             }
+        }
+        for (row, inverted) in classical_controls {
+            rows[*row].add_object(column, if *inverted { "○" } else { "●" });
         }
 
         // If we have a control wire, draw vertical lines spanning all
@@ -1130,6 +1139,26 @@ fn get_row_indexes(
         .filter_map(|reg| {
             let reg = (reg.qubit, reg.result);
             register_to_row.get(&reg).copied()
+        })
+        .collect()
+}
+
+fn get_classical_control_rows(
+    operation: &Operation,
+    register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
+) -> Vec<(usize, bool)> {
+    let Operation::Unitary(unitary) = operation else {
+        return vec![];
+    };
+
+    unitary
+        .classical_controls
+        .iter()
+        .filter_map(|control| {
+            let register = (control.register.qubit, control.register.result);
+            register_to_row
+                .get(&register)
+                .map(|row| (*row, control.inverted))
         })
         .collect()
 }
