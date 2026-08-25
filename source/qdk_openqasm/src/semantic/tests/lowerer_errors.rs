@@ -29,6 +29,26 @@ fn nested_pragma_is_diagnosed_as_global_only() {
 }
 
 #[test]
+fn error_typed_gate_operand_does_not_add_cascading_diagnostic() {
+    let result = parse("OPENQASM 3.0;\ninclude \"stdgates.inc\";\nh undefined_register[0];")
+        .expect("source should parse");
+
+    assert_eq!(result.errors.len(), 2);
+    assert!(matches!(
+        result.errors[0].error().0,
+        ErrorKind::Semantic(crate::semantic::Error(SemanticErrorKind::UndefinedSymbol(
+            ..
+        )))
+    ));
+    assert!(matches!(
+        result.errors[1].error().0,
+        ErrorKind::Semantic(crate::semantic::Error(SemanticErrorKind::CannotIndexType(
+            ..
+        )))
+    ));
+}
+
+#[test]
 fn annotation_on_include_is_accepted_without_propagation() {
     let source = "OPENQASM 3.0;\n@vendor.note payload\ninclude \"stdgates.inc\";\nbit flag;";
     let (syntax_program, parse_errors) = crate::parser::parse(source);

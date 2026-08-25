@@ -2490,6 +2490,9 @@ impl Lowerer {
                 semantic::GateOperandKind::Expr(expr)
                     if matches!(expr.ty, Type::Qubit | Type::QubitArray(_)) => {}
                 semantic::GateOperandKind::HardwareQubit(_) => {}
+                semantic::GateOperandKind::Expr(expr) if matches!(expr.ty, Type::Err) => {
+                    invalid_operand = true;
+                }
                 semantic::GateOperandKind::Expr(expr) => {
                     invalid_operand = true;
                     self.push_semantic_error(SemanticErrorKind::InvalidGateOperand(expr.span));
