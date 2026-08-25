@@ -1076,6 +1076,95 @@ def inline_svg(picture, alt):
     return re.sub(r"<svg\b([^>]*)>", add_attributes, svg, count=1).strip()
 
 
+# Unit-to-unit navigation. The links point at the learner's `*.workbook.ipynb`
+# copies, which the extension materializes beside the authored notebooks, so
+# following one lands in the learner's own file rather than the pristine source.
+WORKBOOK_SUFFIX = ".workbook.ipynb"
+NAV_ROW = "display:flex;justify-content:space-between;align-items:stretch;gap:12px;margin-top:8px"
+NAV_BUTTON = (
+    "display:inline-flex;align-items:center;gap:8px;padding:6px 12px;"
+    "border:1px solid;border-radius:4px;text-decoration:none"
+)
+NAV_STYLES = {
+    "next": (
+        "background:var(--vscode-button-background, #005fb8);"
+        "color:var(--vscode-button-foreground, #ffffff);"
+        "border-color:var(--vscode-button-background, #005fb8)"
+    ),
+    "previous": (
+        "background:var(--vscode-button-secondaryBackground, transparent);"
+        "color:var(--vscode-button-secondaryForeground, inherit);"
+        "border-color:var(--vscode-widget-border, #8884)"
+    ),
+}
+
+
+def course_units():
+    """Return the ordered units from course.json with their notebook names."""
+    manifest_path = COURSE / "course.json"
+    if not manifest_path.is_file():
+        raise SystemExit(f"missing {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    notebooks = {r["unit_dir"]: r["notebook"] for r in RECIPES.values()}
+
+    units = []
+    for unit in manifest["units"]:
+        notebook = notebooks.get(unit["dir"])
+        if notebook is None:
+            raise SystemExit(
+                f"course.json lists unit directory {unit['dir']}, "
+                "which no recipe builds"
+            )
+        units.append((unit["dir"], unit["title"], notebook))
+    return units
+
+
+def nav_button(unit, kind):
+    """Return one navigation link, styled as a themed button."""
+    directory, title, notebook = unit
+    href = f"../{directory}/{Path(notebook).stem}{WORKBOOK_SUFFIX}"
+    label = "Next unit" if kind == "next" else "Previous unit"
+    escaped = html.escape(title, quote=True)
+    text = (
+        '<span style="display:block;font-size:11px;opacity:.75">'
+        f"{label}</span>"
+        f'<span style="display:block;font-weight:600">{escaped}</span>'
+    )
+    if kind == "next":
+        inner = (
+            f'<span style="text-align:right">{text}</span>'
+            '<span aria-hidden="true">&#8250;</span>'
+        )
+    else:
+        inner = f'<span aria-hidden="true">&#8249;</span><span>{text}</span>'
+    return (
+        f'<a href="{html.escape(href, quote=True)}" '
+        f'title="{label}: {escaped}" '
+        f'style="{NAV_BUTTON};{NAV_STYLES[kind]}">{inner}</a>'
+    )
+
+
+def navigation(unit_dir):
+    """Return the navigation row for a unit, or None when it has no neighbours."""
+    units = course_units()
+    index = next((i for i, u in enumerate(units) if u[0] == unit_dir), None)
+    if index is None:
+        raise SystemExit(f"{unit_dir} is not listed in course.json")
+
+    previous = nav_button(units[index - 1], "previous") if index > 0 else ""
+    following = (
+        nav_button(units[index + 1], "next") if index + 1 < len(units) else ""
+    )
+    if not previous and not following:
+        return None
+    # An empty span holds the unused side so a lone link keeps its alignment.
+    return (
+        f'<div style="{NAV_ROW}">'
+        f"{previous or '<span></span>'}{following or '<span></span>'}"
+        "</div>"
+    )
+
+
 def render_directive(name, argument, options, body):
     text = "\n".join(inline(ln) for ln in body)
     if name == "math":
@@ -1402,6 +1491,9 @@ def convert(key):
 
     cells = merge_markdown_runs(cells)
     cells = merge_code_runs(cells)
+    nav = navigation(recipe["unit_dir"])
+    if nav:
+        cells.append(md(nav))
     out = COURSE / recipe["unit_dir"] / recipe["notebook"]
     out.parent.mkdir(parents=True, exist_ok=True)
     notebook = {

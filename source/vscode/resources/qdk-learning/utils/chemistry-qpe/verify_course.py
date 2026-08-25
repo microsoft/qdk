@@ -27,7 +27,7 @@ COURSE = args.course
 EXPECTED_TOTALS = Counter(
     {
         "units": 7,
-        "cells": 174,
+        "cells": 181,
         "exercises": 6,
         "hints": 6,
         "solutions": 6,
