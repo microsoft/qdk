@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 mod given_interpreter {
-    use crate::interpret::{InterpretResult, Interpreter, SimType};
+    use crate::interpret::{InterpretResult, Interpreter};
     use expect_test::Expect;
     use miette::Diagnostic;
     use qsc_data_structures::source::SourceMap;
@@ -34,32 +34,6 @@ mod given_interpreter {
             Default::default(),
         );
         (res, receiver.dump())
-    }
-
-    #[test]
-    fn clifford_supports_qubit_loss() {
-        let mut interpreter = get_interpreter();
-        let (result, output) = line(
-            &mut interpreter,
-            "operation LoseQubit() : Result { use q = Qubit(); M(q) }",
-        );
-        assert!(result.is_ok(), "{result:?}\n{output}");
-        let mut cursor = Cursor::new(Vec::<u8>::new());
-        let mut receiver = CursorReceiver::new(&mut cursor);
-        let result = interpreter.run(
-            &mut receiver,
-            Some("LoseQubit()"),
-            None,
-            Some(1.0),
-            None,
-            None,
-            SimType::Clifford(1),
-        );
-
-        assert_eq!(
-            result.expect("Clifford simulation should support loss"),
-            Value::Result(qsc_eval::val::Result::Loss)
-        );
     }
 
     fn entry(interpreter: &mut Interpreter) -> (InterpretResult, String) {

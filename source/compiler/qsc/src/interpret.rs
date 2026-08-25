@@ -11,6 +11,8 @@ mod debugger_tests;
 #[cfg(test)]
 mod package_tests;
 #[cfg(test)]
+mod simulation_tests;
+#[cfg(test)]
 mod tests;
 
 use std::{cell::RefCell, rc::Rc};
