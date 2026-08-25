@@ -51,12 +51,30 @@ export interface ICompiler {
     eventHandler: IQscEventTarget,
   ): Promise<void>;
 
+  run(
+    program: ProgramConfig,
+    expr: string,
+    shots: number,
+    simulator: SimulatorConfig,
+    eventHandler: IQscEventTarget,
+  ): Promise<void>;
+
   runWithNoise(
     program: ProgramConfig,
     expr: string,
     shots: number,
     pauliNoise: number[],
     qubitLoss: number,
+    eventHandler: IQscEventTarget,
+  ): Promise<void>;
+
+  runWithNoise(
+    program: ProgramConfig,
+    expr: string,
+    shots: number,
+    pauliNoise: number[],
+    qubitLoss: number,
+    simulator: SimulatorConfig,
     eventHandler: IQscEventTarget,
   ): Promise<void>;
 
@@ -106,6 +124,25 @@ export type ProgramConfig = (
   /** The type of project. This is used to determine how to load the project. */
   projectType?: ProjectType;
 };
+
+export type SimulatorConfig =
+  | { type: "sparse" }
+  | { type: "clifford"; maxQubits: number };
+
+export const MAX_CLIFFORD_QUBITS = 10_000;
+
+export function validateSimulatorConfig(simulator: SimulatorConfig): void {
+  if (
+    simulator.type === "clifford" &&
+    (!Number.isSafeInteger(simulator.maxQubits) ||
+      simulator.maxQubits < 1 ||
+      simulator.maxQubits > MAX_CLIFFORD_QUBITS)
+  ) {
+    throw new Error(
+      `Clifford simulator maxQubits must be an integer between 1 and ${MAX_CLIFFORD_QUBITS}.`,
+    );
+  }
+}
 
 // WebWorker also support being explicitly terminated to tear down the worker thread
 export type ICompilerWorker = ICompiler & IServiceProxy;
@@ -171,18 +208,58 @@ export class Compiler implements ICompiler {
     expr: string,
     shots: number,
     eventHandler: IQscEventTarget,
+  ): Promise<void>;
+
+  async run(
+    program: ProgramConfig,
+    expr: string,
+    shots: number,
+    simulator: SimulatorConfig,
+    eventHandler: IQscEventTarget,
+  ): Promise<void>;
+
+  async run(
+    program: ProgramConfig,
+    expr: string,
+    shots: number,
+    simulatorOrEventHandler: SimulatorConfig | IQscEventTarget,
+    eventHandler?: IQscEventTarget,
   ): Promise<void> {
+    const simulator =
+      "dispatchEvent" in simulatorOrEventHandler
+        ? { type: "sparse" as const }
+        : simulatorOrEventHandler;
+    const target =
+      "dispatchEvent" in simulatorOrEventHandler
+        ? simulatorOrEventHandler
+        : eventHandler;
+    if (!target) {
+      throw new Error("A compiler event handler must be provided");
+    }
+    validateSimulatorConfig(simulator);
+
     // All results are communicated as events, but if there is a compiler error (e.g. an invalid
     // entry expression or similar), it may throw on run. The caller should expect this promise
     // may reject without all shots running or events firing.
-    await callAndTransformExceptions(async () =>
-      this.wasm.run(
+    await callAndTransformExceptions(async () => {
+      const eventCallback = (msg: string) => onCompilerEvent(msg, target);
+      if (simulator.type === "clifford") {
+        return this.wasm.runWithSimulator(
+          toWasmProgramConfig(program, "unrestricted"),
+          expr,
+          eventCallback,
+          shots!,
+          simulator.type,
+          simulator.maxQubits,
+        );
+      }
+      return this.wasm.run(
         toWasmProgramConfig(program, "unrestricted"),
         expr,
-        (msg: string) => onCompilerEvent(msg, eventHandler!),
+        eventCallback,
         shots!,
-      ),
-    );
+      );
+    });
   }
 
   async runWithNoise(
@@ -191,18 +268,45 @@ export class Compiler implements ICompiler {
     shots: number,
     pauliNoise: number[],
     qubitLoss: number,
-    eventHandler: IQscEventTarget,
+    simulatorOrEventHandler: SimulatorConfig | IQscEventTarget,
+    eventHandler?: IQscEventTarget,
   ): Promise<void> {
-    await callAndTransformExceptions(async () =>
-      this.wasm.runWithNoise(
+    const simulator =
+      "dispatchEvent" in simulatorOrEventHandler
+        ? { type: "sparse" as const }
+        : simulatorOrEventHandler;
+    const target =
+      "dispatchEvent" in simulatorOrEventHandler
+        ? simulatorOrEventHandler
+        : eventHandler;
+    if (!target) {
+      throw new Error("A compiler event handler must be provided");
+    }
+    validateSimulatorConfig(simulator);
+
+    await callAndTransformExceptions(async () => {
+      const eventCallback = (msg: string) => onCompilerEvent(msg, target);
+      if (simulator.type === "clifford") {
+        return this.wasm.runWithSimulatorAndNoise(
+          toWasmProgramConfig(program, "unrestricted"),
+          expr,
+          eventCallback,
+          shots!,
+          pauliNoise,
+          qubitLoss,
+          simulator.type,
+          simulator.maxQubits,
+        );
+      }
+      return this.wasm.runWithNoise(
         toWasmProgramConfig(program, "unrestricted"),
         expr,
-        (msg: string) => onCompilerEvent(msg, eventHandler!),
+        eventCallback,
         shots!,
         pauliNoise,
         qubitLoss,
-      ),
-    );
+      );
+    });
   }
 
   async getQir(program: ProgramConfig): Promise<string> {

@@ -111,6 +111,9 @@ pub enum Error {
     #[error("entry point not found")]
     #[diagnostic(code("Qdk.Qsc.Interpret.NoEntryPoint"))]
     NoEntryPoint,
+    #[error("qubit loss is not supported by the Clifford simulator")]
+    #[diagnostic(code("Qdk.Qsc.Interpret.CliffordQubitLossUnsupported"))]
+    CliffordQubitLossUnsupported,
     #[error("unsupported runtime capabilities for code generation")]
     #[diagnostic(code("Qdk.Qsc.Interpret.UnsupportedRuntimeCapabilities"))]
     UnsupportedRuntimeCapabilities,
@@ -134,6 +137,16 @@ pub enum SimType {
     #[default]
     Sparse,
     Clifford(usize),
+}
+
+fn validate_simulation_options(
+    sim_type: SimType,
+    qubit_loss: Option<f64>,
+) -> std::result::Result<(), Vec<Error>> {
+    if matches!(sim_type, SimType::Clifford(_)) && qubit_loss.is_some_and(|loss| loss != 0.0) {
+        return Err(vec![Error::CliffordQubitLossUnsupported]);
+    }
+    Ok(())
 }
 
 /// A Q# interpreter.
@@ -910,6 +923,7 @@ impl Interpreter {
         seed: Option<u64>,
         sim_type: SimType,
     ) -> InterpretResult {
+        validate_simulation_options(sim_type, qubit_loss)?;
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
@@ -934,9 +948,14 @@ impl Interpreter {
                 self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
             }
             SimType::Clifford(num_qubits) => {
-                let mut sim = match noise_config {
-                    Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
-                    None => CliffordSim::new(num_qubits),
+                let mut sim = match noise {
+                    Some(noise) => CliffordSim::new_with_pauli_noise(num_qubits, &noise),
+                    None => match noise_config {
+                        Some(config) => {
+                            CliffordSim::new_with_noise_config(num_qubits, config.into())
+                        }
+                        None => CliffordSim::new(num_qubits),
+                    },
                 };
                 if seed.is_some() {
                     sim.set_seed(seed);
@@ -959,6 +978,7 @@ impl Interpreter {
         seed: Option<u64>,
         sim_type: SimType,
     ) -> InterpretResult {
+        validate_simulation_options(sim_type, qubit_loss)?;
         let qubit_loss = if noise_config.is_none() {
             qubit_loss
         } else {
@@ -979,9 +999,14 @@ impl Interpreter {
                 self.run_with_sim(&mut sim, receiver, expr, seed)
             }
             SimType::Clifford(num_qubits) => {
-                let mut sim = match noise_config {
-                    Some(config) => CliffordSim::new_with_noise_config(num_qubits, config.into()),
-                    None => CliffordSim::new(num_qubits),
+                let mut sim = match noise {
+                    Some(noise) => CliffordSim::new_with_pauli_noise(num_qubits, &noise),
+                    None => match noise_config {
+                        Some(config) => {
+                            CliffordSim::new_with_noise_config(num_qubits, config.into())
+                        }
+                        None => CliffordSim::new(num_qubits),
+                    },
                 };
                 self.run_with_sim(&mut sim, receiver, expr, seed)
             }
@@ -1838,11 +1863,26 @@ pub struct PackageGlobal {
 /// and inspecting state in the interpreter.
 pub struct Debugger {
     interpreter: Interpreter,
+    simulator: DebuggerSimulator,
     /// The encoding (utf-8 or utf-16) used for character offsets
     /// in line/character positions returned by the Interpreter.
     position_encoding: Encoding,
     /// The current state of the evaluator.
     state: State,
+}
+
+enum DebuggerSimulator {
+    Sparse,
+    Clifford(Box<CliffordSim>),
+}
+
+impl From<SimType> for DebuggerSimulator {
+    fn from(sim_type: SimType) -> Self {
+        match sim_type {
+            SimType::Sparse => Self::Sparse,
+            SimType::Clifford(num_qubits) => Self::Clifford(Box::new(CliffordSim::new(num_qubits))),
+        }
+    }
 }
 
 impl Debugger {
@@ -1853,6 +1893,26 @@ impl Debugger {
         language_features: LanguageFeatures,
         store: PackageStore,
         dependencies: &Dependencies,
+    ) -> std::result::Result<Self, Vec<Error>> {
+        Self::new_with_sim(
+            sources,
+            capabilities,
+            position_encoding,
+            language_features,
+            store,
+            dependencies,
+            SimType::Sparse,
+        )
+    }
+
+    pub fn new_with_sim(
+        sources: SourceMap,
+        capabilities: TargetCapabilityFlags,
+        position_encoding: Encoding,
+        language_features: LanguageFeatures,
+        store: PackageStore,
+        dependencies: &Dependencies,
+        sim_type: SimType,
     ) -> std::result::Result<Self, Vec<Error>> {
         let interpreter = Interpreter::with_debug(
             sources,
@@ -1869,6 +1929,7 @@ impl Debugger {
         let entry_exec_graph = unit.entry_exec_graph.clone();
         Ok(Self {
             interpreter,
+            simulator: sim_type.into(),
             position_encoding,
             state: State::new(
                 source_package_id,
@@ -1881,11 +1942,20 @@ impl Debugger {
     }
 
     pub fn from(interpreter: Interpreter, position_encoding: Encoding) -> Self {
+        Self::from_with_sim(interpreter, position_encoding, SimType::Sparse)
+    }
+
+    pub fn from_with_sim(
+        interpreter: Interpreter,
+        position_encoding: Encoding,
+        sim_type: SimType,
+    ) -> Self {
         let source_package_id = interpreter.source_package;
         let unit = interpreter.fir_store.get(source_package_id);
         let entry_exec_graph = unit.entry_exec_graph.clone();
         Self {
             interpreter,
+            simulator: sim_type.into(),
             position_encoding,
             state: State::new(
                 source_package_id,
@@ -1906,8 +1976,8 @@ impl Debugger {
         breakpoints: &[StmtId],
         step: StepAction,
     ) -> std::result::Result<StepResult, Vec<Error>> {
-        self.state
-            .eval(
+        let result = match &mut self.simulator {
+            DebuggerSimulator::Sparse => self.state.eval(
                 &self.interpreter.fir_store,
                 &mut self.interpreter.env,
                 &mut TracingBackend::new(
@@ -1917,15 +1987,28 @@ impl Debugger {
                 receiver,
                 breakpoints,
                 step,
+            ),
+            DebuggerSimulator::Clifford(simulator) => self.state.eval(
+                &self.interpreter.fir_store,
+                &mut self.interpreter.env,
+                &mut TracingBackend::new(
+                    simulator.as_mut(),
+                    self.interpreter.circuit_tracer.as_mut(),
+                ),
+                receiver,
+                breakpoints,
+                step,
+            ),
+        };
+
+        result.map_err(|(error, call_stack)| {
+            eval_error(
+                self.interpreter.compiler.package_store(),
+                &self.interpreter.fir_store,
+                call_stack,
+                error,
             )
-            .map_err(|(error, call_stack)| {
-                eval_error(
-                    self.interpreter.compiler.package_store(),
-                    &self.interpreter.fir_store,
-                    call_stack,
-                    error,
-                )
-            })
+        })
     }
 
     #[must_use]
@@ -1960,8 +2043,21 @@ impl Debugger {
             .collect()
     }
 
+    #[allow(clippy::type_complexity)]
+    pub fn try_capture_quantum_state(
+        &mut self,
+    ) -> std::result::Result<(Vec<(BigUint, Complex<f64>)>, usize), String> {
+        match &self.simulator {
+            DebuggerSimulator::Sparse => Ok(self.interpreter.get_quantum_state()),
+            DebuggerSimulator::Clifford(_) => Err(
+                "quantum state visualization is not supported in Clifford simulation".to_string(),
+            ),
+        }
+    }
+
     pub fn capture_quantum_state(&mut self) -> (Vec<(BigUint, Complex<f64>)>, usize) {
-        self.interpreter.get_quantum_state()
+        self.try_capture_quantum_state()
+            .expect("debugger simulator should support quantum state capture")
     }
 
     pub fn circuit(&self) -> Circuit {

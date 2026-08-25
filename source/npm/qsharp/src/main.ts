@@ -221,7 +221,12 @@ export {
   qsharpLibraryUriScheme,
 } from "./language-service/language-service.js";
 export type { Dump, ShotResult } from "./compiler/common.js";
-export type { CompilerState, ProgramConfig } from "./compiler/compiler.js";
+export type {
+  CompilerState,
+  ProgramConfig,
+  SimulatorConfig,
+} from "./compiler/compiler.js";
+export { MAX_CLIFFORD_QUBITS } from "./compiler/compiler.js";
 export type { ICompiler, ICompilerWorker } from "./compiler/compiler.js";
 export type {
   IDebugService,

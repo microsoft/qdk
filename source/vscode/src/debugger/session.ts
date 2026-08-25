@@ -31,6 +31,7 @@ import {
   QscEventTarget,
   StepResultId,
   log,
+  type SimulatorConfig,
 } from "qsharp-lang";
 import { updateCircuitPanel } from "../circuit";
 import {
@@ -103,6 +104,7 @@ export class QscDebugSession extends LoggingDebugSession {
     private debugService: IDebugServiceWorker,
     private config: vscode.DebugConfiguration,
     private program: FullProgramConfig,
+    private simulation: SimulatorConfig,
   ) {
     super();
 
@@ -137,6 +139,7 @@ export class QscDebugSession extends LoggingDebugSession {
     const failureMessage = await this.debugService.loadProgram(
       this.program,
       this.config.entry,
+      this.simulation,
     );
 
     if (failureMessage == "") {
@@ -772,29 +775,34 @@ export class QscDebugSession extends LoggingDebugSession {
     args: DebugProtocol.ScopesArguments,
   ): void {
     log.trace(`scopesRequest: %O`, args);
-    response.body = {
-      scopes: [
-        new Scope(
-          "Locals",
-          this.variableHandles.create({
-            kind: "scope",
-            scope: "locals",
-            frameId: args.frameId,
-          }),
-          false,
-        ),
+    const scopes = [
+      new Scope(
+        "Locals",
+        this.variableHandles.create({
+          kind: "scope",
+          scope: "locals",
+          frameId: args.frameId,
+        }),
+        false,
+      ),
+    ];
+    if (this.simulation.type === "sparse") {
+      scopes.push(
         new Scope(
           "Quantum State",
           this.variableHandles.create({ kind: "scope", scope: "quantum" }),
           true, // expensive - keeps scope collapsed in the UI by default
         ),
-        new Scope(
-          "Quantum Circuit",
-          this.variableHandles.create({ kind: "scope", scope: "circuit" }),
-          true, // expensive - keeps scope collapsed in the UI by default
-        ),
-      ],
-    };
+      );
+    }
+    scopes.push(
+      new Scope(
+        "Quantum Circuit",
+        this.variableHandles.create({ kind: "scope", scope: "circuit" }),
+        true, // expensive - keeps scope collapsed in the UI by default
+      ),
+    );
+    response.body = { scopes };
     log.trace(`scopesResponse: %O`, response);
     this.sendResponse(response);
   }

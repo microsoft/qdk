@@ -11,6 +11,7 @@ import * as vscode from "vscode";
 import { loadCompilerWorker, toVsCodeLocation, toVsCodeRange } from "../common";
 import { getProgramForDocument } from "../programConfig";
 import { createDebugConsoleEventTarget } from "../debugger/output";
+import { getSimulationConfig } from "../config";
 
 let worker: ICompilerWorker | null = null;
 /**
@@ -137,7 +138,13 @@ export function startTestDiscovery(
         throw new Error(programResult.errorMsg);
       }
 
-      await worker.run(programResult.programConfig, callableExpr, 1, evtTarget);
+      await worker.run(
+        programResult.programConfig,
+        callableExpr,
+        1,
+        getSimulationConfig(),
+        evtTarget,
+      );
     } catch (error) {
       log.error(`Error running test ${testCase.id}:`, error);
       run.appendOutput(`Error running test ${testCase.id}: ${error}\r\n`);

@@ -1,8 +1,9 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { log } from "qsharp-lang";
+import { log, MAX_CLIFFORD_QUBITS } from "qsharp-lang";
 import * as vscode from "vscode";
+import type { SimulatorConfig } from "qsharp-lang";
 
 export function getTargetFriendlyName(targetProfile?: string) {
   switch (targetProfile) {
@@ -39,6 +40,42 @@ export function getQubitLossSetting(): number {
     .getConfiguration("Q#.simulation")
     .get<number>("qubitLoss", 0);
   return qubitLoss;
+}
+
+export function getSimulationConfig(): SimulatorConfig {
+  const simulationSettings = vscode.workspace.getConfiguration("Q#.simulation");
+  const type = simulationSettings.get<string>("type", "sparse");
+  if (type === "sparse") {
+    return { type };
+  }
+  if (type !== "clifford") {
+    throw new Error(
+      `Invalid Q#.simulation.type value "${type}". Expected "sparse" or "clifford".`,
+    );
+  }
+
+  const maxQubits = simulationSettings.get<number>("clifford.maxQubits", 1000);
+  if (
+    !Number.isSafeInteger(maxQubits) ||
+    maxQubits < 1 ||
+    maxQubits > MAX_CLIFFORD_QUBITS
+  ) {
+    throw new Error(
+      `Q#.simulation.clifford.maxQubits must be an integer between 1 and ${MAX_CLIFFORD_QUBITS}.`,
+    );
+  }
+  return { type, maxQubits };
+}
+
+export function validateSimulationNoiseSettings(
+  simulation: SimulatorConfig,
+  qubitLoss: number,
+): void {
+  if (simulation.type === "clifford" && qubitLoss !== 0) {
+    throw new Error(
+      "Q#.simulation.qubitLoss is not supported by the Clifford simulator. Set it to zero or select the sparse simulator.",
+    );
+  }
 }
 
 export function getShowDevDiagnostics(): boolean {

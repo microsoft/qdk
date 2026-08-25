@@ -178,6 +178,26 @@
           "maximum": 1,
           "description": "The probability of a qubit loss occurring"
         },
+        "Q#.simulation.type": {
+          "markdownDescription": "The simulator used by local runs, histogram generation, Test Explorer, and debugging. The sparse state-vector simulator supports arbitrary quantum programs and preserves the existing behavior. The Clifford simulator efficiently runs Clifford-only programs and reports an error for unsupported gates or rotations. Debugging with Clifford does not provide the amplitude-based **Quantum State** scope.",
+          "type": "string",
+          "default": "sparse",
+          "enum": [
+            "sparse",
+            "clifford"
+          ],
+          "enumItemLabels": [
+            "Sparse state-vector (default)",
+            "Clifford stabilizer"
+          ]
+        },
+        "Q#.simulation.clifford.maxQubits": {
+          "markdownDescription": "The maximum number of simultaneously allocated qubits when `Q#.simulation.type` is `clifford`. Increase this value for larger Clifford programs.",
+          "type": "integer",
+          "default": 1000,
+          "minimum": 1,
+          "maximum": 10000
+        },
         "Q#.dev.showDevDiagnostics": {
           "type": "boolean",
           "default": false,

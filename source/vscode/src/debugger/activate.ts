@@ -14,6 +14,7 @@ import {
 import { getRandomGuid } from "../utils";
 import { QscDebugSession } from "./session";
 import { runProgramInTerminal } from "../run";
+import { getSimulationConfig } from "../config";
 
 let debugServiceWorkerFactory: () => IDebugServiceWorker;
 
@@ -226,6 +227,7 @@ class InlineDebugAdapterFactory
       worker,
       session.configuration,
       program.programConfig,
+      getSimulationConfig(),
     );
 
     await qscSession.init(getRandomGuid());

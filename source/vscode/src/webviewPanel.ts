@@ -24,7 +24,12 @@ import {
   UserTaskInvocationType,
 } from "./telemetry";
 import { getRandomGuid } from "./utils";
-import { getPauliNoiseModel, getQubitLossSetting } from "./config";
+import {
+  getPauliNoiseModel,
+  getQubitLossSetting,
+  getSimulationConfig,
+  validateSimulationNoiseSettings,
+} from "./config";
 import { loadCompilerWorker, qsharpExtensionId } from "./common";
 import { resourceEstimateCommand } from "./estimate";
 
@@ -138,6 +143,8 @@ export function registerWebViewCommands(context: ExtensionContext) {
 
       const noise = getPauliNoiseModel();
       const qubitLoss = getQubitLossSetting();
+      const simulation = getSimulationConfig();
+      validateSimulationNoiseSettings(simulation, qubitLoss);
       if (noise[0] != 0 || noise[1] != 0 || noise[2] != 0 || qubitLoss != 0) {
         sendTelemetryEvent(EventType.NoisySimulation, { associationId }, {});
       }
@@ -147,6 +154,7 @@ export function registerWebViewCommands(context: ExtensionContext) {
         parseInt(numberOfShots),
         noise,
         qubitLoss,
+        simulation,
         evtTarget,
       );
       sendTelemetryEvent(
