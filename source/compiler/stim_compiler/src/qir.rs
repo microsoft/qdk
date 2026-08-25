@@ -464,6 +464,13 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("instruction {instruction} requires a multiple of three targets")]
+    #[diagnostic(code("Qdk.Stim.Compiler.TargetCountNotMultipleOfThree"))]
+    TargetCountNotMultipleOfThree {
+        instruction: String,
+        #[label]
+        span: Span,
+    },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
     #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
@@ -1419,10 +1426,60 @@ impl<'noise> Compiler<'noise> {
             // Non-Clifford Gates
             "T" => self.broadcast(instruction, |s, q| s.op("t", q)),
             "T_DAG" => self.broadcast(instruction, |s, q| s.op_adj("t", q)),
+            "TPP" | "TPP_DAG" => self.broadcast_pauli_product(instruction, |s, q, negated| {
+                let invert = (instruction.name == "TPP_DAG") ^ negated;
+                if invert {
+                    s.op_adj("t", q);
+                } else {
+                    s.op("t", q);
+                }
+            }),
+            "CH" => self.broadcast_pair(instruction, |s, q0, q1| {
+                // Clifft decomposition: R_Y(0.25 pi) 1; CX 0 1; R_Y(-0.25 pi) 1
+                s.op_rotation("ry", 0.25 * PI, q1);
+                s.op_2("cx", q0, q1);
+                s.op_rotation("ry", -0.25 * PI, q1);
+            }),
+            "CCZ" => self.broadcast_triple(instruction, |s, q0, q1, q2| {
+                // Clifft decomposition: H 2; CCX 0 1 2; H 2
+                s.op("h", q2);
+                s.op_3("ccx", q0, q1, q2);
+                s.op("h", q2);
+            }),
+            "CCX" => self.broadcast_triple(instruction, |s, q0, q1, q2| {
+                s.op_3("ccx", q0, q1, q2);
+            }),
             "R_X" | "R_Y" | "R_Z" => self.broadcast_rotation(instruction, |s, angle, q| {
                 s.op_rotation(&instruction.name.to_lowercase().replace("_", ""), angle, q);
             }),
-
+            "U3" | "U" => {
+                let Some(angles) = self.expect_angles(instruction, 3) else {
+                    return;
+                };
+                self.for_each_qubit(instruction, |s, q| {
+                    s.op_rotation("rz", angles[2], q);
+                    s.op_rotation("ry", angles[0], q);
+                    s.op_rotation("rz", angles[1], q);
+                });
+            }
+            "R_XX" | "R_YY" | "R_ZZ" => {
+                self.broadcast_pair_rotation(instruction, |s, angle, q0, q1| {
+                    s.op_rotation_2(
+                        &instruction.name.to_lowercase().replace("_", ""),
+                        angle,
+                        q0,
+                        q1,
+                    );
+                })
+            }
+            "R_PAULI" => {
+                let Some(angle) = self.expect_angle(instruction) else {
+                    return;
+                };
+                self.for_each_pauli_product(instruction, |s, q, negated| {
+                    s.op_rotation("rz", if negated { -angle } else { angle }, q);
+                });
+            }
             _ => self.unknown(instruction),
         }
     }
@@ -1542,6 +1599,17 @@ impl<'noise> Compiler<'noise> {
         self.for_each_qubit(instruction, |s, q| operation(s, angle, q));
     }
 
+    fn broadcast_pair_rotation(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, Radians, StimQubitId, StimQubitId),
+    ) {
+        let Some(angle) = self.expect_angle(instruction) else {
+            return;
+        };
+        self.for_each_pair(instruction, |s, q0, q1| operation(s, angle, q0, q1));
+    }
+
     fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
         let Some(probability) = self.expect_arg(instruction) else {
             return;
@@ -1604,6 +1672,28 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
+    fn for_each_triple(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
+    ) {
+        let Some(triples) = self.expect_target_triples(instruction) else {
+            return;
+        };
+        for triple in triples {
+            let Some((q0, _)) = self.expect_qubit(instruction, &triple[0], false) else {
+                continue;
+            };
+            let Some((q1, _)) = self.expect_qubit(instruction, &triple[1], false) else {
+                continue;
+            };
+            let Some((q2, _)) = self.expect_qubit(instruction, &triple[2], false) else {
+                continue;
+            };
+            operation(self, q0, q1, q2);
+        }
+    }
+
     fn for_each_negatable_pair(
         &mut self,
         instruction: &Instruction,
@@ -1630,6 +1720,15 @@ impl<'noise> Compiler<'noise> {
     ) {
         self.unsupported_args(instruction);
         self.for_each_pair(instruction, operation);
+    }
+
+    fn broadcast_triple(
+        &mut self,
+        instruction: &Instruction,
+        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_triple(instruction, operation);
     }
 
     fn broadcast_pair_measure(
@@ -1861,6 +1960,19 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q]);
     }
 
+    fn op_2(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        self.writer.write_qis_call(intrinsic, &[q0, q1]);
+    }
+
+    fn op_3(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId, q2: StimQubitId) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        let q2 = self.id_map.allocate_qubit(q2);
+        self.writer.write_qis_call(intrinsic, &[q0, q1, q2]);
+    }
+
     fn op_adj(&mut self, intrinsic: &str, qubit: StimQubitId) {
         let q = self.id_map.allocate_qubit(qubit);
         self.writer.write_qis_adj_call(intrinsic, &[q]);
@@ -1897,12 +2009,6 @@ impl<'noise> Compiler<'noise> {
         r
     }
 
-    fn op_2(&mut self, intrinsic: &str, q0: StimQubitId, q1: StimQubitId) {
-        let q0 = self.id_map.allocate_qubit(q0);
-        let q1 = self.id_map.allocate_qubit(q1);
-        self.writer.write_qis_call(intrinsic, &[q0, q1]);
-    }
-
     fn op_noise(&mut self, table: NoiseTable<f64>, qubits: &[StimQubitId]) {
         let ids: Vec<QubitId> = qubits
             .iter()
@@ -1921,6 +2027,12 @@ impl<'noise> Compiler<'noise> {
     fn op_rotation(&mut self, intrinsic: &str, angle: Radians, qubit: StimQubitId) {
         let qubit = self.id_map.allocate_qubit(qubit);
         self.writer.write_rotation_call(intrinsic, angle, &[qubit]);
+    }
+
+    fn op_rotation_2(&mut self, intrinsic: &str, angle: Radians, q0: StimQubitId, q1: StimQubitId) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        self.writer.write_rotation_call(intrinsic, angle, &[q0, q1]);
     }
 
     fn build_noise_table(
@@ -2194,17 +2306,35 @@ impl<'noise> Compiler<'noise> {
     }
 
     fn expect_angle(&mut self, instruction: &Instruction) -> Option<Radians> {
-        let angle: HalfTurns = self.expect_arg(instruction)?;
-        let radians = angle * PI;
-        if !radians.is_finite() {
-            self.push_error(Error::InvalidAngle {
-                instruction: instruction.name.clone(),
-                angle,
-                span: instruction.span,
-            });
-            return None;
+        self.expect_angles(instruction, 1)?.pop()
+    }
+
+    fn expect_angles(
+        &mut self,
+        instruction: &Instruction,
+        expected: usize,
+    ) -> Option<Vec<Radians>> {
+        let angles: Vec<HalfTurns> = self.expect_args(instruction, expected)?;
+        let mut radians = Vec::with_capacity(angles.len());
+        let mut has_invalid_angle = false;
+        for angle in angles {
+            let angle_in_radians = angle * PI;
+            if angle_in_radians.is_finite() {
+                radians.push(angle_in_radians);
+            } else {
+                self.push_error(Error::InvalidAngle {
+                    instruction: instruction.name.clone(),
+                    angle,
+                    span: instruction.span,
+                });
+                has_invalid_angle = true;
+            }
         }
-        Some(radians)
+        if !has_invalid_angle {
+            Some(radians)
+        } else {
+            None
+        }
     }
 
     fn expect_arg(&mut self, instruction: &Instruction) -> Option<f64> {
@@ -2243,6 +2373,20 @@ impl<'noise> Compiler<'noise> {
             return None;
         }
         Some(instruction.targets.chunks(2))
+    }
+
+    fn expect_target_triples<'a>(
+        &mut self,
+        instruction: &'a Instruction,
+    ) -> Option<Chunks<'a, Target>> {
+        if !instruction.targets.len().is_multiple_of(3) {
+            self.push_error(Error::TargetCountNotMultipleOfThree {
+                instruction: instruction.name.clone(),
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(instruction.targets.chunks(3))
     }
 
     fn expect_readout_noise(&mut self, instruction: &Instruction) -> Option<f64> {
