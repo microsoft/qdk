@@ -47,6 +47,16 @@ const _ccx = (
   /** @type {number} */ ctrlResult,
 ) => gate("X", targetQubit, { ctrls: [{ q: ctrlQubit, r: ctrlResult }] });
 
+const _compactControlled = (
+  /** @type {string} */ name,
+  /** @type {number} */ targetQubit,
+  /** @type {number} */ ctrlQubit,
+  /** @type {number} */ ctrlResult,
+) => ({
+  ...gate(name, targetQubit),
+  classicalControls: [{ register: { qubit: ctrlQubit, result: ctrlResult } }],
+});
+
 // ---------------------------------------------------------------------------
 // collectMeasurementConsumers
 // ---------------------------------------------------------------------------
@@ -64,6 +74,13 @@ test("collectMeasurementConsumers: finds a top-level classically-controlled cons
   const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
   assert.equal(consumers.length, 1);
   assert.equal(consumers[0].location, "1,0");
+});
+
+test("collectMeasurementConsumers: finds a compact classical consumer", () => {
+  const compactX = _compactControlled("X", 1, 0, 0);
+  const model = build(circuit(2, [[_mGate(0, 0)], [compactX]]));
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  assert.deepEqual(consumers, [{ op: compactX, location: "1,0" }]);
 });
 
 test("collectMeasurementConsumers: walks into nested children", () => {
@@ -160,6 +177,18 @@ test("removeMeasurementWithDependents: deletes M and all classical-ref consumers
   expectGrid(model, []);
 });
 
+test("removeMeasurementWithDependents: deletes compact classical consumers", () => {
+  const compactX = _compactControlled("X", 1, 0, 0);
+  const model = build(circuit(2, [[_mGate(0, 0)], [compactX]]));
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  removeMeasurementWithDependents(
+    model,
+    "0,0",
+    consumers.map((consumer) => consumer.op),
+  );
+  expectGrid(model, []);
+});
+
 test("removeMeasurementWithDependents: M's location is re-derived after the cascade collapses columns", () => {
   // Consumer alone in col 0 collapses col 0; M shifts from col 1 down to col 0. The action layer
   // re-derives M by ref, not by the now-stale "1,0".
@@ -219,6 +248,27 @@ test("moveMeasurementWithDependents: surviving consumer's classical-ref tracks t
 
   // Consumer's classical-ref must track M's new wire: (0,0) → (1,0).
   expectOp(at(model, "1,0"), { X: { ctrls: [{ q: 1, r: 0 }] } });
+});
+
+test("moveMeasurementWithDependents: compact consumer tracks the M's new wire", () => {
+  const compactX = _compactControlled("X", 2, 0, 0);
+  const model = build(circuit(3, [[_mGate(0, 0)], [compactX]]));
+  const consumers = collectMeasurementConsumers(model.componentGrid, "0,0");
+  assert.equal(consumers.length, 1);
+
+  const moved = moveMeasurementWithDependents(
+    model,
+    "0,0",
+    "0,0",
+    0,
+    1,
+    /* insertNewColumn */ false,
+    [],
+  );
+  assert.ok(moved);
+  assert.deepEqual(at(model, "1,0").classicalControls, [
+    { register: { qubit: 1, result: 0 } },
+  ]);
 });
 
 test("moveMeasurementWithDependents: invalidated consumer is cascade-deleted", () => {

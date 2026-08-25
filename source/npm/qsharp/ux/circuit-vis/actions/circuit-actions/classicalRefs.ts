@@ -131,12 +131,12 @@ const collectExternalProducerLocations = (
  * the consumer op (object reference) with its location string. Walks into nested children; the M op
  * itself is excluded.
  *
- * Only `.controls` count as consumption (not `.targets`): a consumer is an op whose execution is
- * GATED by the M's signal, which for unitaries is a `.controls` entry with `result` defined. A
- * group's `.targets` is a derived cache that propagates a classically-controlled child's ref up
- * into every ancestor; treating those as consumption would falsely flag every enclosing group and
- * the cascade-delete would wipe out unrelated siblings. A classically-controlled group is still
- * flagged correctly via its own `.controls`.
+ * Only controls count as consumption (not `.targets`): a consumer is a unitary whose execution is
+ * gated by the M's signal, represented either by a classical register in `.controls` or by a
+ * compact `.classicalControls` entry. A group's `.targets` is a derived cache that propagates a
+ * classically-controlled child's ref up into every ancestor; treating those as consumption would
+ * falsely flag every enclosing group and the cascade-delete would wipe out unrelated siblings. A
+ * classically-controlled group is still flagged correctly via its own `.controls`.
  *
  * Returns `[]` if the location isn't a measurement, the M has no classical results, or nothing
  * references them.
@@ -163,19 +163,19 @@ const collectMeasurementConsumers = (
       col.components.forEach((op, oi) => {
         const loc = prefix === "" ? `${ci},${oi}` : `${prefix}-${ci},${oi}`;
         // Skip the M itself, but still recurse into its children.
-        if (op !== mOp) {
-          // Logical consumption lives in `.controls` only.
-          const controls = op.kind === "unitary" ? op.controls : undefined;
-          if (controls) {
-            for (const reg of controls) {
-              if (
+        if (op !== mOp && op.kind === "unitary") {
+          const controls = [
+            ...(op.controls ?? []),
+            ...(op.classicalControls ?? []).map((control) => control.register),
+          ];
+          if (
+            controls.some(
+              (reg) =>
                 reg.result !== undefined &&
-                producedKeys.has(`${reg.qubit}:${reg.result}`)
-              ) {
-                consumers.push({ op, location: loc });
-                break;
-              }
-            }
+                producedKeys.has(`${reg.qubit}:${reg.result}`),
+            )
+          ) {
+            consumers.push({ op, location: loc });
           }
         }
         if (op.children) walk(op.children, loc);
