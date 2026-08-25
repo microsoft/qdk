@@ -7,6 +7,7 @@ mod generalized_pauli_product_gates;
 mod measurement_record_targets;
 mod noise_channels;
 mod noise_channels_broadcasting;
+mod non_clifford_gates;
 mod pair_measurements;
 mod pair_measurements_broadcasting;
 mod peek_loss;

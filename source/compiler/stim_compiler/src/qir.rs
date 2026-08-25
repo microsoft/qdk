@@ -13,6 +13,7 @@ use Pauli::{X, Y, Z};
 use miette::Diagnostic;
 use qsc_data_structures::span::Span;
 use rustc_hash::{FxHashMap, FxHashSet};
+use std::f64::consts::PI;
 use std::fmt::Write;
 use std::slice::Chunks;
 use thiserror::Error;
@@ -20,6 +21,10 @@ use thiserror::Error;
 type StimQubitId = u32;
 type QubitId = u32;
 type ResultId = u32;
+
+// Angle units
+type HalfTurns = f64; // used in qdk-stim
+type Radians = f64; // used in QIR
 
 struct QirWriter {
     output: String,
@@ -90,6 +95,21 @@ impl QirWriter {
     /// `noise_intrinsic_{id}`
     fn write_noise_call(&mut self, name: &str, qubits: &[QubitId]) {
         self.call_noise_intrinsic(name, qubits);
+    }
+
+    // Writes: `  call void @{name}(double {angle:?}, ptr inttoptr (i64 N to ptr), ...)`
+    fn write_rotation_call(&mut self, intrinsic: &str, angle: Radians, qubits: &[QubitId]) {
+        let name = format!("__quantum__qis__{intrinsic}__body");
+        write!(self, "  call void @{name}(double {angle:?}");
+        for &qubit in qubits {
+            write!(self, ", ");
+            self.write_ptr(qubit);
+        }
+        writeln!(self, ")");
+        self.declare(&name, || {
+            let params = vec!["ptr"; qubits.len()].join(", ");
+            format!("declare void @{name}(double, {params})")
+        });
     }
 
     fn call_noise_intrinsic(&mut self, intrinsic: &str, qubits: &[QubitId]) {
@@ -379,6 +399,16 @@ pub enum Error {
         instruction: String,
         expected: usize,
         found: usize,
+        #[label]
+        span: Span,
+    },
+    #[error(
+        "angle for {instruction} must be finite and representable in radians; found {angle} half turns"
+    )]
+    #[diagnostic(code("Qdk.Stim.Compiler.InvalidAngle"))]
+    InvalidAngle {
+        instruction: String,
+        angle: HalfTurns,
         #[label]
         span: Span,
     },
@@ -1386,6 +1416,13 @@ impl<'noise> Compiler<'noise> {
             "DETECTOR" | "MPAD" | "OBSERVABLE_INCLUDE" | "QUBIT_COORDS" | "SHIFT_COORDS"
             | "TICK" => (),
 
+            // Non-Clifford Gates
+            "T" => self.broadcast(instruction, |s, q| s.op("t", q)),
+            "T_DAG" => self.broadcast(instruction, |s, q| s.op_adj("t", q)),
+            "R_X" | "R_Y" | "R_Z" => self.broadcast_rotation(instruction, |s, angle, q| {
+                s.op_rotation(&instruction.name.to_lowercase().replace("_", ""), angle, q);
+            }),
+
             _ => self.unknown(instruction),
         }
     }
@@ -1492,6 +1529,17 @@ impl<'noise> Compiler<'noise> {
             let result_id = measure(s, q, negated);
             s.op_readout_noise(readout_noise, result_id);
         });
+    }
+
+    fn broadcast_rotation(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, Radians, StimQubitId),
+    ) {
+        let Some(angle) = self.expect_angle(instruction) else {
+            return;
+        };
+        self.for_each_qubit(instruction, |s, q| operation(s, angle, q));
     }
 
     fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
@@ -1870,6 +1918,11 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
+    fn op_rotation(&mut self, intrinsic: &str, angle: Radians, qubit: StimQubitId) {
+        let qubit = self.id_map.allocate_qubit(qubit);
+        self.writer.write_rotation_call(intrinsic, angle, &[qubit]);
+    }
+
     fn build_noise_table(
         &mut self,
         num_qubits: u32,
@@ -2138,6 +2191,20 @@ impl<'noise> Compiler<'noise> {
                 None
             }
         }
+    }
+
+    fn expect_angle(&mut self, instruction: &Instruction) -> Option<Radians> {
+        let angle: HalfTurns = self.expect_arg(instruction)?;
+        let radians = angle * PI;
+        if !radians.is_finite() {
+            self.push_error(Error::InvalidAngle {
+                instruction: instruction.name.clone(),
+                angle,
+                span: instruction.span,
+            });
+            return None;
+        }
+        Some(radians)
     }
 
     fn expect_arg(&mut self, instruction: &Instruction) -> Option<f64> {
