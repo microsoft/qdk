@@ -57,6 +57,14 @@ pub(crate) fn call<B: Backend>(
             }
         }
         "DumpMachine" => {
+            if !sim.supports_quantum_state_capture() {
+                return out
+                    .message(
+                        "Warning: DumpMachine output is unavailable with Clifford simulation; execution will continue.",
+                    )
+                    .map(|()| Value::unit())
+                    .map_err(|_| Error::OutputFail(name_span));
+            }
             let (state, qubit_count) = sim
                 .capture_quantum_state()
                 .map_err(|e| Error::SimulationError(e, name_span))?;

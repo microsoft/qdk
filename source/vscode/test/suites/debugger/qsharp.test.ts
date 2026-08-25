@@ -24,6 +24,7 @@ suite("Q# Debugger Tests", function suite() {
 
   let tracker: Tracker | undefined;
   let disposable;
+  const simulation = vscode.workspace.getConfiguration("Q#.simulation");
 
   this.beforeAll(async () => {
     await activateExtension();
@@ -57,6 +58,11 @@ suite("Q# Debugger Tests", function suite() {
     await terminateSession();
     vscode.commands.executeCommand("workbench.action.closeAllEditors");
     vscode.debug.removeBreakpoints(vscode.debug.breakpoints);
+    await simulation.update(
+      "type",
+      undefined,
+      vscode.ConfigurationTarget.Workspace,
+    );
   });
 
   test("Launch with debugProgram command", async () => {
@@ -77,6 +83,31 @@ suite("Q# Debugger Tests", function suite() {
     await vscode.commands.executeCommand(`${qsharpExtensionId}.debugProgram`);
 
     await sessionEnded;
+  });
+
+  test("Launch with Clifford simulator setting", async () => {
+    await simulation.update(
+      "type",
+      "clifford",
+      vscode.ConfigurationTarget.Workspace,
+    );
+
+    await vscode.debug.startDebugging(workspaceFolder, {
+      name: "Launch foo.qs with Clifford",
+      type: "qsharp",
+      request: "launch",
+      program: `\${workspaceFolder}${separator}src/foo.qs`,
+      stopOnEntry: true,
+    });
+
+    await tracker?.waitUntilPaused({});
+    const session = vscode.debug.activeDebugSession;
+    assert(session, "Expected an active debug session");
+    const scopes = await session.customRequest("scopes", { frameId: 0 });
+    assert.deepEqual(
+      scopes.scopes.map((scope: DebugProtocol.Scope) => scope.name),
+      ["Locals", "Quantum Circuit"],
+    );
   });
 
   test("Launch with launch.json configuration - workspaceFolder substitution", async () => {

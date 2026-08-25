@@ -23,7 +23,11 @@ import {
 } from "../compiler/events.js";
 import { log } from "../log.js";
 import type { IServiceProxy, ServiceProtocol } from "../workers/types.js";
-import { toWasmProgramConfig } from "../compiler/compiler.js";
+import {
+  type SimulatorConfig,
+  toWasmProgramConfig,
+  validateSimulatorConfig,
+} from "../compiler/compiler.js";
 import { callAndTransformExceptions } from "../diagnostics.js";
 
 type QscWasm = typeof import("../../lib/web/qsc_wasm.js");
@@ -34,6 +38,7 @@ export interface IDebugService {
   loadProgram(
     program: ProgramConfig,
     entry: string | undefined,
+    simulator?: SimulatorConfig,
   ): Promise<string>;
   getBreakpoints(path: string): Promise<IBreakpointSpan[]>;
   getLocalVariables(frameID: number): Promise<Array<IVariable>>;
@@ -74,10 +79,14 @@ export class QSharpDebugService implements IDebugService {
   async loadProgram(
     program: ProgramConfig,
     entry: string | undefined,
+    simulator: SimulatorConfig = { type: "sparse" },
   ): Promise<string> {
-    return this.debugService.load_program(
+    validateSimulatorConfig(simulator);
+    return this.debugService.load_program_with_simulator(
       toWasmProgramConfig(program, "unrestricted"),
       entry,
+      simulator.type,
+      simulator.type === "clifford" ? simulator.maxQubits : 0,
     );
   }
 

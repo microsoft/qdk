@@ -226,6 +226,7 @@ export type {
   ProgramConfig,
   SimulatorConfig,
 } from "./compiler/compiler.js";
+export { MAX_CLIFFORD_QUBITS } from "./compiler/compiler.js";
 export type { ICompiler, ICompilerWorker } from "./compiler/compiler.js";
 export type {
   IDebugService,

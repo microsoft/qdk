@@ -114,6 +114,9 @@ pub trait Backend {
     fn capture_quantum_state(&mut self) -> Result<StateDump, String> {
         Err("capture_quantum_state operation not implemented".to_string())
     }
+    fn supports_quantum_state_capture(&self) -> bool {
+        true
+    }
     fn qubit_is_zero(&mut self, _q: usize) -> Result<bool, String> {
         Err("qubit_is_zero operation not implemented".to_string())
     }
@@ -471,6 +474,14 @@ impl<'a, B: Backend> TracingBackend<'a, B> {
         }
     }
 
+    #[must_use]
+    pub fn supports_quantum_state_capture(&self) -> bool {
+        match &self.backend {
+            OptionalBackend::Some(backend) => backend.supports_quantum_state_capture(),
+            OptionalBackend::None(_) => true,
+        }
+    }
+
     pub fn qubit_is_zero(&mut self, q: usize) -> Result<bool, String> {
         match &mut self.backend {
             OptionalBackend::Some(backend) => backend.qubit_is_zero(q),
@@ -649,7 +660,7 @@ impl SparseSim {
             .sample(self.rng.as_mut().expect("RNG should be present"));
 
         if let Some(fault) = fault {
-            assert!(fault.0.len() == qs.len());
+            assert_eq!(fault.0.len(), qs.len());
             for (&q, term) in qs.iter().zip(fault.0.iter()) {
                 if self.is_qubit_lost(q) {
                     continue;
@@ -1211,6 +1222,8 @@ pub struct CliffordSim {
     num_qubits: usize,
     qubit_id_map: IndexMap<usize, usize>,
     is_noisy: bool,
+    pauli_noise: PauliNoise,
+    pauli_noise_rng: Option<StdRng>,
 }
 
 impl CliffordSim {
@@ -1227,6 +1240,8 @@ impl CliffordSim {
             num_qubits,
             qubit_id_map: IndexMap::new(),
             is_noisy: false,
+            pauli_noise: PauliNoise::default(),
+            pauli_noise_rng: None,
         }
     }
 
@@ -1238,36 +1253,104 @@ impl CliffordSim {
             num_qubits,
             qubit_id_map: IndexMap::new(),
             is_noisy: true,
+            pauli_noise: PauliNoise::default(),
+            pauli_noise_rng: None,
+        }
+    }
+
+    #[must_use]
+    pub fn new_with_pauli_noise(num_qubits: usize, noise: &PauliNoise) -> Self {
+        if noise.is_noiseless() {
+            return Self::new(num_qubits);
+        }
+
+        let mut sim = Self::new(num_qubits);
+        sim.is_noisy = true;
+        sim.pauli_noise = *noise;
+        sim.pauli_noise_rng = Some(StdRng::from_rng(&mut rand::rng()));
+        sim
+    }
+
+    fn apply_pauli_noise(&mut self, q: usize) {
+        let Some(rng) = &mut self.pauli_noise_rng else {
+            return;
+        };
+        let p = rng.random_range(0.0..1.0);
+        if p >= self.pauli_noise.distribution[2] {
+            return;
+        }
+
+        let q_id = self.qubit_id_map[q];
+        if p < self.pauli_noise.distribution[0] {
+            self.sim.x(q_id);
+        } else if p < self.pauli_noise.distribution[1] {
+            self.sim.y(q_id);
+        } else {
+            self.sim.z(q_id);
+        }
+    }
+
+    fn mresetz_noiseless(&mut self, q: usize) -> val::Result {
+        let q_id = self.qubit_id_map[q];
+        self.sim.mresetz(q_id, 0);
+        match self
+            .sim
+            .measurements()
+            .last()
+            .expect("simulation should have one measurement")
+        {
+            MeasurementResult::Zero => val::Result::Val(false),
+            MeasurementResult::One => val::Result::Val(true),
+            MeasurementResult::Loss => val::Result::Loss,
         }
     }
 }
 
 impl Backend for CliffordSim {
+    fn capture_quantum_state(&mut self) -> Result<StateDump, String> {
+        Err(
+            "DumpMachine and quantum state visualization are not supported in Clifford simulation; remove DumpMachine or select the sparse simulator"
+                .to_string(),
+        )
+    }
+
+    fn supports_quantum_state_capture(&self) -> bool {
+        false
+    }
+
     fn cx(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
         self.sim.cx(ctl_id, q_id);
+        self.apply_pauli_noise(ctl);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn cy(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
         self.sim.cy(ctl_id, q_id);
+        self.apply_pauli_noise(ctl);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn cz(&mut self, ctl: usize, q: usize) -> Result<(), String> {
         let (ctl_id, q_id) = (self.qubit_id_map[ctl], self.qubit_id_map[q]);
         self.sim.cz(ctl_id, q_id);
+        self.apply_pauli_noise(ctl);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn h(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.h(q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn m(&mut self, q: usize) -> Result<val::Result, String> {
+        self.apply_pauli_noise(q);
         let q_id = self.qubit_id_map[q];
         self.sim.mz(q_id, 0);
         let res = self
@@ -1283,21 +1366,12 @@ impl Backend for CliffordSim {
     }
 
     fn mresetz(&mut self, q: usize) -> Result<val::Result, String> {
-        let q_id = self.qubit_id_map[q];
-        self.sim.mresetz(q_id, 0);
-        let res = self
-            .sim
-            .measurements()
-            .last()
-            .expect("simulation should have one measurement");
-        match res {
-            MeasurementResult::Zero => Ok(val::Result::Val(false)),
-            MeasurementResult::One => Ok(val::Result::Val(true)),
-            MeasurementResult::Loss => Ok(val::Result::Loss),
-        }
+        self.apply_pauli_noise(q);
+        Ok(self.mresetz_noiseless(q))
     }
 
     fn reset(&mut self, q: usize) -> Result<(), String> {
+        self.apply_pauli_noise(q);
         let q_id = self.qubit_id_map[q];
         self.sim.resetz(q_id);
         Ok(())
@@ -1307,6 +1381,7 @@ impl Backend for CliffordSim {
         let q_id = self.qubit_id_map[q];
         check_normalized_angle(theta)?;
         self.sim.rx(theta, q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
@@ -1314,6 +1389,8 @@ impl Backend for CliffordSim {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
         check_normalized_angle(theta)?;
         self.sim.rxx(theta, q0_id, q1_id);
+        self.apply_pauli_noise(q0);
+        self.apply_pauli_noise(q1);
         Ok(())
     }
 
@@ -1321,6 +1398,7 @@ impl Backend for CliffordSim {
         let q_id = self.qubit_id_map[q];
         check_normalized_angle(theta)?;
         self.sim.ry(theta, q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
@@ -1328,6 +1406,8 @@ impl Backend for CliffordSim {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
         check_normalized_angle(theta)?;
         self.sim.ryy(theta, q0_id, q1_id);
+        self.apply_pauli_noise(q0);
+        self.apply_pauli_noise(q1);
         Ok(())
     }
 
@@ -1335,6 +1415,7 @@ impl Backend for CliffordSim {
         let q_id = self.qubit_id_map[q];
         check_normalized_angle(theta)?;
         self.sim.rz(theta, q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
@@ -1342,48 +1423,58 @@ impl Backend for CliffordSim {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
         check_normalized_angle(theta)?;
         self.sim.rzz(theta, q0_id, q1_id);
+        self.apply_pauli_noise(q0);
+        self.apply_pauli_noise(q1);
         Ok(())
     }
 
     fn sadj(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.s_adj(q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn s(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.s(q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn sx(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.sx(q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn swap(&mut self, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
         self.sim.swap(q0_id, q1_id);
+        self.apply_pauli_noise(q0);
+        self.apply_pauli_noise(q1);
         Ok(())
     }
 
     fn x(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.x(q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn y(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.y(q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
     fn z(&mut self, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
         self.sim.z(q_id);
+        self.apply_pauli_noise(q);
         Ok(())
     }
 
@@ -1411,7 +1502,7 @@ impl Backend for CliffordSim {
     }
 
     fn qubit_release(&mut self, q: usize) -> Result<bool, String> {
-        let is_zero = self.mresetz(q).expect("mresetz should not fail");
+        let is_zero = self.mresetz_noiseless(q);
         self.qubit_id_map.remove(q);
         // We return true for released qubits if simulation is noisy or if the qubit is known to be in the zero state.
         Ok(self.is_noisy || !matches!(is_zero, val::Result::Val(true)))
@@ -1476,8 +1567,14 @@ impl Backend for CliffordSim {
     fn set_seed(&mut self, seed: Option<u64>) {
         if let Some(seed) = seed {
             self.sim.set_seed(seed);
+            if self.pauli_noise_rng.is_some() {
+                self.pauli_noise_rng = Some(StdRng::seed_from_u64(seed));
+            }
         } else {
             self.sim.set_seed(rand::rng().next_u64());
+            if self.pauli_noise_rng.is_some() {
+                self.pauli_noise_rng = Some(StdRng::from_rng(&mut rand::rng()));
+            }
         }
     }
 }

@@ -6,7 +6,7 @@ use crate::line_column::{Location, Range};
 use crate::project_system::{ProgramConfig, into_qsc_args};
 use crate::{
     CallbackReceiver, get_debugger_from_openqasm, into_openqasm_arg, is_openqasm_program,
-    serializable_type,
+    serializable_type, simulation_type,
 };
 use qsc::fir::StmtId;
 use qsc::fmt_complex;
@@ -33,32 +33,25 @@ impl DebugService {
 
     #[allow(clippy::needless_pass_by_value)] // needed for wasm_bindgen
     pub fn load_program(&mut self, program: ProgramConfig, entry: Option<String>) -> String {
-        if is_openqasm_program(&program) {
-            let (sources, capabilities) = into_openqasm_arg(program);
-            match get_debugger_from_openqasm(&sources, capabilities) {
-                Ok((entry_expr, mut interpreter)) => {
-                    if let Err(e) = interpreter.set_entry_expr(&entry_expr) {
-                        return render_errors(e);
-                    }
-                    let debugger = qsc::interpret::Debugger::from(interpreter, Encoding::Utf16);
-                    self.debugger = Some(debugger);
-                    String::new()
-                }
-                Err(e) => render_errors(e),
-            }
-        } else {
-            match init_debugger(program, entry) {
-                Ok(debugger) => {
-                    self.debugger = Some(debugger);
-                    String::new()
-                }
-                Err(e) => render_errors(e),
-            }
+        self.load_program_internal(program, entry, qsc::interpret::SimType::Sparse)
+    }
+
+    #[allow(clippy::needless_pass_by_value)] // needed for wasm_bindgen
+    pub fn load_program_with_simulator(
+        &mut self,
+        program: ProgramConfig,
+        entry: Option<String>,
+        simulator: &str,
+        num_qubits: u32,
+    ) -> String {
+        match simulation_type(simulator, num_qubits) {
+            Ok(sim_type) => self.load_program_internal(program, entry, sim_type),
+            Err(error) => error,
         }
     }
 
-    pub fn capture_quantum_state(&mut self) -> IQuantumStateList {
-        let state = self.debugger_mut().capture_quantum_state();
+    pub fn capture_quantum_state(&mut self) -> Result<IQuantumStateList, String> {
+        let state = self.debugger_mut().try_capture_quantum_state()?;
         let entries = if state.1 > 0 {
             state
                 .0
@@ -72,7 +65,7 @@ impl DebugService {
             Vec::new()
         };
 
-        QuantumStateList { entries }.into()
+        Ok(QuantumStateList { entries }.into())
     }
 
     pub fn get_circuit(&self) -> Result<JsValue, String> {
@@ -126,7 +119,46 @@ impl DebugService {
     ) -> Result<IStructStepResult, String> {
         self.eval(event_cb, ids, StepAction::Out)
     }
+}
 
+impl DebugService {
+    fn load_program_internal(
+        &mut self,
+        program: ProgramConfig,
+        entry: Option<String>,
+        sim_type: qsc::interpret::SimType,
+    ) -> String {
+        if is_openqasm_program(&program) {
+            let (sources, capabilities) = into_openqasm_arg(program);
+            match get_debugger_from_openqasm(&sources, capabilities) {
+                Ok((entry_expr, mut interpreter)) => {
+                    if let Err(e) = interpreter.set_entry_expr(&entry_expr) {
+                        return render_errors(e);
+                    }
+                    let debugger = qsc::interpret::Debugger::from_with_sim(
+                        interpreter,
+                        Encoding::Utf16,
+                        sim_type,
+                    );
+                    self.debugger = Some(debugger);
+                    String::new()
+                }
+                Err(e) => render_errors(e),
+            }
+        } else {
+            match init_debugger(program, entry, sim_type) {
+                Ok(debugger) => {
+                    self.debugger = Some(debugger);
+                    String::new()
+                }
+                Err(e) => render_errors(e),
+            }
+        }
+    }
+}
+
+#[wasm_bindgen]
+impl DebugService {
     fn eval(
         &mut self,
         event_cb: &js_sys::Function,
@@ -267,18 +299,20 @@ impl DebugService {
 pub fn init_debugger(
     program: ProgramConfig,
     entry: Option<String>,
+    sim_type: qsc::interpret::SimType,
 ) -> Result<Debugger, Vec<Error>> {
     let (source_map, capabilities, language_features, package_store, user_code_dependencies) =
         into_qsc_args(program, entry, false)
             .map_err(|e| e.into_iter().map(Into::into).collect::<Vec<_>>())?;
 
-    Debugger::new(
+    Debugger::new_with_sim(
         source_map,
         capabilities,
         Encoding::Utf16,
         language_features,
         package_store,
         &user_code_dependencies[..],
+        sim_type,
     )
 }
 

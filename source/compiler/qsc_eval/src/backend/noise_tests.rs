@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 use crate::{
-    backend::{Backend, SparseSim},
+    backend::{Backend, CliffordSim, SparseSim},
     noise::PauliNoise,
     state::{fmt_complex, format_state_id},
     val,
@@ -73,6 +73,24 @@ fn noisy_simulator() {
         .expect("0.0, 0.0, 1e-10 Pauli noise should be constructable.");
     let sim = SparseSim::new_with_noise(&noise);
     assert!(!sim.is_noiseless(), "Expected noisy simulator.");
+}
+
+#[test]
+fn clifford_simulator_supports_pauli_noise() {
+    let noise = PauliNoise::from_probabilities(1.0, 0.0, 0.0)
+        .expect("bit flip noise should be constructable");
+    let mut sim = CliffordSim::new_with_pauli_noise(1, &noise);
+    let q = sim
+        .qubit_allocate()
+        .expect("Clifford simulator should have capacity");
+    sim.x(q).expect("X gate should succeed");
+
+    let result = sim.m(q).expect("measurement should succeed").unwrap_bool();
+
+    assert!(
+        result,
+        "100% bit flip noise should apply after the gate and before measurement"
+    );
 }
 
 #[test]

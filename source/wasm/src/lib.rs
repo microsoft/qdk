@@ -503,7 +503,7 @@ fn run_interpreter<F>(
                 interpreter.eval_entry_with_sim(&mut sim, out)
             }
             interpret::SimType::Clifford(num_qubits) => {
-                let mut sim = CliffordSim::new(num_qubits);
+                let mut sim = CliffordSim::new_with_pauli_noise(num_qubits, pauliNoise);
                 interpreter.eval_entry_with_sim(&mut sim, out)
             }
         };
@@ -629,16 +629,7 @@ pub fn runWithSimulator(
     simulator: &str,
     num_qubits: u32,
 ) -> Result<bool, JsValue> {
-    let sim_type = match simulator {
-        "sparse" => interpret::SimType::Sparse,
-        "clifford" if num_qubits > 0 => interpret::SimType::Clifford(num_qubits as usize),
-        "clifford" => {
-            return Err(JsError::new("Clifford simulator qubit count must be at least 1").into());
-        }
-        _ => {
-            return Err(JsError::new(&format!("Unknown simulator type: {simulator}")).into());
-        }
-    };
+    let sim_type = simulation_type(simulator, num_qubits).map_err(|error| JsError::new(&error))?;
 
     run_with_simulator_internal(
         program,
@@ -649,6 +640,37 @@ pub fn runWithSimulator(
         &JsValue::null(),
         sim_type,
     )
+}
+
+#[allow(clippy::too_many_arguments)]
+#[wasm_bindgen]
+pub fn runWithSimulatorAndNoise(
+    program: ProgramConfig,
+    expr: &str,
+    event_cb: &js_sys::Function,
+    shots: u32,
+    pauliNoise: &JsValue,
+    qubitLoss: &JsValue,
+    simulator: &str,
+    num_qubits: u32,
+) -> Result<bool, JsValue> {
+    let sim_type = simulation_type(simulator, num_qubits).map_err(|error| JsError::new(&error))?;
+
+    run_with_simulator_internal(
+        program, expr, event_cb, shots, pauliNoise, qubitLoss, sim_type,
+    )
+}
+
+pub(crate) fn simulation_type(
+    simulator: &str,
+    num_qubits: u32,
+) -> Result<interpret::SimType, String> {
+    match simulator {
+        "sparse" => Ok(interpret::SimType::Sparse),
+        "clifford" if num_qubits > 0 => Ok(interpret::SimType::Clifford(num_qubits as usize)),
+        "clifford" => Err("Clifford simulator qubit count must be at least 1".to_string()),
+        _ => Err(format!("Unknown simulator type: {simulator}")),
+    }
 }
 
 fn run_with_simulator_internal(
@@ -696,6 +718,12 @@ fn run_with_simulator_internal(
 
     // See if the qubitLoss JsValue is a number
     let qubitLoss = qubitLoss.as_f64().unwrap_or(0.0);
+    if matches!(sim_type, interpret::SimType::Clifford(_)) && qubitLoss != 0.0 {
+        return Err(JsError::new(
+            "Qubit loss is not supported by the Clifford simulator; set it to zero or select the sparse simulator",
+        )
+        .into());
+    }
 
     if is_openqasm_program(&program) {
         let (sources, capabilities) = into_openqasm_arg(program);

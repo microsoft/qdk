@@ -13,6 +13,8 @@ import {
   getLanguageServiceWorker,
   getDebugServiceWorker,
   loadWasmModule,
+  MAX_CLIFFORD_QUBITS,
+  StepResultId,
   utils,
 } from "../dist/node.js";
 
@@ -920,6 +922,74 @@ test("compiler run supports Clifford simulation", () =>
 test("compiler run supports Clifford simulation - worker", () =>
   testCompilerRunSupportsClifford(true));
 
+async function testCompilerRejectsInvalidCliffordCapacity(useWorker) {
+  const compiler = useWorker
+    ? getCompilerWorker(compilerWorkerPath)
+    : await getCompiler();
+  const events = new QscEventTarget(true);
+  try {
+    await assert.rejects(
+      compiler.run(
+        { sources: [], languageFeatures: [] },
+        "",
+        1,
+        { type: "clifford", maxQubits: MAX_CLIFFORD_QUBITS + 1 },
+        events,
+      ),
+      /Clifford simulator maxQubits must be an integer between 1 and 10000/,
+    );
+  } finally {
+    if (useWorker) compiler.terminate();
+  }
+}
+
+test("compiler validates Clifford qubit capacity", () =>
+  testCompilerRejectsInvalidCliffordCapacity(false));
+test("compiler validates Clifford qubit capacity - worker", () =>
+  testCompilerRejectsInvalidCliffordCapacity(true));
+
+async function testCompilerRunSupportsCliffordNoise(useWorker) {
+  const compiler = useWorker
+    ? getCompilerWorker(compilerWorkerPath)
+    : await getCompiler();
+  const events = new QscEventTarget(true);
+  try {
+    await compiler.runWithNoise(
+      {
+        sources: [
+          [
+            "test.qs",
+            `operation Main() : Result {
+              use qubit = Qubit();
+              X(qubit);
+              return MResetZ(qubit);
+            }`,
+          ],
+        ],
+        languageFeatures: [],
+      },
+      "",
+      1,
+      [1, 0, 0],
+      0,
+      { type: "clifford", maxQubits: 1 },
+      events,
+    );
+
+    const results = events.getResults();
+    assert.equal(results.length, 1);
+    assert.equal(results[0].success, true);
+    assert.equal(results[0].result, "One");
+  } finally {
+    if (useWorker) compiler.terminate();
+  }
+}
+
+test("compiler run supports Pauli noise with Clifford simulation", () =>
+  testCompilerRunSupportsCliffordNoise(false));
+test("compiler run supports Pauli noise with Clifford simulation - worker", () =>
+  testCompilerRunSupportsCliffordNoise(true));
+
 test("compiler run reports non-Clifford operations", async () => {
   const compiler = await getCompiler();
   const events = new QscEventTarget(true);
@@ -949,6 +1019,45 @@ test("compiler run reports non-Clifford operations", async () => {
     results[0].result.errors[0].diagnostic.message,
     /T gate is not supported in Clifford simulation/,
   );
+});
+
+test("compiler run warns and continues for Clifford state dumps", async () => {
+  const compiler = await getCompiler();
+  const events = new QscEventTarget(true);
+  await compiler.run(
+    {
+      sources: [
+        [
+          "test.qs",
+          `namespace Test {
+            operation Main() : Unit {
+              use qubit = Qubit();
+              H(qubit);
+              Microsoft.Quantum.Diagnostics.DumpMachine();
+              Reset(qubit);
+            }
+          }`,
+        ],
+      ],
+      languageFeatures: [],
+    },
+    "",
+    1,
+    { type: "clifford", maxQubits: 1 },
+    events,
+  );
+
+  const results = events.getResults();
+  assert.equal(results.length, 1);
+  assert.equal(results[0].success, true);
+  assert.equal(results[0].result, "()");
+  assert.deepEqual(results[0].events, [
+    {
+      type: "Message",
+      message:
+        "Warning: DumpMachine output is unavailable with Clifford simulation; execution will continue.",
+    },
+  ]);
 });
 
 test("OpenQASM compile error on run", async () => {
@@ -1169,6 +1278,70 @@ test("debug service loading source with entry point attr succeeds - web worker",
     );
     assert.ok(typeof result === "string");
     assert.equal(result.trim(), "");
+  } finally {
+    debugService.terminate();
+  }
+});
+
+test("debug service executes with Clifford simulation - web worker", async () => {
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
+  try {
+    const result = await debugService.loadProgram(
+      {
+        sources: [
+          [
+            "test.qs",
+            `namespace Sample {
+              @EntryPoint()
+              operation Main() : Result[] {
+                use qubits = Qubit[2];
+                H(qubits[0]);
+                CNOT(qubits[0], qubits[1]);
+                Microsoft.Quantum.Diagnostics.DumpMachine();
+                return MResetEachZ(qubits);
+              }
+            }`,
+          ],
+        ],
+        languageFeatures: [],
+        profile: "unrestricted",
+      },
+      undefined,
+      { type: "clifford", maxQubits: 2 },
+    );
+    assert.equal(result.trim(), "");
+
+    const events = new QscEventTarget(true);
+    const stepResult = await debugService.evalContinue([], events);
+    assert.equal(stepResult.id, StepResultId.Return);
+    assert.match(events.getResults()[0].result, /^\[(Zero|One), \1\]$/);
+    assert.deepEqual(events.getResults()[0].events, [
+      {
+        type: "Message",
+        message:
+          "Warning: DumpMachine output is unavailable with Clifford simulation; execution will continue.",
+      },
+    ]);
+    await assert.rejects(
+      debugService.captureQuantumState(),
+      /quantum state visualization is not supported in Clifford simulation/,
+    );
+  } finally {
+    debugService.terminate();
+  }
+});
+
+test("debug service validates Clifford qubit capacity - web worker", async () => {
+  const debugService = getDebugServiceWorker(debugServiceWorkerPath);
+  try {
+    await assert.rejects(
+      debugService.loadProgram(
+        { sources: [], languageFeatures: [] },
+        undefined,
+        { type: "clifford", maxQubits: 0.5 },
+      ),
+      /Clifford simulator maxQubits must be an integer between 1 and 10000/,
+    );
   } finally {
     debugService.terminate();
   }

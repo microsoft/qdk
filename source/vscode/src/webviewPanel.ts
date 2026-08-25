@@ -144,28 +144,19 @@ export function registerWebViewCommands(context: ExtensionContext) {
       const noise = getPauliNoiseModel();
       const qubitLoss = getQubitLossSetting();
       const simulation = getSimulationConfig();
-      validateSimulationNoiseSettings(simulation, noise, qubitLoss);
+      validateSimulationNoiseSettings(simulation, qubitLoss);
       if (noise[0] != 0 || noise[1] != 0 || noise[2] != 0 || qubitLoss != 0) {
         sendTelemetryEvent(EventType.NoisySimulation, { associationId }, {});
       }
-      if (simulation.type === "clifford") {
-        await worker.run(
-          program.programConfig,
-          expr ?? "",
-          parseInt(numberOfShots),
-          simulation,
-          evtTarget,
-        );
-      } else {
-        await worker.runWithNoise(
-          program.programConfig,
-          expr ?? "",
-          parseInt(numberOfShots),
-          noise,
-          qubitLoss,
-          evtTarget,
-        );
-      }
+      await worker.runWithNoise(
+        program.programConfig,
+        expr ?? "",
+        parseInt(numberOfShots),
+        noise,
+        qubitLoss,
+        simulation,
+        evtTarget,
+      );
       sendTelemetryEvent(
         EventType.HistogramEnd,
         { associationId },

@@ -45,19 +45,30 @@ suite("Q# Simulation Configuration Tests", function suite() {
 
     assert.throws(
       () => getSimulationConfig(),
-      /must be an integer between 1 and 4294967295/,
+      /must be an integer between 1 and 10000/,
+    );
+
+    await simulation.update("clifford.maxQubits", 10001);
+    assert.throws(
+      getSimulationConfig,
+      /must be an integer between 1 and 10000/,
     );
   });
 
-  test("rejects noise settings for Clifford simulation", () => {
+  test("allows Pauli noise for Clifford simulation", () => {
+    assert.doesNotThrow(() =>
+      validateSimulationNoiseSettings({ type: "clifford", maxQubits: 1000 }, 0),
+    );
+  });
+
+  test("rejects qubit loss for Clifford simulation", () => {
     assert.throws(
       () =>
         validateSimulationNoiseSettings(
           { type: "clifford", maxQubits: 1000 },
-          [0.01, 0, 0],
-          0,
+          0.01,
         ),
-      /not supported by the Clifford simulator/,
+      /qubitLoss is not supported by the Clifford simulator/,
     );
   });
 });

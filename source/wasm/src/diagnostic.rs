@@ -316,6 +316,7 @@ fn interpret_error_labels(err: &interpret::Error) -> Vec<Label> {
         interpret::Error::PartialEvaluation(e) => error_labels(e),
         interpret::Error::FirTransform(e) => error_labels(e),
         interpret::Error::NoEntryPoint
+        | interpret::Error::CliffordQubitLossUnsupported
         | interpret::Error::UnsupportedRuntimeCapabilities
         | interpret::Error::Circuit(_)
         | interpret::Error::NotAnOperation

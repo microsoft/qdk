@@ -173,6 +173,9 @@ pub(crate) fn run_ast(
     loss: f64,
     sim_type: SimType,
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
+    if has_unsupported_qasm_qubit_loss(sim_type, loss) {
+        return Err(vec![interpret::Error::CliffordQubitLossUnsupported]);
+    }
     let mut results = Vec::with_capacity(shots);
     for i in 0..shots {
         let result = match sim_type {
@@ -196,11 +199,15 @@ pub(crate) fn run_ast(
                 interpreter.run_with_sim(&mut sim, receiver, None, None)?
             }
             SimType::Clifford(num_qubits) => {
-                let mut sim = match noise_config {
-                    None => CliffordSim::new(num_qubits),
-                    Some(noise_config) => {
-                        CliffordSim::new_with_noise_config(num_qubits, noise_config.clone().into())
-                    }
+                let mut sim = match noise {
+                    Some(noise) => CliffordSim::new_with_pauli_noise(num_qubits, &noise),
+                    None => match noise_config {
+                        Some(noise_config) => CliffordSim::new_with_noise_config(
+                            num_qubits,
+                            noise_config.clone().into(),
+                        ),
+                        None => CliffordSim::new(num_qubits),
+                    },
                 };
                 // If seed is provided, we want to use a different seed for each shot
                 // so that the results are different for each shot, but still deterministic
@@ -213,6 +220,20 @@ pub(crate) fn run_ast(
     }
 
     Ok(results)
+}
+
+fn has_unsupported_qasm_qubit_loss(sim_type: SimType, qubit_loss: f64) -> bool {
+    matches!(sim_type, SimType::Clifford(_)) && qubit_loss != 0.0
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clifford_qasm_rejects_qubit_loss() {
+        assert!(has_unsupported_qasm_qubit_loss(SimType::Clifford(1), 0.1));
+    }
 }
 
 /// Estimates the resource requirements for executing OpenQASM source code.

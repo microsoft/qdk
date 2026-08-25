@@ -1,7 +1,7 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-import { log } from "qsharp-lang";
+import { log, MAX_CLIFFORD_QUBITS } from "qsharp-lang";
 import * as vscode from "vscode";
 import type { SimulatorConfig } from "qsharp-lang";
 
@@ -58,10 +58,10 @@ export function getSimulationConfig(): SimulatorConfig {
   if (
     !Number.isSafeInteger(maxQubits) ||
     maxQubits < 1 ||
-    maxQubits > 0xffff_ffff
+    maxQubits > MAX_CLIFFORD_QUBITS
   ) {
     throw new Error(
-      "Q#.simulation.clifford.maxQubits must be an integer between 1 and 4294967295.",
+      `Q#.simulation.clifford.maxQubits must be an integer between 1 and ${MAX_CLIFFORD_QUBITS}.`,
     );
   }
   return { type, maxQubits };
@@ -69,15 +69,11 @@ export function getSimulationConfig(): SimulatorConfig {
 
 export function validateSimulationNoiseSettings(
   simulation: SimulatorConfig,
-  pauliNoise: number[],
   qubitLoss: number,
 ): void {
-  if (
-    simulation.type === "clifford" &&
-    (pauliNoise.some((probability) => probability !== 0) || qubitLoss !== 0)
-  ) {
+  if (simulation.type === "clifford" && qubitLoss !== 0) {
     throw new Error(
-      "Q#.simulation.pauliNoise and Q#.simulation.qubitLoss are not supported by the Clifford simulator. Set them to zero or select the sparse simulator.",
+      "Q#.simulation.qubitLoss is not supported by the Clifford simulator. Set it to zero or select the sparse simulator.",
     );
   }
 }
