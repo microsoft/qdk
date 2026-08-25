@@ -1531,6 +1531,66 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
+    fn for_each_pair(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId),
+    ) {
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
+            let Some((q0, _)) = self.expect_qubit(instruction, &pair[0], false) else {
+                continue;
+            };
+            let Some((q1, _)) = self.expect_qubit(instruction, &pair[1], false) else {
+                continue;
+            };
+            operation(self, q0, q1);
+        }
+    }
+
+    fn for_each_negatable_pair(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, bool),
+    ) {
+        let Some(pairs) = self.expect_target_pairs(instruction) else {
+            return;
+        };
+        for pair in pairs {
+            let Some((q0, neg0)) = self.expect_qubit(instruction, &pair[0], true) else {
+                continue;
+            };
+            let Some((q1, neg1)) = self.expect_qubit(instruction, &pair[1], true) else {
+                continue;
+            };
+            operation(self, q0, q1, neg0 ^ neg1);
+        }
+    }
+
+    fn for_each_triple(
+        &mut self,
+        instruction: &Instruction,
+        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
+    ) {
+        let Some(triples) = self.expect_target_triples(instruction) else {
+            return;
+        };
+        for triple in triples {
+            let Some((q0, _)) = self.expect_qubit(instruction, &triple[0], false) else {
+                continue;
+            };
+            let Some((q1, _)) = self.expect_qubit(instruction, &triple[1], false) else {
+                continue;
+            };
+            let Some((q2, _)) = self.expect_qubit(instruction, &triple[2], false) else {
+                continue;
+            };
+            operation(self, q0, q1, q2);
+        }
+    }
+
     fn broadcast(
         &mut self,
         instruction: &Instruction,
@@ -1538,6 +1598,24 @@ impl<'noise> Compiler<'noise> {
     ) {
         self.unsupported_args(instruction);
         self.for_each_qubit(instruction, operation);
+    }
+
+    fn broadcast_pair(
+        &mut self,
+        instruction: &Instruction,
+        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_pair(instruction, operation);
+    }
+
+    fn broadcast_triple(
+        &mut self,
+        instruction: &Instruction,
+        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
+    ) {
+        self.unsupported_args(instruction);
+        self.for_each_triple(instruction, operation);
     }
 
     fn broadcast_measure(
@@ -1554,6 +1632,20 @@ impl<'noise> Compiler<'noise> {
         });
     }
 
+    fn broadcast_pair_measure(
+        &mut self,
+        instruction: &Instruction,
+        mut measure: impl FnMut(&mut Self, StimQubitId, StimQubitId, bool) -> ResultId,
+    ) {
+        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
+            return;
+        };
+        self.for_each_negatable_pair(instruction, |s, q0, q1, negated| {
+            let result_id = measure(s, q0, q1, negated);
+            s.op_readout_noise(readout_noise, result_id);
+        });
+    }
+
     fn broadcast_noise(
         &mut self,
         instruction: &Instruction,
@@ -1563,6 +1655,17 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         self.for_each_qubit(instruction, |s, q| noise(s, q, probability));
+    }
+
+    fn broadcast_pair_noise(
+        &mut self,
+        instruction: &Instruction,
+        mut noise: impl FnMut(&mut Self, StimQubitId, StimQubitId, f64),
+    ) {
+        let Some(probability) = self.expect_arg(instruction) else {
+            return;
+        };
+        self.for_each_pair(instruction, |s, q0, q1| noise(s, q0, q1, probability));
     }
 
     fn broadcast_pauli_product(
@@ -1608,152 +1711,6 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         self.for_each_pair(instruction, |s, q0, q1| operation(s, angle, q0, q1));
-    }
-
-    fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
-        let Some(probability) = self.expect_arg(instruction) else {
-            return;
-        };
-        let mut terms = Vec::with_capacity(instruction.targets.len());
-
-        for target in &instruction.targets {
-            let Some((fault, qubit)) = self.expect_fault_char(instruction, target) else {
-                continue;
-            };
-
-            terms.push((fault, qubit));
-        }
-
-        let row = CorrelatedRow {
-            probability,
-            terms,
-            span: instruction.span,
-        };
-
-        self.noise_accumulator.push_correlated_row(row);
-    }
-
-    fn continue_correlated_noise(&mut self, instruction: &Instruction) {
-        if self.noise_accumulator.current_correlated_group.is_none() {
-            self.push_error(Error::OrphanedElseCorrelatedError {
-                span: instruction.span,
-            });
-            return;
-        }
-        self.accumulate_correlated_noise(instruction);
-    }
-
-    fn finish_correlated_noise(&mut self) {
-        if self.noise_accumulator.current_correlated_group.is_none() {
-            return;
-        }
-        match self.noise_accumulator.flush_correlated_group() {
-            Ok((noise_table, qubits)) => self.op_noise(noise_table, &qubits),
-            Err(error) => self.push_error(error),
-        }
-    }
-
-    fn for_each_pair(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId),
-    ) {
-        let Some(pairs) = self.expect_target_pairs(instruction) else {
-            return;
-        };
-        for pair in pairs {
-            let Some((q0, _)) = self.expect_qubit(instruction, &pair[0], false) else {
-                continue;
-            };
-            let Some((q1, _)) = self.expect_qubit(instruction, &pair[1], false) else {
-                continue;
-            };
-            operation(self, q0, q1);
-        }
-    }
-
-    fn for_each_triple(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
-    ) {
-        let Some(triples) = self.expect_target_triples(instruction) else {
-            return;
-        };
-        for triple in triples {
-            let Some((q0, _)) = self.expect_qubit(instruction, &triple[0], false) else {
-                continue;
-            };
-            let Some((q1, _)) = self.expect_qubit(instruction, &triple[1], false) else {
-                continue;
-            };
-            let Some((q2, _)) = self.expect_qubit(instruction, &triple[2], false) else {
-                continue;
-            };
-            operation(self, q0, q1, q2);
-        }
-    }
-
-    fn for_each_negatable_pair(
-        &mut self,
-        instruction: &Instruction,
-        mut operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, bool),
-    ) {
-        let Some(pairs) = self.expect_target_pairs(instruction) else {
-            return;
-        };
-        for pair in pairs {
-            let Some((q0, neg0)) = self.expect_qubit(instruction, &pair[0], true) else {
-                continue;
-            };
-            let Some((q1, neg1)) = self.expect_qubit(instruction, &pair[1], true) else {
-                continue;
-            };
-            operation(self, q0, q1, neg0 ^ neg1);
-        }
-    }
-
-    fn broadcast_pair(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_pair(instruction, operation);
-    }
-
-    fn broadcast_triple(
-        &mut self,
-        instruction: &Instruction,
-        operation: impl FnMut(&mut Self, StimQubitId, StimQubitId, StimQubitId),
-    ) {
-        self.unsupported_args(instruction);
-        self.for_each_triple(instruction, operation);
-    }
-
-    fn broadcast_pair_measure(
-        &mut self,
-        instruction: &Instruction,
-        mut measure: impl FnMut(&mut Self, StimQubitId, StimQubitId, bool) -> ResultId,
-    ) {
-        let Some(readout_noise) = self.expect_readout_noise(instruction) else {
-            return;
-        };
-        self.for_each_negatable_pair(instruction, |s, q0, q1, negated| {
-            let result_id = measure(s, q0, q1, negated);
-            s.op_readout_noise(readout_noise, result_id);
-        });
-    }
-
-    fn broadcast_pair_noise(
-        &mut self,
-        instruction: &Instruction,
-        mut noise: impl FnMut(&mut Self, StimQubitId, StimQubitId, f64),
-    ) {
-        let Some(probability) = self.expect_arg(instruction) else {
-            return;
-        };
-        self.for_each_pair(instruction, |s, q0, q1| noise(s, q0, q1, probability));
     }
 
     fn broadcast_controlled(
@@ -1844,6 +1801,49 @@ impl<'noise> Compiler<'noise> {
         };
         let qubit = self.id_map.allocate_qubit(target);
         self.writer.write_classical_control(pauli, result_id, qubit);
+    }
+
+    fn accumulate_correlated_noise(&mut self, instruction: &Instruction) {
+        let Some(probability) = self.expect_arg(instruction) else {
+            return;
+        };
+        let mut terms = Vec::with_capacity(instruction.targets.len());
+
+        for target in &instruction.targets {
+            let Some((fault, qubit)) = self.expect_fault_char(instruction, target) else {
+                continue;
+            };
+
+            terms.push((fault, qubit));
+        }
+
+        let row = CorrelatedRow {
+            probability,
+            terms,
+            span: instruction.span,
+        };
+
+        self.noise_accumulator.push_correlated_row(row);
+    }
+
+    fn continue_correlated_noise(&mut self, instruction: &Instruction) {
+        if self.noise_accumulator.current_correlated_group.is_none() {
+            self.push_error(Error::OrphanedElseCorrelatedError {
+                span: instruction.span,
+            });
+            return;
+        }
+        self.accumulate_correlated_noise(instruction);
+    }
+
+    fn finish_correlated_noise(&mut self) {
+        if self.noise_accumulator.current_correlated_group.is_none() {
+            return;
+        }
+        match self.noise_accumulator.flush_correlated_group() {
+            Ok((noise_table, qubits)) => self.op_noise(noise_table, &qubits),
+            Err(error) => self.push_error(error),
+        }
     }
 
     /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
@@ -1973,6 +1973,17 @@ impl<'noise> Compiler<'noise> {
         self.writer.write_qis_call(intrinsic, &[q0, q1, q2]);
     }
 
+    fn op_rotation(&mut self, intrinsic: &str, angle: Radians, qubit: StimQubitId) {
+        let qubit = self.id_map.allocate_qubit(qubit);
+        self.writer.write_rotation_call(intrinsic, angle, &[qubit]);
+    }
+
+    fn op_rotation_2(&mut self, intrinsic: &str, angle: Radians, q0: StimQubitId, q1: StimQubitId) {
+        let q0 = self.id_map.allocate_qubit(q0);
+        let q1 = self.id_map.allocate_qubit(q1);
+        self.writer.write_rotation_call(intrinsic, angle, &[q0, q1]);
+    }
+
     fn op_adj(&mut self, intrinsic: &str, qubit: StimQubitId) {
         let q = self.id_map.allocate_qubit(qubit);
         self.writer.write_qis_adj_call(intrinsic, &[q]);
@@ -2022,17 +2033,6 @@ impl<'noise> Compiler<'noise> {
         if probability > 0.0 {
             self.writer.write_readout_noise_call(probability, result_id);
         }
-    }
-
-    fn op_rotation(&mut self, intrinsic: &str, angle: Radians, qubit: StimQubitId) {
-        let qubit = self.id_map.allocate_qubit(qubit);
-        self.writer.write_rotation_call(intrinsic, angle, &[qubit]);
-    }
-
-    fn op_rotation_2(&mut self, intrinsic: &str, angle: Radians, q0: StimQubitId, q1: StimQubitId) {
-        let q0 = self.id_map.allocate_qubit(q0);
-        let q1 = self.id_map.allocate_qubit(q1);
-        self.writer.write_rotation_call(intrinsic, angle, &[q0, q1]);
     }
 
     fn build_noise_table(
