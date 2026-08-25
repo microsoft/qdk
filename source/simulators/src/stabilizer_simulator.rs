@@ -5,7 +5,6 @@
 
 pub mod branching_state;
 pub mod operation;
-pub mod outcome_specific_simulation;
 
 use crate::{
     MeasurementResult, NearlyZero, QubitID, Simulator,
