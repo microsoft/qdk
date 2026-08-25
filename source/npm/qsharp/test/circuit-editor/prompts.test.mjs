@@ -18,13 +18,15 @@
 //     Cancel — including via Enter or Escape), so a subsequent key press doesn't re-invoke the
 //     callback.
 //
-// `deleteOperationWithConfirmation`: fast paths (non-M, M with no classical consumers) skip the
-// prompt and mutate + render immediately; the M-with-consumers path opens a confirm dialog whose
-// message singularizes / pluralizes the consumer count, and only commits the cascade on OK.
+// `deleteOperationWithConfirmation`: the no-consumer path (any op whose subtree strands nothing)
+// skips the prompt and mutates + render immediately; the with-consumers path opens a confirm dialog
+// whose message singularizes / pluralizes the consumer count, and only commits the cascade on OK.
 //
-// `moveOperationWithConfirmation`: same fast-path / prompt split, plus the three message-shape
-// branches in `_buildMoveMConsumerMessage` (pure survivors, pure invalidated, mixed).
-// `movingControl` is threaded through to `moveOperation` unchanged on the fast path.
+// `moveOperationWithConfirmation`: previews the move on a clone to decide whether it strands any
+// consumer. Strands none -> commit directly, no prompt (including a wire-changing move whose
+// consumers are all silently repointed). Strands some -> prompt with the single delete-count
+// message, and cascade-delete on OK. `movingControl` is threaded through to `moveOperation`
+// unchanged.
 //
 // Tests run under JSDOM and drive the dialog by querying for `.prompt-button` elements.
 
@@ -296,8 +298,8 @@ test("deleteOperationWithConfirmation: non-measurement op deletes immediately, n
 });
 
 test("deleteOperationWithConfirmation: measurement with NO classical consumers deletes immediately", () => {
-  // Second fast path: an M whose `collectMeasurementConsumers` returns `[]` (no consumer reads its
-  // result) also skips the prompt.
+  // Second fast path: an M whose subtree strands no consumer (nothing reads its result) also skips
+  // the prompt.
   const model = build(circuit(qubits(1, { 0: 1 }), [[meas(0)]]));
   const render = makeRenderSpy();
 
@@ -424,9 +426,10 @@ test("moveOperationWithConfirmation: M with NO consumers moves immediately, no p
   assert.equal(render.count, 1);
 });
 
-test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the update-only message", () => {
-  // Survivors-only partition: target column < every consumer's column. The M moves forward (or
-  // stays) so every consumer still comes after it; nothing gets deleted.
+test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers on a HORIZONTAL move runs without a prompt", () => {
+  // Survivors-only, same-wire move: target column < every consumer's column, so nothing is deleted,
+  // and the M stays on its wire so consumers only need result-index renumbering. That's cosmetic —
+  // no confirmation — the surviving consumers' refs are reconciled automatically.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)], // column 0: the M
@@ -436,97 +439,172 @@ test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers shows the u
   );
   const render = makeRenderSpy();
 
-  // Move the M to column 0 (its current spot) — still strictly before columns 1 and 2. Both
-  // consumers partition into survivors.
+  // Move the M to column 0 (its current spot), same wire — still strictly before columns 1 and 2.
+  // Both consumers survive and the wire is unchanged, so the move applies with no prompt.
   moveWithConfirm(model, { from: "0,0", to: "0,0" }, render.fn);
 
-  const prompt = getOpenPrompt();
-  assert.ok(prompt);
-  assert.match(
-    prompt.message,
-    /2 dependent operations will be updated to reference this measurement's new wire/,
-    "must surface the survivors-update clause with the plural count",
+  assert.equal(
+    getOpenPrompt(),
+    null,
+    "a same-wire, non-destructive M move must not prompt",
   );
-  assert.doesNotMatch(
-    prompt.message,
-    /will be deleted/,
-    "pure-survivors message must NOT mention deletion",
-  );
+  assert.equal(render.count, 1);
 });
 
-test("moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the delete-only message", () => {
-  // Invalidated-only partition: target column >= every consumer's column — the M moves past all its
-  // consumers. Every consumer flips into the "will be deleted" bucket.
+test("moveOperationWithConfirmation: M with pure-SURVIVORS consumers on a VERTICAL move runs without a prompt", () => {
+  // Survivors-only but the M changes wire: no consumer is stranded, so nothing is deleted. The move
+  // repoints every surviving consumer at the measurement's new qubit automatically — a silent,
+  // non-destructive change — so it commits with no prompt.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
-      [meas(0)], // column 0: the M
-      [consumer("X", 1)], // column 1: only consumer
+      [meas(0)], // column 0: the M on wire 0
+      [consumer("X", 1)], // column 1: consumes M0, survives (later column)
     ]),
   );
   const render = makeRenderSpy();
 
-  // Move M into column 1 (the consumer's column). Target column == consumer's column →
-  // `inEarlierColumnThan` is false → consumer is invalidated.
-  moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
+  // Move the M from wire 0 to wire 2, staying in column 0 (still before the consumer's column). The
+  // consumer survives and is silently repointed to wire 2 — no prompt.
+  moveWithConfirm(model, { from: "0,0", to: "0,0", toWire: 2 }, render.fn);
+
+  assert.equal(
+    getOpenPrompt(),
+    null,
+    "a non-destructive wire-changing M move must not prompt",
+  );
+  assert.equal(render.count, 1);
+  // The survivor's classical control must track the M's new wire: (0,0) → (2,0).
+  assert.equal(at(model, "1,0").controls[0].qubit, 2);
+});
+
+test("moveOperationWithConfirmation: M dropped just left of its consumer (insertNewColumn) does not delete it", () => {
+  // Off-by-one guard: dropping the M into a FRESH column spliced in at the consumer's column places
+  // the M strictly before the consumer, so the consumer survives — no deletion, no prompt. Without
+  // the `insertNewColumn` awareness this partitioned the consumer as invalidated (same column).
+  const model = build(
+    circuit(qubits(2, { 0: 1 }), [
+      [meas(0)], // column 0: the M
+      [gate("H", 1)], // column 1: filler so the M has somewhere to move from
+      [consumer("X", 1)], // column 2: the consumer
+    ]),
+  );
+  const render = makeRenderSpy();
+
+  // Drop the M into a new column spliced in AT the consumer's column ("2,0"). The M lands strictly
+  // before the consumer, which shifts to column 3 — the consumer survives.
+  moveWithConfirm(
+    model,
+    { from: "0,0", to: "2,0", insertNewColumn: true },
+    render.fn,
+  );
+
+  assert.equal(
+    getOpenPrompt(),
+    null,
+    "dropping the M just before its consumer must not invalidate it",
+  );
+  assert.equal(render.count, 1);
+});
+
+test("moveOperationWithConfirmation: M with pure-INVALIDATED consumers shows the delete message", () => {
+  // Invalidated-only: the M moves PAST its consumer (into a later column), so no producer remains in
+  // a strictly earlier column — the consumer is stranded and flagged for deletion.
+  const model = build(
+    circuit(qubits(3, { 0: 1 }), [
+      [meas(0)], // column 0: the M
+      [consumer("X", 1)], // column 1: only consumer
+      [gate("H", 2)], // column 2: filler so the M can land after the consumer
+    ]),
+  );
+  const render = makeRenderSpy();
+
+  // Move M into column 2 (after the consumer). Producer no longer strictly earlier → stranded.
+  moveWithConfirm(model, { from: "0,0", to: "2,0" }, render.fn);
 
   const prompt = getOpenPrompt();
   assert.ok(prompt);
   assert.match(
     prompt.message,
-    /1 dependent operation would end up before this measurement in document order and will be deleted/,
-    "must surface the invalidated-delete clause in singular form",
-  );
-  assert.doesNotMatch(
-    prompt.message,
-    /will be updated/,
-    "pure-invalidated message must NOT mention updates",
+    /will also delete 1 dependent operation that references a measurement result/,
+    "must surface the singular delete message",
   );
 });
 
-test("moveOperationWithConfirmation: M with MIXED consumers shows both clauses joined with '; '", () => {
-  // Mixed partition: target column splits the consumer list — some stay after (survivors →
-  // updated), some end up at-or-before (invalidated → deleted). Message must include BOTH clauses
-  // and the explicit '; ' separator.
+test("moveOperationWithConfirmation: M with MIXED consumers on a VERTICAL move shows only the delete count", () => {
+  // Mixed on a wire-changing move: one consumer ends up stranded (deleted), one stays after
+  // (silently repointed to the new qubit). The unified prompt reports only the stranded count —
+  // survivor repointing is silent — so exactly one deletion is mentioned and no update clause.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
-      [meas(0)], // column 0: the M
-      [consumer("X", 1)], // column 1: invalidated (column == target)
+      [meas(0)], // column 0: the M on wire 0
+      [consumer("X", 1)], // column 1: stranded (column == target)
       [consumer("Y", 2)], // column 2: survives (column > target)
     ]),
   );
   const render = makeRenderSpy();
 
-  // Target column 1 → consumer at "1,0" invalidates, consumer at "2,0" survives.
-  moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
+  // Target column 1, wire 0 → 2 → consumer at "1,0" strands, consumer at "2,0" survives and is
+  // repointed to wire 2.
+  moveWithConfirm(model, { from: "0,0", to: "1,0", toWire: 2 }, render.fn);
 
   const prompt = getOpenPrompt();
   assert.ok(prompt);
   assert.match(
     prompt.message,
-    /will be updated to reference this measurement's new wire/,
-    "must include the survivors clause",
+    /will also delete 1 dependent operation that references a measurement result/,
+    "must report exactly the one stranded consumer",
   );
+  assert.doesNotMatch(
+    prompt.message,
+    /updated/,
+    "survivor repointing is silent — no update clause",
+  );
+});
+
+test("moveOperationWithConfirmation: M with MIXED consumers on a HORIZONTAL move shows only the delete count", () => {
+  // Mixed but SAME wire: one consumer is stranded (triggering the prompt) while the survivor stays
+  // on the same qubit and only needs result-index renumbering. The unified prompt reports only the
+  // stranded count.
+  const model = build(
+    circuit(qubits(3, { 0: 1 }), [
+      [meas(0)], // column 0: the M
+      [consumer("X", 1)], // column 1: stranded (M lands after it)
+      [gate("H", 2)], // column 2: filler — the M's landing column
+      [consumer("Y", 1)], // column 3: survives (still after the M)
+    ]),
+  );
+  const render = makeRenderSpy();
+
+  // Move M into column 2 (same wire) → consumer at "1,0" strands, consumer at "3,0" survives.
+  moveWithConfirm(model, { from: "0,0", to: "2,0" }, render.fn);
+
+  const prompt = getOpenPrompt();
+  assert.ok(prompt);
   assert.match(
     prompt.message,
-    /will be deleted/,
-    "must include the invalidated clause",
+    /will also delete 1 dependent operation that references a measurement result/,
+    "must report exactly the one stranded consumer",
   );
-  assert.match(
+  assert.doesNotMatch(
     prompt.message,
-    /; /,
-    "the two clauses must be joined with '; '",
+    /updated/,
+    "a horizontal deletion prompt must NOT mention survivor updates",
   );
 });
 
 test("moveOperationWithConfirmation: M-with-consumers Cancel makes NO mutations and does NOT render", () => {
   // Cancel-path symmetry with the delete wrapper: model frozen, renderFn untouched.
   const model = build(
-    circuit(qubits(2, { 0: 1 }), [[meas(0)], [consumer("X", 1)]]),
+    circuit(qubits(2, { 0: 1 }), [
+      [meas(0)], // column 0: the M
+      [consumer("X", 1)], // column 1: consumer stranded by the move
+      [gate("H", 1)], // column 2: filler — the M's landing column
+    ]),
   );
   const beforeJSON = snapshot(model);
   const render = makeRenderSpy();
 
-  moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
+  moveWithConfirm(model, { from: "0,0", to: "2,0" }, render.fn);
 
   const prompt = getOpenPrompt();
   assert.ok(prompt);
@@ -540,22 +618,23 @@ test("moveOperationWithConfirmation: M-with-consumers Cancel makes NO mutations 
   );
 });
 
-test("moveOperationWithConfirmation: M-with-consumers OK cascades through moveMeasurementWithDependents", () => {
+test("moveOperationWithConfirmation: M-with-consumers OK cascades through moveOperationWithDependents", () => {
   // Sanity check on the OK branch with a mixed partition. After commit: the M moved to the target
-  // column, the survivor's classical control was remapped to the M's new wire, and the invalidated
+  // column, the survivor's classical control was remapped to the M's new wire, and the stranded
   // consumer is gone.
   const model = build(
     circuit(qubits(3, { 0: 1 }), [
       [meas(0)], // column 0: the M on wire 0
-      [consumer("X", 1)], // column 1: invalidated consumer
-      [consumer("Y", 2)], // column 2: survivor consumer
+      [consumer("X", 1)], // column 1: stranded consumer (M lands after it)
+      [gate("H", 2)], // column 2: filler — the M's landing column
+      [consumer("Y", 1)], // column 3: survivor consumer
     ]),
   );
   const render = makeRenderSpy();
 
-  // Move M from (0,0) on wire 0 → target column 1 on wire 0 (no wire change). Consumer at "1,0" is
-  // invalidated; consumer at "2,0" survives.
-  moveWithConfirm(model, { from: "0,0", to: "1,0" }, render.fn);
+  // Move M from (0,0) on wire 0 → target column 2 on wire 0 (no wire change). Consumer at "1,0" is
+  // stranded; consumer at "3,0" survives.
+  moveWithConfirm(model, { from: "0,0", to: "2,0" }, render.fn);
 
   const prompt = getOpenPrompt();
   assert.ok(prompt);
@@ -563,15 +642,15 @@ test("moveOperationWithConfirmation: M-with-consumers OK cascades through moveMe
 
   assert.equal(render.count, 1, "OK must trigger exactly one re-render");
 
-  // The X (invalidated) must be gone.
+  // The X (stranded) must be gone.
   const allOps = flattenOps(model);
   assert.equal(
     allOps.find((o) => /** @type {any} */ (o).gate === "X"),
     undefined,
-    "invalidated X consumer must have been cascade-deleted",
+    "stranded X consumer must have been cascade-deleted",
   );
   // The Y (survivor) must still exist. The exact remap is the contract of
-  // `moveMeasurementWithDependents`, covered in the circuit-actions/ suite
+  // `moveOperationWithDependents`, covered in the circuit-actions/ suite
   // (measurementCascade.test.mjs).
   assert.ok(
     allOps.find((o) => /** @type {any} */ (o).gate === "Y"),

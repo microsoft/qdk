@@ -249,6 +249,8 @@ function App() {
 
 function Branding() {
   const mobiusUri = document.body.dataset.mobiusUri ?? "";
+  // We don't actually use this panel for notebook courses,
+  // so hard-coding the katas course name is fine.
   return (
     <div class="branding" style={`--mobius-url: url('${mobiusUri}')`}>
       <div

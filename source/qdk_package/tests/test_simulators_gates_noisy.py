@@ -10,6 +10,7 @@ from qdk import Result, TargetProfile
 from qdk.simulation import run_qir as _run_qir, NoiseConfig, LossPolicy
 from qdk.simulation._simulation import try_create_gpu_adapter
 from typing import Literal, List, Optional, TypeAlias
+from simulator_test_utils import check_histogram
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -102,30 +103,6 @@ def compile_and_run_with_declarations(
     qsharp.eval(declarations)
     qir = compile(entry_expr)
     return run_qir(qir, shots=shots, noise=noise, seed=seed, type=sim_type)
-
-
-def histogram(results):
-    """Build a {str_key: count} histogram from a list of shot results."""
-    return Counter(results)
-
-
-def check_histogram(results, expected_probs, tolerance=0.05):
-    """
-    Assert that the probability distribution of *results* matches
-    *expected_probs* (a dict mapping str keys to float probabilities)
-    within *tolerance*.
-    """
-    n = len(results)
-    assert n > 0, "No results to check"
-    hist = histogram(results)
-    all_keys = set(expected_probs.keys()) | set(hist.keys())
-    for key in all_keys:
-        actual_prob = hist.get(key, 0) / n
-        expected_prob = expected_probs.get(key, 0.0)
-        assert abs(actual_prob - expected_prob) <= tolerance, (
-            f"Key '{key}': expected ~{expected_prob:.2f}, got {actual_prob:.3f} "
-            f"({hist.get(key, 0)}/{n})"
-        )
 
 
 # ===========================================================================
@@ -841,3 +818,80 @@ def test_noise_intrinsic_combined_with_gate_noise(sim_type):
         sim_type=sim_type,
     )
     check_histogram(results, {"0": 0.18, "1": 0.82})
+
+# ===========================================================================
+# Readout noise tests
+# ========================
+
+
+READOUT_NOISE_QIR = r"""
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+    call void @__quantum__rt__initialize(i8* null)
+    call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__m__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__rt__readout_noise(double 1.0, double 0.0, %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__rt__readout_noise(double 0.0, double 1.0, %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__rt__array_record_output(i64 2, i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+    ret i64 0
+}
+
+declare void @__quantum__rt__initialize(i8*)
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__m__body(%Qubit*, %Result*) #1
+declare void @__quantum__rt__readout_noise(double, double, %Result*) #2
+declare void @__quantum__rt__array_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
+attributes #1 = { "irreversible" }
+attributes #2 = { "qdk_noise" }
+
+!llvm.module.flags = !{!0, !1, !2, !3}
+!0 = !{i32 1, !"qir_major_version", i32 1}
+!1 = !{i32 7, !"qir_minor_version", i32 0}
+!2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+!3 = !{i32 1, !"dynamic_result_management", i1 false}
+"""
+
+PROBABILISTIC_READOUT_NOISE_QIR = READOUT_NOISE_QIR.replace(
+    "readout_noise(double 1.0, double 0.0",
+    "readout_noise(double 0.2, double 0.0",
+).replace(
+    "readout_noise(double 0.0, double 1.0",
+    "readout_noise(double 0.0, double 0.3",
+)
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_readout_noise_flips_measurement_results(sim_type):
+    results = run_qir(
+        READOUT_NOISE_QIR,
+        shots=10,
+        noise=None,
+        seed=SEED,
+        type=sim_type,
+    )
+    assert results == ["10"] * 10
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_readout_noise_matches_expected_distribution(sim_type):
+    counts = Counter(
+        run_qir(
+            PROBABILISTIC_READOUT_NOISE_QIR,
+            shots=10_000,
+            noise=None,
+            seed=SEED,
+            type=sim_type,
+        )
+    )
+    check_histogram(
+        counts,
+        {"00": 0.24, "01": 0.56, "10": 0.06, "11": 0.14},
+        tolerance=0.04,
+    )

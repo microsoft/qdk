@@ -666,6 +666,11 @@ const _fillRenderDataX = (
             // group's left edge (plus internal padding).
             const groupLeftX = columnCenterX - renderData.width / 2;
 
+            // Absolute right edge of this group's dashed box. `_gateBoundingBox` draws the box at
+            // `groupLeftX` with `renderData.width` (the `controlCircleOffset` shift cancels between
+            // its x and width), so the box always ends here regardless of classical controls.
+            const groupBoxRightX = groupLeftX + renderData.width;
+
             // Subtract startX offset from nested gates and add offset and padding
             let offset: number = groupLeftX - startX + groupPaddingX;
             if (renderData.classicalControlIds != null) {
@@ -689,11 +694,20 @@ const _fillRenderDataX = (
                     (v) => v + offset,
                   ),
                   columnWidths: childLayout.localScope.columnWidths,
+                  // This scope is enclosed by *this* group's box; its right edge is already
+                  // absolute.
+                  boxRightX: groupBoxRightX,
                 });
                 for (const [key, scope] of childLayout.childScopes) {
                   childScopes.set(key, {
                     columnXOffsets: scope.columnXOffsets.map((v) => v + offset),
                     columnWidths: scope.columnWidths,
+                    // Deeper scopes' box edges were computed in child-local coords, so shift them
+                    // into absolute coords alongside the column offsets.
+                    boxRightX:
+                      scope.boxRightX != null
+                        ? scope.boxRightX + offset
+                        : undefined,
                   });
                 }
               }

@@ -978,6 +978,11 @@ impl EstimationCollection {
         self.0.successful_estimates()
     }
 
+    #[getter]
+    pub fn errors(&self) -> Vec<String> {
+        self.0.errors().to_vec()
+    }
+
     /// Returns lightweight summaries of ALL successful estimates as a list
     /// of (trace index, isa index, qubits, runtime) tuples.
     #[getter]
@@ -1220,6 +1225,12 @@ impl FactoryResult {
 
 #[pyclass]
 pub struct Trace(qre::Trace);
+
+impl Trace {
+    pub(crate) fn from_qre_trace(trace: qre::Trace) -> Self {
+        Self(trace)
+    }
+}
 
 #[pymethods]
 impl Trace {

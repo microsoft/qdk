@@ -1,18 +1,28 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+import { log } from "qsharp-lang";
 import { getExerciseSources } from "qsharp-lang/katas-md";
 import * as vscode from "vscode";
 import { FullProgramConfig, getProgramForDocument } from "../programConfig.js";
+import { getVenvInFolder } from "../pythonEnvs.js";
 import { ProgramRunStatus, runProgram } from "../run.js";
 import { EventType, sendTelemetryEvent } from "../telemetry.js";
-import { loadKatasCourse } from "./catalog.js";
+import { createCourseProvider, toDescriptor } from "./courseProvider.js";
+import { isNotebookCourse, workbookUri } from "./courseLayout.js";
+import { promptInstallPythonExtensions } from "./python/extensionUtils.js";
 import {
+  materializeCourseWorkbooks,
+  rematerializeUnitWorkbook,
+} from "./python/materialization.js";
+import {
+  KATAS_COURSE_ID,
   LEARNING_FILE,
   LEARNING_WORKSPACE_DETECTED_CONTEXT,
   LEARNING_WORKSPACE_FOLDER,
   LEARNING_WORKSPACE_RELATIVE_PATH,
 } from "./constants.js";
+import { ensureParentDir, uriExists } from "./fsUtils.js";
 import type {
   ActionGroup,
   ActivityContent,
@@ -22,6 +32,7 @@ import type {
   CatalogExercise,
   CatalogActivity,
   CatalogUnit,
+  CourseDescriptor,
   CurrentActivity,
   ExerciseContent,
   HintContext,
@@ -37,7 +48,19 @@ import type {
   TelemetrySource,
   UnitProgress,
   UnitSummary,
+  NotebookCatalogCourse,
+  NotebookCatalogUnit,
+  CodeCellContent,
 } from "./types.js";
+
+/**
+ * How many times {@link LearningService.tryInitialize} will re-evaluate after
+ * waiting on an in-flight attempt that couldn't satisfy it.
+ *
+ * Bounded so that a steady stream of detect-only probes can't keep a caller
+ * that needs creation looping forever.
+ */
+const MAX_INIT_ATTEMPTS = 3;
 
 /** Returns the first open workspace folder URI, or `undefined`. */
 export function resolveNewWorkspaceRoot(): vscode.Uri | undefined {
@@ -59,9 +82,7 @@ export async function detectLearningWorkspace(): Promise<
 > {
   for (const folder of vscode.workspace.workspaceFolders ?? []) {
     const learningFile = vscode.Uri.joinPath(folder.uri, LEARNING_FILE);
-    try {
-      await vscode.workspace.fs.stat(learningFile);
-    } catch {
+    if (!(await uriExists(learningFile))) {
       continue;
     }
 
@@ -90,8 +111,8 @@ interface LearningWorkspaceInfo {
 
 /** All state that exists only while a learning workspace is loaded. */
 interface WorkspaceState extends LearningWorkspaceInfo {
-  /** Currently, only a single course is supported. */
-  catalog: CatalogCourse;
+  /** Every course found at load time, keyed by course id. */
+  courses: Map<string, CatalogCourse>;
   progressData: ProgressFileData;
 }
 
@@ -106,13 +127,26 @@ export class LearningService {
   >();
   readonly onDidChangeProgress = this._onDidChangeProgress.event;
 
-  private _lastSnapshot: OverallProgress | undefined;
   private _progressFileWatcher: vscode.FileSystemWatcher | undefined;
+  private _jupyterEnvSubscription: vscode.Disposable | undefined;
   private _writingProgress = false;
+  private _writeQueue: Promise<void> = Promise.resolve();
   private _initPromise: Promise<boolean> | undefined;
+  /** Whether {@link _initPromise} was started with `createIfMissing`. */
+  private _initCreates = false;
+  private readonly _disposables: vscode.Disposable[] = [];
   private _progressLoadingError: string | undefined;
 
-  constructor(private readonly extensionUri: vscode.Uri) {}
+  constructor(private readonly extensionUri: vscode.Uri) {
+    // Navigating away from an activity leaves its file behind. Close those
+    // tabs here rather than in the lesson panel, which isn't shown for every
+    // course kind.
+    this._disposables.push(
+      this.onDidChangeState(() => {
+        void this.closeStaleEditorTabs(this.getCurrentCodeFileUri());
+      }),
+    );
+  }
 
   get initialized(): boolean {
     return this.workspace !== undefined;
@@ -127,6 +161,27 @@ export class LearningService {
     return this.requireWorkspace().learningContentRoot;
   }
 
+  /** The workspace folder that owns the learning content. */
+  get workspaceFolder(): vscode.Uri {
+    return this.requireWorkspace().workspaceRoot;
+  }
+
+  async getJupyterEnvironmentPath(
+    courseId: string,
+  ): Promise<{ id: string; path: string } | undefined> {
+    const ws = this.requireWorkspace();
+    const saved = ws.progressData.pythonEnvironments[courseId];
+    if (saved) {
+      if (await uriExists(vscode.Uri.file(saved.path))) {
+        return saved;
+      }
+      log.info(
+        `Persisted venv at ${saved.path} no longer exists; falling back to discovery.`,
+      );
+    }
+    return await getVenvInFolder(ws.workspaceRoot);
+  }
+
   /**
    * Try to initialize the service. Returns `true` when ready, `false`
    * when no learning workspace could be found (or created).
@@ -136,32 +191,74 @@ export class LearningService {
    * open folder instead of returning `false`.
    *
    * Safe to call multiple times — concurrent calls are coalesced and
-   * subsequent calls after success return immediately.
+   * subsequent calls after success return immediately. Gives up after
+   * {@link MAX_INIT_ATTEMPTS} rounds of waiting on other callers' attempts.
    */
   async tryInitialize(options?: {
     createIfMissing?: boolean;
   }): Promise<boolean> {
-    if (this.workspace) {
-      return true;
-    }
+    const create = options?.createIfMissing === true;
 
-    // If there's an in-flight attempt, wait for it first.
-    if (this._initPromise) {
-      const result = await this._initPromise;
-      // If init succeeded, or the caller doesn't need creation, we're done.
-      if (result || !options?.createIfMissing) {
-        return result;
-      }
+    for (let attempt = 1; attempt <= MAX_INIT_ATTEMPTS; attempt++) {
       if (this.workspace) {
         return true;
       }
-      // The in-flight attempt didn't create — fall through to retry.
+
+      const inFlight = this._initPromise;
+      if (!inFlight) {
+        const succeeded = await this.startInitialize(create);
+        if (!succeeded && create) {
+          log.warn(
+            "Unable to create a QDK Learning workspace: no workspace folder is open.",
+          );
+        }
+        return succeeded;
+      }
+
+      // Joining an in-flight attempt is only sound when that attempt is at
+      // least as capable as what this caller needs. A detect-only attempt
+      // can't satisfy a caller that asked for creation. Whoever started the
+      // attempt reports its failure, so don't warn again here.
+      if (this._initCreates || !create) {
+        return await inFlight;
+      }
+
+      // Let the weaker attempt finish rather than starting a second one
+      // alongside it, which would materialize the same files twice. Then loop:
+      // by that point it may have found a workspace, or another caller may
+      // have started a creating attempt worth joining. Re-evaluating is what
+      // keeps concurrent callers from each launching their own attempt.
+      await inFlight.catch(() => false);
+      log.warn(
+        `QDK Learning workspace initialization attempt ${attempt} of ` +
+          `${MAX_INIT_ATTEMPTS} did not produce a workspace; retrying.`,
+      );
     }
 
-    this._initPromise = this.detectAndLoadWorkspace(options).finally(() => {
-      this._initPromise = undefined;
+    log.warn(
+      `Giving up on initializing a QDK Learning workspace after ` +
+        `${MAX_INIT_ATTEMPTS} attempts.`,
+    );
+    return false;
+  }
+
+  /**
+   * Begin the one and only in-flight initialization attempt, publishing it
+   * so concurrent callers coalesce onto it instead of starting their own.
+   */
+  private startInitialize(create: boolean): Promise<boolean> {
+    const attempt = this.detectAndLoadWorkspace({
+      createIfMissing: create,
+    }).finally(() => {
+      // Only retract our own attempt: a later one may already have replaced it.
+      if (this._initPromise === attempt) {
+        this._initPromise = undefined;
+        this._initCreates = false;
+      }
     });
-    return await this._initPromise;
+    this._initPromise = attempt;
+    this._initCreates = create;
+    return attempt;
   }
 
   dispose(): void {
@@ -177,6 +274,10 @@ export class LearningService {
     this._onDidChangeState.dispose();
     this._onDidChangeProgress.dispose();
     this._progressFileWatcher?.dispose();
+    this._jupyterEnvSubscription?.dispose();
+    for (const d of this._disposables) {
+      d.dispose();
+    }
   }
 
   /** Force a fresh progress reload from disk. */
@@ -209,6 +310,7 @@ export class LearningService {
    * The payload sent to the webview. */
   getState(): LearningState {
     return {
+      course: this.getActiveCourseInfo(),
       position: this.getCurrentActivity(),
       actions: this.getAvailableActions(),
       progress: this.getProgress(),
@@ -217,6 +319,7 @@ export class LearningService {
 
   async next(source: TelemetrySource): Promise<NavigationResult> {
     const ws = this.requireWorkspace();
+    this.setCourseSelected();
     const currentPos = ws.progressData.position;
     const nextPos = this.nextActivity(currentPos);
 
@@ -244,6 +347,7 @@ export class LearningService {
 
   async previous(source: TelemetrySource): Promise<NavigationResult> {
     const ws = this.requireWorkspace();
+    this.setCourseSelected();
     const prevPos = this.previousActivity(ws.progressData.position);
     if (!prevPos) {
       return { moved: false };
@@ -257,11 +361,13 @@ export class LearningService {
   }
 
   async goTo(
-    location: { unitId: string; activityId?: string },
+    location: { unitId: string; activityId?: string }, // Specifically omits courseId - caller should handle
     source?: TelemetrySource,
   ): Promise<LearningState> {
     const ws = this.requireWorkspace();
-    const unit = ws.catalog.units.find((u) => u.id === location.unitId);
+    this.setCourseSelected();
+    const course = this.activeCourse;
+    const unit = course.units.find((u) => u.id === location.unitId);
     if (!unit || unit.activities.length === 0) {
       throw new Error(`Position not found: ${location.unitId}`);
     }
@@ -274,7 +380,7 @@ export class LearningService {
       );
     }
     ws.progressData.position = {
-      courseId: ws.catalog.id,
+      courseId: course.id,
       unitId: location.unitId,
       activityId: activity.id,
     };
@@ -287,17 +393,353 @@ export class LearningService {
     return state;
   }
 
-  listUnits(): UnitSummary[] {
+  /**
+   * Navigate to the activity whose `id` matches the given
+   * notebook cell ID. Returns `true` if the position was updated.
+   * Only meaningful for python-notebook courses.
+   *
+   * Updates the position silently — does **not** fire the state-change
+   * event, so the lesson panel won't pop up or rearrange the editor layout.
+   */
+  async goToActivityByCellId(
+    cellId: string,
+    source?: TelemetrySource,
+  ): Promise<boolean> {
+    if (!isNotebookCourse(this.activeCourse)) {
+      return false;
+    }
+    const unit = this.findUnit(this.position.unitId);
+    const activity = unit.activities.find((e) => e.id === cellId);
+    if (!activity) {
+      return false;
+    }
+    // Only move if we're not already on this exercise.
+    if (this.position.activityId === activity.id) {
+      return true;
+    }
+
     const ws = this.requireWorkspace();
+    ws.progressData.position = {
+      courseId: this.activeCourse.id,
+      unitId: unit.id,
+      activityId: activity.id,
+    };
+    await this.saveProgress();
+    if (source) {
+      this.sendActivityActionTelemetry("navigate", source);
+    }
+    return true;
+  }
+
+  /**
+   * Mark the activity with the given cell ID as complete.
+   * Returns `true` if the exercise was found and marked (or already complete).
+   * Fires the state-change event so the treeview updates.
+   */
+  async markActivityCompleteByCellId(cellId: string): Promise<boolean> {
+    if (!isNotebookCourse(this.activeCourse)) {
+      return false;
+    }
+    const unit = this.findUnit(this.position.unitId);
+    const exercise = unit.activities.find((e) => e.id === cellId);
+    if (!exercise) {
+      log.warn(`Unable to find exercise corresponding to cell ${cellId}`);
+      return false;
+    }
+    const location: ActivityLocation = {
+      courseId: this.activeCourse.id,
+      unitId: unit.id,
+      activityId: exercise.id,
+    };
+    if (this.isComplete(location)) {
+      return true;
+    }
+    this.markComplete(location);
+    await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+    return true;
+  }
+
+  /**
+   * Move the current position to the unit backing the given workbook URI,
+   * so that unit-scoped UI (hint status bar items, notebook toolbar actions,
+   * completion tracking) applies to the notebook the learner is looking at.
+   *
+   * Returns `true` when the URI belongs to a known course workbook, whether
+   * or not the position actually had to move.
+   */
+  async syncToWorkbook(uri: vscode.Uri): Promise<boolean> {
+    if (!this.workspace) {
+      return false;
+    }
+    const resolved = this.resolveWorkbookLocation(uri);
+    if (!resolved) {
+      return false;
+    }
+    const { course, unit } = resolved;
+
+    // Compare on the unit and never the activity: commands navigate to a
+    // specific activity and *then* open its notebook, so re-deriving the
+    // activity here would undo that. The guard is also what terminates the
+    // open-notebook -> active-editor-change -> sync feedback loop.
+    const pos = this.position;
+    if (pos.courseId === course.id && pos.unitId === unit.id) {
+      return true;
+    }
+
+    this.workspace.progressData.position = this.firstIncompleteInUnit(
+      course,
+      unit,
+    );
+    await this.saveProgress();
+    this._onDidChangeState.fire(this.getState());
+    return true;
+  }
+
+  /**
+   * Resolve a `*.workbook.ipynb` URI to the course and unit that own it.
+   * Only python-notebook courses have workbooks.
+   *
+   * Purely in-memory: every course is already loaded by `loadWorkspace`,
+   * so this is a handful of string comparisons and cheap enough to run on
+   * every active-editor change.
+   */
+  private resolveWorkbookLocation(
+    uri: vscode.Uri,
+  ): { course: NotebookCatalogCourse; unit: NotebookCatalogUnit } | undefined {
+    const target = uri.toString();
+    for (const course of this.requireWorkspace().courses.values()) {
+      if (!isNotebookCourse(course) || !course.sourceDir) {
+        continue;
+      }
+      for (const unit of course.units) {
+        const workbook = workbookUri(unit);
+        if (workbook.toString() === target) {
+          return { course, unit };
+        }
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * The first activity in a unit that has not been completed, or the unit's
+   * first activity when everything in it is already done.
+   */
+  private firstIncompleteInUnit(
+    course: CatalogCourse,
+    unit: CatalogUnit,
+  ): ActivityLocation {
+    for (const activity of unit.activities) {
+      const location: ActivityLocation = {
+        courseId: course.id,
+        unitId: unit.id,
+        activityId: activity.id,
+      };
+      if (!this.isComplete(location)) {
+        return location;
+      }
+    }
+    return {
+      courseId: course.id,
+      unitId: unit.id,
+      activityId: unit.activities[0]?.id ?? "",
+    };
+  }
+
+  /**
+   * Returns `true` if the given cell ID corresponds to an activity in the
+   * current unit (optionally, of a particular type).
+   */
+  isActivityCellId(cellId: string, type?: CatalogActivity["type"]): boolean {
+    if (!isNotebookCourse(this.activeCourse)) {
+      return false;
+    }
+    const unit = this.findUnit(this.position.unitId);
+    return (
+      unit.activities.some(
+        (ex) => (!type || ex.type === type) && ex.id === cellId,
+      ) ?? false
+    );
+  }
+
+  /**
+   * Build a CurrentActivity for the given notebook cell.
+   */
+  getLearningStateForCell(
+    cellId: string,
+    cellText: string,
+    notebookUri: vscode.Uri,
+  ): LearningState | undefined {
+    const resolved = this.resolveWorkbookLocation(notebookUri);
+    if (!resolved) {
+      return undefined;
+    }
+    const { course, unit } = resolved;
+
+    const activity = unit.activities.find((activity) => activity.id === cellId);
+
+    let content: ActivityContent;
+    if (activity?.type === "exercise") {
+      content = {
+        type: "exercise",
+        id: cellId,
+        title: activity.title,
+        description: activity.description,
+        filePath: `${notebookUri}#${cellId}`,
+        isComplete: false,
+        hasMultipleSolutions: activity.solutionCodes.length > 1,
+      } satisfies ExerciseContent;
+    } else if (activity?.type === "code-cell") {
+      content = { type: "code-cell", id: cellId, title: activity.title };
+    } else {
+      content = {
+        type: "lesson-text",
+        content: cellText,
+      } satisfies LessonTextContent;
+    }
+
+    const location: ActivityLocation = {
+      courseId: course.id,
+      unitId: unit.id,
+      activityId: cellId,
+    };
+
+    const position = {
+      location,
+      unitTitle: unit.title,
+      activityTitle: activity?.title ?? cellId,
+      content,
+    };
+
+    const progress = this.getCourseProgress(course.id);
+
+    return {
+      course: { id: course.id, title: course.title, kind: course.kind },
+      position,
+      progress,
+      actions: [], // Won't be consumed anyway
+    };
+  }
+
+  /**
+   * The notebook cell ID backing the current activity — the inverse of
+   * {@link goToActivityByCellId}. `undefined` when the course isn't a
+   * python-notebook course or the activity has no associated cell.
+   */
+  getCurrentExerciseCellId(): string | undefined {
+    if (!isNotebookCourse(this.activeCourse)) {
+      return undefined;
+    }
+    const { activity } = this.findCurrentActivity();
+    // For python-notebook courses the activity ID is the cell ID.
+    return activity.type === "exercise" || activity.type === "code-cell"
+      ? activity.id
+      : undefined;
+  }
+
+  /** Enumerate all available courses. */
+  getCourses(): CourseDescriptor[] {
+    return [...this.requireWorkspace().courses.values()].map(toDescriptor);
+  }
+
+  /** The id of the currently-active course. */
+  getActiveCourseId(): string {
+    // Don't do the extra work that this.activeCourse.id would require
+    return this.requireWorkspace().progressData.position.courseId;
+  }
+
+  /** Compact info about the active course for serialization to chat tools. */
+  getActiveCourseInfo(): Pick<CourseDescriptor, "id" | "title" | "kind"> {
+    const course = this.activeCourse;
+    return { id: course.id, title: course.title, kind: course.kind };
+  }
+
+  /** True once the user has explicitly picked a course. */
+  hasUserSelectedCourse(): boolean {
+    const ws = this.workspace;
+    if (!ws) return false;
+    // Missing field (legacy files) → treat as selected.
+    return ws.progressData.courseSelected !== false;
+  }
+
+  /** Persist the fact that the user has engaged with a course. */
+  async setCourseSelectedAndSave(): Promise<void> {
+    const old = this.setCourseSelected();
+    if (old === true) return;
+    await this.saveProgress();
+    this.emitProgress();
+  }
+
+  private setCourseSelected(): boolean | undefined {
+    const ws = this.requireWorkspace();
+    const old = ws.progressData.courseSelected;
+    ws.progressData.courseSelected = true;
+    return old;
+  }
+
+  /**
+   * Switch the active course, creating its learner-editable files if they
+   * don't exist yet, then move the position to the first incomplete
+   * activity, persist, and fire change events.
+   */
+  async switchCourse(
+    courseId: string,
+    source?: TelemetrySource,
+  ): Promise<LearningState> {
+    const ws = this.requireWorkspace();
+    const course = this.requireCourse(ws, courseId);
+    this.setCourseSelected();
+    // Idempotent: existing workbooks are left alone, so this only writes
+    // files the first time the learner opens the course.
+    // Note: if materializing fails, you basically have to reload the window.
+    // That should be rare enough not to matter.
+    await this.materializeCourse(ws, course);
+    if (isNotebookCourse(course)) {
+      await promptInstallPythonExtensions();
+    }
+    ws.progressData.position = this.firstIncompletePosition(course);
+    await this.saveProgress();
+    const state = this.getState();
+    this._onDidChangeState.fire(state);
+    if (source) {
+      this.sendActivityActionTelemetry("navigate", source);
+    }
+    return state;
+  }
+
+  /**
+   * The first activity in a course that has not been completed, or the
+   * course's first activity when everything is already complete.
+   */
+  private firstIncompletePosition(course: CatalogCourse): ActivityLocation {
+    for (const unit of course.units) {
+      const location = this.firstIncompleteInUnit(course, unit);
+      // We need to check this since firstIncompleteInUnit will return
+      // the first activity if all activities are complete
+      if (!this.isComplete(location)) {
+        return location;
+      }
+    }
+    const first = course.units[0];
+    return {
+      courseId: course.id,
+      unitId: first?.id ?? "",
+      activityId: first?.activities[0]?.id ?? "",
+    };
+  }
+
+  listUnits(): UnitSummary[] {
+    const course = this.activeCourse;
     let foundFirstIncomplete = false;
 
-    return ws.catalog.units.map((kata) => {
+    return course.units.map((kata) => {
       const activityCount = kata.activities.length;
       let completedCount = 0;
       for (const activity of kata.activities) {
         if (
           this.findCompletion({
-            courseId: ws.catalog.id,
+            courseId: course.id,
             unitId: kata.id,
             activityId: activity.id,
           })
@@ -323,14 +765,28 @@ export class LearningService {
   }
 
   getProgress(): OverallProgress {
+    return this.computeProgress(this.activeCourse);
+  }
+
+  /**
+   * Compute progress for an arbitrary course. Does **not** change the active
+   * course or position. Used to populate per-course progress badges in the
+   * tree view.
+   */
+  getCourseProgress(courseId: string): OverallProgress {
+    const ws = this.requireWorkspace();
+    return this.computeProgress(this.requireCourse(ws, courseId));
+  }
+
+  private computeProgress(course: CatalogCourse): OverallProgress {
     const ws = this.requireWorkspace();
     let totalActivities = 0;
     let completedActivities = 0;
 
-    const units: UnitProgress[] = ws.catalog.units.map((k) => {
+    const units: UnitProgress[] = course.units.map((k) => {
       const activities: ActivityProgress[] = k.activities.map((s) => {
         const completion = this.findCompletion({
-          courseId: ws.catalog.id,
+          courseId: course.id,
           unitId: k.id,
           activityId: s.id,
         });
@@ -356,40 +812,52 @@ export class LearningService {
 
     return {
       units,
-      currentPosition: ws.progressData.position,
+      currentPosition:
+        ws.progressData.position.courseId === course.id
+          ? ws.progressData.position
+          : this.firstIncompletePosition(course),
       stats: { totalActivities, completedActivities },
     };
   }
 
-  /** Returns hints and solution explanation for the current exercise, or `null` if none exist. */
-  getHintContext(source?: TelemetrySource): {
-    result: HintContext | null;
-    state: LearningState;
-  } {
-    const exercise = this.resolveExercise();
+  /** Returns hints and solution explanation for the given exercise, or `undefined` if none exist. */
+  getHintContext(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): HintContext | undefined {
+    const exercise = this.resolveExerciseAt(location);
+    if (source) {
+      // Inlined from sendActivityActionTelemetry
+      sendTelemetryEvent(
+        EventType.LearningActivityAction,
+        { action: "hint", activityType: exercise.type, source },
+        {},
+      );
+    }
 
     const hints = exercise.hints;
     const solutionExplanation = exercise.solutionExplanation;
 
     if (hints.length === 0 && solutionExplanation.length === 0) {
-      return { result: null, state: this.getState() };
+      return undefined;
     }
 
-    if (source) {
-      this.sendActivityActionTelemetry("hint", source);
-    }
-
-    return {
-      result: { hints, solutionExplanation },
-      state: this.getState(),
-    };
+    return { hints, solutionExplanation };
   }
 
-  getAllSolutions(source?: TelemetrySource): string[] {
-    const exercise = this.resolveExercise();
+  getAllSolutions(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): string[] {
+    const exercise = this.resolveExerciseAt(location);
     if (source) {
-      this.sendActivityActionTelemetry("solution", source);
+      sendTelemetryEvent(
+        EventType.LearningActivityAction,
+        { action: "solution", activityType: exercise.type, source },
+        {},
+      );
     }
+
     return exercise.solutionCodes;
   }
 
@@ -444,6 +912,12 @@ export class LearningService {
   }
 
   getCurrentCodeFileUri(): vscode.Uri | undefined {
+    // Python-notebook courses: the "code" is the notebook itself.
+    const course = this.activeCourse;
+    if (isNotebookCourse(course)) {
+      const unit = this.findCourseUnit(course, this.position.unitId);
+      return workbookUri(unit);
+    }
     const { activity } = this.findCurrentActivity();
     if (activity.type === "exercise") {
       return this.getExerciseFileUri();
@@ -455,10 +929,30 @@ export class LearningService {
   }
 
   /**
-   * Reset the current exercise file to the original placeholder code
-   * and clear its completion status.
+   * Reset the current exercise/unit to its original state and clear
+   * completion status.
    */
   async resetExercise(source?: TelemetrySource): Promise<void> {
+    // Python-notebook courses: close the notebook, re-copy the entire unit
+    // from source, and clear completion.
+    const course = this.activeCourse;
+    if (isNotebookCourse(course)) {
+      const unit = this.findCourseUnit(course, this.position.unitId);
+      // Close any open notebook tabs for this unit.
+      await this.closeNotebookTab(workbookUri(unit));
+      // Re-materialize the unit from source.
+      await rematerializeUnitWorkbook(unit);
+      // Clear completion for every activity in the unit, not just the
+      // current one, since the whole unit was re-materialized.
+      this.markUnitIncomplete(course.id, unit);
+      await this.saveProgress();
+      this._onDidChangeState.fire(this.getState());
+      if (source) {
+        this.sendActivityActionTelemetry("reset", source);
+      }
+      return;
+    }
+
     const exercise = this.resolveExercise();
     const uri = this.getExerciseFileUri();
     // Save any unsaved edits first so the editor is clean, then overwrite
@@ -485,10 +979,6 @@ export class LearningService {
     if (activity.type === "exercise") {
       throw new Error("Exercises cannot be run. Use checkSolution() instead.");
     }
-    const fileUri = this.getCurrentCodeFileUri();
-    if (!fileUri) {
-      throw new Error("Current activity cannot be run.");
-    }
 
     if (activity.type === "lesson" && activity.example) {
       await this.markExampleRun();
@@ -496,6 +986,25 @@ export class LearningService {
 
     if (source) {
       this.sendActivityActionTelemetry("run", source);
+    }
+
+    // Python-notebook courses use native VS Code notebook execution.
+    if (isNotebookCourse(this.activeCourse)) {
+      return {
+        result: {
+          success: false,
+          messages: [],
+          error:
+            "This course uses native notebook execution. " +
+            "Run cells directly in the notebook.",
+        },
+        state: this.getState(),
+      };
+    }
+
+    const fileUri = this.getCurrentCodeFileUri();
+    if (!fileUri) {
+      throw new Error("Current activity cannot be run.");
     }
 
     const doc = await vscode.workspace.openTextDocument(fileUri);
@@ -526,8 +1035,27 @@ export class LearningService {
       this.sendActivityActionTelemetry("check", source);
     }
 
+    // Python-notebook courses verify in the notebook itself: running an
+    // exercise cell runs its checker, and the extension records completion
+    // from the cell's execution result rather than through this method.
+    if (isNotebookCourse(this.activeCourse)) {
+      return {
+        result: {
+          passed: false,
+          messages: [],
+          error:
+            "This course uses native notebook execution. " +
+            "Run the exercise cell in the notebook — each cell that " +
+            "succeeds marks that exercise complete.",
+        },
+        state: this.getState(),
+      };
+    }
+
     const exercise = this.resolveExercise();
     const userCode = await this.readUserCode();
+    // Notebook courses carry their own verification sources inline; the
+    // built-in katas resolve them from the bundled content by `sourceIds`.
     const exerciseSources = await getExerciseSources(
       // CatalogExercise is structurally incompatible with Exercise (different
       // description/solution shapes), but getExerciseSources only reads sourceIds.
@@ -592,10 +1120,7 @@ export class LearningService {
     action: "navigate" | "run" | "check" | "hint" | "solution" | "reset",
     source: TelemetrySource,
   ): void {
-    const activityType =
-      this.findCurrentActivity().activity.type === "exercise"
-        ? "exercise"
-        : "lesson";
+    const activityType = this.findCurrentActivity().activity.type;
     sendTelemetryEvent(
       EventType.LearningActivityAction,
       { action, activityType, source },
@@ -689,6 +1214,10 @@ export class LearningService {
         { isFirstTime: "false" },
         {},
       );
+      // Surfaces registered before initialization (notebook cell status bar
+      // items, the lesson panel) need a nudge to re-query now that there is
+      // state to read.
+      this._onDidChangeState.fire(this.getState());
       return true;
     }
 
@@ -719,6 +1248,7 @@ export class LearningService {
       { isFirstTime: "true" },
       {},
     );
+    this._onDidChangeState.fire(this.getState());
     return true;
   }
 
@@ -728,7 +1258,17 @@ export class LearningService {
   ): Promise<void> {
     const learningFile = vscode.Uri.joinPath(workspaceRoot, LEARNING_FILE);
 
-    const course = await loadKatasCourse();
+    const courseProvider = createCourseProvider(
+      workspaceRoot,
+      this.extensionUri,
+    );
+
+    // Load every course up front so the tree view can show unit counts and
+    // progress badges, and so a saved position naming any course resolves.
+    const courses = new Map<string, CatalogCourse>();
+    for (const course of await courseProvider.listCourses()) {
+      courses.set(course.id, course);
+    }
 
     // Build workspace state; assigned to this.workspace only after all
     // async setup succeeds so that `initialized` stays false on failure.
@@ -736,26 +1276,32 @@ export class LearningService {
       workspaceRoot,
       learningContentRoot: katasRoot,
       learningFile,
-      catalog: course,
-      progressData: {
-        version: 1,
-        position: {
-          courseId: course.id,
-          unitId: course.units[0]?.id ?? "",
-          activityId: course.units[0]?.activities[0]?.id ?? "",
-        },
-        completions: {},
-        startedAt: new Date().toISOString(),
-      },
+      courses,
+      progressData: this.defaultProgressData(courses),
     };
 
-    await this.scaffoldExercises(ws);
-    await this.scaffoldExamples(ws);
     await this.loadProgress(ws);
 
-    // All async setup succeeded — publish the workspace.
+    // Publish the workspace before materializing so that methods relying on
+    // `requireWorkspace()` can resolve.
     this.workspace = ws;
     this.syncContextKey();
+
+    // Q# files are cheap to write, so materialize those courses up front.
+    // Notebook workbooks are only created for the course the learner is on;
+    // the rest wait until `switchCourse`.
+    const activeCourseId = ws.progressData.position.courseId;
+    for (const course of courses.values()) {
+      if (course.kind !== "qsharp" && course.id !== activeCourseId) {
+        continue;
+      }
+      try {
+        await this.materializeCourse(ws, course);
+      } catch {
+        // A failure here should not block workspace initialization.
+        log.warn(`Failed to materialize course ${course.title}`);
+      }
+    }
   }
 
   private requireWorkspace(): WorkspaceState {
@@ -765,6 +1311,20 @@ export class LearningService {
       );
     }
     return this.workspace;
+  }
+
+  /** The currently-active course, resolved from the progress position. */
+  private get activeCourse(): CatalogCourse {
+    const ws = this.requireWorkspace();
+    return this.requireCourse(ws, ws.progressData.position.courseId);
+  }
+
+  private requireCourse(ws: WorkspaceState, courseId: string): CatalogCourse {
+    const course = ws.courses.get(courseId);
+    if (!course) {
+      throw new Error(`Course not loaded: ${courseId}`);
+    }
+    return course;
   }
 
   private syncContextKey(): void {
@@ -790,6 +1350,7 @@ export class LearningService {
   /** Builds the button groups shown in the webview toolbar for the current activity. */
   private getAvailableActions(): ActionGroup[] {
     const { activity } = this.findCurrentActivity();
+
     const primary = this.getPrimaryAction();
 
     const primaryLabel: Record<PrimaryAction, string> = {
@@ -836,9 +1397,9 @@ export class LearningService {
       );
     }
 
-    // Lesson (text or example)
+    // Lesson (text or example) or code cell
     const codeTools: ActionGroup =
-      activity.example && primary !== "run"
+      activity.type === "lesson" && activity.example && primary !== "run"
         ? [{ key: "r", label: "Run", action: "run" }]
         : [];
     const aiGroup: ActionGroup = [
@@ -854,6 +1415,51 @@ export class LearningService {
     );
   }
 
+  /**
+   * Close every open text or notebook tab whose URI matches {@link predicate}.
+   * Tabs backed by any other input kind (diff views, webviews, terminals) are
+   * skipped, since they have no single URI to match against.
+   */
+  private async closeTabs(
+    predicate: (uri: vscode.Uri, tab: vscode.Tab) => boolean,
+  ): Promise<void> {
+    const matches: vscode.Tab[] = [];
+    for (const group of vscode.window.tabGroups.all) {
+      for (const tab of group.tabs) {
+        const input = tab.input;
+        const tabUri =
+          input instanceof vscode.TabInputText ||
+          input instanceof vscode.TabInputNotebook
+            ? input.uri
+            : undefined;
+        if (tabUri && predicate(tabUri, tab)) {
+          matches.push(tab);
+        }
+      }
+    }
+    if (matches.length > 0) {
+      await vscode.window.tabGroups.close(matches);
+    }
+  }
+
+  /**
+   * Close any open editor or notebook tabs under the QDK Learning root that
+   * don't match {@link keepUri}. When {@link keepUri} is undefined, all such
+   * tabs are closed.
+   */
+  async closeStaleEditorTabs(keepUri: vscode.Uri | undefined): Promise<void> {
+    if (!this.workspace) {
+      return;
+    }
+    const learningRoot = this.learningContentRoot.toString();
+    const keepStr = keepUri?.toString();
+
+    await this.closeTabs((uri) => {
+      const uriStr = uri.toString();
+      return uriStr.startsWith(learningRoot) && uriStr !== keepStr;
+    });
+  }
+
   /** Turns a catalog activity into the typed content payload (exercise, lesson-example, or lesson-text). */
   private resolveActivityContent(
     location: ActivityLocation,
@@ -863,12 +1469,14 @@ export class LearningService {
     const ws = this.requireWorkspace();
 
     if (activity.type === "exercise") {
-      const fileUri = vscode.Uri.joinPath(
-        ws.learningContentRoot,
-        "exercises",
-        kata.id,
-        `${activity.id}.qs`,
-      );
+      const fileUri = isNotebookCourse(this.activeCourse)
+        ? ""
+        : vscode.Uri.joinPath(
+            ws.learningContentRoot,
+            "exercises",
+            kata.id,
+            `${activity.id}.qs`,
+          );
       return {
         type: "exercise",
         id: activity.id,
@@ -878,6 +1486,14 @@ export class LearningService {
         isComplete: this.isComplete(location),
         hasMultipleSolutions: activity.solutionCodes.length > 1,
       } satisfies ExerciseContent;
+    }
+
+    if (activity.type === "code-cell") {
+      return {
+        type: "code-cell",
+        id: activity.id,
+        title: activity.title,
+      } satisfies CodeCellContent;
     }
 
     // Lesson with a code example
@@ -926,17 +1542,28 @@ export class LearningService {
     return activity;
   }
 
+  private resolveExerciseAt(location: ActivityLocation): CatalogExercise {
+    const ws = this.requireWorkspace();
+    const course = this.requireCourse(ws, location.courseId);
+    const unit = this.findCourseUnit(course, location.unitId);
+    const activity = unit.activities.find((a) => a.id === location.activityId);
+    if (!activity || activity.type !== "exercise") {
+      throw new Error("Specified activity is not an exercise");
+    }
+    return activity;
+  }
+
   /** Returns the next activity in catalog order, or `undefined` at the end. */
   private nextActivity(
     location: ActivityLocation,
   ): ActivityLocation | undefined {
-    const ws = this.requireWorkspace();
+    const course = this.activeCourse;
     let found = false;
-    for (const unit of ws.catalog.units) {
+    for (const unit of course.units) {
       for (const a of unit.activities) {
         if (found) {
           return {
-            courseId: ws.catalog.id,
+            courseId: course.id,
             unitId: unit.id,
             activityId: a.id,
           };
@@ -953,15 +1580,15 @@ export class LearningService {
   private previousActivity(
     location: ActivityLocation,
   ): ActivityLocation | undefined {
-    const ws = this.requireWorkspace();
+    const course = this.activeCourse;
     let prev: ActivityLocation | undefined;
-    for (const unit of ws.catalog.units) {
+    for (const unit of course.units) {
       for (const a of unit.activities) {
         if (unit.id === location.unitId && a.id === location.activityId) {
           return prev;
         }
         prev = {
-          courseId: ws.catalog.id,
+          courseId: course.id,
           unitId: unit.id,
           activityId: a.id,
         };
@@ -971,9 +1598,14 @@ export class LearningService {
   }
 
   private findUnit(unitId: string): CatalogUnit {
-    const kata = this.requireWorkspace().catalog.units.find(
-      (k) => k.id === unitId,
-    );
+    return this.findCourseUnit(this.activeCourse, unitId);
+  }
+
+  private findCourseUnit<Unit extends CatalogUnit>(
+    course: { units: Unit[] },
+    unitId: string,
+  ): Unit {
+    const kata = course.units.find((k) => k.id === unitId);
     if (!kata) {
       throw new Error(`Unit not found: ${unitId}`);
     }
@@ -987,7 +1619,7 @@ export class LearningService {
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
 
-    const units = this.requireWorkspace().catalog.units;
+    const units = this.activeCourse.units;
     const unitIndex = units.findIndex((u) => u.id === location.unitId);
     const unit = unitIndex >= 0 ? units[unitIndex] : undefined;
     const exercises =
@@ -997,7 +1629,9 @@ export class LearningService {
     );
     sendTelemetryEvent(
       EventType.LearningExerciseCompleted,
-      {},
+      {
+        courseKind: this.activeCourse.kind,
+      },
       {
         unitNumber: unitIndex + 1,
         exerciseNumber: exerciseIndex + 1,
@@ -1011,17 +1645,8 @@ export class LearningService {
     try {
       bytes = await vscode.workspace.fs.readFile(ws.learningFile);
     } catch {
-      // File doesn't exist yet — use defaults.
-      ws.progressData = {
-        version: 1,
-        position: {
-          courseId: ws.catalog.id,
-          unitId: ws.catalog.units[0]?.id ?? "",
-          activityId: ws.catalog.units[0]?.activities[0]?.id ?? "",
-        },
-        completions: {},
-        startedAt: new Date().toISOString(),
-      };
+      // In this case, leave ws (and, in particular, ws.progressData)
+      // untouched, since it's either the last known state or the default.
       return;
     }
 
@@ -1067,9 +1692,13 @@ export class LearningService {
     }
 
     ws.progressData = parsed as ProgressFileData;
-    // Validate saved position references a known unit and activity
-    if (ws.catalog.units.length > 0) {
-      const unit = ws.catalog.units.find(
+    ws.progressData.pythonEnvironments ??= {};
+
+    // Validate saved position references a known course, unit, and activity.
+    // Accept the passed-in default if they're not valid.
+    const course = ws.courses.get(ws.progressData.position.courseId);
+    if (course && course.units.length > 0) {
+      const unit = course.units.find(
         (k) => k.id === ws.progressData.position.unitId,
       );
       const activityValid =
@@ -1078,35 +1707,84 @@ export class LearningService {
           (s) => s.id === ws.progressData.position.activityId,
         );
       if (!activityValid) {
+        // Keep the learner as close to where they left off as the catalog
+        // still allows: stay in their unit when it survived and only the
+        // activity is gone, and fall back to the start of the course only
+        // when the unit itself is no longer there.
+        const fallbackUnit = unit ?? course.units[0];
         ws.progressData.position = {
-          courseId: ws.catalog.id,
-          unitId: ws.catalog.units[0].id,
-          activityId: ws.catalog.units[0].activities[0]?.id ?? "",
+          courseId: course.id,
+          unitId: fallbackUnit.id,
+          activityId: fallbackUnit.activities[0]?.id ?? "",
         };
       }
     }
   }
 
+  /** The default course for a workspace (built-in katas, else the first loaded). */
+  private defaultCourse(
+    courses: Map<string, CatalogCourse>,
+  ): CatalogCourse | undefined {
+    return courses.get(KATAS_COURSE_ID) ?? courses.values().next().value;
+  }
+
+  /**
+   * A fresh progress file, positioned at the start of the default course.
+   *
+   * This is the single definition of "no progress yet". {@link WorkspaceState}
+   * is seeded with it, so {@link loadProgress} only has to handle the case
+   * where a saved file *is* readable.
+   */
+  private defaultProgressData(
+    courses: Map<string, CatalogCourse>,
+  ): ProgressFileData {
+    const course = this.defaultCourse(courses);
+    return {
+      version: 1,
+      position: {
+        courseId: course?.id ?? "",
+        unitId: course?.units[0]?.id ?? "",
+        activityId: course?.units[0]?.activities[0]?.id ?? "",
+      },
+      completions: {},
+      startedAt: new Date().toISOString(),
+      pythonEnvironments: {},
+      courseSelected: false,
+    };
+  }
+
   private async saveProgress(): Promise<void> {
-    const ws = this.requireWorkspace();
-    const json = JSON.stringify(ws.progressData, null, 2);
-    this._writingProgress = true;
-    try {
-      await vscode.workspace.fs.writeFile(
-        ws.learningFile,
-        new TextEncoder().encode(json),
-      );
-    } catch (err) {
-      throw new Error(
-        `Failed to save learning progress: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
-        { cause: err },
-      );
-    } finally {
-      this._writingProgress = false;
-    }
+    await this.writeProgressFile();
     this.emitProgress();
+  }
+
+  private async writeProgressFile(): Promise<void> {
+    // Chain writes so only one is in flight at a time. Each call
+    // re-serializes progressData when its turn comes, so the last
+    // writer always captures every preceding in-memory mutation.
+    const prev = this._writeQueue;
+    const task = (async () => {
+      await prev;
+      const ws = this.requireWorkspace();
+      const json = JSON.stringify(ws.progressData, null, 2);
+      this._writingProgress = true;
+      try {
+        await vscode.workspace.fs.writeFile(
+          ws.learningFile,
+          new TextEncoder().encode(json),
+        );
+      } catch (err) {
+        log.error(
+          `Failed to save learning progress: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      } finally {
+        this._writingProgress = false;
+      }
+    })();
+    this._writeQueue = task;
+    await task;
   }
 
   async reloadProgress(): Promise<void> {
@@ -1147,6 +1825,17 @@ export class LearningService {
     delete this.requireWorkspace().progressData.completions[key];
   }
 
+  /** Clear completion for every activity in the given unit. */
+  private markUnitIncomplete(courseId: string, unit: CatalogUnit): void {
+    for (const activity of unit.activities) {
+      this.markIncomplete({
+        courseId,
+        unitId: unit.id,
+        activityId: activity.id,
+      });
+    }
+  }
+
   private startWatcher(): void {
     if (this._progressFileWatcher) {
       return;
@@ -1164,7 +1853,6 @@ export class LearningService {
       // File removed externally — tear down all workspace state.
       this.workspace = undefined;
       this.syncContextKey();
-      this._lastSnapshot = undefined;
       this._onDidChangeProgress.fire(undefined);
     };
 
@@ -1176,78 +1864,131 @@ export class LearningService {
     this._progressFileWatcher.onDidDelete(onDelete);
 
     this.emitProgress();
+    void this.startJupyterEnvWatcher();
+  }
+
+  private async startJupyterEnvWatcher(): Promise<void> {
+    if (this._jupyterEnvSubscription) {
+      return;
+    }
+    try {
+      const jupyter = vscode.extensions.getExtension("ms-toolsai.jupyter");
+      const api = await jupyter?.activate();
+      if (!api?.onDidChangePythonEnvironment || !api?.getPythonEnvironment) {
+        return;
+      }
+      this._jupyterEnvSubscription = api.onDidChangePythonEnvironment(
+        (uri: vscode.Uri) => {
+          void this.onJupyterEnvChanged(api, uri);
+        },
+      );
+    } catch {
+      log.info("Jupyter extension not available; skipping kernel watch.");
+    }
+  }
+
+  private async onJupyterEnvChanged(
+    jupyterApi: {
+      getPythonEnvironment(
+        uri: vscode.Uri,
+      ): { id: string; path: string } | undefined;
+    },
+    uri: vscode.Uri,
+  ): Promise<void> {
+    if (!this.workspace) {
+      return;
+    }
+    const resolved = this.resolveWorkbookLocation(uri);
+    if (!resolved) {
+      return;
+    }
+    const env = jupyterApi.getPythonEnvironment(uri);
+    if (!env) {
+      return;
+    }
+    const { id, path } = env;
+    // The Jupyter API is undocumented; guard against shape changes.
+    if (typeof id !== "string" || typeof path !== "string" || !id || !path) {
+      return;
+    }
+    const { course } = resolved;
+    const existing = this.workspace.progressData.pythonEnvironments[course.id];
+    if (existing?.id === id && existing?.path === path) {
+      return;
+    }
+    this.workspace.progressData.pythonEnvironments[course.id] = { id, path };
+    await this.writeProgressFile();
   }
 
   private emitProgress(): void {
     if (!this.workspace) {
-      this._lastSnapshot = undefined;
       this._onDidChangeProgress.fire(undefined);
       return;
     }
-    this._lastSnapshot = this.getProgress();
-    this._onDidChangeProgress.fire(this._lastSnapshot);
+    this._onDidChangeProgress.fire(this.getProgress());
   }
 
-  private async scaffoldExercises(ws: WorkspaceState): Promise<void> {
-    for (const kata of ws.catalog.units) {
+  /**
+   * Close any open editor tabs whose URI matches the given notebook URI.
+   */
+  private async closeNotebookTab(uri: vscode.Uri): Promise<void> {
+    const uriStr = uri.toString();
+    await this.closeTabs(
+      (tabUri, tab) =>
+        tab.input instanceof vscode.TabInputNotebook &&
+        tabUri.toString() === uriStr,
+    );
+  }
+
+  /**
+   * Create the learner-editable files for a course: workbooks for
+   * python-notebook courses, exercise placeholders and example code for Q#
+   * courses. Existing files are left alone, so this is safe to re-run.
+   */
+  private async materializeCourse(
+    ws: WorkspaceState,
+    course: CatalogCourse,
+  ): Promise<void> {
+    if (isNotebookCourse(course)) {
+      // Copy the course's notebooks into the workspace working copy so the
+      // learner edits a stable location, then surface any missing tooling.
+      await materializeCourseWorkbooks(course);
+      return;
+    }
+    if (course.kind !== "qsharp") {
+      return;
+    }
+    for (const kata of course.units) {
       for (const activity of kata.activities) {
-        if (activity.type !== "exercise") {
-          continue;
+        if (activity.type === "exercise") {
+          const fileUri = vscode.Uri.joinPath(
+            ws.learningContentRoot,
+            "exercises",
+            kata.id,
+            `${activity.id}.qs`,
+          );
+          if (await uriExists(fileUri)) {
+            continue;
+          }
+          await ensureParentDir(fileUri);
+          await vscode.workspace.fs.writeFile(
+            fileUri,
+            new TextEncoder().encode(activity.placeholderCode),
+          );
+        } else if (activity.type === "lesson" && activity.example) {
+          const fileUri = vscode.Uri.joinPath(
+            ws.learningContentRoot,
+            "examples",
+            kata.id,
+            `${activity.example.id}.qs`,
+          );
+          await ensureParentDir(fileUri);
+          await vscode.workspace.fs.writeFile(
+            fileUri,
+            new TextEncoder().encode(activity.example.code),
+          );
         }
-        const fileUri = vscode.Uri.joinPath(
-          ws.learningContentRoot,
-          "exercises",
-          kata.id,
-          `${activity.id}.qs`,
-        );
-        if (await this.uriExists(fileUri)) {
-          continue;
-        }
-        await this.ensureParentDir(fileUri);
-        await vscode.workspace.fs.writeFile(
-          fileUri,
-          new TextEncoder().encode(activity.placeholderCode),
-        );
       }
-    }
-  }
-
-  private async scaffoldExamples(ws: WorkspaceState): Promise<void> {
-    for (const kata of ws.catalog.units) {
-      for (const activity of kata.activities) {
-        if (activity.type !== "lesson" || !activity.example) {
-          continue;
-        }
-        const fileUri = vscode.Uri.joinPath(
-          ws.learningContentRoot,
-          "examples",
-          kata.id,
-          `${activity.example.id}.qs`,
-        );
-        await this.ensureParentDir(fileUri);
-        await vscode.workspace.fs.writeFile(
-          fileUri,
-          new TextEncoder().encode(activity.example.code),
-        );
-      }
-    }
-  }
-
-  private async uriExists(uri: vscode.Uri): Promise<boolean> {
-    try {
-      await vscode.workspace.fs.stat(uri);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  private async ensureParentDir(fileUri: vscode.Uri): Promise<void> {
-    const parentUri = vscode.Uri.joinPath(fileUri, "..");
-    try {
-      await vscode.workspace.fs.createDirectory(parentUri);
-    } catch {
-      // already exists
     }
   }
 }

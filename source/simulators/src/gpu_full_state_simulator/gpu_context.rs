@@ -318,7 +318,8 @@ impl GpuContext {
                         | ops::CY
                         | ops::SWAP
                         | ops::CORRELATED_NOISE
-                        | ops::LOSS_NOISE => {
+                        | ops::LOSS_NOISE
+                        | ops::READOUT_NOISE => {
                             compute_pass.set_pipeline(&kernels.prepare_op);
                             compute_pass.dispatch_workgroups(prepare_workgroup_count, 1, 1);
 

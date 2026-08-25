@@ -105,27 +105,6 @@ parser.add_argument(
 
 args = parser.parse_args()
 
-
-def step_start(description):
-    global start_time
-    prefix = "::group::" if os.getenv("GITHUB_ACTIONS") == "true" else ""
-    print(f"{prefix}build.py: {description}")
-    start_time = time.time()
-
-
-def step_end():
-    global start_time
-    duration = time.time() - start_time
-    print(f"build.py: Finished in {duration:.3f}s.")
-    if os.getenv("GITHUB_ACTIONS") == "true":
-        print(f"::endgroup::")
-
-
-if args.check_prereqs:
-    step_start("Checking prerequisites")
-    check_prereqs()
-    step_end()
-
 # If no specific project given then build all
 build_all = (
     not args.cli
@@ -147,6 +126,27 @@ build_play = build_all or args.play
 build_vscode = build_all or args.vscode
 build_jupyterlab = build_all or args.jupyterlab
 ci_bench = args.ci_bench
+
+
+def step_start(description):
+    global start_time
+    prefix = "::group::" if os.getenv("GITHUB_ACTIONS") == "true" else ""
+    print(f"{prefix}build.py: {description}")
+    start_time = time.time()
+
+
+def step_end():
+    global start_time
+    duration = time.time() - start_time
+    print(f"build.py: Finished in {duration:.3f}s.")
+    if os.getenv("GITHUB_ACTIONS") == "true":
+        print(f"::endgroup::")
+
+
+if args.check_prereqs:
+    step_start("Checking prerequisites")
+    check_prereqs(skip_wasm=not build_wasm)
+    step_end()
 
 # JavaScript projects and eslint, prettier depend on npm_install
 # However the JupyterLab extension uses yarn in a separate workspace
@@ -407,6 +407,8 @@ if build_cli:
             # Disable LTO for release tests to speed up compilation
             cargo_test_args.append("--config")
             cargo_test_args.append('profile.release.lto="off"')
+            cargo_test_args.append("--config")
+            cargo_test_args.append("profile.release.codegen-units=16")
         subprocess.run(cargo_test_args, check=True, text=True, cwd=root_dir)
         step_end()
 

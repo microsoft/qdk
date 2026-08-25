@@ -395,7 +395,7 @@ fn check_rca_for_adaptive_call_to_operation_using_integer_for_range_has_mustbein
         &expect![[r#"
             ApplicationsGeneratorSet:
                 inherent: Dynamic:
-                    runtime_features: RuntimeFeatureFlags(UseOfDynamicInt | UseOfDynamicQubit | QubitAllocation | MustBeInlined)
+                    runtime_features: RuntimeFeatureFlags(UseOfDynamicBool | UseOfDynamicInt | UseOfDynamicQubit | LoopWithDynamicCondition | QubitAllocation | MustBeInlined)
                     value_kind: Constant
                 dynamic_param_applications: <empty>"#]],
     );

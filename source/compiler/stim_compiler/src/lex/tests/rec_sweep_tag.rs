@@ -37,8 +37,8 @@ fn tag_stops_at_first_close_bracket() {
     check(
         "[a]b",
         &expect![[r#"
-        tag([a]) [0-3]
-        instruction_name(b) [3-4]"#]],
+            tag([a]) [0-3]
+            instruction_name(b) [3-4]"#]],
     );
 }
 

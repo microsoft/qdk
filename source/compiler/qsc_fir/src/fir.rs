@@ -898,7 +898,7 @@ pub enum ExecGraphNode {
     /// A binding of a value to a variable.
     Bind(PatId),
     /// An expression to execute.
-    Expr(ExprId),
+    Expr(ExecGraphExpr, Span),
     /// An unconditional jump with to given location.
     Jump(u32),
     /// A conditional jump with to given location, where the jump is only taken if the condition is
@@ -919,6 +919,49 @@ pub enum ExecGraphNode {
     ParEnd,
     /// A node only to be executed in debug mode.
     Debug(ExecGraphDebugNode),
+}
+
+#[derive(Copy, Clone, Debug, PartialEq)]
+#[allow(missing_docs)]
+pub enum ExecGraphExpr {
+    Expr(ExprId),
+    Array(usize),
+    ArrayRepeat,
+    Assign(ExprId),
+    AssignOp {
+        op: BinOp,
+        lhs: ExprId,
+        lhs_span: Span,
+        rhs_span: Span,
+    },
+    AssignIndex {
+        lhs: ExprId,
+        mid_span: Span,
+    },
+    BinOp {
+        op: BinOp,
+        lhs_span: Span,
+        rhs_span: Span,
+    },
+    Call {
+        callee_span: Span,
+        args_span: Span,
+    },
+    Fail,
+    Index {
+        index_span: Span,
+    },
+    Range {
+        has_start: bool,
+        has_step: bool,
+        has_end: bool,
+    },
+    UpdateIndex {
+        mid_span: Span,
+    },
+    Tuple(usize),
+    UnOp(UnOp),
+    Var(Res),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

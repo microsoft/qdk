@@ -4,22 +4,26 @@
 import * as vscode from "vscode";
 import type {
   ActivityLocation,
+  CourseDescriptor,
+  CourseKind,
   UnitProgress,
   OverallProgress,
   ActivityProgress,
 } from "./types.js";
 import type { LearningService } from "./service.js";
 import { LEARNING_TREE_VIEW_ID } from "./constants.js";
+import { isNotebookCourse } from "./courseLayout.js";
 
 /**
- * Wire up the QDK Learning progress panel, a `TreeView` of Unit → Activity
- * nodes with action buttons and progress indicators.
+ * Wire up the QDK Learning progress panel, a `TreeView` of
+ * Course → Unit → Activity nodes with action buttons and progress
+ * indicators.
  */
 export function registerLearningProgressView(
   context: vscode.ExtensionContext,
   service: LearningService,
 ): void {
-  const treeDataProvider = new LearningProgressTreeProvider();
+  const treeDataProvider = new LearningProgressTreeProvider(service);
   const treeView = vscode.window.createTreeView(LEARNING_TREE_VIEW_ID, {
     treeDataProvider,
     showCollapseAll: true,
@@ -27,7 +31,7 @@ export function registerLearningProgressView(
   context.subscriptions.push(
     service.onDidChangeProgress((snapshot) => {
       treeDataProvider.update(snapshot);
-      treeView.message = buildTreeMessage(snapshot);
+      treeView.message = buildTreeMessage(snapshot, service);
     }),
     treeView.onDidChangeVisibility((e) => {
       if (e.visible) {
@@ -53,12 +57,50 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
 
   private snapshot: OverallProgress | undefined;
 
+  constructor(private readonly service: LearningService) {}
+
   update(snapshot: OverallProgress | undefined): void {
     this.snapshot = snapshot;
     this.emitter.fire(undefined);
   }
 
   getTreeItem(node: LearningProgressNode): vscode.TreeItem {
+    if (node.kind === "course") {
+      const { descriptor, progress, isActive } = node;
+      const totalUnits = progress.units.length;
+      const completedUnits = progress.units.filter(
+        (u) => u.total > 0 && u.completed === u.total,
+      ).length;
+      const item = new vscode.TreeItem(
+        descriptor.title,
+        isActive && this.service.hasUserSelectedCourse()
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed,
+      );
+      item.description =
+        totalUnits > 0 ? `${completedUnits}/${totalUnits}` : undefined;
+      item.iconPath = isNotebookCourse(descriptor) ? iconPython : iconCourse;
+      // The context value drives which package.json menu actions appear.
+      // Python courses get a distinct value so Python-only actions (the
+      // environment check) can be scoped to them.
+      item.contextValue = isNotebookCourse(descriptor)
+        ? "coursePython"
+        : "course";
+      item.tooltip = `${descriptor.title}${
+        descriptor.shortDescription ? `\n${descriptor.shortDescription}` : ""
+      }`;
+      // Vary the id when courseSelected changes so VS Code applies the new collapsibleState.
+      const suffix = isActive
+        ? this.service.hasUserSelectedCourse()
+          ? "selected"
+          : "active"
+        : undefined;
+      item.id = suffix
+        ? `course:${descriptor.id}:${suffix}`
+        : `course:${descriptor.id}`;
+      return item;
+    }
+
     if (node.kind === "continue") {
       const item = new vscode.TreeItem(
         `Up next: ${node.activityTitle}`,
@@ -90,7 +132,10 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
           ? `${unit.completed}/${unit.total}`
           : undefined;
       item.iconPath = unitIcon(unit);
-      item.contextValue = node.kind;
+      // Python units get a distinct context value so notebook-only actions
+      // (resetting the working copy) can be scoped to them.
+      item.contextValue =
+        node.courseKind === "python-notebook" ? "unitPython" : "unit";
       item.tooltip = `${unit.title} — ${unit.completed}/${unit.total} activities complete`;
       // Vary the id by `isCurrent` so VS Code sees a new node when the active
       // unit changes and applies the collapsibleState we set above.
@@ -114,7 +159,9 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
       ? `Completed${activity.completedAt ? ` \u00b7 ${new Date(activity.completedAt).toLocaleString()}` : ""}`
       : activity.type === "exercise"
         ? "Exercise"
-        : "Lesson";
+        : activity.type === "code-cell"
+          ? "Code Cell"
+          : "Lesson";
     // Vary the id by `isCurrent` so VS Code drops the stale selection when the
     // active activity changes (e.g. after pressing Next in the lesson panel).
     item.id = isCurrent
@@ -128,48 +175,98 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
     return item;
   }
 
-  getChildren(node?: LearningProgressNode): LearningProgressNode[] {
-    const snap = this.snapshot;
-    if (!snap) {
-      return [];
+  async getChildren(
+    node?: LearningProgressNode,
+  ): Promise<LearningProgressNode[]> {
+    // Root: one node per available course.
+    if (!node) {
+      if (!this.service.initialized) {
+        return [];
+      }
+      let descriptors: CourseDescriptor[];
+      try {
+        descriptors = this.service.getCourses();
+      } catch {
+        return [];
+      }
+      const activeCourseId = this.service.getActiveCourseId();
+      const nodes: LearningProgressNode[] = [];
+      for (const descriptor of descriptors) {
+        const isActive = descriptor.id === activeCourseId;
+        let progress: OverallProgress | undefined;
+        if (isActive && this.snapshot) {
+          progress = this.snapshot;
+        } else {
+          try {
+            progress = this.service.getCourseProgress(descriptor.id);
+          } catch {
+            progress = undefined;
+          }
+        }
+        if (!progress) {
+          continue;
+        }
+        nodes.push({ kind: "course", descriptor, progress, isActive });
+      }
+      return nodes;
     }
 
-    if (!node) {
+    if (node.kind === "course") {
+      const { descriptor, progress, isActive } = node;
       const children: LearningProgressNode[] = [];
-      const { courseId, unitId, activityId } = snap.currentPosition;
 
-      const unit = snap.units.find((u) => u.id === unitId);
-      const activity = unit?.activities.find((a) => a.id === activityId);
-      if (unit && activity) {
-        children.push({
-          kind: "continue",
-          location: { courseId, unitId: unit.id, activityId: activity.id },
-          unitTitle: unit.title,
-          activityTitle: activity.title,
-        });
+      // The "Up next" shortcut targets the active course's saved position.
+      // Notebook courses don't have a meaningful per-activity position, so the
+      // shortcut is only shown for Q# courses.
+      if (
+        isActive &&
+        this.service.hasUserSelectedCourse() &&
+        !isNotebookCourse(descriptor)
+      ) {
+        const { courseId, unitId, activityId } = progress.currentPosition;
+        const unit = progress.units.find((u) => u.id === unitId);
+        const activity = unit?.activities.find((a) => a.id === activityId);
+        if (unit && activity) {
+          children.push({
+            kind: "continue",
+            location: { courseId, unitId: unit.id, activityId: activity.id },
+            unitTitle: unit.title,
+            activityTitle: activity.title,
+          });
+        }
       }
 
-      for (const u of snap.units) {
+      const currentUnitId = isActive
+        ? progress.currentPosition.unitId
+        : undefined;
+      for (const u of progress.units) {
         children.push({
           kind: "unit",
-          courseId,
+          courseId: descriptor.id,
+          courseKind: descriptor.kind,
           unit: u,
-          isCurrent: u.id === unitId,
+          isCurrent: u.id === currentUnitId,
         });
       }
-
       return children;
     }
 
     if (node.kind === "unit") {
-      const { unitId, activityId } = snap.currentPosition;
+      const currentUnitId = this.snapshot?.currentPosition.unitId;
+      const currentActivityId = this.snapshot?.currentPosition.activityId;
+      const isActiveCourse =
+        this.service.initialized &&
+        node.courseId === this.service.getActiveCourseId();
       return node.unit.activities.map<LearningProgressNode>((activity) => ({
         kind: "activity",
         courseId: node.courseId,
         unitId: node.unit.id,
         unitTitle: node.unit.title,
         activity,
-        isCurrent: node.unit.id === unitId && activity.id === activityId,
+        isCurrent:
+          isActiveCourse &&
+          node.unit.id === currentUnitId &&
+          activity.id === currentActivityId,
       }));
     }
 
@@ -184,9 +281,14 @@ class LearningProgressTreeProvider implements vscode.TreeDataProvider<LearningPr
 /** Builds the italic summary shown at the top of the tree view. */
 function buildTreeMessage(
   snapshot: OverallProgress | undefined,
+  service: LearningService,
 ): string | undefined {
   if (!snapshot) {
     return undefined;
+  }
+
+  if (!service.hasUserSelectedCourse()) {
+    return "Pick a course to get started!";
   }
 
   const units = snapshot.units;
@@ -218,8 +320,15 @@ function buildTreeMessage(
   return `${completedUnits}/${units.length} units complete — ${encouragement}`;
 }
 
-/** Discriminated union for the three kinds of tree nodes. */
+/** Discriminated union for the four kinds of tree nodes. */
 export type LearningProgressNode =
+  | {
+      /** Top-level course node (expandable). */
+      kind: "course";
+      descriptor: CourseDescriptor;
+      progress: OverallProgress;
+      isActive: boolean;
+    }
   | {
       /** Pinned "Up next" shortcut at the top of the tree. */
       kind: "continue";
@@ -231,6 +340,7 @@ export type LearningProgressNode =
       /** Unit node (expandable). */
       kind: "unit";
       courseId: string;
+      courseKind: CourseKind;
       unit: UnitProgress;
       isCurrent: boolean;
     }
@@ -246,6 +356,8 @@ export type LearningProgressNode =
 
 // ─── Tree node icons ───
 
+const iconCourse = new vscode.ThemeIcon("mortar-board");
+const iconPython = new vscode.ThemeIcon("notebook");
 const iconContinue = new vscode.ThemeIcon(
   "sparkle",
   new vscode.ThemeColor("charts.blue"),

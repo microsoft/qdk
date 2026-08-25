@@ -7,14 +7,16 @@ import {
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
   resolveNewWorkspaceRoot,
+  type CourseDescriptor,
+  type CurrentActivity,
   type HintContext,
   type UnitSummary,
   type OverallProgress,
-  type CurrentActivity,
   type RunResult,
   type SolutionCheckResult,
 } from "../learning/index.js";
 import { CopilotToolError } from "./types.js";
+import { LearningState } from "../learning/types.js";
 
 /**
  * Compact snapshot of the learner's current position and progress.
@@ -24,6 +26,8 @@ import { CopilotToolError } from "./types.js";
  * curriculum without needing a separate round-trip.
  */
 export interface SerializedLearningState {
+  /** The currently-active course. */
+  course: Pick<CourseDescriptor, "id" | "title" | "kind">;
   position: CurrentActivity;
   progress: {
     totalActivities: number;
@@ -108,7 +112,7 @@ export class LearningTools {
    */
   async getState(): Promise<
     | { initialized: false; error?: string }
-    | ({ initialized: true } & StateSnapshot)
+    | ({ initialized: true; courseSelected: boolean } & StateSnapshot)
   > {
     if (!this.service.initialized) {
       const progressError = this.service.progressLoadingError;
@@ -121,7 +125,11 @@ export class LearningTools {
       }
       await this.ensureInitialized();
     }
-    return { initialized: true, state: this.serializeState() };
+    return {
+      initialized: true,
+      courseSelected: this.service.hasUserSelectedCourse(),
+      state: this.serializeState(true), // match user experience
+    };
   }
 
   /**
@@ -142,12 +150,69 @@ export class LearningTools {
   }
 
   /**
-   * Read the user's current Q# code at the active exercise or example.
+   * List all available courses (loaded or not) with the active course id.
+   */
+  async listCourses(): Promise<{
+    courses: CourseDescriptor[];
+    activeCourseId: string;
+  }> {
+    await this.ensureInitialized();
+    return {
+      courses: await this.service.getCourses(),
+      activeCourseId: this.service.getActiveCourseId(),
+    };
+  }
+
+  /**
+   * Switch the active course, moving to its first incomplete activity.
+   */
+  async switchCourse(input: { courseId: string }): Promise<StateSnapshot> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      await this.service.switchCourse(input.courseId, "chat");
+      await this.showActivity();
+      return { state: this.serializeState(false) }; // workspace state is correct after switch
+    });
+  }
+
+  /**
+   * Return the descriptor for a course. Defaults to the active course
+   * when no id is provided.
+   */
+  async courseInfo(input?: { courseId?: string }): Promise<{
+    descriptor: CourseDescriptor | undefined;
+  }> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      const courseId = input?.courseId ?? this.service.getActiveCourseId();
+      const courses = await this.service.getCourses();
+      const descriptor = courses.find((c) => c.id === courseId);
+      return { descriptor };
+    });
+  }
+
+  /**
+   * Read the user's current code at the active exercise or example.
+   * For python-notebook courses, returns the notebook file path.
    */
   async readCode(): Promise<{ code: string; filePath: string }> {
     await this.ensureInitialized();
     return this.invoke(async () => {
       const uri = this.getCurrentFileUri();
+      const editor = vscode.window.activeNotebookEditor;
+      if (editor) {
+        let code = "";
+        if (editor.notebook.uri.toString() === uri.toString()) {
+          // Prefer the cell the user actually has focused in the editor.
+          const selection = editor.selections[0];
+          if (selection) {
+            // Not guaranteed to be a code cell, but not important enough to check
+            const cell = editor.notebook.cellAt(selection.start);
+            code = cell.document.getText();
+          }
+        }
+        return { code, filePath: uri.fsPath };
+      }
       const code = await this.service.readUserCode();
       return { code, filePath: uri.fsPath };
     });
@@ -156,11 +221,15 @@ export class LearningTools {
   /**
    * Return all built-in hints for the current exercise.
    */
-  async hint(): Promise<{ result: HintContext | null }> {
+  async hint(): Promise<{ result: HintContext | undefined } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(() => {
-      const r = this.service.getHintContext("chat");
-      return { result: r.result };
+      const state = this.serializeState(true); // use editor for hints
+      const result = this.service.getHintContext(
+        state.position.location,
+        "chat",
+      );
+      return { result, state };
     });
   }
 
@@ -173,7 +242,7 @@ export class LearningTools {
     await this.ensureInitialized();
     return this.invoke(async () => {
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(true) }; // no-ops for notebooks, so editor state is more accurate
     });
   }
 
@@ -182,10 +251,11 @@ export class LearningTools {
    */
   async next(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.next("chat");
       await this.showActivity();
-      return { moved: r.moved, state: this.serializeState() };
+      return { moved: r.moved, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -194,10 +264,11 @@ export class LearningTools {
    */
   async previous(): Promise<{ moved: boolean } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.previous("chat");
       await this.showActivity();
-      return { moved: r.moved, state: this.serializeState() };
+      return { moved: r.moved, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -211,9 +282,13 @@ export class LearningTools {
   }): Promise<StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
+      const courseId = input.courseId;
+      if (courseId && courseId !== this.service.getActiveCourseId()) {
+        await this.service.switchCourse(courseId, "chat");
+      }
       await this.service.goTo(input, "chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // workspace state is correct after goto
     });
   }
 
@@ -224,10 +299,11 @@ export class LearningTools {
     shots?: number;
   }): Promise<{ result: RunResult } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.run(input.shots ?? 1, "chat");
       await this.showActivity();
-      return { result: r.result, state: this.serializeState() };
+      return { result: r.result, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -236,10 +312,11 @@ export class LearningTools {
    */
   async check(): Promise<{ result: SolutionCheckResult } & StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       const r = await this.service.checkSolution("chat");
       await this.showActivity();
-      return { result: r.result, state: this.serializeState() };
+      return { result: r.result, state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -249,10 +326,11 @@ export class LearningTools {
    */
   async resetExercise(): Promise<StateSnapshot> {
     await this.ensureInitialized();
+    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
       await this.service.resetExercise("chat");
       await this.showActivity();
-      return { state: this.serializeState() };
+      return { state: this.serializeState(false) }; // Q# only
     });
   }
 
@@ -262,9 +340,13 @@ export class LearningTools {
   async solution(): Promise<{ solutions: string[] } & StateSnapshot> {
     await this.ensureInitialized();
     return this.invoke(async () => {
-      const solutions = this.service.getAllSolutions("chat");
+      const state = this.serializeState(true); // use editor for solutions
+      const solutions = this.service.getAllSolutions(
+        state.position.location,
+        "chat",
+      );
       await this.showActivity();
-      return { solutions, state: this.serializeState() };
+      return { solutions, state };
     });
   }
 
@@ -289,6 +371,19 @@ export class LearningTools {
     }
   }
 
+  /**
+   * If the active course isn't a Q# course (i.e. the katas), throw an exception indicating
+   * that the current operation isn't supported.
+   */
+  private throwIfNotQSharpCourse(): void {
+    const { kind } = this.service.getActiveCourseInfo();
+    if (kind !== "qsharp") {
+      throw new CopilotToolError(
+        "This operation is only supported for Q# courses.",
+      );
+    }
+  }
+
   private async showActivity(): Promise<void> {
     await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
   }
@@ -307,15 +402,22 @@ export class LearningTools {
    * Build a compact snapshot of position and progress to attach to
    * every tool response.
    */
-  private serializeState(): SerializedLearningState {
-    const state = this.service.getState();
+  private serializeState(considerEditor: boolean): SerializedLearningState {
+    // The notebook learning state will be undefined if we're not in a notebook
+    // or if we couldn't identify the current cell for some reason.
+    // In that case, we fall back to the current state.
+    const state =
+      (considerEditor ? this.notebookLearningState() : undefined) ??
+      this.service.getState();
+
     const progress = state.progress;
-    const cur = progress.currentPosition?.unitId;
-    const currentUnit = cur
-      ? progress.units.find((u) => u.id === cur)
+    const unitId = progress.currentPosition?.unitId;
+    const currentUnit = unitId
+      ? progress.units.find((u) => u.id === unitId)
       : undefined;
 
     return {
+      course: state.course,
       position: state.position,
       progress: {
         totalActivities: progress.stats.totalActivities,
@@ -324,5 +426,29 @@ export class LearningTools {
         currentUnitTotal: currentUnit?.total ?? 0,
       },
     };
+  }
+
+  /**
+   * For notebook courses, build LearningState from the selected cell
+   * rather than from the service's stored position.
+   */
+  private notebookLearningState(): LearningState | undefined {
+    const editor = vscode.window.activeNotebookEditor;
+    const selection = editor?.selections[0];
+    if (!selection || !editor) {
+      return undefined;
+    }
+
+    const cell = editor.notebook.cellAt(selection.start);
+    const cellId = cell.metadata?.id;
+    if (typeof cellId !== "string") {
+      return undefined;
+    }
+
+    return this.service.getLearningStateForCell(
+      cellId,
+      cell.document.getText(),
+      editor.notebook.uri,
+    );
   }
 }

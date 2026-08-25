@@ -1,7 +1,8 @@
 {
   "scripts": {
-    "dev": "npm run build -- --sourcemap=inline --watch",
-    "build": "npx esbuild js/index.tsx --minify --format=esm --bundle --outdir=src/qsharp_widgets/static"
+    "dev": "npm run build:bundle -- --sourcemap=inline --watch",
+    "build": "npm run build:bundle && node js/subset-katex-fonts.mjs",
+    "build:bundle": "npx esbuild js/index.tsx js/bloch.tsx --minify --format=esm --bundle --outdir=src/qsharp_widgets/static --loader:.woff2=dataurl --loader:.woff=empty --loader:.ttf=empty"
   },
   "devDependencies": {}
 }

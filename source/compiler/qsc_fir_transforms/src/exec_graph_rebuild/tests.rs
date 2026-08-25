@@ -13,8 +13,8 @@ use crate::test_utils::{
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_fir::fir::{
-    CallableDecl, CallableImpl, ExecGraphConfig, ExecGraphDebugNode, ExecGraphNode, ExprId, Field,
-    ItemKind, LocalVarId, PackageLookup, PatId, PatKind, Res, StoreItemId,
+    CallableDecl, CallableImpl, ExecGraphConfig, ExecGraphDebugNode, ExecGraphExpr, ExecGraphNode,
+    ExprId, Field, ItemKind, LocalVarId, PackageLookup, PatId, PatKind, Res, StoreItemId,
 };
 use rustc_hash::FxHashMap;
 
@@ -51,9 +51,12 @@ fn format_callable_exec_graph(
                 .iter()
                 .enumerate()
                 .map(|(i, node)| match node {
-                    ExecGraphNode::Expr(expr_id) => {
+                    ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), _) => {
                         let label = expr_kind_short(package, *expr_id);
                         format!("{i}: Expr({expr_id:?}) [{label}]")
+                    }
+                    ExecGraphNode::Expr(expr, _) => {
+                        format!("{i}: Expr [{expr:?}]")
                     }
                     ExecGraphNode::Debug(ExecGraphDebugNode::Stmt(stmt_id)) => {
                         let label = stmt_kind_short(package, *stmt_id);
@@ -206,10 +209,14 @@ fn format_exec_graph_nodes(
         .enumerate()
         .map(|(index, node)| match node {
             ExecGraphNode::Bind(pat_id) => format!("{index}: {}", bind_label(package, *pat_id)),
-            ExecGraphNode::Expr(expr_id) => format!(
+            ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), _) => format!(
                 "{index}: {}",
                 semantic_expr_label(store, package, local_names, *expr_id)
             ),
+            ExecGraphNode::Expr(ExecGraphExpr::Var(Res::Item(item_id)), _) => {
+                format!("{index}: {}", item_name(store, item_id))
+            }
+            ExecGraphNode::Expr(expr, _) => format!("{index}: {expr:?}"),
             ExecGraphNode::Jump(target) => format!("{index}: Jump({target})"),
             ExecGraphNode::JumpIf(target) => format!("{index}: JumpIf({target})"),
             ExecGraphNode::JumpIfNot(target) => format!("{index}: JumpIfNot({target})"),
@@ -458,7 +465,7 @@ fn binop_add_evaluates_operands_then_expr() {
             0: Expr(ExprId(4)) [Lit(Int(1))]
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(2))]
-            3: Expr(ExprId(3)) [BinOp(Add)]
+            3: Expr [BinOp { op: Add, lhs_span: Span { lo: 24, hi: 25 }, rhs_span: Span { lo: 28, hi: 29 } }]
             4: Ret"#]],
     );
 }
@@ -472,7 +479,7 @@ fn tuple_construction_emits_store_per_element() {
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(2))]
             3: Store
-            4: Expr(ExprId(3)) [Tuple(len=2)]
+            4: Expr [Tuple(2)]
             5: Ret"#]],
     );
 }
@@ -503,15 +510,15 @@ fn while_loop_emits_jump_back_to_condition() {
         &expect![[r#"
             0: Expr(ExprId(3)) [Lit(Int(0))]
             1: Bind(PatId(1))
-            2: Expr(ExprId(6)) [Var]
+            2: Expr [Var(Local(LocalVarId(1)))]
             3: Store
             4: Expr(ExprId(7)) [Lit(Int(3))]
-            5: Expr(ExprId(5)) [BinOp(Lt)]
+            5: Expr [BinOp { op: Lt, lhs_span: Span { lo: 70, hi: 71 }, rhs_span: Span { lo: 74, hi: 75 } }]
             6: JumpIfNot(14)
-            7: Expr(ExprId(9)) [Var]
+            7: Expr [Var(Local(LocalVarId(1)))]
             8: Store
             9: Expr(ExprId(10)) [Lit(Int(1))]
-            10: Expr(ExprId(8)) [AssignOp(Add)]
+            10: Expr [AssignOp { op: Add, lhs: ExprId(9), lhs_span: Span { lo: 94, hi: 95 }, rhs_span: Span { lo: 99, hi: 100 } }]
             11: Unit
             12: Unit
             13: Jump(2)
@@ -539,7 +546,7 @@ fn let_binding_stores_value_then_evaluates_body() {
         &expect![[r#"
             0: Expr(ExprId(3)) [Lit(Int(42))]
             1: Bind(PatId(1))
-            2: Expr(ExprId(4)) [Var]
+            2: Expr [Var(Local(LocalVarId(1)))]
             3: Ret"#]],
     );
 }
@@ -554,12 +561,12 @@ fn tuple_eq_lowered_to_element_wise_andl_chain() {
             0: Expr(ExprId(5)) [Lit(Int(1))]
             1: Store
             2: Expr(ExprId(8)) [Lit(Int(1))]
-            3: Expr(ExprId(10)) [BinOp(Eq)]
+            3: Expr [BinOp { op: Eq, lhs_span: Span { lo: 26, hi: 27 }, rhs_span: Span { lo: 36, hi: 37 } }]
             4: JumpIfNot(9)
             5: Expr(ExprId(6)) [Lit(Int(2))]
             6: Store
             7: Expr(ExprId(9)) [Lit(Int(2))]
-            8: Expr(ExprId(11)) [BinOp(Eq)]
+            8: Expr [BinOp { op: Eq, lhs_span: Span { lo: 29, hi: 30 }, rhs_span: Span { lo: 39, hi: 40 } }]
             9: Ret"#]],
     );
 }
@@ -571,12 +578,12 @@ fn nested_blocks_flatten_to_sequential_nodes() {
         &expect![[r#"
             0: Expr(ExprId(4)) [Lit(Int(1))]
             1: Bind(PatId(2))
-            2: Expr(ExprId(6)) [Var]
+            2: Expr [Var(Local(LocalVarId(2)))]
             3: Store
             4: Expr(ExprId(7)) [Lit(Int(1))]
-            5: Expr(ExprId(5)) [BinOp(Add)]
+            5: Expr [BinOp { op: Add, lhs_span: Span { lo: 45, hi: 46 }, rhs_span: Span { lo: 49, hi: 50 } }]
             6: Bind(PatId(1))
-            7: Expr(ExprId(8)) [Var]
+            7: Expr [Var(Local(LocalVarId(1)))]
             8: Ret"#]],
     );
 }
@@ -611,7 +618,7 @@ fn fail_expression_evaluates_message_then_expr() {
         "function Main() : Unit { fail \"error\"; }",
         &expect![[r#"
             0: Expr(ExprId(4)) [String(parts=1)]
-            1: Expr(ExprId(3)) [Fail]
+            1: Expr [Fail]
             2: Unit
             3: Ret"#]],
     );
@@ -627,9 +634,9 @@ fn assign_index_emits_store_and_expr_unit() {
             2: Expr(ExprId(8)) [Lit(Int(0))]
             3: Store
             4: Expr(ExprId(9)) [Lit(Int(42))]
-            5: Expr(ExprId(7)) [AssignIndex]
+            5: Expr [AssignIndex { lhs: ExprId(10), mid_span: Span { lo: 63, hi: 64 } }]
             6: Unit
-            7: Expr(ExprId(11)) [Var]
+            7: Expr [Var(Local(LocalVarId(1)))]
             8: Ret"#]],
     );
 }
@@ -642,9 +649,9 @@ fn exec_graph_array_repeat_emits_store_pattern() {
             0: Expr(ExprId(4)) [Lit(Int(0))]
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(3))]
-            3: Expr(ExprId(3)) [ArrayRepeat]
+            3: Expr [ArrayRepeat]
             4: Bind(PatId(1))
-            5: Expr(ExprId(6)) [Var]
+            5: Expr [Var(Local(LocalVarId(1)))]
             6: Ret"#]],
     );
 }
@@ -657,7 +664,7 @@ fn exec_graph_range_expression() {
             0: Expr(ExprId(4)) [Lit(Int(0))]
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(10))]
-            3: Expr(ExprId(3)) [Range]
+            3: Expr [Range { has_start: true, has_step: false, has_end: true }]
             4: Ret"#]],
     );
 }
@@ -669,7 +676,7 @@ fn exec_graph_string_interpolation() {
         &expect![[r#"
             0: Expr(ExprId(3)) [Lit(Int(42))]
             1: Bind(PatId(1))
-            2: Expr(ExprId(5)) [Var]
+            2: Expr [Var(Local(LocalVarId(1)))]
             3: Store
             4: Expr(ExprId(4)) [String(parts=2)]
             5: Ret"#]],
@@ -682,7 +689,7 @@ fn exec_graph_unary_not() {
         "function Main() : Bool { not true }",
         &expect![[r#"
             0: Expr(ExprId(4)) [Lit(Bool(true))]
-            1: Expr(ExprId(3)) [UnOp(NotL)]
+            1: Expr [UnOp(NotL)]
             2: Ret"#]],
     );
 }
@@ -708,7 +715,7 @@ fn divergent_only_body_rebuilds_fail_without_trailing_value() {
         "function Main() : Int { fail \"boom\" }",
         &expect![[r#"
             0: Expr(ExprId(4)) [String(parts=1)]
-            1: Expr(ExprId(3)) [Fail]
+            1: Expr [Fail]
             2: Ret"#]],
     );
 }
@@ -732,27 +739,27 @@ fn nested_if_within_while_rebuilds_nested_control_flow() {
         &expect![[r#"
             0: Expr(ExprId(3)) [Lit(Int(0))]
             1: Bind(PatId(1))
-            2: Expr(ExprId(6)) [Var]
+            2: Expr [Var(Local(LocalVarId(1)))]
             3: Store
             4: Expr(ExprId(7)) [Lit(Int(3))]
-            5: Expr(ExprId(5)) [BinOp(Lt)]
+            5: Expr [BinOp { op: Lt, lhs_span: Span { lo: 70, hi: 71 }, rhs_span: Span { lo: 74, hi: 75 } }]
             6: JumpIfNot(26)
-            7: Expr(ExprId(10)) [Var]
+            7: Expr [Var(Local(LocalVarId(1)))]
             8: Store
             9: Expr(ExprId(11)) [Lit(Int(1))]
-            10: Expr(ExprId(9)) [BinOp(Eq)]
+            10: Expr [BinOp { op: Eq, lhs_span: Span { lo: 97, hi: 98 }, rhs_span: Span { lo: 102, hi: 103 } }]
             11: JumpIfNot(19)
-            12: Expr(ExprId(14)) [Var]
+            12: Expr [Var(Local(LocalVarId(1)))]
             13: Store
             14: Expr(ExprId(15)) [Lit(Int(10))]
-            15: Expr(ExprId(13)) [AssignOp(Add)]
+            15: Expr [AssignOp { op: Add, lhs: ExprId(14), lhs_span: Span { lo: 126, hi: 127 }, rhs_span: Span { lo: 131, hi: 133 } }]
             16: Unit
             17: Unit
             18: Jump(25)
-            19: Expr(ExprId(18)) [Var]
+            19: Expr [Var(Local(LocalVarId(1)))]
             20: Store
             21: Expr(ExprId(19)) [Lit(Int(1))]
-            22: Expr(ExprId(17)) [AssignOp(Add)]
+            22: Expr [AssignOp { op: Add, lhs: ExprId(18), lhs_span: Span { lo: 180, hi: 181 }, rhs_span: Span { lo: 185, hi: 186 } }]
             23: Unit
             24: Unit
             25: Jump(2)
@@ -771,8 +778,8 @@ fn exec_graph_callable_with_adjoint_spec_rebuilds_body_and_adj_independently() {
         &expect![[r#"
             0: H
             1: Store
-            2: Var(q)
-            3: Call
+            2: Var(Local(LocalVarId(1)))
+            3: Call { callee_span: Span { lo: 52, hi: 53 }, args_span: Span { lo: 54, hi: 55 } }
             4: Unit
             5: Ret"#]],
     );
@@ -783,8 +790,8 @@ fn exec_graph_callable_with_adjoint_spec_rebuilds_body_and_adj_independently() {
         &expect![[r#"
             0: X
             1: Store
-            2: Var(q)
-            3: Call
+            2: Var(Local(LocalVarId(1)))
+            3: Call { callee_span: Span { lo: 74, hi: 75 }, args_span: Span { lo: 76, hi: 77 } }
             4: Unit
             5: Ret"#]],
     );
@@ -806,14 +813,14 @@ fn controlled_spec_exec_graph_rebuilds_semantic_order() {
         CallableSpecKind::Ctl,
         &expect![[r#"
             0: X
-            1: Functor(Ctl)(X)
+            1: UnOp(Functor(Ctl))
             2: Store
-            3: Var(ctls)
+            3: Var(Local(LocalVarId(2)))
             4: Store
-            5: Var(q)
+            5: Var(Local(LocalVarId(1)))
             6: Store
-            7: Tuple(len=2)
-            8: Call
+            7: Tuple(2)
+            8: Call { callee_span: Span { lo: 109, hi: 121 }, args_span: Span { lo: 121, hi: 130 } }
             9: Unit
             10: Ret"#]],
     );
@@ -837,15 +844,15 @@ fn controlled_adjoint_spec_exec_graph_rebuilds_semantic_order() {
         CallableSpecKind::CtlAdj,
         &expect![[r#"
             0: S
-            1: Functor(Adj)(S)
-            2: Functor(Ctl)(Functor(Adj)(S))
+            1: UnOp(Functor(Adj))
+            2: UnOp(Functor(Ctl))
             3: Store
-            4: Var(ctls)
+            4: Var(Local(LocalVarId(3)))
             5: Store
-            6: Var(q)
+            6: Var(Local(LocalVarId(1)))
             7: Store
-            8: Tuple(len=2)
-            9: Call
+            8: Tuple(2)
+            9: Call { callee_span: Span { lo: 227, hi: 247 }, args_span: Span { lo: 247, hi: 256 } }
             10: Unit
             11: Ret"#]],
     );
@@ -859,14 +866,14 @@ fn exec_graph_entry_expression_rebuilt_correctly() {
             0: Expr(ExprId(4)) [Lit(Int(1))]
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(2))]
-            3: Expr(ExprId(3)) [BinOp(Add)]
+            3: Expr [BinOp { op: Add, lhs_span: Span { lo: 32, hi: 33 }, rhs_span: Span { lo: 36, hi: 37 } }]
             4: Bind(PatId(1))
-            5: Expr(ExprId(7)) [Var]
+            5: Expr [Var(Local(LocalVarId(1)))]
             6: Store
             7: Expr(ExprId(8)) [Lit(Int(3))]
-            8: Expr(ExprId(6)) [BinOp(Mul)]
+            8: Expr [BinOp { op: Mul, lhs_span: Span { lo: 47, hi: 48 }, rhs_span: Span { lo: 51, hi: 52 } }]
             9: Bind(PatId(2))
-            10: Expr(ExprId(9)) [Var]
+            10: Expr [Var(Local(LocalVarId(2)))]
             11: Ret"#]],
     );
 }
@@ -974,7 +981,7 @@ fn external_udt_copy_update_exec_graph_rebuilds_mutated_external_spec() {
         qsc_fir::fir::ExecGraphConfig::NoDebug,
     );
     assert!(
-        graph.contains("Tuple(len=2)"),
+        graph.contains("Tuple(2)"),
         "external copy-update exec graph should include the erased update tuple:\n{graph}"
     );
     // The external library body is transformed cross-package: UDT erasure
@@ -982,7 +989,7 @@ fn external_udt_copy_update_exec_graph_rebuilds_mutated_external_spec() {
     // scalar-replaces the untouched-field projection, so the rebuilt graph
     // reads it through a decomposed local rather than a `.1` field path.
     assert!(
-        graph.contains("Var(LocalVarId"),
+        graph.contains("Var(Local(LocalVarId"),
         "external copy-update exec graph should read the untouched field through a \
          decomposed local after tuple-decompose:\n{graph}"
     );
@@ -1024,21 +1031,21 @@ fn exec_graph_rebuild_passes_post_all_invariant() {
     expect![[r#"
         0: __quantum__rt__qubit_allocate
         1: Store
-        2: Tuple(len=0)
-        3: Call
+        2: Tuple(0)
+        3: Call { callee_span: Span { lo: 73, hi: 89 }, args_span: Span { lo: 73, hi: 89 } }
         4: Bind(q)
         5: H
         6: Store
-        7: Var(LocalVarId(1))
-        8: Call
+        7: Var(Local(LocalVarId(1)))
+        8: Call { callee_span: Span { lo: 98, hi: 99 }, args_span: Span { lo: 100, hi: 101 } }
         9: Reset
         10: Store
-        11: Var(LocalVarId(1))
-        12: Call
+        11: Var(Local(LocalVarId(1)))
+        12: Call { callee_span: Span { lo: 112, hi: 117 }, args_span: Span { lo: 118, hi: 119 } }
         13: __quantum__rt__qubit_release
         14: Store
-        15: Var(LocalVarId(1))
-        16: Call
+        15: Var(Local(LocalVarId(1)))
+        16: Call { callee_span: Span { lo: 73, hi: 89 }, args_span: Span { lo: 73, hi: 89 } }
         17: Unit
         18: Ret"#]]
     .assert_eq(&graph);
@@ -1170,13 +1177,13 @@ fn parallel_without_limit_emits_par_start_and_end() {
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(2))]
             3: Store
-            4: Expr(ExprId(3)) [Tuple(len=2)]
+            4: Expr [Tuple(2)]
             5: Bind(PatId(1))
             6: ParStart(Unlimited)
-            7: Expr(ExprId(13)) [Var]
+            7: Expr [Var(Local(LocalVarId(2)))]
             8: Store
-            9: Expr(ExprId(14)) [Var]
-            10: Expr(ExprId(8)) [BinOp(Add)]
+            9: Expr [Var(Local(LocalVarId(3)))]
+            10: Expr [BinOp { op: Add, lhs_span: Span { lo: 140, hi: 145 }, rhs_span: Span { lo: 148, hi: 153 } }]
             11: ParEnd
             12: Ret"#]],
     );
@@ -1200,14 +1207,14 @@ fn parallel_within_limit_emits_par_start_with_limit() {
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(4))]
             3: Store
-            4: Expr(ExprId(3)) [Tuple(len=2)]
+            4: Expr [Tuple(2)]
             5: Bind(PatId(1))
-            6: Expr(ExprId(15)) [Var]
+            6: Expr [Var(Local(LocalVarId(2)))]
             7: ParStart(Limited)
-            8: Expr(ExprId(16)) [Var]
+            8: Expr [Var(Local(LocalVarId(2)))]
             9: Store
-            10: Expr(ExprId(17)) [Var]
-            11: Expr(ExprId(10)) [BinOp(Add)]
+            10: Expr [Var(Local(LocalVarId(3)))]
+            11: Expr [BinOp { op: Add, lhs_span: Span { lo: 153, hi: 158 }, rhs_span: Span { lo: 161, hi: 166 } }]
             12: ParEnd
             13: Ret"#]],
     );
