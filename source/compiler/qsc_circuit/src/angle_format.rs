@@ -49,7 +49,7 @@ pub(crate) fn format_angle(value: f64) -> String {
     if multiple >= 1.0 - RATIO_EPS && (multiple - multiple.round()).abs() < RATIO_EPS {
         let count = multiple.round();
         // A single turn reads better unqualified than as "1 * π".
-        return if count == 1.0 {
+        return if (count - 1.0).abs() < RATIO_EPS {
             format!("{sign}π")
         } else {
             format!("{sign}{count:.0} * π")
