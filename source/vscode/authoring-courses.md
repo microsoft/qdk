@@ -27,6 +27,8 @@ resources/qdk-learning/courses/
 Bundled courses live under the extension's `resources` folder.
 A course can also be authored in a workspace under `qdk-learning/courses/`, which is where the extension copies bundled courses the first time a learner opens one.
 
+`_course_lib.py` and `_check_env.py` aren't supplied by the extension, so copy them from an existing course when starting a new one.
+
 _Note_: The folders in this example are numbered, but that's not required - the order comes from `course.json`
 
 ## course.json
