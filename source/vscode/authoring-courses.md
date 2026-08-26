@@ -136,6 +136,7 @@ Attachments that stay attachments must be base64-encoded.
 Setting up a Python environment can be tricky for new users and we want the focus to be on the course content, so we've added some helper functionality around installing and validating dependencies.
 
 - `requirements.txt` lists course dependencies; each unit's first cell has a commented-out `%pip install -r ../requirements.txt` for the learner to run
+- The `QDK: Create a Microsoft Quantum Python virtual environment` command sets up an environment and prompts for the packages to install
 - `course.json` lets you list imports you expect to work so they can be checked before the student starts the unit (e.g. in case they've selected the wrong notebook kernel), which the course's `_check_env.py` reads
 - The course infrastructure depends on the Python and Jupyter VS Code extensions, so they'll be prompted if those are absent
 
