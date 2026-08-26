@@ -21,8 +21,8 @@ use qsc_data_structures::{span::Span, target::TargetCapabilityFlags};
 use qsc_fir::{
     fir::{
         Attr, Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Global, Ident,
-        Item, ItemKind, LocalItemId, LocalVarId, Package, PackageLookup, Pat, PatId, PatKind, Res,
-        SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
+        Item, ItemKind, LocalItemId, LocalVarId, Package, PackageId, PackageLookup, PackageSpan,
+        Pat, PatId, PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
     },
     ty::{Prim, Ty},
     visit::{Visitor, walk_callable_decl},
@@ -56,7 +56,7 @@ pub fn lower_store(
 
 pub fn run_rca_pass(
     fir_store: &qsc_fir::fir::PackageStore,
-    package_id: qsc_fir::fir::PackageId,
+    package_id: PackageId,
     capabilities: TargetCapabilityFlags,
 ) -> Result<PackageStoreComputeProperties, Vec<crate::Error>> {
     let analyzer = Analyzer::init(fir_store, capabilities);
@@ -66,6 +66,7 @@ pub fn run_rca_pass(
     let package_compute_properties = compute_properties.get(package_id, false);
     let mut errors = check_supported_capabilities(
         fir_package,
+        package_id,
         package_compute_properties,
         capabilities,
         fir_store,
@@ -85,16 +86,18 @@ pub fn run_rca_pass(
 #[must_use]
 pub fn check_supported_capabilities(
     package: &Package,
+    package_id: PackageId,
     compute_properties: &PackageComputeProperties,
     capabilities: TargetCapabilityFlags,
     store: &qsc_fir::fir::PackageStore,
 ) -> Vec<Error> {
     let checker = Checker {
         package,
+        package_id,
         compute_properties,
         target_capabilities: capabilities,
         current_callable: None,
-        missing_features_map: FxHashMap::<Span, RuntimeFeatureFlags>::default(),
+        missing_features_map: FxHashMap::<PackageSpan, RuntimeFeatureFlags>::default(),
         store,
     };
 
@@ -109,6 +112,7 @@ pub fn check_supported_capabilities(
 #[must_use]
 pub fn check_supported_capabilities_for_callable(
     package: &Package,
+    package_id: PackageId,
     compute_properties: &PackageComputeProperties,
     callable: LocalItemId,
     capabilities: TargetCapabilityFlags,
@@ -116,10 +120,11 @@ pub fn check_supported_capabilities_for_callable(
 ) -> Vec<Error> {
     let checker = Checker {
         package,
+        package_id,
         compute_properties,
         target_capabilities: capabilities,
         current_callable: None,
-        missing_features_map: FxHashMap::<Span, RuntimeFeatureFlags>::default(),
+        missing_features_map: FxHashMap::<PackageSpan, RuntimeFeatureFlags>::default(),
         store,
     };
 
@@ -128,10 +133,11 @@ pub fn check_supported_capabilities_for_callable(
 
 struct Checker<'a> {
     package: &'a Package,
+    package_id: PackageId,
     compute_properties: &'a PackageComputeProperties,
     target_capabilities: TargetCapabilityFlags,
     current_callable: Option<LocalItemId>,
-    missing_features_map: FxHashMap<Span, RuntimeFeatureFlags>,
+    missing_features_map: FxHashMap<PackageSpan, RuntimeFeatureFlags>,
     store: &'a qsc_fir::fir::PackageStore,
 }
 
@@ -297,7 +303,7 @@ impl<'a> Checker<'a> {
         let expr = self.get_expr(expr_id);
         if !missing_features.is_empty() {
             self.missing_features_map
-                .entry(expr.span)
+                .entry(PackageSpan::new(self.package_id, expr.span))
                 .and_modify(|f| *f |= missing_features)
                 .or_insert(missing_features);
         }
@@ -377,7 +383,7 @@ impl<'a> Checker<'a> {
                 & RuntimeFeatureFlags::output_recording_flags();
         if !missing_features.is_empty() {
             self.missing_features_map
-                .entry(output_reporting_span)
+                .entry(PackageSpan::new(self.package_id, output_reporting_span))
                 .and_modify(|f| *f |= missing_features)
                 .or_insert(missing_features);
         }
@@ -390,7 +396,7 @@ impl<'a> Checker<'a> {
         ) & RuntimeFeatureFlags::output_recording_flags();
         if !missing_features.is_empty() {
             self.missing_features_map
-                .entry(callable_decl.name.span)
+                .entry(PackageSpan::new(self.package_id, callable_decl.name.span))
                 .and_modify(|f| *f |= missing_features)
                 .or_insert(missing_features);
         }

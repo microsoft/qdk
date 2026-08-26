@@ -1261,7 +1261,9 @@ fn call_to_unresolved_callee_with_dynamic_arg_fails() {
 
     assert_error(
         &error,
-        &expect!["CapabilityError(UseOfDynamicDouble(Span { lo: 288, hi: 295 }))"],
+        &expect![
+            "CapabilityError(UseOfDynamicDouble(PackageSpan { package: PackageId(2), span: Span { lo: 288, hi: 295 } }))"
+        ],
     );
 }
 
@@ -1316,7 +1318,9 @@ fn call_to_unresolved_callee_via_closure_with_dynamic_arg_fails() {
 
     assert_error(
         &error,
-        &expect!["CapabilityError(UseOfDynamicDouble(Span { lo: 292, hi: 299 }))"],
+        &expect![
+            "CapabilityError(UseOfDynamicDouble(PackageSpan { package: PackageId(2), span: Span { lo: 292, hi: 299 } }))"
+        ],
     );
 }
 
@@ -1410,7 +1414,9 @@ fn call_to_recursive_callable_with_unsupported_capabilities_fails() {
 
     assert_error(
         &error,
-        &expect!["CapabilityError(UseOfDynamicQubit(Span { lo: 260, hi: 325 }))"],
+        &expect![
+            "CapabilityError(UseOfDynamicQubit(PackageSpan { package: PackageId(2), span: Span { lo: 260, hi: 325 } }))"
+        ],
     );
 }
 

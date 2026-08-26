@@ -41,7 +41,7 @@ use qsc_fir::{
 };
 
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
-use qsc_lowerer::map_fir_package_to_hir;
+use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
     RuntimeFeatureFlags, ValueKind,
@@ -163,9 +163,12 @@ impl From<EvalError> for Error {
 
 impl Error {
     #[must_use]
-    pub fn span(&self) -> Option<PackageSpan> {
+    pub fn span(&self) -> PackageSpan {
         match self {
-            Self::CapabilityError(_) => None,
+            Self::CapabilityError(e) => {
+                let fir_span = e.span();
+                PackageSpan::new(map_fir_package_to_hir(fir_span.package), fir_span.span)
+            }
             Self::UnexpectedDynamicValue(span)
             | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
@@ -173,7 +176,7 @@ impl Error {
             | Self::Unexpected(_, span)
             | Self::Unimplemented(_, span)
             | Self::UnsupportedTestCallable(span)
-            | Self::UnsupportedSimulationIntrinsic(_, span) => Some(*span),
+            | Self::UnsupportedSimulationIntrinsic(_, span) => *span,
         }
     }
 }
@@ -1767,7 +1770,10 @@ impl<'a> PartialEvaluator<'a> {
                 if !missing_features.is_empty()
                     && let Some(error) = generate_errors_from_runtime_features(
                         missing_features,
-                        self.get_expr(call_expr_id).span,
+                        fir::PackageSpan::new(
+                            self.get_current_package_id(),
+                            self.get_expr(call_expr_id).span,
+                        ),
                     )
                     .drain(..)
                     .next()
@@ -1922,7 +1928,10 @@ impl<'a> PartialEvaluator<'a> {
                     // If we are in a dynamic branch anywhere up the call stack, we cannot support relabel,
                     // as later qubit usage would need to be dynamic on whether the branch was taken.
                     return Err(Error::CapabilityError(CapabilityError::UseOfDynamicQubit(
-                        callee_expr_span.span,
+                        fir::PackageSpan::new(
+                            map_hir_package_to_fir(callee_expr_span.package),
+                            callee_expr_span.span,
+                        ),
                     )));
                 }
                 qubit_relabel(args_value, callee_expr_span, args_span, |q0, q1| {
