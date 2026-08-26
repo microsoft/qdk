@@ -63,7 +63,7 @@ impl Display for Token {
 pub enum TokenKind {
     Newline,            // \n
     Uint,               // unsigned integers
-    Double(DoubleKind), // floating-point numbers, can be radians or not
+    Double(DoubleUnit), // floating-point numbers, can be radians or not
     InstructionName,    // H, X, CNOT, etc.
     Pauli,              // X1, Y2, Z3, etc.
     Loss,               // L1, L2, L3, etc.
@@ -99,16 +99,16 @@ impl Display for TokenKind {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
-pub enum DoubleKind {
+pub enum DoubleUnit {
     Default, // for angles, interpret as half turns (pi radians)
     Radians,
 }
 
-impl Display for DoubleKind {
+impl Display for DoubleUnit {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            DoubleKind::Default => f.write_str("default"),
-            DoubleKind::Radians => f.write_str("radians"),
+            DoubleUnit::Default => f.write_str("default"),
+            DoubleUnit::Radians => f.write_str("radians"),
         }
     }
 }
@@ -270,9 +270,9 @@ impl<'a> Lexer<'a> {
         let has_rad_suffix = self.scan_rad_suffix()?;
 
         Ok(if has_rad_suffix {
-            TokenKind::Double(DoubleKind::Radians)
+            TokenKind::Double(DoubleUnit::Radians)
         } else if signed || has_fraction || has_exponent {
-            TokenKind::Double(DoubleKind::Default)
+            TokenKind::Double(DoubleUnit::Default)
         } else {
             TokenKind::Uint
         })
