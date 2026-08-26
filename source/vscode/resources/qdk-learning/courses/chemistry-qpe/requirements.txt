@@ -1,3 +1,3 @@
 qdk-chemistry[jupyter]>=2.1.0
 ipykernel>=6.0
-pyscf>=2.14.0
+pyscf>=2.9.0,<2.12.1
