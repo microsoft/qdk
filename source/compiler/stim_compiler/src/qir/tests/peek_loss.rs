@@ -125,6 +125,50 @@ fn peek_loss_with_readout_noise_yields_expected_qir() {
 }
 
 #[test]
+fn peek_loss_with_invalid_readout_noise_yields_error() {
+    check(
+        "PEEK_LOSS(1.1) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for PEEK_LOSS must be between 0 and 1; found 1.1
+           ,----
+         1 | PEEK_LOSS(1.1) 0
+           : ^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+    check(
+        "PEEK_LOSS(-0.1) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for PEEK_LOSS must be between 0 and 1; found -0.1
+           ,----
+         1 | PEEK_LOSS(-0.1) 0
+           : ^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn peek_loss_with_readout_noise_in_radians_yields_error() {
+    check(
+        "PEEK_LOSS(0.1rad) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnexpectedRadians
+
+          x argument for PEEK_LOSS cannot be specified in radians
+           ,----
+         1 | PEEK_LOSS(0.1rad) 0
+           :           ^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn peek_loss_with_negated_target_yields_error() {
     check(
         "PEEK_LOSS !0",

@@ -346,14 +346,14 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.WrongArgCount
+            Qdk.Stim.Compiler.TooFewArgs
 
-          x instruction PAULI_CHANNEL_1 requires 3 arguments, but found 2
-           ,----
-         1 | PAULI_CHANNEL_1(0.1, 0.2) 0 1
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x too few arguments for instruction PAULI_CHANNEL_1; expected 3, found 2
+               ,----
+             1 | PAULI_CHANNEL_1(0.1, 0.2) 0 1
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -441,14 +441,14 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.WrongArgCount
+            Qdk.Stim.Compiler.TooFewArgs
 
-          x instruction PAULI_CHANNEL_2 requires 15 arguments, but found 1
-           ,----
-         1 | PAULI_CHANNEL_2(0.1) 0 1 2 3
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x too few arguments for instruction PAULI_CHANNEL_2; expected 15, found 1
+               ,----
+             1 | PAULI_CHANNEL_2(0.1) 0 1 2 3
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 

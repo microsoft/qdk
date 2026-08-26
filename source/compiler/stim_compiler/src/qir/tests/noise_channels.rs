@@ -115,17 +115,45 @@ fn correlated_error_without_probability_yields_error() {
 }
 
 #[test]
-fn correlated_error_with_probability_exceeding_one_yields_error() {
+fn correlated_error_with_invalid_probability_yields_error() {
     let source = "CORRELATED_ERROR(1.5) X0";
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x noise probabilities must sum to at most 1.0, but they sum to 1.5
+              x probability for CORRELATED_ERROR must be between 0 and 1; found 1.5
+               ,----
+             1 | CORRELATED_ERROR(1.5) X0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
+    );
+    check(
+        "CORRELATED_ERROR(-0.1) X0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for CORRELATED_ERROR must be between 0 and 1; found -0.1
            ,----
-         1 | CORRELATED_ERROR(1.5) X0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^
+         1 | CORRELATED_ERROR(-0.1) X0
+           : ^^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn correlated_error_with_probability_in_radians_yields_error() {
+    check(
+        "CORRELATED_ERROR(0.1rad) X0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnexpectedRadians
+
+          x argument for CORRELATED_ERROR cannot be specified in radians
+           ,----
+         1 | CORRELATED_ERROR(0.1rad) X0
+           :                  ^^^^^^
            `----
     "#]],
     );
@@ -173,32 +201,6 @@ fn correlated_error_with_probability_of_exactly_one_is_valid() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
-    "#]],
-    );
-}
-
-#[test]
-fn correlated_error_chain_probability_error_spans_whole_group() {
-    let source = indoc! {"
-        TICK
-        CORRELATED_ERROR(0.5) X0
-        ELSE_CORRELATED_ERROR(1.5) Z0
-        ELSE_CORRELATED_ERROR(1.5) Z0
-        TICK
-    "};
-    check(
-        source,
-        &expect![[r#"
-        Qdk.Stim.Compiler.NegativeNoiseProbability
-
-          x noise probabilities must be non-negative, but found -0.375
-           ,-[2:1]
-         1 |     TICK
-         2 | ,-> CORRELATED_ERROR(0.5) X0
-         3 | |   ELSE_CORRELATED_ERROR(1.5) Z0
-         4 | `-> ELSE_CORRELATED_ERROR(1.5) Z0
-         5 |     TICK
-           `----
     "#]],
     );
 }
@@ -540,17 +542,46 @@ fn depolarize1_without_probability_yields_error() {
 }
 
 #[test]
-fn depolarize1_with_probabilities_exceeding_one_yields_error() {
+fn depolarize1_with_invalid_probability_yields_error() {
     let source = "DEPOLARIZE1(1.5) 0";
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x noise probabilities must sum to at most 1.0, but they sum to 1.5
+              x probability for DEPOLARIZE1 must be between 0 and 1; found 1.5
+               ,----
+             1 | DEPOLARIZE1(1.5) 0
+               : ^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
+    );
+
+    check(
+        "DEPOLARIZE1(-0.1) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for DEPOLARIZE1 must be between 0 and 1; found -0.1
            ,----
-         1 | DEPOLARIZE1(1.5) 0
-           : ^^^^^^^^^^^^^^^^^^
+         1 | DEPOLARIZE1(-0.1) 0
+           : ^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn depolarize1_with_probability_in_radians_yields_error() {
+    check(
+        "DEPOLARIZE1(0.1rad) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnexpectedRadians
+
+          x argument for DEPOLARIZE1 cannot be specified in radians
+           ,----
+         1 | DEPOLARIZE1(0.1rad) 0
+           :             ^^^^^^
            `----
     "#]],
     );
@@ -829,14 +860,14 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.WrongArgCount
+            Qdk.Stim.Compiler.TooFewArgs
 
-          x instruction PAULI_CHANNEL_1 requires 3 arguments, but found 2
-           ,----
-         1 | PAULI_CHANNEL_1(0.1, 0.2) 0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x too few arguments for instruction PAULI_CHANNEL_1; expected 3, found 2
+               ,----
+             1 | PAULI_CHANNEL_1(0.1, 0.2) 0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -906,17 +937,46 @@ fn pauli_channel_1_with_probabilities_summing_to_exactly_one_is_valid() {
 }
 
 #[test]
-fn pauli_channel_1_with_negative_probability_yields_error() {
+fn pauli_channel_1_with_invalid_probability_yields_error() {
     let source = "PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0";
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.NegativeNoiseProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x noise probabilities must be non-negative, but found -0.1
+              x probability for PAULI_CHANNEL_1 must be between 0 and 1; found -0.1
+               ,----
+             1 | PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0
+               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
+    );
+
+    check(
+        "PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for PAULI_CHANNEL_1 must be between 0 and 1; found 1.5
            ,----
-         1 | PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+         1 | PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0
+           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn pauli_channel_1_with_probability_in_radians_yields_error() {
+    check(
+        "PAULI_CHANNEL_1(0.1rad, 0.2, 0.3) 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnexpectedRadians
+
+          x argument for PAULI_CHANNEL_1 cannot be specified in radians
+           ,----
+         1 | PAULI_CHANNEL_1(0.1rad, 0.2, 0.3) 0
+           :                 ^^^^^^
            `----
     "#]],
     );
@@ -1005,14 +1065,14 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.WrongArgCount
+            Qdk.Stim.Compiler.TooFewArgs
 
-          x instruction PAULI_CHANNEL_2 requires 15 arguments, but found 1
-           ,----
-         1 | PAULI_CHANNEL_2(0.1) 0 1
-           : ^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x too few arguments for instruction PAULI_CHANNEL_2; expected 15, found 1
+               ,----
+             1 | PAULI_CHANNEL_2(0.1) 0 1
+               : ^^^^^^^^^^^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -1085,14 +1145,14 @@ fn x_error_with_probability_exceeding_one_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x noise probabilities must sum to at most 1.0, but they sum to 1.5
-           ,----
-         1 | X_ERROR(1.5) 0
-           : ^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for X_ERROR must be between 0 and 1; found 1.5
+               ,----
+             1 | X_ERROR(1.5) 0
+               : ^^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
