@@ -1454,7 +1454,7 @@ pub struct CircuitRenderingOptions {
 
 const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str = r#"Provides options for rendering an operation in circuit diagrams.
 
-The argument is a string containing comma-separated `key=value` pairs. Supported options:
+The argument is a string containing comma-separated `key=value` pairs. Keys are case-insensitive. Supported options:
   * hideBox (true|false) - if true, the operation's group box is omitted and its contents are rendered directly in the containing scope.
 
 Example: `@CircuitRenderingOptions("hideBox=true")`."#;

@@ -414,7 +414,7 @@ impl With<'_> {
                         ));
                         return None;
                     };
-                    let (key, value) = (key.trim(), value.trim());
+                    let (key, value) = (key.trim().to_ascii_lowercase(), value.trim());
                     if key.is_empty() || value.is_empty() {
                         self.lowerer.errors.push(Error::InvalidAttrArgs(
                             "non-empty keys and values".to_string(),
@@ -422,7 +422,7 @@ impl With<'_> {
                         ));
                         return None;
                     }
-                    if key == "hideBox" {
+                    if key == "hidebox" {
                         options.hide_box = match value {
                             "true" => true,
                             "false" => false,
