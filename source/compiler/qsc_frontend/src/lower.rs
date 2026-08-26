@@ -42,7 +42,7 @@ use self::convert::TyConversionError;
 pub(super) enum Error {
     #[error("unknown attribute {0}")]
     #[diagnostic(help(
-        "supported attributes are: EntryPoint, Config, InvisibleInCircuit, SimulatableIntrinsic, Measurement, Reset"
+        "supported attributes are: EntryPoint, Config, CircuitRenderingOptions, SimulatableIntrinsic, Measurement, Reset"
     ))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.UnknownAttr"))]
     UnknownAttr(String, #[label] Span),
@@ -382,17 +382,63 @@ impl With<'_> {
                     None
                 }
             },
-            Ok(hir::Attr::InvisibleInCircuit) => match &*attr.arg.kind {
-                ast::ExprKind::Tuple(args) if args.is_empty() => {
-                    Some(hir::Attr::InvisibleInCircuit)
+            Ok(hir::Attr::CircuitRenderingOptions(_)) => {
+                let arg = if let ast::ExprKind::Paren(arg) = &*attr.arg.kind {
+                    &*arg.kind
+                } else {
+                    &*attr.arg.kind
+                };
+                let ast::ExprKind::Lit(literal) = arg else {
+                    self.lowerer.errors.push(Error::InvalidAttrArgs(
+                        "a string containing comma-separated key=value pairs".to_string(),
+                        attr.arg.span,
+                    ));
+                    return None;
+                };
+                let ast::Lit::String(value) = literal.as_ref() else {
+                    self.lowerer.errors.push(Error::InvalidAttrArgs(
+                        "a string literal containing comma-separated key=value pairs".to_string(),
+                        attr.arg.span,
+                    ));
+                    return None;
+                };
+
+                let mut options = hir::CircuitRenderingOptions::default();
+                for pair in value.split(',') {
+                    let mut parts = pair.split('=');
+                    let (Some(key), Some(value), None) = (parts.next(), parts.next(), parts.next())
+                    else {
+                        self.lowerer.errors.push(Error::InvalidAttrArgs(
+                            "a string containing comma-separated key=value pairs".to_string(),
+                            attr.arg.span,
+                        ));
+                        return None;
+                    };
+                    let (key, value) = (key.trim(), value.trim());
+                    if key.is_empty() || value.is_empty() {
+                        self.lowerer.errors.push(Error::InvalidAttrArgs(
+                            "non-empty keys and values".to_string(),
+                            attr.arg.span,
+                        ));
+                        return None;
+                    }
+                    if key == "hideBox" {
+                        options.hide_box = match value {
+                            "true" => true,
+                            "false" => false,
+                            _ => {
+                                self.lowerer.errors.push(Error::InvalidAttrArgs(
+                                    "true or false for hideBox".to_string(),
+                                    attr.arg.span,
+                                ));
+                                return None;
+                            }
+                        };
+                    }
                 }
-                _ => {
-                    self.lowerer
-                        .errors
-                        .push(Error::InvalidAttrArgs("()".to_string(), attr.arg.span));
-                    None
-                }
-            },
+
+                Some(hir::Attr::CircuitRenderingOptions(options))
+            }
             Ok(hir::Attr::Unimplemented) => match &*attr.arg.kind {
                 ast::ExprKind::Tuple(args) if args.is_empty() => Some(hir::Attr::Unimplemented),
                 _ => {

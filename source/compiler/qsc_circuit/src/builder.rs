@@ -629,7 +629,7 @@ pub trait SourceLookup {
     /// Circuit rendering uses this to collapse bookkeeping-only callable
     /// scopes so they do not appear as separate groups in the final diagram.
     fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
-    /// Returns whether a callable scope is annotated with `InvisibleInCircuit`.
+    /// Returns whether a callable scope has `hideBox=true` in its circuit rendering options.
     fn is_invisible_callable_scope(&self, scope: &Scope) -> bool;
 }
 
@@ -871,7 +871,13 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
 
             decl.span.lo == offset
                 && displayable_callable_scope_name(&decl.name.name).as_ref() == name.as_ref()
-                && decl.attrs.contains(&qsc_hir::hir::Attr::InvisibleInCircuit)
+                && decl.attrs.iter().any(|attr| {
+                    matches!(
+                        attr,
+                        qsc_hir::hir::Attr::CircuitRenderingOptions(options)
+                            if options.hide_box
+                    )
+                })
         })
     }
 }

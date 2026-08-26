@@ -1425,8 +1425,8 @@ pub enum Attr {
     Config,
     /// Indicates that the callable is the entry point to a program.
     EntryPoint,
-    /// Indicates that a callable's scope should not be shown in circuit diagrams.
-    InvisibleInCircuit,
+    /// Provides options for rendering a callable in circuit diagrams.
+    CircuitRenderingOptions(CircuitRenderingOptions),
     /// Indicates that an item is not yet implemented.
     Unimplemented,
     /// Indicates that an item should be treated as an intrinsic callable for QIR code generation
@@ -1456,7 +1456,7 @@ Valid arguments are `Base`, `Adaptive`, `IntegerComputations`, `FloatingPointCom
 
 The `not` operator is also supported to negate the attribute, e.g. `not Adaptive`.",
             Attr::EntryPoint => "Indicates that the callable is the entry point to a program.",
-            Attr::InvisibleInCircuit => "Indicates that a callable's scope should not be shown in circuit diagrams.",
+            Attr::CircuitRenderingOptions(_) => "Provides options for rendering a callable in circuit diagrams.",
             Attr::Unimplemented => "Indicates that an item is not yet implemented.",
             Attr::SimulatableIntrinsic => "Indicates that an item should be treated as an intrinsic callable for QIR code generation and any implementation should only be used during simulation.",
             Attr::Measurement => "Indicates that an intrinsic callable is a measurement. This means that the operation will be marked as \"irreversible\" in the generated QIR, and output Result types will be moved to the arguments.",
@@ -1474,7 +1474,9 @@ impl FromStr for Attr {
         match s {
             "Config" => Ok(Self::Config),
             "EntryPoint" => Ok(Self::EntryPoint),
-            "InvisibleInCircuit" => Ok(Self::InvisibleInCircuit),
+            "CircuitRenderingOptions" => Ok(Self::CircuitRenderingOptions(
+                CircuitRenderingOptions::default(),
+            )),
             "Unimplemented" => Ok(Self::Unimplemented),
             "SimulatableIntrinsic" => Ok(Self::SimulatableIntrinsic),
             "Measurement" => Ok(Self::Measurement),
@@ -1484,6 +1486,13 @@ impl FromStr for Attr {
             _ => Err(()),
         }
     }
+}
+
+/// Options for rendering a callable in circuit diagrams.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CircuitRenderingOptions {
+    /// Whether the callable's group box should be hidden.
+    pub hide_box: bool,
 }
 
 /// A field.

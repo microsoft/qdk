@@ -467,8 +467,8 @@ fn grouping_nested_callables() {
 }
 
 #[test]
-fn invisible_callable_is_flattened_in_circuit() {
-    let code = r"
+fn callable_with_hidden_box_is_flattened_in_circuit() {
+    let code = r#"
             namespace Test {
                 @EntryPoint()
                 operation Main() : Unit {
@@ -482,13 +482,13 @@ fn invisible_callable_is_flattened_in_circuit() {
                     H(q);
                 }
 
-                @InvisibleInCircuit()
+                @CircuitRenderingOptions("unknownOption=value, hideBox=true")
                 operation Invisible(q : Qubit) : Unit {
                     X(q);
                     Y(q);
                 }
             }
-        ";
+        "#;
 
     for method in [
         CircuitGenerationMethod::Simulate,
