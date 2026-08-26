@@ -26,7 +26,7 @@ import type { IServiceProxy, ServiceProtocol } from "../workers/types.js";
 import {
   type SimulatorConfig,
   toWasmProgramConfig,
-  validateSimulatorConfig,
+  toWasmSimulatorConfig,
 } from "../compiler/compiler.js";
 import { callAndTransformExceptions } from "../diagnostics.js";
 
@@ -43,6 +43,7 @@ export interface IDebugService {
   getBreakpoints(path: string): Promise<IBreakpointSpan[]>;
   getLocalVariables(frameID: number): Promise<Array<IVariable>>;
   captureQuantumState(): Promise<Array<IQuantumState>>;
+  supportsQuantumStateCapture(): Promise<boolean>;
   getCircuit(): Promise<CircuitData>;
   getStackFrames(): Promise<IStackFrame[]>;
   evalContinue(
@@ -81,12 +82,12 @@ export class QSharpDebugService implements IDebugService {
     entry: string | undefined,
     simulator: SimulatorConfig = { type: "sparse" },
   ): Promise<string> {
-    validateSimulatorConfig(simulator);
+    const [simulatorType, maxQubits] = toWasmSimulatorConfig(simulator);
     return this.debugService.load_program_with_simulator(
       toWasmProgramConfig(program, "unrestricted"),
       entry,
-      simulator.type,
-      simulator.type === "clifford" ? simulator.maxQubits : 0,
+      simulatorType,
+      maxQubits,
     );
   }
 
@@ -102,6 +103,10 @@ export class QSharpDebugService implements IDebugService {
   async captureQuantumState(): Promise<Array<IQuantumState>> {
     const state = this.debugService.capture_quantum_state();
     return state.entries;
+  }
+
+  async supportsQuantumStateCapture(): Promise<boolean> {
+    return this.debugService.supports_quantum_state_capture();
   }
 
   async getCircuit(): Promise<CircuitData> {
@@ -214,6 +219,7 @@ export const debugServiceProtocol: ServiceProtocol<
     getBreakpoints: "request",
     getLocalVariables: "request",
     captureQuantumState: "request",
+    supportsQuantumStateCapture: "request",
     getCircuit: "request",
     getStackFrames: "request",
     evalContinue: "requestWithProgress",

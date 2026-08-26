@@ -60,7 +60,7 @@ pub(crate) fn call<B: Backend>(
             if !sim.supports_quantum_state_capture() {
                 return out
                     .message(
-                        "Warning: DumpMachine output is unavailable with Clifford simulation; execution will continue.",
+                        "Warning: DumpMachine output is unavailable with the selected simulator; execution will continue.",
                     )
                     .map(|()| Value::unit())
                     .map_err(|_| Error::OutputFail(name_span));

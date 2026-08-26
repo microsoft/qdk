@@ -98,6 +98,7 @@ export class QscDebugSession extends LoggingDebugSession {
   private failureMessage: string;
   private eventTarget: QscEventTarget;
   private supportsVariableType = false;
+  private supportsQuantumStateCapture = true;
   private revealedCircuit = false;
 
   public constructor(
@@ -143,6 +144,8 @@ export class QscDebugSession extends LoggingDebugSession {
     );
 
     if (failureMessage == "") {
+      this.supportsQuantumStateCapture =
+        await this.debugService.supportsQuantumStateCapture();
       for (const [path, _contents] of this.program.packageGraphSources.root
         .sources) {
         const locations = await this.debugService.getBreakpoints(path);
@@ -786,7 +789,7 @@ export class QscDebugSession extends LoggingDebugSession {
         false,
       ),
     ];
-    if (this.simulation.type === "sparse") {
+    if (this.supportsQuantumStateCapture) {
       scopes.push(
         new Scope(
           "Quantum State",

@@ -12,8 +12,8 @@ use project_system::{
     ProgramConfig, into_openqasm_arg, into_qsc_args, into_qsharp_ast_args, is_openqasm_program,
 };
 use qsc::{
-    CliffordSim, LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents,
-    SourceMap, SourceName, SparseSim, TargetCapabilityFlags,
+    LanguageFeatures, PackageStore, PackageType, PauliNoise, SourceContents, SourceMap, SourceName,
+    TargetCapabilityFlags,
     compile::{self, Dependencies, package_store_with_stdlib},
     format_state_id, get_matrix_latex, get_state_latex,
     hir::PackageId,
@@ -496,18 +496,13 @@ fn run_interpreter<F>(
     F: FnMut(&str),
 {
     for _ in 0..shots {
-        let result = match sim_type {
-            interpret::SimType::Sparse => {
-                let mut sim = SparseSim::new_with_noise(pauliNoise);
-                sim.set_loss(qubitLoss);
-                interpreter.eval_entry_with_sim(&mut sim, out)
-            }
-            interpret::SimType::Clifford(num_qubits) => {
-                let mut sim = CliffordSim::new_with_pauli_noise(num_qubits, pauliNoise);
-                sim.set_loss(qubitLoss);
-                interpreter.eval_entry_with_sim(&mut sim, out)
-            }
-        };
+        let result = interpreter.eval_entry_with_noise(
+            out,
+            Some(*pauliNoise),
+            Some(qubitLoss),
+            None,
+            sim_type,
+        );
         let mut success = true;
         let msg: serde_json::Value = match result {
             Ok(value) => serde_json::Value::String(value.to_string()),

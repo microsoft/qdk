@@ -31,10 +31,10 @@ use qsc::openqasm::semantic::AnalysisResult;
 use qsc::openqasm::{OperationSignature, QubitSemantics};
 use qsc::project::ProjectType;
 use qsc::target::Profile;
-use qsc::{Backend, CliffordSim, PackageType, PauliNoise, SparseSim};
 use qsc::{
     LanguageFeatures, SourceMap, ast::Package, error::WithSource, interpret, project::FileSystem,
 };
+use qsc::{PackageType, PauliNoise};
 
 use resource_estimator as re;
 
@@ -173,51 +173,19 @@ pub(crate) fn run_ast(
     loss: f64,
     sim_type: SimType,
 ) -> Result<Vec<qsc::interpret::Value>, Vec<interpret::Error>> {
-    let loss = if noise_config.is_none() { loss } else { 0.0 };
     let mut results = Vec::with_capacity(shots);
     for i in 0..shots {
-        let result = match sim_type {
-            SimType::Sparse => {
-                let mut sim = if let Some(noise) = noise {
-                    SparseSim::new_with_noise(&noise)
-                } else {
-                    match noise_config {
-                        Some(noise_config) => {
-                            SparseSim::new_with_noise_config(noise_config.clone().into())
-                        }
-                        None => SparseSim::new(),
-                    }
-                };
-                if loss > 0.0 {
-                    sim.set_loss(loss);
-                }
-                // If seed is provided, we want to use a different seed for each shot
-                // so that the results are different for each shot, but still deterministic
-                sim.set_seed(seed.map(|s| s + i as u64));
-                interpreter.run_with_sim(&mut sim, receiver, None, None)?
-            }
-            SimType::Clifford(num_qubits) => {
-                let mut sim = match noise {
-                    Some(noise) => CliffordSim::new_with_pauli_noise(num_qubits, &noise),
-                    None => match noise_config {
-                        Some(noise_config) => CliffordSim::new_with_noise_config(
-                            num_qubits,
-                            noise_config.clone().into(),
-                        ),
-                        None => CliffordSim::new(num_qubits),
-                    },
-                };
-                if loss > 0.0 {
-                    sim.set_loss(loss);
-                }
-                // If seed is provided, we want to use a different seed for each shot
-                // so that the results are different for each shot, but still deterministic
-                sim.set_seed(seed.map(|s| s + i as u64));
-                interpreter.run_with_sim(&mut sim, receiver, None, None)?
-            }
-        };
-
-        results.push(result);
+        // Use a different quantum seed for each shot so results vary while remaining deterministic.
+        interpreter.set_quantum_seed(seed.map(|seed| seed + i as u64));
+        results.push(interpreter.run(
+            receiver,
+            None,
+            noise,
+            Some(loss),
+            noise_config.cloned(),
+            None,
+            sim_type,
+        )?);
     }
 
     Ok(results)

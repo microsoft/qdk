@@ -1096,7 +1096,7 @@ test("compiler run warns and continues for Clifford state dumps", async () => {
     {
       type: "Message",
       message:
-        "Warning: DumpMachine output is unavailable with Clifford simulation; execution will continue.",
+        "Warning: DumpMachine output is unavailable with the selected simulator; execution will continue.",
     },
   ]);
 });
@@ -1288,6 +1288,7 @@ test("debug service loading source with good entry expr succeeds - web worker", 
     );
     assert.ok(typeof result === "string");
     assert.equal(result.trim(), "");
+    assert.equal(await debugService.supportsQuantumStateCapture(), true);
   } finally {
     debugService.terminate();
   }
@@ -1351,6 +1352,7 @@ test("debug service executes with Clifford simulation - web worker", async () =>
       { type: "clifford", maxQubits: 2 },
     );
     assert.equal(result.trim(), "");
+    assert.equal(await debugService.supportsQuantumStateCapture(), false);
 
     const events = new QscEventTarget(true);
     const stepResult = await debugService.evalContinue([], events);
@@ -1360,7 +1362,7 @@ test("debug service executes with Clifford simulation - web worker", async () =>
       {
         type: "Message",
         message:
-          "Warning: DumpMachine output is unavailable with Clifford simulation; execution will continue.",
+          "Warning: DumpMachine output is unavailable with the selected simulator; execution will continue.",
       },
     ]);
     await assert.rejects(

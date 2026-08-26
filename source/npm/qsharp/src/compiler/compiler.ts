@@ -144,6 +144,32 @@ export function validateSimulatorConfig(simulator: SimulatorConfig): void {
   }
 }
 
+export function toWasmSimulatorConfig(
+  simulator: SimulatorConfig,
+): [type: SimulatorConfig["type"], maxQubits: number] {
+  validateSimulatorConfig(simulator);
+  return [
+    simulator.type,
+    simulator.type === "clifford" ? simulator.maxQubits : 0,
+  ];
+}
+
+function resolveSimulatorArguments(
+  simulatorOrEventHandler: SimulatorConfig | IQscEventTarget,
+  eventHandler: IQscEventTarget | undefined,
+): { simulator: SimulatorConfig; eventHandler: IQscEventTarget } {
+  if ("dispatchEvent" in simulatorOrEventHandler) {
+    return {
+      simulator: { type: "sparse" },
+      eventHandler: simulatorOrEventHandler,
+    };
+  }
+  if (!eventHandler) {
+    throw new Error("A compiler event handler must be provided");
+  }
+  return { simulator: simulatorOrEventHandler, eventHandler };
+}
+
 // WebWorker also support being explicitly terminated to tear down the worker thread
 export type ICompilerWorker = ICompiler & IServiceProxy;
 export type CompilerState = ServiceState;
@@ -225,39 +251,24 @@ export class Compiler implements ICompiler {
     simulatorOrEventHandler: SimulatorConfig | IQscEventTarget,
     eventHandler?: IQscEventTarget,
   ): Promise<void> {
-    const simulator =
-      "dispatchEvent" in simulatorOrEventHandler
-        ? { type: "sparse" as const }
-        : simulatorOrEventHandler;
-    const target =
-      "dispatchEvent" in simulatorOrEventHandler
-        ? simulatorOrEventHandler
-        : eventHandler;
-    if (!target) {
-      throw new Error("A compiler event handler must be provided");
-    }
-    validateSimulatorConfig(simulator);
+    const { simulator, eventHandler: target } = resolveSimulatorArguments(
+      simulatorOrEventHandler,
+      eventHandler,
+    );
+    const [simulatorType, maxQubits] = toWasmSimulatorConfig(simulator);
 
     // All results are communicated as events, but if there is a compiler error (e.g. an invalid
     // entry expression or similar), it may throw on run. The caller should expect this promise
     // may reject without all shots running or events firing.
     await callAndTransformExceptions(async () => {
       const eventCallback = (msg: string) => onCompilerEvent(msg, target);
-      if (simulator.type === "clifford") {
-        return this.wasm.runWithSimulator(
-          toWasmProgramConfig(program, "unrestricted"),
-          expr,
-          eventCallback,
-          shots!,
-          simulator.type,
-          simulator.maxQubits,
-        );
-      }
-      return this.wasm.run(
+      return this.wasm.runWithSimulator(
         toWasmProgramConfig(program, "unrestricted"),
         expr,
         eventCallback,
         shots!,
+        simulatorType,
+        maxQubits,
       );
     });
   }
@@ -271,40 +282,23 @@ export class Compiler implements ICompiler {
     simulatorOrEventHandler: SimulatorConfig | IQscEventTarget,
     eventHandler?: IQscEventTarget,
   ): Promise<void> {
-    const simulator =
-      "dispatchEvent" in simulatorOrEventHandler
-        ? { type: "sparse" as const }
-        : simulatorOrEventHandler;
-    const target =
-      "dispatchEvent" in simulatorOrEventHandler
-        ? simulatorOrEventHandler
-        : eventHandler;
-    if (!target) {
-      throw new Error("A compiler event handler must be provided");
-    }
-    validateSimulatorConfig(simulator);
+    const { simulator, eventHandler: target } = resolveSimulatorArguments(
+      simulatorOrEventHandler,
+      eventHandler,
+    );
+    const [simulatorType, maxQubits] = toWasmSimulatorConfig(simulator);
 
     await callAndTransformExceptions(async () => {
       const eventCallback = (msg: string) => onCompilerEvent(msg, target);
-      if (simulator.type === "clifford") {
-        return this.wasm.runWithSimulatorAndNoise(
-          toWasmProgramConfig(program, "unrestricted"),
-          expr,
-          eventCallback,
-          shots!,
-          pauliNoise,
-          qubitLoss,
-          simulator.type,
-          simulator.maxQubits,
-        );
-      }
-      return this.wasm.runWithNoise(
+      return this.wasm.runWithSimulatorAndNoise(
         toWasmProgramConfig(program, "unrestricted"),
         expr,
         eventCallback,
         shots!,
         pauliNoise,
         qubitLoss,
+        simulatorType,
+        maxQubits,
       );
     });
   }

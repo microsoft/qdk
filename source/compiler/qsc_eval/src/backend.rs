@@ -26,6 +26,36 @@ mod noise_tests;
 
 type StateDump = (Vec<(BigUint, Complex<f64>)>, usize);
 
+fn fresh_legacy_noise_rng(noise: &PauliNoise, loss: f64) -> Option<StdRng> {
+    if noise.is_noiseless() && loss.is_zero() {
+        None
+    } else {
+        Some(StdRng::from_rng(&mut rand::rng()))
+    }
+}
+
+fn sample_legacy_fault(
+    rng: Option<&mut StdRng>,
+    noise: &PauliNoise,
+    loss: f64,
+) -> Option<FaultTerm> {
+    let rng = rng?;
+    if rng.random_range(0.0..1.0) < loss {
+        return Some(FaultTerm::Loss);
+    }
+
+    let p = rng.random_range(0.0..1.0);
+    if p >= noise.distribution[2] {
+        None
+    } else if p < noise.distribution[0] {
+        Some(FaultTerm::X)
+    } else if p < noise.distribution[1] {
+        Some(FaultTerm::Y)
+    } else {
+        Some(FaultTerm::Z)
+    }
+}
+
 /// The trait that must be implemented by a quantum backend, whose functions will be invoked when
 /// quantum intrinsics are called.
 pub trait Backend {
@@ -613,20 +643,12 @@ impl SparseSim {
 
     fn set_noise(&mut self, noise: &PauliNoise) {
         self.noise = *noise;
-        if noise.is_noiseless() && self.loss.is_zero() {
-            self.rng = None;
-        } else {
-            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
-        }
+        self.rng = fresh_legacy_noise_rng(noise, self.loss);
     }
 
     pub fn set_loss(&mut self, loss: f64) {
         self.loss = loss;
-        if loss.is_zero() && self.noise.is_noiseless() {
-            self.rng = None;
-        } else {
-            self.rng = Some(StdRng::from_rng(&mut rand::rng()));
-        }
+        self.rng = fresh_legacy_noise_rng(&self.noise, loss);
     }
 
     #[must_use]
@@ -695,10 +717,8 @@ impl SparseSim {
             // If the qubit is already lost, we don't apply noise.
             return;
         }
-        if let Some(rng) = &mut self.rng {
-            // First, check for loss.
-            let p = rng.random_range(0.0..1.0);
-            if p < self.loss {
+        match sample_legacy_fault(self.rng.as_mut(), &self.noise, self.loss) {
+            Some(FaultTerm::Loss) => {
                 // The qubit is lost, so we reset it.
                 // It is not safe to release the qubit here, as that may
                 // interfere with later operations (gates or measurements)
@@ -708,22 +728,12 @@ impl SparseSim {
                 }
                 // Mark the qubit as lost.
                 self.lost_qubits.set_bit(q as u64, true);
-                return;
             }
-
-            // Apply noise with a probability distribution defined in `self.noise`.
-            let p = rng.random_range(0.0..1.0);
-            if p >= self.noise.distribution[2] {
-                // In the most common case we don't apply noise
-            } else if p < self.noise.distribution[0] {
-                self.sim.x(q);
-            } else if p < self.noise.distribution[1] {
-                self.sim.y(q);
-            } else {
-                self.sim.z(q);
-            }
+            Some(FaultTerm::X) => self.sim.x(q),
+            Some(FaultTerm::Y) => self.sim.y(q),
+            Some(FaultTerm::Z) => self.sim.z(q),
+            Some(FaultTerm::I) | None => {}
         }
-        // No noise applied if rng is None.
     }
 
     /// Checks if the qubit is lost.
@@ -1273,7 +1283,7 @@ impl CliffordSim {
         let mut sim = Self::new(num_qubits);
         sim.is_noisy = true;
         sim.pauli_noise = *noise;
-        sim.legacy_noise_rng = Some(StdRng::from_rng(&mut rand::rng()));
+        sim.legacy_noise_rng = fresh_legacy_noise_rng(noise, 0.0);
         sim
     }
 
@@ -1281,11 +1291,7 @@ impl CliffordSim {
         self.qubit_loss = loss;
         self.is_noisy =
             self.has_noise_config || !self.pauli_noise.is_noiseless() || !loss.is_zero();
-        self.legacy_noise_rng = if self.pauli_noise.is_noiseless() && loss.is_zero() {
-            None
-        } else {
-            Some(StdRng::from_rng(&mut rand::rng()))
-        };
+        self.legacy_noise_rng = fresh_legacy_noise_rng(&self.pauli_noise, loss);
     }
 
     fn apply_legacy_noise(&mut self, q: usize) {
@@ -1294,25 +1300,16 @@ impl CliffordSim {
             return;
         }
 
-        let Some(rng) = &mut self.legacy_noise_rng else {
-            return;
-        };
-        if rng.random_range(0.0..1.0) < self.qubit_loss {
-            self.sim.lose_qubit(q_id);
-            return;
-        }
-
-        let p = rng.random_range(0.0..1.0);
-        if p >= self.pauli_noise.distribution[2] {
-            return;
-        }
-
-        if p < self.pauli_noise.distribution[0] {
-            self.sim.x(q_id);
-        } else if p < self.pauli_noise.distribution[1] {
-            self.sim.y(q_id);
-        } else {
-            self.sim.z(q_id);
+        match sample_legacy_fault(
+            self.legacy_noise_rng.as_mut(),
+            &self.pauli_noise,
+            self.qubit_loss,
+        ) {
+            Some(FaultTerm::Loss) => self.sim.lose_qubit(q_id),
+            Some(FaultTerm::X) => self.sim.x(q_id),
+            Some(FaultTerm::Y) => self.sim.y(q_id),
+            Some(FaultTerm::Z) => self.sim.z(q_id),
+            Some(FaultTerm::I) | None => {}
         }
     }
 

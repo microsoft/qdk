@@ -68,6 +68,10 @@ impl DebugService {
         Ok(QuantumStateList { entries }.into())
     }
 
+    pub fn supports_quantum_state_capture(&self) -> bool {
+        self.debugger().supports_quantum_state_capture()
+    }
+
     pub fn get_circuit(&self) -> Result<JsValue, String> {
         let circuit = self.debugger().circuit();
         serde_wasm_bindgen::to_value(&circuit).map_err(|e| e.to_string())

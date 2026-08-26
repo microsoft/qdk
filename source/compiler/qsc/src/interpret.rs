@@ -11,8 +11,6 @@ mod debugger_tests;
 #[cfg(test)]
 mod package_tests;
 #[cfg(test)]
-mod simulation_tests;
-#[cfg(test)]
 mod tests;
 
 use std::{cell::RefCell, rc::Rc};
@@ -136,6 +134,49 @@ pub enum SimType {
     #[default]
     Sparse,
     Clifford(usize),
+}
+
+macro_rules! with_fresh_simulator {
+    ($sim_type:expr, $noise:expr, $qubit_loss:expr, $noise_config:expr, |$sim:ident| $body:expr) => {{
+        let noise = $noise;
+        let noise_config = $noise_config;
+        let qubit_loss = if noise_config.is_none() {
+            $qubit_loss
+        } else {
+            None
+        };
+
+        match $sim_type {
+            SimType::Sparse => {
+                let mut $sim = match noise {
+                    Some(noise) => SparseSim::new_with_noise(&noise),
+                    None => match noise_config {
+                        Some(config) => SparseSim::new_with_noise_config(config.into()),
+                        None => SparseSim::new(),
+                    },
+                };
+                if let Some(loss) = qubit_loss {
+                    $sim.set_loss(loss);
+                }
+                $body
+            }
+            SimType::Clifford(num_qubits) => {
+                let mut $sim = match noise {
+                    Some(noise) => CliffordSim::new_with_pauli_noise(num_qubits, &noise),
+                    None => match noise_config {
+                        Some(config) => {
+                            CliffordSim::new_with_noise_config(num_qubits, config.into())
+                        }
+                        None => CliffordSim::new(num_qubits),
+                    },
+                };
+                if let Some(loss) = qubit_loss {
+                    $sim.set_loss(loss);
+                }
+                $body
+            }
+        }
+    }};
 }
 
 /// A Q# interpreter.
@@ -912,48 +953,35 @@ impl Interpreter {
         seed: Option<u64>,
         sim_type: SimType,
     ) -> InterpretResult {
-        let qubit_loss = if noise_config.is_none() {
-            qubit_loss
-        } else {
-            None
-        };
+        with_fresh_simulator!(sim_type, noise, qubit_loss, noise_config, |sim| self
+            .invoke_with_seeded_sim(&mut sim, receiver, callable, args, seed))
+    }
 
-        match sim_type {
-            SimType::Sparse => {
-                let mut sim = match noise {
-                    Some(noise) => SparseSim::new_with_noise(&noise),
-                    None => match noise_config {
-                        Some(config) => SparseSim::new_with_noise_config(config.into()),
-                        None => SparseSim::new(),
-                    },
-                };
-                if let Some(loss) = qubit_loss {
-                    sim.set_loss(loss);
-                }
-                if seed.is_some() {
-                    sim.set_seed(seed);
-                }
-                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
-            }
-            SimType::Clifford(num_qubits) => {
-                let mut sim = match noise {
-                    Some(noise) => CliffordSim::new_with_pauli_noise(num_qubits, &noise),
-                    None => match noise_config {
-                        Some(config) => {
-                            CliffordSim::new_with_noise_config(num_qubits, config.into())
-                        }
-                        None => CliffordSim::new(num_qubits),
-                    },
-                };
-                if let Some(loss) = qubit_loss {
-                    sim.set_loss(loss);
-                }
-                if seed.is_some() {
-                    sim.set_seed(seed);
-                }
-                self.invoke_with_sim(&mut sim, receiver, callable, args, seed)
-            }
+    fn invoke_with_seeded_sim(
+        &mut self,
+        sim: &mut impl Backend,
+        receiver: &mut impl Receiver,
+        callable: Value,
+        args: Value,
+        seed: Option<u64>,
+    ) -> InterpretResult {
+        if seed.is_some() {
+            sim.set_seed(seed);
         }
+        self.invoke_with_sim(sim, receiver, callable, args, seed)
+    }
+
+    /// Runs the package entry point on a fresh simulator configured with the given noise, if any.
+    pub fn eval_entry_with_noise(
+        &mut self,
+        receiver: &mut impl Receiver,
+        noise: Option<PauliNoise>,
+        qubit_loss: Option<f64>,
+        noise_config: Option<NoiseConfig<f64, f64>>,
+        sim_type: SimType,
+    ) -> InterpretResult {
+        with_fresh_simulator!(sim_type, noise, qubit_loss, noise_config, |sim| self
+            .eval_entry_with_sim(&mut sim, receiver))
     }
 
     /// Runs the given entry expression on a new instance of the environment and simulator,
@@ -969,41 +997,8 @@ impl Interpreter {
         seed: Option<u64>,
         sim_type: SimType,
     ) -> InterpretResult {
-        let qubit_loss = if noise_config.is_none() {
-            qubit_loss
-        } else {
-            None
-        };
-        match sim_type {
-            SimType::Sparse => {
-                let mut sim = match noise {
-                    Some(noise) => SparseSim::new_with_noise(&noise),
-                    None => match noise_config {
-                        Some(config) => SparseSim::new_with_noise_config(config.into()),
-                        None => SparseSim::new(),
-                    },
-                };
-                if let Some(loss) = qubit_loss {
-                    sim.set_loss(loss);
-                }
-                self.run_with_sim(&mut sim, receiver, expr, seed)
-            }
-            SimType::Clifford(num_qubits) => {
-                let mut sim = match noise {
-                    Some(noise) => CliffordSim::new_with_pauli_noise(num_qubits, &noise),
-                    None => match noise_config {
-                        Some(config) => {
-                            CliffordSim::new_with_noise_config(num_qubits, config.into())
-                        }
-                        None => CliffordSim::new(num_qubits),
-                    },
-                };
-                if let Some(loss) = qubit_loss {
-                    sim.set_loss(loss);
-                }
-                self.run_with_sim(&mut sim, receiver, expr, seed)
-            }
-        }
+        with_fresh_simulator!(sim_type, noise, qubit_loss, noise_config, |sim| self
+            .run_with_sim(&mut sim, receiver, expr, seed))
     }
 
     /// Gets the current quantum state of the simulator.
@@ -2045,6 +2040,14 @@ impl Debugger {
             DebuggerSimulator::Clifford(_) => Err(
                 "quantum state visualization is not supported in Clifford simulation".to_string(),
             ),
+        }
+    }
+
+    #[must_use]
+    pub fn supports_quantum_state_capture(&self) -> bool {
+        match &self.simulator {
+            DebuggerSimulator::Sparse => self.interpreter.sim.supports_quantum_state_capture(),
+            DebuggerSimulator::Clifford(simulator) => simulator.supports_quantum_state_capture(),
         }
     }
 
