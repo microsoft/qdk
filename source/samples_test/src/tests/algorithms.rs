@@ -65,7 +65,7 @@ pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT_DEBUG: Expect = expect![[r#"
     Computed value = 1.0, true value = 0.995974293995239
     (16, 4)"#]];
 pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT_CIRCUIT: Expect =
-    expect!["generated circuit of length 120400"];
+    expect!["generated circuit of length 122966"];
 pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 139362"];
 pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect =
@@ -107,7 +107,7 @@ pub const HIDDENSHIFTNISQ_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated Q
 pub const HIDDENSHIFTNISQ_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8496"];
 pub const PHASEESTIMATION_EXPECT: Expect = expect!["1.0799224746714913"];
 pub const PHASEESTIMATION_EXPECT_DEBUG: Expect = expect!["1.0799224746714913"];
-pub const PHASEESTIMATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 248107"];
+pub const PHASEESTIMATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 249358"];
 pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 95778"];
 pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 15749"];
@@ -186,7 +186,7 @@ pub const SIMPLEPHASEESTIMATION_EXPECT: Expect = expect![[r#"[Zero, Zero, Zero, 
 pub const SIMPLEPHASEESTIMATION_EXPECT_DEBUG: Expect =
     expect![[r#"[Zero, Zero, Zero, One, Zero, One]"#]];
 pub const SIMPLEPHASEESTIMATION_EXPECT_CIRCUIT: Expect =
-    expect!["generated circuit of length 87076"];
+    expect!["generated circuit of length 87885"];
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 39770"];
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect =
@@ -286,7 +286,7 @@ pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of 
 pub const THREEQUBITREPETITIONCODE_EXPECT: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_DEBUG: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_CIRCUIT: Expect =
-    expect!["generated circuit of length 51203"];
+    expect!["generated circuit of length 51383"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 18122"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_QIR_ADAPTIVE: Expect =

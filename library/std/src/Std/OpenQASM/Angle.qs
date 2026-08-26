@@ -36,6 +36,7 @@ function AngleAsBoolArrayBE(angle : Angle) : Bool[] {
 
 function AngleAsDouble(angle : Angle) : Double {
     let F64_MANTISSA_DIGITS = 53;
+    let tau = 2.0 * Std.Math.PI();
     // Keep the branch scalar-valued; partial evaluation cannot lower a dynamic
     // branch that returns an Angle struct.
     let value = if angle.Size > F64_MANTISSA_DIGITS {
@@ -52,6 +53,7 @@ function AngleAsDouble(angle : Angle) : Double {
     } else {
         angle.Value
     };
+    let value = Std.Math.MinI(value, (1 <<< F64_MANTISSA_DIGITS) - 1);
     let size = if angle.Size > F64_MANTISSA_DIGITS {
         F64_MANTISSA_DIGITS
     } else {
@@ -59,8 +61,9 @@ function AngleAsDouble(angle : Angle) : Double {
     };
     let denom = Std.Convert.IntAsDouble(1 <<< size);
     let value = Std.Convert.IntAsDouble(value);
-    let factor = (2.0 * Std.Math.PI()) / denom;
-    value * factor
+    let factor = tau / denom;
+    // Tau is in [4, 8), where adjacent Double values are 2^-50 apart.
+    Std.Math.MinD(value * factor, tau - 2.0^(-50.0))
 }
 
 function AngleAsBool(angle : Angle) : Bool {

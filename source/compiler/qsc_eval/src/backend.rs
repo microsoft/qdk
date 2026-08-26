@@ -1,8 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::f64::consts::{FRAC_PI_2, PI, TAU};
-
 use crate::debug::Frame;
 use crate::function_evaluator::FunctionEvaluator;
 use crate::val::{self, Value};
@@ -12,7 +10,7 @@ use num_bigint::{BigInt, BigUint};
 use num_complex::Complex;
 use num_traits::Zero;
 use qdk_simulators::{
-    MeasurementResult, NearlyZero, Simulator as _, SparseStateSim,
+    MeasurementResult, Simulator as _, SparseStateSim,
     noise_config::{CumulativeNoiseConfig, CumulativeNoiseTable, FaultTerm},
     stabilizer_simulator::StabilizerSimulator,
 };
@@ -1305,42 +1303,36 @@ impl Backend for CliffordSim {
 
     fn rx(&mut self, theta: f64, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
-        check_normalized_angle(theta)?;
         self.sim.rx(theta, q_id);
         Ok(())
     }
 
     fn rxx(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-        check_normalized_angle(theta)?;
         self.sim.rxx(theta, q0_id, q1_id);
         Ok(())
     }
 
     fn ry(&mut self, theta: f64, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
-        check_normalized_angle(theta)?;
         self.sim.ry(theta, q_id);
         Ok(())
     }
 
     fn ryy(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-        check_normalized_angle(theta)?;
         self.sim.ryy(theta, q0_id, q1_id);
         Ok(())
     }
 
     fn rz(&mut self, theta: f64, q: usize) -> Result<(), String> {
         let q_id = self.qubit_id_map[q];
-        check_normalized_angle(theta)?;
         self.sim.rz(theta, q_id);
         Ok(())
     }
 
     fn rzz(&mut self, theta: f64, q0: usize, q1: usize) -> Result<(), String> {
         let (q0_id, q1_id) = (self.qubit_id_map[q0], self.qubit_id_map[q1]);
-        check_normalized_angle(theta)?;
         self.sim.rzz(theta, q0_id, q1_id);
         Ok(())
     }
@@ -1425,12 +1417,16 @@ impl Backend for CliffordSim {
         Ok(())
     }
 
-    fn t(&mut self, _q: usize) -> Result<(), String> {
-        Err("T gate is not supported in Clifford simulation".to_string())
+    fn t(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.t(q_id);
+        Ok(())
     }
 
-    fn tadj(&mut self, _q: usize) -> Result<(), String> {
-        Err("adjoint T gate is not supported in Clifford simulation".to_string())
+    fn tadj(&mut self, q: usize) -> Result<(), String> {
+        let q_id = self.qubit_id_map[q];
+        self.sim.t_adj(q_id);
+        Ok(())
     }
 
     fn custom_intrinsic(
@@ -1501,21 +1497,4 @@ fn unwrap_matrix_as_array2(matrix: Value, qubits: &[usize]) -> Array2<Complex<f6
     Array2::from_shape_fn((1 << qubits.len(), 1 << qubits.len()), |(i, j)| {
         matrix[i][j]
     })
-}
-
-fn check_normalized_angle(theta: f64) -> Result<(), String> {
-    let mut normalized_angle = theta % (TAU);
-    if normalized_angle < 0.0 {
-        normalized_angle += TAU;
-    }
-    if normalized_angle.is_nearly_zero()
-        || (normalized_angle - TAU).is_nearly_zero()
-        || (normalized_angle - FRAC_PI_2).is_nearly_zero()
-        || (normalized_angle - PI).is_nearly_zero()
-        || (normalized_angle - 3.0 * FRAC_PI_2).is_nearly_zero()
-    {
-        Ok(())
-    } else {
-        Err("angle must be a multiple of PI/2 in Clifford simulation".to_string())
-    }
 }

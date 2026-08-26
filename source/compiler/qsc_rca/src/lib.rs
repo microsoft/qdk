@@ -364,10 +364,10 @@ impl ApplicationGeneratorSet {
                     if let ComputeKind::Dynamic { value_kind, .. } = arg_compute_kind {
                         match value_kind {
                             ValueKind::Variable => {
-                                compute_kind = compute_kind.aggregate(param_compute_kind.variable);
+                                compute_kind.aggregate(param_compute_kind.variable);
                             }
                             ValueKind::Constant => {
-                                compute_kind = compute_kind.aggregate(param_compute_kind.constant);
+                                compute_kind.aggregate(param_compute_kind.constant);
                             }
                         }
                     }
@@ -383,16 +383,13 @@ impl ApplicationGeneratorSet {
                                 if runtime_features
                                     .contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) =>
                             {
-                                compute_kind =
-                                    compute_kind.aggregate(array_param_application.dynamic_size);
+                                compute_kind.aggregate(array_param_application.dynamic_size);
                             }
                             ValueKind::Variable => {
-                                compute_kind =
-                                    compute_kind.aggregate(array_param_application.static_size);
+                                compute_kind.aggregate(array_param_application.static_size);
                             }
                             ValueKind::Constant => {
-                                compute_kind = compute_kind
-                                    .aggregate(array_param_application.constant_content);
+                                compute_kind.aggregate(array_param_application.constant_content);
                             }
                         }
                     }
@@ -411,10 +408,10 @@ impl ApplicationGeneratorSet {
         for param_application in &self.dynamic_param_applications {
             match param_application {
                 ParamApplication::Element(param_compute_kind) => {
-                    compute_kind = compute_kind.aggregate(param_compute_kind.variable);
+                    compute_kind.aggregate(param_compute_kind.variable);
                 }
                 ParamApplication::Array(array_param_application) => {
-                    compute_kind = compute_kind.aggregate(array_param_application.dynamic_size);
+                    compute_kind.aggregate(array_param_application.dynamic_size);
                 }
             }
         }
@@ -518,64 +515,63 @@ impl Display for ComputeKind {
 }
 
 impl ComputeKind {
-    pub(crate) fn aggregate(self, value: Self) -> Self {
+    pub(crate) fn aggregate(&mut self, value: Self) {
         let ComputeKind::Dynamic {
             runtime_features,
             value_kind,
         } = value
         else {
             // A static compute kind has nothing to aggregate so just return self with no changes.
-            return self;
+            return;
         };
 
         // Determine the aggregated runtime features and value kind.
-        let (runtime_features, value_kind) = match self {
-            Self::Static => (runtime_features, value_kind),
+        match self {
+            Self::Static => {
+                *self = ComputeKind::Dynamic {
+                    runtime_features,
+                    value_kind,
+                }
+            }
             Self::Dynamic {
                 runtime_features: self_runtime_features,
                 value_kind: self_value_kind,
-            } => (
-                self_runtime_features | runtime_features,
-                self_value_kind.aggregate(value_kind),
-            ),
-        };
-
-        // Return the aggregated compute kind.
-        ComputeKind::Dynamic {
-            runtime_features,
-            value_kind,
+            } => {
+                *self_runtime_features |= runtime_features;
+                *self_value_kind = self_value_kind.aggregate(value_kind);
+            }
         }
     }
 
     pub(crate) fn aggregate_runtime_features(
-        self,
+        &mut self,
         value: ComputeKind,
         default_value_kind: ValueKind,
-    ) -> Self {
+    ) {
         let Self::Dynamic {
             runtime_features, ..
         } = value
         else {
             // A static compute kind has nothing to aggregate so just return the self with no changes.
-            return self;
+            return;
         };
 
         // Determine the aggregated runtime features, use the value kind equivalent from self or the default.
-        let (mut runtime_features, value_kind) = match self {
-            Self::Static => (runtime_features, default_value_kind),
+        // We don't propagate the `MustBeInlined` runtime feature because it is only relevant at call expressions.
+        match self {
+            Self::Static => {
+                *self = ComputeKind::Dynamic {
+                    runtime_features: runtime_features & !RuntimeFeatureFlags::MustBeInlined,
+                    value_kind: default_value_kind,
+                }
+            }
             Self::Dynamic {
                 runtime_features: self_runtime_features,
-                value_kind: self_value_kind,
-            } => (self_runtime_features | runtime_features, self_value_kind),
-        };
-
-        // We don't propagate the `MustBeInlined` runtime feature because it is only relevant at call expressions.
-        runtime_features.remove(RuntimeFeatureFlags::MustBeInlined);
-
-        // Return the aggregated compute kind.
-        ComputeKind::Dynamic {
-            runtime_features,
-            value_kind,
+                ..
+            } => {
+                *self_runtime_features |= runtime_features;
+                self_runtime_features.remove(RuntimeFeatureFlags::MustBeInlined);
+            }
         }
     }
 

@@ -1712,8 +1712,8 @@ fn check_no_break_continue_reports_residual_node() {
     assert!(
         residual
             .iter()
-            .all(|e| matches!(e, Error::ResidualBreakContinue(_))),
-        "expected only ResidualBreakContinue errors, got {residual:?}"
+            .all(|e| matches!(e, Error::UnsupportedBreakContinue(_))),
+        "expected only UnsupportedBreakContinue errors, got {residual:?}"
     );
 
     expect![[r#"
@@ -1797,7 +1797,7 @@ fn default_passes_gate_residual_error_when_loop_control_reports() {
     // `loop_control` reports. The residual raw node it leaves behind is the
     // expected consequence of that error, so the default pipeline must surface
     // only the `loop_control` diagnostic and gate out the internal
-    // `ResidualBreakContinue` invariant to avoid double-reporting.
+    // `UnsupportedBreakContinue` invariant to avoid double-reporting.
     let store = PackageStore::new(compile::core());
     let sources = SourceMap::new(
         [(
@@ -1832,9 +1832,9 @@ fn default_passes_gate_residual_error_when_loop_control_reports() {
     assert!(
         !errors.iter().any(|e| matches!(
             e,
-            crate::Error::LoopUnification(Error::ResidualBreakContinue(_))
+            crate::Error::LoopUnification(Error::UnsupportedBreakContinue(_))
         )),
-        "gating should suppress ResidualBreakContinue when loop_control reports, got {errors:?}"
+        "gating should suppress UnsupportedBreakContinue when loop_control reports, got {errors:?}"
     );
 
     expect![[r#"

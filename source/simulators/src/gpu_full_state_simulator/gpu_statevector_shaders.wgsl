@@ -182,6 +182,7 @@ const OP_RESET:         u32 = 0x12;
 const OP_READ_RESULT:   u32 = 0x13;
 const OP_RECORD_OUTPUT: u32 = 0x14;
 const OP_READ_LOSS:     u32 = 0x15;
+const OP_PEEK_LOSS:     u32 = 0x16;
 const OP_READOUT_NOISE: u32 = 0x17;
 
 // -- Integer Arithmetic -------------------------------------------------------
@@ -2900,6 +2901,17 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 let result_id = instr.src0;
                 let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
+                pc++;
+            }
+
+            // PEEK_LOSS: Reports whether a qubit was lost, but doesn't
+            // collapse the state.
+            case OP_PEEK_LOSS {
+                let qubit = resolve_u32(shot_idx, instr.aux0, flags, 3u);
+                let result_id = resolve_u32(shot_idx, instr.aux1, flags, 4u);
+                let result_idx = shot_idx * RESULT_COUNT + result_id;
+                let is_lost = shots[shot_idx].qubit_state[qubit].heat == -1.0;
+                atomicStore(&results[result_idx], select(0u, 1u, is_lost));
                 pc++;
             }
 

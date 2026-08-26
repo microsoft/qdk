@@ -3,11 +3,13 @@
 
 pub mod bytecode;
 pub mod cpu_full_state_simulator;
+#[cfg(feature = "gpu")]
 mod gpu_full_state_simulator;
 pub mod noise_config;
 pub mod sparse_state_simulator;
 pub mod stabilizer_simulator;
 
+#[cfg(feature = "gpu")]
 pub use gpu_full_state_simulator::*;
 pub use sparse_state_simulator::SparseStateSim;
 pub use sparse_state_simulator::nearly_zero::NearlyZero;
@@ -128,6 +130,9 @@ pub trait Simulator {
     /// Dumps the current state of the simulator in some representation that can be compared
     /// for `PartialEq` up to a global phase. This is meant to be used for testing.
     fn state_dump(&self) -> &Self::StateDumpData;
+
+    /// Measures loss but does not collapse the state. The result is stored in `result_id`.
+    fn peek_loss(&mut self, target: QubitID, result_id: ResultID);
 
     /// Applies readout noise to the measurement result with the given `result_id`.
     /// The probabilities of flipping a 0 to a 1 and a 1 to a 0 are given by `p_zero_as_one` and `p_one_as_zero`, respectively.

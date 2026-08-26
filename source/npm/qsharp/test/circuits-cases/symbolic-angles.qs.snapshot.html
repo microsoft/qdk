@@ -1,0 +1,1532 @@
+<!DOCTYPE html>
+<html
+  xmlns="http://www.w3.org/1999/xhtml"
+  style="--minToolboxHeight: 150px; --minGateWidth: 40px; --gateHeight: 40px"
+>
+  <head>
+    <link rel="stylesheet" href="../../ux/qsharp-ux.css" />
+    <link rel="stylesheet" href="../../ux/qsharp-circuit.css" />
+  </head>
+  <body>
+    <div><h2>circuit-static-collapsed</h2></div>
+    <div id="circuit-static-collapsed" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="423"
+        height="308"
+        viewBox="0 0 423 308"
+      >
+        <g class="qubit-input-states">
+          <text
+            font-size="16"
+            x="20"
+            y="92"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="0"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">0</tspan>
+            ⟩
+          </text>
+          <text
+            font-size="16"
+            x="20"
+            y="196"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="1"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">1</tspan>
+            ⟩
+          </text>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="423" y1="92" y2="92" class="qubit-wire" />
+          <line x1="40" x2="423" y1="196" y2="196" class="qubit-wire" />
+          <g>
+            <line
+              x1="324"
+              x2="324"
+              y1="92"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="322"
+              y1="92"
+              y2="145"
+              class="register-classical"
+            />
+            <line
+              x1="324"
+              x2="423"
+              y1="143"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="423"
+              y1="145"
+              y2="145"
+              class="register-classical"
+            />
+          </g>
+          <g>
+            <line
+              x1="264"
+              x2="264"
+              y1="196"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="262"
+              y1="196"
+              y2="249"
+              class="register-classical"
+            />
+            <line
+              x1="264"
+              x2="423"
+              y1="247"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="423"
+              y1="249"
+              y2="249"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g class="gate" data-location="0,0" data-expanded="true">
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="325"
+              height="232"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g class="gate" data-location="0,0-0,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:3:5 H(q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="104"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="124" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-0,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:5:5 Rx(2.0 * Std.Math.PI() / 3.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="176"
+                        width="68"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="68"
+                      />
+                      <text font-size="14" x="124" y="189" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rx</tspan>
+                      </text>
+                      <text font-size="12" x="124" y="204" class="arg-button">
+                        2 *
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 3
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:4:5 Rz(Std.Math.PI() / 4.0, q1);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="173"
+                        y="72"
+                        width="47"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="47"
+                      />
+                      <text font-size="14" x="196.5" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="100" class="arg-button">
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 4
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:6:5 Ry(-Std.Math.PI() / 2.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="170"
+                        y="176"
+                        width="53"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="53"
+                      />
+                      <text
+                        font-size="14"
+                        x="196.5"
+                        y="189"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">Ry</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="204" class="arg-button">
+                        -
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 2
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:7:5 Rz(0.4321, q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="235"
+                        y="72"
+                        width="56"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="56"
+                      />
+                      <text font-size="14" x="263" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="263" y="100" class="arg-button">
+                        0.4321
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="243"
+                      y="176"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[196]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 278 198 A 15 12 0 0 0 248 198"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="263"
+                      x2="275"
+                      y1="204"
+                      y2="184"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="303"
+                      y="72"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[92]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 338 94 A 15 12 0 0 0 308 94"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="323"
+                      x2="335"
+                      y1="100"
+                      y2="80"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="303"
+                        y="176"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="323"
+                        y="196"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-4,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="355"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="375"
+                        y="92"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div><h2>circuit-static-expanded</h2></div>
+    <div id="circuit-static-expanded" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="423"
+        height="308"
+        viewBox="0 0 423 308"
+      >
+        <g class="qubit-input-states">
+          <text
+            font-size="16"
+            x="20"
+            y="92"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="0"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">0</tspan>
+            ⟩
+          </text>
+          <text
+            font-size="16"
+            x="20"
+            y="196"
+            text-anchor="start"
+            dominant-baseline="middle"
+            data-wire="1"
+            class="qs-maintext qs-qubit-label"
+          >
+            |
+            <tspan class="qs-mathtext">ψ</tspan>
+            <tspan baseline-shift="sub" font-size="65%">1</tspan>
+            ⟩
+          </text>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="423" y1="92" y2="92" class="qubit-wire" />
+          <line x1="40" x2="423" y1="196" y2="196" class="qubit-wire" />
+          <g>
+            <line
+              x1="324"
+              x2="324"
+              y1="92"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="322"
+              y1="92"
+              y2="145"
+              class="register-classical"
+            />
+            <line
+              x1="324"
+              x2="423"
+              y1="143"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="423"
+              y1="145"
+              y2="145"
+              class="register-classical"
+            />
+          </g>
+          <g>
+            <line
+              x1="264"
+              x2="264"
+              y1="196"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="262"
+              y1="196"
+              y2="249"
+              class="register-classical"
+            />
+            <line
+              x1="264"
+              x2="423"
+              y1="247"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="423"
+              y1="249"
+              y2="249"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g class="gate" data-location="0,0" data-expanded="true">
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="325"
+              height="232"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g class="gate" data-location="0,0-0,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:3:5 H(q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="104"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="124" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-0,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:5:5 Rx(2.0 * Std.Math.PI() / 3.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="176"
+                        width="68"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="68"
+                      />
+                      <text font-size="14" x="124" y="189" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rx</tspan>
+                      </text>
+                      <text font-size="12" x="124" y="204" class="arg-button">
+                        2 *
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 3
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:4:5 Rz(Std.Math.PI() / 4.0, q1);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="173"
+                        y="72"
+                        width="47"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="47"
+                      />
+                      <text font-size="14" x="196.5" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="100" class="arg-button">
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 4
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:6:5 Ry(-Std.Math.PI() / 2.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="170"
+                        y="176"
+                        width="53"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="53"
+                      />
+                      <text
+                        font-size="14"
+                        x="196.5"
+                        y="189"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">Ry</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="204" class="arg-button">
+                        -
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 2
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:7:5 Rz(0.4321, q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="235"
+                        y="72"
+                        width="56"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="56"
+                      />
+                      <text font-size="14" x="263" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="263" y="100" class="arg-button">
+                        0.4321
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="243"
+                      y="176"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[196]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 278 198 A 15 12 0 0 0 248 198"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="263"
+                      x2="275"
+                      y1="204"
+                      y2="184"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="303"
+                      y="72"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[92]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 338 94 A 15 12 0 0 0 308 94"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="323"
+                      x2="335"
+                      y1="100"
+                      y2="80"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="303"
+                        y="176"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="323"
+                        y="196"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-4,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="355"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="375"
+                        y="92"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div><h2>circuit-eval-collapsed</h2></div>
+    <div id="circuit-eval-collapsed" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="423"
+        height="308"
+        viewBox="0 0 423 308"
+      >
+        <g class="qubit-input-states">
+          <a href="#" class="qs-circuit-source-link">
+            <title>
+              symbolic-angles.qs:2:21 use (q1, q2) = (Qubit(), Qubit());
+            </title>
+            <text
+              font-size="16"
+              x="20"
+              y="92"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="0"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">0</tspan>
+              ⟩
+            </text>
+          </a>
+          <a href="#" class="qs-circuit-source-link">
+            <title>
+              symbolic-angles.qs:2:30 use (q1, q2) = (Qubit(), Qubit());
+            </title>
+            <text
+              font-size="16"
+              x="20"
+              y="196"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="1"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">1</tspan>
+              ⟩
+            </text>
+          </a>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="423" y1="92" y2="92" class="qubit-wire" />
+          <line x1="40" x2="423" y1="196" y2="196" class="qubit-wire" />
+          <g>
+            <line
+              x1="324"
+              x2="324"
+              y1="92"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="322"
+              y1="92"
+              y2="145"
+              class="register-classical"
+            />
+            <line
+              x1="324"
+              x2="423"
+              y1="143"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="423"
+              y1="145"
+              y2="145"
+              class="register-classical"
+            />
+          </g>
+          <g>
+            <line
+              x1="264"
+              x2="264"
+              y1="196"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="262"
+              y1="196"
+              y2="249"
+              class="register-classical"
+            />
+            <line
+              x1="264"
+              x2="423"
+              y1="247"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="423"
+              y1="249"
+              y2="249"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g class="gate" data-location="0,0" data-expanded="true">
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="325"
+              height="232"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g class="gate" data-location="0,0-0,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:3:5 H(q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="104"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="124" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-0,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:5:5 Rx(2.0 * Std.Math.PI() / 3.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="176"
+                        width="68"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="68"
+                      />
+                      <text font-size="14" x="124" y="189" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rx</tspan>
+                      </text>
+                      <text font-size="12" x="124" y="204" class="arg-button">
+                        2 *
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 3
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:4:5 Rz(Std.Math.PI() / 4.0, q1);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="173"
+                        y="72"
+                        width="47"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="47"
+                      />
+                      <text font-size="14" x="196.5" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="100" class="arg-button">
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 4
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:6:5 Ry(-Std.Math.PI() / 2.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="170"
+                        y="176"
+                        width="53"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="53"
+                      />
+                      <text
+                        font-size="14"
+                        x="196.5"
+                        y="189"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">Ry</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="204" class="arg-button">
+                        -
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 2
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:7:5 Rz(0.4321, q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="235"
+                        y="72"
+                        width="56"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="56"
+                      />
+                      <text font-size="14" x="263" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="263" y="100" class="arg-button">
+                        0.4321
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="243"
+                      y="176"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[196]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 278 198 A 15 12 0 0 0 248 198"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="263"
+                      x2="275"
+                      y1="204"
+                      y2="184"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="303"
+                      y="72"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[92]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 338 94 A 15 12 0 0 0 308 94"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="323"
+                      x2="335"
+                      y1="100"
+                      y2="80"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="303"
+                        y="176"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="323"
+                        y="196"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-4,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="355"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="375"
+                        y="92"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+    <div><h2>circuit-eval-expanded</h2></div>
+    <div id="circuit-eval-expanded" class="qs-circuit">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        class="qviz"
+        width="423"
+        height="308"
+        viewBox="0 0 423 308"
+      >
+        <g class="qubit-input-states">
+          <a href="#" class="qs-circuit-source-link">
+            <title>
+              symbolic-angles.qs:2:21 use (q1, q2) = (Qubit(), Qubit());
+            </title>
+            <text
+              font-size="16"
+              x="20"
+              y="92"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="0"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">0</tspan>
+              ⟩
+            </text>
+          </a>
+          <a href="#" class="qs-circuit-source-link">
+            <title>
+              symbolic-angles.qs:2:30 use (q1, q2) = (Qubit(), Qubit());
+            </title>
+            <text
+              font-size="16"
+              x="20"
+              y="196"
+              text-anchor="start"
+              dominant-baseline="middle"
+              data-wire="1"
+              class="qs-maintext qs-qubit-label"
+            >
+              |
+              <tspan class="qs-mathtext">ψ</tspan>
+              <tspan baseline-shift="sub" font-size="65%">1</tspan>
+              ⟩
+            </text>
+          </a>
+        </g>
+        <g class="wires">
+          <line x1="40" x2="423" y1="92" y2="92" class="qubit-wire" />
+          <line x1="40" x2="423" y1="196" y2="196" class="qubit-wire" />
+          <g>
+            <line
+              x1="324"
+              x2="324"
+              y1="92"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="322"
+              y1="92"
+              y2="145"
+              class="register-classical"
+            />
+            <line
+              x1="324"
+              x2="423"
+              y1="143"
+              y2="143"
+              class="register-classical"
+            />
+            <line
+              x1="322"
+              x2="423"
+              y1="145"
+              y2="145"
+              class="register-classical"
+            />
+          </g>
+          <g>
+            <line
+              x1="264"
+              x2="264"
+              y1="196"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="262"
+              y1="196"
+              y2="249"
+              class="register-classical"
+            />
+            <line
+              x1="264"
+              x2="423"
+              y1="247"
+              y2="247"
+              class="register-classical"
+            />
+            <line
+              x1="262"
+              x2="423"
+              y1="249"
+              y2="249"
+              class="register-classical"
+            />
+          </g>
+        </g>
+        <g>
+          <g class="gate" data-location="0,0" data-expanded="true">
+            <rect
+              class="gate-unitary"
+              x="80"
+              y="46"
+              width="325"
+              height="232"
+              fill-opacity="0"
+              stroke-dasharray="8, 8"
+            />
+            <g>
+              <g class="gate" data-location="0,0-0,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:3:5 H(q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="104"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text font-size="14" x="124" y="92" class="qs-maintext">
+                        <tspan class="qs-mathtext">H</tspan>
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-0,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:5:5 Rx(2.0 * Std.Math.PI() / 3.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="90"
+                        y="176"
+                        width="68"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="68"
+                      />
+                      <text font-size="14" x="124" y="189" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rx</tspan>
+                      </text>
+                      <text font-size="12" x="124" y="204" class="arg-button">
+                        2 *
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 3
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:4:5 Rz(Std.Math.PI() / 4.0, q1);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="173"
+                        y="72"
+                        width="47"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="47"
+                      />
+                      <text font-size="14" x="196.5" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="100" class="arg-button">
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 4
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-1,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>
+                    symbolic-angles.qs:6:5 Ry(-Std.Math.PI() / 2.0, q2);
+                  </title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="170"
+                        y="176"
+                        width="53"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="53"
+                      />
+                      <text
+                        font-size="14"
+                        x="196.5"
+                        y="189"
+                        class="qs-maintext"
+                      >
+                        <tspan class="qs-mathtext">Ry</tspan>
+                      </text>
+                      <text font-size="12" x="196.5" y="204" class="arg-button">
+                        -
+                        <tspan class="qs-mathtext">π</tspan>
+                        / 2
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:7:5 Rz(0.4321, q1);</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-unitary"
+                        x="235"
+                        y="72"
+                        width="56"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="56"
+                      />
+                      <text font-size="14" x="263" y="85" class="qs-maintext">
+                        <tspan class="qs-mathtext">Rz</tspan>
+                      </text>
+                      <text font-size="12" x="263" y="100" class="arg-button">
+                        0.4321
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-2,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="243"
+                      y="176"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[196]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 278 198 A 15 12 0 0 0 248 198"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="263"
+                      x2="275"
+                      y1="204"
+                      y2="184"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <rect
+                      class="gate-measure"
+                      x="303"
+                      y="72"
+                      width="40"
+                      height="40"
+                      data-wire-ys="[92]"
+                      data-width="40"
+                    />
+                    <path
+                      class="arc-measure"
+                      d="M 338 94 A 15 12 0 0 0 308 94"
+                      style="pointer-events: none"
+                    />
+                    <line
+                      x1="323"
+                      x2="335"
+                      y1="100"
+                      y2="80"
+                      class="qs-line-measure"
+                      style="pointer-events: none"
+                    />
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-3,1">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="303"
+                        y="176"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[196]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="323"
+                        y="196"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+              <g class="gate" data-location="0,0-4,0">
+                <a href="#" class="qs-circuit-source-link">
+                  <title>symbolic-angles.qs:8:5 MResetEachZ([q1, q2])</title>
+                  <g>
+                    <g>
+                      <rect
+                        class="gate-ket"
+                        x="355"
+                        y="72"
+                        width="40"
+                        height="40"
+                        data-wire-ys="[92]"
+                        data-width="40"
+                      />
+                      <text
+                        font-size="14"
+                        x="375"
+                        y="92"
+                        class="qs-maintext ket-text"
+                      >
+                        |0⟩
+                      </text>
+                    </g>
+                  </g>
+                </a>
+              </g>
+            </g>
+            <text
+              font-size="14"
+              x="90"
+              y="61"
+              class="qs-maintext qs-group-label"
+            >
+              <tspan class="qs-mathtext">Main</tspan>
+            </text>
+            <g class="gate-control gate-collapse">
+              <circle cx="82" cy="48" r="10" />
+              <path d="M75,48 h14" />
+            </g>
+          </g>
+        </g>
+      </svg>
+    </div>
+  </body>
+</html>

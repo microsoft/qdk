@@ -14,6 +14,7 @@ Usage:  python rst_to_notebook.py 02
 import argparse
 import base64
 import hashlib
+import html
 import json
 import mimetypes
 import re
@@ -27,6 +28,30 @@ DOCS = REPO_ROOT.parent / "html"
 RST_DIR = DOCS / "_sources/tutorials/ground_state_molecular_energies_with_qpe"
 PY_DIR = DOCS / "_static/examples/python"
 COURSE = Path(__file__).resolve().parents[2] / "courses/chemistry-qpe"
+ASSETS = Path(__file__).resolve().parent
+
+# Image assets stored next to this script are used in place of the ones from
+# the built docs. They are authoring inputs only; the generated notebooks carry
+# self-contained copies.
+IMAGE_ASSETS = {
+    "tutorial_qpe_workflow.dot": "tutorial_qpe_workflow.svg",
+    "tutorial_qpe_wavefunction_hierarchy.dot": (
+        "tutorial_qpe_wavefunction_hierarchy.svg"
+    ),
+    "tutorial_qpe_orbital_partition.dot": "tutorial_qpe_orbital_partition.svg",
+    "tutorial_qpe_jordan_wigner_parity.dot": (
+        "tutorial_qpe_jordan_wigner_parity.svg"
+    ),
+    "tutorial_qpe_iqpe_iteration.dot": "tutorial_qpe_iqpe_iteration.svg",
+    "tutorial_qpe_orbital_entropy.png": "tutorial_qpe_orbital_entropy.svg",
+    "tutorial_qpe_phase_wrapping.png": "tutorial_qpe_phase_wrapping.svg",
+    "tutorial_qpe_state_preparation_comparison.png": (
+        "tutorial_qpe_state_preparation_comparison.svg"
+    ),
+    "tutorial_qpe_power_one_circuit_overview.png": (
+        "tutorial_qpe_power_one_circuit_overview.svg"
+    ),
+}
 
 # Per-chapter human decisions. Everything else is derived from the sources.
 RECIPES = {
@@ -906,7 +931,14 @@ def md(source, tags=None, attachments=None):
         tags.append(f"section:{slug}")
         cell_id = f"sec-{slug}"
     else:
-        cell_id = "c-" + hashlib.sha256(body.encode()).hexdigest()[:12]
+        id_body = re.sub(
+            r'<svg\b(?=[^>]*\bdata-asset="([^"]+)")'
+            r'(?=[^>]*\baria-label="([^"]*)")[^>]*>.*?</svg>',
+            _original_image_reference,
+            body,
+            flags=re.S,
+        )
+        cell_id = "c-" + hashlib.sha256(id_body.encode()).hexdigest()[:12]
     cell = {
         "cell_type": "markdown",
         "id": cell_id,
@@ -964,6 +996,86 @@ def _is_definition_list(lines):
     return terms >= 1
 
 
+def legacy_filename(directive, argument):
+    """Return the image name used before the SVG assets existed.
+
+    Cell IDs hash this name, so it has to stay stable.
+    """
+    source_name = Path(argument.strip()).name
+    if directive == "graphviz":
+        return Path(source_name).with_suffix(".png").name
+    return source_name
+
+
+def image_filename(directive, argument):
+    """Return the image name to use in the notebook."""
+    source_name = Path(argument.strip()).name
+    return IMAGE_ASSETS.get(source_name) or legacy_filename(directive, argument)
+
+
+def image_path(directive, argument):
+    """Resolve a local image asset, falling back to the built docs."""
+    source_name = Path(argument.strip()).name
+    filename = image_filename(directive, argument)
+    local = ASSETS / filename
+    if source_name in IMAGE_ASSETS or local.exists():
+        return local
+
+    picture = DOCS / argument.strip().lstrip("/")
+    if directive == "graphviz":
+        picture = picture.with_suffix(".png")
+    return picture
+
+
+def attachment_data(picture):
+    """Return a notebook MIME bundle for an image asset."""
+    mime = mimetypes.guess_type(picture.name)[0] or "image/png"
+    return {mime: base64.b64encode(picture.read_bytes()).decode()}
+
+
+def _original_image_reference(match):
+    """Normalize an inline SVG to the previous PNG reference for cell IDs."""
+    asset_name, escaped_alt = match.groups()
+    source_name = next(
+        (
+            name
+            for name, asset in IMAGE_ASSETS.items()
+            if asset == asset_name
+        ),
+        None,
+    )
+    old_name = (
+        Path(source_name).with_suffix(".png").name
+        if source_name is not None
+        else asset_name
+    )
+    return f"![{html.unescape(escaped_alt)}](attachment:{old_name})"
+
+
+def inline_svg(picture, alt):
+    """Return an inline SVG that follows the active theme."""
+    text = picture.read_text(encoding="utf-8")
+    start = text.find("<svg")
+    if start < 0:
+        raise SystemExit(f"{picture} has no <svg> root element")
+    # Markdown splits a multi-line element into paragraphs, so use one line.
+    svg = " ".join(line.strip() for line in text[start:].splitlines())
+
+    def add_attributes(match):
+        attributes = match.group(1)
+        for attribute in ("role", "data-asset", "aria-label", "style"):
+            attributes = re.sub(rf'\s*\b{attribute}="[^"]*"', "", attributes)
+        return (
+            f"<svg{attributes.rstrip()}"
+            ' role="img"'
+            f' data-asset="{html.escape(picture.name, quote=True)}"'
+            f' aria-label="{html.escape(alt, quote=True)}"'
+            ' style="max-width:100%;height:auto">'
+        )
+
+    return re.sub(r"<svg\b([^>]*)>", add_attributes, svg, count=1).strip()
+
+
 def render_directive(name, argument, options, body):
     text = "\n".join(inline(ln) for ln in body)
     if name == "math":
@@ -1012,11 +1124,20 @@ def render_directive(name, argument, options, body):
             )
         return block
     if name in ("figure", "image", "graphviz"):
-        filename = Path(argument.strip()).name
-        if name == "graphviz":
-            filename = str(Path(filename).with_suffix(".png"))
-        alt = inline(options.get("alt", "")).strip() or filename
-        image = f"![{alt}](attachment:{filename})"
+        filename = image_filename(name, argument)
+        alt = inline(options.get("alt", "")).strip()
+        picture = image_path(name, argument)
+        if picture.suffix.lower() == ".svg" and picture.is_file():
+            if not alt:
+                raise SystemExit(
+                    f"{argument.strip()} needs an :alt: to name the inline SVG"
+                )
+            image = inline_svg(picture, alt)
+        else:
+            image = (
+                f"![{alt or legacy_filename(name, argument)}]"
+                f"(attachment:{filename})"
+            )
         caption = inline(options["caption"]).strip() if "caption" in options else text.strip()
         centred = f"{image}\n\n*{caption}*" if caption else image
         return f'<div style="text-align:center;">\n\n{centred}\n\n</div>'
@@ -1202,16 +1323,11 @@ def convert(key):
                 print(f"WARNING missing include {included}")
             continue
         if name in ("figure", "image", "graphviz"):
-            picture = DOCS / argument.strip().lstrip("/")
-            if name == "graphviz":
-                picture = picture.with_suffix(".png")
-            if picture.exists():
-                mime = mimetypes.guess_type(picture.name)[0] or "image/png"
-                attachments[picture.name] = {
-                    mime: base64.b64encode(picture.read_bytes()).decode()
-                }
-            else:
-                print(f"WARNING missing image {picture}")
+            picture = image_path(name, argument)
+            if not picture.exists():
+                raise SystemExit(f"missing image {picture}")
+            if picture.suffix.lower() != ".svg":
+                attachments[picture.name] = attachment_data(picture)
         text = render_directive(name, argument, options, body)
         if not any(s in text for s in drop_blocks):
             buffer.append(rewrite(text))

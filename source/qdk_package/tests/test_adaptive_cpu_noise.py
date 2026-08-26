@@ -209,6 +209,34 @@ def test_z_noise_on_h_i_h_yields_1(sim_type):
     check_result(H_I_H_QIR, "1", num_qubits=2, noise=noise, sim_type=sim_type)
 
 
+T_LOSS_QIR = """
+entry:
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__t__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_loss_after_t_collapses_entangled_state(sim_type):
+    noise = NoiseConfig()
+    noise.t.loss = 1.0
+    counts = get_histogram(
+        T_LOSS_QIR,
+        shots=1000,
+        num_qubits=2,
+        num_results=2,
+        noise=noise,
+        sim_type=sim_type,
+    )
+
+    assert set(counts) == {"L0", "L1"}
+    assert counts["L0"] > 400
+    assert counts["L1"] > 400
+
+
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
 def test_probabilistic_x_noise(sim_type):
     noise = NoiseConfig()

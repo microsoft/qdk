@@ -32,6 +32,15 @@ export type LayoutScope = {
    * `i`'s gates (before the inter-column `gatePadding * 2`).
    */
   columnWidths: number[];
+
+  /**
+   * Absolute x of the right edge of the group box enclosing this scope, if any. Set only for a
+   * nested group's children scope; `undefined` for the top-level scope (which has no enclosing
+   * box). A long group label can stretch the box wider than its child columns, so this can sit
+   * right of `columnXOffsets[last] + columnWidths[last]`. The editor uses it to widen the scope's
+   * interior trailing dropzone to cover that label slack.
+   */
+  boxRightX?: number;
 };
 
 /**

@@ -2,11 +2,17 @@
 // Licensed under the MIT license.
 
 // Pure-helper unit tests for the editor's draggable module (`ux/circuit-vis/editor/draggable.ts`).
-// Locks down the geometry and DOM-attribute contracts of the three exported helpers that
+// Locks down the geometry and DOM-attribute contracts of the four exported helpers that
 // `dragController` and the rendering pipeline lean on:
 //
 //   - `makeDropzoneBox`: inter-column vs on-column geometry, the trailing-append column past the
-//     rightmost real column, and the `data-dropzone-*` attribute set used by `findParentArray`.
+//     rightmost real column, `bandRightX` stretching a band to cover a group's label slack, and the
+//     `data-dropzone-*` attribute set used by `findParentArray`.
+//   - `trailingBandRightX`: the label-slack overhang rule shared by the always-on and shift-extend
+//     trailing bands.
+//   - `makeShiftExtendGhost`: clones the group's rendered box and slides one edge — vertical span
+//     extension above/below the group, right-edge growth when inserting a new column (with
+//     label-slack absorption), and the `shift-extend-ghost` CSS hook.
 //   - `createWireDropzone`: full-width wire-spanning dropzone Y math, the `isBetween` cases that
 //     target the gaps before the first / after the last wire.
 //   - `removeAllWireDropzones`: targets `.dropzone-full-wire` only and leaves other overlay
@@ -24,7 +30,9 @@ import assert from "node:assert/strict";
 import {
   createWireDropzone,
   makeDropzoneBox,
+  makeShiftExtendGhost,
   removeAllWireDropzones,
+  trailingBandRightX,
 } from "../../dist/ux/circuit-vis/editor/draggable.js";
 
 const documentTemplate = `<!doctype html><html>
@@ -77,6 +85,21 @@ const INTER_COLUMN_FULL_WIDTH = INTER_COLUMN_HALF_WIDTH * 2; // 24
 const DROPZONE_PADDING_Y = 20;
 const REGISTER_HEIGHT = GATE_HEIGHT + GATE_PADDING * 2; // 52
 
+// Group-box padding constants — mirror `groupPaddingX` / `groupBottomPadding` / `groupTopPadding`
+// in `ux/circuit-vis/renderer/constants.ts`. `groupTopPadding` is DERIVED there as
+// `groupBottomPadding + labelFontSize + groupLabelPaddingY`, so it's derived here too. The ghost's
+// moved edge lands `TOP_PAD` above / `BOTTOM_PAD` below the hovered wire — the same
+// half-gate-plus-group-padding offsets the renderer leaves between a group's edge and its nearest
+// wire.
+const GROUP_PADDING_X = 10;
+const GROUP_BOTTOM_PADDING = 10;
+const LABEL_FONT_SIZE = 14;
+const GROUP_LABEL_PADDING_Y = 2;
+const GROUP_TOP_PADDING =
+  GROUP_BOTTOM_PADDING + LABEL_FONT_SIZE + GROUP_LABEL_PADDING_Y; // 26
+const TOP_PAD = GATE_HEIGHT / 2 + GROUP_TOP_PADDING; // 46
+const BOTTOM_PAD = GATE_HEIGHT / 2 + GROUP_BOTTOM_PADDING; // 30
+
 /**
  * Build a `LayoutScope` with the given column starts/widths. Mirrors the shape
  * `LayoutMap.scopes.get(prefix)` returns.
@@ -123,6 +146,51 @@ test("makeDropzoneBox: inter-column band sits centered on the column's left edge
   // Vertically padded around the wire Y.
   assert.equal(attrNum(dz, "y"), 200 - DROPZONE_PADDING_Y);
   assert.equal(attrNum(dz, "height"), DROPZONE_PADDING_Y * 2);
+});
+
+test("makeDropzoneBox: bandRightX stretches a band's right edge (but never shrinks it)", () => {
+  const scope = makeScope([100], [60]);
+  const wireData = [200];
+  const bandLeft = 100 - INTER_COLUMN_HALF_WIDTH - GATE_PADDING; // 82
+
+  // A group's long label pushes the box's right edge past the band's default extent, so the band
+  // stretches out to `bandRightX` while its left edge stays put.
+  const stretched = makeDropzoneBox(
+    { scope, wireData },
+    {
+      colIndex: 0,
+      opIndex: 0,
+      wireIndex: 0,
+      interColumn: true,
+      bandRightX: 400,
+    },
+  );
+  assert.equal(attrNum(stretched, "x"), bandLeft);
+  assert.equal(attrNum(stretched, "width"), 400 - bandLeft);
+
+  // A `bandRightX` short of the default right edge is ignored — the band never shrinks.
+  const clamped = makeDropzoneBox(
+    { scope, wireData },
+    {
+      colIndex: 0,
+      opIndex: 0,
+      wireIndex: 0,
+      interColumn: true,
+      bandRightX: bandLeft,
+    },
+  );
+  assert.equal(attrNum(clamped, "width"), INTER_COLUMN_FULL_WIDTH);
+});
+
+test("trailingBandRightX: overhangs the box's right edge by gatePadding, or undefined at top level", () => {
+  // A group scope's trailing band overhangs the box's right edge by `gatePadding`, mirroring the
+  // overlap inter-column bands have on their left.
+  assert.equal(
+    trailingBandRightX({ ...makeScope([], []), boxRightX: 300 }),
+    300 + GATE_PADDING,
+  );
+  // The top-level scope has no enclosing box, so the band keeps its default width.
+  assert.equal(trailingBandRightX(makeScope([], [])), undefined);
 });
 
 test("makeDropzoneBox: on-column box spans exactly the column's width", () => {
@@ -188,6 +256,118 @@ test("makeDropzoneBox: nested pathPrefix produces hierarchical location string",
 
   assert.equal(dz.getAttribute("data-dropzone-location"), "0,0-1,2");
   assert.equal(dz.getAttribute("data-dropzone-inter-column"), "false");
+});
+
+// ─── makeShiftExtendGhost ───────────────────────────────────────────
+
+/**
+ * Build a group-box `<rect>` with the given bounds — the "real" rendered dashed box that
+ * `makeShiftExtendGhost` clones. Only x/y/width/height are read; the class mirrors a plain
+ * (non-classical) group's box.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @param {number} width
+ * @param {number} height
+ */
+function makeGroupBox(x, y, width, height) {
+  const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+  rect.setAttribute("x", String(x));
+  rect.setAttribute("y", String(y));
+  rect.setAttribute("width", String(width));
+  rect.setAttribute("height", String(height));
+  rect.setAttribute("class", "gate-unitary");
+  return /** @type {SVGGraphicsElement} */ (rect);
+}
+
+test("makeShiftExtendGhost: hover above the box top slides the top edge up, bottom fixed", () => {
+  // Box spans y ∈ [200, 320]; hover a wire at y=150 (above the box).
+  // The top edge drops to hoverY - TOP_PAD; the bottom edge (which may
+  // carry a classical-control reach) stays put.
+  const box = makeGroupBox(100, 200, 80, 120);
+  const scope = makeScope([100], [60]);
+
+  const ghost = makeShiftExtendGhost(box, /* hoverWireY */ 150, false, scope);
+
+  assert.equal(ghost.getAttribute("class"), "shift-extend-ghost");
+  // Top = 150 - 46 = 104; bottom fixed at 320; height = 320 - 104 = 216.
+  assert.equal(attrNum(ghost, "y"), 150 - TOP_PAD);
+  assert.equal(attrNum(ghost, "height"), 320 - (150 - TOP_PAD));
+  // Horizontal untouched (not a column insert).
+  assert.equal(attrNum(ghost, "x"), 100);
+  assert.equal(attrNum(ghost, "width"), 80);
+});
+
+test("makeShiftExtendGhost: hover below the box bottom slides the bottom edge down, top fixed", () => {
+  // Box spans y ∈ [200, 320]; hover a wire at y=400 (below the box).
+  const box = makeGroupBox(100, 200, 80, 120);
+  const scope = makeScope([100], [60]);
+
+  const ghost = makeShiftExtendGhost(box, /* hoverWireY */ 400, false, scope);
+
+  // Top fixed at 200; bottom = 400 + 30 = 430; height = 430 - 200 = 230.
+  assert.equal(attrNum(ghost, "y"), 200);
+  assert.equal(attrNum(ghost, "height"), 400 + BOTTOM_PAD - 200);
+});
+
+test("makeShiftExtendGhost: hover inside the box span leaves the vertical bounds untouched", () => {
+  // Hover wire at y=260, inside the box's [200, 320] span. Defensive
+  // case (callers only paint for outside wires) — no edge should move.
+  const box = makeGroupBox(100, 200, 80, 120);
+  const scope = makeScope([100], [60]);
+
+  const ghost = makeShiftExtendGhost(box, /* hoverWireY */ 260, false, scope);
+
+  assert.equal(attrNum(ghost, "y"), 200);
+  assert.equal(attrNum(ghost, "height"), 120);
+  assert.equal(attrNum(ghost, "x"), 100);
+  assert.equal(attrNum(ghost, "width"), 80);
+});
+
+test("makeShiftExtendGhost: inserting a column grows the right edge only, left edge fixed", () => {
+  // A narrow box whose right edge sits left of where the new trailing
+  // column needs the box to reach. `extendColumn=true` grows the RIGHT
+  // edge to enclose the synthesized column + group side padding; the
+  // left edge never moves. (A leading-column insert shifts existing
+  // columns right, so its new space also lands on the right — same
+  // logic as a trailing insert.)
+  const box = makeGroupBox(100, 200, 80, 120); // right edge = 180
+  const scope = makeScope([100], [60]);
+
+  // Trailing column geometry: colStartX = 100 + 60 + 2*GATE_PADDING = 172,
+  // colWidth = MIN_GATE_WIDTH = 40. neededRight = 172 + 40 + GROUP_PADDING_X = 222.
+  const neededRight =
+    100 + 60 + GATE_PADDING * 2 + MIN_GATE_WIDTH + GROUP_PADDING_X;
+  assert.equal(neededRight, 222);
+
+  const ghostNoGrow = makeShiftExtendGhost(box, 260, false, scope);
+  const ghostGrow = makeShiftExtendGhost(box, 260, true, scope);
+
+  // No-insert ghost keeps the box width.
+  assert.equal(attrNum(ghostNoGrow, "width"), 80);
+
+  // Insert ghost: left edge fixed at 100, right edge pushed to 222.
+  assert.equal(attrNum(ghostGrow, "x"), 100);
+  assert.equal(attrNum(ghostGrow, "width"), neededRight - 100);
+  assert.ok(
+    attrNum(ghostGrow, "width") > attrNum(ghostNoGrow, "width"),
+    "column-insert ghost should be wider than the no-insert ghost",
+  );
+});
+
+test("makeShiftExtendGhost: a label-widened box absorbs the new column instead of overshooting", () => {
+  // Box already wider than the trailing column needs (e.g. stretched by
+  // a long group label): its right edge (300) already exceeds
+  // neededRight (222), so a column insert adds NO width — the ghost
+  // never overshoots the committed box width.
+  const box = makeGroupBox(100, 200, 200, 120); // right edge = 300
+  const scope = makeScope([100], [60]);
+
+  const ghost = makeShiftExtendGhost(box, 260, true, scope);
+
+  // Width unchanged — the new column is absorbed by the existing slack.
+  assert.equal(attrNum(ghost, "x"), 100);
+  assert.equal(attrNum(ghost, "width"), 200);
 });
 
 // ─── createWireDropzone ─────────────────────────────────────────────

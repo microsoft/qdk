@@ -333,15 +333,22 @@ impl TryInto<f64> for Angle {
     type Error = &'static str;
 
     /// Angle to float cast is not allowed in QASM3.
-    /// This function is only meant to be used in unit tests.
+    /// This function is only meant to be used in unit tests and projections.
     fn try_into(self) -> Result<f64, Self::Error> {
+        if self.size == 0 {
+            return Err("Size must be greater than zero");
+        }
         if self.size > 64 {
             return Err("Size exceeds 64 bits");
+        }
+        if self.size < 64 && self.value >= (1_u64 << self.size) {
+            return Err("Value does not fit in the specified size");
         }
 
         // Edge case handling.
         if self.size > f64::MANTISSA_DIGITS {
-            let angle = self.cast(f64::MANTISSA_DIGITS, false);
+            let mut angle = self.cast(f64::MANTISSA_DIGITS, false);
+            angle.value = angle.value.min((1_u64 << f64::MANTISSA_DIGITS) - 1);
             return angle.try_into();
         }
 
@@ -352,7 +359,7 @@ impl TryInto<f64> for Angle {
             return Err("Value is too large");
         };
         let factor = TAU / denom;
-        Ok(value * factor)
+        Ok((value * factor).min(f64::from_bits(TAU.to_bits() - 1)))
     }
 }
 
