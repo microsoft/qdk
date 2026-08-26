@@ -182,6 +182,16 @@ impl ProvenanceGraph {
         self.pareto_index.get(&instruction_id).map(Vec::as_slice)
     }
 
+    /// Returns all node indices for a given instruction ID.
+    pub fn nodes(&self, instruction_id: u64) -> impl Iterator<Item = usize> + '_ {
+        self.nodes
+            .iter()
+            .enumerate()
+            .skip(1)
+            .filter(move |(_, node)| node.instruction.id == instruction_id)
+            .map(|(index, _)| index)
+    }
+
     /// Returns all instruction IDs that have Pareto-optimal entries.
     #[must_use]
     pub fn pareto_instruction_ids(&self) -> Vec<u64> {
