@@ -53,7 +53,8 @@ use qsc_rca::{
 pub use qsc_rir::{
     builder::{self, initialize_decl},
     debug::{
-        DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId, InstructionDbgMetadata,
+        DbgCallableId, DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId,
+        InstructionDbgMetadata,
     },
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
@@ -4601,6 +4602,10 @@ impl<'a> PartialEvaluator<'a> {
                 let current_package_id = self.get_current_package_id();
                 let package_id = current_package_id.into();
                 let scope = DbgScope::SubProgram {
+                    callable_id: DbgCallableId {
+                        package_id: item_id.package.into(),
+                        item_id: item_id.item.into(),
+                    },
                     name,
                     location: DbgPackageOffset {
                         package_id,

@@ -51,12 +51,22 @@ impl Display for DbgLocation {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct DbgCallableId {
+    /// FIR package ID containing the callable.
+    pub package_id: usize,
+    /// FIR item ID of the callable within the package.
+    pub item_id: usize,
+}
+
 /// A lexical scope. This is an analogue of the `DIScope` metadata in LLVM.
 /// <https://llvm.org/doxygen/classllvm_1_1DIScope.html>
 #[derive(Clone, Debug)]
 pub enum DbgScope {
     /// Corresponds to a callable in the source code, `DISubprogram` in LLVM.
     SubProgram {
+        /// FIR identity of the callable.
+        callable_id: DbgCallableId,
         /// Callable name.
         name: Rc<str>,
         /// Source code location of the callable implementation. Corresponds to `DIScope`'s `line` and `column` fields.
@@ -74,7 +84,7 @@ pub enum DbgScope {
 impl Display for DbgScope {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            DbgScope::SubProgram { name, location } => {
+            DbgScope::SubProgram { name, location, .. } => {
                 write!(
                     f,
                     "SubProgram name={name} location=({}-{})",
