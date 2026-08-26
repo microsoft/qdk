@@ -552,6 +552,17 @@ fn collapse_unnecessary_scopes(
     *operations = ops;
 }
 
+/// Checks whether callable has user-specified attribute to hide box when rendering.
+fn annotated_with_hide_box(callable: &fir::CallableDecl) -> bool {
+    callable.attrs.iter().any(|attr| {
+        matches!(
+            attr,
+            fir::Attr::CircuitRenderingOptions(options)
+                if options.hide_box
+        )
+    })
+}
+
 /// If the given operation or group is an outer scope that can be collapsed,
 /// returns its children operations or groups.
 fn collapse_if_unnecessary(
@@ -563,10 +574,6 @@ fn collapse_if_unnecessary(
         children,
     } = &mut op.kind
     {
-        if source_lookup.is_invisible_callable_scope(scope_stack.current_lexical_scope()) {
-            return Some(take(children));
-        }
-
         if let Scope::Loop(..) = scope_stack.current_lexical_scope() {
             if children.len() == 1 {
                 // remove the loop scope
@@ -594,15 +601,23 @@ fn collapse_if_unnecessary(
                 all_children.extend(take(children));
             }
             return Some(all_children);
-        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope()
-            && children.len() == 1
-            && source_lookup
-                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
-                .name
-                .starts_with(".lambda")
-        {
-            // remove the lambda scope
-            return Some(take(children));
+        } else if let Scope::Callable(callable_id) = scope_stack.current_lexical_scope() {
+            if children.len() == 1
+                && source_lookup
+                    .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
+                    .name
+                    .starts_with(".lambda")
+            {
+                // remove the lambda scope
+                return Some(take(children));
+            }
+
+            // Inline group if operation is annotated with hideBox=true in Q#.
+            if let Some(callable_decl) = source_lookup.resolve_callable(callable_id)
+                && annotated_with_hide_box(callable_decl)
+            {
+                return Some(take(children));
+            }
         }
     }
     None
@@ -629,8 +644,8 @@ pub trait SourceLookup {
     /// Circuit rendering uses this to collapse bookkeeping-only callable
     /// scopes so they do not appear as separate groups in the final diagram.
     fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
-    /// Returns whether a callable scope has `hideBox=true` in its circuit rendering options.
-    fn is_invisible_callable_scope(&self, scope: &Scope) -> bool;
+    /// Resolves scope to FIR callable declaration.
+    fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl>;
 }
 
 impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
@@ -855,30 +870,32 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
         !hir_package_contains_callable_origin(unit, offset, name.as_ref())
     }
 
-    fn is_invisible_callable_scope(&self, scope: &Scope) -> bool {
-        let Some((current_package, offset, name)) = callable_scope_origin_key(self.1, scope) else {
-            return false;
-        };
-
-        let Some(unit) = self.0.get(map_fir_package_to_hir(current_package)) else {
-            return false;
-        };
-
-        unit.package.items.values().any(|item| {
-            let qsc_hir::hir::ItemKind::Callable(decl) = &item.kind else {
-                return false;
-            };
-
-            decl.span.lo == offset
-                && displayable_callable_scope_name(&decl.name.name).as_ref() == name.as_ref()
-                && decl.attrs.iter().any(|attr| {
-                    matches!(
-                        attr,
-                        qsc_hir::hir::Attr::CircuitRenderingOptions(options)
-                            if options.hide_box
-                    )
-                })
-        })
+    fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl> {
+        match callable_id {
+            CallableId::Id(store_item_id, _) => {
+                let item = self.1.get_item(*store_item_id);
+                let fir::ItemKind::Callable(callable) = &item.kind else {
+                    return None;
+                };
+                Some(callable)
+            }
+            CallableId::Source(package_offset, name) => {
+                let name = source_callable_origin_name(name);
+                self.1
+                    .get(package_offset.package_id)
+                    .items
+                    .values()
+                    .find_map(|item| {
+                        let fir::ItemKind::Callable(callable) = &item.kind else {
+                            return None;
+                        };
+                        (callable_scope_offset(callable, FunctorApp::default())
+                            == package_offset.offset
+                            && displayable_callable_scope_name(&callable.name.name) == name)
+                            .then_some(callable.as_ref())
+                    })
+            }
+        }
     }
 }
 

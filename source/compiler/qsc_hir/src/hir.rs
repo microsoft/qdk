@@ -1425,8 +1425,6 @@ pub enum Attr {
     Config,
     /// Indicates that the callable is the entry point to a program.
     EntryPoint,
-    /// Provides options for rendering a callable in circuit diagrams.
-    CircuitRenderingOptions(CircuitRenderingOptions),
     /// Indicates that an item is not yet implemented.
     Unimplemented,
     /// Indicates that an item should be treated as an intrinsic callable for QIR code generation
@@ -1443,6 +1441,15 @@ pub enum Attr {
     NoiseIntrinsic,
     /// Indicates that a callable is a test case.
     Test,
+    /// Provides options for rendering a callable in circuit diagrams.
+    CircuitRenderingOptions(CircuitRenderingOptions),
+}
+
+/// Options for rendering a callable in circuit diagrams.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CircuitRenderingOptions {
+    /// Whether the callable's group box should be hidden.
+    pub hide_box: bool,
 }
 
 const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str = r#"Provides options for rendering an operation in circuit diagrams.
@@ -1493,13 +1500,6 @@ impl FromStr for Attr {
             _ => Err(()),
         }
     }
-}
-
-/// Options for rendering a callable in circuit diagrams.
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct CircuitRenderingOptions {
-    /// Whether the callable's group box should be hidden.
-    pub hide_box: bool,
 }
 
 /// A field.

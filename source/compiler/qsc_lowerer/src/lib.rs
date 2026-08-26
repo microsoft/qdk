@@ -1161,10 +1161,12 @@ fn lower_attrs(attrs: &[hir::Attr]) -> Vec<fir::Attr> {
             hir::Attr::Reset => Some(fir::Attr::Reset),
             hir::Attr::NoiseIntrinsic => Some(fir::Attr::NoiseIntrinsic),
             hir::Attr::Test => Some(fir::Attr::Test),
-            hir::Attr::SimulatableIntrinsic
-            | hir::Attr::CircuitRenderingOptions(_)
-            | hir::Attr::Unimplemented
-            | hir::Attr::Config => None,
+            hir::Attr::CircuitRenderingOptions(options) => Some(
+                fir::Attr::CircuitRenderingOptions(fir::CircuitRenderingOptions {
+                    hide_box: options.hide_box,
+                }),
+            ),
+            hir::Attr::SimulatableIntrinsic | hir::Attr::Unimplemented | hir::Attr::Config => None,
         })
         .collect()
 }
