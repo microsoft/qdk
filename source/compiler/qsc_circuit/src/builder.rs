@@ -872,8 +872,9 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
 
     fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl> {
         let store_item_id = match callable_id {
-            CallableId::Id(store_item_id, _) => store_item_id,
-            CallableId::Source(store_item_id, ..) => store_item_id,
+            CallableId::Id(store_item_id, _) | CallableId::Source(store_item_id, ..) => {
+                store_item_id
+            }
         };
         let item = self.1.get_item(*store_item_id);
         let fir::ItemKind::Callable(callable) = &item.kind else {
