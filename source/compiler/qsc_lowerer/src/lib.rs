@@ -1164,6 +1164,7 @@ fn lower_attrs(attrs: &[hir::Attr]) -> Vec<fir::Attr> {
             hir::Attr::CircuitRenderingOptions(options) => Some(
                 fir::Attr::CircuitRenderingOptions(fir::CircuitRenderingOptions {
                     hide_box: options.hide_box,
+                    input_sizes: options.input_sizes.clone(),
                 }),
             ),
             hir::Attr::SimulatableIntrinsic | hir::Attr::Unimplemented | hir::Attr::Config => None,

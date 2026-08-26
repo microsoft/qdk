@@ -598,6 +598,7 @@ fn qubit_labels_for_preallocated_qubits() {
             FakeCompilation::USER_PACKAGE_ID.into(),
             vec![QubitParam {
                 dimensions: 1,
+                size: 2,
                 source_offset: 10,
             }],
         )),

@@ -1627,6 +1627,8 @@ pub enum Attr {
 pub struct CircuitRenderingOptions {
     /// Whether the callable's group box should be hidden.
     pub hide_box: bool,
+    /// Lengths of qubit-array input parameters, in declaration order.
+    pub input_sizes: Option<Vec<u32>>,
 }
 
 /// A field.

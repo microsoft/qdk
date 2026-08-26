@@ -133,6 +133,81 @@ fn qubit_params() {
 }
 
 #[test]
+fn single_input_size_applies_to_every_array_parameter() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions("inputSizes=3")
+            operation Test(q1: Qubit[], q: Qubit, q2: Qubit[][]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation)
+        .expect("expression expected");
+
+    expect![[r"
+        {
+                    use qs = Qubit[13];
+                    (Test.Test)(qs[0..2], qs[3], [qs[4..6], qs[7..9], qs[10..12]]);
+                    let r: Result[] = [];
+                    r
+                }"]]
+    .assert_eq(&expr);
+}
+
+#[test]
+fn extra_input_sizes_are_ignored() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions("inputSizes=3;4;9")
+            operation Test(q1: Qubit[], q2: Qubit[]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation)
+        .expect("expression expected");
+
+    expect![[r"
+        {
+                    use qs = Qubit[7];
+                    (Test.Test)(qs[0..2], qs[3..6]);
+                    let r: Result[] = [];
+                    r
+                }"]]
+    .assert_eq(&expr);
+}
+
+#[test]
+fn missing_input_sizes_use_default() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions("inputSizes=3;4")
+            operation Test(q1: Qubit[], q2: Qubit[], q3: Qubit[]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation)
+        .expect("expression expected");
+
+    expect![[r"
+        {
+                    use qs = Qubit[9];
+                    (Test.Test)(qs[0..2], qs[3..6], qs[7..8]);
+                    let r: Result[] = [];
+                    r
+                }"]]
+    .assert_eq(&expr);
+}
+
+#[test]
 fn qubit_array_parameters_allocate_flat_register_slices() {
     let (item, operation) = compile_one_operation(
         r"

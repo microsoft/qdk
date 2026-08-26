@@ -422,18 +422,40 @@ impl With<'_> {
                         ));
                         return None;
                     }
-                    if key == "hidebox" {
-                        options.hide_box = match value {
-                            "true" => true,
-                            "false" => false,
-                            _ => {
+                    match key.as_str() {
+                        "hidebox" => {
+                            options.hide_box = match value {
+                                "true" => true,
+                                "false" => false,
+                                _ => {
+                                    self.lowerer.errors.push(Error::InvalidAttrArgs(
+                                        "true or false for hideBox".to_string(),
+                                        attr.arg.span,
+                                    ));
+                                    return None;
+                                }
+                            };
+                        }
+                        "inputsizes" => {
+                            let input_sizes = value
+                                .split(';')
+                                .map(str::trim)
+                                .map(str::parse)
+                                .collect::<Result<Vec<u32>, _>>();
+                            options.input_sizes = if let Ok(input_sizes) = input_sizes
+                                && input_sizes.iter().all(|&size| size > 0)
+                            {
+                                Some(input_sizes)
+                            } else {
                                 self.lowerer.errors.push(Error::InvalidAttrArgs(
-                                    "true or false for hideBox".to_string(),
+                                    "a positive integer or semicolon-separated list of positive integers for inputSizes"
+                                        .to_string(),
                                     attr.arg.span,
                                 ));
                                 return None;
-                            }
-                        };
+                            };
+                        }
+                        _ => {}
                     }
                 }
 
