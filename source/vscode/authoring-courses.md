@@ -56,7 +56,7 @@ _Note_: The folders in this example are numbered, but that's not required - the 
 - `title`: Display name of the course.
 - `shortDescription`: Simple help/alt text about the course.
 - `units`: An ordered list of units and where to find each.
-- `environment.importChecks`: Optional. Imports the course's `_check_env.py` verifies before a unit starts.
+- `environment.importChecks`: Optional. The imports the course's `_check_env.py` checks before a unit starts.
 
 The course ID comes from the folder name, so there is no `id` field.
 
@@ -117,7 +117,7 @@ The `sys.path` preamble is what lets the notebook import `_course_lib.py` from t
 `register_value_exercise` covers the common case of checking the return value.
 Use `register_exercise(name, validate, ...)` when a unit needs its own checking; `validate` returns an error message when the answer is wrong and `None` when it's right.
 
-The validation function should raise an exception if the solution is incorrect so that running the cell fails.
+When validation fails, `_course_lib` shows the message and raises, so the cell errors out.
 Once the cell runs successfully, the exercise will be considered to be complete.
 
 ## Editing a published course
@@ -144,7 +144,7 @@ Setting up a Python environment can be tricky for new users and we want the focu
 
 ## Trying it out
 
-Open a workspace folder in VS Code and navigate to the Microsoft Quantum extension panel (indicated by a moebius strip).
+Open a workspace folder in VS Code and navigate to the Microsoft Quantum extension panel (indicated by a Mobius strip).
 If you've never used it before, it'll offer you a `Start Learning` button.
 The Microsoft Quantum Katas are the default course, so you'll need to explicitly Switch Course to your new content in the tree view.
 
