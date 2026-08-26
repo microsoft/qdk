@@ -59,16 +59,18 @@ fn tag_with_args_and_targets() {
     check(
         "X_ERROR[t](0.1) 0",
         &expect![[r#"
-        Circuit [0-17]:
-            items:
-                Instruction [0-17]:
-                    name: X_ERROR
-                    tag: t
-                    args:
-                        0.1
-                    targets:
-                        Target [16-17]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-17]:
+                items:
+                    Instruction [0-17]:
+                        name: X_ERROR
+                        tag: t
+                        args:
+                            Arg [11-14]:
+                                value: 0.1
+
+                        targets:
+                            Target [16-17]:
+                                kind: Qubit(0)"#]],
     );
 }
 

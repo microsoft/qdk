@@ -439,16 +439,18 @@ fn loss_target() {
     check(
         "E(0.01) L0",
         &expect![[r#"
-        Circuit [0-10]:
-            items:
-                Instruction [0-10]:
-                    name: E
-                    tag: <none>
-                    args:
-                        0.01
-                    targets:
-                        Target [8-10]:
-                            kind: Loss(0)"#]],
+            Circuit [0-10]:
+                items:
+                    Instruction [0-10]:
+                        name: E
+                        tag: <none>
+                        args:
+                            Arg [2-6]:
+                                value: 0.01
+
+                        targets:
+                            Target [8-10]:
+                                kind: Loss(0)"#]],
     );
 }
 

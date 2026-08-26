@@ -52,7 +52,9 @@ fn args_no_targets() {
                         name: X_ERROR
                         tag: <none>
                         args:
-                            0.1
+                            Arg [8-11]:
+                                value: 0.1
+
                         targets: <empty>"#]],
     );
 }
@@ -62,18 +64,20 @@ fn args_with_targets() {
     check(
         "X_ERROR(0.1) 0 1",
         &expect![[r#"
-        Circuit [0-16]:
-            items:
-                Instruction [0-16]:
-                    name: X_ERROR
-                    tag: <none>
-                    args:
-                        0.1
-                    targets:
-                        Target [13-14]:
-                            kind: Qubit(0)
-                        Target [15-16]:
-                            kind: Qubit(1)"#]],
+            Circuit [0-16]:
+                items:
+                    Instruction [0-16]:
+                        name: X_ERROR
+                        tag: <none>
+                        args:
+                            Arg [8-11]:
+                                value: 0.1
+
+                        targets:
+                            Target [13-14]:
+                                kind: Qubit(0)
+                            Target [15-16]:
+                                kind: Qubit(1)"#]],
     );
 }
 
