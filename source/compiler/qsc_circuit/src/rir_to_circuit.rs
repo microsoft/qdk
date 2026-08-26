@@ -7,7 +7,7 @@ mod tests;
 
 use core::panic;
 use qsc_data_structures::index_map::IndexMap;
-use qsc_fir::fir::PackageId;
+use qsc_fir::fir::{LocalItemId, PackageId, StoreItemId};
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
@@ -271,8 +271,16 @@ impl DbgLookup<'_> {
             let scope_id = self.lexical_scope(location_idx);
             let package_offset = self.source_location(location_idx);
             match &self.dbg_info.get_scope(scope_id) {
-                DbgScope::SubProgram { name, location } => {
+                DbgScope::SubProgram {
+                    callable_id,
+                    name,
+                    location,
+                } => {
                     let scope = Scope::Callable(CallableId::Source(
+                        StoreItemId {
+                            package: PackageId::from(callable_id.package_id),
+                            item: LocalItemId::from(callable_id.item_id),
+                        },
                         PackageOffset {
                             package_id: location.package_id.into(),
                             offset: location.offset,

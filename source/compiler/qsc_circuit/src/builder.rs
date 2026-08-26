@@ -694,7 +694,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     is_classically_controlled: false,
                 }
             }
-            Scope::Callable(CallableId::Source(package_offset, name)) => {
+            Scope::Callable(CallableId::Source(_, package_offset, name)) => {
                 // trim the trailing dagger symbol and set `is_adjoint` accordingly
                 let (name, is_adjoint) = if let Some(pos) = name.rfind('\'') {
                     if pos == name.len() - 1 {
@@ -871,31 +871,15 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
     }
 
     fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl> {
-        match callable_id {
-            CallableId::Id(store_item_id, _) => {
-                let item = self.1.get_item(*store_item_id);
-                let fir::ItemKind::Callable(callable) = &item.kind else {
-                    return None;
-                };
-                Some(callable)
-            }
-            CallableId::Source(package_offset, name) => {
-                let name = source_callable_origin_name(name);
-                self.1
-                    .get(package_offset.package_id)
-                    .items
-                    .values()
-                    .find_map(|item| {
-                        let fir::ItemKind::Callable(callable) = &item.kind else {
-                            return None;
-                        };
-                        (callable_scope_offset(callable, FunctorApp::default())
-                            == package_offset.offset
-                            && displayable_callable_scope_name(&callable.name.name) == name)
-                            .then_some(callable.as_ref())
-                    })
-            }
-        }
+        let store_item_id = match callable_id {
+            CallableId::Id(store_item_id, _) => store_item_id,
+            CallableId::Source(store_item_id, ..) => store_item_id,
+        };
+        let item = self.1.get_item(*store_item_id);
+        let fir::ItemKind::Callable(callable) = &item.kind else {
+            return None;
+        };
+        Some(callable)
     }
 }
 
@@ -916,7 +900,7 @@ fn callable_scope_origin_key(
                 displayable_callable_scope_name(&callable_decl.name.name),
             ))
         }
-        Scope::Callable(CallableId::Source(package_offset, name)) => Some((
+        Scope::Callable(CallableId::Source(_, package_offset, name)) => Some((
             package_offset.package_id,
             package_offset.offset,
             source_callable_origin_name(name),
@@ -2013,7 +1997,13 @@ impl LogicalStackEntry {
     pub fn package_id(&self) -> Option<PackageId> {
         match self.scope {
             Scope::Callable(
-                CallableId::Source(PackageOffset { package_id, .. }, _)
+                CallableId::Source(
+                    StoreItemId {
+                        package: package_id,
+                        ..
+                    },
+                    ..,
+                )
                 | CallableId::Id(
                     StoreItemId {
                         package: package_id,
@@ -2100,7 +2090,7 @@ pub enum Scope {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CallableId {
     Id(StoreItemId, FunctorApp),
-    Source(PackageOffset, Rc<str>),
+    Source(StoreItemId, PackageOffset, Rc<str>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
