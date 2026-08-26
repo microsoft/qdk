@@ -1454,8 +1454,7 @@ pub struct CircuitRenderingOptions {
     pub input_sizes: Option<Vec<u32>>,
 }
 
-const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str =
-    r#"Provides options for rendering an operation in circuit diagrams.
+const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str = r#"Provides options for rendering an operation in circuit diagrams.
 
 The argument is a string containing comma-separated `key=value` pairs. Keys are case-insensitive.
 
