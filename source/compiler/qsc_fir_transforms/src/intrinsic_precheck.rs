@@ -103,7 +103,7 @@ pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> 
                 errors.push(Error::UnsupportedParamType(
                     name.clone(),
                     format!("{}", param.ty),
-                    (item_id.package, decl.span).into(),
+                    decl.span,
                 ));
             }
         }
@@ -116,7 +116,7 @@ pub fn validate_intrinsic_types(store: &PackageStore, package_id: PackageId) -> 
             errors.push(Error::UnsupportedReturnType(
                 name,
                 format!("{}", decl.output),
-                (item_id.package, decl.span).into(),
+                decl.span,
             ));
         }
     }

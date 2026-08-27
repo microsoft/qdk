@@ -58,14 +58,19 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
     // store can be empty since core doesn't have any dependencies
-    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let core_fir =
+        fir_lowerer.lower_package(&core.package, &fir_store, qsc_fir::fir::PackageId::CORE);
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = fir_lowerer.lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -78,9 +83,13 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
-    let entry = unit_fir.entry_exec_graph.clone();
     let id = store.insert(unit);
+    let unit_fir = fir_lowerer.lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
+    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -113,14 +122,19 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
     // store can be empty since core doesn't have any dependencies
-    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let core_fir =
+        fir_lowerer.lower_package(&core.package, &fir_store, qsc_fir::fir::PackageId::CORE);
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = fir_lowerer.lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let lib_sources = SourceMap::new([("lib".into(), lib.into())], None);
     let mut lib_unit = compile(
@@ -133,8 +147,12 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
     assert!(lib_unit.errors.is_empty(), "{:?}", lib_unit.errors);
     let lib_pass_errors = run_default_passes(store.core(), &mut lib_unit, PackageType::Lib);
     assert!(lib_pass_errors.is_empty(), "{lib_pass_errors:?}");
-    let lib_fir = fir_lowerer.lower_package(&lib_unit.package, &fir_store);
     let lib_id = store.insert(lib_unit);
+    let lib_fir = fir_lowerer.lower_package(
+        &store.get(lib_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(lib_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -147,9 +165,13 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
-    let entry = unit_fir.entry_exec_graph.clone();
     let id = store.insert(unit);
+    let unit_fir = fir_lowerer.lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
+    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -180,14 +202,19 @@ fn check_output(file: &str, expr: &str, expect: &Expect) {
     let mut core = compile::core();
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
-    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let core_fir =
+        fir_lowerer.lower_package(&core.package, &fir_store, qsc_fir::fir::PackageId::CORE);
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = fir_lowerer.lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -200,9 +227,13 @@ fn check_output(file: &str, expr: &str, expect: &Expect) {
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
-    let entry = unit_fir.entry_exec_graph.clone();
     let id = store.insert(unit);
+    let unit_fir = fir_lowerer.lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
+    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -241,14 +272,22 @@ fn check_partial_eval_stmt(
     let mut core = compile::core();
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
-    let core_fir = qsc_lowerer::Lowerer::new().lower_package(&core.package, &fir_store);
+    let core_fir = qsc_lowerer::Lowerer::new().lower_package(
+        &core.package,
+        &fir_store,
+        qsc_fir::fir::PackageId::CORE,
+    );
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = qsc_lowerer::Lowerer::new().lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = qsc_lowerer::Lowerer::new().lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -261,11 +300,15 @@ fn check_partial_eval_stmt(
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = qsc_lowerer::Lowerer::new().lower_package(&unit.package, &fir_store);
+    let id = store.insert(unit);
+    let unit_fir = qsc_lowerer::Lowerer::new().lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
     fir_expect.assert_eq(&unit_fir.to_string());
 
     let entry = unit_fir.entry_exec_graph.clone();
-    let id = store.insert(unit);
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(

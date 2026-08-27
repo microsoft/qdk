@@ -21,8 +21,8 @@ use qsc_data_structures::{span::Span, target::TargetCapabilityFlags};
 use qsc_fir::{
     fir::{
         Attr, Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Global, Ident,
-        Item, ItemKind, LocalItemId, LocalVarId, Package, PackageLookup, Pat, PatId, PatKind, Res,
-        SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
+        Item, ItemKind, LocalItemId, LocalVarId, Package, PackageLookup, PackageSpan, Pat, PatId,
+        PatKind, Res, SpecDecl, SpecImpl, Stmt, StmtId, StmtKind,
     },
     ty::{Prim, Ty},
     visit::{Visitor, walk_callable_decl},
@@ -47,7 +47,7 @@ pub fn lower_store(
     let mut last_assigner = qsc_fir::assigner::Assigner::new();
     for (id, unit) in package_store {
         let mut lowerer = qsc_lowerer::Lowerer::new();
-        let package = lowerer.lower_package(&unit.package, &fir_store);
+        let package = lowerer.lower_package(&unit.package, &fir_store, map_hir_package_to_fir(id));
         fir_store.insert(map_hir_package_to_fir(id), package);
         last_assigner = lowerer.into_assigner();
     }
@@ -94,7 +94,7 @@ pub fn check_supported_capabilities(
         compute_properties,
         target_capabilities: capabilities,
         current_callable: None,
-        missing_features_map: FxHashMap::<Span, RuntimeFeatureFlags>::default(),
+        missing_features_map: FxHashMap::<PackageSpan, RuntimeFeatureFlags>::default(),
         store,
     };
 
@@ -119,7 +119,7 @@ pub fn check_supported_capabilities_for_callable(
         compute_properties,
         target_capabilities: capabilities,
         current_callable: None,
-        missing_features_map: FxHashMap::<Span, RuntimeFeatureFlags>::default(),
+        missing_features_map: FxHashMap::<PackageSpan, RuntimeFeatureFlags>::default(),
         store,
     };
 
@@ -131,7 +131,7 @@ struct Checker<'a> {
     compute_properties: &'a PackageComputeProperties,
     target_capabilities: TargetCapabilityFlags,
     current_callable: Option<LocalItemId>,
-    missing_features_map: FxHashMap<Span, RuntimeFeatureFlags>,
+    missing_features_map: FxHashMap<PackageSpan, RuntimeFeatureFlags>,
     store: &'a qsc_fir::fir::PackageStore,
 }
 
@@ -269,7 +269,7 @@ impl<'a> Checker<'a> {
 
     fn check_entry_expr(&mut self, expr_id: ExprId) {
         let expr = self.get_expr(expr_id);
-        if expr.span == Span::default() {
+        if expr.span.span == Span::default() {
             // This is an auto-generated entry expression, so we only need to verify the output recording flags.
             self.check_output_recording(expr);
         } else {
@@ -364,7 +364,7 @@ impl<'a> Checker<'a> {
         };
 
         let output_reporting_span = match &expr.kind {
-            ExprKind::Call(callee_expr, _) if expr.span == Span::default() => {
+            ExprKind::Call(callee_expr, _) if expr.span.span == Span::default() => {
                 // Since this is auto-generated, use the callee expression span.
                 self.get_expr(*callee_expr).span
             }
@@ -425,8 +425,10 @@ impl<'a> Checker<'a> {
         let mut missing_features_map = self.missing_features_map.drain().collect::<Vec<_>>();
         missing_features_map.sort_unstable();
         for (span, missing_features) in missing_features_map {
-            let mut span_errors = generate_errors_from_runtime_features(missing_features, span);
-            errors.append(&mut span_errors);
+            errors.append(&mut generate_errors_from_runtime_features(
+                missing_features,
+                span,
+            ));
         }
         errors
     }

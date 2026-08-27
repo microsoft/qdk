@@ -2,7 +2,8 @@
 // Licensed under the MIT License.
 
 use miette::Diagnostic;
-use qsc_data_structures::{span::Span, target::TargetCapabilityFlags};
+use qsc_data_structures::target::TargetCapabilityFlags;
+use qsc_fir::fir::{PackageId, PackageSpan};
 use thiserror::Error;
 
 use crate::RuntimeFeatureFlags;
@@ -15,7 +16,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-bool"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicBool"))]
-    UseOfDynamicBool(#[label] Span),
+    UseOfDynamicBool(#[label] PackageSpan),
 
     #[error("cannot use a dynamic integer value")]
     #[diagnostic(help(
@@ -23,7 +24,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-integer"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicInt"))]
-    UseOfDynamicInt(#[label] Span),
+    UseOfDynamicInt(#[label] PackageSpan),
 
     #[error("cannot use a dynamic Pauli value")]
     #[diagnostic(help(
@@ -31,7 +32,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-pauli"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicPauli"))]
-    UseOfDynamicPauli(#[label] Span),
+    UseOfDynamicPauli(#[label] PackageSpan),
 
     #[error("cannot use a dynamic Range value")]
     #[diagnostic(help(
@@ -39,7 +40,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-range"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicRange"))]
-    UseOfDynamicRange(#[label] Span),
+    UseOfDynamicRange(#[label] PackageSpan),
 
     #[error("cannot use a dynamic double value")]
     #[diagnostic(help(
@@ -47,7 +48,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-double"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicDouble"))]
-    UseOfDynamicDouble(#[label] Span),
+    UseOfDynamicDouble(#[label] PackageSpan),
 
     #[error("cannot use a dynamic qubit")]
     #[diagnostic(help(
@@ -55,7 +56,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-qubit"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicQubit"))]
-    UseOfDynamicQubit(#[label] Span),
+    UseOfDynamicQubit(#[label] PackageSpan),
 
     #[error("cannot use a dynamic Result")]
     #[diagnostic(help(
@@ -63,7 +64,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-result"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicResult"))]
-    UseOfDynamicResult(#[label] Span),
+    UseOfDynamicResult(#[label] PackageSpan),
 
     #[error("cannot use a dynamic tuple")]
     #[diagnostic(help(
@@ -71,7 +72,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-tuple"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicTuple"))]
-    UseOfDynamicTuple(#[label] Span),
+    UseOfDynamicTuple(#[label] PackageSpan),
 
     #[error("cannot use a dynamic big integer value")]
     #[diagnostic(help(
@@ -79,7 +80,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-big-integer"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicBigInt"))]
-    UseOfDynamicBigInt(#[label] Span),
+    UseOfDynamicBigInt(#[label] PackageSpan),
 
     #[error("cannot use a dynamic string value")]
     #[diagnostic(help(
@@ -87,7 +88,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-string"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicString"))]
-    UseOfDynamicString(#[label] Span),
+    UseOfDynamicString(#[label] PackageSpan),
 
     #[error("cannot use a dynamic exponent")]
     #[diagnostic(help(
@@ -95,7 +96,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-exponent"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicExponent"))]
-    UseOfDynamicExponent(#[label] Span),
+    UseOfDynamicExponent(#[label] PackageSpan),
 
     #[error("cannot use an array with dynamic contents")]
     #[diagnostic(help(
@@ -103,7 +104,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-array"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicArray"))]
-    UseOfDynamicArray(#[label] Span),
+    UseOfDynamicArray(#[label] PackageSpan),
 
     #[error("cannot use a dynamically-sized array")]
     #[diagnostic(help(
@@ -111,7 +112,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamically-sized-array"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicallySizedArray"))]
-    UseOfDynamicallySizedArray(#[label] Span),
+    UseOfDynamicallySizedArray(#[label] PackageSpan),
 
     #[error("cannot use a dynamic user-defined type")]
     #[diagnostic(help(
@@ -119,7 +120,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-user-defined-type"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicUdt"))]
-    UseOfDynamicUdt(#[label] Span),
+    UseOfDynamicUdt(#[label] PackageSpan),
 
     #[error("cannot use a dynamic function")]
     #[diagnostic(help(
@@ -127,7 +128,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-function"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicArrowFunction"))]
-    UseOfDynamicArrowFunction(#[label] Span),
+    UseOfDynamicArrowFunction(#[label] PackageSpan),
 
     #[error("cannot use a dynamic operation")]
     #[diagnostic(help(
@@ -135,7 +136,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-operation"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicArrowOperation"))]
-    UseOfDynamicArrowOperation(#[label] Span),
+    UseOfDynamicArrowOperation(#[label] PackageSpan),
 
     #[error("cannot call a function or operation whose resolution is dynamic")]
     #[diagnostic(help(
@@ -143,7 +144,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#call-to-dynamic-callee"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.CallToDynamicCallee"))]
-    CallToDynamicCallee(#[label] Span),
+    CallToDynamicCallee(#[label] PackageSpan),
 
     #[error("cannot perform a measurement within a dynamic scope")]
     #[diagnostic(help(
@@ -151,19 +152,19 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#measurement-within-a-dynamic-scope"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.MeasurementWithinDynamicScope"))]
-    MeasurementWithinDynamicScope(#[label] Span),
+    MeasurementWithinDynamicScope(#[label] PackageSpan),
 
     #[error("cannot call a custom measurement")]
     #[diagnostic(help("cannot call a custom measurement in the configured target profile"))]
     #[diagnostic(url("https://aka.ms/qdk.qir#call-to-custom-measurement"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.CallToCustomMeasurement"))]
-    CallToCustomMeasurement(#[label] Span),
+    CallToCustomMeasurement(#[label] PackageSpan),
 
     #[error("cannot call a custom reset")]
     #[diagnostic(help("cannot call a custom reset in the configured target profile"))]
     #[diagnostic(url("https://aka.ms/qdk.qir#call-to-custom-reset"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.CallToCustomReset"))]
-    CallToCustomReset(#[label] Span),
+    CallToCustomReset(#[label] PackageSpan),
 
     #[error("cannot access an array using a dynamic index")]
     #[diagnostic(help(
@@ -171,7 +172,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-array-index"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicIndex"))]
-    UseOfDynamicIndex(#[label] Span),
+    UseOfDynamicIndex(#[label] PackageSpan),
 
     #[error("cannot use a return within a dynamic scope")]
     #[diagnostic(help(
@@ -179,7 +180,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#return-within-a-dynamic-scope"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.ReturnWithinDynamicScope"))]
-    ReturnWithinDynamicScope(#[label] Span),
+    ReturnWithinDynamicScope(#[label] PackageSpan),
 
     #[error("cannot have a loop with a dynamic condition")]
     #[diagnostic(help(
@@ -187,7 +188,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#loop-with-dynamic-condition"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.LoopWithDynamicCondition"))]
-    LoopWithDynamicCondition(#[label] Span),
+    LoopWithDynamicCondition(#[label] PackageSpan),
 
     #[error("cannot use a bool value as an output")]
     #[diagnostic(help(
@@ -195,7 +196,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-bool-output"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfBoolOutput"))]
-    UseOfBoolOutput(#[label] Span),
+    UseOfBoolOutput(#[label] PackageSpan),
 
     #[error("cannot use a double value as an output")]
     #[diagnostic(help(
@@ -203,7 +204,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-double-output"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDoubleOutput"))]
-    UseOfDoubleOutput(#[label] Span),
+    UseOfDoubleOutput(#[label] PackageSpan),
 
     #[error("cannot use an integer value as an output")]
     #[diagnostic(help(
@@ -211,7 +212,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-integer-output"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfIntOutput"))]
-    UseOfIntOutput(#[label] Span),
+    UseOfIntOutput(#[label] PackageSpan),
 
     #[error("cannot use value with advanced type as an output")]
     #[diagnostic(help(
@@ -219,7 +220,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-advanced-output"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfAdvancedOutput"))]
-    UseOfAdvancedOutput(#[label] Span),
+    UseOfAdvancedOutput(#[label] PackageSpan),
 
     #[error("cannot use a dynamic generic parameter")]
     #[diagnostic(help(
@@ -227,7 +228,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-generic"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicGeneric"))]
-    UseOfDynamicGeneric(#[label] Span),
+    UseOfDynamicGeneric(#[label] PackageSpan),
 
     #[error("cannot use a dynamic qubit release")]
     #[diagnostic(help(
@@ -235,7 +236,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-qubit-release"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicQubitRelease"))]
-    UseOfDynamicQubitRelease(#[label] Span),
+    UseOfDynamicQubitRelease(#[label] PackageSpan),
 
     #[error("cannot use dynamic branching in parallel expression")]
     #[diagnostic(help(
@@ -243,7 +244,7 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-branching-in-parallel-expr"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicBranchingInParallelExpr"))]
-    UseOfDynamicBranchingInParallelExpr(#[label] Span),
+    UseOfDynamicBranchingInParallelExpr(#[label] PackageSpan),
 
     #[error("cannot use dynamic limit for a parallel expression")]
     #[diagnostic(help(
@@ -251,14 +252,14 @@ pub enum Error {
     ))]
     #[diagnostic(url("https://aka.ms/qdk.qir#use-of-dynamic-limit-in-parallel-expr"))]
     #[diagnostic(code("Qdk.Qsc.CapabilitiesCk.UseOfDynamicLimitInParallelExpr"))]
-    UseOfDynamicLimitInParallelExpr(#[label] Span),
+    UseOfDynamicLimitInParallelExpr(#[label] PackageSpan),
 }
 
 #[allow(clippy::too_many_lines)]
 #[must_use]
 pub fn generate_errors_from_runtime_features(
     runtime_features: RuntimeFeatureFlags,
-    span: Span,
+    span: PackageSpan,
 ) -> Vec<Error> {
     let mut errors = Vec::<Error>::new();
 
@@ -367,4 +368,46 @@ pub fn get_missing_runtime_features(
 ) -> RuntimeFeatureFlags {
     let missing_capabilities = !target_capabilities & runtime_features.target_capabilities();
     runtime_features.contributing_features(missing_capabilities)
+}
+
+impl Error {
+    /// The package whose source map resolves this error's span.
+    #[must_use]
+    // Every variant carries only its span, so the arms are intentionally uniform.
+    #[allow(clippy::match_same_arms)]
+    pub fn package(&self) -> PackageId {
+        match self {
+            Self::UseOfDynamicBool(span) => span.package,
+            Self::UseOfDynamicInt(span) => span.package,
+            Self::UseOfDynamicPauli(span) => span.package,
+            Self::UseOfDynamicRange(span) => span.package,
+            Self::UseOfDynamicDouble(span) => span.package,
+            Self::UseOfDynamicQubit(span) => span.package,
+            Self::UseOfDynamicResult(span) => span.package,
+            Self::UseOfDynamicTuple(span) => span.package,
+            Self::UseOfDynamicBigInt(span) => span.package,
+            Self::UseOfDynamicString(span) => span.package,
+            Self::UseOfDynamicExponent(span) => span.package,
+            Self::UseOfDynamicArray(span) => span.package,
+            Self::UseOfDynamicallySizedArray(span) => span.package,
+            Self::UseOfDynamicUdt(span) => span.package,
+            Self::UseOfDynamicArrowFunction(span) => span.package,
+            Self::UseOfDynamicArrowOperation(span) => span.package,
+            Self::CallToDynamicCallee(span) => span.package,
+            Self::MeasurementWithinDynamicScope(span) => span.package,
+            Self::CallToCustomMeasurement(span) => span.package,
+            Self::CallToCustomReset(span) => span.package,
+            Self::UseOfDynamicIndex(span) => span.package,
+            Self::ReturnWithinDynamicScope(span) => span.package,
+            Self::LoopWithDynamicCondition(span) => span.package,
+            Self::UseOfBoolOutput(span) => span.package,
+            Self::UseOfDoubleOutput(span) => span.package,
+            Self::UseOfIntOutput(span) => span.package,
+            Self::UseOfAdvancedOutput(span) => span.package,
+            Self::UseOfDynamicGeneric(span) => span.package,
+            Self::UseOfDynamicQubitRelease(span) => span.package,
+            Self::UseOfDynamicBranchingInParallelExpr(span) => span.package,
+            Self::UseOfDynamicLimitInParallelExpr(span) => span.package,
+        }
+    }
 }

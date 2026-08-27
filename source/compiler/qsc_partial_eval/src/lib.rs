@@ -41,7 +41,7 @@ use qsc_fir::{
 };
 
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
-use qsc_lowerer::map_fir_package_to_hir;
+use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
     RuntimeFeatureFlags, ValueKind,
@@ -400,7 +400,7 @@ impl<'a> PartialEvaluator<'a> {
         let var = Variable {
             name: ident.name.clone(),
             value: value.clone(),
-            span: ident.span,
+            span: ident.span.span,
         };
         let scope = self.eval_context.get_current_scope_mut();
         scope.env.bind_variable_in_top_frame(ident.id, var);
@@ -431,6 +431,7 @@ impl<'a> PartialEvaluator<'a> {
                         span: self
                             .package_store
                             .get_pat((store_item_id.package, input_param.pat).into())
+                            .span
                             .span,
                     },
                 )
@@ -445,7 +446,7 @@ impl<'a> PartialEvaluator<'a> {
                         msg,
                         PackageSpan {
                             package: map_fir_package_to_hir(self.get_current_package_id()),
-                            span: callable_decl.span,
+                            span: callable_decl.span.span,
                         },
                     )
                 })?,
@@ -483,7 +484,7 @@ impl<'a> PartialEvaluator<'a> {
         let local_span = match &expr.kind {
             // Special handling for compiler generated entry expressions that come from the `@EntryPoint`
             // attributed callable.
-            ExprKind::Call(callee, _) if expr.span == Span::default() => {
+            ExprKind::Call(callee, _) if expr.span.span == Span::default() => {
                 self.get_expr(*callee).span
             }
             _ => expr.span,
@@ -496,7 +497,7 @@ impl<'a> PartialEvaluator<'a> {
         );
         PackageSpan {
             package: hir_package_id,
-            span: local_span,
+            span: local_span.span,
         }
     }
 
@@ -577,7 +578,7 @@ impl<'a> PartialEvaluator<'a> {
             output_ty,
             PackageSpan {
                 package: map_fir_package_to_hir(callable.package),
-                span: callable_decl.span,
+                span: callable_decl.span.span,
             },
         )
     }
@@ -1328,7 +1329,7 @@ impl<'a> PartialEvaluator<'a> {
                 let closure = resolve_closure(
                     &self.eval_context.get_current_scope().env,
                     self.get_current_package_id(),
-                    expr.span,
+                    expr.span.span,
                     args,
                     *callable,
                 )
@@ -1921,7 +1922,10 @@ impl<'a> PartialEvaluator<'a> {
                     // If we are in a dynamic branch anywhere up the call stack, we cannot support relabel,
                     // as later qubit usage would need to be dynamic on whether the branch was taken.
                     return Err(Error::CapabilityError(CapabilityError::UseOfDynamicQubit(
-                        callee_expr_span.span,
+                        qsc_fir::fir::PackageSpan::new(
+                            map_hir_package_to_fir(callee_expr_span.package),
+                            callee_expr_span.span,
+                        ),
                     )));
                 }
                 qubit_relabel(args_value, callee_expr_span, args_span, |q0, q1| {
@@ -2353,7 +2357,7 @@ impl<'a> PartialEvaluator<'a> {
                 let variable = Variable {
                     name,
                     value: Value::Var(eval_var),
-                    span,
+                    span: span.span,
                 };
                 body_args.push(Arg::Var(local_var_id, variable));
             } else {
@@ -3451,7 +3455,7 @@ impl<'a> PartialEvaluator<'a> {
         let hir_package_id = map_fir_package_to_hir(fir_package_id);
         PackageSpan {
             package: hir_package_id,
-            span: expr.span,
+            span: expr.span.span,
         }
     }
 
@@ -3833,7 +3837,7 @@ impl<'a> PartialEvaluator<'a> {
                     let variable = Variable {
                         name: ident.name.clone(),
                         value: ctls_value,
-                        span: ident.span,
+                        span: ident.span.span,
                     };
                     let ctl_arg = Arg::Var(ident.id, variable);
                     Some(ctl_arg)
@@ -3867,7 +3871,7 @@ impl<'a> PartialEvaluator<'a> {
                 let variable = Variable {
                     name: ident.name.clone(),
                     value,
-                    span: ident.span,
+                    span: ident.span.span,
                 };
                 (vec![Arg::Var(ident.id, variable)], arrays)
             }
@@ -3929,7 +3933,7 @@ impl<'a> PartialEvaluator<'a> {
             let hir_package_id = map_fir_package_to_hir(self.get_current_package_id());
             let return_stmt_package_span = PackageSpan {
                 package: hir_package_id,
-                span: return_stmt.span,
+                span: return_stmt.span.span,
             };
             Err(Error::Unimplemented(
                 "early return".to_string(),

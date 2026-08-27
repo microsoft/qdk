@@ -920,7 +920,8 @@ impl State {
                     }
                     ExecGraphDebugNode::Stmt(stmt) => {
                         self.idx += 1;
-                        self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
+                        self.current_span =
+                            globals.get_stmt((self.package, *stmt).into()).span.span;
 
                         match self.check_for_break(breakpoints, *stmt, step, current_frame) {
                             Some(value) => value,
@@ -1015,7 +1016,7 @@ impl State {
             // of generated code. This also avoids underflowing the `u32` offset in
             // `block.span.hi - 1` below, which would otherwise surface a bogus
             // end-of-file location when stepping.
-            if block.span == Span::default() {
+            if block.span.span == Span::default() {
                 return None;
             }
             let span = Span {
@@ -1155,7 +1156,12 @@ impl State {
                 let ExprKind::Var(res, _) = &lhs_expr.kind else {
                     panic!("lhs of assign op should be a variable");
                 };
-                self.set_val_register(resolve_binding(env, self.package, *res, lhs_expr.span)?);
+                self.set_val_register(resolve_binding(
+                    env,
+                    self.package,
+                    *res,
+                    lhs_expr.span.span,
+                )?);
                 self.eval_update_index(*mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
@@ -1225,7 +1231,7 @@ impl State {
                     var.value.append_array(rhs);
                 }
                 None => {
-                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                    return Err(Error::UnboundName(self.to_global_span(lhs.span.span)));
                 }
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
@@ -1344,7 +1350,7 @@ impl State {
 
         let callee_span = PackageSpan {
             package: map_fir_package_to_hir(callee_id.package),
-            span: callee.span,
+            span: callee.span.span,
         };
 
         let spec = spec_from_functor_app(functor);
@@ -1792,7 +1798,7 @@ impl State {
                     Variable {
                         name: variable.name.clone(),
                         value: val,
-                        span: variable.span,
+                        span: variable.span.span,
                     },
                 );
             }
@@ -1822,7 +1828,7 @@ impl State {
                     var.value = rhs;
                 }
                 None => {
-                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                    return Err(Error::UnboundName(self.to_global_span(lhs.span.span)));
                 }
             },
             (ExprKind::Tuple(var_tup), Value::Tuple(tup, _)) => {
@@ -1850,7 +1856,7 @@ impl State {
                 Some(var) => {
                     var.value.update_array(index, rhs, span)?;
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => return Err(Error::UnboundName(self.to_global_span(lhs.span.span))),
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
         }
@@ -1886,7 +1892,7 @@ impl State {
                         var.value.update_array(idx, rhs.clone(), range_span)?;
                     }
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => return Err(Error::UnboundName(self.to_global_span(lhs.span.span))),
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
         }

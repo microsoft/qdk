@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 use qsc_data_structures::index_map::IndexMap;
+use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     Block, CallableImpl, ExecGraph, ExecGraphDebugNode, ExecGraphExpr, ExecGraphIdx, ExecGraphNode,
@@ -154,6 +155,8 @@ pub struct Lowerer {
     exec_graph: ExecGraphBuilder,
     fir_increment: FirIncrement,
     parallel_count: u32,
+    /// The package every node lowered by this instance belongs to.
+    package_id: fir::PackageId,
 }
 
 impl Default for Lowerer {
@@ -175,7 +178,12 @@ impl Lowerer {
             exec_graph: ExecGraphBuilder::default(),
             fir_increment: FirIncrement::default(),
             parallel_count: 0,
+            package_id: fir::PackageId::default(),
         }
+    }
+
+    fn pkg_span(&self, span: Span) -> fir::PackageSpan {
+        fir::PackageSpan::new(self.package_id, span)
     }
 
     pub fn take_exec_graph(&mut self) -> ExecGraph {
@@ -193,7 +201,10 @@ impl Lowerer {
         &mut self,
         package: &hir::Package,
         store: &fir::PackageStore,
+        package_id: fir::PackageId,
     ) -> fir::Package {
+        // Every node lowered below is tagged with this package.
+        self.package_id = package_id;
         let entry = package.entry.as_ref().map(|e| self.lower_expr(e));
         let entry_exec_graph = self.exec_graph.take();
         let items: IndexMap<LocalItemId, fir::Item> = package
@@ -225,6 +236,7 @@ impl Lowerer {
         let stmts: IndexMap<_, _> = self.stmts.drain().collect();
 
         let package = fir::Package {
+            id: self.package_id,
             items,
             entry,
             entry_exec_graph,
@@ -246,6 +258,9 @@ impl Lowerer {
         fir_package: &mut fir::Package,
         hir_package: &hir::Package,
     ) {
+        // Nodes added by this increment belong to the package being updated.
+        self.package_id = fir_package.id;
+
         // Clear the previous increment since we are about to take a new one.
         self.fir_increment = FirIncrement::default();
 
@@ -345,7 +360,7 @@ impl Lowerer {
         let attrs = lower_attrs(&item.attrs);
         fir::Item {
             id: lower_local_item_id(item.id),
-            span: item.span,
+            span: self.pkg_span(item.span),
             parent: item.parent.map(lower_local_item_id),
             doc: Rc::clone(&item.doc),
             attrs,
@@ -399,7 +414,7 @@ impl Lowerer {
         }
 
         fir::CallableDecl {
-            span: decl.span,
+            span: self.pkg_span(decl.span),
             kind,
             name,
             generics,
@@ -418,7 +433,7 @@ impl Lowerer {
         let input = pat.as_ref().map(|p| self.lower_spec_decl_pat(p));
         let block = self.lower_block(block);
         fir::SpecDecl {
-            span: decl.span,
+            span: self.pkg_span(decl.span),
             block,
             input,
             exec_graph: self.exec_graph.take(),
@@ -439,7 +454,12 @@ impl Lowerer {
             hir::PatKind::Err => unreachable!("error pat should not be present"),
         };
 
-        let pat = fir::Pat { id, span, ty, kind };
+        let pat = fir::Pat {
+            id,
+            span: self.pkg_span(span),
+            ty,
+            kind,
+        };
         self.pats.insert(id, pat);
         id
     }
@@ -464,7 +484,7 @@ impl Lowerer {
             );
         let block = fir::Block {
             id,
-            span: block.span,
+            span: self.pkg_span(block.span),
             ty: self.lower_ty(&block.ty),
             stmts: block.stmts.iter().map(|s| self.lower_stmt(s)).collect(),
         };
@@ -501,7 +521,7 @@ impl Lowerer {
         };
         let stmt = fir::Stmt {
             id,
-            span: stmt.span,
+            span: self.pkg_span(stmt.span),
             kind,
             exec_graph_range: graph_start_idx..self.exec_graph.len(),
         };
@@ -947,7 +967,7 @@ impl Lowerer {
 
         let expr = fir::Expr {
             id,
-            span: expr.span,
+            span: self.pkg_span(expr.span),
             ty,
             kind,
             exec_graph_range: graph_start_idx..self.exec_graph.len(),
@@ -958,7 +978,7 @@ impl Lowerer {
 
     fn lower_field_assign(&mut self, field_assign: &hir::FieldAssign) -> fir::FieldAssign {
         fir::FieldAssign {
-            span: field_assign.span,
+            span: self.pkg_span(field_assign.span),
             field: lower_field(&field_assign.field),
             value: self.lower_expr(&field_assign.value),
         }
@@ -992,7 +1012,7 @@ impl Lowerer {
 
         let pat = fir::Pat {
             id,
-            span: pat.span,
+            span: self.pkg_span(pat.span),
             ty,
             kind,
         };
@@ -1019,7 +1039,7 @@ impl Lowerer {
     fn lower_ident(&mut self, ident: &hir::Ident) -> fir::Ident {
         fir::Ident {
             id: self.lower_local_id(ident.id),
-            span: ident.span,
+            span: self.pkg_span(ident.span),
             name: ident.name.clone(),
         }
     }

@@ -701,7 +701,9 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                         .0
                         .get(map_fir_package_to_hir(package_id))
                         .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
-                        .and_then(|s| source_span_contents(&s.contents, s.offset, cond_expr.span));
+                        .and_then(|s| {
+                            source_span_contents(&s.contents, s.offset, cond_expr.span.span)
+                        });
 
                     LexicalScope {
                         name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),

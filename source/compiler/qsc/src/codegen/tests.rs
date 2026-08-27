@@ -6207,3 +6207,49 @@ fn foreign_table_lookup_callable_generates_qir() {
         );
     }
 }
+
+#[test]
+fn foreign_hof_capability_error_resolves_against_owning_package() {
+    // `ForEach` lives in the std package; specializing it for this call site
+    // clones std nodes into the user package, so the capability diagnostic must
+    // still resolve against std's source map rather than the entry map.
+    let source = r#"
+namespace Test {
+    import Std.Arrays.ForEach;
+    @EntryPoint()
+    operation Main() : Unit {
+        use q = Qubit();
+        ForEach(q => M(q) == One, [q]);
+    }
+}
+"#;
+    let errors = compile_source_to_qir_result(source, TargetCapabilityFlags::from(Profile::Base))
+        .expect_err("Base profile must reject a dynamic bool");
+
+    // The diagnostics must be owned by two different packages: the user's lambda
+    // and the std `ForEach` body specialized into the user package.
+    let mut packages: Vec<_> = errors
+        .iter()
+        .filter_map(|e| match e {
+            crate::interpret::Error::Pass(with_source) => match with_source.error() {
+                qsc_passes::Error::CapabilitiesCk(inner) => Some(inner.package()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    packages.sort_unstable();
+    packages.dedup();
+    assert!(
+        packages.len() >= 2,
+        "expected capability diagnostics from both the user and std packages, got {packages:?}"
+    );
+
+    // Rendering is the regression guard: resolving a std-owned span against the
+    // entry source map used to panic inside `WithSource::from_map`.
+    let rendered = format_interpret_errors(errors);
+    assert!(
+        rendered.contains("cannot use a dynamic bool"),
+        "expected a dynamic-bool capability diagnostic, got:\n{rendered}"
+    );
+}

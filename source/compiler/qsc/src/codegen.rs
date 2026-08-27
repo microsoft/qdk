@@ -112,19 +112,23 @@ pub mod qir {
                     &unit.package
                 };
 
+                let fir_id = qsc_lowerer::map_hir_package_to_fir(id);
                 let mut lowerer = qsc_lowerer::Lowerer::new();
                 let fir_package = if id == package_id {
-                    let mut fir_package = Package::default();
+                    let mut fir_package = Package {
+                        id: fir_id,
+                        ..Package::default()
+                    };
                     lowerer.lower_and_update_package(&mut fir_package, hir_package);
                     fir_package.entry_exec_graph = lowerer.take_exec_graph();
                     fir_package
                 } else {
-                    lowerer.lower_package(hir_package, &fir_store)
+                    lowerer.lower_package(hir_package, &fir_store, fir_id)
                 };
                 if id == package_id {
                     fir_assigner = lowerer.into_assigner();
                 }
-                fir_store.insert(qsc_lowerer::map_hir_package_to_fir(id), fir_package);
+                fir_store.insert(fir_id, fir_package);
             }
 
             (
@@ -263,13 +267,22 @@ pub mod qir {
         package_id: qsc_hir::hir::PackageId,
         errors: Vec<qsc_passes::Error>,
     ) -> Vec<Error> {
-        let source_package = package_store
-            .get(package_id)
-            .expect("package should be in store");
-
         errors
             .into_iter()
-            .map(|e| Error::Pass(WithSource::from_map(&source_package.sources, e)))
+            .map(|e| {
+                // A capability error can point into a dependency, so resolve it
+                // against the package that actually owns its span.
+                let owner = match &e {
+                    qsc_passes::Error::CapabilitiesCk(inner) => {
+                        qsc_lowerer::map_fir_package_to_hir(inner.package())
+                    }
+                    _ => package_id,
+                };
+                let source_package = package_store
+                    .get(owner)
+                    .expect("package should be in store");
+                Error::Pass(WithSource::from_map(&source_package.sources, e))
+            })
             .collect()
     }
 
@@ -418,7 +431,7 @@ pub mod qir {
             functors: qsc_fir::ty::FunctorSet::Value(callable_decl.functors),
         }));
 
-        (callable_decl.span, ty)
+        (callable_decl.span.span, ty)
     }
 
     fn seed_entry_with_callables(
@@ -438,6 +451,7 @@ pub mod qir {
 
         for callable in callables {
             let (span, ty) = callable_expr_span_and_ty(fir_store, *callable);
+            let span = qsc_fir::fir::PackageSpan::new(fir_package_id, span);
             let expr_id = assigner.next_expr();
             let package = fir_store.get_mut(fir_package_id);
             package.exprs.insert(
@@ -938,7 +952,7 @@ pub mod qir {
                     expr_id,
                     qsc_fir::fir::Expr {
                         id: expr_id,
-                        span: qsc_data_structures::span::Span::default(),
+                        span: package.synthetic_span(),
                         ty: qsc_fir::ty::Ty::Tuple(Vec::new()),
                         kind: qsc_fir::fir::ExprKind::Tuple(Vec::new()),
                         exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -978,7 +992,7 @@ pub mod qir {
                             expr_id,
                             qsc_fir::fir::Expr {
                                 id: expr_id,
-                                span: qsc_data_structures::span::Span::default(),
+                                span: package.synthetic_span(),
                                 ty: input_ty.clone(),
                                 kind: qsc_fir::fir::ExprKind::Tuple(elem_ids),
                                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1006,7 +1020,7 @@ pub mod qir {
                     expr_id,
                     qsc_fir::fir::Expr {
                         id: expr_id,
-                        span: qsc_data_structures::span::Span::default(),
+                        span: package.synthetic_span(),
                         ty: input_ty.clone(),
                         kind: qsc_fir::fir::ExprKind::Tuple(elem_ids),
                         exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1120,7 +1134,7 @@ pub mod qir {
             expr_id,
             qsc_fir::fir::Expr {
                 id: expr_id,
-                span: qsc_data_structures::span::Span::default(),
+                span: package.synthetic_span(),
                 ty: ty.clone(),
                 kind: qsc_fir::fir::ExprKind::Lit(qsc_fir::fir::Lit::Int(0)),
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1417,11 +1431,12 @@ pub mod qir {
                  -> Option<qsc_fir::fir::ExprId> {
                     opt.map(|n| {
                         let id = a.next_expr();
+                        let span = pkg.synthetic_span();
                         pkg.exprs.insert(
                             id,
                             qsc_fir::fir::Expr {
                                 id,
-                                span: qsc_data_structures::span::Span::default(),
+                                span,
                                 ty: qsc_fir::ty::Ty::Prim(qsc_fir::ty::Prim::Int),
                                 kind: qsc_fir::fir::ExprKind::Lit(qsc_fir::fir::Lit::Int(n)),
                                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1460,7 +1475,7 @@ pub mod qir {
             expr_id,
             qsc_fir::fir::Expr {
                 id: expr_id,
-                span: qsc_data_structures::span::Span::default(),
+                span: package.synthetic_span(),
                 ty,
                 kind,
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1497,7 +1512,7 @@ pub mod qir {
             expr_id,
             qsc_fir::fir::Expr {
                 id: expr_id,
-                span: qsc_data_structures::span::Span::default(),
+                span: package.synthetic_span(),
                 ty: ty.clone(),
                 kind: qsc_fir::fir::ExprKind::Var(
                     qsc_fir::fir::Res::Item(qsc_fir::fir::ItemId {
@@ -1668,7 +1683,7 @@ pub mod qir {
             expr_id,
             qsc_fir::fir::Expr {
                 id: expr_id,
-                span: qsc_data_structures::span::Span::default(),
+                span: package.synthetic_span(),
                 ty: ty.clone(),
                 kind: qsc_fir::fir::ExprKind::UnOp(qsc_fir::fir::UnOp::Functor(functor), inner_id),
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1716,7 +1731,7 @@ pub mod qir {
                 expr_id,
                 qsc_fir::fir::Expr {
                     id: expr_id,
-                    span: qsc_data_structures::span::Span::default(),
+                    span: package.synthetic_span(),
                     ty: full_ty.clone(),
                     kind,
                     exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1769,7 +1784,7 @@ pub mod qir {
             expr_id,
             qsc_fir::fir::Expr {
                 id: expr_id,
-                span: qsc_data_structures::span::Span::default(),
+                span: package.synthetic_span(),
                 ty: closure_ty.clone(),
                 kind: qsc_fir::fir::ExprKind::Closure(capture_locals, closure.id.item),
                 exec_graph_range: qsc_fir::fir::ExecGraphIdx::ZERO
@@ -1809,7 +1824,7 @@ pub mod qir {
         value_expr_id: qsc_fir::fir::ExprId,
         value_ty: &qsc_fir::ty::Ty,
     ) -> (qsc_fir::fir::StmtId, qsc_fir::fir::LocalVarId) {
-        let span = qsc_data_structures::span::Span::default();
+        let span = package.synthetic_span();
         let local_var_id = assigner.next_local();
 
         let pat_id = assigner.next_pat();

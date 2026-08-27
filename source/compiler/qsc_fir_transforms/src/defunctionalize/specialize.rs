@@ -40,8 +40,8 @@ use crate::fir_builder::{
 use crate::package_assigners::PackageAssigners;
 use crate::walk_utils::{expr_is_side_effect_free, for_each_expr_in_callable_impl};
 use qsc_data_structures::functors::FunctorApp;
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
+use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{
     BinOp, Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, FieldPath,
     Ident, Item, ItemId, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
@@ -268,7 +268,7 @@ fn try_decline_multiple_callable_arrays(
     let package = store.get(group[0].call_pkg_id);
     if has_multiple_forwarded_callable_arrays(package, group) {
         let span = package.get_expr(group[0].call_expr_id).span;
-        let package_span = (group[0].call_pkg_id, span).into();
+        let package_span = span;
         if !errors
             .iter()
             .any(|e| matches!(e, Error::UnsupportedMultipleCallableArrays(s) if *s == package_span))
@@ -431,7 +431,7 @@ fn specialize_per_row_group(
         if matches!(call_site.callable_arg, ConcreteCallable::Dynamic) {
             let package = store.get(call_site.call_pkg_id);
             let span = package.get_expr(call_site.call_expr_id).span;
-            errors.push(Error::DynamicCallable((call_site.call_pkg_id, span).into()));
+            errors.push(Error::DynamicCallable(span));
             continue;
         }
 
@@ -507,7 +507,7 @@ fn report_excessive_specializations(
             errors.push(Error::ExcessiveSpecializations(
                 decl.name.name.to_string(),
                 *count,
-                (hof_id.package, decl.name.span).into(),
+                decl.name.span,
             ));
         }
     }
@@ -844,7 +844,7 @@ fn specialize_many(
 
     let new_item = Item {
         id: new_item_id,
-        span: Span::default(),
+        span: target.synthetic_span(),
         parent: None,
         doc: Rc::from(""),
         attrs: Vec::new(),
@@ -1357,7 +1357,7 @@ fn specialize_one(
     // Insert the new item.
     let new_item = Item {
         id: new_item_id,
-        span: Span::default(),
+        span: target.synthetic_span(),
         parent: None,
         doc: Rc::from(""),
         attrs: Vec::new(),
@@ -2766,7 +2766,7 @@ fn replace_callable_value(
 /// for a dynamic callable, which has no concrete value to emit.
 fn alloc_callable_value_expr(
     package: &mut Package,
-    span: Span,
+    span: PackageSpan,
     concrete: &ConcreteCallable,
     hint_ty: &Ty,
     assigner: &mut Assigner,
@@ -3023,7 +3023,7 @@ fn apply_body_functor_to_concrete(
 fn alloc_dispatch_branch_call(
     package: &mut Package,
     package_id: PackageId,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     callee_ty: &Ty,
     original_args: &Expr,
@@ -3399,7 +3399,7 @@ fn grouped_capture_arg_data(
 /// fresh `Var(Res::Local)` reference to the captured variable is synthesized.
 fn allocate_capture_exprs(
     package: &mut Package,
-    span: Span,
+    span: PackageSpan,
     captures: &[CapturedVar],
     assigner: &mut Assigner,
 ) -> Vec<ExprId> {
@@ -3445,7 +3445,7 @@ fn alloc_index_eq_expr(
     package: &mut Package,
     index_expr_id: ExprId,
     index_value: usize,
-    span: Span,
+    span: PackageSpan,
     assigner: &mut Assigner,
 ) -> ExprId {
     let index_value = i64::try_from(index_value).expect("dispatch index should fit in i64");
@@ -3465,7 +3465,7 @@ fn alloc_index_eq_expr(
 /// the given result type.
 fn alloc_if_expr(
     package: &mut Package,
-    span: Span,
+    span: PackageSpan,
     result_ty: &Ty,
     condition_id: ExprId,
     true_id: ExprId,
@@ -3965,11 +3965,11 @@ fn thread_closure_captures(
         let name: Rc<str> = Rc::from(format!("{CAPTURE_NAME_PREFIX}_{}", name_offset + i));
         let new_pat = Pat {
             id: new_pat_id,
-            span: Span::default(),
+            span: package.synthetic_span(),
             ty: capture.ty.clone(),
             kind: PatKind::Bind(Ident {
                 id: new_local_var,
-                span: Span::default(),
+                span: package.synthetic_span(),
                 name,
             }),
         };
@@ -4009,7 +4009,7 @@ fn thread_closure_captures(
 
             let tuple_pat = Pat {
                 id: tuple_pat_id,
-                span: Span::default(),
+                span: package.synthetic_span(),
                 ty: Ty::Tuple(all_tys),
                 kind: PatKind::Tuple(sub_pats),
             };

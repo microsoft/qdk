@@ -166,7 +166,11 @@ fn compile_origin_lookup_stores() -> (PackageStore, fir::PackageStore, PackageId
     run_core_passes(&mut core);
 
     let lowering_store = fir::PackageStore::new();
-    let core_fir = fir_lowerer.lower_package(&core.package, &lowering_store);
+    let core_fir = fir_lowerer.lower_package(
+        &core.package,
+        &lowering_store,
+        qsc_fir::fir::PackageId::CORE,
+    );
     let mut store = PackageStore::new(core);
 
     let library_source = indoc! {
@@ -189,9 +193,16 @@ fn compile_origin_lookup_stores() -> (PackageStore, fir::PackageStore, PackageId
     assert!(library_unit.errors.is_empty(), "{:?}", library_unit.errors);
     let library_pass_errors = run_default_passes(store.core(), &mut library_unit, PackageType::Lib);
     assert!(library_pass_errors.is_empty(), "{library_pass_errors:?}");
-    let library_fir = fir_lowerer.lower_package(&library_unit.package, &lowering_store);
     let dep_unit_id = store.insert(library_unit);
     let dep_pkg_id = map_hir_package_to_fir(dep_unit_id);
+    let library_fir = fir_lowerer.lower_package(
+        &store
+            .get(dep_unit_id)
+            .expect("package should exist")
+            .package,
+        &lowering_store,
+        dep_pkg_id,
+    );
 
     let user_source = indoc! {
         r#"
@@ -210,9 +221,16 @@ fn compile_origin_lookup_stores() -> (PackageStore, fir::PackageStore, PackageId
     assert!(user_unit.errors.is_empty(), "{:?}", user_unit.errors);
     let user_pass_errors = run_default_passes(store.core(), &mut user_unit, PackageType::Lib);
     assert!(user_pass_errors.is_empty(), "{user_pass_errors:?}");
-    let user_fir = fir_lowerer.lower_package(&user_unit.package, &lowering_store);
     let app_unit_id = store.insert(user_unit);
     let app_pkg_id = map_hir_package_to_fir(app_unit_id);
+    let user_fir = fir_lowerer.lower_package(
+        &store
+            .get(app_unit_id)
+            .expect("package should exist")
+            .package,
+        &lowering_store,
+        app_pkg_id,
+    );
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -707,7 +725,11 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
     let mut core = compile::core();
     run_core_passes(&mut core);
     let lowering_store = fir::PackageStore::new();
-    let core_fir = fir_lowerer.lower_package(&core.package, &lowering_store);
+    let core_fir = fir_lowerer.lower_package(
+        &core.package,
+        &lowering_store,
+        qsc_fir::fir::PackageId::CORE,
+    );
     let mut store = PackageStore::new(core);
 
     let source = indoc! {
@@ -735,9 +757,16 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &lowering_store);
     let hir_package_id = store.insert(unit);
     let fir_package_id = map_hir_package_to_fir(hir_package_id);
+    let unit_fir = fir_lowerer.lower_package(
+        &store
+            .get(hir_package_id)
+            .expect("package should exist")
+            .package,
+        &lowering_store,
+        fir_package_id,
+    );
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -771,7 +800,7 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
         .exprs
         .get_mut(cond_expr_id)
         .expect("condition expr should exist");
-    cond_expr.span.hi = source_len + 100;
+    cond_expr.span.span.hi = source_len + 100;
 
     // Resolution should tolerate the bad condition span and still produce a
     // stable group name and source location from the loop expression itself.
