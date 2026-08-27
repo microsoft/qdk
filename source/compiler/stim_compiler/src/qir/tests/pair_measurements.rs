@@ -187,6 +187,22 @@ fn mxx_with_readout_noise_in_radians_yields_error() {
 }
 
 #[test]
+fn mxx_measurement_with_repeated_qubit_yields_error() {
+    check(
+        "MXX 0 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: MXX
+           ,----
+         1 | MXX 0 0
+           :       ^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn myy_measurement_yields_correct_qir() {
     let source = "MYY 0 1";
     check(

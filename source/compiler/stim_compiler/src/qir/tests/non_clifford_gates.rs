@@ -831,6 +831,58 @@ fn ccx_gate_with_negated_target_yields_error() {
 }
 
 #[test]
+fn ccx_gate_with_repeated_qubit_yields_error() {
+    check(
+        "CCX 0 0 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 0 1
+           :       ^
+           `----
+    "#]],
+    );
+    check(
+        "CCX 0 1 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 1 0
+           :         ^
+           `----
+    "#]],
+    );
+    check(
+        "CCX 0 1 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 1 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 1 1
+           :         ^
+           `----
+    "#]],
+    );
+    check(
+        "CCX 0 0 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 0 0
+           :       ^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn ccz_gate_with_measurement_record_target_yields_error() {
     let source = indoc! {"
         M 0

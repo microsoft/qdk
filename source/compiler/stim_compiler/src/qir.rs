@@ -472,6 +472,14 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("qubit {qubit} is repeated in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.RepeatedQubit"))]
+    RepeatedQubit {
+        instruction: String,
+        qubit: StimQubitId,
+        #[label]
+        span: Span,
+    },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
     #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
@@ -1068,10 +1076,7 @@ impl<'noise> Compiler<'noise> {
                 s.op_2("cx", q1, q0);
                 s.op("h", q1);
             }),
-            "II" => {
-                self.unsupported_args(instruction);
-                self.expect_target_pairs(instruction);
-            }
+            "II" => self.broadcast_pair(instruction, |_, _, _| {}),
             "ISWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1; S 1; S 0
                 s.op("h", q0);
@@ -1246,9 +1251,7 @@ impl<'noise> Compiler<'noise> {
                 s.op_noise(table, &[q0, q1]);
             }),
             "HERALDED_ERASE" | "HERALDED_PAULI_CHANNEL_1" => self.unsupported(instruction),
-            "II_ERROR" => {
-                self.expect_target_pairs(instruction);
-            }
+            "II_ERROR" => self.for_each_pair(instruction, |_, _, _| {}),
             "I_ERROR" => (),
             "PAULI_CHANNEL_1" => {
                 let Some(probabilities) = self.expect_probabilities(instruction, 3) else {
@@ -1541,10 +1544,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some((q0, _)) = self.expect_qubit(instruction, &pair[0], false) else {
-                continue;
-            };
-            let Some((q1, _)) = self.expect_qubit(instruction, &pair[1], false) else {
+            let Some([(q0, _), (q1, _)]) = self.expect_qubit_pair(instruction, pair, false) else {
                 continue;
             };
             operation(self, q0, q1);
@@ -1560,10 +1560,8 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some((q0, neg0)) = self.expect_qubit(instruction, &pair[0], true) else {
-                continue;
-            };
-            let Some((q1, neg1)) = self.expect_qubit(instruction, &pair[1], true) else {
+            let Some([(q0, neg0), (q1, neg1)]) = self.expect_qubit_pair(instruction, pair, true)
+            else {
                 continue;
             };
             operation(self, q0, q1, neg0 ^ neg1);
@@ -1579,13 +1577,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for triple in triples {
-            let Some((q0, _)) = self.expect_qubit(instruction, &triple[0], false) else {
-                continue;
-            };
-            let Some((q1, _)) = self.expect_qubit(instruction, &triple[1], false) else {
-                continue;
-            };
-            let Some((q2, _)) = self.expect_qubit(instruction, &triple[2], false) else {
+            let Some([q0, q1, q2]) = self.expect_qubit_triple(instruction, triple) else {
                 continue;
             };
             operation(self, q0, q1, q2);
@@ -1728,10 +1720,9 @@ impl<'noise> Compiler<'noise> {
         for pair in pairs {
             match (&pair[0].kind, &pair[1].kind) {
                 (TargetKind::Qubit { .. }, TargetKind::Qubit { .. }) => {
-                    let Some((control, _)) = self.expect_qubit(instruction, &pair[0], false) else {
-                        continue;
-                    };
-                    let Some((target, _)) = self.expect_qubit(instruction, &pair[1], false) else {
+                    let Some([(control, _), (target, _)]) =
+                        self.expect_qubit_pair(instruction, pair, false)
+                    else {
                         continue;
                     };
                     quantum(self, control, target);
@@ -2243,6 +2234,52 @@ impl<'noise> Compiler<'noise> {
             return None;
         }
         Some((value, negated))
+    }
+
+    fn expect_qubit_pair(
+        &mut self,
+        instruction: &Instruction,
+        pair: &[Target],
+        allow_negated: bool,
+    ) -> Option<[(StimQubitId, bool); 2]> {
+        let (q0, neg0) = self.expect_qubit(instruction, &pair[0], allow_negated)?;
+        let (q1, neg1) = self.expect_qubit(instruction, &pair[1], allow_negated)?;
+
+        if q0 == q1 {
+            self.push_error(Error::RepeatedQubit {
+                instruction: instruction.name.clone(),
+                qubit: q1,
+                span: pair[1].span,
+            });
+            return None;
+        }
+
+        Some([(q0, neg0), (q1, neg1)])
+    }
+
+    fn expect_qubit_triple(
+        &mut self,
+        instruction: &Instruction,
+        triple: &[Target],
+    ) -> Option<[StimQubitId; 3]> {
+        let (q0, _) = self.expect_qubit(instruction, &triple[0], false)?;
+        let (q1, _) = self.expect_qubit(instruction, &triple[1], false)?;
+        let (q2, _) = self.expect_qubit(instruction, &triple[2], false)?;
+
+        let (repeated_qubit_value, repeated_qubit_span) = if q0 == q1 {
+            (q1, triple[1].span)
+        } else if q0 == q2 || q1 == q2 {
+            (q2, triple[2].span)
+        } else {
+            return Some([q0, q1, q2]);
+        };
+
+        self.push_error(Error::RepeatedQubit {
+            instruction: instruction.name.clone(),
+            qubit: repeated_qubit_value,
+            span: repeated_qubit_span,
+        });
+        None
     }
 
     fn expect_fault_char(
