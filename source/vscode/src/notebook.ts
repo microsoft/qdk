@@ -27,12 +27,6 @@ export function registerQSharpNotebookHandlers() {
     }
   });
 
-  vscode.workspace.notebookDocuments.forEach((notebookDocument) => {
-    if (notebookDocument.notebookType === jupyterNotebookType) {
-      updateQdkCellLanguages(notebookDocument.getCells());
-    }
-  });
-
   const subscriptions = [];
   subscriptions.push(
     vscode.workspace.onDidOpenNotebookDocument((notebookDocument) => {

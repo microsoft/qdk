@@ -67,7 +67,7 @@ fn base_profile_check_still_fires_on_a_pinned_program() {
     // Sensitivity control for the post-transform check.
     assert_eq!(
         base_profile_capability_errors(EFFECTFUL_ARROW_OPERAND_PIN_WITH_BOOL_OUTPUT),
-        vec!["CapabilitiesCk(UseOfBoolOutput(Span { lo: 182, hi: 186 }))".to_string()],
+        vec!["CapabilitiesCk(UseOfBoolOutput(PackageSpan { package: PackageId(2), span: Span { lo: 182, hi: 186 } }))".to_string()],
         "the post-transform capability check should still reject a bool output"
     );
 }

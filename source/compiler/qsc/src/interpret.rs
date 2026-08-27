@@ -1165,15 +1165,8 @@ impl Interpreter {
         }
     }
 
-    fn partial_evaluation_error(
-        &self,
-        error: qsc_partial_eval::Error,
-        fallback_package: qsc_hir::hir::PackageId,
-    ) -> Vec<Error> {
-        let hir_package_id = match error.span() {
-            Some(span) => span.package,
-            None => fallback_package,
-        };
+    fn partial_evaluation_error(&self, error: qsc_partial_eval::Error) -> Vec<Error> {
+        let hir_package_id = error.span().package;
         let source_package = self
             .compiler
             .package_store()
@@ -1196,13 +1189,12 @@ impl Interpreter {
         let entry = entry_from_codegen_fir(&prepared_fir);
         let CodegenFir {
             fir_store,
-            fir_package_id,
             compute_properties,
             ..
         } = prepared_fir;
 
         fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
-            .map_err(|e| self.partial_evaluation_error(e, map_fir_package_to_hir(fir_package_id)))
+            .map_err(|e| self.partial_evaluation_error(e))
     }
 
     /// Performs RIR codegen using the given entry expression on a new instance of the environment
@@ -1243,10 +1235,7 @@ impl Interpreter {
             },
         )
         .map_err(|e| {
-            let hir_package_id = match e.span() {
-                Some(span) => span.package,
-                None => map_fir_package_to_hir(self.package),
-            };
+            let hir_package_id = e.span().package;
             let source_package = self
                 .compiler
                 .package_store()
@@ -1285,14 +1274,12 @@ impl Interpreter {
                 let entry = entry_from_codegen_fir(&prepared_fir);
                 let CodegenFir {
                     fir_store,
-                    fir_package_id,
                     compute_properties,
                     ..
                 } = prepared_fir;
 
-                fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry).map_err(
-                    |e| self.partial_evaluation_error(e, map_fir_package_to_hir(fir_package_id)),
-                )
+                fir_to_qir(&fir_store, self.capabilities, &compute_properties, &entry)
+                    .map_err(|e| self.partial_evaluation_error(e))
             }
             CallableArgsBackend::ReinvokeOriginal { callable, args } => {
                 let CodegenFir {
@@ -1308,7 +1295,7 @@ impl Interpreter {
                     callable,
                     args,
                 )
-                .map_err(|e| self.partial_evaluation_error(e, callable_id.package))
+                .map_err(|e| self.partial_evaluation_error(e))
             }
         }
     }
@@ -1462,7 +1449,7 @@ impl Interpreter {
                         generate_debug_metadata: true,
                     },
                 )
-                .map_err(|e| self.partial_evaluation_error(e, callable_id.package))?;
+                .map_err(|e| self.partial_evaluation_error(e))?;
 
                 rir_to_circuit(
                     &transformed,
@@ -1489,7 +1476,7 @@ impl Interpreter {
                         generate_debug_metadata: true,
                     },
                 )
-                .map_err(|e| self.partial_evaluation_error(e, callable_id.package))?;
+                .map_err(|e| self.partial_evaluation_error(e))?;
 
                 rir_to_circuit(
                     &transformed,
@@ -1507,7 +1494,7 @@ impl Interpreter {
         entry_expr: Option<&str>,
     ) -> std::result::Result<(qsc_partial_eval::Program, qsc_fir::fir::PackageStore), Vec<Error>>
     {
-        let (prepared_fir, fallback_package) =
+        let (prepared_fir, _) =
             if let Some(entry_expr) = entry_expr.or(self.entry_point_call_expr().as_deref()) {
                 (
                     self.prepare_codegen_entry_expr(entry_expr)?,
@@ -1535,7 +1522,7 @@ impl Interpreter {
                 generate_debug_metadata: true,
             },
         )
-        .map_err(|e| self.partial_evaluation_error(e, fallback_package))?;
+        .map_err(|e| self.partial_evaluation_error(e))?;
         Ok((transformed, fir_store))
     }
 
