@@ -296,7 +296,7 @@ impl EstimationCollection {
 
     pub fn push_error(&mut self, err: &Error) {
         if let Error::MaximumErrorExceeded { .. } = err {
-            self.record_maximum_error_exceeded()
+            self.record_maximum_error_exceeded();
         }
         self.errors.push(err.to_string());
     }
