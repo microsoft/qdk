@@ -641,6 +641,7 @@ def run_qir_clifford(
     seed: Optional[int] = None,
 ) -> List:
     mod, shots, noise, seed = preprocess_simulation_input(input, shots, noise, seed)
+    DecomposeCcxPass().run(mod)
     if is_adaptive(mod):
         program = AdaptiveProfilePass(Bytecode.Bit64).run(mod, noise)
         return run_adaptive(run_clifford_adaptive, mod, program, shots, noise, seed)
