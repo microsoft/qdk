@@ -23,7 +23,7 @@ That behavior is only meaningful when three facts hold together:
    uses 256 qubits, so indices `0..255` map to QIR qubit IDs `0..255`; size the pool to match your
    target machine.
 2. **Qubits are selected by explicit physical address.** Picking an element such as `machine[12]`
-   selects physical address 12 in the generated QIR. Indices, and therefore addresses, but be known
+   selects physical address 12 in the generated QIR. Indices, and therefore addresses, must be known
    at compile-time and can't be dependent on the outcome of a measurement.
 3. **The provider target preserves those IDs.** Source indices and QIR IDs do not by themselves
    force a hardware layout. A target may perform further gate decomposition, routing, scheduling,
@@ -73,8 +73,8 @@ Every program written for physical qubit addressing must follow these constraint
 5. **Check the compiled artifact.** When you compile to QIR, confirm that the entry point declares
    `required_num_qubits` equal to your machine size (`256` in this example) and that the quantum
    instructions reference the intended QIR qubit IDs (12, 40, 71, 99, 173, 190, 205, and 233 here).
-   Re-run these checks whenever the program, compiler, or target profile changes. This validates the
-   generated QIR—not the provider's post-submission layout.
+   Re-run these checks whenever the program, compiler, or target profile changes. Note that this
+   validates the generated QIR and not the provider's post-submission layout.
 6. **Confirm provider behavior.** Source indices and QIR IDs do not by themselves force a provider
    to preserve a hardware layout. Use only a target whose documented contract supplies the needed
    physical-address semantics. A target that accepts the QIR but freely remaps its qubit IDs does
