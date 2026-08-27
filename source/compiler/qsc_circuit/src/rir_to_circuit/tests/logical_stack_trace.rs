@@ -1075,7 +1075,7 @@ fn compact_classical_control_negative_cases() {
     operation Main() : Unit {
         use q = Qubit[5];
         H(q[0]);
-        // Multi-qubti gate. 
+        // Multi-qubit gate. 
         if (M(q[0]) == One) {
             X(q[1]);
             Rzz(0.5, q[1], q[2]);
