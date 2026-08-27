@@ -9,8 +9,8 @@ use crate::fir_builder::{
 use crate::test_utils::compile_to_fir;
 use crate::test_utils::find_callable_body_block as find_callable_block;
 use expect_test::expect;
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
+use qsc_fir::fir::PackageSpan;
 use qsc_fir::fir::{CallableDecl, CallableImpl, CallableKind, ItemKind, Lit, PatKind};
 use qsc_fir::ty::{Arrow, FunctorSet, FunctorSetValue, Prim, Ty};
 use std::rc::Rc;
@@ -571,7 +571,7 @@ fn int_lit(package: &mut Package, assigner: &mut Assigner, value: i64) -> ExprId
         assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Lit(Lit::Int(value)),
-        Span::default(),
+        PackageSpan::default(),
     )
 }
 
@@ -594,7 +594,7 @@ fn given_var_is_side_effect_free() {
         &mut assigner,
         some_local,
         Ty::Prim(Prim::Int),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -611,7 +611,7 @@ fn given_tuple_of_lits_is_side_effect_free() {
         &mut assigner,
         Ty::Tuple(vec![Ty::Prim(Prim::Int), Ty::Prim(Prim::Int)]),
         ExprKind::Tuple(vec![a, b]),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -628,7 +628,7 @@ fn given_array_of_lits_is_side_effect_free() {
         &mut assigner,
         Ty::Array(Box::new(Ty::Prim(Prim::Int))),
         ExprKind::Array(vec![a, b]),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -639,20 +639,20 @@ fn given_block_with_single_lit_is_side_effect_free() {
     let mut package = Package::default();
     let mut assigner = Assigner::default();
     let lit = int_lit(&mut package, &mut assigner, 7);
-    let stmt = alloc_expr_stmt(&mut package, &mut assigner, lit, Span::default());
+    let stmt = alloc_expr_stmt(&mut package, &mut assigner, lit, PackageSpan::default());
     let bid = alloc_block(
         &mut package,
         &mut assigner,
         vec![stmt],
         Ty::Prim(Prim::Int),
-        Span::default(),
+        PackageSpan::default(),
     );
     let e = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Block(bid),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -676,7 +676,7 @@ fn given_closure_is_side_effect_free() {
         &mut assigner,
         closure_ty,
         ExprKind::Closure(vec![some_local], LocalItemId::from(0)),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -697,7 +697,7 @@ fn given_call_is_not_side_effect_free() {
         &mut assigner,
         arrow_ty,
         ExprKind::Hole,
-        Span::default(),
+        PackageSpan::default(),
     );
     let arg = int_lit(&mut package, &mut assigner, 0);
     let e = alloc_expr(
@@ -705,7 +705,7 @@ fn given_call_is_not_side_effect_free() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Call(callee, arg),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -819,10 +819,16 @@ fn given_assign_is_not_side_effect_free() {
         &mut assigner,
         some_local,
         Ty::Prim(Prim::Bool),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let rhs = alloc_bool_lit(&mut package, &mut assigner, true, Span::default());
-    let e = alloc_assign_expr(&mut package, &mut assigner, lhs, rhs, Span::default());
+    let rhs = alloc_bool_lit(&mut package, &mut assigner, true, PackageSpan::default());
+    let e = alloc_assign_expr(
+        &mut package,
+        &mut assigner,
+        lhs,
+        rhs,
+        PackageSpan::default(),
+    );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
 }
@@ -837,7 +843,7 @@ fn given_return_is_not_side_effect_free() {
         &mut assigner,
         Ty::UNIT,
         ExprKind::Return(inner),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -853,14 +859,14 @@ fn given_fail_is_not_side_effect_free() {
         &mut assigner,
         Ty::Prim(Prim::String),
         ExprKind::String(vec![StringComponent::Lit(Rc::from("boom"))]),
-        Span::default(),
+        PackageSpan::default(),
     );
     let e = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::UNIT,
         ExprKind::Fail(msg),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -870,20 +876,20 @@ fn given_fail_is_not_side_effect_free() {
 fn given_while_is_not_side_effect_free() {
     let mut package = Package::default();
     let mut assigner = Assigner::default();
-    let cond = alloc_bool_lit(&mut package, &mut assigner, false, Span::default());
+    let cond = alloc_bool_lit(&mut package, &mut assigner, false, PackageSpan::default());
     let body = alloc_block(
         &mut package,
         &mut assigner,
         Vec::new(),
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
     let e = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::UNIT,
         ExprKind::While(cond, body),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -900,7 +906,7 @@ fn given_total_binop_is_side_effect_free_and_safe_to_discard() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::BinOp(BinOp::Add, a, b),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -917,7 +923,7 @@ fn given_fallible_binop_is_side_effect_free_but_not_safe_to_discard() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::BinOp(BinOp::Div, a, b),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -933,7 +939,7 @@ fn given_array_index_is_side_effect_free_but_not_safe_to_discard() {
         &mut assigner,
         Ty::Array(Box::new(Ty::Prim(Prim::Int))),
         ExprKind::Array(vec![value]),
-        Span::default(),
+        PackageSpan::default(),
     );
     let index = int_lit(&mut package, &mut assigner, 2);
     let e = alloc_expr(
@@ -941,7 +947,7 @@ fn given_array_index_is_side_effect_free_but_not_safe_to_discard() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Index(array, index),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -958,7 +964,7 @@ fn given_array_repeat_is_side_effect_free_but_not_safe_to_discard() {
         &mut assigner,
         Ty::Array(Box::new(Ty::Prim(Prim::Int))),
         ExprKind::ArrayRepeat(value, count),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -974,21 +980,21 @@ fn given_result_equality_is_side_effect_free_but_not_safe_to_discard() {
         &mut assigner,
         some_local,
         Ty::Prim(Prim::Result),
-        Span::default(),
+        PackageSpan::default(),
     );
     let rhs = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::Prim(Prim::Result),
         ExprKind::Lit(Lit::Result(qsc_fir::fir::Result::Zero)),
-        Span::default(),
+        PackageSpan::default(),
     );
     let e = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::Prim(Prim::Bool),
         ExprKind::BinOp(BinOp::Eq, lhs, rhs),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -1004,7 +1010,7 @@ fn given_negation_is_side_effect_free_and_safe_to_discard() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::UnOp(UnOp::Neg, operand),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -1016,7 +1022,7 @@ fn given_if_then_only_is_not_side_effect_free() {
     // case can run its `then` branch for effect.
     let mut package = Package::default();
     let mut assigner = Assigner::default();
-    let cond = alloc_bool_lit(&mut package, &mut assigner, true, Span::default());
+    let cond = alloc_bool_lit(&mut package, &mut assigner, true, PackageSpan::default());
     let then_expr = int_lit(&mut package, &mut assigner, 1);
     let e = alloc_if_expr(
         &mut package,
@@ -1025,7 +1031,7 @@ fn given_if_then_only_is_not_side_effect_free() {
         then_expr,
         None,
         Ty::UNIT,
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
     assert!(!expr_is_safe_to_discard(&package, PackageId::CORE, e));
@@ -1259,7 +1265,7 @@ fn given_parallel_of_lit_is_side_effect_free() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Parallel(None, body),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
 }
@@ -1276,7 +1282,7 @@ fn given_parallel_with_limit_of_lits_is_side_effect_free() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Parallel(Some(limit), body),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(expr_is_side_effect_free(&package, PackageId::CORE, e));
 }
@@ -1291,21 +1297,21 @@ fn given_parallel_with_fail_in_body_is_not_side_effect_free() {
         &mut assigner,
         Ty::Prim(Prim::String),
         ExprKind::String(vec![StringComponent::Lit(Rc::from("boom"))]),
-        Span::default(),
+        PackageSpan::default(),
     );
     let body = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::UNIT,
         ExprKind::Fail(fail_expr),
-        Span::default(),
+        PackageSpan::default(),
     );
     let e = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Parallel(None, body),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
 }
@@ -1320,14 +1326,14 @@ fn given_parallel_with_fail_in_limit_is_not_side_effect_free() {
         &mut assigner,
         Ty::Prim(Prim::String),
         ExprKind::String(vec![StringComponent::Lit(Rc::from("boom"))]),
-        Span::default(),
+        PackageSpan::default(),
     );
     let limit = alloc_expr(
         &mut package,
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Fail(fail_expr),
-        Span::default(),
+        PackageSpan::default(),
     );
     let body = int_lit(&mut package, &mut assigner, 42);
     let e = alloc_expr(
@@ -1335,7 +1341,7 @@ fn given_parallel_with_fail_in_limit_is_not_side_effect_free() {
         &mut assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Parallel(Some(limit), body),
-        Span::default(),
+        PackageSpan::default(),
     );
     assert!(!expr_is_side_effect_free(&package, PackageId::CORE, e));
 }

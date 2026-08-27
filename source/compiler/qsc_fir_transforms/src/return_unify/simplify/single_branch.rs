@@ -51,7 +51,6 @@
 //! a sub-expression whose type contains [`qsc_fir::ty::Prim::Qubit`],
 //! matching the conservative policy of [`super::both_branches`].
 
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{BlockId, ExprId, ExprKind, LocalVarId, Package, PackageLookup, PatKind, StmtKind},
@@ -151,9 +150,9 @@ fn try_apply_once(
                 then_id,
                 Some(else_arm),
                 block_ty,
-                Span::default(),
+                package.synthetic_span(),
             );
-            let new_stmt = alloc_expr_stmt(package, assigner, new_if, Span::default());
+            let new_stmt = alloc_expr_stmt(package, assigner, new_if, package.synthetic_span());
             let block = package.blocks.get_mut(block_id).expect("block not found");
             block.stmts.truncate(let_idx);
             block.stmts.push(new_stmt);
@@ -178,9 +177,9 @@ fn try_apply_once(
                 then_arm,
                 Some(else_id),
                 block_ty,
-                Span::default(),
+                package.synthetic_span(),
             );
-            let new_stmt = alloc_expr_stmt(package, assigner, new_if, Span::default());
+            let new_stmt = alloc_expr_stmt(package, assigner, new_if, package.synthetic_span());
             let block = package.blocks.get_mut(block_id).expect("block not found");
             block.stmts.truncate(let_idx);
             block.stmts.push(new_stmt);
@@ -200,15 +199,21 @@ fn wrap_in_block_expr(
     expr_id: qsc_fir::fir::ExprId,
     block_ty: &qsc_fir::ty::Ty,
 ) -> qsc_fir::fir::ExprId {
-    let stmt = alloc_expr_stmt(package, assigner, expr_id, Span::default());
+    let stmt = alloc_expr_stmt(package, assigner, expr_id, package.synthetic_span());
     let bid = alloc_block(
         package,
         assigner,
         vec![stmt],
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
-    alloc_block_expr(package, assigner, bid, block_ty.clone(), Span::default())
+    alloc_block_expr(
+        package,
+        assigner,
+        bid,
+        block_ty.clone(),
+        package.synthetic_span(),
+    )
 }
 
 /// Returns `true` when `arm_expr_id` contains any assignment whose LHS

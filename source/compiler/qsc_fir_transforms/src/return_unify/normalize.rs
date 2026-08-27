@@ -63,7 +63,6 @@ use crate::fir_builder::{
     alloc_block, alloc_bool_lit, alloc_discard_pat, alloc_expr, alloc_expr_stmt, alloc_local_stmt,
     alloc_local_var, alloc_local_var_expr, alloc_not_expr, alloc_semi_stmt,
 };
-use qsc_data_structures::span::Span;
 use std::rc::Rc;
 
 use super::detect::contains_return_in_expr;
@@ -522,7 +521,7 @@ fn hoist_in_expr(
                 return Some(inner_stmts);
             }
             // Re-use the existing Return expression as a Semi statement.
-            let stmt = alloc_semi_stmt(package, assigner, expr_id, Span::default());
+            let stmt = alloc_semi_stmt(package, assigner, expr_id, package.synthetic_span());
             Some(vec![stmt])
         }
 
@@ -706,7 +705,7 @@ fn hoist_short_circuit(
     }
     let lit_expr = {
         let value = !is_and;
-        alloc_bool_lit(package, assigner, value, Span::default())
+        alloc_bool_lit(package, assigner, value, package.synthetic_span())
     };
     let (then_id, else_id) = if is_and { (b, lit_expr) } else { (lit_expr, b) };
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
@@ -742,19 +741,19 @@ fn hoist_short_circuit_assign(
         assigner,
         place_expr.ty.clone(),
         place_expr.kind.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let cond = if is_and {
         place_read
     } else {
-        alloc_not_expr(package, assigner, place_read, Span::default())
+        alloc_not_expr(package, assigner, place_read, package.synthetic_span())
     };
     let assign = alloc_expr(
         package,
         assigner,
         Ty::UNIT,
         ExprKind::Assign(place, rhs),
-        Span::default(),
+        package.synthetic_span(),
     );
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
     expr.kind = ExprKind::If(cond, assign, None);
@@ -776,14 +775,14 @@ fn create_typed_fail_expr(
         assigner,
         Ty::Prim(Prim::String),
         ExprKind::String(vec![StringComponent::Lit(Rc::from(message))]),
-        Span::default(),
+        package.synthetic_span(),
     );
     alloc_expr(
         package,
         assigner,
         output_ty.clone(),
         ExprKind::Fail(msg_expr_id),
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -827,12 +826,18 @@ fn hoist_in_cond(
             package,
             assigner,
             dead_tail,
-            Span::default(),
+            package.synthetic_span(),
         ));
     }
     let block_id = {
         let ty: &Ty = &orig_ty;
-        alloc_block(package, assigner, block_stmts, ty.clone(), Span::default())
+        alloc_block(
+            package,
+            assigner,
+            block_stmts,
+            ty.clone(),
+            package.synthetic_span(),
+        )
     };
     let expr = package.exprs.get_mut(expr_id).expect("expr not found");
     expr.kind = ExprKind::Block(block_id);
@@ -849,14 +854,14 @@ fn create_discard_let_stmt(
     expr_id: ExprId,
 ) -> StmtId {
     let ty = package.get_expr(expr_id).ty.clone();
-    let pat_id = alloc_discard_pat(package, assigner, ty, Span::default());
+    let pat_id = alloc_discard_pat(package, assigner, ty, package.synthetic_span());
     alloc_local_stmt(
         package,
         assigner,
         Mutability::Immutable,
         pat_id,
         expr_id,
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -895,8 +900,13 @@ fn bind_inner_and_return(
         Mutability::Immutable,
     );
 
-    let var_expr_id =
-        alloc_local_var_expr(package, assigner, local_var_id, inner_ty, Span::default());
+    let var_expr_id = alloc_local_var_expr(
+        package,
+        assigner,
+        local_var_id,
+        inner_ty,
+        package.synthetic_span(),
+    );
 
     // Rewrite the existing Return expression in place so it now wraps the
     // Var, then wrap it in a fresh Semi statement.
@@ -905,7 +915,7 @@ fn bind_inner_and_return(
         .get_mut(return_expr)
         .expect("return expr not found");
     ret.kind = ExprKind::Return(var_expr_id);
-    let return_stmt_id = alloc_semi_stmt(package, assigner, return_expr, Span::default());
+    let return_stmt_id = alloc_semi_stmt(package, assigner, return_expr, package.synthetic_span());
 
     vec![local_stmt_id, return_stmt_id]
 }

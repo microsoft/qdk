@@ -358,12 +358,12 @@ fn accumulate_and_check_specialization_budget(
             let (name, span) = if let ItemKind::Callable(decl) = &item.kind {
                 (decl.name.name.to_string(), decl.name.span)
             } else {
-                (format!("Item({hof_id})"), Span::default())
+                (format!("Item({hof_id})"), package.synthetic_span())
             };
             return Some(Error::RecursiveSpecialization(
                 name,
                 count,
-                PackageSpan::new(hof_id.package, span),
+                PackageSpan::new(hof_id.package, span.span),
             ));
         }
     }
@@ -558,7 +558,7 @@ fn emit_fixpoint_error(
             for &call_site in unresolved_direct_call_sites {
                 let package = store.get(call_site.package);
                 errors.push(Error::DynamicCallable(
-                    (call_site.package, package.get_expr(call_site.expr).span).into(),
+                    package.get_expr(call_site.expr).span,
                 ));
             }
         }
@@ -832,7 +832,7 @@ fn remaining_callable_value_info(
         if let ItemKind::Callable(decl) = &item.kind {
             let input_pat = package.get_pat(decl.input);
             if ty_contains_arrow_through_udts(store, &input_pat.ty) {
-                record_remaining(store_id.package, input_pat.span);
+                record_remaining(store_id.package, input_pat.span.span);
             }
 
             crate::walk_utils::for_each_expr_in_callable_impl(
@@ -840,7 +840,7 @@ fn remaining_callable_value_info(
                 &decl.implementation,
                 &mut |_expr_id, expr| {
                     if matches!(expr.kind, ExprKind::Closure(_, _)) {
-                        record_remaining(store_id.package, expr.span);
+                        record_remaining(store_id.package, expr.span.span);
                     }
                     // Count indirect calls through arrow-typed local variables.
                     // After defunc iteration 1 specializes HOFs and removes callable
@@ -857,7 +857,7 @@ fn remaining_callable_value_info(
                         if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
                             && ty_contains_arrow(&base_expr.ty)
                         {
-                            record_remaining(store_id.package, base_expr.span);
+                            record_remaining(store_id.package, base_expr.span.span);
                         }
                     }
                 },
@@ -869,7 +869,7 @@ fn remaining_callable_value_info(
     if let Some(entry_id) = package.entry {
         crate::walk_utils::for_each_expr(package, entry_id, &mut |_expr_id, expr| {
             if matches!(expr.kind, ExprKind::Closure(_, _)) {
-                record_remaining(package_id, expr.span);
+                record_remaining(package_id, expr.span.span);
             }
             // Same indirect-call check as callable body walker.
             if let ExprKind::Call(callee_id, _) = &expr.kind {
@@ -878,7 +878,7 @@ fn remaining_callable_value_info(
                 if matches!(base_expr.kind, ExprKind::Var(Res::Local(_), _))
                     && ty_contains_arrow(&base_expr.ty)
                 {
-                    record_remaining(package_id, base_expr.span);
+                    record_remaining(package_id, base_expr.span.span);
                 }
             }
         });

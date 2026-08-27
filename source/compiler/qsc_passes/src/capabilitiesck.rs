@@ -47,7 +47,7 @@ pub fn lower_store(
     let mut last_assigner = qsc_fir::assigner::Assigner::new();
     for (id, unit) in package_store {
         let mut lowerer = qsc_lowerer::Lowerer::new();
-        let package = lowerer.lower_package(&unit.package, &fir_store);
+        let package = lowerer.lower_package(&unit.package, &fir_store, map_hir_package_to_fir(id));
         fir_store.insert(map_hir_package_to_fir(id), package);
         last_assigner = lowerer.into_assigner();
     }
@@ -66,7 +66,6 @@ pub fn run_rca_pass(
     let package_compute_properties = compute_properties.get(package_id, false);
     let mut errors = check_supported_capabilities(
         fir_package,
-        package_id,
         package_compute_properties,
         capabilities,
         fir_store,
@@ -86,14 +85,12 @@ pub fn run_rca_pass(
 #[must_use]
 pub fn check_supported_capabilities(
     package: &Package,
-    package_id: PackageId,
     compute_properties: &PackageComputeProperties,
     capabilities: TargetCapabilityFlags,
     store: &qsc_fir::fir::PackageStore,
 ) -> Vec<Error> {
     let checker = Checker {
         package,
-        package_id,
         compute_properties,
         target_capabilities: capabilities,
         current_callable: None,
@@ -112,7 +109,6 @@ pub fn check_supported_capabilities(
 #[must_use]
 pub fn check_supported_capabilities_for_callable(
     package: &Package,
-    package_id: PackageId,
     compute_properties: &PackageComputeProperties,
     callable: LocalItemId,
     capabilities: TargetCapabilityFlags,
@@ -120,7 +116,6 @@ pub fn check_supported_capabilities_for_callable(
 ) -> Vec<Error> {
     let checker = Checker {
         package,
-        package_id,
         compute_properties,
         target_capabilities: capabilities,
         current_callable: None,
@@ -133,7 +128,6 @@ pub fn check_supported_capabilities_for_callable(
 
 struct Checker<'a> {
     package: &'a Package,
-    package_id: PackageId,
     compute_properties: &'a PackageComputeProperties,
     target_capabilities: TargetCapabilityFlags,
     current_callable: Option<LocalItemId>,
@@ -275,7 +269,7 @@ impl<'a> Checker<'a> {
 
     fn check_entry_expr(&mut self, expr_id: ExprId) {
         let expr = self.get_expr(expr_id);
-        if expr.span == Span::default() {
+        if expr.span.span == Span::default() {
             // This is an auto-generated entry expression, so we only need to verify the output recording flags.
             self.check_output_recording(expr);
         } else {
@@ -303,7 +297,7 @@ impl<'a> Checker<'a> {
         let expr = self.get_expr(expr_id);
         if !missing_features.is_empty() {
             self.missing_features_map
-                .entry(PackageSpan::new(self.package_id, expr.span))
+                .entry(expr.span)
                 .and_modify(|f| *f |= missing_features)
                 .or_insert(missing_features);
         }
@@ -370,7 +364,7 @@ impl<'a> Checker<'a> {
         };
 
         let output_reporting_span = match &expr.kind {
-            ExprKind::Call(callee_expr, _) if expr.span == Span::default() => {
+            ExprKind::Call(callee_expr, _) if expr.span.span == Span::default() => {
                 // Since this is auto-generated, use the callee expression span.
                 self.get_expr(*callee_expr).span
             }
@@ -383,7 +377,7 @@ impl<'a> Checker<'a> {
                 & RuntimeFeatureFlags::output_recording_flags();
         if !missing_features.is_empty() {
             self.missing_features_map
-                .entry(PackageSpan::new(self.package_id, output_reporting_span))
+                .entry(output_reporting_span)
                 .and_modify(|f| *f |= missing_features)
                 .or_insert(missing_features);
         }
@@ -396,7 +390,7 @@ impl<'a> Checker<'a> {
         ) & RuntimeFeatureFlags::output_recording_flags();
         if !missing_features.is_empty() {
             self.missing_features_map
-                .entry(PackageSpan::new(self.package_id, callable_decl.name.span))
+                .entry(callable_decl.name.span)
                 .and_modify(|f| *f |= missing_features)
                 .or_insert(missing_features);
         }
@@ -431,8 +425,10 @@ impl<'a> Checker<'a> {
         let mut missing_features_map = self.missing_features_map.drain().collect::<Vec<_>>();
         missing_features_map.sort_unstable();
         for (span, missing_features) in missing_features_map {
-            let mut span_errors = generate_errors_from_runtime_features(missing_features, span);
-            errors.append(&mut span_errors);
+            errors.append(&mut generate_errors_from_runtime_features(
+                missing_features,
+                span,
+            ));
         }
         errors
     }

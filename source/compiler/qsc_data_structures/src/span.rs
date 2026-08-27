@@ -33,6 +33,25 @@ impl<P> PackageSpan<P> {
     }
 }
 
+/// Synthetic nodes with no source text default to the first package.
+impl<P: Default> Default for PackageSpan<P> {
+    fn default() -> Self {
+        Self {
+            package: P::default(),
+            span: Span::default(),
+        }
+    }
+}
+
+/// Lets a package-qualified span be read like the bare `Span` it wraps.
+impl<P> std::ops::Deref for PackageSpan<P> {
+    type Target = Span;
+
+    fn deref(&self) -> &Span {
+        &self.span
+    }
+}
+
 impl Span {
     /// Returns true if the position is within the span. Meaning it is in the
     /// right open interval `[self.lo, self.hi)`.

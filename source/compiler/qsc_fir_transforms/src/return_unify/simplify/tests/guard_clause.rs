@@ -422,7 +422,8 @@ fn both_branches_return_shape_not_collapsed_by_guard_clause_rule() {
 mod inverted_orientation {
     use expect_test::expect;
     use indoc::indoc;
-    use qsc_data_structures::span::Span;
+
+    use qsc_fir::fir::PackageSpan;
     use qsc_fir::{
         assigner::Assigner,
         fir::{
@@ -466,10 +467,10 @@ mod inverted_orientation {
             assigner,
             slots.ret_val,
             return_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
-        let assign = alloc_assign_expr(package, assigner, lhs, v_id, Span::default());
-        alloc_semi_stmt(package, assigner, assign, Span::default())
+        let assign = alloc_assign_expr(package, assigner, lhs, v_id, PackageSpan::default());
+        alloc_semi_stmt(package, assigner, assign, PackageSpan::default())
     }
 
     /// Build `__has_returned = true;` Semi statement.
@@ -484,11 +485,11 @@ mod inverted_orientation {
             assigner,
             slots.has_returned,
             bool_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
-        let rhs = alloc_bool_lit(package, assigner, true, Span::default());
-        let assign = alloc_assign_expr(package, assigner, lhs, rhs, Span::default());
-        alloc_semi_stmt(package, assigner, assign, Span::default())
+        let rhs = alloc_bool_lit(package, assigner, true, PackageSpan::default());
+        let assign = alloc_assign_expr(package, assigner, lhs, rhs, PackageSpan::default());
+        alloc_semi_stmt(package, assigner, assign, PackageSpan::default())
     }
 
     /// Build a Unit-typed block expr containing the slot-set sequence
@@ -508,16 +509,22 @@ mod inverted_orientation {
             assigner,
             vec![slot_stmt, flag_stmt],
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
-        alloc_block_expr(package, assigner, bid, Ty::UNIT, Span::default())
+        alloc_block_expr(package, assigner, bid, Ty::UNIT, PackageSpan::default())
     }
 
     /// Build an empty Unit-typed block expr — the only then-arm shape
     /// `identify_guard_else_arm` accepts.
     fn build_empty_unit_block_expr(package: &mut Package, assigner: &mut Assigner) -> ExprId {
-        let bid = alloc_block(package, assigner, Vec::new(), Ty::UNIT, Span::default());
-        alloc_block_expr(package, assigner, bid, Ty::UNIT, Span::default())
+        let bid = alloc_block(
+            package,
+            assigner,
+            Vec::new(),
+            Ty::UNIT,
+            PackageSpan::default(),
+        );
+        alloc_block_expr(package, assigner, bid, Ty::UNIT, PackageSpan::default())
     }
 
     /// Build the inverted guard `Semi(If(cond, empty_unit, Some(slot_sets)))`.
@@ -535,9 +542,9 @@ mod inverted_orientation {
             then_id,
             Some(else_id),
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
-        alloc_semi_stmt(package, assigner, if_expr, Span::default())
+        alloc_semi_stmt(package, assigner, if_expr, PackageSpan::default())
     }
 
     /// Build the lazy continuation `Semi(If(not __has_returned, rest_block, None))`.
@@ -553,9 +560,9 @@ mod inverted_orientation {
             assigner,
             slots.has_returned,
             bool_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
-        let not_flag = alloc_not_expr(package, assigner, flag_read, Span::default());
+        let not_flag = alloc_not_expr(package, assigner, flag_read, PackageSpan::default());
         let if_expr = alloc_if_expr(
             package,
             assigner,
@@ -563,9 +570,9 @@ mod inverted_orientation {
             rest_block_expr_id,
             None,
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
-        alloc_semi_stmt(package, assigner, if_expr, Span::default())
+        alloc_semi_stmt(package, assigner, if_expr, PackageSpan::default())
     }
 
     /// Build the canonical merge `Expr(If(__has_returned, __ret_val, Some(fallthrough)))`.
@@ -581,29 +588,29 @@ mod inverted_orientation {
             assigner,
             slots.has_returned,
             Ty::Prim(Prim::Bool),
-            Span::default(),
+            PackageSpan::default(),
         );
         let then_var = alloc_local_var_expr(
             package,
             assigner,
             slots.ret_val,
             return_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
-        let then_stmt = alloc_expr_stmt(package, assigner, then_var, Span::default());
+        let then_stmt = alloc_expr_stmt(package, assigner, then_var, PackageSpan::default());
         let then_bid = alloc_block(
             package,
             assigner,
             vec![then_stmt],
             return_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let then_expr = alloc_block_expr(
             package,
             assigner,
             then_bid,
             return_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let merge = alloc_if_expr(
             package,
@@ -612,9 +619,9 @@ mod inverted_orientation {
             then_expr,
             Some(fallthrough),
             return_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
-        alloc_expr_stmt(package, assigner, merge, Span::default())
+        alloc_expr_stmt(package, assigner, merge, PackageSpan::default())
     }
 
     /// Build the rest-block expression `{ rest_value }` (single trailing
@@ -628,20 +635,20 @@ mod inverted_orientation {
         rest_value: ExprId,
         return_ty: &Ty,
     ) -> (qsc_fir::fir::BlockId, ExprId) {
-        let rest_stmt = alloc_expr_stmt(package, assigner, rest_value, Span::default());
+        let rest_stmt = alloc_expr_stmt(package, assigner, rest_value, PackageSpan::default());
         let rest_bid = alloc_block(
             package,
             assigner,
             vec![rest_stmt],
             return_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let expr_id = alloc_block_expr(
             package,
             assigner,
             rest_bid,
             return_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         (rest_bid, expr_id)
     }
@@ -655,7 +662,7 @@ mod inverted_orientation {
             assigner,
             cond_local,
             Ty::Prim(Prim::Bool),
-            Span::default(),
+            PackageSpan::default(),
         );
         (cond_local, cond_expr)
     }
@@ -737,7 +744,7 @@ mod inverted_orientation {
             assigner,
             int_ty.clone(),
             ExprKind::Lit(Lit::Int(42)),
-            Span::default(),
+            PackageSpan::default(),
         );
         let then_id = build_empty_unit_block_expr(package, assigner);
         let else_id = build_slot_set_arm_expr(package, assigner, slots, v_id, int_ty);
@@ -748,7 +755,7 @@ mod inverted_orientation {
             assigner,
             int_ty.clone(),
             ExprKind::Lit(Lit::Int(7)),
-            Span::default(),
+            PackageSpan::default(),
         );
         let (rest_bid, rest_block_expr) =
             build_rest_block_expr(package, assigner, rest_value, int_ty);
@@ -759,7 +766,7 @@ mod inverted_orientation {
             assigner,
             slots.ret_val,
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let merge_stmt = build_merge_stmt(package, assigner, slots, fallthrough, int_ty);
 
@@ -768,7 +775,7 @@ mod inverted_orientation {
             assigner,
             vec![guard_stmt, cont_stmt, merge_stmt],
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         (block_id, cond_local, v_id, rest_bid)
     }
@@ -863,14 +870,14 @@ mod inverted_orientation {
             &mut assigner,
             inner_block_id,
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let (_outer_local, outer_pat) = alloc_bind_pat(
             &mut package,
             &mut assigner,
             "x",
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let outer_local_stmt = alloc_local_stmt(
             &mut package,
@@ -878,14 +885,14 @@ mod inverted_orientation {
             Mutability::Immutable,
             outer_pat,
             init_expr,
-            Span::default(),
+            PackageSpan::default(),
         );
         let _outer_block = alloc_block(
             &mut package,
             &mut assigner,
             vec![outer_local_stmt],
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
 
         let synth_slots =
@@ -920,20 +927,20 @@ mod inverted_orientation {
             &mut assigner,
             inner_block_id,
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let wrapper_stmt = alloc_expr_stmt(
             &mut package,
             &mut assigner,
             inner_block_expr,
-            Span::default(),
+            PackageSpan::default(),
         );
         let _outer_block = alloc_block(
             &mut package,
             &mut assigner,
             vec![wrapper_stmt],
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
 
         let synth_slots =
@@ -966,7 +973,7 @@ mod inverted_orientation {
             &mut assigner,
             int_ty.clone(),
             ExprKind::Lit(Lit::Int(42)),
-            Span::default(),
+            PackageSpan::default(),
         );
         let slot_stmt = build_slot_assign_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
         // Else-arm is a Unit block carrying only the slot set — flag set absent.
@@ -975,14 +982,14 @@ mod inverted_orientation {
             &mut assigner,
             vec![slot_stmt],
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
         let asymmetric_else = alloc_block_expr(
             &mut package,
             &mut assigner,
             asymmetric_bid,
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
         let then_id = build_empty_unit_block_expr(&mut package, &mut assigner);
         let guard_stmt = build_inverted_guard_stmt(
@@ -998,7 +1005,7 @@ mod inverted_orientation {
             &mut assigner,
             int_ty.clone(),
             ExprKind::Lit(Lit::Int(7)),
-            Span::default(),
+            PackageSpan::default(),
         );
         let (_rest_bid, rest_block_expr) =
             build_rest_block_expr(&mut package, &mut assigner, rest_value, &int_ty);
@@ -1009,7 +1016,7 @@ mod inverted_orientation {
             &mut assigner,
             slots.ret_val,
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let merge_stmt =
             build_merge_stmt(&mut package, &mut assigner, &slots, fallthrough, &int_ty);
@@ -1019,7 +1026,7 @@ mod inverted_orientation {
             &mut assigner,
             vec![guard_stmt, cont_stmt, merge_stmt],
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
 
         let pre_stmts = package.get_block(block_id).stmts.clone();
@@ -1058,7 +1065,7 @@ mod inverted_orientation {
             &mut assigner,
             int_ty.clone(),
             ExprKind::Lit(Lit::Int(42)),
-            Span::default(),
+            PackageSpan::default(),
         );
         let slot_stmt = build_slot_assign_stmt(&mut package, &mut assigner, &slots, v_id, &int_ty);
         // Foreign stmt: a Semi(Unit-literal) — innocuous but breaks the
@@ -1068,24 +1075,28 @@ mod inverted_orientation {
             &mut assigner,
             Ty::UNIT,
             ExprKind::Tuple(Vec::new()),
-            Span::default(),
+            PackageSpan::default(),
         );
-        let foreign_stmt =
-            alloc_semi_stmt(&mut package, &mut assigner, foreign_expr, Span::default());
+        let foreign_stmt = alloc_semi_stmt(
+            &mut package,
+            &mut assigner,
+            foreign_expr,
+            PackageSpan::default(),
+        );
         let flag_stmt = build_flag_set_stmt(&mut package, &mut assigner, &slots);
         let bloated_bid = alloc_block(
             &mut package,
             &mut assigner,
             vec![slot_stmt, foreign_stmt, flag_stmt],
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
         let bloated_else = alloc_block_expr(
             &mut package,
             &mut assigner,
             bloated_bid,
             Ty::UNIT,
-            Span::default(),
+            PackageSpan::default(),
         );
         let then_id = build_empty_unit_block_expr(&mut package, &mut assigner);
         let guard_stmt = build_inverted_guard_stmt(
@@ -1101,7 +1112,7 @@ mod inverted_orientation {
             &mut assigner,
             int_ty.clone(),
             ExprKind::Lit(Lit::Int(7)),
-            Span::default(),
+            PackageSpan::default(),
         );
         let (_rest_bid, rest_block_expr) =
             build_rest_block_expr(&mut package, &mut assigner, rest_value, &int_ty);
@@ -1112,7 +1123,7 @@ mod inverted_orientation {
             &mut assigner,
             slots.ret_val,
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
         let merge_stmt =
             build_merge_stmt(&mut package, &mut assigner, &slots, fallthrough, &int_ty);
@@ -1122,7 +1133,7 @@ mod inverted_orientation {
             &mut assigner,
             vec![guard_stmt, cont_stmt, merge_stmt],
             int_ty.clone(),
-            Span::default(),
+            PackageSpan::default(),
         );
 
         let pre_stmts = package.get_block(block_id).stmts.clone();
