@@ -2172,7 +2172,7 @@ fn is_rotation_gate(id: u32) -> bool {
 fn is_dynamic_angle(shot_idx: u32) -> bool {
     let state = shots[shot_idx].interp;
     let instr = fetch_instr(state.pc - 1);
-    return (instr.opcode | FLAG_SRC0_IMM) != 0;
+    return (instr.opcode & FLAG_SRC0_IMM) == 0u;
 }
 
 // Commit a sampled qubit loss on an explicitly given qubit (measure + reset to
