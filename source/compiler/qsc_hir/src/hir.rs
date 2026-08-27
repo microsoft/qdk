@@ -1469,7 +1469,7 @@ Supported options:
     Missing values default to 2, and extra values are ignored. For a multidimensional input,
     the selected value is used as the length of every dimension.
 
-Example: `@CircuitRenderingOptions("hideBox=true,inputSizes=3;4")`."#;
+Example: `@CircuitRenderingOptions(hideBox=true,inputSizes=[3,4])`."#;
 
 impl Attr {
     /// Gets the string description of the attribute.

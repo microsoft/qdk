@@ -137,7 +137,7 @@ fn single_input_size_applies_to_every_array_parameter() {
     let (item, operation) = compile_one_operation(
         r#"
         namespace Test {
-            @CircuitRenderingOptions("inputSizes=3")
+            @CircuitRenderingOptions(inputSizes=[3])
             operation Test(q1: Qubit[], q: Qubit, q2: Qubit[][]) : Result[] {
             }
         }
@@ -162,7 +162,7 @@ fn extra_input_sizes_are_ignored() {
     let (item, operation) = compile_one_operation(
         r#"
         namespace Test {
-            @CircuitRenderingOptions("inputSizes=3;4;9")
+            @CircuitRenderingOptions(inputSizes=[3, 4, 9])
             operation Test(q1: Qubit[], q2: Qubit[]) : Result[] {
             }
         }
@@ -187,7 +187,7 @@ fn missing_input_sizes_use_default() {
     let (item, operation) = compile_one_operation(
         r#"
         namespace Test {
-            @CircuitRenderingOptions("inputSizes=3;4")
+            @CircuitRenderingOptions(inputSizes=[3, 4])
             operation Test(q1: Qubit[], q2: Qubit[], q3: Qubit[]) : Result[] {
             }
         }

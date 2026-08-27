@@ -3396,10 +3396,10 @@ fn parallel_limited_with_block_lowers_into_existing_block() {
 }
 
 #[test]
-fn test_circuit_rendering_input_sizes() {
+fn test_circuit_rendering_options() {
     let unit = compile_unit(indoc! {r#"
         namespace input {
-            @CircuitRenderingOptions("inputSizes=4; 8;16")
+            @CircuitRenderingOptions(hideBox=true, inputSizes=[4, 8, 16])
             operation Foo(registers : (Qubit[], Qubit[], Qubit[])) : Unit {}
         }
     "#});
@@ -3416,7 +3416,7 @@ fn test_circuit_rendering_input_sizes() {
     assert_eq!(
         callable.attrs,
         [Attr::CircuitRenderingOptions(CircuitRenderingOptions {
-            hide_box: false,
+            hide_box: true,
             input_sizes: Some(vec![4, 8, 16]),
         })]
     );
