@@ -406,10 +406,10 @@ pub fn estimate_with_graph(
                     }
                 })
                 .collect::<Vec<_>>();
-            if !nodes.is_empty() && matching_nodes.is_empty() {
-                collection.record_maximum_error_exceeded();
-            }
             id_and_nodes.push((constraint.id(), matching_nodes));
+        }
+        if id_and_nodes.iter().any(|(_, nodes)| nodes.is_empty()) {
+            collection.record_maximum_error_exceeded();
         }
         drop(graph_lock);
 
