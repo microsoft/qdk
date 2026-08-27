@@ -1618,6 +1618,15 @@ pub enum Attr {
     NoiseIntrinsic,
     /// Indicates that a callable is used for unit testing.
     Test,
+    /// Provides options for rendering a callable in circuit diagrams.
+    CircuitRenderingOptions(CircuitRenderingOptions),
+}
+
+/// Options for rendering a callable in circuit diagrams.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CircuitRenderingOptions {
+    /// Whether the callable's group box should be hidden.
+    pub hide_box: bool,
 }
 
 /// A field.

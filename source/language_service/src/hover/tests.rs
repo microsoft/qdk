@@ -1630,6 +1630,16 @@ fn ty_param_ref() {
 }
 
 #[test]
+fn import_namespace() {
+    check_none(indoc! {r#"
+        namespace Other {}
+        namespace Test {
+            import ◉O↘ther◉;
+        }
+    "#});
+}
+
+#[test]
 fn notebook_callable_def_across_cells() {
     check_notebook(
         &[

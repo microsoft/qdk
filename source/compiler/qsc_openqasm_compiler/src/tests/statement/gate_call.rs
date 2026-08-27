@@ -543,8 +543,8 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
 
         define internal void @rz(i64 %var_3, i64 %var_4, ptr %var_5) {
         block_2:
-          %var_42 = call double @AngleAsDouble(i64 %var_3, i64 %var_4)
-          call void @Rz(double %var_42, ptr %var_5)
+          %var_53 = call double @AngleAsDouble(i64 %var_3, i64 %var_4)
+          call void @Rz(double %var_53, ptr %var_5)
           ret void
         }
 
@@ -557,8 +557,8 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           %var_23 = alloca i1
           %var_25 = alloca i1
           %var_28 = alloca i64
-          %var_30 = alloca i64
-          %var_32 = alloca i64
+          %var_36 = alloca i64
+          %var_38 = alloca i64
           %var_8 = icmp sgt i64 %var_7, 53
           br i1 %var_8, label %block_4, label %block_5
         block_4:
@@ -572,71 +572,105 @@ fn custom_gate_with_angle_parameter_generates_qir_adaptive() -> miette::Result<(
           store i64 %var_18, ptr %var_19
           %var_20 = ashr i64 %var_6, %var_10
           store i64 %var_20, ptr %var_21
-          %var_53 = load i64, ptr %var_19
-          %var_54 = load i64, ptr %var_14
-          %var_22 = icmp sgt i64 %var_53, %var_54
+          %var_64 = load i64, ptr %var_19
+          %var_65 = load i64, ptr %var_14
+          %var_22 = icmp sgt i64 %var_64, %var_65
           store i1 true, ptr %var_23
           br i1 %var_22, label %block_9, label %block_6
         block_5:
           store i64 %var_6, ptr %var_9
           br label %block_13
         block_6:
-          %var_56 = load i64, ptr %var_19
-          %var_57 = load i64, ptr %var_14
-          %var_24 = icmp eq i64 %var_56, %var_57
+          %var_67 = load i64, ptr %var_19
+          %var_68 = load i64, ptr %var_14
+          %var_24 = icmp eq i64 %var_67, %var_68
           store i1 false, ptr %var_25
           br i1 %var_24, label %block_7, label %block_8
         block_7:
-          %var_68 = load i64, ptr %var_21
-          %var_26 = and i64 %var_68, 1
+          %var_79 = load i64, ptr %var_21
+          %var_26 = and i64 %var_79, 1
           %var_27 = icmp eq i64 %var_26, 1
           store i1 %var_27, ptr %var_25
           br label %block_8
         block_8:
-          %var_59 = load i1, ptr %var_25
-          store i1 %var_59, ptr %var_23
+          %var_70 = load i1, ptr %var_25
+          store i1 %var_70, ptr %var_23
           br label %block_9
         block_9:
-          %var_61 = load i1, ptr %var_23
-          br i1 %var_61, label %block_10, label %block_11
+          %var_72 = load i1, ptr %var_23
+          br i1 %var_72, label %block_10, label %block_11
         block_10:
-          %var_66 = load i64, ptr %var_21
-          %var_29 = add i64 %var_66, 1
+          %var_77 = load i64, ptr %var_21
+          %var_29 = add i64 %var_77, 1
           store i64 %var_29, ptr %var_28
           br label %block_12
         block_11:
-          %var_62 = load i64, ptr %var_21
-          store i64 %var_62, ptr %var_28
+          %var_73 = load i64, ptr %var_21
+          store i64 %var_73, ptr %var_28
           br label %block_12
         block_12:
-          %var_64 = load i64, ptr %var_28
-          store i64 %var_64, ptr %var_9
+          %var_75 = load i64, ptr %var_28
+          store i64 %var_75, ptr %var_9
           br label %block_13
         block_13:
-          %var_44 = load i64, ptr %var_9
-          store i64 %var_44, ptr %var_30
-          %var_31 = icmp sgt i64 %var_7, 53
-          br i1 %var_31, label %block_14, label %block_15
+          %var_55 = load i64, ptr %var_9
+          %var_35 = call i64 @MinI(i64 %var_55, i64 9007199254740991)
+          store i64 %var_35, ptr %var_36
+          %var_37 = icmp sgt i64 %var_7, 53
+          br i1 %var_37, label %block_14, label %block_15
         block_14:
-          store i64 53, ptr %var_32
+          store i64 53, ptr %var_38
           br label %block_16
         block_15:
-          store i64 %var_7, ptr %var_32
+          store i64 %var_7, ptr %var_38
           br label %block_16
         block_16:
-          %var_47 = load i64, ptr %var_32
-          %var_34 = shl i64 1, %var_47
-          %var_35 = sitofp i64 %var_34 to double
-          %var_48 = load i64, ptr %var_30
-          %var_37 = sitofp i64 %var_48 to double
-          %var_39 = fdiv double 6.283185307179586, %var_35
-          %var_41 = fmul double %var_37, %var_39
-          ret double %var_41
+          %var_58 = load i64, ptr %var_38
+          %var_40 = shl i64 1, %var_58
+          %var_41 = sitofp i64 %var_40 to double
+          %var_59 = load i64, ptr %var_36
+          %var_43 = sitofp i64 %var_59 to double
+          %var_45 = fdiv double 6.283185307179586, %var_41
+          %var_47 = fmul double %var_43, %var_45
+          %var_52 = call double @MinD(double %var_47, double 6.283185307179585)
+          ret double %var_52
         }
 
-        define internal void @Rz(double %var_44, ptr %var_45) {
+        define internal i64 @MinI(i64 %var_31, i64 %var_32) {
         block_17:
-          call void @__quantum__qis__rz__body(double %var_44, ptr %var_45)
+          %var_34 = alloca i64
+          %var_33 = icmp slt i64 %var_31, %var_32
+          br i1 %var_33, label %block_18, label %block_19
+        block_18:
+          store i64 %var_31, ptr %var_34
+          br label %block_20
+        block_19:
+          store i64 %var_32, ptr %var_34
+          br label %block_20
+        block_20:
+          %var_82 = load i64, ptr %var_34
+          ret i64 %var_82
+        }
+
+        define internal double @MinD(double %var_48, double %var_49) {
+        block_21:
+          %var_51 = alloca double
+          %var_50 = fcmp olt double %var_48, %var_49
+          br i1 %var_50, label %block_22, label %block_23
+        block_22:
+          store double %var_48, ptr %var_51
+          br label %block_24
+        block_23:
+          store double %var_49, ptr %var_51
+          br label %block_24
+        block_24:
+          %var_85 = load double, ptr %var_51
+          ret double %var_85
+        }
+
+        define internal void @Rz(double %var_55, ptr %var_56) {
+        block_25:
+          call void @__quantum__qis__rz__body(double %var_55, ptr %var_56)
           ret void
         }
 

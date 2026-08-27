@@ -5,12 +5,15 @@ from enum import Enum
 from typing import (
     Any,
     Callable,
+    ClassVar,
     Optional,
     Dict,
+    Iterator,
     List,
     Tuple,
     TypedDict,
     Literal,
+    Union,
     overload,
 )
 
@@ -22,26 +25,24 @@ from .qre import Trace
 
 class OutputSemantics(Enum):
     """
-    Represents the output semantics for OpenQASM 3 compilation.
-    Each has implications on the output of the compilation
-    and the semantic checks that are performed.
+    Controls which classical values a compiled OpenQASM program returns.
+
+    The selected mode also controls the semantic checks applied to output
+    declarations.
     """
 
     Qiskit: OutputSemantics
     """
-    The output is in Qiskit format meaning that the output
-    is all of the classical registers, in reverse order
-    in which they were added to the circuit with each
-    bit within each register in reverse order.
+    Returns all classical registers in reverse declaration order, with the
+    bits in each register also reversed to match Qiskit conventions.
     """
 
     OpenQasm: OutputSemantics
     """
-    [OpenQASM 3 has two output modes](https://openqasm.com/language/directives.html#input-output)
-    - If the programmer provides one or more `output` declarations, then
-        variables described as outputs will be returned as output.
-        The spec make no mention of endianness or order of the output.
-    - Otherwise, assume all of the declared variables are returned as output.
+    Follows `OpenQASM 3 output semantics
+    <https://openqasm.com/language/directives.html#input-output>`_: returns
+    variables declared as ``output``, or all declared classical variables when
+    the program has no explicit outputs.
     """
 
     ResourceEstimation: OutputSemantics
@@ -51,29 +52,27 @@ class OutputSemantics(Enum):
 
 class ProgramType(Enum):
     """
-    Represents the type of compilation output to create
+    Controls how OpenQASM source is introduced into a Q# context.
     """
 
     File: ProgramType
     """
-    Creates an operation in a namespace as if the program is a standalone
-    file. Inputs are lifted to the operation params. Output are lifted to
-    the operation return type. The operation is marked as `@EntryPoint`
-    as long as there are no input parameters.
+    Treats the source as a stand-alone program. The generated operation takes
+    declared classical inputs as parameters, allocates declared qubits
+    internally, and returns declared outputs. It is marked as an entry point
+    when it has no input parameters.
     """
 
     Operation: ProgramType
     """
-    Programs are compiled to a standalone function. Inputs are lifted to
-    the operation params. Output are lifted to the operation return type.
+    Creates a callable operation whose parameters include declared classical
+    inputs and qubits, and whose return value contains declared outputs.
     """
 
     Fragments: ProgramType
     """
-    Creates a list of statements from the program. This is useful for
-    interactive environments where the program is a list of statements
-    imported into the current scope.
-    This is also useful for testing individual statements compilation.
+    Evaluates the source as interactive fragments, adding its declarations to
+    the current scope and returning the value of its final statement.
     """
 
 class TargetProfile(Enum):
@@ -538,7 +537,7 @@ class QSharpError(BaseException):
 
 class QasmError(BaseException):
     """
-    An error returned from the OpenQASM parser.
+    An error raised while parsing, analyzing, compiling, or running OpenQASM.
     """
 
     ...

@@ -10,7 +10,7 @@ use crate::{
 };
 use expect_test::expect;
 use miette::Diagnostic;
-use qsc_circuit::{Circuit, TracerConfig};
+use qsc_circuit::{Circuit, Operation, TracerConfig};
 use qsc_data_structures::{language_features::LanguageFeatures, source::SourceMap};
 use qsc_eval::output::GenericReceiver;
 use qsc_eval::val::Value;
@@ -179,6 +179,47 @@ fn circuit_static(code: &str) -> Circuit {
         CircuitGenerationMethod::Static,
         default_test_tracer_config(),
     )
+}
+
+/// Compiles an OpenQASM program and renders its circuit, mirroring the path the
+/// editor and Python surfaces take for a `.qasm` file.
+fn openqasm_circuit(source: &str) -> String {
+    let capabilities = Profile::Unrestricted.into();
+    let crate::openqasm::CompileRawQasmResult(store, package_id, dependencies, sig, errors, _) =
+        crate::openqasm::parse_and_compile_raw_qasm(
+            source,
+            "test.qasm",
+            Option::<&mut crate::openqasm::io::InMemorySourceResolver>::None,
+            PackageType::Exe,
+        );
+    assert!(errors.is_empty(), "OpenQASM compilation failed: {errors:?}");
+
+    let entry_expr = sig
+        .expect("signature should be present")
+        .create_entry_expr_from_params(String::new());
+
+    let mut interpreter = Interpreter::with_package_store(
+        false,
+        store,
+        package_id,
+        capabilities,
+        LanguageFeatures::default(),
+        &dependencies,
+    )
+    .expect("interpreter creation should succeed");
+
+    interpreter
+        .circuit(
+            CircuitEntryPoint::EntryExpr(entry_expr),
+            CircuitGenerationMethod::ClassicalEval,
+            TracerConfig {
+                group_by_scope: false,
+                source_locations: false,
+                ..default_test_tracer_config()
+            },
+        )
+        .expect("circuit generation should succeed")
+        .to_string()
 }
 
 fn circuit_err(
@@ -430,7 +471,52 @@ fn rotation_gate() {
     );
 
     expect![[r#"
-        q_0@test.qs:4:20 ─ Rx(1.5708)@test.qs:5:20 ─
+        q_0@test.qs:4:20 ─ Rx(π / 2)@test.qs:5:20 ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn rotation_gate_angles_that_are_not_multiples_of_pi_stay_decimal() {
+    let circ = circuit_without_groups(
+        r"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Rx(0.5, q);
+                    Rz(-1.2345, q);
+                }
+            }
+        ",
+        CircuitEntryPoint::EntryPoint,
+    );
+
+    expect![[r#"
+        q_0@test.qs:4:20 ─ Rx(0.5000)@test.qs:5:20 ── Rz(-1.2345)@test.qs:6:20 ──
+    "#]]
+    .assert_eq(&circ);
+}
+
+#[test]
+fn openqasm_rotation_gate_angles_render_symbolically() {
+    let circ = openqasm_circuit(
+        r#"
+OPENQASM 3.0;
+include "stdgates.inc";
+qubit[4] q;
+rz(pi / 4) q[0];
+rx(2 * pi / 3) q[1];
+ry(pi) q[2];
+rz(0.5) q[3];
+"#,
+    );
+
+    expect![[r#"
+        q_0    ──── Rz(π / 4) ────
+        q_1    ── Rx(2 * π / 3) ──
+        q_2    ────── Ry(π) ──────
+        q_3    ─── Rz(0.5000) ────
     "#]]
     .assert_eq(&circ);
 }
@@ -464,6 +550,65 @@ fn grouping_nested_callables() {
                                                                                          ╘════════════════════════════════
     "#]]
     .assert_eq(&circ);
+}
+
+#[test]
+fn callable_with_hidden_box_is_flattened_in_circuit() {
+    let code = r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    use q = Qubit();
+                    Visible(q);
+                    Invisible(q);
+                    Reset(q);
+                }
+
+                operation Visible(q : Qubit) : Unit {
+                    H(q);
+                }
+
+                @CircuitRenderingOptions("unknownOption=value, hideBox=true")
+                operation Invisible(q : Qubit) : Unit {
+                    X(q);
+                    Y(q);
+                }
+            }
+        "#;
+
+    for method in [
+        CircuitGenerationMethod::Simulate,
+        CircuitGenerationMethod::ClassicalEval,
+        CircuitGenerationMethod::Static,
+    ] {
+        let circuit = circuit_with_options_success(
+            code,
+            Profile::AdaptiveRIF,
+            CircuitEntryPoint::EntryPoint,
+            method,
+            TracerConfig {
+                source_locations: false,
+                group_by_scope: true,
+                ..default_test_tracer_config()
+            },
+        );
+
+        let [main_column] = circuit.component_grid.as_slice() else {
+            panic!("{method:?} circuit should contain one top-level column");
+        };
+        let [Operation::Unitary(main)] = main_column.components.as_slice() else {
+            panic!("{method:?} circuit should contain the Main group");
+        };
+        assert_eq!(main.gate, "Main", "unexpected gate for {method:?}");
+        assert_eq!(
+            main.children
+                .iter()
+                .flat_map(|column| &column.components)
+                .map(Operation::gate)
+                .collect::<Vec<_>>(),
+            ["Visible", "X", "Y", "|0〉"]
+        );
+    }
 }
 
 #[test]
@@ -1901,12 +2046,12 @@ fn grouped_scopes_match_for_apply_operation_power_ca_lambda() {
         [1] Main:
             q_0    ──────── U[2] ────────────────────────────────────────────────────────────────────
                               ┆
-            q_1    ── H ─── U[2] ──────── H ─────── Rz(-0.7854) ─── X ─── Rz(0.7854) ──── X ─────────
+            q_1    ── H ─── U[2] ──────── H ─────── Rz(-π / 4) ──── X ──── Rz(π / 4) ──── X ─────────
                               ┆                                     │                     │
-            q_2    ── H ─── U[2] ─── Rz(-0.7854) ────────────────── ● ─────────────────── ● ──── H ──
+            q_2    ── H ─── U[2] ─── Rz(-π / 4) ─────────────────── ● ─────────────────── ● ──── H ──
 
         [2] U:
-            q_0    ─ Rz(0.5236) ──── X ─── Rz(-0.5236) ─── X ─── Rz(0.5236) ──── X ─── Rz(-0.5236) ─── X ─── Rz(0.5236) ──── X ─── Rz(-0.5236) ─── X ──
+            q_0    ── Rz(π / 6) ──── X ─── Rz(-π / 6) ──── X ──── Rz(π / 6) ──── X ─── Rz(-π / 6) ──── X ──── Rz(π / 6) ──── X ─── Rz(-π / 6) ──── X ──
             q_1    ───────────────── ● ─────────────────── ● ─────────────────── ● ─────────────────── ● ────────────────────┼─────────────────────┼───
             q_2    ───────────────────────────────────────────────────────────────────────────────────────────────────────── ● ─────────────────── ● ──
     "#]]

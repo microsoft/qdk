@@ -107,7 +107,7 @@ pub const HIDDENSHIFTNISQ_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated Q
 pub const HIDDENSHIFTNISQ_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8448"];
 pub const PHASEESTIMATION_EXPECT: Expect = expect!["1.0799224746714913"];
 pub const PHASEESTIMATION_EXPECT_DEBUG: Expect = expect!["1.0799224746714913"];
-pub const PHASEESTIMATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 248107"];
+pub const PHASEESTIMATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 249358"];
 pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 95778"];
 pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 15701"];
@@ -186,7 +186,7 @@ pub const SIMPLEPHASEESTIMATION_EXPECT: Expect = expect![[r#"[Zero, Zero, Zero, 
 pub const SIMPLEPHASEESTIMATION_EXPECT_DEBUG: Expect =
     expect![[r#"[Zero, Zero, Zero, One, Zero, One]"#]];
 pub const SIMPLEPHASEESTIMATION_EXPECT_CIRCUIT: Expect =
-    expect!["generated circuit of length 87076"];
+    expect!["generated circuit of length 87885"];
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 39770"];
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect =

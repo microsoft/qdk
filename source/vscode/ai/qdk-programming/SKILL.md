@@ -18,26 +18,27 @@ Most QDK features work in two modes:
 
 ## Reference Files
 
-| File                         | Content                                                                                         |
-| ---------------------------- | ----------------------------------------------------------------------------------------------- |
-| [qsharp.md](./qsharp.md)     | Q# language syntax, types, quantum operations, standard library, project structure              |
-| [openqasm.md](./openqasm.md) | OpenQASM 2.0/3.0 syntax, standard gates, version differences                                    |
-| [python.md](./python.md)     | `qsharp`/`qdk` Python API for execution, estimation, circuits, noise, Azure, Qiskit/Cirq, setup |
+| File                         | Content                                                                                                                                 |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| [qsharp.md](./qsharp.md)     | Q# language syntax, types, quantum operations, standard library, project structure                                                      |
+| [openqasm.md](./openqasm.md) | OpenQASM 2.0/3.0 syntax, standard gates, version differences                                                                            |
+| [python.md](./python.md)     | `qsharp`/`qdk` Python API for execution, estimation, circuits, noise, Azure, Qiskit/Cirq, OpenQASM parsing and semantic analysis, setup |
 
 ## Features
 
-| Feature                                  | Tool mode                         | Python mode                                    |
-| ---------------------------------------- | --------------------------------- | ---------------------------------------------- |
-| **Writing Q# code**                      | Read [qsharp.md](./qsharp.md)     | Read [qsharp.md](./qsharp.md)                  |
-| **Writing OpenQASM code**                | Read [openqasm.md](./openqasm.md) | Read [openqasm.md](./openqasm.md)              |
-| **Running a program**                    | `qdkRunProgram`                   | [python.md](./python.md) — Running Q# Code     |
-| **Resource estimation**                  | `qdkRunResourceEstimator`         | [python.md](./python.md) — Resource Estimation |
-| **Circuit diagrams**                     | `qdkGenerateCircuit`              | [python.md](./python.md) — Circuit Generation  |
-| **Azure Quantum**                        | Use the `azureQuantum*` tools     | [python.md](./python.md) — Azure Quantum       |
-| **Noisy simulation**                     | — (Python only)                   | [python.md](./python.md) — Noisy Simulation    |
-| **Q#/OpenQASM in Python and/or Jupyter** | — (inherently Python)             | [python.md](./python.md)                       |
-| **Qiskit / Cirq / PennyLane interop**    | — (inherently Python)             | [python.md](./python.md) — Framework Interop   |
-| **Python environment setup**             | `qdkCreateNotebookVenv`           | `qdkCreateNotebookVenv`                        |
+| Feature                                  | Tool mode                         | Python mode                                                    |
+| ---------------------------------------- | --------------------------------- | -------------------------------------------------------------- |
+| **Writing Q# code**                      | Read [qsharp.md](./qsharp.md)     | Read [qsharp.md](./qsharp.md)                                  |
+| **Writing OpenQASM code**                | Read [openqasm.md](./openqasm.md) | Read [openqasm.md](./openqasm.md)                              |
+| **Running a program**                    | `qdkRunProgram`                   | [python.md](./python.md) — Running Q# Code                     |
+| **Resource estimation**                  | `qdkRunResourceEstimator`         | [python.md](./python.md) — Resource Estimation                 |
+| **Circuit diagrams**                     | `qdkGenerateCircuit`              | [python.md](./python.md) — Circuit Generation                  |
+| **Azure Quantum**                        | Use the `azureQuantum*` tools     | [python.md](./python.md) — Azure Quantum                       |
+| **Noisy simulation**                     | — (Python only)                   | [python.md](./python.md) — Noisy Simulation                    |
+| **Q#/OpenQASM in Python and/or Jupyter** | — (inherently Python)             | [python.md](./python.md)                                       |
+| **Qiskit / Cirq / PennyLane interop**    | — (inherently Python)             | [python.md](./python.md) — Framework Interop                   |
+| **OpenQASM parsing and analysis**        | — (Python only)                   | [python.md](./python.md) — Parse, analyze, and navigate source |
+| **Python environment setup**             | `qdkCreateNotebookVenv`           | `qdkCreateNotebookVenv`                                        |
 
 **Quantum Katas**
 

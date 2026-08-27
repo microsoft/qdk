@@ -25,10 +25,7 @@ mod spec_gen;
 mod test_attribute;
 
 use callable_limits::CallableLimits;
-use capabilitiesck::{
-    check_supported_capabilities, check_supported_capabilities_for_callable, lower_store,
-    run_rca_pass,
-};
+use capabilitiesck::{check_supported_capabilities_for_callable, lower_store, run_rca_pass};
 use entry_point::generate_entry_expr;
 use index_assignment::ConvertToWSlash;
 use loop_control::LoopControl;
@@ -47,7 +44,7 @@ use qsc_hir::{
     visit::Visitor,
 };
 use qsc_lowerer::map_hir_package_to_fir;
-use qsc_rca::{PackageComputeProperties, PackageStoreComputeProperties};
+use qsc_rca::PackageStoreComputeProperties;
 use replace_qubit_allocation::ReplaceQubitAllocation;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
@@ -291,20 +288,6 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
         .collect()
 }
 
-pub fn run_rca(
-    package: &fir::Package,
-    compute_properties: &PackageComputeProperties,
-    capabilities: TargetCapabilityFlags,
-    store: &fir::PackageStore,
-) -> Vec<Error> {
-    let capabilities_errors =
-        check_supported_capabilities(package, compute_properties, capabilities, store);
-    capabilities_errors
-        .into_iter()
-        .map(Error::CapabilitiesCk)
-        .collect()
-}
-
 pub fn run_rca_for_callable(
     fir_store: &fir::PackageStore,
     compute_properties: &PackageStoreComputeProperties,
@@ -315,6 +298,7 @@ pub fn run_rca_for_callable(
     let package_compute_properties = compute_properties.get(callable.package, false);
     let capabilities_errors = check_supported_capabilities_for_callable(
         package,
+        callable.package,
         package_compute_properties,
         callable.item,
         capabilities,

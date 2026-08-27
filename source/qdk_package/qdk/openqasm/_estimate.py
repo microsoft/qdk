@@ -27,8 +27,10 @@ def estimate(
     **kwargs: Any,
 ) -> EstimatorResult:
     """
-    Estimates the resource requirements for executing OpenQASM source code.
-    Either a full program or a callable with arguments must be provided.
+    Estimate the resources required to execute OpenQASM source or an imported operation.
+
+    This legacy estimator is deprecated. Use :mod:`qdk.qre` for new code; see
+    https://aka.ms/qdk.QREv3 for migration guidance.
 
     :param source: An OpenQASM program. Alternatively, a callable can be provided,
         which must be an already imported global callable.
@@ -46,7 +48,7 @@ def estimate(
     :raises ValueError: If ``source`` is neither a string nor a callable with a
         ``__global_callable`` attribute.
     :raises QasmError: If there is an error generating, parsing, or analyzing the OpenQASM source.
-    :raises QSharpError: If there is an error compiling the program.
+    :raises qdk.qsharp.QSharpError: If there is an error compiling the program.
     """
 
     warnings.warn(

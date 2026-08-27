@@ -361,7 +361,7 @@ export class LearningService {
   }
 
   async goTo(
-    location: { unitId: string; activityId?: string },
+    location: { unitId: string; activityId?: string }, // Specifically omits courseId - caller should handle
     source?: TelemetrySource,
   ): Promise<LearningState> {
     const ws = this.requireWorkspace();
@@ -565,22 +565,17 @@ export class LearningService {
 
   /**
    * Build a CurrentActivity for the given notebook cell.
-   * Returns `undefined` when the active course isn't a notebook course.
    */
-  getCurrentActivityForCell(
+  getLearningStateForCell(
     cellId: string,
     cellText: string,
-    notebookUri: string,
-  ): CurrentActivity | undefined {
-    if (!isNotebookCourse(this.activeCourse)) {
+    notebookUri: vscode.Uri,
+  ): LearningState | undefined {
+    const resolved = this.resolveWorkbookLocation(notebookUri);
+    if (!resolved) {
       return undefined;
     }
-
-    const unit = this.findCourseUnit(this.activeCourse, this.position.unitId);
-    if (workbookUri(unit).toString() !== notebookUri) {
-      // The argument was based on the editor state and may not match the progress state
-      return undefined;
-    }
+    const { course, unit } = resolved;
 
     const activity = unit.activities.find((activity) => activity.id === cellId);
 
@@ -605,16 +600,25 @@ export class LearningService {
     }
 
     const location: ActivityLocation = {
-      courseId: this.activeCourse.id,
+      courseId: course.id,
       unitId: unit.id,
       activityId: cellId,
     };
 
-    return {
+    const position = {
       location,
       unitTitle: unit.title,
       activityTitle: activity?.title ?? cellId,
       content,
+    };
+
+    const progress = this.getCourseProgress(course.id);
+
+    return {
+      course: { id: course.id, title: course.title, kind: course.kind },
+      position,
+      progress,
+      actions: [], // Won't be consumed anyway
     };
   }
 
@@ -808,40 +812,53 @@ export class LearningService {
 
     return {
       units,
-      currentPosition: ws.progressData.position,
+      currentPosition:
+        ws.progressData.position.courseId === course.id
+          ? ws.progressData.position
+          : this.firstIncompletePosition(course),
       stats: { totalActivities, completedActivities },
     };
   }
 
-  /** Returns hints and solution explanation for the current exercise, or `null` if none exist. */
-  getHintContext(source?: TelemetrySource): {
-    result: HintContext | null;
-    state: LearningState;
-  } {
+  /** Returns hints and solution explanation for the given exercise, or `undefined` if none exist. */
+  getHintContext(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): HintContext | undefined {
+    const exercise = this.resolveExerciseAt(location);
     if (source) {
-      this.sendActivityActionTelemetry("hint", source);
+      // Inlined from sendActivityActionTelemetry
+      sendTelemetryEvent(
+        EventType.LearningActivityAction,
+        { action: "hint", activityType: exercise.type, source },
+        {},
+      );
     }
 
-    const exercise = this.resolveExercise();
     const hints = exercise.hints;
     const solutionExplanation = exercise.solutionExplanation;
 
     if (hints.length === 0 && solutionExplanation.length === 0) {
-      return { result: null, state: this.getState() };
+      return undefined;
     }
 
-    return {
-      result: { hints, solutionExplanation },
-      state: this.getState(),
-    };
+    return { hints, solutionExplanation };
   }
 
-  getAllSolutions(source?: TelemetrySource): string[] {
+  getAllSolutions(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): string[] {
+    const exercise = this.resolveExerciseAt(location);
     if (source) {
-      this.sendActivityActionTelemetry("solution", source);
+      sendTelemetryEvent(
+        EventType.LearningActivityAction,
+        { action: "solution", activityType: exercise.type, source },
+        {},
+      );
     }
 
-    return this.resolveExercise().solutionCodes;
+    return exercise.solutionCodes;
   }
 
   getExerciseFileUri(): vscode.Uri {
@@ -1521,6 +1538,17 @@ export class LearningService {
     const { activity } = this.findCurrentActivity();
     if (activity.type !== "exercise") {
       throw new Error("Current activity is not an exercise");
+    }
+    return activity;
+  }
+
+  private resolveExerciseAt(location: ActivityLocation): CatalogExercise {
+    const ws = this.requireWorkspace();
+    const course = this.requireCourse(ws, location.courseId);
+    const unit = this.findCourseUnit(course, location.unitId);
+    const activity = unit.activities.find((a) => a.id === location.activityId);
+    if (!activity || activity.type !== "exercise") {
+      throw new Error("Specified activity is not an exercise");
     }
     return activity;
   }

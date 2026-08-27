@@ -2317,10 +2317,7 @@ pub mod qir {
         } = prepared_fir;
 
         fir_to_qir(&fir_store, capabilities, &compute_properties, &entry).map_err(|e| {
-            let source_package_id = match e.span() {
-                Some(span) => span.package,
-                None => package_id,
-            };
+            let source_package_id = e.span().package;
             let source_package = store
                 .get(source_package_id)
                 .expect("package should be in store");
@@ -2338,7 +2335,7 @@ pub mod qir {
         mut package_store: PackageStore,
         dependencies: &Dependencies,
     ) -> Result<Vec<String>, Vec<Error>> {
-        let (package_id, prepared_fir) = compile_to_codegen_fir(
+        let (_, prepared_fir) = compile_to_codegen_fir(
             sources,
             language_features,
             capabilities,
@@ -2362,10 +2359,7 @@ pub mod qir {
             },
         )
         .map_err(|e| {
-            let source_package_id = match e.span() {
-                Some(span) => span.package,
-                None => package_id,
-            };
+            let source_package_id = e.span().package;
             let source_package = package_store
                 .get(source_package_id)
                 .expect("package should be in store");
@@ -2384,7 +2378,7 @@ pub mod qir {
         mut package_store: PackageStore,
         dependencies: &Dependencies,
     ) -> Result<String, Vec<Error>> {
-        let (package_id, prepared_fir) = compile_to_codegen_fir(
+        let (_, prepared_fir) = compile_to_codegen_fir(
             sources,
             language_features,
             capabilities,
@@ -2399,10 +2393,7 @@ pub mod qir {
         } = prepared_fir;
 
         fir_to_qir(&fir_store, capabilities, &compute_properties, &entry).map_err(|e| {
-            let source_package_id = match e.span() {
-                Some(span) => span.package,
-                None => package_id,
-            };
+            let source_package_id = e.span().package;
             let source_package = package_store
                 .get(source_package_id)
                 .expect("package should be in store");

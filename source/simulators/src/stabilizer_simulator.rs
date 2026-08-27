@@ -3,26 +3,28 @@
 
 //! This crate implements a stabilizer simulator for the QDK.
 
+pub mod branching_state;
 pub mod operation;
-pub mod outcome_specific_simulation;
 
 use crate::{
-    MeasurementResult, NearlyZero, QubitID, Simulator,
+    MeasurementResult, NearlyZero, QubitID, ResultID, Simulator,
     noise_config::{CumulativeNoiseConfig, Fault, FaultTerm, IntrinsicID, LossPolicy},
 };
+use branching_state::BranchingState;
 use operation::Operation;
-use outcome_specific_simulation::OutcomeSpecificSimulation;
 use paulimer::{PauliObservable, UnitaryOp};
-use pauliverse::Simulation;
 use rand::{RngExt as _, SeedableRng as _, rngs::StdRng};
 use std::{
     f64::consts::{FRAC_PI_2, PI, TAU},
     sync::Arc,
 };
 
-fn seeded_randomness(seed: u64) -> (StdRng, u64) {
+fn seeded_randomness(seed: u64) -> (StdRng, StdRng) {
     let mut seed_rng = StdRng::seed_from_u64(seed);
-    (StdRng::from_rng(&mut seed_rng), seed_rng.random())
+    (
+        StdRng::from_rng(&mut seed_rng),
+        StdRng::from_rng(&mut seed_rng),
+    )
 }
 
 /// A stabilizer simulator with the ability to simulate atom loss.
@@ -31,8 +33,10 @@ pub struct StabilizerSimulator {
     noise_config: Arc<CumulativeNoiseConfig>,
     /// Random number generator used to sample from [`Self::noise_config`].
     rng: StdRng,
-    /// The current inverse state of the simulation.
-    state: OutcomeSpecificSimulation,
+    /// Random number generator used to sample measurement outcomes.
+    measurement_rng: StdRng,
+    /// The current state of the simulation.
+    state: BranchingState,
     /// A vector storing whether a qubit was lost or not.
     loss: Vec<bool>,
     /// Measurement results.
@@ -107,9 +111,9 @@ macro_rules! apply_noise {
 impl StabilizerSimulator {
     /// Sets the random seed of the simulator.
     pub fn set_seed(&mut self, seed: u64) {
-        let (noise_rng, measurement_seed) = seeded_randomness(seed);
+        let (noise_rng, measurement_rng) = seeded_randomness(seed);
         self.rng = noise_rng;
-        self.state.set_seed(measurement_seed);
+        self.measurement_rng = measurement_rng;
     }
 
     /// Increment the simulation time by one.
@@ -145,7 +149,14 @@ impl StabilizerSimulator {
 
     /// Forces the state of a qubit to collapse to a specific value.
     pub fn post_select_z(&mut self, result: bool, target: QubitID) -> Result<(), String> {
-        self.state.post_select_z(result, target)
+        let mut projected = self.state.clone();
+        let probability = projected.project(&[paulimer::core::z(target)].into(), result);
+        if probability.is_nearly_zero() {
+            Err("post-selection condition has zero probability".to_string())
+        } else {
+            self.state = projected;
+            Ok(())
+        }
     }
 
     fn apply_gate_in_place(&mut self, gate: &Operation) {
@@ -210,13 +221,13 @@ impl StabilizerSimulator {
     }
 
     /// Records a z-measurement on the given `target`.
-    fn record_mz(&mut self, target: QubitID, result_id: QubitID) {
+    fn record_mz(&mut self, target: QubitID, result_id: ResultID) {
         let measurement = self.mz_impl(target);
         self.measurements[result_id] = measurement;
     }
 
     /// Records a z-measurement on the given `target` and resets the qubit to the zero state.
-    fn record_mresetz(&mut self, target: QubitID, result_id: QubitID) {
+    fn record_mresetz(&mut self, target: QubitID, result_id: ResultID) {
         let measurement = self.mresetz_impl(target);
         self.measurements[result_id] = measurement;
     }
@@ -228,16 +239,30 @@ impl StabilizerSimulator {
             return MeasurementResult::Loss;
         }
 
-        self.state.measure(&[paulimer::core::z(target)].into());
-
-        if *self
-            .state
-            .outcome_vector()
-            .last()
-            .expect("there should be at least one measurement")
-        {
+        let observable = [paulimer::core::z(target)].into();
+        let one_probability = self.state.outcome_probability(&observable, true);
+        // Snap numerical residue so deterministic measurements do not consume randomness.
+        let outcome = if one_probability.is_nearly_zero() {
+            false
+        } else if (1.0 - one_probability).is_nearly_zero() {
+            true
+        } else {
+            self.measurement_rng
+                .random_bool(one_probability.clamp(0.0, 1.0))
+        };
+        if outcome {
+            let probability = self.state.project(&observable, true);
+            assert!(
+                !probability.is_nearly_zero(),
+                "sampled a zero-probability measurement outcome"
+            );
             MeasurementResult::One
         } else {
+            let zero_probability = self.state.project(&observable, false);
+            assert!(
+                !zero_probability.is_nearly_zero(),
+                "sampled a zero-probability measurement outcome"
+            );
             MeasurementResult::Zero
         }
     }
@@ -249,20 +274,11 @@ impl StabilizerSimulator {
             return MeasurementResult::Loss;
         }
 
-        let r = self.state.measure(&[paulimer::core::z(target)].into());
-        self.state
-            .conditional_pauli(&[paulimer::core::x(target)].into(), &[r], true);
-
-        if *self
-            .state
-            .outcome_vector()
-            .last()
-            .expect("there should be at least one measurement")
-        {
-            MeasurementResult::One
-        } else {
-            MeasurementResult::Zero
+        let result = self.mz_impl(target);
+        if result == MeasurementResult::One {
+            self.state.pauli(&[paulimer::core::x(target)].into());
         }
+        result
     }
 
     fn loss_impl(&mut self, target: QubitID) {
@@ -275,17 +291,15 @@ impl StabilizerSimulator {
 
 impl Simulator for StabilizerSimulator {
     type Noise = Arc<CumulativeNoiseConfig>;
-    type StateDumpData = paulimer::clifford::CliffordUnitary;
+    type StateDumpData = BranchingState;
 
     fn new(num_qubits: usize, num_results: usize, seed: u32, noise_config: Self::Noise) -> Self {
-        let (rng, measurement_seed) = seeded_randomness(u64::from(seed));
+        let (rng, measurement_rng) = seeded_randomness(u64::from(seed));
         Self {
             noise_config,
             rng,
-            state: OutcomeSpecificSimulation::new_with_seeded_random_outcomes(
-                num_qubits,
-                measurement_seed,
-            ),
+            measurement_rng,
+            state: BranchingState::new(num_qubits),
             loss: vec![false; num_qubits],
             measurements: vec![MeasurementResult::Zero; num_results],
             last_operation_time: vec![0; num_qubits],
@@ -449,7 +463,12 @@ impl Simulator for StabilizerSimulator {
                 UnitaryOp::SqrtX,
                 UnitaryOp::SqrtXInv,
             );
-            self.state.unitary_op(unitary, &[target]);
+            if let Some(unitary) = unitary {
+                self.state.unitary_op(unitary, &[target]);
+            } else {
+                self.state
+                    .rotate(angle, &[paulimer::core::x(target)].into());
+            }
 
             apply_noise!(self, rx, &[target]);
         }
@@ -467,7 +486,12 @@ impl Simulator for StabilizerSimulator {
                 UnitaryOp::SqrtY,
                 UnitaryOp::SqrtYInv,
             );
-            self.state.unitary_op(unitary, &[target]);
+            if let Some(unitary) = unitary {
+                self.state.unitary_op(unitary, &[target]);
+            } else {
+                self.state
+                    .rotate(angle, &[paulimer::core::y(target)].into());
+            }
 
             apply_noise!(self, ry, &[target]);
         }
@@ -485,7 +509,12 @@ impl Simulator for StabilizerSimulator {
                 UnitaryOp::SqrtZ,
                 UnitaryOp::SqrtZInv,
             );
-            self.state.unitary_op(unitary, &[target]);
+            if let Some(unitary) = unitary {
+                self.state.unitary_op(unitary, &[target]);
+            } else {
+                self.state
+                    .rotate(angle, &[paulimer::core::z(target)].into());
+            }
 
             apply_noise!(self, rz, &[target]);
         }
@@ -519,14 +548,21 @@ impl Simulator for StabilizerSimulator {
                     UnitaryOp::SqrtZ,
                     UnitaryOp::SqrtZInv,
                 );
-                // NOTE: We perform the Rxx gate by changing basis to Y and performing the decomposition of Rzz.
-                self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
-                self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
-                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.unitary_op(unitary, &[q1]);
-                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
-                self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
+                if let Some(unitary) = unitary {
+                    // Perform Rxx by changing basis to Z and using the Rzz decomposition.
+                    self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
+                    self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
+                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                    self.state.unitary_op(unitary, &[q1]);
+                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                    self.state.unitary_op(UnitaryOp::Hadamard, &[q1]);
+                    self.state.unitary_op(UnitaryOp::Hadamard, &[q2]);
+                } else {
+                    self.state.rotate(
+                        angle,
+                        &[paulimer::core::x(q1), paulimer::core::x(q2)].into(),
+                    );
+                }
             }
         }
         apply_noise!(self, rxx, &[q1, q2]);
@@ -560,14 +596,21 @@ impl Simulator for StabilizerSimulator {
                     UnitaryOp::SqrtZ,
                     UnitaryOp::SqrtZInv,
                 );
-                // NOTE: We perform the Ryy gate by changing basis to Z and performing the decomposition of Rzz.
-                self.state.unitary_op(UnitaryOp::SqrtX, &[q1]);
-                self.state.unitary_op(UnitaryOp::SqrtX, &[q2]);
-                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.unitary_op(unitary, &[q1]);
-                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.unitary_op(UnitaryOp::SqrtXInv, &[q1]);
-                self.state.unitary_op(UnitaryOp::SqrtXInv, &[q2]);
+                if let Some(unitary) = unitary {
+                    // Perform Ryy by changing basis to Z and using the Rzz decomposition.
+                    self.state.unitary_op(UnitaryOp::SqrtX, &[q1]);
+                    self.state.unitary_op(UnitaryOp::SqrtX, &[q2]);
+                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                    self.state.unitary_op(unitary, &[q1]);
+                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                    self.state.unitary_op(UnitaryOp::SqrtXInv, &[q1]);
+                    self.state.unitary_op(UnitaryOp::SqrtXInv, &[q2]);
+                } else {
+                    self.state.rotate(
+                        angle,
+                        &[paulimer::core::y(q1), paulimer::core::y(q2)].into(),
+                    );
+                }
             }
         }
         apply_noise!(self, ryy, &[q1, q2]);
@@ -601,9 +644,16 @@ impl Simulator for StabilizerSimulator {
                     UnitaryOp::SqrtZ,
                     UnitaryOp::SqrtZInv,
                 );
-                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
-                self.state.unitary_op(unitary, &[q1]);
-                self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                if let Some(unitary) = unitary {
+                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                    self.state.unitary_op(unitary, &[q1]);
+                    self.state.unitary_op(UnitaryOp::ControlledX, &[q2, q1]);
+                } else {
+                    self.state.rotate(
+                        angle,
+                        &[paulimer::core::z(q1), paulimer::core::z(q2)].into(),
+                    );
+                }
             }
         }
         apply_noise!(self, rzz, &[q1, q2]);
@@ -655,13 +705,13 @@ impl Simulator for StabilizerSimulator {
         apply_noise!(self, swap, &[q1, q2]);
     }
 
-    fn mz(&mut self, target: QubitID, result_id: QubitID) {
+    fn mz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
         self.record_mz(target, result_id);
         apply_noise!(self, mz, &[target]);
     }
 
-    fn mresetz(&mut self, target: QubitID, result_id: QubitID) {
+    fn mresetz(&mut self, target: QubitID, result_id: ResultID) {
         self.apply_idle_noise(target);
         self.record_mresetz(target, result_id);
         apply_noise!(self, mresetz, &[target]);
@@ -680,7 +730,7 @@ impl Simulator for StabilizerSimulator {
         }
     }
 
-    fn correlated_noise_intrinsic(&mut self, intrinsic_id: IntrinsicID, targets: &[usize]) {
+    fn correlated_noise_intrinsic(&mut self, intrinsic_id: IntrinsicID, targets: &[QubitID]) {
         let fault = match self.noise_config.intrinsics.get(&intrinsic_id) {
             Some(correlated_noise) => correlated_noise.sample(&mut self.rng).cloned(),
             None => return,
@@ -698,19 +748,42 @@ impl Simulator for StabilizerSimulator {
         std::mem::take(&mut self.measurements)
     }
 
-    fn t(&mut self, _target: QubitID) {
-        unimplemented!("unssuported instruction in stabilizer simulator: T")
+    fn t(&mut self, target: QubitID) {
+        if !self.loss[target] {
+            self.apply_idle_noise(target);
+            self.state.rotate(
+                std::f64::consts::FRAC_PI_4,
+                &[paulimer::core::z(target)].into(),
+            );
+            apply_noise!(self, t, &[target]);
+        }
     }
 
-    fn t_adj(&mut self, _target: QubitID) {
-        unimplemented!("unssuported instruction in stabilizer simulator: T_ADJ")
+    fn t_adj(&mut self, target: QubitID) {
+        if !self.loss[target] {
+            self.apply_idle_noise(target);
+            self.state.rotate(
+                -std::f64::consts::FRAC_PI_4,
+                &[paulimer::core::z(target)].into(),
+            );
+            apply_noise!(self, t_adj, &[target]);
+        }
     }
 
     fn state_dump(&self) -> &Self::StateDumpData {
-        self.state.clifford()
+        &self.state
     }
 
-    fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: QubitID) {
+    fn peek_loss(&mut self, qubit: QubitID, result_id: ResultID) {
+        let is_lost = self.loss[qubit];
+        self.measurements[result_id] = if is_lost {
+            MeasurementResult::One
+        } else {
+            MeasurementResult::Zero
+        };
+    }
+
+    fn apply_readout_noise(&mut self, p_zero_as_one: f64, p_one_as_zero: f64, result_id: ResultID) {
         let measurement = self.measurements[result_id];
         let sample = self.rng.random_range(0.0..1.0);
         let new_measurement = match measurement {
@@ -727,24 +800,104 @@ fn unitary_from_normalized_angle(
     pauli: UnitaryOp,
     sqrt_pauli: UnitaryOp,
     sqrt_pauli_inv: UnitaryOp,
-) -> UnitaryOp {
+) -> Option<UnitaryOp> {
     let mut normalized_angle = angle % TAU;
     if normalized_angle < 0.0 {
         normalized_angle += TAU;
     }
     if normalized_angle.is_nearly_zero() || (normalized_angle - TAU).is_nearly_zero() {
         // The angle is a multiple of 2 * PI, so the operation is effectively an identity.
-        UnitaryOp::I
+        Some(UnitaryOp::I)
     } else if (normalized_angle - PI).is_nearly_zero() {
         // The angle is an odd multiple of PI, so the operation is effectively a Pauli gate.
-        pauli
+        Some(pauli)
     } else if (normalized_angle - FRAC_PI_2).is_nearly_zero() {
         // The angle is an odd multiple of PI / 2, so the operation is effectively a sqrt(Pauli) gate.
-        sqrt_pauli
+        Some(sqrt_pauli)
     } else if (normalized_angle - 3.0 * FRAC_PI_2).is_nearly_zero() {
         // The angle is an odd multiple of 3 * PI / 2, so the operation is effectively a sqrt(Pauli) adjoint gate.
-        sqrt_pauli_inv
+        Some(sqrt_pauli_inv)
     } else {
-        unimplemented!("unsupported rotation angle in stabilizer simulator: {angle}");
+        None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::StabilizerSimulator;
+    use crate::{
+        MeasurementResult, Simulator, cpu_full_state_simulator::FullStateSimulator,
+        noise_config::CumulativeNoiseConfig,
+    };
+    use std::sync::Arc;
+
+    fn sample_t_interference<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
+        seed: u32,
+    ) -> MeasurementResult {
+        let mut simulator = S::new(1, 1, seed, Arc::new(CumulativeNoiseConfig::default()));
+        simulator.h(0);
+        simulator.t(0);
+        simulator.h(0);
+        simulator.mz(0, 0);
+        simulator.measurements()[0]
+    }
+
+    #[test]
+    fn t_interference_matches_full_state_simulator() {
+        let shots = 4_096;
+        let stabilizer_ones = (0..shots).fold(0_u32, |count, seed| {
+            count
+                + u32::from(
+                    sample_t_interference::<StabilizerSimulator>(seed) == MeasurementResult::One,
+                )
+        });
+        let full_state_ones = (0..shots).fold(0_u32, |count, seed| {
+            count
+                + u32::from(
+                    sample_t_interference::<FullStateSimulator>(seed) == MeasurementResult::One,
+                )
+        });
+
+        let stabilizer_probability = f64::from(stabilizer_ones) / f64::from(shots);
+        let full_state_probability = f64::from(full_state_ones) / f64::from(shots);
+        let expected = (2.0 - 2.0_f64.sqrt()) / 4.0;
+        assert!((stabilizer_probability - expected).abs() < 0.025);
+        assert!((full_state_probability - expected).abs() < 0.025);
+        assert!((stabilizer_probability - full_state_probability).abs() < 0.025);
+    }
+
+    fn sample_entangled_t_circuit<S: Simulator<Noise = Arc<CumulativeNoiseConfig>>>(
+        seed: u32,
+    ) -> usize {
+        let mut simulator = S::new(2, 2, seed, Arc::new(CumulativeNoiseConfig::default()));
+        simulator.h(0);
+        simulator.cx(0, 1);
+        simulator.t(0);
+        simulator.t(1);
+        simulator.h(0);
+        simulator.h(1);
+        simulator.mz(0, 0);
+        simulator.mz(1, 1);
+        usize::from(simulator.measurements()[0] == MeasurementResult::One) * 2
+            + usize::from(simulator.measurements()[1] == MeasurementResult::One)
+    }
+
+    #[test]
+    fn entangled_t_circuit_matches_full_state_simulator() {
+        let shots = 8_192;
+        let mut stabilizer_counts = [0_u32; 4];
+        let mut full_state_counts = [0_u32; 4];
+        for seed in 0..shots {
+            stabilizer_counts[sample_entangled_t_circuit::<StabilizerSimulator>(seed)] += 1;
+            full_state_counts[sample_entangled_t_circuit::<FullStateSimulator>(seed)] += 1;
+        }
+
+        for (stabilizer, full_state) in stabilizer_counts.into_iter().zip(full_state_counts) {
+            let difference = f64::from(stabilizer.abs_diff(full_state)) / f64::from(shots);
+            assert!(
+                difference < 0.025,
+                "distribution differs by {difference}: stabilizer={stabilizer_counts:?}, full-state={full_state_counts:?}"
+            );
+        }
     }
 }

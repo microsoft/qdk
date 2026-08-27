@@ -5,6 +5,7 @@
 pub(crate) mod tests;
 
 use crate::{
+    angle_format::format_angle,
     circuit::{
         Circuit, ClassicalControl, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit,
         Register, SourceLocation, Unitary, operation_list_to_grid,
@@ -73,7 +74,7 @@ impl Tracer for CircuitTracer {
         theta: Option<f64>,
     ) {
         let called_at = LogicalStack::from_evaluator_trace(stack);
-        let display_args: Vec<String> = theta.map(|p| format!("{p:.4}")).into_iter().collect();
+        let display_args: Vec<String> = theta.map(format_angle).into_iter().collect();
         let controls = if self.config.prune_classical_qubits {
             // Any controls that are known to be classically one can be removed, so this
             // will return the updated controls list.
@@ -557,6 +558,17 @@ fn collapse_unnecessary_scopes(
     *operations = ops;
 }
 
+/// Checks whether callable has user-specified attribute to hide box when rendering.
+fn annotated_with_hide_box(callable: &fir::CallableDecl) -> bool {
+    callable.attrs.iter().any(|attr| {
+        matches!(
+            attr,
+            fir::Attr::CircuitRenderingOptions(options)
+                if options.hide_box
+        )
+    })
+}
+
 /// If the given operation or group is an outer scope that can be collapsed,
 /// returns its children operations or groups.
 fn collapse_if_unnecessary(
@@ -595,15 +607,23 @@ fn collapse_if_unnecessary(
                 all_children.extend(take(children));
             }
             return Some(all_children);
-        } else if let Scope::Callable(..) = scope_stack.current_lexical_scope()
-            && children.len() == 1
-            && source_lookup
-                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
-                .name
-                .starts_with(".lambda")
-        {
-            // remove the lambda scope
-            return Some(take(children));
+        } else if let Scope::Callable(callable_id) = scope_stack.current_lexical_scope() {
+            if children.len() == 1
+                && source_lookup
+                    .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
+                    .name
+                    .starts_with(".lambda")
+            {
+                // remove the lambda scope
+                return Some(take(children));
+            }
+
+            // Inline group if operation is annotated with hideBox=true in Q#.
+            if let Some(callable_decl) = source_lookup.resolve_callable(callable_id)
+                && annotated_with_hide_box(callable_decl)
+            {
+                return Some(take(children));
+            }
         }
     }
     None
@@ -630,6 +650,8 @@ pub trait SourceLookup {
     /// Circuit rendering uses this to collapse bookkeeping-only callable
     /// scopes so they do not appear as separate groups in the final diagram.
     fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool;
+    /// Resolves scope to FIR callable declaration.
+    fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl>;
 }
 
 impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
@@ -678,7 +700,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     is_classically_controlled: false,
                 }
             }
-            Scope::Callable(CallableId::Source(package_offset, name)) => {
+            Scope::Callable(CallableId::Source(_, package_offset, name)) => {
                 // trim the trailing dagger symbol and set `is_adjoint` accordingly
                 let (name, is_adjoint) = if let Some(pos) = name.rfind('\'') {
                     if pos == name.len() - 1 {
@@ -853,6 +875,19 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
 
         !hir_package_contains_callable_origin(unit, offset, name.as_ref())
     }
+
+    fn resolve_callable(&self, callable_id: &CallableId) -> Option<&fir::CallableDecl> {
+        let store_item_id = match callable_id {
+            CallableId::Id(store_item_id, _) | CallableId::Source(store_item_id, ..) => {
+                store_item_id
+            }
+        };
+        let item = self.1.get_item(*store_item_id);
+        let fir::ItemKind::Callable(callable) = &item.kind else {
+            return None;
+        };
+        Some(callable)
+    }
 }
 
 fn callable_scope_origin_key(
@@ -872,7 +907,7 @@ fn callable_scope_origin_key(
                 displayable_callable_scope_name(&callable_decl.name.name),
             ))
         }
-        Scope::Callable(CallableId::Source(package_offset, name)) => Some((
+        Scope::Callable(CallableId::Source(_, package_offset, name)) => Some((
             package_offset.package_id,
             package_offset.offset,
             source_callable_origin_name(name),
@@ -1996,7 +2031,13 @@ impl LogicalStackEntry {
     pub fn package_id(&self) -> Option<PackageId> {
         match self.scope {
             Scope::Callable(
-                CallableId::Source(PackageOffset { package_id, .. }, _)
+                CallableId::Source(
+                    StoreItemId {
+                        package: package_id,
+                        ..
+                    },
+                    ..,
+                )
                 | CallableId::Id(
                     StoreItemId {
                         package: package_id,
@@ -2083,7 +2124,7 @@ pub enum Scope {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CallableId {
     Id(StoreItemId, FunctorApp),
-    Source(PackageOffset, Rc<str>),
+    Source(StoreItemId, PackageOffset, Rc<str>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

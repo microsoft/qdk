@@ -13,7 +13,9 @@ see ``test_adaptive_cpu_bytecode.py``.
 """
 
 from collections import Counter
+import math
 import pytest
+from qdk import TargetProfile, qsharp
 from qdk.simulation import run_qir
 from qdk.simulation._simulation import Result
 from typing import Literal
@@ -430,14 +432,204 @@ attributes #1 = { "irreversible" }
 """
 
 
-def test_dynamic_rotation_angle():
-    results = _run(DYNAMIC_ROTATION_ANGLE_QIR, shots=10_000, seed=42, sim_type="cpu")
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_dynamic_rotation_angle(sim_type):
+    results = _run(
+        DYNAMIC_ROTATION_ANGLE_QIR, shots=10_000, seed=42, sim_type=sim_type
+    )
     assert len(results) == 10_000
 
     counts = Counter(results)
     count_0 = counts.get("0", 0)
     count_1 = counts.get("1", 0)
 
-    assert count_1 > 1400, f"Expected ~15% '1' results, got {count_1}"
-    assert count_0 > 8400, f"Expected ~85% '0' results, got {count_0}"
+    assert 1300 < count_1 < 1700, f"Expected ~15% '1' results, got {count_1}"
+    assert 8300 < count_0 < 8700, f"Expected ~85% '0' results, got {count_0}"
     assert count_0 + count_1 == 10_000, "All shots should produce a result"
+
+
+ADAPTIVE_T_QIR = r"""
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {
+entry:
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %condition = call i1 @__quantum__qis__read_result__body(%Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  br i1 %condition, label %apply_t, label %measure
+
+apply_t:
+  call void @__quantum__qis__t__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  br label %measure
+
+measure:
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+  call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+  call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+  ret i64 0
+}
+
+declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__t__body(%Qubit*)
+declare void @__quantum__qis__mresetz__body(%Qubit*, %Result*)
+declare i1 @__quantum__qis__read_result__body(%Result*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_t_gate_in_measurement_controlled_branch(sim_type):
+    results = _run(ADAPTIVE_T_QIR, shots=10_000, seed=42, sim_type=sim_type)
+    counts = Counter(results)
+
+    assert set(counts) <= {"00", "10", "11"}
+    assert 4500 < counts["00"] < 5500
+    assert 3900 < counts["10"] < 4700
+    assert 500 < counts["11"] < 1000
+
+
+TELEPORTED_T_ECHO_QSHARP = """
+operation TeleportAndRestore(input : Qubit, bell : Qubit, output : Qubit) : Unit {
+    H(bell);
+    CNOT(bell, output);
+
+    CNOT(input, bell);
+    H(input);
+
+    let inputResult = MResetZ(input);
+    let bellResult = MResetZ(bell);
+
+    if bellResult == One {
+        X(output);
+    }
+    if inputResult == One {
+        Z(output);
+    }
+
+    SWAP(input, output);
+}
+
+operation TeleportedTEcho() : Result[] {
+    use qs = Qubit[20];
+    let data = [
+        qs[0], qs[1], qs[2], qs[3], qs[4], qs[5], qs[6],
+        qs[7], qs[8], qs[9], qs[16], qs[17], qs[18], qs[19]
+    ];
+
+    for q in data {
+        H(q);
+    }
+    for i in 0 .. Length(data) - 2 {
+        CZ(data[i], data[i + 1]);
+    }
+    CZ(data[Length(data) - 1], data[0]);
+
+    T(qs[2]);
+    T(qs[6]);
+    T(qs[17]);
+
+    TeleportAndRestore(qs[2], qs[10], qs[11]);
+    TeleportAndRestore(qs[6], qs[12], qs[13]);
+    TeleportAndRestore(qs[17], qs[14], qs[15]);
+
+    Adjoint T(qs[2]);
+    Adjoint T(qs[6]);
+    Adjoint T(qs[17]);
+
+    CZ(data[Length(data) - 1], data[0]);
+    for i in 0 .. Length(data) - 2 {
+        CZ(data[i], data[i + 1]);
+    }
+    for q in data {
+        H(q);
+    }
+
+    return MResetEachZ(qs);
+}
+
+operation TeleportedTDistribution() : Result[] {
+    use qs = Qubit[20];
+    let data = [
+        qs[0], qs[1], qs[2], qs[3], qs[4], qs[5], qs[6],
+        qs[7], qs[8], qs[9], qs[16], qs[17], qs[18], qs[19]
+    ];
+
+    for q in data {
+        H(q);
+    }
+    for i in 0 .. Length(data) - 2 {
+        CZ(data[i], data[i + 1]);
+    }
+    CZ(data[Length(data) - 1], data[0]);
+
+    T(qs[2]);
+    T(qs[6]);
+    T(qs[17]);
+
+    TeleportAndRestore(qs[2], qs[10], qs[11]);
+    TeleportAndRestore(qs[6], qs[12], qs[13]);
+    TeleportAndRestore(qs[17], qs[14], qs[15]);
+
+    CZ(data[Length(data) - 1], data[0]);
+    for i in 0 .. Length(data) - 2 {
+        CZ(data[i], data[i + 1]);
+    }
+    for q in data {
+        H(q);
+    }
+
+    return MResetEachZ(qs);
+}
+"""
+
+
+def test_teleported_t_echo_matches_full_state():
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qsharp.eval(TELEPORTED_T_ECHO_QSHARP)
+    qir = str(qsharp.compile("TeleportedTEcho()"))
+
+    expected = "0" * 20
+    for sim_type in SIM_TYPES:
+        results = _run(qir, shots=8, seed=42, sim_type=sim_type)
+        assert results == [expected] * 8
+
+
+def test_teleported_t_distribution_matches_full_state():
+    qsharp.init(target_profile=TargetProfile.Adaptive_RIF)
+    qsharp.eval(TELEPORTED_T_ECHO_QSHARP)
+    qir = str(qsharp.compile("TeleportedTDistribution()"))
+
+    shots = 256
+    target_bits = (2, 6, 17)
+    expected_one_probability = math.sin(math.pi / 8.0) ** 2
+    histograms = {}
+
+    for sim_type in SIM_TYPES:
+        results = _run(qir, shots=shots, seed=42, sim_type=sim_type)
+        histograms[sim_type] = Counter(results)
+
+        for result in results:
+            assert len(result) == 20
+            assert all(bit == "0" for i, bit in enumerate(result) if i not in target_bits)
+
+        for bit in target_bits:
+            probability = sum(result[bit] == "1" for result in results) / shots
+            assert abs(probability - expected_one_probability) < 0.07
+
+    support = set(histograms["cpu"]) | set(histograms["clifford"])
+    total_variation_distance = (
+        sum(
+            abs(histograms["cpu"][result] - histograms["clifford"][result])
+            for result in support
+        )
+        / shots
+        / 2.0
+    )
+    assert total_variation_distance < 0.15

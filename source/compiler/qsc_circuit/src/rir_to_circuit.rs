@@ -7,7 +7,7 @@ mod tests;
 
 use core::panic;
 use qsc_data_structures::index_map::IndexMap;
-use qsc_fir::fir::PackageId;
+use qsc_fir::fir::{LocalItemId, PackageId, StoreItemId};
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
@@ -19,6 +19,7 @@ use std::{iter::Peekable, mem::take};
 
 use crate::{
     Circuit, Error, TracerConfig,
+    angle_format::format_angle,
     builder::{
         CallableId, ClassicalControlInput, GateInputs, LogicalStack, LogicalStackEntry,
         LogicalStackEntryLocation, LoopId, OperationListBuilder, OperationReceiver, PackageOffset,
@@ -368,8 +369,16 @@ impl DbgLookup<'_> {
             let scope_id = self.lexical_scope(location_idx);
             let package_offset = self.source_location(location_idx);
             match &self.dbg_info.get_scope(scope_id) {
-                DbgScope::SubProgram { name, location } => {
+                DbgScope::SubProgram {
+                    callable_id,
+                    name,
+                    location,
+                } => {
                     let scope = Scope::Callable(CallableId::Source(
+                        StoreItemId {
+                            package: PackageId::from(callable_id.package_id),
+                            item: LocalItemId::from(callable_id.item_id),
+                        },
                         PackageOffset {
                             package_id: location.package_id.into(),
                             offset: location.offset,
@@ -1426,6 +1435,10 @@ fn callable_spec<'a>(
 
     let gate_spec = known_gate_spec(&callable.name);
 
+    // Only a known gate's argument is guaranteed to be a rotation angle; a custom callable's
+    // double operand is classified the same way but can be any value.
+    let is_known_gate = gate_spec.is_some();
+
     let gate_spec = if let Some(gate_spec) = gate_spec {
         gate_spec
     } else {
@@ -1523,7 +1536,11 @@ fn callable_spec<'a>(
                 },
                 Literal::Double(d) => match operand_type {
                     OperandType::Arg => {
-                        args.push(format!("{d:.4}"));
+                        if is_known_gate {
+                            args.push(format_angle(*d));
+                        } else {
+                            args.push(format!("{d:.4}"));
+                        }
                     }
                     _ => {
                         return Err(Error::UnsupportedFeature(

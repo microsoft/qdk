@@ -76,6 +76,10 @@ impl SourceLookup for FakeCompilation {
     fn is_synthesized_callable_scope(&self, _scope: &Scope) -> bool {
         false
     }
+
+    fn resolve_callable(&self, _callable_id: &CallableId) -> Option<&fir::CallableDecl> {
+        None
+    }
 }
 
 impl FakeCompilation {
@@ -278,6 +282,7 @@ fn source_scope_for_callable(fir_store: &fir::PackageStore, callable_id: StoreIt
     };
 
     Scope::Callable(CallableId::Source(
+        callable_id,
         PackageOffset {
             package_id: callable_id.package,
             offset: decl.span.lo,

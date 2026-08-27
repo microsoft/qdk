@@ -1441,7 +1441,23 @@ pub enum Attr {
     NoiseIntrinsic,
     /// Indicates that a callable is a test case.
     Test,
+    /// Provides options for rendering a callable in circuit diagrams.
+    CircuitRenderingOptions(CircuitRenderingOptions),
 }
+
+/// Options for rendering a callable in circuit diagrams.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct CircuitRenderingOptions {
+    /// Whether the callable's group box should be hidden.
+    pub hide_box: bool,
+}
+
+const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str = r#"Provides options for rendering an operation in circuit diagrams.
+
+The argument is a string containing comma-separated `key=value` pairs. Keys are case-insensitive. Supported options:
+  * hideBox (true|false) - if true, the operation's group box is omitted and its contents are rendered directly in the containing scope.
+
+Example: `@CircuitRenderingOptions("hideBox=true")`."#;
 
 impl Attr {
     /// Gets the string description of the attribute.
@@ -1454,6 +1470,7 @@ Valid arguments are `Base`, `Adaptive`, `IntegerComputations`, `FloatingPointCom
 
 The `not` operator is also supported to negate the attribute, e.g. `not Adaptive`.",
             Attr::EntryPoint => "Indicates that the callable is the entry point to a program.",
+            Attr::CircuitRenderingOptions(_) => CIRCUIT_RENDERING_OPTIONS_DESCRIPTION,
             Attr::Unimplemented => "Indicates that an item is not yet implemented.",
             Attr::SimulatableIntrinsic => "Indicates that an item should be treated as an intrinsic callable for QIR code generation and any implementation should only be used during simulation.",
             Attr::Measurement => "Indicates that an intrinsic callable is a measurement. This means that the operation will be marked as \"irreversible\" in the generated QIR, and output Result types will be moved to the arguments.",
@@ -1471,6 +1488,9 @@ impl FromStr for Attr {
         match s {
             "Config" => Ok(Self::Config),
             "EntryPoint" => Ok(Self::EntryPoint),
+            "CircuitRenderingOptions" => Ok(Self::CircuitRenderingOptions(
+                CircuitRenderingOptions::default(),
+            )),
             "Unimplemented" => Ok(Self::Unimplemented),
             "SimulatableIntrinsic" => Ok(Self::SimulatableIntrinsic),
             "Measurement" => Ok(Self::Measurement),

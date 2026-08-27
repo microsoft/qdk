@@ -41,7 +41,7 @@ use qsc_fir::{
 };
 
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
-use qsc_lowerer::map_fir_package_to_hir;
+use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
     RuntimeFeatureFlags, ValueKind,
@@ -53,7 +53,8 @@ use qsc_rca::{
 pub use qsc_rir::{
     builder::{self, initialize_decl},
     debug::{
-        DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId, InstructionDbgMetadata,
+        DbgCallableId, DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId,
+        InstructionDbgMetadata,
     },
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
@@ -63,6 +64,8 @@ pub use qsc_rir::{
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::{collections::hash_map::Entry, mem::take, rc::Rc, result::Result};
 use thiserror::Error;
+
+use crate::Error::Unimplemented;
 
 /// Partially evaluates a program with the specified entry expression.
 pub fn partially_evaluate(
@@ -162,9 +165,12 @@ impl From<EvalError> for Error {
 
 impl Error {
     #[must_use]
-    pub fn span(&self) -> Option<PackageSpan> {
+    pub fn span(&self) -> PackageSpan {
         match self {
-            Self::CapabilityError(_) => None,
+            Self::CapabilityError(e) => {
+                let fir_span = e.span();
+                PackageSpan::new(map_fir_package_to_hir(fir_span.package), fir_span.span)
+            }
             Self::UnexpectedDynamicValue(span)
             | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
@@ -172,7 +178,7 @@ impl Error {
             | Self::Unexpected(_, span)
             | Self::Unimplemented(_, span)
             | Self::UnsupportedTestCallable(span)
-            | Self::UnsupportedSimulationIntrinsic(_, span) => Some(*span),
+            | Self::UnsupportedSimulationIntrinsic(_, span) => *span,
         }
     }
 }
@@ -710,6 +716,9 @@ impl<'a> PartialEvaluator<'a> {
                     )),
                 }
             }
+            Value::BigInt(lhs_bigint) => {
+                self.eval_binop_with_lhs_bigint(bin_op, lhs_bigint, rhs_expr_id)
+            }
             _ => Err(Error::Unexpected(
                 format!("unsupported LHS value: {lhs_value}"),
                 lhs_span,
@@ -1158,7 +1167,7 @@ impl<'a> PartialEvaluator<'a> {
         let rhs_operand = self.map_eval_value_to_rir_operand(&rhs_value);
         assert!(
             matches!(rhs_operand.get_type(), rir::Ty::Prim(rir::Prim::Integer)),
-            "LHS value is expected to be of integer type"
+            "RHS value is expected to be of integer type"
         );
 
         // If both operands are literals, evaluate the binary operation and return its value.
@@ -1188,6 +1197,31 @@ impl<'a> PartialEvaluator<'a> {
                 bin_op_expr_span,
             )
         })?);
+        Ok(EvalControlFlow::Continue(value))
+    }
+
+    fn eval_binop_with_lhs_bigint(
+        &mut self,
+        bin_op: BinOp,
+        lhs_bigint: BigInt,
+        rhs_expr_id: ExprId,
+    ) -> Result<EvalControlFlow, Error> {
+        // Try to evaluate the RHS expression to get its value and construct its operand.
+        let rhs_control_flow = self.try_eval_expr(rhs_expr_id)?;
+        let EvalControlFlow::Continue(rhs_val) = rhs_control_flow else {
+            return Err(Error::Unexpected(
+                "embedded return in RHS expression".to_string(),
+                self.get_expr_package_span(rhs_expr_id),
+            ));
+        };
+
+        let value = eval_bin_op_with_bigint_literals(
+            bin_op,
+            lhs_bigint,
+            rhs_val,
+            self.get_expr_package_span(rhs_expr_id),
+        )?;
+
         Ok(EvalControlFlow::Continue(value))
     }
 
@@ -1766,7 +1800,10 @@ impl<'a> PartialEvaluator<'a> {
                 if !missing_features.is_empty()
                     && let Some(error) = generate_errors_from_runtime_features(
                         missing_features,
-                        self.get_expr(call_expr_id).span,
+                        fir::PackageSpan::new(
+                            self.get_current_package_id(),
+                            self.get_expr(call_expr_id).span,
+                        ),
                     )
                     .drain(..)
                     .next()
@@ -1921,7 +1958,10 @@ impl<'a> PartialEvaluator<'a> {
                     // If we are in a dynamic branch anywhere up the call stack, we cannot support relabel,
                     // as later qubit usage would need to be dynamic on whether the branch was taken.
                     return Err(Error::CapabilityError(CapabilityError::UseOfDynamicQubit(
-                        callee_expr_span.span,
+                        fir::PackageSpan::new(
+                            map_hir_package_to_fir(callee_expr_span.package),
+                            callee_expr_span.span,
+                        ),
                     )));
                 }
                 qubit_relabel(args_value, callee_expr_span, args_span, |q0, q1| {
@@ -4601,6 +4641,10 @@ impl<'a> PartialEvaluator<'a> {
                 let current_package_id = self.get_current_package_id();
                 let package_id = current_package_id.into();
                 let scope = DbgScope::SubProgram {
+                    callable_id: DbgCallableId {
+                        package_id: item_id.package.into(),
+                        item_id: item_id.item.into(),
+                    },
                     name,
                     location: DbgPackageOffset {
                         package_id,
@@ -5154,6 +5198,65 @@ fn eval_bin_op_with_integer_literals(
         BinOp::Shr => Ok(Value::Int(lhs_int >> rhs_int)),
         _ => panic!("invalid integer operator: {bin_op:?}"),
     }
+}
+
+fn eval_bin_op_with_bigint_literals(
+    bin_op: BinOp,
+    lhs_bigint: BigInt,
+    rhs_val: Value,
+    rhs_span: PackageSpan,
+) -> Result<Value, Error> {
+    if !matches!(rhs_val, Value::BigInt(_) | Value::Int(_)) {
+        return Err(Unimplemented(
+            "dynamic value in BigInt computation".to_string(),
+            rhs_span,
+        ));
+    }
+
+    Ok(match bin_op {
+        BinOp::Eq => Value::Bool(lhs_bigint == rhs_val.unwrap_big_int()),
+        BinOp::Neq => Value::Bool(lhs_bigint != rhs_val.unwrap_big_int()),
+        BinOp::Gt => Value::Bool(lhs_bigint > rhs_val.unwrap_big_int()),
+        BinOp::Gte => Value::Bool(lhs_bigint >= rhs_val.unwrap_big_int()),
+        BinOp::Lt => Value::Bool(lhs_bigint < rhs_val.unwrap_big_int()),
+        BinOp::Lte => Value::Bool(lhs_bigint <= rhs_val.unwrap_big_int()),
+        BinOp::Add => Value::BigInt(lhs_bigint + rhs_val.unwrap_big_int()),
+        BinOp::Sub => Value::BigInt(lhs_bigint - rhs_val.unwrap_big_int()),
+        BinOp::Mul => Value::BigInt(lhs_bigint * rhs_val.unwrap_big_int()),
+        BinOp::Div => Value::BigInt(lhs_bigint / rhs_val.unwrap_big_int()),
+        BinOp::Mod => Value::BigInt(lhs_bigint % rhs_val.unwrap_big_int()),
+        BinOp::Exp => {
+            let rhs_val = rhs_val.unwrap_int();
+            if rhs_val < 0 {
+                return Err(EvalError::InvalidNegativeInt(rhs_val, rhs_span).into());
+            }
+            let rhs_val: u32 = match rhs_val.try_into() {
+                Ok(v) => v,
+                Err(_) => return Err(EvalError::IntTooLarge(rhs_val, rhs_span).into()),
+            };
+            Value::BigInt(lhs_bigint.pow(rhs_val))
+        }
+        BinOp::AndB => Value::BigInt(lhs_bigint & rhs_val.unwrap_big_int()),
+        BinOp::OrB => Value::BigInt(lhs_bigint | rhs_val.unwrap_big_int()),
+        BinOp::XorB => Value::BigInt(lhs_bigint ^ rhs_val.unwrap_big_int()),
+        BinOp::Shl => {
+            let rhs = rhs_val.unwrap_int();
+            if rhs > 0 {
+                Value::BigInt(lhs_bigint << rhs)
+            } else {
+                Value::BigInt(lhs_bigint >> rhs.abs())
+            }
+        }
+        BinOp::Shr => {
+            let rhs = rhs_val.unwrap_int();
+            if rhs > 0 {
+                Value::BigInt(lhs_bigint >> rhs)
+            } else {
+                Value::BigInt(lhs_bigint << rhs.abs())
+            }
+        }
+        _ => panic!("invalid bigint operator: {bin_op:?}"),
+    })
 }
 
 /// Maps a runtime `FunctorApp` to the `FunctorSetValue` that identifies a specialization. This is the
