@@ -4,8 +4,8 @@ Bob's side of this protocol can be represented as a sequence of two steps:
  
 The final set of corrections we need is the $X$ gate, followed by the standard teleportation corrections. This adds up to the following corrections:
 - For 00, only the $X$ correction is required.
-- For 01, both $Z$ and $X$ corrections are required.
-- For 10, no change is required.
+- For 01, no change is required.
+- For 10, both $Z$ and $X$ corrections are required.
 - For 11, only the $Z$ correction is requried.
 
 @[solution]({
