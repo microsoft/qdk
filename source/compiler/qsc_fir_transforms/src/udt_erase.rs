@@ -51,13 +51,13 @@ use crate::EMPTY_EXEC_RANGE;
 use crate::cloner::FirCloner;
 use crate::package_assigners::PackageAssigners;
 use crate::reachability::{collect_reachable_from_entry, collect_reachable_package_closure};
-use qsc_data_structures::span::Span;
 use qsc_fir::fir::{
     BlockId, Expr, ExprId, ExprKind, Field, FieldAssign, FieldPath, ItemKind, LocalItemId, Package,
     PackageId, PackageStore, PatId, Res, StoreItemId,
 };
 use qsc_fir::ty::{Arrow, Ty};
 
+use qsc_fir::fir::PackageSpan;
 use rustc_hash::FxHashMap;
 
 /// Maps `StoreItemId` → pure `Ty` for every UDT definition
@@ -339,7 +339,7 @@ fn lower_copy_update_struct(
     expr_id: ExprId,
     copy_id: ExprId,
     fields: &[FieldAssign],
-    span: Span,
+    span: PackageSpan,
 ) {
     // Check for a whole-value replacement (single-field UDT where the
     // field path is empty).
@@ -466,7 +466,7 @@ fn lower_field_updates(
     udt_cache: &UdtCache,
     expr_id: ExprId,
     kind: &ExprKind,
-    span: Span,
+    span: PackageSpan,
 ) {
     // Lower UpdateField(record, Field::Path(path), replace) into a
     // tuple construction that extracts all non-updated fields from the
@@ -603,7 +603,7 @@ fn lower_update_field(
     indices: &[usize],
     replace_id: ExprId,
     record_ty: &Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprKind {
     match (indices, record_ty) {
         // Single-level path on a tuple: build a new tuple with the
@@ -701,7 +701,7 @@ fn build_updated_tuple(
     update_idx: usize,
     replace_id: ExprId,
     elems: &[Ty],
-    span: Span,
+    span: PackageSpan,
 ) -> ExprKind {
     debug_assert!(
         update_idx < elems.len(),
@@ -729,7 +729,7 @@ fn alloc_field_expr(
     record_id: ExprId,
     index: usize,
     ty: &Ty,
-    span: Span,
+    span: PackageSpan,
 ) -> ExprId {
     let field_id = cloner.alloc_expr();
     package.exprs.insert(

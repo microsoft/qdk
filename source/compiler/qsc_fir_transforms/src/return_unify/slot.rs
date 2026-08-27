@@ -8,7 +8,6 @@ use crate::fir_builder::{
     alloc_local_var, alloc_local_var_expr,
 };
 use num_bigint::BigInt;
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
@@ -255,7 +254,7 @@ pub(super) fn create_return_slot_decl(
                 assigner,
                 slot_ty.clone(),
                 ExprKind::Array(Vec::new()),
-                Span::default(),
+                package.synthetic_span(),
             );
             (slot_ty, init_expr)
         }
@@ -313,7 +312,7 @@ pub(super) fn wrap_in_singleton_array(
         assigner,
         array_ty,
         ExprKind::Array(vec![value_expr]),
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -334,14 +333,14 @@ pub(super) fn singleton_array_index_read(
         assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Lit(Lit::Int(0)),
-        Span::default(),
+        package.synthetic_span(),
     );
     alloc_expr(
         package,
         assigner,
         elem_ty.clone(),
         ExprKind::Index(array_expr, zero),
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -358,12 +357,17 @@ pub(super) fn create_return_slot_read_expr(
             assigner,
             slot.var_id,
             return_ty.clone(),
-            Span::default(),
+            package.synthetic_span(),
         ),
         ReturnSlotStrategy::ArrayBacked => {
             let array_ty = Ty::Array(Box::new(return_ty.clone()));
-            let array_expr =
-                alloc_local_var_expr(package, assigner, slot.var_id, array_ty, Span::default());
+            let array_expr = alloc_local_var_expr(
+                package,
+                assigner,
+                slot.var_id,
+                array_ty,
+                package.synthetic_span(),
+            );
             singleton_array_index_read(package, assigner, array_expr, return_ty)
         }
     }
@@ -387,7 +391,7 @@ pub(super) fn create_return_slot_read_or_fail_expr(
                 assigner,
                 has_returned_var_id,
                 Ty::Prim(Prim::Bool),
-                Span::default(),
+                package.synthetic_span(),
             );
             let read = create_return_slot_read_expr(package, assigner, slot, return_ty);
             let fail = create_typed_fail_expr(
@@ -403,7 +407,7 @@ pub(super) fn create_return_slot_read_or_fail_expr(
                 read,
                 Some(fail),
                 return_ty.clone(),
-                Span::default(),
+                package.synthetic_span(),
             )
         }
     }
@@ -440,14 +444,14 @@ fn create_typed_fail_expr(
         assigner,
         Ty::Prim(Prim::String),
         ExprKind::String(vec![StringComponent::Lit(Rc::from(message))]),
-        Span::default(),
+        package.synthetic_span(),
     );
     alloc_expr(
         package,
         assigner,
         ty.clone(),
         ExprKind::Fail(message_expr),
-        Span::default(),
+        package.synthetic_span(),
     )
 }
 
@@ -518,7 +522,7 @@ pub(super) fn create_default_value(
         assigner,
         ty.clone(),
         kind,
-        Span::default(),
+        package.synthetic_span(),
     ))
 }
 
@@ -695,28 +699,33 @@ fn synthesize_fail_callable(
         assigner,
         Ty::Prim(Prim::String),
         ExprKind::String(vec![StringComponent::Lit("callable init expr".into())]),
-        Span::default(),
+        package.synthetic_span(),
     );
     let fail_expr_id = alloc_expr(
         package,
         assigner,
         output_ty.clone(),
         ExprKind::Fail(msg_expr_id),
-        Span::default(),
+        package.synthetic_span(),
     );
-    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, Span::default());
+    let trailing_stmt = alloc_expr_stmt(package, assigner, fail_expr_id, package.synthetic_span());
     let body_block = alloc_block(
         package,
         assigner,
         vec![trailing_stmt],
         output_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
 
-    let input_pat_id = alloc_discard_pat(package, assigner, input_ty.clone(), Span::default());
+    let input_pat_id = alloc_discard_pat(
+        package,
+        assigner,
+        input_ty.clone(),
+        package.synthetic_span(),
+    );
 
     let body_spec = qsc_fir::fir::SpecDecl {
-        span: Span::default(),
+        span: package.synthetic_span(),
         block: body_block,
         input: None,
         exec_graph: qsc_fir::fir::ExecGraph::default(),
@@ -731,11 +740,11 @@ fn synthesize_fail_callable(
     let new_item_id = assigner.next_item();
     let callable_name: Rc<str> = Rc::from(format!("__return_unify_fail_{new_item_id}"));
     let decl = CallableDecl {
-        span: Span::default(),
+        span: package.synthetic_span(),
         kind,
         name: Ident {
             id: LocalVarId::from(0_u32),
-            span: Span::default(),
+            span: package.synthetic_span(),
             name: callable_name,
         },
         generics: Vec::new(),
@@ -748,7 +757,7 @@ fn synthesize_fail_callable(
 
     let item = qsc_fir::fir::Item {
         id: new_item_id,
-        span: Span::default(),
+        span: package.synthetic_span(),
         parent: None,
         doc: Rc::from(""),
         attrs: Vec::new(),
@@ -767,6 +776,12 @@ fn create_assign_expr(
     value: ExprId,
     ty: &Ty,
 ) -> ExprId {
-    let var_expr = alloc_local_var_expr(package, assigner, var_id, ty.clone(), Span::default());
-    alloc_assign_expr(package, assigner, var_expr, value, Span::default())
+    let var_expr = alloc_local_var_expr(
+        package,
+        assigner,
+        var_id,
+        ty.clone(),
+        package.synthetic_span(),
+    );
+    alloc_assign_expr(package, assigner, var_expr, value, package.synthetic_span())
 }

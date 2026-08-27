@@ -353,7 +353,7 @@ impl Interpreter {
         let mut fir_store = fir::PackageStore::new();
         for (id, unit) in compiler.package_store() {
             let mut lowerer = qsc_lowerer::Lowerer::new();
-            let pkg = lowerer.lower_package(&unit.package, &fir_store);
+            let pkg = lowerer.lower_package(&unit.package, &fir_store, map_hir_package_to_fir(id));
             fir_store.insert(map_hir_package_to_fir(id), pkg);
         }
 
@@ -2087,7 +2087,7 @@ impl<'a> BreakpointCollector<'a> {
     fn add_stmt(&mut self, stmt: &fir::Stmt) {
         let source: &Source = self.get_source(stmt.span.lo);
         if source.offset == self.offset {
-            let span = stmt.span - source.offset;
+            let span = stmt.span.span - source.offset;
             if span != Span::default() {
                 let range = Range::from_span(self.position_encoding, &source.contents, &span);
                 let bps = BreakpointSpan {
