@@ -50,14 +50,16 @@ pub fn estimate_parallel<'a>(
     let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
 
-    let available_instruction_ids: FxHashSet<_> = isas
-        .iter()
-        .flat_map(|isa| isa.node_entries().map(|(id, _)| *id))
-        .collect();
-    for trace in traces {
-        for constraint in trace.required_instruction_ids(None).constraints() {
-            if !available_instruction_ids.contains(&constraint.id()) {
-                collection.record_missing_instruction(constraint.id());
+    if !isas.is_empty() {
+        let available_instruction_ids: FxHashSet<_> = isas
+            .iter()
+            .flat_map(|isa| isa.node_entries().map(|(id, _)| *id))
+            .collect();
+        for trace in traces {
+            for constraint in trace.required_instruction_ids(None).constraints() {
+                if !available_instruction_ids.contains(&constraint.id()) {
+                    collection.record_missing_instruction(constraint.id());
+                }
             }
         }
     }
