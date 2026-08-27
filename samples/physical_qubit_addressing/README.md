@@ -22,8 +22,9 @@ That behavior is only meaningful when three facts hold together:
    the whole machine makes its array indices correspond one-to-one with QIR qubit IDs. This example
    uses 256 qubits, so indices `0..255` map to QIR qubit IDs `0..255`; size the pool to match your
    target machine.
-2. **Addresses are selected by constant index.** Picking an element such as `machine[12]` names the
-   intended physical address in the generated QIR.
+2. **Qubits are selected by explicit physical address.** Picking an element such as `machine[12]`
+   selects physical address 12 in the generated QIR. Indices, and therefore addresses, but be known
+   at compile-time and can't be dependent on the outcome of a measurement.
 3. **The provider target preserves those IDs.** Source indices and QIR IDs do not by themselves
    force a hardware layout. A target may perform further gate decomposition, routing, scheduling,
    or qubit remapping after it receives the QIR.

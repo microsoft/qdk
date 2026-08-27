@@ -8,7 +8,7 @@
 // to the qubit count of the machine you target. The pattern relies on three facts:
 //   1. The source allocates the entire machine-sized qubit pool exactly once, so its array
 //      indices map directly onto QIR qubit IDs.
-//   2. Selecting pool elements by constant index names the intended physical addresses.
+//   2. Selecting pool elements by explicit physical address fixes their intended QIR qubit IDs.
 //   3. A provider target must contractually preserve those IDs. Q# indices and QIR IDs alone do
 //      not force a hardware layout; confirm the target's contract before relying on it.
 //
