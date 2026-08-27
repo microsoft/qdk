@@ -63,9 +63,10 @@ Every program written for physical qubit addressing must follow these constraint
    `Std.Canon` does not add ancillary qubits. Review operations from other libraries and custom
    decompositions before using them; an implementation can allocate workspace qubits even if its
    call site does not.
-3. **Restrict controlled operations.** Avoid operations with multiple controls. CCX/Toffoli is the
-   supported exception when its ancilla-free decomposition and the target gate set are suitable.
-   Do not assume that arbitrary multi-controlled operations preserve the fixed address space.
+3. **Restrict controlled operations.** Use operations with at most one control. The exception is
+    an X operation with exactly two controls, which is the CCX/Toffoli gate, which the QDK lowers
+    without allocating additional qubits. Do not generalize this exception to other multiply
+    controlled operations.
 4. **Measure separately and at the end.** Complete every quantum operation before performing any
    measurement. For Base Profile Q#, use independent terminal `MResetZ` calls and avoid joint
    Pauli-product measurements. In OpenQASM, use separate terminal measurement statements. Giving
