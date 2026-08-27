@@ -451,6 +451,29 @@ def test_read_result(sim_type):
     check_result(READ_RESULT_QIR, "11", num_results=2, sim_type=sim_type)
 
 
+DYNAMIC_READ_RESULT_QIR = """
+entry:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %result_id = sub i64 1, 1
+  %result = inttoptr i64 %result_id to %Result*
+  %one = call i1 @__quantum__qis__read_result__body(%Result* %result)
+  br i1 %one, label %then, label %end
+
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_read_result_with_dynamic_result_id(sim_type):
+    check_result(DYNAMIC_READ_RESULT_QIR, "11", num_results=2, sim_type=sim_type)
+
+
 # =========================================================================
 # OP_RECORD_OUTPUT — output recording
 # =========================================================================
@@ -470,6 +493,34 @@ def test_record_output_ordering(sim_type):
     check_result(
         RECORD_OUTPUT_QIR, "10", num_qubits=2, num_results=2, sim_type=sim_type
     )
+
+
+DYNAMIC_RECORD_OUTPUT_QIR = f"""\
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {{
+entry:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %result_id = sub i64 1, 1
+  %result = inttoptr i64 %result_id to %Result*
+  call void @__quantum__rt__tuple_record_output(i64 1, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* %result, i8* null)
+  ret i64 0
+}}
+
+{_DECLS}
+attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }}
+attributes #1 = {{ "irreversible" }}
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_record_output_with_dynamic_result_id(sim_type):
+    results = run_qir(DYNAMIC_RECORD_OUTPUT_QIR, SHOTS, seed=42, type=sim_type)
+    counts = Counter(map_result_list_to_str(result) for result in results)
+    assert counts == {"1": SHOTS}
 
 
 # =========================================================================
@@ -1804,6 +1855,29 @@ def test_call_with_return_value(sim_type):
         CALL_WITH_RETVAL_QIR,
         "1",
         extra_decls=CALL_WITH_RETVAL_QIR_FN,
+        sim_type=sim_type,
+    )
+
+
+CALL_WITH_IMMEDIATE_RETVAL_QIR = """
+  %result = call i64 @get_seven()
+  %flag = icmp eq i64 %result, 7
+"""
+
+CALL_WITH_IMMEDIATE_RETVAL_QIR_FN = """
+define i64 @get_seven() {
+entry:
+  ret i64 7
+}
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_call_with_immediate_return_value(sim_type):
+    check_result(
+        build_arith_body(CALL_WITH_IMMEDIATE_RETVAL_QIR),
+        "1",
+        extra_decls=CALL_WITH_IMMEDIATE_RETVAL_QIR_FN,
         sim_type=sim_type,
     )
 
