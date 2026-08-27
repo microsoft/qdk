@@ -27,9 +27,9 @@ resources/qdk-learning/courses/
 Bundled courses live under the extension's `resources` folder.
 A course can also be authored in a workspace under `qdk-learning/courses/`, which is where the extension copies bundled courses the first time a learner opens one.
 
-`_course_lib.py` and `_check_env.py` aren't supplied by the extension, so copy them from an existing course when starting a new one.
+`_course_lib.py` and `_check_env.py` contain utilities that you may find helpful, but aren't required. You can use the ones from an existing course as models.
 
-_Note_: The folders in this example are numbered, but that's not required - the order comes from `course.json`
+_Note_: The folders in this example are numbered, but that's not required - the display order comes from `course.json`
 
 ## course.json
 
@@ -56,15 +56,14 @@ _Note_: The folders in this example are numbered, but that's not required - the 
 - `title`: Display name of the course.
 - `shortDescription`: Simple help/alt text about the course.
 - `units`: An ordered list of units and where to find each.
-- `environment.importChecks`: Optional. The imports the course's `_check_env.py` checks before a unit starts.
-
-The course ID comes from the folder name, so there is no `id` field.
+- `environment.importChecks`: Optional. A list of imports that `_check_env.py` verifies before a unit starts.
 
 ## Exercises
 
 Exercises are one of the main value-adds of the QDK Learning courses.
 You can tag individual code cells as exercises and associate hints, solutions, and explanations with them.
-Each exercise also has associated validation logic to tell a learner whether their solution is correct and course progress is updated as they complete exercises successfully.
+Each exercise also has associated validation logic to tell a learner whether their solution is correct.
+Progress reflects every code cell the learner runs, not just the cells tagged as exercises.
 
 An exercise code cell is preceded by a markdown cell giving the name of the exercise (as a header) and a brief description of what's to be accomplished.
 The exercise code cell itself is tagged `exercise` using the `Add Cell Tag` functionality in VS Code (or by editing the JSON directly).
@@ -73,9 +72,8 @@ The exercise code cell itself is tagged `exercise` using the `Add Cell Tag` func
   <img src="../../media/add-cell-tag.png" alt="Adding a cell tag from the notebook cell context menu">
 </div>
 
-The exercise code cell may optionally be followed by additional cells tagged `hint`, `solution`, or `explanation`.
+The exercise code cell may optionally be followed by cells tagged `hint`, `solution`, or `explanation`, and there can be more than one of each.
 `solution` goes on a code cell; `hint` and `explanation` go on markdown cells.
-A tag on the wrong kind of cell is ignored with only a log warning, so the cell simply never reaches Copilot.
 The contents of these cells will be available to the Copilot Agent guiding the learner, but not to the learner themselves.
 
 ## Exercise Validation
@@ -123,34 +121,48 @@ Once the cell runs successfully, the exercise will be considered to be complete.
 ## Editing a published course
 
 Progress is tracked per cell, using the notebook's nbformat cell IDs.
-Those IDs are opaque to the learning system, so editing a cell's text is safe, but deleting a cell and adding a replacement gives it a new ID and the old completion no longer matches it.
+Editing a cell's text is safe, but deleting a cell and adding a replacement gives it a new ID, so the old completion no longer matches.
 
-Existing learners are insulated from this: a `*.workbook.ipynb` is never overwritten once it exists, so they keep working in the copy they already have.
-The change reaches them only when they reset the unit, and it reaches anyone starting the course after the update.
+The extension copies a bundled course into `qdk-learning/courses/` the first time a learner opens it, and skips the copy if that folder is already there.
+So a learner who has already started the course won't pick up your changes when the extension updates - not even by resetting a unit, because reset rebuilds the working copy from the course copy already in their workspace.
+Your changes reach learners who haven't started the course in that workspace yet; anyone else has to delete the course folder first.
 
-Images are worth a note too.
+When the course isn't bundled - say, one the learner cloned from a repo - they update the course copy themselves, so they'd pull your changes and then reset the unit to rebuild the working copy from them.
+
+Where possible, prefer inline SVG over embedded images, because an SVG can adapt to the learner's UI theme.
 An attachment is rendered as an `<img>`, which cannot read the notebook's stylesheet, so a light-background diagram stays light in a dark theme.
-Putting the SVG markup directly in a Markdown cell keeps it in the notebook's own DOM, where it can pick up `var(--vscode-*)` colours and follow the active theme.
+Putting the SVG markup directly in a markdown cell keeps it in the notebook's own DOM, where it can pick up `var(--vscode-*)` colours:
+
+<!-- prettier-ignore -->
+```html
+<svg viewBox="0 0 120 40" role="img" aria-label="Example"><rect x="1" y="1" width="118" height="38" fill="none" stroke="var(--vscode-editor-foreground)"/><text x="60" y="25" text-anchor="middle" fill="var(--vscode-editor-foreground)">Example</text></svg>
+```
+
+Keep the markup on a single line - if it spans multiple lines, markdown splits it into separate paragraphs and it won't render.
 Attachments that stay attachments must be base64-encoded.
 
 ## Environment
 
 Setting up a Python environment can be tricky for new users and we want the focus to be on the course content, so we've added some helper functionality around installing and validating dependencies.
 
-- `requirements.txt` lists course dependencies; each unit's first cell has a commented-out `%pip install -r ../requirements.txt` for the learner to run
-- The `QDK: Create a Microsoft Quantum Python virtual environment` command sets up an environment and prompts for the packages to install
-- `course.json` lets you list imports you expect to work so they can be checked before the student starts the unit (e.g. in case they've selected the wrong notebook kernel), which the course's `_check_env.py` reads
+- `requirements.txt` lists course dependencies; the Chemistry QPE course starts each unit with a commented-out `%pip install -r ../requirements.txt` for the learner to run, which is a pattern you may want to copy
+- The `QDK: Create a Microsoft Quantum Python virtual environment` command sets up an environment and prompts for the packages to install; the list it offers is specific to what QDK courses tend to need, so check that it covers your dependencies
+- `course.json` lets you list imports you expect to work so they can be checked before the learner starts the unit (e.g. in case the learner selected the wrong notebook kernel), which the course's `_check_env.py` reads
 - The course infrastructure depends on the Python and Jupyter VS Code extensions, so they'll be prompted if those are absent
 
 ## Trying it out
 
 Open a workspace folder in VS Code and navigate to the Microsoft Quantum extension panel (indicated by a Mobius strip).
 If you've never used it before, it'll offer you a `Start Learning` button.
-The Microsoft Quantum Katas are the default course, so you'll need to explicitly Switch Course to your new content in the tree view.
+Use `Switch Course` in the tree view to select your new content.
+Progress lives in `qdk-learning.json` at the workspace root: the current position, which activities are complete, the Python environment chosen per course, and whether a course has been picked yet.
+Delete it to get back to the first-run state.
+That resets progress only - the `*.workbook.ipynb` files are left alone, so delete those too for a completely clean run.
 
 When you switch to your course, temporary working copies of all the notebooks will be created (indicated by the `.workbook.ipynb` file extension).
 These copies omit all the exercise hints, solutions, and explanations and give the learner a notebook they can edit freely without worrying about overwriting anything important.
-An existing working copy is never overwritten, so if you based your course on a sample you'd previously run, `git clean` it first to clear out any working copies left behind.
+An existing working copy isn't replaced when the course is copied, so if you based your course on a sample you'd previously run, delete any leftover `*.workbook.ipynb` files first.
+Resetting a unit does overwrite that unit's working copy.
 
 There are buttons and context menu items throughout the UI that connect the experience to the Copilot chat.
 Exercises, in particular, offer hints and explanations.
