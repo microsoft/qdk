@@ -61,7 +61,7 @@ z psiMinusA;
 x psiMinusB;
 cx psiMinusA, psiMinusB;
 
-// Base Profile requires measurements at the end of the program.
+// Measurements at the end of the program.
 results[0] = measure phiPlusA;
 results[1] = measure phiPlusB;
 results[2] = measure phiMinusA;

@@ -15,6 +15,7 @@
 // See README.md for the full physical-addressing guidance and the constraints below.
 
 // Prepares four Bell states on separate address pairs, then measures them at the end.
+@EntryPoint(Base)
 operation Main() : (Result, Result)[] {
     // This is the only allocation. Array indices are physical addresses.
     use machine = Qubit[256];
