@@ -25,6 +25,12 @@ theme. `tutorial_qpe_atomic_basis_functions.png` and
 `tutorial_qpe_example_molecular_orbitals.png` stay PNG attachments. Every
 figure needs an `:alt:`, which becomes the SVG's accessible name.
 
+Each notebook ends with links to the neighbouring units. Unit order and titles
+come from `course.json` and the notebook names from `RECIPES`, so the two must
+list the same units; the converter stops if they disagree. The links point at
+the learner's `*.workbook.ipynb` copies, which the extension materializes beside
+the authored notebooks, so they only resolve inside a learner's workspace.
+
 | Script               | What it does                                                                                                                |
 | -------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | `rst_to_notebook.py` | Converts one tutorial chapter to a unit notebook. `RECIPES` holds the per-chapter decisions a human still has to make.      |
