@@ -104,15 +104,6 @@ pub enum DoubleUnit {
     Radians,
 }
 
-impl Display for DoubleUnit {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            DoubleUnit::Default => f.write_str("default"),
-            DoubleUnit::Radians => f.write_str("radians"),
-        }
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Sequence)]
 pub enum Delim {
     Paren,
