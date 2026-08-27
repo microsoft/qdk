@@ -1028,3 +1028,28 @@ fn test_length_and_isempty_as_loop_conditions() {
                 Return Integer(0)"#]],
     );
 }
+
+#[test]
+fn test_dynamic_expr_including_bigint_binop() {
+    let program = get_rir_program(indoc! {
+        r#"
+        operation Main() : Result {
+            use q = Qubit();
+            let _ = 1L + {X(q); 2L};
+            M(q)
+        }
+        "#,
+    });
+
+    assert_blocks(
+        &program,
+        &expect![[r#"
+            Blocks:
+            Block 0:Block:
+                Call id(1), args( Pointer, )
+                Call id(2), args( Qubit(0), )
+                Call id(3), args( Qubit(0), Result(0), )
+                Call id(4), args( Result(0), Tag(0, 3), )
+                Return Integer(0)"#]],
+    );
+}
