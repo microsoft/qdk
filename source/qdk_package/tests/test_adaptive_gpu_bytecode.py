@@ -544,6 +544,39 @@ def test_read_loss():
     }, f"Expected all {SHOTS} shots to be 'L1', got {counts}"
 
 
+DYNAMIC_READ_LOSS_QIR = """
+entry:
+  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %result_id = sub i64 1, 1
+  %result = inttoptr i64 %result_id to %Result*
+  %lost = call i1 @__quantum__rt__read_loss(%Result* %result)
+  br i1 %lost, label %then, label %end
+
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  br label %end
+
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_read_loss_with_dynamic_result_id():
+    qir = format_qir(
+        DYNAMIC_READ_LOSS_QIR,
+        extra_decls=READ_LOSS_DECLS,
+        num_qubits=2,
+        num_results=2,
+    )
+    noise = NoiseConfig()
+    noise.s.loss = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    counts = Counter(map_result_list_to_str(result) for result in results)
+    assert counts == {"L1": SHOTS}
+
+
 # =========================================================================
 # OP_PEEK_LOSS — read whether a qubit is lost without collapsing
 # =========================================================================

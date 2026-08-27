@@ -2788,7 +2788,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc = shots[shot_idx].interp.call_stack_frames[sp].return_pc;
                 let return_reg = shots[shot_idx].interp.call_stack_frames[sp].return_reg;
                 if return_reg != VOID_RETURN {
-                    write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
+                    write_reg(shot_idx, return_reg, resolve_u32(shot_idx, instr.src0, flags, 0u));
                 }
             }
 
@@ -2866,7 +2866,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // register, allowing classical code to branch on measurement
             // outcomes.
             case OP_READ_RESULT {
-                let result_id = instr.src0;
+                let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let result_val = read_measurement_result(shot_idx, result_id);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, result_val));
                 pc++;
@@ -2882,7 +2882,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // structural and reconstructed by the host, so they remain no-ops.
             case OP_RECORD_OUTPUT {
                 if instr.aux1 == 0u {
-                    let result_id = instr.src0;
+                    let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                     let rec_val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                     atomicStore(&results[output_record_base(shot_idx) + instr.aux2], rec_val);
                 } else if instr.aux1 >= 3u {
@@ -2898,7 +2898,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // so we compare against 2u and write 1u when the result was a loss,
             // else 0u.
             case OP_READ_LOSS {
-                let result_id = instr.src0;
+                let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
                 pc++;
