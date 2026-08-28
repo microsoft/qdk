@@ -133,12 +133,12 @@ fn qubit_params() {
 }
 
 #[test]
-fn single_input_size_applies_to_every_array_parameter() {
+fn input_sizes_apply_to_flattened_array_dimensions() {
     let (item, operation) = compile_one_operation(
         r#"
         namespace Test {
-            @CircuitRenderingOptions(inputSizes=[3])
-            operation Test(q1: Qubit[], q: Qubit, q2: Qubit[][]) : Result[] {
+            @CircuitRenderingOptions(inputSizes=[1, 2, 3, 4, 5])
+            operation Test(q: Qubit, q1: Qubit[][], q2: Qubit[], q3: Qubit[][]) : Result[] {
             }
         }
     "#,
@@ -149,8 +149,8 @@ fn single_input_size_applies_to_every_array_parameter() {
 
     expect![[r"
         {
-                    use qs = Qubit[13];
-                    (Test.Test)(qs[0..2], qs[3], [qs[4..6], qs[7..9], qs[10..12]]);
+                    use qs = Qubit[24];
+                    (Test.Test)(qs[0], [qs[1..2]], qs[3..5], [qs[6..10], qs[11..15], qs[16..20], qs[21..23]]);
                     let r: Result[] = [];
                     r
                 }"]]
@@ -187,8 +187,8 @@ fn missing_input_sizes_use_default() {
     let (item, operation) = compile_one_operation(
         r#"
         namespace Test {
-            @CircuitRenderingOptions(inputSizes=[3, 4])
-            operation Test(q1: Qubit[], q2: Qubit[], q3: Qubit[]) : Result[] {
+            @CircuitRenderingOptions(inputSizes=[3])
+            operation Test(q1: Qubit[][], q2: Qubit[]) : Result[] {
             }
         }
     "#,
@@ -199,12 +199,34 @@ fn missing_input_sizes_use_default() {
 
     expect![[r"
         {
-                    use qs = Qubit[9];
-                    (Test.Test)(qs[0..2], qs[3..6], qs[7..8]);
+                    use qs = Qubit[8];
+                    (Test.Test)([qs[0..1], qs[2..3], qs[4..5]], qs[6..7]);
                     let r: Result[] = [];
                     r
                 }"]]
     .assert_eq(&expr);
+}
+
+#[test]
+fn excessive_input_sizes_are_rejected() {
+    let (item, operation) = compile_one_operation(
+        r#"
+        namespace Test {
+            @CircuitRenderingOptions(inputSizes=[101, 100])
+            operation Test(qs: Qubit[][]) : Result[] {
+            }
+        }
+    "#,
+    );
+
+    let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation);
+
+    expect![[r#"
+        Err(
+            TooManyQubits,
+        )
+    "#]]
+    .assert_debug_eq(&expr);
 }
 
 #[test]

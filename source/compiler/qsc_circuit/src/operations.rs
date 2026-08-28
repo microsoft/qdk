@@ -25,6 +25,9 @@ pub enum Error {
         "controlled invocations are not currently supported. consider wrapping the invocation in a lambda expression"
     ))]
     ControlledUnsupported,
+    #[error("circuit input exceeds the maximum of {MAXIMUM_QUBITS_IN_CIRCUIT} qubits")]
+    #[diagnostic(code("Qdk.Qsc.Circuit.TooManyQubits"))]
+    TooManyQubits,
     #[error("program has features that are unsupported for circuit diagrams: {0}")]
     #[diagnostic(code("Qdk.Qsc.Circuit.UnsupportedFeature"))]
     UnsupportedFeature(String),
@@ -34,8 +37,8 @@ pub struct QubitParam {
     /// The number of array dimensions of the qubit input parameter.
     /// `Qubit` is 0, `Qubit[]` is 1, `Qubit[][]` is 2, etc.
     pub(crate) dimensions: u32,
-    /// The selected length of each dimension of an array parameter.
-    pub(crate) size: u32,
+    /// The selected lengths of the dimensions of an array parameter.
+    pub(crate) sizes: Vec<u32>,
     /// The source offset of the parameter in the operation declaration.
     pub(crate) source_offset: u32,
 }
@@ -44,7 +47,10 @@ impl QubitParam {
     /// The total number of qubit array elements for this input parameter.
     #[must_use]
     pub fn num_qubits(&self) -> u32 {
-        self.size.pow(self.dimensions)
+        self.sizes
+            .iter()
+            .copied()
+            .fold(1, u32::saturating_mul)
     }
 }
 
@@ -96,6 +102,13 @@ pub fn entry_expr_for_qubit_operation(
     }
 
     if let Some(param_info) = qubit_param_info(item) {
+        let total_num_qubits = param_info
+            .iter()
+            .map(QubitParam::num_qubits)
+            .fold(0, u32::saturating_add);
+        if total_num_qubits > MAXIMUM_QUBITS_IN_CIRCUIT {
+            return Err(Error::TooManyQubits);
+        }
         return Ok(operation_circuit_entry_expr(operation_expr, &param_info));
     }
 
@@ -117,7 +130,7 @@ fn operation_circuit_entry_expr(operation_expr: &str, qubit_params: &[QubitParam
         if q.dimensions == 0 {
             call_args.push(format!("qs[{qs_start}]"));
         } else {
-            call_args.push(build_nested_qubit_array_arg(qs_start, q.dimensions, q.size));
+            call_args.push(build_nested_qubit_array_arg(qs_start, &q.sizes));
         }
         qs_start += q.num_qubits();
     }
@@ -139,21 +152,22 @@ fn operation_circuit_entry_expr(operation_expr: &str, qubit_params: &[QubitParam
 }
 
 /// The default length of each dimension of a qubit-array input parameter.
-const NUM_QUBITS: u32 = 2;
+const DEFAULT_NUM_QUBITS: u32 = 2;
+
+/// The maximum number of qubits allocated when rendering a circuit.
+const MAXIMUM_QUBITS_IN_CIRCUIT: u32 = 10_000;
 
 /// Applies user-provided lengths to qubit-array input parameters.
 ///
-/// A single value applies to every array parameter. Multiple values apply in declaration order.
-/// Scalar qubit parameters are skipped, extra values are ignored, and parameters without a
-/// corresponding value retain the default size assigned by [`get_qubit_param_info`].
+/// Values apply to array dimensions in declaration order. Scalar parameters are skipped, extra
+/// values are ignored, and dimensions without a value retain their default size.
 fn apply_input_sizes(params: &mut [QubitParam], input_sizes: Option<&[u32]>) {
-    let array_params = params.iter_mut().filter(|param| param.dimensions > 0);
-    match input_sizes {
-        Some([size]) => array_params.for_each(|param| param.size = *size),
-        Some(sizes) => array_params
-            .zip(sizes.iter().copied())
-            .for_each(|(param, size)| param.size = size),
-        None => {}
+    if let Some(input_sizes) = input_sizes {
+        params
+            .iter_mut()
+            .flat_map(|param| &mut param.sizes)
+            .zip(input_sizes.iter().copied())
+            .for_each(|(size, input_size)| *size = input_size);
     }
 }
 
@@ -161,19 +175,19 @@ fn apply_input_sizes(params: &mut [QubitParam], input_sizes: Option<&[u32]>) {
 ///
 /// Generates explicit array constructors for multi-dimensional qubit array parameters.
 /// For example, a 2D qubit array parameter receives nested array syntax: `[[qs[0..1], qs[2..3]], [qs[4..5], qs[6..7]]]`
-/// Recursively partitions the qubit range using `size` as the length of each dimension.
-fn build_nested_qubit_array_arg(start: u32, dimensions: u32, size: u32) -> String {
-    debug_assert!(dimensions > 0, "array dimensions should be positive");
+/// Recursively partitions the qubit range using the length of each dimension.
+fn build_nested_qubit_array_arg(start: u32, sizes: &[u32]) -> String {
+    debug_assert!(!sizes.is_empty(), "array dimensions should be positive");
 
-    if dimensions == 1 {
+    if let [size] = sizes {
         let end = start + size - 1;
         return format!("qs[{start}..{end}]");
     }
 
-    let chunk_width = size.pow(dimensions - 1);
-    let chunks = (0..size)
+    let chunk_width = sizes[1..].iter().product::<u32>();
+    let chunks = (0..sizes[0])
         .map(|chunk_index| {
-            build_nested_qubit_array_arg(start + chunk_index * chunk_width, dimensions - 1, size)
+            build_nested_qubit_array_arg(start + chunk_index * chunk_width, &sizes[1..])
         })
         .collect::<Vec<_>>();
     format!("[{}]", chunks.join(", "))
@@ -184,7 +198,7 @@ fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
         Ty::Prim(Prim::Qubit) => {
             return vec![QubitParam {
                 dimensions: 0,
-                size: NUM_QUBITS,
+                sizes: vec![],
                 source_offset: input.span.lo,
             }];
         }
@@ -193,7 +207,7 @@ fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
                 let dim = element_dim + 1;
                 return vec![QubitParam {
                     dimensions: dim,
-                    size: NUM_QUBITS,
+                    sizes: vec![DEFAULT_NUM_QUBITS; dim as usize],
                     source_offset: input.span.lo,
                 }];
             }
@@ -204,7 +218,7 @@ fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
                     .map(|p| {
                         get_array_dimension(&p.ty).map(|dimension| QubitParam {
                             dimensions: dimension,
-                            size: NUM_QUBITS,
+                            sizes: vec![DEFAULT_NUM_QUBITS; dimension as usize],
                             source_offset: p.span.lo,
                         })
                     })
@@ -214,7 +228,7 @@ fn get_qubit_param_info(input: &Pat) -> Vec<QubitParam> {
                     .map(|ty| {
                         get_array_dimension(ty).map(|dimension| QubitParam {
                             dimensions: dimension,
-                            size: NUM_QUBITS,
+                            sizes: vec![DEFAULT_NUM_QUBITS; dimension as usize],
                             source_offset: input.span.lo,
                         })
                     })
