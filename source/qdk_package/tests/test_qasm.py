@@ -720,8 +720,8 @@ def test_circuit_from_program_static() -> None:
         generation_method=CircuitGenerationMethod.Static,
     )
     assert str(c) == dedent("""\
-        q_0    ── H ──── M ──── if: c_0 = |1〉 ──
-                         ╘═══════════ ● ════════
+        q_0    ── H ──── M ──── X ──
+                         ╘═════ ● ══
         """)
 
 
@@ -866,8 +866,8 @@ def test_circuit_from_callable_static() -> None:
         generation_method=CircuitGenerationMethod.Static,
     )
     assert str(c) == dedent("""\
-        q_0    ── H ──── M ──── if: c_0 = |1〉 ──
-                         ╘═══════════ ● ════════
+        q_0    ── H ──── M ──── X ──
+                         ╘═════ ● ══
         """)
 
 
