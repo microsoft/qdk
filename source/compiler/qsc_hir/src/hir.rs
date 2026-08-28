@@ -1462,10 +1462,9 @@ Supported options:
 
 - `hideBox` (`true` or `false`): If `true`, the operation's group box is omitted and its
     contents are rendered directly in the containing scope.
-- `inputSizes` (positive integer or semicolon-separated list of positive integers): Specifies
-    the lengths of qubit-array dimensions (`Qubit[]`, `Qubit[][]`, etc.) used to render the
-    operation. Values apply to inputs in declaration order and to each input's dimensions from
-    outermost to innermost. Scalar `Qubit` parameters do not consume a value. Missing values
+- `inputSizes` (array of positive integers): Specifies the lengths of qubit-array arguments 
+   (`Qubit[]`, `Qubit[][]`, etc.) used to render the operation. Values apply to inputs in 
+   declaration order and to each input's dimensions from outermost to innermost. Missing values
     default to 2, and extra values are ignored.
 
 Example: `@CircuitRenderingOptions(hideBox=true,inputSizes=[3,4])`."#;
