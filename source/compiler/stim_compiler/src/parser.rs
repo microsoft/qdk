@@ -106,6 +106,16 @@ impl Display for Arg {
     }
 }
 
+pub fn args_span(args: &[Arg]) -> Span {
+    let (first, rest) = args
+        .split_first()
+        .expect("argument list must not be empty");
+    Span {
+        lo: first.span.lo,
+        hi: rest.last().unwrap_or(first).span.hi,
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub enum ArgValue {
     Default(f64),

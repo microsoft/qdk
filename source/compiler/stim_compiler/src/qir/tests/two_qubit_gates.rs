@@ -457,14 +457,14 @@ fn ii_gate_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
-          x unsupported argument in instruction: II
-           ,----
-         1 | II(0.01) 0 1
-           : ^^^^^^^^^^^^
-           `----
-    "#]],
+              x unsupported argument in instruction: II
+               ,----
+             1 | II(0.01) 0 1
+               :    ^^^^
+               `----
+        "#]],
     );
 }
 

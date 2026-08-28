@@ -125,21 +125,21 @@ fn correlated_error_with_invalid_probability_yields_error() {
               x probability for CORRELATED_ERROR must be between 0 and 1; found 1.5
                ,----
              1 | CORRELATED_ERROR(1.5) X0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^
+               :                  ^^^
                `----
         "#]],
     );
     check(
         "CORRELATED_ERROR(-0.1) X0",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for CORRELATED_ERROR must be between 0 and 1; found -0.1
-           ,----
-         1 | CORRELATED_ERROR(-0.1) X0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for CORRELATED_ERROR must be between 0 and 1; found -0.1
+               ,----
+             1 | CORRELATED_ERROR(-0.1) X0
+               :                  ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -552,7 +552,7 @@ fn depolarize1_with_invalid_probability_yields_error() {
               x probability for DEPOLARIZE1 must be between 0 and 1; found 1.5
                ,----
              1 | DEPOLARIZE1(1.5) 0
-               : ^^^^^^^^^^^^^^^^^^
+               :             ^^^
                `----
         "#]],
     );
@@ -560,14 +560,14 @@ fn depolarize1_with_invalid_probability_yields_error() {
     check(
         "DEPOLARIZE1(-0.1) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for DEPOLARIZE1 must be between 0 and 1; found -0.1
-           ,----
-         1 | DEPOLARIZE1(-0.1) 0
-           : ^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for DEPOLARIZE1 must be between 0 and 1; found -0.1
+               ,----
+             1 | DEPOLARIZE1(-0.1) 0
+               :             ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -865,7 +865,7 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
               x too few arguments for instruction PAULI_CHANNEL_1; expected 3, found 2
                ,----
              1 | PAULI_CHANNEL_1(0.1, 0.2) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^^^^^^
                `----
         "#]],
     );
@@ -947,7 +947,7 @@ fn pauli_channel_1_with_invalid_probability_yields_error() {
               x probability for PAULI_CHANNEL_1 must be between 0 and 1; found -0.1
                ,----
              1 | PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^^
                `----
         "#]],
     );
@@ -955,14 +955,14 @@ fn pauli_channel_1_with_invalid_probability_yields_error() {
     check(
         "PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for PAULI_CHANNEL_1 must be between 0 and 1; found 1.5
-           ,----
-         1 | PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for PAULI_CHANNEL_1 must be between 0 and 1; found 1.5
+               ,----
+             1 | PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0
+               :                 ^^^
+               `----
+        "#]],
     );
 }
 
@@ -1094,7 +1094,7 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
               x too few arguments for instruction PAULI_CHANNEL_2; expected 15, found 1
                ,----
              1 | PAULI_CHANNEL_2(0.1) 0 1
-               : ^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^
                `----
         "#]],
     );
@@ -1174,7 +1174,7 @@ fn x_error_with_probability_exceeding_one_yields_error() {
               x probability for X_ERROR must be between 0 and 1; found 1.5
                ,----
              1 | X_ERROR(1.5) 0
-               : ^^^^^^^^^^^^^^
+               :         ^^^
                `----
         "#]],
     );

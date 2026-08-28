@@ -2447,7 +2447,7 @@ impl<'noise> Compiler<'noise> {
                 self.push_error(Error::InvalidProbability {
                     instruction: instruction.name.clone(),
                     probability: value,
-                    span: instruction.span,
+                    span: arg.span,
                 });
                 has_invalid_probability = true;
             }
@@ -2474,7 +2474,7 @@ impl<'noise> Compiler<'noise> {
                 instruction: instruction.name.clone(),
                 expected,
                 found: args.len(),
-                span: instruction.span,
+                span: args_span(&args[expected..]),
             });
             return None;
         } else if args.len() < expected {
@@ -2482,7 +2482,7 @@ impl<'noise> Compiler<'noise> {
                 instruction: instruction.name.clone(),
                 expected,
                 found: args.len(),
-                span: instruction.span,
+                span: args_span(args),
             });
             return None;
         }
@@ -2500,7 +2500,7 @@ impl<'noise> Compiler<'noise> {
         if !instruction.args.is_empty() {
             self.push_error(Error::UnsupportedArgument {
                 instruction: instruction.name.clone(),
-                span: instruction.span,
+                span: args_span(&instruction.args),
             });
         }
     }

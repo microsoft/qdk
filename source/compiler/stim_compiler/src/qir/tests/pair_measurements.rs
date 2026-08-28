@@ -147,26 +147,26 @@ fn mxx_with_invalid_readout_noise_yields_error() {
     check(
         "MXX(1.1) 0 1",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for MXX must be between 0 and 1; found 1.1
-           ,----
-         1 | MXX(1.1) 0 1
-           : ^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for MXX must be between 0 and 1; found 1.1
+               ,----
+             1 | MXX(1.1) 0 1
+               :     ^^^
+               `----
+        "#]],
     );
     check(
         "MXX(-0.1) 0 1",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for MXX must be between 0 and 1; found -0.1
-           ,----
-         1 | MXX(-0.1) 0 1
-           : ^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for MXX must be between 0 and 1; found -0.1
+               ,----
+             1 | MXX(-0.1) 0 1
+               :     ^^^^
+               `----
+        "#]],
     );
 }
 

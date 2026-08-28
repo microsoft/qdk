@@ -83,9 +83,9 @@ fn repeat_with_args_yields_error() {
             Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: REPEAT
-               ,-[1:1]
+               ,-[1:8]
              1 | REPEAT(0.1) 3 {
-               : ^^^^^^^^^^^^^
+               :        ^^^
              2 |   X 0
                `----
         "#]],
