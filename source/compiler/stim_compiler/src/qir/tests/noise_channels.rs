@@ -265,7 +265,9 @@ fn else_correlated_error_with_invalid_probability_yields_error() {
         CORRELATED_ERROR(0.01) X0
         ELSE_CORRELATED_ERROR(1.5) X0
     "};
-    check(source, &expect![[r#"
+    check(
+        source,
+        &expect![[r#"
         Qdk.Stim.Compiler.InvalidProbability
 
           x probability for ELSE_CORRELATED_ERROR must be between 0 and 1; found 1.5
