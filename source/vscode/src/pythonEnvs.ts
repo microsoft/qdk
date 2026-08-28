@@ -46,22 +46,17 @@ const packagePickItems: vscode.QuickPickItem[] = [
     picked: false,
   },
   {
-    label: "qdk-chemistry",
+    // qdk-chemistry bounds pyscf under its `plugins` extra, which `jupyter`
+    // pulls in. Installing it bare would leave pyscf unconstrained.
+    label: "qdk-chemistry[jupyter]",
     description: "Microsoft Quantum Development Kit for Chemistry",
     detail: "End-to-end toolkit for quantum chemistry",
     picked: false,
   },
   {
-    label: "pyscf",
-    description: "Python-based Simulations of Chemistry Framework",
-    detail:
-      "Collection of electronic structure methods for molecules and periodic solids",
-    picked: false,
-  },
-  {
     // Pinned to 6.x: ipykernel 7 can leave notebooks hanging on the first cell.
     // Remove once https://github.com/microsoft/qdk/issues/3662 is fixed.
-    label: "ipykernel<7",
+    label: "ipykernel>=6.0,<7",
     description: "Jupyter kernel",
     detail: "Enable Jupyter notebook functionality in VS Code",
     picked: true,
@@ -73,13 +68,6 @@ const packagePickItems: vscode.QuickPickItem[] = [
     picked: true,
   },
 ];
-
-// pyscf doesn't support Windows
-function getAvailablePackagePickItems(): vscode.QuickPickItem[] {
-  return packagePickItems.filter(
-    (item) => item.label !== "pyscf" || process.platform !== "win32",
-  );
-}
 
 // Merge selected qdk extras (e.g. qdk + qdk[azure] + qdk[jupyter]) into one specifier.
 function coalesceQdkExtras(packages: string[]): string[] {
@@ -212,9 +200,7 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
   }
 
   // Don't interrupt the chat by showing a picker - just use the defaults
-  const selectedPackages = getAvailablePackagePickItems().filter(
-    (item) => item.picked,
-  );
+  const selectedPackages = packagePickItems.filter((item) => item.picked);
 
   const packagesToInstall = coalesceQdkExtras(
     selectedPackages.map((item) => item.label),
@@ -296,7 +282,7 @@ export async function createQuantumVenvForCommand(): Promise<void> {
   }
 
   const selectedPackages = await vscode.window.showQuickPick(
-    getAvailablePackagePickItems().map((item) => ({ ...item })),
+    packagePickItems.map((item) => ({ ...item })),
     {
       canPickMany: true,
       placeHolder: "Select packages to install",
