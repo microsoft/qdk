@@ -1207,6 +1207,21 @@ class _EstimationCollection:
         ...
 
     @property
+    def maximum_error_exceeded(self) -> int:
+        """Return the number of candidates that exceeded the error budget."""
+        ...
+
+    @property
+    def minimum_error_for_success(self) -> Optional[float]:
+        """Return the minimum final error among otherwise successful candidates."""
+        ...
+
+    @property
+    def missing_instruction_ids(self) -> list[int]:
+        """Return instruction IDs required by traces but absent from all ISAs."""
+        ...
+
+    @property
     def all_summaries(self) -> list[tuple[int, int, int, int]]:
         """
         Return lightweight summaries of ALL successful estimates as a list

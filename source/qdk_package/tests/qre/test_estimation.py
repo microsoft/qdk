@@ -2,16 +2,20 @@
 # Licensed under the MIT License.
 
 import os
+from types import SimpleNamespace
+from typing import cast
 
 import pytest
 
 
 from qdk.estimator import LogicalCounts
 from qdk.qre import (
-    PSSPC,
     LatticeSurgery,
+    PSSPC,
     estimate,
 )
+from qdk.qre._estimation import _EstimationCollection, _zero_results_warning_message
+from qdk.qre.instruction_ids import T
 from qdk.qre.application import QSharpApplication
 from qdk.qre.models import (
     SurfaceCode,
@@ -21,6 +25,52 @@ from qdk.qre.models import (
 )
 
 from .conftest import ExampleFactory
+
+
+def test_zero_results_warning_suggests_expanding_isa_search_space():
+    collection = cast(
+        _EstimationCollection,
+        SimpleNamespace(
+            total_jobs=6,
+            successful_estimates=0,
+            maximum_error_exceeded=6,
+            minimum_error_for_success=0.125,
+            missing_instruction_ids=[],
+            errors=[],
+        ),
+    )
+    warning = _zero_results_warning_message(
+        collection,
+        num_traces=2,
+        num_isas=3,
+    )
+
+    assert "minimum error" in warning
+    assert "0.125" in warning
+    assert "max_error were greater than this value" in warning
+    assert "No compatible trace/ISA candidates" not in warning
+
+
+def test_zero_results_warning_reports_missing_instruction_ids():
+    collection = cast(
+        _EstimationCollection,
+        SimpleNamespace(
+            total_jobs=0,
+            successful_estimates=0,
+            maximum_error_exceeded=0,
+            minimum_error_for_success=None,
+            missing_instruction_ids=[T],
+            errors=[],
+        ),
+    )
+    warning = _zero_results_warning_message(
+        collection,
+        num_traces=1,
+        num_isas=2,
+    )
+
+    assert f"T ({T})" in warning
+    assert "trace transforms or ISA transforms" in warning
 
 
 def test_estimation_max_error():
