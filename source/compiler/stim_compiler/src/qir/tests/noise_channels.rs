@@ -206,52 +206,75 @@ fn correlated_error_with_probability_of_exactly_one_is_valid() {
 }
 
 #[test]
-fn else_correlated_error_with_preceding_correlated_error_yields_expected_qir() {
+fn correlated_error_chain_with_input_probabilities_summing_above_one_is_valid() {
+    // The resulting mutually exclusive probabilities sum to at most 1
+    // when each input probability is in [0, 1].
     let source = indoc! {"
-        CORRELATED_ERROR(0.01) X0
-        ELSE_CORRELATED_ERROR(0.02) Z0
+        CORRELATED_ERROR(0.8) X0
+        ELSE_CORRELATED_ERROR(0.8) Y0
+        ELSE_CORRELATED_ERROR(0.8) Z0
     "};
     check(
         source,
         &expect![[r#"
-            NoiseConfig:
-            intrinsics:
-                0: NoiseTable:
-                    qubits: 1
-                    X: 0.01
-                    Z: 0.0198
+        NoiseConfig:
+        intrinsics:
+            0: NoiseTable:
+                qubits: 1
+                X: 0.8
+                Y: 0.15999999999999998
+                Z: 0.03199999999999999
 
 
-            define i64 @ENTRYPOINT__main() #0 {
-              call void @__quantum__rt__initialize(ptr null)
-              call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
-              call void @__quantum__rt__array_record_output(i64 0, ptr null)
-              ret i64 0
-            }
+        define i64 @ENTRYPOINT__main() #0 {
+          call void @__quantum__rt__initialize(ptr null)
+          call void @noise_intrinsic_0(ptr inttoptr (i64 0 to ptr))
+          call void @__quantum__rt__array_record_output(i64 0, ptr null)
+          ret i64 0
+        }
 
-            declare void @noise_intrinsic_0(ptr) #2
-            declare void @__quantum__rt__result_record_output(ptr, ptr)
-            declare void @__quantum__rt__array_record_output(i64, ptr)
-            declare void @__quantum__rt__initialize(ptr)
+        declare void @noise_intrinsic_0(ptr) #2
+        declare void @__quantum__rt__result_record_output(ptr, ptr)
+        declare void @__quantum__rt__array_record_output(i64, ptr)
+        declare void @__quantum__rt__initialize(ptr)
 
-            attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
-            attributes #1 = { "irreversible" }
+        attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
+        attributes #1 = { "irreversible" }
 
-            ; module flags
+        ; module flags
 
-            attributes #2 = { "qdk_noise" }
+        attributes #2 = { "qdk_noise" }
 
-            !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
+        !llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7}
 
-            !0 = !{i32 1, !"qir_major_version", i32 2}
-            !1 = !{i32 7, !"qir_minor_version", i32 1}
-            !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
-            !3 = !{i32 1, !"dynamic_result_management", i1 false}
-            !4 = !{i32 5, !"int_computations", !{!"i64"}}
-            !5 = !{i32 5, !"float_computations", !{!"double"}}
-            !6 = !{i32 7, !"backwards_branching", i2 3}
-            !7 = !{i32 1, !"arrays", i1 true}
-        "#]],
+        !0 = !{i32 1, !"qir_major_version", i32 2}
+        !1 = !{i32 7, !"qir_minor_version", i32 1}
+        !2 = !{i32 1, !"dynamic_qubit_management", i1 false}
+        !3 = !{i32 1, !"dynamic_result_management", i1 false}
+        !4 = !{i32 5, !"int_computations", !{!"i64"}}
+        !5 = !{i32 5, !"float_computations", !{!"double"}}
+        !6 = !{i32 7, !"backwards_branching", i2 3}
+        !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
+}
+
+#[test]
+fn else_correlated_error_with_invalid_probability_yields_error() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        ELSE_CORRELATED_ERROR(1.5) X0
+    "};
+    check(source, &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for ELSE_CORRELATED_ERROR must be between 0 and 1; found 1.5
+           ,-[2:23]
+         1 | CORRELATED_ERROR(0.01) X0
+         2 | ELSE_CORRELATED_ERROR(1.5) X0
+           :                       ^^^
+           `----
+    "#]],
     );
 }
 
@@ -877,14 +900,15 @@ fn pauli_channel_1_with_probabilities_exceeding_one_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+            Qdk.Stim.Compiler.InvalidProbabilitySum
 
-          x noise probabilities must sum to at most 1.0, but they sum to 1.5
-           ,----
-         1 | PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probabilities for PAULI_CHANNEL_1 must sum to at most 1.0, but they sum to
+              | 1.5
+               ,----
+             1 | PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0
+               :                 ^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -1095,6 +1119,23 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
                ,----
              1 | PAULI_CHANNEL_2(0.1) 0 1
                :                 ^^^
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn pauli_channel_2_with_probabilities_exceeding_one_yields_error() {
+    check(
+        "PAULI_CHANNEL_2(0.6,0.6,0,0,0,0,0,0,0,0,0,0,0,0,0) 0 1",
+        &expect![[r#"
+            Qdk.Stim.Compiler.InvalidProbabilitySum
+
+              x probabilities for PAULI_CHANNEL_2 must sum to at most 1.0, but they sum to
+              | 1.2
+               ,----
+             1 | PAULI_CHANNEL_2(0.6,0.6,0,0,0,0,0,0,0,0,0,0,0,0,0) 0 1
+               :                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                `----
         "#]],
     );
