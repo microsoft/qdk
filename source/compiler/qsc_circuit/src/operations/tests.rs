@@ -147,13 +147,13 @@ fn input_sizes_apply_to_flattened_array_dimensions() {
     let expr = entry_expr_for_qubit_operation(&item, FunctorApp::default(), &operation)
         .expect("expression expected");
 
-    expect![[r"
+    expect![[r#"
         {
-                    use qs = Qubit[24];
-                    (Test.Test)(qs[0], [qs[1..2]], qs[3..5], [qs[6..10], qs[11..15], qs[16..20], qs[21..23]]);
+                    use qs = Qubit[26];
+                    (Test.Test)(qs[0], [qs[1..2]], qs[3..5], [qs[6..10], qs[11..15], qs[16..20], qs[21..25]]);
                     let r: Result[] = [];
                     r
-                }"]]
+                }"#]]
     .assert_eq(&expr);
 }
 
