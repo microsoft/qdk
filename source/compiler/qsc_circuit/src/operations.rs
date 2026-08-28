@@ -155,7 +155,7 @@ fn operation_circuit_entry_expr(operation_expr: &str, qubit_params: &[QubitParam
 const DEFAULT_NUM_QUBITS: u32 = 2;
 
 /// The maximum number of qubits allocated when rendering a circuit.
-const MAXIMUM_QUBITS_IN_CIRCUIT: u32 = 10_000;
+const MAXIMUM_QUBITS_IN_CIRCUIT: u32 = 1000;
 
 /// Applies user-provided lengths to qubit-array input parameters.
 ///
