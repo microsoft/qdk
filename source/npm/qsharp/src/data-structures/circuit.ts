@@ -165,6 +165,21 @@ export interface Measurement extends BaseOperation {
   results: Register[];
 }
 
+/** A register that controls whether a unitary operation is applied. */
+export type ControlRegister = Register & {
+  /** Whether the control is activated when the register value is zero. */
+  inverted?: boolean;
+};
+
+/** Runtime check: is this a valid ControlRegister? */
+export function isControlRegister(obj: any): obj is ControlRegister {
+  return (
+    isRegister(obj) &&
+    ((obj as any).inverted === undefined ||
+      typeof (obj as any).inverted === "boolean")
+  );
+}
+
 /**
  * Represents a unitary operation and the registers it acts on.
  */
@@ -174,7 +189,7 @@ export interface Unitary extends BaseOperation {
   /** Target registers the gate acts on. */
   targets: Register[];
   /** Control registers the gate acts on. */
-  controls?: Register[];
+  controls?: ControlRegister[];
   /** Whether gate is an adjoint operation. */
   isAdjoint?: boolean;
 }
@@ -209,7 +224,8 @@ export function isOperation(obj: any): obj is Operation {
         op.targets.every(isRegister) &&
         // controls is optional
         (op.controls === undefined ||
-          (Array.isArray(op.controls) && op.controls.every(isRegister))) &&
+          (Array.isArray(op.controls) &&
+            op.controls.every(isControlRegister))) &&
         // isAdjoint is optional
         (op.isAdjoint === undefined || typeof op.isAdjoint === "boolean")
       );

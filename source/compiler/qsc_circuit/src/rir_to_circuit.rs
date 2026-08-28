@@ -21,9 +21,9 @@ use crate::{
     Circuit, Error, TracerConfig,
     angle_format::format_angle,
     builder::{
-        CallableId, GateInputs, LogicalStack, LogicalStackEntry, LogicalStackEntryLocation, LoopId,
-        OperationListBuilder, OperationReceiver, PackageOffset, Scope, ScopeStack, SourceLookup,
-        WireMap, WireMapBuilder, finish_circuit,
+        CallableId, ClassicalControlInput, GateInputs, LogicalStack, LogicalStackEntry,
+        LogicalStackEntryLocation, LoopId, OperationListBuilder, OperationReceiver, PackageOffset,
+        Scope, ScopeStack, SourceLookup, WireMap, WireMapBuilder, finish_circuit,
     },
     rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
@@ -76,6 +76,7 @@ pub fn rir_to_circuit(
         &mut builder,
         &structured_control_flow,
         &[],
+        &[],
         &ScopeStack::top(),
         source_lookup,
     )?;
@@ -91,6 +92,7 @@ pub fn rir_to_circuit(
 /// Recursively traverses the structured control flow, pushing operations and measurement results
 /// to the builder as it goes.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_lines)]
 fn build_operation_list(
     variable_tracker: &mut VariableTracker,
     program_rir: &Program,
@@ -98,6 +100,7 @@ fn build_operation_list(
     op_list_builder: &mut impl OperationReceiver,
     scf: &StructuredControlFlow,
     control_results: &[usize],
+    classical_controls: &[ClassicalControlInput],
     current_stack: &ScopeStack,
     source_lookup: &impl SourceLookup,
 ) -> Result<(), Error> {
@@ -111,6 +114,7 @@ fn build_operation_list(
                     op_list_builder,
                     item,
                     control_results,
+                    classical_controls,
                     current_stack,
                     source_lookup,
                 )?;
@@ -134,6 +138,7 @@ fn build_operation_list(
                 &program_rir.dbg_info,
                 &program_rir.callables,
                 block,
+                classical_controls,
                 current_stack,
                 source_lookup,
             )?;
@@ -182,6 +187,38 @@ fn build_operation_list(
                 control_results.clone(),
             );
 
+            // A simple conditional branch containing only single-qubit gates can
+            // be rendered by attaching its result control directly to each gate.
+            debug_assert!(
+                classical_controls.is_empty(),
+                "nested conditionals cannot inherit compact classical controls"
+            );
+            let simple_control = match expr {
+                Expr::Bool(BoolExpr::Result(result_id)) => Some((*result_id, false)),
+                Expr::Bool(BoolExpr::NotResult(result_id)) => Some((*result_id, true)),
+                _ => None,
+            };
+            let then_is_compact = simple_control.is_some()
+                && branch_has_only_single_qubit_gates(program_rir, then_br);
+            let else_is_compact = simple_control.is_some()
+                && branch_has_only_single_qubit_gates(program_rir, else_br);
+            let then_controls = simple_control
+                .filter(|_| then_is_compact)
+                .map(|(result_id, inverted)| ClassicalControlInput {
+                    result_id,
+                    inverted,
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
+            let else_controls = simple_control
+                .filter(|_| else_is_compact)
+                .map(|(result_id, inverted)| ClassicalControlInput {
+                    result_id,
+                    inverted: !inverted,
+                })
+                .into_iter()
+                .collect::<Vec<_>>();
+
             build_operation_list(
                 variable_tracker,
                 program_rir,
@@ -189,7 +226,12 @@ fn build_operation_list(
                 op_list_builder,
                 then_br,
                 &control_results,
-                &new_stack_true,
+                &then_controls,
+                if then_is_compact {
+                    current_stack
+                } else {
+                    &new_stack_true
+                },
                 source_lookup,
             )?;
 
@@ -200,7 +242,12 @@ fn build_operation_list(
                 op_list_builder,
                 else_br,
                 &control_results,
-                &new_stack_false,
+                &else_controls,
+                if else_is_compact {
+                    current_stack
+                } else {
+                    &new_stack_false
+                },
                 source_lookup,
             )?;
         }
@@ -217,6 +264,7 @@ fn push_operations_in_block(
     dbg_info: &DbgInfo,
     callables: &IndexMap<qsc_partial_eval::CallableId, Callable>,
     block: &Block,
+    classical_controls: &[ClassicalControlInput],
     current_stack: &ScopeStack,
     source_lookup: &impl SourceLookup,
 ) -> Result<(), Error> {
@@ -246,12 +294,56 @@ fn push_operations_in_block(
                 },
                 callables.get(*callable_id).expect("callable should exist"),
                 operands,
+                classical_controls,
                 full_stack,
             )?;
         }
     }
 
     Ok(())
+}
+
+/// Returns whether every operation in `scf` is a single-qubit gate.
+fn branch_has_only_single_qubit_gates(
+    program: &Program,
+    scf: &StructuredControlFlow,
+) -> bool {
+    match scf {
+        StructuredControlFlow::Seq(items) => items
+            .iter()
+            .all(|item| branch_has_only_single_qubit_gates(program, item)),
+        StructuredControlFlow::BasicBlock(id) => {
+            let block = program.blocks.get(*id).expect("block should exist");
+            block.0.iter().all(|instruction| {
+                let Instruction::Call(callable_id, operands, _, _) = instruction else {
+                    return true;
+                };
+                let callable = program
+                    .callables
+                    .get(*callable_id)
+                    .expect("callable should exist");
+                let Some(gate_spec) = known_gate_spec(&callable.name) else {
+                    return false;
+                };
+                callable.call_type == CallableType::Regular
+                    && operands
+                        .iter()
+                        .all(|operand| matches!(operand, Operand::Literal(_)))
+                    && gate_spec
+                        .operand_types
+                        .iter()
+                        .filter(|operand| matches!(operand, OperandType::TargetQubit))
+                        .count()
+                        == 1
+                    && !gate_spec
+                        .operand_types
+                        .iter()
+                        .any(|operand| matches!(operand, OperandType::TargetResult))
+            })
+        }
+        StructuredControlFlow::Return => true,
+        StructuredControlFlow::If { .. } => false,
+    }
 }
 
 pub(crate) struct DbgLookup<'a> {
@@ -1077,6 +1169,7 @@ fn trace_call(
     builder_ctx: &mut BuilderWithRegisterMap<impl OperationReceiver>,
     callable: &Callable,
     operands: &[Operand],
+    classical_controls: &[ClassicalControlInput],
     mut stack: LogicalStack,
 ) -> Result<(), Error> {
     // Get the signature information for known callables. For custom intrinsics, derive
@@ -1119,6 +1212,7 @@ fn trace_call(
                 operands.name,
                 operands.is_adjoint,
                 operands,
+                classical_controls,
                 stack,
             )?,
             callable_type @ (CallableType::Readout | CallableType::OutputRecording) => {
@@ -1142,6 +1236,7 @@ fn trace_gate(
     name: &str,
     is_adjoint: bool,
     operands: Operands,
+    classical_controls: &[ClassicalControlInput],
     stack: LogicalStack,
 ) -> Result<(), Error> {
     let Operands {
@@ -1163,6 +1258,7 @@ fn trace_gate(
             &GateInputs {
                 targets: &target_qubits,
                 controls: &control_qubits,
+                classical_controls,
             },
             args,
             stack,

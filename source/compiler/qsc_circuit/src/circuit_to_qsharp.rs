@@ -389,8 +389,8 @@ fn operation_call(unitary: &Unitary, qubits: &FxHashMap<usize, String>) -> Strin
             .controls
             .iter()
             .filter_map(|c| {
-                if c.result.is_none() {
-                    Some(get_qubit_name(qubits, c.qubit))
+                if c.register.result.is_none() {
+                    Some(get_qubit_name(qubits, c.register.qubit))
                 } else {
                     None
                 }

@@ -6,7 +6,10 @@ mod tests;
 
 use indenter::indented;
 use rustc_hash::{FxHashMap, FxHashSet};
-use serde::{Deserialize, Serialize};
+use serde::{
+    Deserialize, Serialize,
+    ser::{SerializeStruct, Serializer},
+};
 use std::{
     cmp::max,
     fmt::{Display, Write},
@@ -274,7 +277,7 @@ pub struct Unitary {
     pub targets: Vec<Register>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     #[serde(default)]
-    pub controls: Vec<Register>,
+    pub controls: Vec<ControlRegister>,
     #[serde(rename = "isAdjoint")]
     #[serde(skip_serializing_if = "Not::not")]
     #[serde(default)]
@@ -285,6 +288,43 @@ pub struct Unitary {
     pub is_conditional: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
+}
+
+#[derive(Clone, Deserialize, Debug, Eq, PartialEq)]
+pub struct ControlRegister {
+    #[serde(flatten)]
+    pub register: Register,
+    #[serde(default)]
+    pub inverted: bool,
+}
+
+// Custom serialization emits a plain JavaScript object; deriving it with `flatten` emits a Map.
+impl Serialize for ControlRegister {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let field_count =
+            1 + usize::from(self.register.result.is_some()) + usize::from(self.inverted);
+        let mut state = serializer.serialize_struct("ControlRegister", field_count)?;
+        state.serialize_field("qubit", &self.register.qubit)?;
+        if let Some(result) = self.register.result {
+            state.serialize_field("result", &result)?;
+        }
+        if self.inverted {
+            state.serialize_field("inverted", &true)?;
+        }
+        state.end()
+    }
+}
+
+impl From<Register> for ControlRegister {
+    fn from(register: Register) -> Self {
+        Self {
+            register,
+            inverted: false,
+        }
+    }
 }
 
 /// Representation of a gate that will set the target to a specific state.
@@ -842,11 +882,11 @@ impl CircuitDisplay<'_> {
     ) -> usize {
         let mut col_width = 0;
         for op in &col.components {
-            let target_rows = get_row_indexes(op, register_to_row, true);
-            let control_rows = get_row_indexes(op, register_to_row, false);
+            let target_rows = get_target_rows(op, register_to_row);
+            let control_rows = get_control_rows(op, register_to_row);
 
             let mut all_rows = target_rows.clone();
-            all_rows.extend(control_rows.iter());
+            all_rows.extend(control_rows.iter().map(|(row, _)| row));
             all_rows.sort_unstable();
 
             // We'll need to know the entire range of rows for this operation so we can
@@ -970,7 +1010,7 @@ fn add_operation_to_rows(
     operation: &Operation,
     rows: &mut [Row],
     targets: &[usize],
-    controls: &[usize],
+    controls: &[(usize, bool)],
     column: usize,
     begin: usize,
     end: usize,
@@ -986,12 +1026,12 @@ fn add_operation_to_rows(
     }
 
     if operation.is_controlled() || operation.is_measurement() {
-        for i in controls {
+        for (i, inverted) in controls {
             let row = &mut rows[*i];
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
                 row.add_measurement(column, operation.source_location());
             } else {
-                row.add_object(column, "●");
+                row.add_object(column, if *inverted { "○" } else { "●" });
             }
         }
 
@@ -1081,34 +1121,15 @@ fn finalize_columns(rows: &[Row]) -> Vec<Column> {
         .collect()
 }
 
-/// Gets the row indexes for the targets or controls of an operation.
-fn get_row_indexes(
+/// Gets the row indexes for the targets of an operation.
+fn get_target_rows(
     operation: &Operation,
     register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
-    is_target: bool,
 ) -> Vec<usize> {
     let registers = match operation {
-        Operation::Measurement(m) => {
-            if is_target {
-                &m.results
-            } else {
-                &m.qubits
-            }
-        }
-        Operation::Unitary(u) => {
-            if is_target {
-                &u.targets
-            } else {
-                &u.controls
-            }
-        }
-        Operation::Ket(k) => {
-            if is_target {
-                &k.targets
-            } else {
-                &vec![]
-            }
-        }
+        Operation::Measurement(measurement) => &measurement.results,
+        Operation::Unitary(unitary) => &unitary.targets,
+        Operation::Ket(ket) => &ket.targets,
     };
 
     registers
@@ -1118,6 +1139,33 @@ fn get_row_indexes(
             register_to_row.get(&reg).copied()
         })
         .collect()
+}
+
+fn get_control_rows(
+    operation: &Operation,
+    register_to_row: &FxHashMap<(usize, Option<usize>), usize>,
+) -> Vec<(usize, bool)> {
+    match operation {
+        Operation::Measurement(measurement) => measurement
+            .qubits
+            .iter()
+            .filter_map(|register| {
+                register_to_row
+                    .get(&(register.qubit, register.result))
+                    .map(|row| (*row, false))
+            })
+            .collect(),
+        Operation::Unitary(unitary) => unitary
+            .controls
+            .iter()
+            .filter_map(|control| {
+                register_to_row
+                    .get(&(control.register.qubit, control.register.result))
+                    .map(|row| (*row, control.inverted))
+            })
+            .collect(),
+        Operation::Ket(_) => vec![],
+    }
 }
 
 /// Converts a list of operations into a 2D grid of operations in col-row format.
@@ -1205,15 +1253,22 @@ fn operation_list_to_grid_base(
             Operation::Unitary(u) => &u.targets,
             Operation::Ket(k) => &k.targets,
         };
-        let controls = match &op {
-            Operation::Measurement(m) => &m.results,
-            Operation::Unitary(u) => &u.controls,
-            Operation::Ket(_) => &vec![],
-        };
         let mut all_rows = targets
             .iter()
-            .chain(controls.iter())
             .map(|r| get_row_for_register(r, &rows))
+            .chain(match &op {
+                Operation::Measurement(measurement) => measurement
+                    .results
+                    .iter()
+                    .map(|register| get_row_for_register(register, &rows))
+                    .collect::<Vec<_>>(),
+                Operation::Unitary(unitary) => unitary
+                    .controls
+                    .iter()
+                    .map(|control| get_row_for_register(&control.register, &rows))
+                    .collect(),
+                Operation::Ket(_) => vec![],
+            })
             .collect::<Vec<_>>();
         all_rows.sort_unstable();
         let (begin, end) = all_rows.split_first().map_or((0, 0), |(first, tail)| {
