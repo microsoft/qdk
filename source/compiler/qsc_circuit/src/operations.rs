@@ -47,10 +47,7 @@ impl QubitParam {
     /// The total number of qubit array elements for this input parameter.
     #[must_use]
     pub fn num_qubits(&self) -> u32 {
-        self.sizes
-            .iter()
-            .copied()
-            .fold(1, u32::saturating_mul)
+        self.sizes.iter().copied().fold(1, u32::saturating_mul)
     }
 }
 
