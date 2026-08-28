@@ -20,14 +20,19 @@ use qsc_data_structures::{
 };
 use qsc_eval::output::CursorReceiver;
 use qsc_eval::val::Value;
+use qsc_fir::fir::{
+    ExprKind as FirExprKind, ItemKind as FirItemKind, PackageLookup, Res as FirRes, StoreItemId,
+};
 use qsc_frontend::compile::parse_all;
 use qsc_hir::hir::{ItemKind, PackageId};
-use qsc_passes::PackageType;
-use rustc_hash::FxHashMap;
+use qsc_passes::{PackageType, lower_hir_to_fir};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::codegen::qir::{
     CallableArgsBackend, get_qir, get_qir_from_ast, get_rir, prepare_codegen_fir_from_callable_args,
 };
+
+use super::qir::seed_entry_with_callables;
 
 fn format_interpret_errors(errors: Vec<crate::interpret::Error>) -> String {
     errors
@@ -1715,6 +1720,67 @@ fn two_callable_hof_closure_preserves_array_arg_threading() {
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
         .assert_eq(&qir);
+}
+
+#[test]
+fn seed_entry_with_callables_preserves_callable_source_packages() {
+    let capabilities = TargetCapabilityFlags::all();
+    let (std_id, mut store) = crate::compile::package_store_with_stdlib(capabilities);
+    let dependencies: Vec<(PackageId, Option<Arc<str>>)> = vec![(std_id, None)];
+    let (unit, errors) = crate::compile::compile(
+        &store,
+        &dependencies,
+        source_map_from_source("namespace Test { operation Destination() : Unit {} }"),
+        PackageType::Lib,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert!(errors.is_empty(), "compilation failed: {errors:?}");
+    let destination_hir_package = store.insert(unit);
+    let (mut fir_store, destination_package, _) = lower_hir_to_fir(&store, destination_hir_package);
+    let foreign_package = qsc_lowerer::map_hir_package_to_fir(std_id);
+
+    let expected_spans: FxHashMap<StoreItemId, qsc_fir::fir::PackageSpan> = fir_store
+        .get(foreign_package)
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            FirItemKind::Callable(decl) if decl.span.package == foreign_package => Some((
+                StoreItemId {
+                    package: foreign_package,
+                    item: item.id,
+                },
+                decl.span,
+            )),
+            FirItemKind::Callable(_) | FirItemKind::Ty(..) => None,
+        })
+        .take(2)
+        .collect();
+    assert_eq!(expected_spans.len(), 2, "expected two foreign callables");
+    let callables: FxHashSet<_> = expected_spans.keys().copied().collect();
+
+    seed_entry_with_callables(&mut fir_store, destination_package, &callables);
+
+    let destination = fir_store.get(destination_package);
+    let entry = destination
+        .entry
+        .expect("plural seed should create an entry expression");
+    let FirExprKind::Tuple(entry_exprs) = &destination.get_expr(entry).kind else {
+        panic!("two callable seeds should create a tuple entry");
+    };
+    assert_eq!(entry_exprs.len(), expected_spans.len());
+    for expr_id in entry_exprs {
+        let expr = destination.get_expr(*expr_id);
+        let FirExprKind::Var(FirRes::Item(item), _) = &expr.kind else {
+            panic!("seeded entry child should be a global callable variable");
+        };
+        let callable = StoreItemId {
+            package: item.package,
+            item: item.item,
+        };
+        assert_eq!(expr.span, expected_spans[&callable]);
+        assert_ne!(expr.span.package, destination_package);
+    }
 }
 
 #[test]

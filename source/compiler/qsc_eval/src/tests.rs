@@ -2,15 +2,17 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
+    Env, Error, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Value, Variable,
     backend::{Backend, SparseSim, TracingBackend},
     debug::Frame,
     output::{GenericReceiver, Receiver},
+    resolve_closure,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures, source::SourceMap, span::Span,
+    target::TargetCapabilityFlags,
 };
 use qsc_fir::fir::{self, ExecGraph, ExecGraphConfig, StmtId};
 use qsc_fir::fir::{PackageId, PackageStoreLookup};
@@ -50,6 +52,51 @@ pub(super) fn eval_graph(
         unreachable!("eval_expr should always return a value");
     };
     Ok(value)
+}
+
+#[test]
+fn resolve_closure_separates_callable_and_source_packages() {
+    let callable_package = PackageId::from(1usize);
+    let callable = fir::LocalItemId::from(2usize);
+    let capture = fir::LocalVarId::from(3usize);
+    let source_span = PackageSpan::new(
+        qsc_hir::hir::PackageId::from(4usize),
+        Span { lo: 5, hi: 13 },
+    );
+
+    let mut env = Env::default();
+    env.bind_variable_in_top_frame(
+        capture,
+        Variable {
+            name: "capture".into(),
+            value: Value::Int(42),
+            span: Span::default(),
+        },
+    );
+
+    let value = resolve_closure(&env, callable_package, source_span, &[capture], callable)
+        .expect("bound capture should resolve");
+    let Value::Closure(closure) = value else {
+        panic!("expected a closure value");
+    };
+    assert_eq!(
+        closure.id,
+        fir::StoreItemId {
+            package: callable_package,
+            item: callable,
+        }
+    );
+    assert_eq!(closure.fixed_args.as_ref(), &[Value::Int(42)]);
+
+    let error = resolve_closure(
+        &Env::default(),
+        callable_package,
+        source_span,
+        &[capture],
+        callable,
+    )
+    .expect_err("unbound capture should fail");
+    assert!(matches!(error, Error::UnboundName(span) if span == source_span));
 }
 
 fn check_expr(file: &str, expr: &str, expect: &Expect) {

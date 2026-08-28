@@ -414,7 +414,7 @@ pub mod qir {
     fn callable_expr_span_and_ty(
         fir_store: &qsc_fir::fir::PackageStore,
         callable_store_id: qsc_fir::fir::StoreItemId,
-    ) -> (qsc_data_structures::span::Span, qsc_fir::ty::Ty) {
+    ) -> (qsc_fir::fir::PackageSpan, qsc_fir::ty::Ty) {
         use qsc_fir::fir::{Global, PackageLookup};
 
         let package = fir_store.get(callable_store_id.package);
@@ -431,10 +431,10 @@ pub mod qir {
             functors: qsc_fir::ty::FunctorSet::Value(callable_decl.functors),
         }));
 
-        (callable_decl.span.span, ty)
+        (callable_decl.span, ty)
     }
 
-    fn seed_entry_with_callables(
+    pub(super) fn seed_entry_with_callables(
         fir_store: &mut qsc_fir::fir::PackageStore,
         fir_package_id: qsc_fir::fir::PackageId,
         callables: &FxHashSet<qsc_fir::fir::StoreItemId>,
@@ -451,7 +451,6 @@ pub mod qir {
 
         for callable in callables {
             let (span, ty) = callable_expr_span_and_ty(fir_store, *callable);
-            let span = qsc_fir::fir::PackageSpan::new(fir_package_id, span);
             let expr_id = assigner.next_expr();
             let package = fir_store.get_mut(fir_package_id);
             package.exprs.insert(

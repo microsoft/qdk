@@ -41,7 +41,7 @@ use qsc_fir::{
 };
 
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
-use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
+use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
     RuntimeFeatureFlags, ValueKind,
@@ -426,14 +426,11 @@ impl<'a> PartialEvaluator<'a> {
             input_type.push(map_fir_type_to_rir_type(&input_param.ty).map_err(|msg| {
                 Error::UnsupportedCustomIntrinsicType(
                     msg,
-                    PackageSpan {
-                        package: map_fir_package_to_hir(store_item_id.package),
-                        span: self
-                            .package_store
+                    map_fir_package_span_to_hir(
+                        self.package_store
                             .get_pat((store_item_id.package, input_param.pat).into())
-                            .span
                             .span,
-                    },
+                    ),
                 )
             })?);
         }
@@ -444,10 +441,7 @@ impl<'a> PartialEvaluator<'a> {
                 map_fir_type_to_rir_type(&callable_decl.output).map_err(|msg| {
                     Error::UnsupportedCustomIntrinsicType(
                         msg,
-                        PackageSpan {
-                            package: map_fir_package_to_hir(self.get_current_package_id()),
-                            span: callable_decl.span.span,
-                        },
+                        map_fir_package_span_to_hir(callable_decl.span),
                     )
                 })?,
             )
@@ -489,16 +483,7 @@ impl<'a> PartialEvaluator<'a> {
             }
             _ => expr.span,
         };
-        let hir_package_id = map_fir_package_to_hir(
-            self.entry
-                .expect("should have entry when getting entry expr span")
-                .expr
-                .package,
-        );
-        PackageSpan {
-            package: hir_package_id,
-            span: local_span.span,
-        }
+        map_fir_package_span_to_hir(local_span)
     }
 
     fn extract_program(
@@ -576,10 +561,7 @@ impl<'a> PartialEvaluator<'a> {
         self.extract_program(
             ret_val,
             output_ty,
-            PackageSpan {
-                package: map_fir_package_to_hir(callable.package),
-                span: callable_decl.span.span,
-            },
+            map_fir_package_span_to_hir(callable_decl.span),
         )
     }
 
@@ -1329,7 +1311,7 @@ impl<'a> PartialEvaluator<'a> {
                 let closure = resolve_closure(
                     &self.eval_context.get_current_scope().env,
                     self.get_current_package_id(),
-                    expr.span.span,
+                    map_fir_package_span_to_hir(expr.span),
                     args,
                     *callable,
                 )
@@ -3452,11 +3434,7 @@ impl<'a> PartialEvaluator<'a> {
     fn get_expr_package_span(&self, id: ExprId) -> PackageSpan {
         let fir_package_id = self.get_current_package_id();
         let expr = self.package_store.get_expr((fir_package_id, id).into());
-        let hir_package_id = map_fir_package_to_hir(fir_package_id);
-        PackageSpan {
-            package: hir_package_id,
-            span: expr.span.span,
-        }
+        map_fir_package_span_to_hir(expr.span)
     }
 
     fn get_pat(&self, id: PatId) -> &'a Pat {
@@ -3930,14 +3908,9 @@ impl<'a> PartialEvaluator<'a> {
         if remaining_stmt_count > 0 && current_scope.is_currently_evaluating_branch() {
             let return_stmt =
                 self.get_stmt(return_stmt_id.expect("a return statement ID must have been set"));
-            let hir_package_id = map_fir_package_to_hir(self.get_current_package_id());
-            let return_stmt_package_span = PackageSpan {
-                package: hir_package_id,
-                span: return_stmt.span.span,
-            };
             Err(Error::Unimplemented(
                 "early return".to_string(),
-                return_stmt_package_span,
+                map_fir_package_span_to_hir(return_stmt.span),
             ))
         } else {
             Ok(last_control_flow)

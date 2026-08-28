@@ -373,41 +373,39 @@ pub fn get_missing_runtime_features(
 impl Error {
     /// The package whose source map resolves this error's span.
     #[must_use]
-    // Every variant carries only its span, so the arms are intentionally uniform.
-    #[allow(clippy::match_same_arms)]
     pub fn package(&self) -> PackageId {
         match self {
-            Self::UseOfDynamicBool(span) => span.package,
-            Self::UseOfDynamicInt(span) => span.package,
-            Self::UseOfDynamicPauli(span) => span.package,
-            Self::UseOfDynamicRange(span) => span.package,
-            Self::UseOfDynamicDouble(span) => span.package,
-            Self::UseOfDynamicQubit(span) => span.package,
-            Self::UseOfDynamicResult(span) => span.package,
-            Self::UseOfDynamicTuple(span) => span.package,
-            Self::UseOfDynamicBigInt(span) => span.package,
-            Self::UseOfDynamicString(span) => span.package,
-            Self::UseOfDynamicExponent(span) => span.package,
-            Self::UseOfDynamicArray(span) => span.package,
-            Self::UseOfDynamicallySizedArray(span) => span.package,
-            Self::UseOfDynamicUdt(span) => span.package,
-            Self::UseOfDynamicArrowFunction(span) => span.package,
-            Self::UseOfDynamicArrowOperation(span) => span.package,
-            Self::CallToDynamicCallee(span) => span.package,
-            Self::MeasurementWithinDynamicScope(span) => span.package,
-            Self::CallToCustomMeasurement(span) => span.package,
-            Self::CallToCustomReset(span) => span.package,
-            Self::UseOfDynamicIndex(span) => span.package,
-            Self::ReturnWithinDynamicScope(span) => span.package,
-            Self::LoopWithDynamicCondition(span) => span.package,
-            Self::UseOfBoolOutput(span) => span.package,
-            Self::UseOfDoubleOutput(span) => span.package,
-            Self::UseOfIntOutput(span) => span.package,
-            Self::UseOfAdvancedOutput(span) => span.package,
-            Self::UseOfDynamicGeneric(span) => span.package,
-            Self::UseOfDynamicQubitRelease(span) => span.package,
-            Self::UseOfDynamicBranchingInParallelExpr(span) => span.package,
-            Self::UseOfDynamicLimitInParallelExpr(span) => span.package,
+            Self::UseOfDynamicBool(span)
+            | Self::UseOfDynamicInt(span)
+            | Self::UseOfDynamicPauli(span)
+            | Self::UseOfDynamicRange(span)
+            | Self::UseOfDynamicDouble(span)
+            | Self::UseOfDynamicQubit(span)
+            | Self::UseOfDynamicResult(span)
+            | Self::UseOfDynamicTuple(span)
+            | Self::UseOfDynamicBigInt(span)
+            | Self::UseOfDynamicString(span)
+            | Self::UseOfDynamicExponent(span)
+            | Self::UseOfDynamicArray(span)
+            | Self::UseOfDynamicallySizedArray(span)
+            | Self::UseOfDynamicUdt(span)
+            | Self::UseOfDynamicArrowFunction(span)
+            | Self::UseOfDynamicArrowOperation(span)
+            | Self::CallToDynamicCallee(span)
+            | Self::MeasurementWithinDynamicScope(span)
+            | Self::CallToCustomMeasurement(span)
+            | Self::CallToCustomReset(span)
+            | Self::UseOfDynamicIndex(span)
+            | Self::ReturnWithinDynamicScope(span)
+            | Self::LoopWithDynamicCondition(span)
+            | Self::UseOfBoolOutput(span)
+            | Self::UseOfDoubleOutput(span)
+            | Self::UseOfIntOutput(span)
+            | Self::UseOfAdvancedOutput(span)
+            | Self::UseOfDynamicGeneric(span)
+            | Self::UseOfDynamicQubitRelease(span)
+            | Self::UseOfDynamicBranchingInParallelExpr(span)
+            | Self::UseOfDynamicLimitInParallelExpr(span) => span.package,
         }
     }
 }

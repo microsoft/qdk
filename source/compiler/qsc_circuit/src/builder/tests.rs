@@ -819,6 +819,124 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
     );
 }
 
+fn compile_and_lower_test_package(
+    store: &mut PackageStore,
+    source_name: &str,
+    source: &str,
+    entry: Option<&str>,
+) -> (qsc_fir::fir::PackageId, fir::Package) {
+    let capabilities = qsc_data_structures::target::TargetCapabilityFlags::all();
+    let mut unit = compile(
+        store,
+        &[],
+        qsc_data_structures::source::SourceMap::new(
+            [(source_name.into(), source.into())],
+            entry.map(Into::into),
+        ),
+        capabilities,
+        qsc_data_structures::language_features::LanguageFeatures::default(),
+    );
+    assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+    let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
+    assert!(pass_errors.is_empty(), "{pass_errors:?}");
+    let hir_package = store.insert(unit);
+    let fir_package = map_hir_package_to_fir(hir_package);
+    let package = qsc_lowerer::Lowerer::new().lower_package(
+        &store
+            .get(hir_package)
+            .expect("package should exist")
+            .package,
+        &fir::PackageStore::new(),
+        fir_package,
+    );
+    (fir_package, package)
+}
+
+#[test]
+fn resolve_scope_for_loop_uses_condition_source_package() {
+    let mut core = compile::core();
+    run_core_passes(&mut core);
+    let mut store = PackageStore::new(core);
+
+    let dependency_source = indoc! {
+        r#"
+        namespace Dependency {
+            operation Foreign() : Unit {
+                mutable dependency_index = 0;
+                while dependency_index < 17 {
+                    set dependency_index += 1;
+                }
+            }
+        }
+        "#
+    };
+    let (dependency_package, dependency_fir) =
+        compile_and_lower_test_package(&mut store, "Dependency.qs", dependency_source, None);
+
+    let user_source = indoc! {
+        r#"
+        namespace Test {
+            operation Main() : Unit {
+                mutable i = 0;
+                while i < 2 {
+                    set i += 1;
+                }
+            }
+        }
+        "#
+    };
+    let (user_package, user_fir) =
+        compile_and_lower_test_package(&mut store, "User.qs", user_source, Some("Test.Main()"));
+    let mut fir_store = fir::PackageStore::new();
+    fir_store.insert(dependency_package, dependency_fir);
+    fir_store.insert(user_package, user_fir);
+
+    let dependency_condition_span = {
+        let package = fir_store.get(dependency_package);
+        package
+            .exprs
+            .values()
+            .find_map(|expr| match expr.kind {
+                ExprKind::While(condition, _) => Some(package.get_expr(condition).span),
+                _ => None,
+            })
+            .expect("expected dependency while loop")
+    };
+    let (user_loop, user_condition) = {
+        let package = fir_store.get(user_package);
+        package
+            .exprs
+            .iter()
+            .find_map(|(expr_id, expr)| match expr.kind {
+                ExprKind::While(condition, _) => Some((expr_id, condition)),
+                _ => None,
+            })
+            .expect("expected user while loop")
+    };
+    assert_eq!(dependency_condition_span.package, dependency_package);
+    assert_ne!(dependency_condition_span.package, user_package);
+    fir_store
+        .get_mut(user_package)
+        .exprs
+        .get_mut(user_condition)
+        .expect("user condition should exist")
+        .span = dependency_condition_span;
+
+    let scope = (&store, &fir_store).resolve_scope(
+        &Scope::Loop(LoopId::Id(user_package, user_loop)),
+        &mut Default::default(),
+    );
+
+    assert_eq!(scope.name.as_ref(), "loop: dependency_index < 17");
+    assert_eq!(
+        scope.location,
+        Some(PackageOffset {
+            package_id: user_package,
+            offset: fir_store.get(user_package).get_expr(user_loop).span.lo,
+        })
+    );
+}
+
 #[test]
 fn source_locations_for_groups() {
     let mut c = FakeCompilation::default();

@@ -27,6 +27,11 @@ pub fn map_fir_package_to_hir(package: fir::PackageId) -> hir::PackageId {
 }
 
 #[must_use]
+pub fn map_fir_package_span_to_hir(span: fir::PackageSpan) -> hir::PackageSpan {
+    hir::PackageSpan::new(map_fir_package_to_hir(span.package), span.span)
+}
+
+#[must_use]
 pub fn map_hir_local_item_to_fir(local_item: hir::LocalItemId) -> fir::LocalItemId {
     fir::LocalItemId::from(Into::<usize>::into(local_item))
 }

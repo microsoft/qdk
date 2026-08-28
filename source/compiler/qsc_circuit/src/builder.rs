@@ -699,7 +699,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     let cond_expr = package.get_expr(cond_expr_id);
                     let expr_contents = self
                         .0
-                        .get(map_fir_package_to_hir(package_id))
+                        .get(map_fir_package_to_hir(cond_expr.span.package))
                         .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
                         .and_then(|s| {
                             source_span_contents(&s.contents, s.offset, cond_expr.span.span)
