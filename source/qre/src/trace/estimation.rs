@@ -566,7 +566,10 @@ pub fn estimate_with_graph(
             let mut id_and_nodes = Vec::with_capacity(required.len());
             for constraint in required.constraints() {
                 let nodes = graph_lock
-                    .nodes(constraint.id())
+                    .pareto_nodes(constraint.id())
+                    .into_iter()
+                    .flatten()
+                    .copied()
                     .filter(|&node| constraint.is_satisfied_by(graph_lock.instruction(node)))
                     .map(|node_index| NodeProfile {
                         node_index,
