@@ -6232,17 +6232,14 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
 #[test]
 fn mutable_fixed_size_arrays() {
     let source = indoc::indoc! {r#"
-        @EntryPoint(Adaptive)
         operation Main() : Bool[] {
             mutable results = [false, false];
-            {
-                use q = Qubit[2];
-                if M(q[0]) == One {
-                    results[0] = true;
-                }
-                if M(q[1]) == One {
-                    results[1] = true;
-                }
+            use q = Qubit[2];
+            if M(q[0]) == One {
+                results[0] = true;
+            }
+            if M(q[1]) == One {
+                results[1] = true;
             }
             results
         }
@@ -6255,35 +6252,38 @@ fn mutable_fixed_size_arrays() {
 
         define i64 @ENTRYPOINT__main() #0 {
         block_0:
-          %var_1 = alloca [2 x i1]
+          %var_0 = alloca [2 x i1]
+          %var_8 = alloca [2 x i1]
           call void @__quantum__rt__initialize(ptr null)
-          %var_1_0 = getelementptr [2 x i1], ptr %var_1, i64 0, i64 0
-          store i1 false, ptr %var_1_0
-          %var_1_1 = getelementptr [2 x i1], ptr %var_1, i64 0, i64 1
-          store i1 false, ptr %var_1_1
+          %var_0_0 = getelementptr [2 x i1], ptr %var_0, i64 0, i64 0
+          store i1 false, ptr %var_0_0
+          %var_0_1 = getelementptr [2 x i1], ptr %var_0, i64 0, i64 1
+          store i1 false, ptr %var_0_1
           call void @__quantum__qis__m__body(ptr inttoptr (i64 0 to ptr), ptr inttoptr (i64 0 to ptr))
-          %var_3 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
-          br i1 %var_3, label %block_1, label %block_2
+          %var_2 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 0 to ptr))
+          br i1 %var_2, label %block_1, label %block_2
         block_1:
-          %var_13 = getelementptr i1, ptr %var_1, i64 0
-          store i1 true, ptr %var_13
+          %var_17 = getelementptr i1, ptr %var_0, i64 0
+          store i1 true, ptr %var_17
           br label %block_2
         block_2:
           call void @__quantum__qis__m__body(ptr inttoptr (i64 1 to ptr), ptr inttoptr (i64 1 to ptr))
           %var_5 = call i1 @__quantum__rt__read_result(ptr inttoptr (i64 1 to ptr))
           br i1 %var_5, label %block_3, label %block_4
         block_3:
-          %var_12 = getelementptr i1, ptr %var_1, i64 1
-          store i1 true, ptr %var_12
+          %var_16 = getelementptr i1, ptr %var_0, i64 1
+          store i1 true, ptr %var_16
           br label %block_4
         block_4:
-          %var_7 = getelementptr i1, ptr %var_1, i64 0
-          %var_10 = load i1, ptr %var_7
-          %var_8 = getelementptr i1, ptr %var_1, i64 1
-          %var_11 = load i1, ptr %var_8
+          %var_12 = load [2 x i1], ptr %var_0
+          store [2 x i1] %var_12, ptr %var_8
+          %var_9 = getelementptr i1, ptr %var_8, i64 0
+          %var_14 = load i1, ptr %var_9
+          %var_10 = getelementptr i1, ptr %var_8, i64 1
+          %var_15 = load i1, ptr %var_10
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
-          call void @__quantum__rt__bool_record_output(i1 %var_10, ptr @1)
-          call void @__quantum__rt__bool_record_output(i1 %var_11, ptr @2)
+          call void @__quantum__rt__bool_record_output(i1 %var_14, ptr @1)
+          call void @__quantum__rt__bool_record_output(i1 %var_15, ptr @2)
           ret i64 0
         }
 

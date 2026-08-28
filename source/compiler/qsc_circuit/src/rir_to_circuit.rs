@@ -437,7 +437,8 @@ fn process_variables(
         | Instruction::BitwiseNot(..)
         | Instruction::Alloca(..)
         | Instruction::Load(..)
-        | Instruction::Index(..)) => {
+        | Instruction::Index(..)
+        | Instruction::CopyArray(..)) => {
             return Err(Error::UnsupportedFeature(format!(
                 "unsupported instruction in block: {instruction:?}"
             )));

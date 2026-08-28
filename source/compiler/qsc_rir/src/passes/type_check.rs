@@ -105,6 +105,12 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             assert_eq!(index.get_type(), Ty::Prim(Prim::Integer));
             assert_eq!(value.get_type(), Ty::Prim(*elem_ty));
         }
+        Instruction::CopyArray(src, dest) => {
+            assert_eq!(
+                src.ty, dest.ty,
+                "expected source and destination arrays to have the same type"
+            );
+        }
 
         Instruction::Convert(_, _)
         | Instruction::Jump(_)

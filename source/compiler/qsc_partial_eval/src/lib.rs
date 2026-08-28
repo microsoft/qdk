@@ -335,7 +335,7 @@ impl<'a> PartialEvaluator<'a> {
         let pat = self.get_pat(pat_id);
         match &pat.kind {
             PatKind::Bind(ident) => {
-                self.bind_value_to_ident(mutability, ident, value);
+                self.bind_value_to_ident(mutability, ident, value, &pat.ty);
             }
             PatKind::Tuple(pats) => {
                 let tuple = value.unwrap_tuple();
@@ -350,17 +350,23 @@ impl<'a> PartialEvaluator<'a> {
         }
     }
 
-    fn bind_value_to_ident(&mut self, mutability: Mutability, ident: &Ident, value: Value) {
+    fn bind_value_to_ident(
+        &mut self,
+        mutability: Mutability,
+        ident: &Ident,
+        value: Value,
+        ty: &Ty,
+    ) {
         // We do slightly different things depending on the mutability of the identifier.
         match mutability {
-            Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value),
+            Mutability::Mutable => self.bind_value_to_mutable_ident(ident, value, ty),
             Mutability::Immutable => {
                 let current_scope = self.eval_context.get_current_scope();
                 if matches!(value, Value::Var(var) if current_scope.get_static_value(var.id.into()).is_none())
                 {
                     // An immutable identifier is being bound to a dynamic value, so treat the identifier as mutable.
                     // This allows it to represent a point-in-time copy of the mutable value during evaluation.
-                    self.bind_value_to_mutable_ident(ident, value);
+                    self.bind_value_to_mutable_ident(ident, value, ty);
                 } else {
                     // The value is static, so bind it to the classical map.
                     self.bind_value_to_immutable_ident(ident, value);
@@ -379,14 +385,14 @@ impl<'a> PartialEvaluator<'a> {
         self.bind_value_in_hybrid_map(ident, value);
     }
 
-    fn bind_value_to_mutable_ident(&mut self, ident: &Ident, value: Value) {
+    fn bind_value_to_mutable_ident(&mut self, ident: &Ident, value: Value, ty: &Ty) {
         // If the value is not a variable, bind it to the classical map.
         if !matches!(value, Value::Var(_)) {
             self.bind_value_in_classical_map(ident, &value);
         }
 
         // Always bind the value to the hybrid map but do it differently depending of the value type.
-        if let Some((var_id, literal)) = self.try_create_mutable_variable(ident.id, &value) {
+        if let Some((var_id, literal)) = self.try_create_mutable_variable(ident.id, &value, ty) {
             // If the variable maps to a know static literal, track that mapping.
             if let Some(literal) = literal {
                 self.eval_context
@@ -3683,6 +3689,7 @@ impl<'a> PartialEvaluator<'a> {
         &mut self,
         local_var_id: LocalVarId,
         value: &Value,
+        ty: &Ty,
     ) -> Option<(rir::VariableId, Option<Literal>)> {
         // Check if we can create a mutable variable for this value.
         let var_ty = if self.is_mutable_fixed_size_array(local_var_id) {
@@ -3709,38 +3716,57 @@ impl<'a> PartialEvaluator<'a> {
             .get_current_scope_mut()
             .insert_hybrid_local_value(local_var_id, Value::Var(eval_var));
 
-        if matches!(var_ty, VarTy::Array(_)) {
-            // Insert a store array instruction to initialize the array variable with the given value.
-            let Value::Array(array) = value else {
-                if matches!(value, Value::Var(_)) {
-                    todo!("handle array var to array var assignment ({value:?})");
+        if let VarTy::Array(size) = var_ty {
+            match value {
+                Value::Array(array) => {
+                    // Insert a store array instruction to initialize the array variable with the given value.
+                    let operands = array
+                        .iter()
+                        .map(|value| self.map_eval_value_to_rir_operand(value))
+                        .collect::<Vec<_>>();
+                    let rir::Ty::Prim(elem_ty) = operands
+                        .first()
+                        .expect("array should have at least one element")
+                        .get_type()
+                    else {
+                        panic!("array element type should be a primitive type");
+                    };
+                    self.get_current_rir_block_mut()
+                        .0
+                        .push(Instruction::StoreArray(
+                            operands,
+                            rir::Variable {
+                                variable_id: var_id,
+                                ty: rir::Ty::Array(array.len(), elem_ty),
+                            },
+                        ));
                 }
-                panic!(
+                Value::Var(var) => {
+                    // Use the passed Ty to determine the element type of the array variable.
+                    let Ty::Array(inner) = ty else {
+                        panic!("expected array type for mutable array variable, found: {ty}");
+                    };
+                    let rir::Ty::Prim(elem_ty) = map_fir_type_to_rir_type(inner).ok()? else {
+                        panic!("expected primitive type for array element type, found: {inner:?}")
+                    };
+                    self.get_current_rir_block_mut()
+                        .0
+                        .push(Instruction::CopyArray(
+                            rir::Variable {
+                                variable_id: var.id.into(),
+                                ty: rir::Ty::Array(size, elem_ty),
+                            },
+                            rir::Variable {
+                                variable_id: var_id,
+                                ty: rir::Ty::Array(size, elem_ty),
+                            },
+                        ));
+                }
+                _ => panic!(
                     "expected array value for mutable array variable, found: {}",
                     value.type_name()
-                )
-            };
-            let operands = array
-                .iter()
-                .map(|value| self.map_eval_value_to_rir_operand(value))
-                .collect::<Vec<_>>();
-            let rir::Ty::Prim(elem_ty) = operands
-                .first()
-                .expect("array should have at least one element")
-                .get_type()
-            else {
-                panic!("array element type should be a primitive type");
-            };
-            self.get_current_rir_block_mut()
-                .0
-                .push(Instruction::StoreArray(
-                    operands,
-                    rir::Variable {
-                        variable_id: var_id,
-                        ty: rir::Ty::Array(array.len(), elem_ty),
-                    },
-                ));
-
+                ),
+            }
             Some((var_id, None))
         } else {
             // Insert a store instruction.

@@ -231,7 +231,8 @@ impl ToQir<String> for rir::Instruction {
             }
             rir::Instruction::Alloca(..)
             | rir::Instruction::Load(..)
-            | rir::Instruction::Index(..) => {
+            | rir::Instruction::Index(..)
+            | rir::Instruction::CopyArray(..) => {
                 unimplemented!("advanced instructions are not supported in QIR v1 generation")
             }
         }

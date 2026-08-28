@@ -134,6 +134,10 @@ fn check_var_usage(
                 }
                 stored_vars.insert(variable.variable_id);
             }
+            Instruction::CopyArray(src, dest) => {
+                used_vars.insert(src.variable_id);
+                stored_vars.insert(dest.variable_id);
+            }
 
             Instruction::Call(_, operands, variable, _) => {
                 if let Some(var) = variable

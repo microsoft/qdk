@@ -417,6 +417,7 @@ pub enum Instruction {
     Load(Variable, Variable),
     Alloca(Variable),
     Index(Operand, Operand, Variable),
+    CopyArray(Variable, Variable),
     Return(Option<Operand>),
 }
 
@@ -529,6 +530,10 @@ impl Display for Instruction {
             Self::Index(array_var, index_opr, result_var) => {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{result_var} = Index {array_var}, {index_opr}")?;
+            }
+            Self::CopyArray(source_array, dest_array) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(indent, "{dest_array} = CopyArray {source_array}")?;
             }
             Self::Return(None) => write!(f, "Return")?,
             Self::Return(Some(operand)) => write!(f, "Return {operand}")?,
