@@ -834,3 +834,69 @@ fn circuit_with_ctrl_adj_sqrt_x_gate() {
         "#]],
     );
 }
+
+#[test]
+fn circuit_with_compact_classical_controls() {
+    check(
+        r#"
+{
+  "componentGrid": [
+    {
+      "components": [
+        {
+          "kind": "measurement",
+          "gate": "Measure",
+          "qubits": [{ "qubit": 0 }],
+          "results": [{ "qubit": 0, "result": 0 }]
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "X",
+          "controls": [
+            { "qubit": 0, "result": 0 }
+          ],
+          "targets": [{ "qubit": 1 }]
+        }
+      ]
+    },
+    {
+      "components": [
+        {
+          "kind": "unitary",
+          "gate": "Z",
+          "controls": [
+            { "qubit": 0, "result": 0, "inverted": true }
+          ],
+          "targets": [{ "qubit": 1 }]
+        }
+      ]
+    }
+  ],
+  "qubits": [
+    { "id": 0, "numResults": 1 },
+    { "id": 1 }
+  ]
+}"#,
+        &expect![[r#"
+            /// Expects a qubit register of at least 2 qubits.
+            operation Test(qs : Qubit[]) : Result {
+                if Length(qs) < 2 {
+                    fail "Invalid number of qubits. Operation Test expects a qubit register of at least 2 qubits.";
+                }
+                let c0_0 = M(qs[0]);
+                if c0_0 == One {
+                    X(qs[1]);
+                }
+                if c0_0 == Zero {
+                    Z(qs[1]);
+                }
+                return c0_0;
+            }
+
+        "#]],
+    );
+}

@@ -304,10 +304,7 @@ fn push_operations_in_block(
 }
 
 /// Returns whether every operation in `scf` is a single-qubit gate.
-fn branch_has_only_single_qubit_gates(
-    program: &Program,
-    scf: &StructuredControlFlow,
-) -> bool {
+fn branch_has_only_single_qubit_gates(program: &Program, scf: &StructuredControlFlow) -> bool {
     match scf {
         StructuredControlFlow::Seq(items) => items
             .iter()
