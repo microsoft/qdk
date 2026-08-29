@@ -119,9 +119,30 @@ driver             AdaptiveExecution          RegionConsumer                 tar
    |-- finish/close --------------------------------->|                           |
 ```
 
+`RegionConsumer` is the driver's only interface for region execution; the
+underlying legacy `Simulator` (`FullStateSimulator` or `StabilizerSimulator`)
+never receives a region and has no concept of one. The
+`ImmediateSimulatorConsumer::execute_region` implementation re-decomposes each
+region into ordinary one-gate-at-a-time `Simulator` calls through
+`apply_unitary_immediately` in `unitary.rs`, eagerly discarding the batching
+opportunity. Region grouping is therefore a structural no-op for CPU and
+Clifford, making parity with the legacy oracle direct. Planned
+`Tensor4AllMpsConsumer` and `CuTensorNetMpsConsumer` implementations will instead
+consume whole regions and replace that per-operation loop with one batched
+tensor-network contraction; no current consumer exercises that purpose yet.
+
 The immediate path is currently a compatibility implementation and parity
 oracle. The legacy `bytecode::runtime::run_shot` remains the production CPU and
 Clifford execution path until migration is explicitly validated.
+
+An internal, experimental Python/native route now proves that representative
+Base-profile QIR can be lowered by `AdaptiveProfilePass`, prepared once as a
+`PreparedAdaptiveProgram`, and executed per shot by `run_prepared_shot` with an
+`ImmediateSimulatorConsumer`. The deterministic two-qubit proof program
+partitions its unitary prefix into exactly one `QuantumEvolutionRegion` and
+matches the existing Base CPU output across multiple shots. This route is not a
+documented API or production dispatch path and does not add backend or noise
+support.
 
 ## Next Integration Iteration
 
@@ -135,6 +156,22 @@ region means decoding operation IDs, angles, qubit operands, and region
 boundaries into target-neutral `UnitaryOperation` values. It does not mean
 sharing mutable quantum state, measurement outcomes, native operator
 registrations, workspaces, or other target-specific resources between shots.
+
+Caching resolved region content is one optimization this structure enables; a
+further one is available but not yet implemented. When a prepared program has
+exactly one region and no reachable branch instruction, its entire command
+sequence (`ExecuteRegion` → measurements → `Complete`) is fully determined at
+prepare time—nothing depends on a runtime outcome. A specialized executor could
+skip the `next_command`/`accept_response` state machine entirely for this class
+of program: apply the cached resolved operations directly, issue the known
+measurement requests directly, and collect records, with no
+`AdaptiveCommand`/`AdaptiveResponse` round-trip or per-shot region-`Vec`
+allocation. This must remain a prepare-time-selected specialization validated
+against the general engine as the correctness oracle—not a second,
+independently-maintained execution path—to avoid reintroducing the API or
+semantic drift this project exists to eliminate. This is a candidate for a
+later, explicitly scoped performance iteration with its own before-and-after
+measurement; it must not be implemented alongside correctness-focused work.
 
 The current names `AdaptiveProfilePass`, `PreparedAdaptiveProgram`,
 `AdaptiveExecution`, `AdaptiveCommand`, and `AdaptiveResponse` predate this
@@ -329,4 +366,4 @@ placement remain owned by their respective execution layers.
   and same-prefix replay require explicit designs rather than hidden consumer
   behavior.
 - Existing backend entry points and result shapes must remain stable while a
-   backend migrates to shared execution.
+  backend migrates to shared execution.

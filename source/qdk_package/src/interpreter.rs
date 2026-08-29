@@ -25,7 +25,8 @@ use crate::{
     qir_simulation::{
         IdleNoiseParams, LossPolicy, NoiseConfig, NoiseTable, QirInstruction, QirInstructionId,
         cpu_simulators::{
-            run_clifford, run_clifford_adaptive, run_cpu_adaptive, run_cpu_full_state,
+            _shared_execution_base_profile_probe, run_clifford, run_clifford_adaptive,
+            run_cpu_adaptive, run_cpu_full_state,
         },
         gpu_full_state::{
             GpuContext, run_adaptive_parallel_shots, run_parallel_shots, try_create_gpu_adapter,
@@ -144,6 +145,7 @@ fn _native<'a>(py: Python<'a>, m: &Bound<'a, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(run_cpu_full_state, m)?)?;
     m.add_function(wrap_pyfunction!(run_cpu_adaptive, m)?)?;
     m.add_function(wrap_pyfunction!(run_clifford_adaptive, m)?)?;
+    m.add_function(wrap_pyfunction!(_shared_execution_base_profile_probe, m)?)?;
     m.add_function(wrap_pyfunction!(run_parallel_shots, m)?)?;
     m.add_function(wrap_pyfunction!(run_adaptive_parallel_shots, m)?)?;
     m.add("QSharpError", py.get_type::<QSharpError>())?;

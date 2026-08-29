@@ -16,11 +16,79 @@ from qdk import TargetProfile
 from qdk import openqasm
 
 from qdk.simulation import NoiseConfig
-from qdk.simulation._simulation import run_qir_cpu
+from qdk.simulation._simulation import (
+    _shared_execution_base_profile_probe,
+    run_qir_cpu,
+)
 
 current_file_path = Path(__file__)
 # Get the directory of the current file
 current_dir = current_file_path.parent
+
+
+SINGLE_MEASUREMENT_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="1" }
+"""
+
+
+ORDERED_RESULTS_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__rt__tuple_record_output(i64 2, i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
+"""
+
+
+UNSUPPORTED_SHARED_EXECUTION_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    {instruction}
+    ret void
+}
+
+{declaration}
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
+"""
 
 
 def read_file(file_name: str) -> str:
@@ -41,6 +109,66 @@ def result_array_to_string(results: Sequence[Result]) -> str:
         else:
             chars.append("-")
     return "".join(chars)
+
+
+def test_shared_execution_base_profile_probe_partitions_one_region():
+    expected = run_qir_cpu(SINGLE_MEASUREMENT_BASE_QIR, shots=1, seed=42)
+    actual, region_count = _shared_execution_base_profile_probe(
+        SINGLE_MEASUREMENT_BASE_QIR, shots=1, seed=42
+    )
+
+    assert region_count == 1
+    assert actual == expected == [Result.One]
+
+
+def test_shared_execution_base_profile_probe_preserves_ordered_results():
+    expected = run_qir_cpu(ORDERED_RESULTS_BASE_QIR, shots=1, seed=42)
+    actual, _ = _shared_execution_base_profile_probe(
+        ORDERED_RESULTS_BASE_QIR, shots=1, seed=42
+    )
+
+    assert actual == expected == [(Result.One, Result.Zero)]
+
+
+def test_shared_execution_base_profile_probe_uses_fresh_state_per_shot():
+    shots = 8
+    expected = run_qir_cpu(ORDERED_RESULTS_BASE_QIR, shots=shots, seed=42)
+    actual, _ = _shared_execution_base_profile_probe(
+        ORDERED_RESULTS_BASE_QIR, shots=shots, seed=42
+    )
+
+    assert actual == expected == [(Result.One, Result.Zero)] * shots
+
+
+@pytest.mark.parametrize(
+    "opcode,instruction,declaration",
+    [
+        (
+            "16",
+            "call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))",
+            "declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)",
+        ),
+        (
+            "17",
+            "call void @__quantum__rt__readout_noise(double 0.0, double 0.0, %Result* inttoptr (i64 0 to %Result*))",
+            "declare void @__quantum__rt__readout_noise(double, double, %Result*)",
+        ),
+    ],
+)
+def test_shared_execution_base_profile_probe_rejects_unsupported_opcodes(
+    opcode: str, instruction: str, declaration: str
+):
+    qir = UNSUPPORTED_SHARED_EXECUTION_QIR.replace(
+        "{instruction}", instruction
+    ).replace(
+        "{declaration}", declaration
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"unsupported adaptive opcode 0x{opcode} at instruction 0",
+    ):
+        _shared_execution_base_profile_probe(qir, shots=1, seed=42)
 
 
 def test_cpu_seeding_no_noise():

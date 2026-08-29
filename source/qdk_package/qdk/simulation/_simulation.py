@@ -663,6 +663,26 @@ def run_qir_cpu(
         return run_base(run_cpu_full_state, mod, shots, noise, seed)
 
 
+def _shared_execution_base_profile_probe(
+    input: Union[QirInputData, str, bytes],
+    shots: Optional[int] = 1,
+    seed: Optional[int] = None,
+) -> tuple[List, int]:
+    """Probe shared execution from QIR and return records plus region count."""
+    from .. import _native
+
+    mod, shots, _, seed = preprocess_simulation_input(input, shots, None, seed)
+    DecomposeCcxPass().run(mod)
+
+    program = AdaptiveProfilePass(Bytecode.Bit64).run(mod)
+    records, region_count = getattr(_native, "_shared_execution_base_profile_probe")(
+        program.as_dict(), shots, seed
+    )
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
+    return ([recorder.process_output(shot) for shot in records], region_count)
+
+
 def run_qir_gpu(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
