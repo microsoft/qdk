@@ -39,12 +39,13 @@ use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap, span::Span}
 use qsc_fir::fir::{
     self, BinOp, BlockId, CallableImpl, ConfiguredExecGraph, ExecGraph, ExecGraphConfig,
     ExecGraphDebugNode, ExecGraphExpr, ExecGraphNode, Expr, ExprId, ExprKind, Field, FieldAssign,
-    Global, Lit, LocalItemId, LocalVarId, PackageId, PackageStoreLookup, ParKind, PatId, PatKind,
-    PrimField, Res, StmtId, StoreItemId, StringComponent, UnOp,
+    Global, Lit, LocalItemId, LocalVarId, PackageId, PackageSpan as FirPackageSpan,
+    PackageStoreLookup, ParKind, PatId, PatKind, PrimField, Res, StmtId, StoreItemId,
+    StringComponent, UnOp,
 };
 use qsc_fir::ty::Ty;
 pub use qsc_hir::hir::PackageSpan;
-use qsc_lowerer::{map_fir_package_span_to_hir, map_fir_package_to_hir};
+use qsc_lowerer::map_fir_package_span_to_hir;
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::array;
@@ -332,8 +333,8 @@ pub fn invoke<B: Backend>(
             env,
             sim,
             globals,
-            Span::default(),
-            Span::default(),
+            FirPackageSpan::new(package, Span::default()),
+            FirPackageSpan::new(package, Span::default()),
             receiver,
         )
         .map_err(|e| (e, state.capture_stack()))?;
@@ -592,7 +593,7 @@ pub struct State {
     source_package: PackageId,
     package: PackageId,
     call_stack: CallStack,
-    current_span: Span,
+    current_span: FirPackageSpan,
     rng: RefCell<StdRng>,
     call_counts: FxHashMap<CallableCountKey, i64>,
     qubit_counter: Option<QubitCounter>,
@@ -625,7 +626,7 @@ impl State {
             source_package: package,
             package,
             call_stack: CallStack::default(),
-            current_span: Span::default(),
+            current_span: FirPackageSpan::default(),
             rng,
             call_counts: FxHashMap::default(),
             qubit_counter: None,
@@ -825,13 +826,9 @@ impl State {
                     let limit = if *kind == ParKind::Limited {
                         let limit_val = self.take_val_register().unwrap_int();
                         if limit_val < 0 {
-                            let package = map_fir_package_to_hir(self.package);
                             return self.handle_error(Error::InvalidNegativeInt(
                                 limit_val,
-                                PackageSpan {
-                                    package,
-                                    span: self.current_span,
-                                },
+                                map_fir_package_span_to_hir(self.current_span),
                             ));
                         }
                         #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
@@ -851,10 +848,7 @@ impl State {
                         let is_borrowed = self.dirty_qubits.remove(&qubit.0);
                         match (
                             sim.qubit_release(qubit.0, &call_stack).map_err(|e| {
-                                let package_span = PackageSpan {
-                                    package: map_fir_package_to_hir(self.package),
-                                    span: self.current_span,
-                                };
+                                let package_span = map_fir_package_span_to_hir(self.current_span);
 
                                 Error::SimulationError(e, package_span)
                             }),
@@ -862,10 +856,7 @@ impl State {
                         ) {
                             (Ok(true), _) | (Ok(_), true) => {}
                             (Ok(false), false) => {
-                                let package_span = PackageSpan {
-                                    package: map_fir_package_to_hir(self.package),
-                                    span: self.current_span,
-                                };
+                                let package_span = map_fir_package_span_to_hir(self.current_span);
 
                                 return self.handle_error(Error::ReleasedQubitNotZero(
                                     qubit.0,
@@ -920,8 +911,7 @@ impl State {
                     }
                     ExecGraphDebugNode::Stmt(stmt) => {
                         self.idx += 1;
-                        self.current_span =
-                            globals.get_stmt((self.package, *stmt).into()).span.span;
+                        self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
 
                         match self.check_for_break(breakpoints, *stmt, step, current_frame) {
                             Some(value) => value,
@@ -982,7 +972,7 @@ impl State {
             {
                 StepResult::BreakpointHit(*bp)
             } else {
-                if self.current_span == Span::default() {
+                if self.current_span.span == Span::default() {
                     // if there is no span, we are in generated code, so we should skip
                     return None;
                 }
@@ -1006,7 +996,7 @@ impl State {
         block: BlockId,
         step: StepAction,
         current_frame: usize,
-    ) -> Option<(StepResult, Span)> {
+    ) -> Option<(StepResult, FirPackageSpan)> {
         if step == StepAction::Next && current_frame >= self.current_frame_id() {
             let block = globals.get_block((self.package, block).into());
             // A synthetic block introduced by a desugar (for example the guard
@@ -1019,10 +1009,13 @@ impl State {
             if block.span.span == Span::default() {
                 return None;
             }
-            let span = Span {
-                lo: block.span.hi - 1,
-                hi: block.span.hi,
-            };
+            let span = FirPackageSpan::new(
+                block.span.package,
+                Span {
+                    lo: block.span.hi - 1,
+                    hi: block.span.hi,
+                },
+            );
             Some((StepResult::Next, span))
         } else {
             None
@@ -1044,7 +1037,7 @@ impl State {
         globals: &impl PackageStoreLookup,
         out: &mut impl Receiver,
         expr: ExecGraphExpr,
-        span: Span,
+        span: FirPackageSpan,
     ) -> Result<(), Error> {
         self.current_span = span;
         // NOTE: the ordering of the match arms here and in nested matches is roughly in order of how often they are expected to be hit,
@@ -1104,7 +1097,11 @@ impl State {
             ExecGraphExpr::Assign(lhs) => self.eval_assign(env, globals, *lhs)?,
             ExecGraphExpr::Tuple(size) => self.eval_tup(*size),
             ExecGraphExpr::Var(res) => {
-                self.set_val_register(resolve_binding(env, *res, self.to_global_span(span))?);
+                self.set_val_register(resolve_binding(
+                    env,
+                    *res,
+                    map_fir_package_span_to_hir(span),
+                )?);
             }
             ExecGraphExpr::Call {
                 callee_span,
@@ -1136,7 +1133,7 @@ impl State {
                     self.set_val_register(resolve_binding(
                         env,
                         *res,
-                        self.to_global_span(*lhs_span),
+                        map_fir_package_span_to_hir(*lhs_span),
                     )?);
                     self.push_val();
                     self.set_val_register(rhs_val);
@@ -1179,7 +1176,7 @@ impl State {
             ExecGraphExpr::Fail => {
                 return Err(Error::UserFail(
                     self.take_val_register().unwrap_string().to_string(),
-                    self.to_global_span(span),
+                    map_fir_package_span_to_hir(span),
                 ));
             }
         }
@@ -1248,14 +1245,14 @@ impl State {
         Ok(())
     }
 
-    fn eval_arr_repeat(&mut self, span: Span) -> Result<(), Error> {
+    fn eval_arr_repeat(&mut self, span: FirPackageSpan) -> Result<(), Error> {
         let size_val = self.take_val_register().unwrap_int();
         let item_val = self.pop_val();
         let s = match size_val.try_into() {
             Ok(i) => Ok(i),
             Err(_) => Err(Error::InvalidArrayLength(
                 size_val,
-                self.to_global_span(span),
+                map_fir_package_span_to_hir(span),
             )),
         }?;
         self.set_val_register(Value::Array(vec![item_val; s].into()));
@@ -1277,7 +1274,12 @@ impl State {
         self.bind_value(env, globals, pat, val);
     }
 
-    fn eval_binop(&mut self, op: BinOp, lhs_span: Span, rhs_span: Span) -> Result<(), Error> {
+    fn eval_binop(
+        &mut self,
+        op: BinOp,
+        lhs_span: FirPackageSpan,
+        rhs_span: FirPackageSpan,
+    ) -> Result<(), Error> {
         match op {
             BinOp::Add => self.eval_binop_simple(eval_binop_add),
             BinOp::AndB => self.eval_binop_simple(eval_binop_andb),
@@ -1311,12 +1313,12 @@ impl State {
 
     fn eval_binop_with_error(
         &mut self,
-        lhs_span: Span,
-        rhs_span: Span,
+        lhs_span: FirPackageSpan,
+        rhs_span: FirPackageSpan,
         binop_func: impl FnOnce(Value, Value, PackageSpan, PackageSpan) -> Result<Value, Error>,
     ) -> Result<(), Error> {
-        let lhs_span: PackageSpan = self.to_global_span(lhs_span);
-        let rhs_span: PackageSpan = self.to_global_span(rhs_span);
+        let lhs_span = map_fir_package_span_to_hir(lhs_span);
+        let rhs_span = map_fir_package_span_to_hir(rhs_span);
         let rhs_val = self.take_val_register();
         let lhs_val = self.pop_val();
         self.set_val_register(binop_func(lhs_val, rhs_val, lhs_span, rhs_span)?);
@@ -1329,8 +1331,8 @@ impl State {
         env: &mut Env,
         sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
-        callable_span: Span,
-        arg_span: Span,
+        callable_span: FirPackageSpan,
+        arg_span: FirPackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
         let arg = self.take_val_register();
@@ -1340,7 +1342,7 @@ impl State {
             _ => panic!("value is not callable"),
         };
 
-        let arg_span = self.to_global_span(arg_span);
+        let arg_span = map_fir_package_span_to_hir(arg_span);
 
         let callee = match globals.get_global(callee_id) {
             Some(Global::Callable(callable)) => callable,
@@ -1353,11 +1355,13 @@ impl State {
                 return Ok(());
             }
             None => {
-                return Err(Error::UnboundName(self.to_global_span(callable_span)));
+                return Err(Error::UnboundName(map_fir_package_span_to_hir(
+                    callable_span,
+                )));
             }
         };
 
-        let callee_span = map_fir_package_span_to_hir(callee.span);
+        let callee_span = callee.span;
 
         let spec = spec_from_functor_app(functor);
         match &callee.implementation {
@@ -1442,14 +1446,15 @@ impl State {
         callee: &fir::CallableDecl,
         sim: &mut TracingBackend<'_, B>,
         globals: &impl PackageStoreLookup,
-        callee_span: PackageSpan,
+        callee_span: FirPackageSpan,
         arg: Value,
         arg_span: PackageSpan,
         out: &mut impl Receiver,
     ) -> Result<(), Error> {
         let call_stack = self.capture_stack_if_trace_enabled(sim);
         self.push_frame(Vec::new().into(), callee_id, functor);
-        self.current_span = callee_span.span;
+        self.current_span = callee_span;
+        let callee_span = map_fir_package_span_to_hir(callee_span);
         self.increment_call_count(callee_id, functor);
         let name = &callee.name.name;
         let val = match name.as_ref() {
@@ -1556,12 +1561,12 @@ impl State {
         self.set_val_register(val);
     }
 
-    fn eval_index(&mut self, span: Span) -> Result<(), Error> {
+    fn eval_index(&mut self, span: FirPackageSpan) -> Result<(), Error> {
         let index_val = self.take_val_register();
         let arr = self.pop_val().unwrap_array();
         match &index_val {
             Value::Int(i) => {
-                self.set_val_register(index_array(&arr, *i, self.to_global_span(span))?);
+                self.set_val_register(index_array(&arr, *i, map_fir_package_span_to_hir(span))?);
             }
             Value::Range(inner) => {
                 self.set_val_register(slice_array(
@@ -1569,7 +1574,7 @@ impl State {
                     inner.start,
                     inner.step,
                     inner.end,
-                    self.to_global_span(span),
+                    map_fir_package_span_to_hir(span),
                 )?);
             }
             _ => panic!("array should only be indexed by Int or Range"),
@@ -1644,11 +1649,11 @@ impl State {
         self.set_val_register(Value::Tuple(strct.into(), Some(Rc::new(store_item_id))));
     }
 
-    fn eval_update_index(&mut self, span: Span) -> Result<(), Error> {
+    fn eval_update_index(&mut self, span: FirPackageSpan) -> Result<(), Error> {
         let values = self.take_val_register().unwrap_array();
         let update = self.pop_val();
         let index = self.pop_val();
-        let span = self.to_global_span(span);
+        let span = map_fir_package_span_to_hir(span);
         match index {
             Value::Int(index) => self.eval_update_index_single(&values, index, update, span),
             Value::Range(inner) => self.eval_update_index_range(
@@ -1694,11 +1699,11 @@ impl State {
         env: &mut Env,
         globals: &impl PackageStoreLookup,
         lhs: ExprId,
-        span: Span,
+        span: FirPackageSpan,
     ) -> Result<(), Error> {
         let update = self.take_val_register();
         let index = self.pop_val();
-        let span = self.to_global_span(span);
+        let span = map_fir_package_span_to_hir(span);
         match index {
             Value::Int(index) => {
                 if index < 0 {
@@ -1949,13 +1954,6 @@ impl State {
             ),
         }
         Ok(())
-    }
-
-    fn to_global_span(&self, span: Span) -> PackageSpan {
-        PackageSpan {
-            package: map_fir_package_to_hir(self.package),
-            span,
-        }
     }
 
     fn counting_call(&mut self, name: &str, arg: Value, span: PackageSpan) -> Result<Value, Error> {

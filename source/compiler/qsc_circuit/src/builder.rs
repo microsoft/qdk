@@ -27,7 +27,7 @@ use qsc_fir::fir::{
 };
 use qsc_frontend::compile::{self};
 use qsc_lowerer::map_fir_package_to_hir;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashSet;
 #[cfg(test)]
 use std::fmt::Display;
 use std::{
@@ -513,10 +513,9 @@ pub(crate) fn finish_circuit(
     if collapse_trivial_groups {
         collapse_unnecessary_scopes(&mut operations, source_lookup);
     }
-    let mut loop_id_cache = Default::default();
     let operations = operations
         .into_iter()
-        .map(|o| o.into_operation(source_lookup, &mut loop_id_cache))
+        .map(|o| o.into_operation(source_lookup))
         .collect();
 
     let component_grid = operation_list_to_grid(operations, &qubits);
@@ -593,7 +592,7 @@ fn collapse_if_unnecessary(
         } else if let Scope::Callable(..) = scope_stack.current_lexical_scope()
             && children.len() == 1
             && source_lookup
-                .resolve_scope(scope_stack.current_lexical_scope(), &mut Default::default())
+                .resolve_scope(scope_stack.current_lexical_scope())
                 .name
                 .starts_with(".lambda")
         {
@@ -604,20 +603,14 @@ fn collapse_if_unnecessary(
     None
 }
 
-/// Cache for mapping loop source locations to their corresponding package and expression IDs.
-/// This information is repeatedly looked up when resolving loop scopes from RIR debug metadata,
-/// so caching it avoids expensive lookups in the FIR package store.
-pub(crate) type LoopIdCache = FxHashMap<PackageOffset, (PackageId, ExprId)>;
-
 /// Resolves structs that use compilation-specific IDs (`PackageId`s, `ExprId`s etc.)
 /// to user legible names and source file locations.
 pub trait SourceLookup {
     fn resolve_package_offset(&self, package_offset: &PackageOffset) -> SourceLocation;
-    fn resolve_scope(&self, scope: &Scope, loop_id_cache: &mut LoopIdCache) -> LexicalScope;
+    fn resolve_scope(&self, scope: &Scope) -> LexicalScope;
     fn resolve_logical_stack_entry_location(
         &self,
         location: LogicalStackEntryLocation,
-        loop_id_cache: &mut LoopIdCache,
     ) -> Option<PackageOffset>;
     /// Returns whether a callable scope was synthesized during lowering rather
     /// than originating from a user-declared HIR item.
@@ -652,7 +645,7 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
         }
     }
 
-    fn resolve_scope(&self, scope_id: &Scope, loop_id_cache: &mut LoopIdCache) -> LexicalScope {
+    fn resolve_scope(&self, scope_id: &Scope) -> LexicalScope {
         match scope_id {
             Scope::Callable(CallableId::Id(store_item_id, functor_app)) => {
                 let item = self.1.get_item(*store_item_id);
@@ -661,77 +654,45 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     panic!("only callables should be in the stack")
                 };
 
-                let scope_offset = callable_scope_offset(callable_decl, *functor_app);
+                let scope_span = callable_scope_span(callable_decl, *functor_app);
 
                 LexicalScope {
                     location: Some(PackageOffset {
-                        package_id: store_item_id.package,
-                        offset: scope_offset,
+                        package_id: scope_span.package,
+                        offset: scope_span.lo,
                     }),
                     name: displayable_callable_scope_name(&callable_decl.name.name),
                     is_adjoint: functor_app.adjoint,
                     is_classically_controlled: false,
                 }
             }
-            Scope::Callable(CallableId::Source(package_offset, name)) => {
-                // trim the trailing dagger symbol and set `is_adjoint` accordingly
-                let (name, is_adjoint) = if let Some(pos) = name.rfind('\'') {
-                    if pos == name.len() - 1 {
-                        (displayable_callable_scope_name(&name[..pos]), true)
-                    } else {
-                        (displayable_callable_scope_name(name), false)
-                    }
-                } else {
-                    (displayable_callable_scope_name(name), false)
-                };
+            Scope::Loop(LoopId::Id(package_id, expr_id)) => {
+                let (package, cond_expr_id, _) = get_loop_by_expr_id(self.1, *package_id, *expr_id);
+                let loop_expr = package.get_expr(*expr_id);
+                let cond_expr = package.get_expr(cond_expr_id);
+                let expr_contents = self
+                    .0
+                    .get(map_fir_package_to_hir(cond_expr.span.package))
+                    .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
+                    .and_then(|s| source_span_contents(&s.contents, s.offset, cond_expr.span.span));
+
                 LexicalScope {
-                    location: Some(*package_offset),
-                    name,
-                    is_adjoint,
+                    name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
+                    location: Some(PackageOffset {
+                        package_id: loop_expr.span.package,
+                        offset: loop_expr.span.lo,
+                    }),
+                    is_adjoint: false,
                     is_classically_controlled: false,
                 }
             }
-            Scope::Loop(loop_id) => {
-                let found_loop_expr = find_loop(self.1, loop_id_cache, loop_id);
-                if let (Some((package_id, expr_id)), package_offset) = found_loop_expr {
-                    let (package, cond_expr_id, _) =
-                        get_loop_by_expr_id(self.1, package_id, expr_id);
-                    let cond_expr = package.get_expr(cond_expr_id);
-                    let expr_contents = self
-                        .0
-                        .get(map_fir_package_to_hir(cond_expr.span.package))
-                        .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
-                        .and_then(|s| {
-                            source_span_contents(&s.contents, s.offset, cond_expr.span.span)
-                        });
-
-                    LexicalScope {
-                        name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
-                        location: Some(package_offset),
-                        is_adjoint: false,
-                        is_classically_controlled: false,
-                    }
-                } else {
-                    LexicalScope {
-                        name: "loop".into(),
-                        location: Some(found_loop_expr.1),
-                        is_adjoint: false,
-                        is_classically_controlled: false,
-                    }
-                }
-            }
-            Scope::LoopIteration(loop_id, i) => {
-                let package_offset = match loop_id {
-                    LoopId::Id(package_id, expr_id) => {
-                        let (package, _, body_block_id) =
-                            get_loop_by_expr_id(self.1, *package_id, *expr_id);
-                        let block = package.get_block(body_block_id);
-                        PackageOffset {
-                            package_id: *package_id,
-                            offset: block.span.lo,
-                        }
-                    }
-                    LoopId::Source(package_offset) => *package_offset,
+            Scope::LoopIteration(LoopId::Id(package_id, expr_id), i) => {
+                let (package, _, body_block_id) =
+                    get_loop_by_expr_id(self.1, *package_id, *expr_id);
+                let block = package.get_block(body_block_id);
+                let package_offset = PackageOffset {
+                    package_id: block.span.package,
+                    offset: block.span.lo,
                 };
                 LexicalScope {
                     name: format!("({i})").into(),
@@ -761,22 +722,18 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
     fn resolve_logical_stack_entry_location(
         &self,
         location: LogicalStackEntryLocation,
-        loop_id_cache: &mut LoopIdCache,
     ) -> Option<PackageOffset> {
         match location {
             LogicalStackEntryLocation::Unknown => None,
             LogicalStackEntryLocation::Branch(package_offset, _) => package_offset,
-            LogicalStackEntryLocation::Source(package_offset)
-            | LogicalStackEntryLocation::Loop(LoopId::Source(package_offset)) => {
-                Some(package_offset)
-            }
+            LogicalStackEntryLocation::Source(package_offset) => Some(package_offset),
             LogicalStackEntryLocation::Loop(LoopId::Id(package_id, loop_expr_id)) => {
                 let fir_package_store = self.1;
                 let package = fir_package_store.get(package_id);
                 let expr = package.get_expr(loop_expr_id);
 
                 Some(PackageOffset {
-                    package_id,
+                    package_id: expr.span.package,
                     offset: expr.span.lo,
                 })
             }
@@ -785,35 +742,9 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                 let block = package.get_block(body_block_id);
 
                 Some(PackageOffset {
-                    package_id,
+                    package_id: block.span.package,
                     offset: block.span.lo,
                 })
-            }
-            LogicalStackEntryLocation::LoopIteration(LoopId::Source(package_offset), _) => {
-                let found_loop_expr = if let Some(cached) = loop_id_cache.get(&package_offset) {
-                    Some(*cached)
-                } else {
-                    let val = find_loop_by_source_offset(self.1, &package_offset);
-                    if let Some(val) = val {
-                        // cache the result
-                        loop_id_cache.insert(package_offset, val);
-                    }
-                    val
-                };
-
-                if let Some((package_id, expr_id)) = found_loop_expr {
-                    let (package, _, body_block_id) =
-                        get_loop_by_expr_id(self.1, package_id, expr_id);
-                    let block = package.get_block(body_block_id);
-
-                    Some(PackageOffset {
-                        package_id,
-                        offset: block.span.lo,
-                    })
-                } else {
-                    // Fall back to loop expr location
-                    Some(package_offset)
-                }
             }
         }
     }
@@ -821,34 +752,21 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
     /// Treat FIR callables with no corresponding HIR item as synthesized
     /// lowering artifacts, such as specialized helper scopes.
     fn is_synthesized_callable_scope(&self, scope: &Scope) -> bool {
-        let Some((current_package, offset, name)) = callable_scope_origin_key(self.1, scope) else {
+        let Scope::Callable(CallableId::Id(store_item_id, _)) = scope else {
             return false;
         };
 
-        let Some(unit) = self.0.get(map_fir_package_to_hir(current_package)) else {
+        let Some((source_package, offset, name)) = callable_scope_origin_key(self.1, scope) else {
             return false;
         };
-
-        match scope {
-            Scope::Callable(CallableId::Id(store_item_id, _)) => {
-                if !unit
-                    .package
-                    .items
-                    .contains_key(qsc_hir::hir::LocalItemId::from(usize::from(
-                        store_item_id.item,
-                    )))
-                {
-                    return true;
-                }
-            }
-            Scope::Callable(CallableId::Source(..)) => {}
-            Scope::Top
-            | Scope::Loop(..)
-            | Scope::LoopIteration(..)
-            | Scope::ClassicallyControlled { .. } => return false,
+        if store_item_id.package != source_package {
+            return true;
         }
+        let Some(source_unit) = self.0.get(map_fir_package_to_hir(source_package)) else {
+            return false;
+        };
 
-        !hir_package_contains_callable_origin(unit, offset, name.as_ref())
+        !hir_package_contains_callable_origin(source_unit, offset, name.as_ref())
     }
 }
 
@@ -864,28 +782,15 @@ fn callable_scope_origin_key(
             };
 
             Some((
-                store_item_id.package,
+                callable_decl.span.package,
                 callable_decl.span.lo,
                 displayable_callable_scope_name(&callable_decl.name.name),
             ))
         }
-        Scope::Callable(CallableId::Source(package_offset, name)) => Some((
-            package_offset.package_id,
-            package_offset.offset,
-            source_callable_origin_name(name),
-        )),
         Scope::Top
         | Scope::Loop(..)
         | Scope::LoopIteration(..)
         | Scope::ClassicallyControlled { .. } => None,
-    }
-}
-
-fn source_callable_origin_name(name: &str) -> Rc<str> {
-    if let Some(stripped) = name.strip_suffix('\'') {
-        displayable_callable_scope_name(stripped)
-    } else {
-        displayable_callable_scope_name(name)
     }
 }
 
@@ -923,9 +828,12 @@ fn displayable_callable_scope_name(name: &str) -> Rc<str> {
     name[..suffix_start].into()
 }
 
-fn callable_scope_offset(callable_decl: &fir::CallableDecl, functor_app: FunctorApp) -> u32 {
+fn callable_scope_span(
+    callable_decl: &fir::CallableDecl,
+    functor_app: FunctorApp,
+) -> fir::PackageSpan {
     match &callable_decl.implementation {
-        fir::CallableImpl::Intrinsic => callable_decl.span.lo,
+        fir::CallableImpl::Intrinsic => callable_decl.span,
         fir::CallableImpl::Spec(spec_impl) => {
             if functor_app.adjoint && functor_app.controlled > 0 {
                 spec_impl.ctl_adj.as_ref().unwrap_or(&spec_impl.body)
@@ -937,55 +845,9 @@ fn callable_scope_offset(callable_decl: &fir::CallableDecl, functor_app: Functor
                 &spec_impl.body
             }
             .span
-            .lo
         }
-        fir::CallableImpl::SimulatableIntrinsic(spec_decl) => spec_decl.span.lo,
+        fir::CallableImpl::SimulatableIntrinsic(spec_decl) => spec_decl.span,
     }
-}
-
-fn find_loop(
-    fir_store: &fir::PackageStore,
-    loop_id_cache: &mut LoopIdCache,
-    loop_id: &LoopId,
-) -> (Option<(PackageId, ExprId)>, PackageOffset) {
-    match loop_id {
-        LoopId::Id(package_id, expr_id) => {
-            let package_offset = PackageOffset {
-                package_id: *package_id,
-                offset: fir_store.get(*package_id).get_expr(*expr_id).span.lo,
-            };
-            (Some((*package_id, *expr_id)), package_offset)
-        }
-        LoopId::Source(package_offset) => {
-            if let Some(cached) = loop_id_cache.get(package_offset) {
-                (Some(*cached), *package_offset)
-            } else {
-                let val = find_loop_by_source_offset(fir_store, package_offset);
-                if let Some(val) = val {
-                    // cache the result
-                    loop_id_cache.insert(*package_offset, val);
-                }
-                (val, *package_offset)
-            }
-        }
-    }
-}
-
-fn find_loop_by_source_offset(
-    fir_store: &fir::PackageStore,
-    package_offset: &PackageOffset,
-) -> Option<(PackageId, ExprId)> {
-    fir_store
-        .get(package_offset.package_id)
-        .exprs
-        .iter()
-        .find_map(|(expr_id, expr)| {
-            if expr.span.lo == package_offset.offset && matches!(expr.kind, ExprKind::While(_, _)) {
-                Some((package_offset.package_id, expr_id))
-            } else {
-                None
-            }
-        })
 }
 
 fn get_loop_by_expr_id(
@@ -1439,14 +1301,9 @@ impl OperationOrGroup {
         }
     }
 
-    fn into_operation(
-        mut self,
-        source_lookup: &impl SourceLookup,
-        loop_id_cache: &mut LoopIdCache,
-    ) -> Operation {
+    fn into_operation(mut self, source_lookup: &impl SourceLookup) -> Operation {
         if let Some(location) = self.location {
-            let package_offset =
-                source_lookup.resolve_logical_stack_entry_location(location, loop_id_cache);
+            let package_offset = source_lookup.resolve_logical_stack_entry_location(location);
 
             if let Some(package_offset) = package_offset {
                 let location = source_lookup.resolve_package_offset(&package_offset);
@@ -1464,7 +1321,7 @@ impl OperationOrGroup {
                     panic!("group operation should be a unitary")
                 };
 
-                let scope = source_lookup.resolve_scope(&scope_stack.scope, loop_id_cache);
+                let scope = source_lookup.resolve_scope(&scope_stack.scope);
                 u.gate = scope.name.to_string();
                 u.is_adjoint = scope.is_adjoint;
                 let scope_location = scope
@@ -1486,7 +1343,7 @@ impl OperationOrGroup {
                 u.children = vec![ComponentColumn {
                     components: children
                         .into_iter()
-                        .map(|o| o.into_operation(source_lookup, loop_id_cache))
+                        .map(|o| o.into_operation(source_lookup))
                         .collect(),
                 }];
                 self.op
@@ -1895,8 +1752,8 @@ impl LogicalStack {
             .flat_map(|frame| {
                 let mut logical_stack = vec![LogicalStackEntry::new_call_site(
                     PackageOffset {
-                        package_id: frame.id.package,
-                        offset: frame.span.lo,
+                        package_id: frame.span.package,
+                        offset: frame.span.span.lo,
                     },
                     Scope::Callable(CallableId::Id(frame.id, frame.functor)),
                 )];
@@ -1965,23 +1822,15 @@ impl LogicalStackEntry {
     #[must_use]
     pub fn package_id(&self) -> Option<PackageId> {
         match self.scope {
-            Scope::Callable(
-                CallableId::Source(PackageOffset { package_id, .. }, _)
-                | CallableId::Id(
-                    StoreItemId {
-                        package: package_id,
-                        ..
-                    },
-                    _,
-                ),
-            )
-            | Scope::LoopIteration(
-                LoopId::Id(package_id, _) | LoopId::Source(PackageOffset { package_id, .. }),
+            Scope::Callable(CallableId::Id(
+                StoreItemId {
+                    package: package_id,
+                    ..
+                },
                 _,
-            )
-            | Scope::Loop(
-                LoopId::Id(package_id, _) | LoopId::Source(PackageOffset { package_id, .. }),
-            ) => Some(package_id),
+            ))
+            | Scope::LoopIteration(LoopId::Id(package_id, _), _)
+            | Scope::Loop(LoopId::Id(package_id, _)) => Some(package_id),
             Scope::Top | Scope::ClassicallyControlled { .. } => None,
         }
     }
@@ -2053,13 +1902,11 @@ pub enum Scope {
 #[derive(Clone, Debug, PartialEq)]
 pub enum CallableId {
     Id(StoreItemId, FunctorApp),
-    Source(PackageOffset, Rc<str>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum LoopId {
     Id(PackageId, ExprId),
-    Source(PackageOffset),
 }
 
 #[derive(Clone, Debug, Copy, PartialEq, Eq, Hash)]
@@ -2081,15 +1928,12 @@ impl<S: SourceLookup> Display for LogicalStackWithSourceLookup<'_, S> {
             write!(f, "[no stack]")?;
             return Ok(());
         }
-        let mut loop_id_cache = Default::default();
         for (i, frame) in self.trace.0.iter().enumerate() {
             if i > 0 {
                 write!(f, " -> ")?;
             }
 
-            let scope = self
-                .source_lookup
-                .resolve_scope(&frame.scope, &mut loop_id_cache);
+            let scope = self.source_lookup.resolve_scope(&frame.scope);
             write!(
                 f,
                 "{}{}",
@@ -2098,7 +1942,7 @@ impl<S: SourceLookup> Display for LogicalStackWithSourceLookup<'_, S> {
             )?;
             let package_offset = self
                 .source_lookup
-                .resolve_logical_stack_entry_location(frame.location, &mut loop_id_cache);
+                .resolve_logical_stack_entry_location(frame.location);
             if let Some(package_offset) = package_offset {
                 let l = self.source_lookup.resolve_package_offset(&package_offset);
                 write!(f, "@{}:{}:{}", l.file, l.line, l.column)?;

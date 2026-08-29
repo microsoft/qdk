@@ -465,7 +465,7 @@ fn binop_add_evaluates_operands_then_expr() {
             0: Expr(ExprId(4)) [Lit(Int(1))]
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(2))]
-            3: Expr [BinOp { op: Add, lhs_span: Span { lo: 24, hi: 25 }, rhs_span: Span { lo: 28, hi: 29 } }]
+            3: Expr [BinOp { op: Add, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 24, hi: 25 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 28, hi: 29 } } }]
             4: Ret"#]],
     );
 }
@@ -513,12 +513,12 @@ fn while_loop_emits_jump_back_to_condition() {
             2: Expr [Var(Local(LocalVarId(1)))]
             3: Store
             4: Expr(ExprId(7)) [Lit(Int(3))]
-            5: Expr [BinOp { op: Lt, lhs_span: Span { lo: 70, hi: 71 }, rhs_span: Span { lo: 74, hi: 75 } }]
+            5: Expr [BinOp { op: Lt, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 70, hi: 71 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 74, hi: 75 } } }]
             6: JumpIfNot(14)
             7: Expr [Var(Local(LocalVarId(1)))]
             8: Store
             9: Expr(ExprId(10)) [Lit(Int(1))]
-            10: Expr [AssignOp { op: Add, lhs: ExprId(9), lhs_span: Span { lo: 94, hi: 95 }, rhs_span: Span { lo: 99, hi: 100 } }]
+            10: Expr [AssignOp { op: Add, lhs: ExprId(9), lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 94, hi: 95 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 99, hi: 100 } } }]
             11: Unit
             12: Unit
             13: Jump(2)
@@ -561,12 +561,12 @@ fn tuple_eq_lowered_to_element_wise_andl_chain() {
             0: Expr(ExprId(5)) [Lit(Int(1))]
             1: Store
             2: Expr(ExprId(8)) [Lit(Int(1))]
-            3: Expr [BinOp { op: Eq, lhs_span: Span { lo: 26, hi: 27 }, rhs_span: Span { lo: 36, hi: 37 } }]
+            3: Expr [BinOp { op: Eq, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 26, hi: 27 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 36, hi: 37 } } }]
             4: JumpIfNot(9)
             5: Expr(ExprId(6)) [Lit(Int(2))]
             6: Store
             7: Expr(ExprId(9)) [Lit(Int(2))]
-            8: Expr [BinOp { op: Eq, lhs_span: Span { lo: 29, hi: 30 }, rhs_span: Span { lo: 39, hi: 40 } }]
+            8: Expr [BinOp { op: Eq, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 29, hi: 30 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 39, hi: 40 } } }]
             9: Ret"#]],
     );
 }
@@ -581,7 +581,7 @@ fn nested_blocks_flatten_to_sequential_nodes() {
             2: Expr [Var(Local(LocalVarId(2)))]
             3: Store
             4: Expr(ExprId(7)) [Lit(Int(1))]
-            5: Expr [BinOp { op: Add, lhs_span: Span { lo: 45, hi: 46 }, rhs_span: Span { lo: 49, hi: 50 } }]
+            5: Expr [BinOp { op: Add, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 45, hi: 46 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 49, hi: 50 } } }]
             6: Bind(PatId(1))
             7: Expr [Var(Local(LocalVarId(1)))]
             8: Ret"#]],
@@ -634,7 +634,7 @@ fn assign_index_emits_store_and_expr_unit() {
             2: Expr(ExprId(8)) [Lit(Int(0))]
             3: Store
             4: Expr(ExprId(9)) [Lit(Int(42))]
-            5: Expr [AssignIndex { lhs: ExprId(10), mid_span: Span { lo: 63, hi: 64 } }]
+            5: Expr [AssignIndex { lhs: ExprId(10), mid_span: PackageSpan { package: PackageId(2), span: Span { lo: 63, hi: 64 } } }]
             6: Unit
             7: Expr [Var(Local(LocalVarId(1)))]
             8: Ret"#]],
@@ -742,24 +742,24 @@ fn nested_if_within_while_rebuilds_nested_control_flow() {
             2: Expr [Var(Local(LocalVarId(1)))]
             3: Store
             4: Expr(ExprId(7)) [Lit(Int(3))]
-            5: Expr [BinOp { op: Lt, lhs_span: Span { lo: 70, hi: 71 }, rhs_span: Span { lo: 74, hi: 75 } }]
+            5: Expr [BinOp { op: Lt, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 70, hi: 71 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 74, hi: 75 } } }]
             6: JumpIfNot(26)
             7: Expr [Var(Local(LocalVarId(1)))]
             8: Store
             9: Expr(ExprId(11)) [Lit(Int(1))]
-            10: Expr [BinOp { op: Eq, lhs_span: Span { lo: 97, hi: 98 }, rhs_span: Span { lo: 102, hi: 103 } }]
+            10: Expr [BinOp { op: Eq, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 97, hi: 98 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 102, hi: 103 } } }]
             11: JumpIfNot(19)
             12: Expr [Var(Local(LocalVarId(1)))]
             13: Store
             14: Expr(ExprId(15)) [Lit(Int(10))]
-            15: Expr [AssignOp { op: Add, lhs: ExprId(14), lhs_span: Span { lo: 126, hi: 127 }, rhs_span: Span { lo: 131, hi: 133 } }]
+            15: Expr [AssignOp { op: Add, lhs: ExprId(14), lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 126, hi: 127 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 131, hi: 133 } } }]
             16: Unit
             17: Unit
             18: Jump(25)
             19: Expr [Var(Local(LocalVarId(1)))]
             20: Store
             21: Expr(ExprId(19)) [Lit(Int(1))]
-            22: Expr [AssignOp { op: Add, lhs: ExprId(18), lhs_span: Span { lo: 180, hi: 181 }, rhs_span: Span { lo: 185, hi: 186 } }]
+            22: Expr [AssignOp { op: Add, lhs: ExprId(18), lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 180, hi: 181 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 185, hi: 186 } } }]
             23: Unit
             24: Unit
             25: Jump(2)
@@ -779,7 +779,7 @@ fn exec_graph_callable_with_adjoint_spec_rebuilds_body_and_adj_independently() {
             0: H
             1: Store
             2: Var(Local(LocalVarId(1)))
-            3: Call { callee_span: Span { lo: 52, hi: 53 }, args_span: Span { lo: 54, hi: 55 } }
+            3: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 52, hi: 53 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 54, hi: 55 } } }
             4: Unit
             5: Ret"#]],
     );
@@ -791,7 +791,7 @@ fn exec_graph_callable_with_adjoint_spec_rebuilds_body_and_adj_independently() {
             0: X
             1: Store
             2: Var(Local(LocalVarId(1)))
-            3: Call { callee_span: Span { lo: 74, hi: 75 }, args_span: Span { lo: 76, hi: 77 } }
+            3: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 74, hi: 75 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 76, hi: 77 } } }
             4: Unit
             5: Ret"#]],
     );
@@ -820,7 +820,7 @@ fn controlled_spec_exec_graph_rebuilds_semantic_order() {
             5: Var(Local(LocalVarId(1)))
             6: Store
             7: Tuple(2)
-            8: Call { callee_span: Span { lo: 109, hi: 121 }, args_span: Span { lo: 121, hi: 130 } }
+            8: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 109, hi: 121 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 121, hi: 130 } } }
             9: Unit
             10: Ret"#]],
     );
@@ -852,7 +852,7 @@ fn controlled_adjoint_spec_exec_graph_rebuilds_semantic_order() {
             6: Var(Local(LocalVarId(1)))
             7: Store
             8: Tuple(2)
-            9: Call { callee_span: Span { lo: 227, hi: 247 }, args_span: Span { lo: 247, hi: 256 } }
+            9: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 227, hi: 247 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 247, hi: 256 } } }
             10: Unit
             11: Ret"#]],
     );
@@ -866,12 +866,12 @@ fn exec_graph_entry_expression_rebuilt_correctly() {
             0: Expr(ExprId(4)) [Lit(Int(1))]
             1: Store
             2: Expr(ExprId(5)) [Lit(Int(2))]
-            3: Expr [BinOp { op: Add, lhs_span: Span { lo: 32, hi: 33 }, rhs_span: Span { lo: 36, hi: 37 } }]
+            3: Expr [BinOp { op: Add, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 32, hi: 33 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 36, hi: 37 } } }]
             4: Bind(PatId(1))
             5: Expr [Var(Local(LocalVarId(1)))]
             6: Store
             7: Expr(ExprId(8)) [Lit(Int(3))]
-            8: Expr [BinOp { op: Mul, lhs_span: Span { lo: 47, hi: 48 }, rhs_span: Span { lo: 51, hi: 52 } }]
+            8: Expr [BinOp { op: Mul, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 47, hi: 48 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 51, hi: 52 } } }]
             9: Bind(PatId(2))
             10: Expr [Var(Local(LocalVarId(2)))]
             11: Ret"#]],
@@ -891,6 +891,124 @@ fn exec_graph_rebuild_is_idempotent() {
     let second = format_callable_exec_graph(&store, pkg_id, ExecGraphConfig::NoDebug);
 
     assert_eq!(first, second, "exec graph rebuild is not idempotent");
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn exec_graph_rebuild_preserves_package_for_every_source_range() {
+    let source = r#"
+        open Std.Math;
+
+        @EntryPoint()
+        operation Main() : Unit {
+            mutable scalar = -1;
+            set scalar += 2;
+            mutable values = [scalar, 2];
+            set values w/= 0 <- scalar;
+            let sum = values[0] + scalar;
+            let magnitude = AbsI(sum);
+            let updated = values w/ 1 <- magnitude;
+        }
+    "#;
+
+    let (mut store, pkg_id) = compile_and_run_pipeline_to(source, PipelineStage::ExecGraphRebuild);
+    let main = find_reachable_callable_by_name(&store, pkg_id, "Main", true);
+    let source_package = find_reachable_callable_by_name(&store, pkg_id, "AbsI", false).package;
+
+    assert_eq!(
+        main.package, pkg_id,
+        "Main should remain in the user package"
+    );
+    assert_ne!(
+        source_package, pkg_id,
+        "source ownership should differ from storage"
+    );
+
+    for expr in store.get_mut(pkg_id).exprs.values_mut() {
+        expr.span.package = source_package;
+    }
+    super::rebuild_exec_graphs(&mut store, pkg_id, &[]);
+
+    let package = store.get(pkg_id);
+    let item = package.get_item(main.item);
+    let ItemKind::Callable(decl) = &item.kind else {
+        panic!("Main should be callable");
+    };
+    let CallableImpl::Spec(spec_impl) = &decl.implementation else {
+        panic!("Main should have an explicit implementation");
+    };
+    let graph = spec_impl
+        .body
+        .exec_graph
+        .select_ref(ExecGraphConfig::NoDebug);
+
+    let mut saw_envelope = false;
+    let mut saw_assign_op = false;
+    let mut saw_assign_index = false;
+    let mut saw_bin_op = false;
+    let mut saw_call = false;
+    let mut saw_index = false;
+    let mut saw_update_index = false;
+
+    for node in graph.iter() {
+        let ExecGraphNode::Expr(expr, span) = node else {
+            continue;
+        };
+        assert_eq!(span.package, source_package, "expression envelope package");
+        saw_envelope = true;
+
+        match expr {
+            ExecGraphExpr::AssignOp {
+                lhs_span, rhs_span, ..
+            } => {
+                assert_eq!(lhs_span.package, source_package, "AssignOp lhs package");
+                assert_eq!(rhs_span.package, source_package, "AssignOp rhs package");
+                saw_assign_op = true;
+            }
+            ExecGraphExpr::AssignIndex { mid_span, .. } => {
+                assert_eq!(
+                    mid_span.package, source_package,
+                    "AssignIndex middle package"
+                );
+                saw_assign_index = true;
+            }
+            ExecGraphExpr::BinOp {
+                lhs_span, rhs_span, ..
+            } => {
+                assert_eq!(lhs_span.package, source_package, "BinOp lhs package");
+                assert_eq!(rhs_span.package, source_package, "BinOp rhs package");
+                saw_bin_op = true;
+            }
+            ExecGraphExpr::Call {
+                callee_span,
+                args_span,
+            } => {
+                assert_eq!(callee_span.package, source_package, "Call callee package");
+                assert_eq!(args_span.package, source_package, "Call arguments package");
+                saw_call = true;
+            }
+            ExecGraphExpr::Index { index_span } => {
+                assert_eq!(index_span.package, source_package, "Index package");
+                saw_index = true;
+            }
+            ExecGraphExpr::UpdateIndex { mid_span } => {
+                assert_eq!(
+                    mid_span.package, source_package,
+                    "UpdateIndex middle package"
+                );
+                saw_update_index = true;
+            }
+            _ => {}
+        }
+    }
+
+    assert!(saw_envelope, "expected at least one expression envelope");
+    assert!(saw_assign_op, "expected an AssignOp node");
+    assert!(saw_assign_index, "expected an AssignIndex node");
+    assert!(saw_bin_op, "expected a BinOp node");
+    assert!(saw_call, "expected a Call node");
+    assert!(saw_index, "expected an Index node");
+    assert!(saw_update_index, "expected an UpdateIndex node");
 }
 
 #[test]
@@ -1032,20 +1150,20 @@ fn exec_graph_rebuild_passes_post_all_invariant() {
         0: __quantum__rt__qubit_allocate
         1: Store
         2: Tuple(0)
-        3: Call { callee_span: Span { lo: 73, hi: 89 }, args_span: Span { lo: 73, hi: 89 } }
+        3: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 73, hi: 89 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 73, hi: 89 } } }
         4: Bind(q)
         5: H
         6: Store
         7: Var(Local(LocalVarId(1)))
-        8: Call { callee_span: Span { lo: 98, hi: 99 }, args_span: Span { lo: 100, hi: 101 } }
+        8: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 98, hi: 99 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 100, hi: 101 } } }
         9: Reset
         10: Store
         11: Var(Local(LocalVarId(1)))
-        12: Call { callee_span: Span { lo: 112, hi: 117 }, args_span: Span { lo: 118, hi: 119 } }
+        12: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 112, hi: 117 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 118, hi: 119 } } }
         13: __quantum__rt__qubit_release
         14: Store
         15: Var(Local(LocalVarId(1)))
-        16: Call { callee_span: Span { lo: 73, hi: 89 }, args_span: Span { lo: 73, hi: 89 } }
+        16: Call { callee_span: PackageSpan { package: PackageId(2), span: Span { lo: 73, hi: 89 } }, args_span: PackageSpan { package: PackageId(2), span: Span { lo: 73, hi: 89 } } }
         17: Unit
         18: Ret"#]]
     .assert_eq(&graph);
@@ -1183,7 +1301,7 @@ fn parallel_without_limit_emits_par_start_and_end() {
             7: Expr [Var(Local(LocalVarId(2)))]
             8: Store
             9: Expr [Var(Local(LocalVarId(3)))]
-            10: Expr [BinOp { op: Add, lhs_span: Span { lo: 140, hi: 145 }, rhs_span: Span { lo: 148, hi: 153 } }]
+            10: Expr [BinOp { op: Add, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 140, hi: 145 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 148, hi: 153 } } }]
             11: ParEnd
             12: Ret"#]],
     );
@@ -1214,7 +1332,7 @@ fn parallel_within_limit_emits_par_start_with_limit() {
             8: Expr [Var(Local(LocalVarId(2)))]
             9: Store
             10: Expr [Var(Local(LocalVarId(3)))]
-            11: Expr [BinOp { op: Add, lhs_span: Span { lo: 153, hi: 158 }, rhs_span: Span { lo: 161, hi: 166 } }]
+            11: Expr [BinOp { op: Add, lhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 153, hi: 158 } }, rhs_span: PackageSpan { package: PackageId(2), span: Span { lo: 161, hi: 166 } } }]
             12: ParEnd
             13: Ret"#]],
     );

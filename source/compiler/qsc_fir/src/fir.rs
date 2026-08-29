@@ -919,7 +919,7 @@ pub enum ExecGraphNode {
     /// A binding of a value to a variable.
     Bind(PatId),
     /// An expression to execute.
-    Expr(ExecGraphExpr, Span),
+    Expr(ExecGraphExpr, PackageSpan),
     /// An unconditional jump with to given location.
     Jump(u32),
     /// A conditional jump with to given location, where the jump is only taken if the condition is
@@ -952,25 +952,25 @@ pub enum ExecGraphExpr {
     AssignOp {
         op: BinOp,
         lhs: ExprId,
-        lhs_span: Span,
-        rhs_span: Span,
+        lhs_span: PackageSpan,
+        rhs_span: PackageSpan,
     },
     AssignIndex {
         lhs: ExprId,
-        mid_span: Span,
+        mid_span: PackageSpan,
     },
     BinOp {
         op: BinOp,
-        lhs_span: Span,
-        rhs_span: Span,
+        lhs_span: PackageSpan,
+        rhs_span: PackageSpan,
     },
     Call {
-        callee_span: Span,
-        args_span: Span,
+        callee_span: PackageSpan,
+        args_span: PackageSpan,
     },
     Fail,
     Index {
-        index_span: Span,
+        index_span: PackageSpan,
     },
     Range {
         has_start: bool,
@@ -978,7 +978,7 @@ pub enum ExecGraphExpr {
         has_end: bool,
     },
     UpdateIndex {
-        mid_span: Span,
+        mid_span: PackageSpan,
     },
     Tuple(usize),
     UnOp(UnOp),

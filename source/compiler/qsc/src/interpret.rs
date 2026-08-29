@@ -1950,8 +1950,8 @@ impl Debugger {
                     name,
                     functor,
                     location: Location::from(
-                        frame.span,
-                        map_fir_package_to_hir(frame.id.package),
+                        frame.span.span,
+                        map_fir_package_to_hir(frame.span.package),
                         self.interpreter.compiler.package_store(),
                         self.position_encoding,
                     ),

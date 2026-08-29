@@ -1,14 +1,12 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::span::Span;
-
 use qsc_data_structures::functors::FunctorApp;
-use qsc_fir::fir::{ExprId, PackageId, StoreItemId};
+use qsc_fir::fir::{ExprId, PackageId, PackageSpan, StoreItemId};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
-    pub span: Span,
+    pub span: PackageSpan,
     pub id: StoreItemId,
     pub caller: PackageId,
     pub functor: FunctorApp,

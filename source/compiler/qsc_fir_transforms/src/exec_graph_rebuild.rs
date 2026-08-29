@@ -412,10 +412,7 @@ fn rebuild_expr(
             rebuild_expr(package, builder, lhs, ranges);
             builder.truncate(idx);
             rebuild_expr(package, builder, rhs, ranges);
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Assign(lhs),
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Assign(lhs), expr_span));
             builder.push(ExecGraphNode::Unit);
         }
 
@@ -457,10 +454,10 @@ fn rebuild_expr(
                 ExecGraphExpr::AssignOp {
                     op,
                     lhs,
-                    lhs_span: lhs_span.span,
-                    rhs_span: rhs_span.span,
+                    lhs_span,
+                    rhs_span,
                 },
-                expr_span.span,
+                expr_span,
             ));
             builder.push(ExecGraphNode::Unit);
         }
@@ -469,10 +466,7 @@ fn rebuild_expr(
             rebuild_expr(package, builder, replace, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, container, ranges);
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Expr(expr_id),
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
             builder.push(ExecGraphNode::Unit);
         }
 
@@ -488,9 +482,9 @@ fn rebuild_expr(
             builder.push(ExecGraphNode::Expr(
                 ExecGraphExpr::AssignIndex {
                     lhs: container,
-                    mid_span: index_span.span,
+                    mid_span: index_span,
                 },
-                expr_span.span,
+                expr_span,
             ));
             builder.push(ExecGraphNode::Unit);
         }
@@ -512,7 +506,7 @@ fn rebuild_expr(
             }
             builder.push(ExecGraphNode::Expr(
                 ExecGraphExpr::Array(items.len()),
-                expr_span.span,
+                expr_span,
             ));
         }
         ExprKind::Tuple(items) => {
@@ -522,7 +516,7 @@ fn rebuild_expr(
             }
             builder.push(ExecGraphNode::Expr(
                 ExecGraphExpr::Tuple(items.len()),
-                expr_span.span,
+                expr_span,
             ));
         }
 
@@ -531,20 +525,14 @@ fn rebuild_expr(
                 rebuild_expr(package, builder, *item_id, ranges);
                 builder.pop();
             }
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Expr(expr_id),
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
         ExprKind::ArrayRepeat(val, size) => {
             rebuild_expr(package, builder, val, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, size, ranges);
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::ArrayRepeat,
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::ArrayRepeat, expr_span));
         }
 
         ExprKind::BinOp(op, lhs, rhs) => {
@@ -559,10 +547,10 @@ fn rebuild_expr(
             builder.push(ExecGraphNode::Expr(
                 ExecGraphExpr::BinOp {
                     op,
-                    lhs_span: lhs_span.span,
-                    rhs_span: rhs_span.span,
+                    lhs_span,
+                    rhs_span,
                 },
-                expr_span.span,
+                expr_span,
             ));
         }
 
@@ -576,10 +564,10 @@ fn rebuild_expr(
             let args_span = package.get_expr(arg).span;
             builder.push(ExecGraphNode::Expr(
                 ExecGraphExpr::Call {
-                    callee_span: callee_span.span,
-                    args_span: args_span.span,
+                    callee_span,
+                    args_span,
                 },
-                expr_span.span,
+                expr_span,
             ));
         }
 
@@ -589,10 +577,8 @@ fn rebuild_expr(
             rebuild_expr(package, builder, index, ranges);
             let index_span = package.get_expr(index).span;
             builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Index {
-                    index_span: index_span.span,
-                },
-                expr_span.span,
+                ExecGraphExpr::Index { index_span },
+                expr_span,
             ));
         }
 
@@ -600,10 +586,7 @@ fn rebuild_expr(
             rebuild_expr(package, builder, replace, ranges);
             builder.push(ExecGraphNode::Store);
             rebuild_expr(package, builder, record, ranges);
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Expr(expr_id),
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
         ExprKind::UpdateIndex(lhs, mid, rhs) => {
@@ -614,10 +597,8 @@ fn rebuild_expr(
             rebuild_expr(package, builder, lhs, ranges);
             let mid_span = package.get_expr(mid).span;
             builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::UpdateIndex {
-                    mid_span: mid_span.span,
-                },
-                expr_span.span,
+                ExecGraphExpr::UpdateIndex { mid_span },
+                expr_span,
             ));
         }
 
@@ -639,7 +620,7 @@ fn rebuild_expr(
                     has_step: step.is_some(),
                     has_end: end.is_some(),
                 },
-                expr_span.span,
+                expr_span,
             ));
         }
 
@@ -650,38 +631,29 @@ fn rebuild_expr(
                     builder.push(ExecGraphNode::Store);
                 }
             }
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Expr(expr_id),
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
         ExprKind::Lit(..) => {
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Expr(expr_id),
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
         ExprKind::Var(res, _) => {
-            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Var(res), expr_span.span));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Var(res), expr_span));
         }
 
         ExprKind::Fail(msg) => {
             rebuild_expr(package, builder, msg, ranges);
-            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Fail, expr_span.span));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Fail, expr_span));
         }
 
         ExprKind::Field(container, _) => {
             rebuild_expr(package, builder, container, ranges);
-            builder.push(ExecGraphNode::Expr(
-                ExecGraphExpr::Expr(expr_id),
-                expr_span.span,
-            ));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::Expr(expr_id), expr_span));
         }
 
         ExprKind::UnOp(op, operand) => {
             rebuild_expr(package, builder, operand, ranges);
-            builder.push(ExecGraphNode::Expr(ExecGraphExpr::UnOp(op), expr_span.span));
+            builder.push(ExecGraphNode::Expr(ExecGraphExpr::UnOp(op), expr_span));
         }
 
         ExprKind::Parallel(limit, body) => {
