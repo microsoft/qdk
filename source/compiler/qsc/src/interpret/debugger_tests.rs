@@ -1,11 +1,16 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::interpret::Debugger;
+use crate::interpret::{Debugger, Interpreter};
 use crate::line_column::Encoding;
-use qsc_data_structures::language_features::LanguageFeatures;
+use qsc_data_structures::{
+    language_features::LanguageFeatures, source::SourceMap, span::Span,
+    target::TargetCapabilityFlags,
+};
 use qsc_eval::{StepAction, StepResult, output::CursorReceiver};
-use qsc_fir::fir::StmtId;
+use qsc_fir::fir::{self, ExecGraphConfig, StmtId};
+use qsc_lowerer::map_hir_package_to_fir;
+use qsc_passes::PackageType;
 use std::io::Cursor;
 
 fn get_breakpoint_ids(debugger: &Debugger, path: &str) -> Vec<StmtId> {
@@ -190,6 +195,116 @@ mod given_debugger {
                 return [m1];
             }
         }"#;
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn stack_frame_locations_use_frame_source_package_after_relocation() {
+        let source = r#"
+            namespace Test {
+                @EntryPoint()
+                operation Main() : Unit {
+                    let _ = Stored();
+                }
+
+                function Stored() : Int {
+                    1 / 0
+                }
+            }
+        "#;
+        let (std_id, store) =
+            crate::compile::package_store_with_stdlib(TargetCapabilityFlags::all());
+        let mut interpreter = Interpreter::new(
+            SourceMap::new([("user.qs".into(), source.into())], None),
+            PackageType::Exe,
+            TargetCapabilityFlags::all(),
+            LanguageFeatures::default(),
+            store,
+            &[(std_id, None)],
+            Default::default(),
+        )
+        .expect("interpreter should compile");
+        let storage_package = interpreter.source_package;
+        let source_package = map_hir_package_to_fir(std_id);
+        assert_ne!(storage_package, source_package);
+
+        let stored_item = interpreter
+            .fir_store
+            .get(storage_package)
+            .items
+            .iter()
+            .find_map(|(item_id, item)| match &item.kind {
+                fir::ItemKind::Callable(decl) if decl.name.name.as_ref() == "Stored" => {
+                    Some(item_id)
+                }
+                _ => None,
+            })
+            .expect("Stored should exist in the user package");
+        let original_graph = {
+            let item = interpreter
+                .fir_store
+                .get(storage_package)
+                .items
+                .get(stored_item)
+                .expect("Stored should exist in the user package");
+            let fir::ItemKind::Callable(decl) = &item.kind else {
+                panic!("Stored should be callable");
+            };
+            let fir::CallableImpl::Spec(spec_impl) = &decl.implementation else {
+                panic!("Stored should have an explicit implementation");
+            };
+            spec_impl.body.exec_graph.clone()
+        };
+        let relocated_span = fir::PackageSpan::new(source_package, Span { lo: 0, hi: 1 });
+        let relocate = |config| -> fir::ConfiguredExecGraph {
+            original_graph
+                .select_ref(config)
+                .iter()
+                .copied()
+                .map(|node| match node {
+                    fir::ExecGraphNode::Expr(expr, _) => {
+                        fir::ExecGraphNode::Expr(expr, relocated_span)
+                    }
+                    node => node,
+                })
+                .collect::<Vec<_>>()
+                .into()
+        };
+        let relocated_graph = fir::ExecGraph::new(
+            relocate(ExecGraphConfig::NoDebug),
+            relocate(ExecGraphConfig::Debug),
+        );
+        let item = interpreter
+            .fir_store
+            .get_mut(storage_package)
+            .items
+            .get_mut(stored_item)
+            .expect("Stored should exist in the user package");
+        let fir::ItemKind::Callable(decl) = &mut item.kind else {
+            panic!("Stored should be callable");
+        };
+        let fir::CallableImpl::Spec(spec_impl) = &mut decl.implementation else {
+            panic!("Stored should have an explicit implementation");
+        };
+        spec_impl.body.exec_graph = relocated_graph;
+
+        let mut debugger = Debugger::from(interpreter, Encoding::Utf8);
+        let (result, _) = step_continue(&mut debugger, &[]);
+        assert!(matches!(result, Ok(StepResult::Fail(_))));
+
+        let frames = debugger.get_stack_frames();
+        let frame = frames
+            .iter()
+            .find(|frame| frame.name == "Stored")
+            .expect("Stored should remain an active stack frame");
+        assert_eq!(
+            &*frame.location.source,
+            "qsharp-library-source:Std/Arrays.qs"
+        );
+        assert_eq!(frame.location.range.start.line, 0);
+        assert_eq!(frame.location.range.start.column, 0);
+        assert_eq!(frame.location.range.end.line, 0);
+        assert_eq!(frame.location.range.end.column, 1);
+    }
 
     #[cfg(test)]
     mod step {

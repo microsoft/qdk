@@ -6,8 +6,8 @@ mod control_flow;
 mod tests;
 
 use core::panic;
-use qsc_data_structures::index_map::IndexMap;
-use qsc_fir::fir::PackageId;
+use qsc_data_structures::{functors::FunctorApp, index_map::IndexMap};
+use qsc_fir::fir::{ExprId, LocalItemId, PackageId, StoreItemId};
 use qsc_partial_eval::{
     Callable, CallableType, ConditionCode, FcmpConditionCode, Instruction, Literal, Operand,
     VariableId,
@@ -271,24 +271,28 @@ impl DbgLookup<'_> {
             let scope_id = self.lexical_scope(location_idx);
             let package_offset = self.source_location(location_idx);
             match &self.dbg_info.get_scope(scope_id) {
-                DbgScope::SubProgram { name, location } => {
-                    let scope = Scope::Callable(CallableId::Source(
-                        PackageOffset {
-                            package_id: location.package_id.into(),
-                            offset: location.offset,
+                DbgScope::SubProgram { callable_id, .. } => {
+                    let scope = Scope::Callable(CallableId::Id(
+                        StoreItemId {
+                            package: PackageId::from(callable_id.package_id),
+                            item: LocalItemId::from(callable_id.item_id),
                         },
-                        name.clone(),
+                        FunctorApp {
+                            adjoint: callable_id.functor_app.adjoint,
+                            controlled: callable_id.functor_app.controlled,
+                        },
                     ));
                     location_stack.push(LogicalStackEntry::new_call_site(package_offset, scope));
                 }
                 DbgScope::LexicalBlockFile {
                     discriminator,
-                    location: scope_location,
+                    loop_id,
+                    ..
                 } => {
-                    let loop_scope_id = LoopId::Source(PackageOffset {
-                        package_id: scope_location.package_id.into(),
-                        offset: scope_location.offset,
-                    });
+                    let loop_scope_id = LoopId::Id(
+                        PackageId::from(loop_id.package_id),
+                        ExprId::from(loop_id.expr_id),
+                    );
                     location_stack.push(LogicalStackEntry::new_call_site(
                         package_offset,
                         Scope::LoopIteration(loop_scope_id, *discriminator),

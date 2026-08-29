@@ -598,8 +598,8 @@ impl Lowerer {
             hir::ExprKind::AssignOp(op, lhs, rhs) => {
                 let idx = self.exec_graph.len();
                 let is_array = matches!(lhs.ty, qsc_hir::ty::Ty::Array(..));
-                let lhs_span = lhs.span;
-                let rhs_span = rhs.span;
+                let lhs_span = self.pkg_span(lhs.span);
+                let rhs_span = self.pkg_span(rhs.span);
                 let lhs = self.lower_expr(lhs);
                 if is_array {
                     // The left-hand side of an array append is not really an expression to be
@@ -650,7 +650,7 @@ impl Lowerer {
                 (fir::ExprKind::AssignField(container, field, replace), None)
             }
             hir::ExprKind::AssignIndex(container, index, replace) => {
-                let index_span = index.span;
+                let index_span = self.pkg_span(index.span);
                 let index = self.lower_expr(index);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let replace = self.lower_expr(replace);
@@ -668,8 +668,8 @@ impl Lowerer {
                 )
             }
             hir::ExprKind::BinOp(op, lhs, rhs) => {
-                let lhs_span = lhs.span;
-                let rhs_span = rhs.span;
+                let lhs_span = self.pkg_span(lhs.span);
+                let rhs_span = self.pkg_span(rhs.span);
                 let lhs = self.lower_expr(lhs);
                 let idx = self.exec_graph.len();
                 if matches!(op, hir::BinOp::AndL | hir::BinOp::OrL) {
@@ -712,8 +712,8 @@ impl Lowerer {
             }
             hir::ExprKind::Block(block) => (fir::ExprKind::Block(self.lower_block(block)), None),
             hir::ExprKind::Call(callee, arg) => {
-                let callee_span = callee.span;
-                let args_span = arg.span;
+                let callee_span = self.pkg_span(callee.span);
+                let args_span = self.pkg_span(arg.span);
                 let call = self.lower_expr(callee);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let arg = self.lower_expr(arg);
@@ -766,7 +766,7 @@ impl Lowerer {
                 (fir::ExprKind::If(cond, if_true, if_false), None)
             }
             hir::ExprKind::Index(container, index) => {
-                let index_span = index.span;
+                let index_span = self.pkg_span(index.span);
                 let container = self.lower_expr(container);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let index = self.lower_expr(index);
@@ -895,7 +895,7 @@ impl Lowerer {
                 None,
             ),
             hir::ExprKind::UpdateIndex(lhs, mid, rhs) => {
-                let mid_span = mid.span;
+                let mid_span = self.pkg_span(mid.span);
                 let mid = self.lower_expr(mid);
                 self.exec_graph.push(ExecGraphNode::Store);
                 let rhs = self.lower_expr(rhs);
@@ -951,23 +951,26 @@ impl Lowerer {
                 // `Unit` node.
                 if let Some(exec_expr) = exec_expr {
                     self.exec_graph
-                        .push(ExecGraphNode::Expr(exec_expr, expr.span));
+                        .push(ExecGraphNode::Expr(exec_expr, self.pkg_span(expr.span)));
                 } else {
-                    self.exec_graph
-                        .push(ExecGraphNode::Expr(ExecGraphExpr::Expr(id), expr.span));
+                    self.exec_graph.push(ExecGraphNode::Expr(
+                        ExecGraphExpr::Expr(id),
+                        self.pkg_span(expr.span),
+                    ));
                 }
                 self.exec_graph.push(ExecGraphNode::Unit);
             }
 
             (_, Some(exec_expr)) => {
                 self.exec_graph
-                    .push(ExecGraphNode::Expr(exec_expr, expr.span));
+                    .push(ExecGraphNode::Expr(exec_expr, self.pkg_span(expr.span)));
             }
 
             // All other expressions should be added to the execution graph.
-            _ => self
-                .exec_graph
-                .push(ExecGraphNode::Expr(ExecGraphExpr::Expr(id), expr.span)),
+            _ => self.exec_graph.push(ExecGraphNode::Expr(
+                ExecGraphExpr::Expr(id),
+                self.pkg_span(expr.span),
+            )),
         }
 
         let expr = fir::Expr {

@@ -53,7 +53,8 @@ use qsc_rca::{
 pub use qsc_rir::{
     builder::{self, initialize_decl},
     debug::{
-        DbgLocation, DbgLocationId, DbgPackageOffset, DbgScope, DbgScopeId, InstructionDbgMetadata,
+        DbgCallableId, DbgLocation, DbgLocationId, DbgLoopId, DbgPackageOffset, DbgScope,
+        DbgScopeId, InstructionDbgMetadata,
     },
     rir::{
         self, Callable, CallableId, CallableType, ConditionCode, FcmpConditionCode, Instruction,
@@ -4530,10 +4531,14 @@ impl<'a> PartialEvaluator<'a> {
             ..
         }) = scope.dbg_context.loop_iterations.last()
         {
+            let loop_id = DbgLoopId {
+                package_id: scope.package_id.into(),
+                expr_id: (*loop_expr).into(),
+            };
             let s = self
                 .dbg_context
                 .dbg_loop_expr_to_scope
-                .get(&(*loop_expr, *iteration_count))
+                .get(&(loop_id, *iteration_count))
                 .copied();
             if let Some(s) = s {
                 Some(s)
@@ -4541,13 +4546,14 @@ impl<'a> PartialEvaluator<'a> {
                 let loop_expr_location = self.expr_start_source_location(*loop_expr);
                 let scope = DbgScope::LexicalBlockFile {
                     discriminator: *iteration_count,
+                    loop_id,
                     location: loop_expr_location,
                 };
 
                 let i = self.program.dbg_info.add_scope(scope);
                 self.dbg_context
                     .dbg_loop_expr_to_scope
-                    .insert((*loop_expr, *iteration_count), i);
+                    .insert((loop_id, *iteration_count), i);
                 Some(i)
             }
         } else {
@@ -4559,7 +4565,7 @@ impl<'a> PartialEvaluator<'a> {
             let s = self
                 .dbg_context
                 .dbg_callable_to_scope
-                .get(&(item_id, functor_app.adjoint))
+                .get(&(item_id, functor_app))
                 .copied();
 
             if let Some(s) = s {
@@ -4575,19 +4581,27 @@ impl<'a> PartialEvaluator<'a> {
                 } else {
                     callable_decl.name.name.clone()
                 };
-                let current_package_id = self.get_current_package_id();
-                let package_id = current_package_id.into();
+                let span = match &callable_decl.implementation {
+                    CallableImpl::Spec(spec_impl) => get_spec_decl(spec_impl, functor_app).span,
+                    CallableImpl::SimulatableIntrinsic(spec_decl) => spec_decl.span,
+                    CallableImpl::Intrinsic => callable_decl.span,
+                };
                 let scope = DbgScope::SubProgram {
                     name,
+                    callable_id: DbgCallableId {
+                        package_id: item_id.package.into(),
+                        item_id: item_id.item.into(),
+                        functor_app,
+                    },
                     location: DbgPackageOffset {
-                        package_id,
-                        offset: callable_decl.span.lo,
+                        package_id: span.package.into(),
+                        offset: span.lo,
                     },
                 };
                 let i = self.program.dbg_info.add_scope(scope);
                 self.dbg_context
                     .dbg_callable_to_scope
-                    .insert((item_id, functor_app.adjoint), i);
+                    .insert((item_id, functor_app), i);
                 Some(i)
             }
         }
@@ -4642,14 +4656,13 @@ impl<'a> PartialEvaluator<'a> {
     fn expr_start_source_location(&self, expr_id: ExprId) -> DbgPackageOffset {
         let package_id = self.get_current_package_id();
         let package = self.package_store.get(package_id);
+        let expr = package
+            .exprs
+            .get(expr_id)
+            .expect("current expr id not found");
         DbgPackageOffset {
-            package_id: package_id.into(),
-            offset: package
-                .exprs
-                .get(expr_id)
-                .expect("current expr id not found")
-                .span
-                .lo,
+            package_id: expr.span.package.into(),
+            offset: expr.span.lo,
         }
     }
 
@@ -4879,10 +4892,10 @@ fn is_static_value(args_value: &Value) -> bool {
 
 #[derive(Default)]
 pub(crate) struct DbgContext {
-    /// (`CallableId`, isAdjoint) -> Scope index
-    pub(crate) dbg_callable_to_scope: FxHashMap<(StoreItemId, bool), DbgScopeId>,
-    /// (Loop `ExprId`, iteration) -> Scope index
-    pub(crate) dbg_loop_expr_to_scope: FxHashMap<(ExprId, usize), DbgScopeId>,
+    /// (`StoreItemId`, `FunctorApp`) -> Scope index
+    pub(crate) dbg_callable_to_scope: FxHashMap<(StoreItemId, FunctorApp), DbgScopeId>,
+    /// (`DbgLoopId`, iteration) -> Scope index
+    pub(crate) dbg_loop_expr_to_scope: FxHashMap<(DbgLoopId, usize), DbgScopeId>,
 }
 
 #[derive(Default)]

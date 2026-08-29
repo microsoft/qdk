@@ -48,7 +48,7 @@ pub(crate) fn format_call_stack(
         }
         write!(trace, "{}", call.name.name).expect("writing to string should succeed");
 
-        let name = get_item_file_name(store, frame.id);
+        let name = get_frame_file_name(store, &frame);
         let pos = get_position(&frame, store);
         write!(
             trace,
@@ -80,12 +80,10 @@ fn get_item_parent(store: &PackageStore, id: StoreItemId) -> Option<Item> {
 }
 
 #[must_use]
-fn get_item_file_name(store: &PackageStore, id: StoreItemId) -> Option<String> {
-    let package = map_fir_package_to_hir(id.package);
-    let item = hir::LocalItemId::from(usize::from(id.item));
+fn get_frame_file_name(store: &PackageStore, frame: &Frame) -> Option<String> {
+    let package = map_fir_package_to_hir(frame.span.package);
     store.get(package).and_then(|unit| {
-        let item = unit.package.items.get(item)?;
-        let source = unit.sources.find_by_offset(item.span.lo);
+        let source = unit.sources.find_by_offset(frame.span.span.lo);
         source.map(|s| s.name.to_string())
     })
 }
@@ -98,15 +96,14 @@ fn get_ns_name(item: &Item) -> Option<Rc<str>> {
     Some(ns.name())
 }
 
-/// Converts the [`Span`] of [`Frame`] into a [`Position`].
+/// Converts the source location of a [`Frame`] into a [`Position`].
 fn get_position(frame: &Frame, store: &PackageStore) -> Position {
-    let filename = get_item_file_name(store, frame.id).expect("file should exist");
-    let package_id = map_fir_package_to_hir(frame.id.package);
+    let package_id = map_fir_package_to_hir(frame.span.package);
     let unit = store.get(package_id).expect("package should exist");
     let source = unit
         .sources
-        .find_by_name(&filename)
+        .find_by_offset(frame.span.span.lo)
         .expect("source should exist");
     let contents = &source.contents;
-    Position::from_utf8_byte_offset(Encoding::Utf8, contents, frame.span.lo - source.offset)
+    Position::from_utf8_byte_offset(Encoding::Utf8, contents, frame.span.span.lo - source.offset)
 }
