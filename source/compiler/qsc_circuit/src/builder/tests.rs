@@ -38,7 +38,7 @@ impl SourceLookup for FakeCompilation {
         }
     }
 
-    fn resolve_scope(&self, scope: &Scope, _loop_id_cache: &mut LoopIdCache) -> LexicalScope {
+    fn resolve_scope(&self, scope: &Scope) -> LexicalScope {
         match scope {
             Scope::Callable(CallableId::Id(store_item_id, functor_app)) => {
                 let name = self
@@ -64,7 +64,6 @@ impl SourceLookup for FakeCompilation {
     fn resolve_logical_stack_entry_location(
         &self,
         location: LogicalStackEntryLocation,
-        _loop_id_cache: &mut LoopIdCache,
     ) -> Option<PackageOffset> {
         match location {
             LogicalStackEntryLocation::Source(package_offset) => Some(package_offset),
@@ -110,10 +109,13 @@ impl FakeCompilation {
     fn frame(scope_item_id: &Scope, offset: u32, is_adjoint: bool) -> Frame {
         match scope_item_id {
             Scope::Callable(CallableId::Id(store_item_id, _)) => Frame {
-                span: Span {
-                    lo: offset,
-                    hi: offset + 1,
-                },
+                span: fir::PackageSpan::new(
+                    store_item_id.package,
+                    Span {
+                        lo: offset,
+                        hi: offset + 1,
+                    },
+                ),
                 id: *store_item_id,
                 caller: PackageId::CORE, // unused in tests
                 functor: FunctorApp {
@@ -287,30 +289,11 @@ fn clone_callable_into_package(
     }
 }
 
-/// Creates a source-location callable scope for the given FIR callable so tests
-/// exercise origin resolution by package span instead of item id.
-fn source_scope_for_callable(fir_store: &fir::PackageStore, callable_id: StoreItemId) -> Scope {
-    let callable = fir_store.get_item(callable_id);
-    let fir::ItemKind::Callable(decl) = &callable.kind else {
-        panic!("expected callable item");
-    };
-
-    Scope::Callable(CallableId::Source(
-        PackageOffset {
-            package_id: callable_id.package,
-            offset: decl.span.lo,
-        },
-        decl.name.name.clone(),
-    ))
-}
-
 #[test]
-fn synthesized_callable_scope_detected_correctly() {
+fn id_backed_callable_scopes_preserve_storage_and_source_identity() {
     let (store, mut fir_store, library_package_id, user_package_id) =
         compile_origin_lookup_stores();
 
-    // Move one dependency callable and one user callable into the user package
-    // with synthesized names while leaving their source spans intact.
     let library_clone = clone_callable_into_package(
         &mut fir_store,
         library_package_id,
@@ -318,28 +301,97 @@ fn synthesized_callable_scope_detected_correctly() {
         "LibraryHelper",
         "<Adj>",
     );
+    let duplicate_library_clone = clone_callable_into_package(
+        &mut fir_store,
+        library_package_id,
+        user_package_id,
+        "LibraryHelper",
+        "<Ctl>",
+    );
     let user_clone = clone_callable_into_package(
         &mut fir_store,
         user_package_id,
-        user_package_id,
+        library_package_id,
         "UserHelper",
         "{H}",
     );
 
-    // Check both callable id scopes and source scopes because each path can be
-    // used when deciding whether a scope is synthesized.
-    let library_id_scope = Scope::Callable(CallableId::Id(library_clone, FunctorApp::default()));
-    let user_id_scope = Scope::Callable(CallableId::Id(user_clone, FunctorApp::default()));
-    let library_source_scope = source_scope_for_callable(&fir_store, library_clone);
-    let user_source_scope = source_scope_for_callable(&fir_store, user_clone);
+    let callable_body_span = |callable_id| {
+        let item = fir_store.get_item(callable_id);
+        let fir::ItemKind::Callable(decl) = &item.kind else {
+            panic!("expected callable item");
+        };
+        let fir::CallableImpl::Spec(spec_impl) = &decl.implementation else {
+            panic!("expected specialization implementation");
+        };
+        spec_impl.body.span
+    };
+    let library_source_span = callable_body_span(library_clone);
+    let duplicate_library_source_span = callable_body_span(duplicate_library_clone);
+    let user_source_span = callable_body_span(user_clone);
+    assert_ne!(library_clone, duplicate_library_clone);
+    assert_eq!(library_clone.package, user_package_id);
+    assert_eq!(duplicate_library_clone.package, user_package_id);
+    assert_eq!(user_clone.package, library_package_id);
+    assert_eq!(library_source_span, duplicate_library_source_span);
+    assert_eq!(library_source_span.package, library_package_id);
+    assert_eq!(user_source_span.package, user_package_id);
+
+    let library_scope = Scope::Callable(CallableId::Id(library_clone, FunctorApp::default()));
+    let duplicate_library_scope = Scope::Callable(CallableId::Id(
+        duplicate_library_clone,
+        FunctorApp::default(),
+    ));
+    let user_scope = Scope::Callable(CallableId::Id(user_clone, FunctorApp::default()));
     let lookup = (&store, &fir_store);
 
-    // Both clones are synthesized (no matching HIR item)
-    assert!(lookup.is_synthesized_callable_scope(&library_id_scope));
-    assert!(lookup.is_synthesized_callable_scope(&user_id_scope));
-    assert!(lookup.is_synthesized_callable_scope(&library_source_scope));
-    // The user clone with matching source span is NOT synthesized
-    assert!(!lookup.is_synthesized_callable_scope(&user_source_scope));
+    assert_ne!(library_scope, duplicate_library_scope);
+    assert_eq!(
+        lookup.resolve_scope(&library_scope).location,
+        Some(PackageOffset {
+            package_id: library_source_span.package,
+            offset: library_source_span.lo,
+        })
+    );
+    assert_eq!(
+        lookup.resolve_scope(&duplicate_library_scope).location,
+        Some(PackageOffset {
+            package_id: duplicate_library_source_span.package,
+            offset: duplicate_library_source_span.lo,
+        })
+    );
+    assert_eq!(
+        lookup.resolve_scope(&user_scope).location,
+        Some(PackageOffset {
+            package_id: user_source_span.package,
+            offset: user_source_span.lo,
+        })
+    );
+    assert!(lookup.is_synthesized_callable_scope(&library_scope));
+    assert!(lookup.is_synthesized_callable_scope(&duplicate_library_scope));
+    assert!(lookup.is_synthesized_callable_scope(&user_scope));
+
+    let retained = retain_user_frames(
+        &[user_package_id],
+        LogicalStack(vec![
+            LogicalStackEntry::new_call_site(
+                PackageOffset {
+                    package_id: library_source_span.package,
+                    offset: library_source_span.lo,
+                },
+                library_scope.clone(),
+            ),
+            LogicalStackEntry::new_call_site(
+                PackageOffset {
+                    package_id: user_source_span.package,
+                    offset: user_source_span.lo,
+                },
+                user_scope,
+            ),
+        ]),
+    );
+    assert_eq!(retained.0.len(), 1);
+    assert_eq!(retained.0[0].lexical_scope(), &library_scope);
 }
 
 #[test]
@@ -572,7 +624,7 @@ fn source_locations_enabled_no_stack() {
 }
 
 #[test]
-fn qubit_source_locations_via_stack() {
+fn frame_source_package_controls_operation_and_qubit_locations() {
     let mut c = FakeCompilation::default();
     let mut builder = CircuitTracer::new(
         TracerConfig {
@@ -584,14 +636,17 @@ fn qubit_source_locations_via_stack() {
         &FakeCompilation::user_package_ids(),
     );
 
-    builder.qubit_allocate(&[c.user_code_frame("Main", 10)], 0);
+    let mut frame = c.user_code_frame("Main", 10);
+    frame.span.package = FakeCompilation::LIBRARY_PACKAGE_ID.into();
+    let stack = [frame];
 
-    builder.gate(&[], "X", false, &[0], &[], None);
+    builder.qubit_allocate(&stack, 0);
+    builder.gate(&stack, "X", false, &[0], &[], None);
 
     let circuit = builder.finish(&c);
 
     expect![[r#"
-        q_0@user_code.qs:0:10  ── X ──
+        q_0@library_code.qs:0:10 ─ X@library_code.qs:0:10 ──
     "#]]
     .assert_eq(&circuit.to_string());
 }
@@ -804,10 +859,8 @@ fn resolve_scope_for_loop_tolerates_out_of_range_condition_span() {
 
     // Resolution should tolerate the bad condition span and still produce a
     // stable group name and source location from the loop expression itself.
-    let scope = (&store, &fir_store).resolve_scope(
-        &Scope::Loop(LoopId::Id(fir_package_id, loop_expr_id)),
-        &mut Default::default(),
-    );
+    let scope =
+        (&store, &fir_store).resolve_scope(&Scope::Loop(LoopId::Id(fir_package_id, loop_expr_id)));
 
     assert_eq!(scope.name.as_ref(), "loop: ");
     assert_eq!(
@@ -853,7 +906,8 @@ fn compile_and_lower_test_package(
 }
 
 #[test]
-fn resolve_scope_for_loop_uses_condition_source_package() {
+#[allow(clippy::too_many_lines)]
+fn id_backed_loop_scope_uses_relocated_source_spans() {
     let mut core = compile::core();
     run_core_passes(&mut core);
     let mut store = PackageStore::new(core);
@@ -891,48 +945,88 @@ fn resolve_scope_for_loop_uses_condition_source_package() {
     fir_store.insert(dependency_package, dependency_fir);
     fir_store.insert(user_package, user_fir);
 
-    let dependency_condition_span = {
+    let (dependency_loop_span, dependency_condition_span, dependency_body_span) = {
         let package = fir_store.get(dependency_package);
         package
             .exprs
             .values()
             .find_map(|expr| match expr.kind {
-                ExprKind::While(condition, _) => Some(package.get_expr(condition).span),
+                ExprKind::While(condition, body) => Some((
+                    expr.span,
+                    package.get_expr(condition).span,
+                    package.get_block(body).span,
+                )),
                 _ => None,
             })
             .expect("expected dependency while loop")
     };
-    let (user_loop, user_condition) = {
+    let (user_loop, user_condition, user_body) = {
         let package = fir_store.get(user_package);
         package
             .exprs
             .iter()
             .find_map(|(expr_id, expr)| match expr.kind {
-                ExprKind::While(condition, _) => Some((expr_id, condition)),
+                ExprKind::While(condition, body) => Some((expr_id, condition, body)),
                 _ => None,
             })
             .expect("expected user while loop")
     };
+    assert_eq!(dependency_loop_span.package, dependency_package);
     assert_eq!(dependency_condition_span.package, dependency_package);
-    assert_ne!(dependency_condition_span.package, user_package);
-    fir_store
-        .get_mut(user_package)
+    assert_eq!(dependency_body_span.package, dependency_package);
+    assert_ne!(dependency_package, user_package);
+    let user_fir = fir_store.get_mut(user_package);
+    user_fir
+        .exprs
+        .get_mut(user_loop)
+        .expect("user loop should exist")
+        .span = dependency_loop_span;
+    user_fir
         .exprs
         .get_mut(user_condition)
         .expect("user condition should exist")
         .span = dependency_condition_span;
+    user_fir
+        .blocks
+        .get_mut(user_body)
+        .expect("user loop body should exist")
+        .span = dependency_body_span;
 
-    let scope = (&store, &fir_store).resolve_scope(
-        &Scope::Loop(LoopId::Id(user_package, user_loop)),
-        &mut Default::default(),
-    );
+    let lookup = (&store, &fir_store);
+    let loop_id = LoopId::Id(user_package, user_loop);
+    let scope = lookup.resolve_scope(&Scope::Loop(loop_id));
 
     assert_eq!(scope.name.as_ref(), "loop: dependency_index < 17");
     assert_eq!(
         scope.location,
         Some(PackageOffset {
-            package_id: user_package,
-            offset: fir_store.get(user_package).get_expr(user_loop).span.lo,
+            package_id: dependency_loop_span.package,
+            offset: dependency_loop_span.lo,
+        })
+    );
+    assert_eq!(
+        lookup
+            .resolve_scope(&Scope::LoopIteration(loop_id, 0))
+            .location,
+        Some(PackageOffset {
+            package_id: dependency_body_span.package,
+            offset: dependency_body_span.lo,
+        })
+    );
+    assert_eq!(
+        lookup.resolve_logical_stack_entry_location(LogicalStackEntryLocation::Loop(loop_id)),
+        Some(PackageOffset {
+            package_id: dependency_loop_span.package,
+            offset: dependency_loop_span.lo,
+        })
+    );
+    assert_eq!(
+        lookup.resolve_logical_stack_entry_location(LogicalStackEntryLocation::LoopIteration(
+            loop_id, 0,
+        )),
+        Some(PackageOffset {
+            package_id: dependency_body_span.package,
+            offset: dependency_body_span.lo,
         })
     );
 }

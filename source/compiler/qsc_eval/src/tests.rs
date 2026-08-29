@@ -17,7 +17,7 @@ use qsc_data_structures::{
 use qsc_fir::fir::{self, ExecGraph, ExecGraphConfig, StmtId};
 use qsc_fir::fir::{PackageId, PackageStoreLookup};
 use qsc_frontend::compile::{self, PackageStore, compile};
-use qsc_lowerer::map_hir_package_to_fir;
+use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
 
 /// Evaluates the given control flow graph with the given context.
@@ -161,9 +161,11 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     }
 }
 
-/// Same as [`check_expr`], but compiles an additional user-authored library package that the
-/// entry package depends on. Package ids are `core` = 0, `std` = 1, `lib` = 2, entry = 3.
-fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
+fn compile_expr_with_lib(
+    lib: &str,
+    file: &str,
+    expr: &str,
+) -> (fir::PackageStore, PackageId, PackageId) {
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
     let mut core = compile::core();
     run_core_passes(&mut core);
@@ -218,7 +220,6 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
         &fir_store,
         map_hir_package_to_fir(id),
     );
-    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -229,19 +230,148 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
     fir_store.insert(map_hir_package_to_fir(lib_id), lib_fir);
     fir_store.insert(map_hir_package_to_fir(id), unit_fir);
 
+    (
+        fir_store,
+        map_hir_package_to_fir(lib_id),
+        map_hir_package_to_fir(id),
+    )
+}
+
+/// Same as [`check_expr`], but compiles an additional user-authored library package that the
+/// entry package depends on. Package ids are `core` = 0, `std` = 1, `lib` = 2, entry = 3.
+fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
+    let (fir_store, _, id) = compile_expr_with_lib(lib, file, expr);
+    let entry = fir_store.get(id).entry_exec_graph.clone();
+
     let mut out = Vec::new();
     match eval_graph(
         entry,
         &mut SparseSim::new(),
         &fir_store,
         ExecGraphConfig::NoDebug,
-        map_hir_package_to_fir(id),
+        id,
         &mut Env::default(),
         &mut GenericReceiver::new(&mut out),
     ) {
         Ok(value) => expect.assert_eq(&value.to_string()),
         Err((err, _)) => expect.assert_debug_eq(&err),
     }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn graph_source_packages_survive_errors_and_frame_rotation() {
+    let (mut store, lib_id, entry_id) = compile_expr_with_lib(
+        indoc! {"
+            namespace Lib {
+                function Failing() : Int {
+                    1 / 0
+                }
+                export Failing;
+            }
+        "},
+        "",
+        "Lib.Failing()",
+    );
+    let failing_item = store
+        .get(lib_id)
+        .items
+        .iter()
+        .find_map(|(item_id, item)| match &item.kind {
+            fir::ItemKind::Callable(decl) if decl.name.name.as_ref() == "Failing" => Some(item_id),
+            _ => None,
+        })
+        .expect("Failing should exist in the library package");
+    let original_graph = {
+        let item = store
+            .get(lib_id)
+            .items
+            .get(failing_item)
+            .expect("Failing should exist in the library package");
+        let fir::ItemKind::Callable(decl) = &item.kind else {
+            panic!("Failing should be callable");
+        };
+        let fir::CallableImpl::Spec(spec_impl) = &decl.implementation else {
+            panic!("Failing should have an explicit implementation");
+        };
+        spec_impl.body.exec_graph.clone()
+    };
+    let relocate = |config| -> fir::ConfiguredExecGraph {
+        original_graph
+            .select_ref(config)
+            .iter()
+            .copied()
+            .map(|node| match node {
+                fir::ExecGraphNode::Expr(
+                    fir::ExecGraphExpr::BinOp {
+                        op,
+                        mut lhs_span,
+                        mut rhs_span,
+                    },
+                    mut span,
+                ) => {
+                    lhs_span.package = entry_id;
+                    rhs_span.package = entry_id;
+                    span.package = entry_id;
+                    fir::ExecGraphNode::Expr(
+                        fir::ExecGraphExpr::BinOp {
+                            op,
+                            lhs_span,
+                            rhs_span,
+                        },
+                        span,
+                    )
+                }
+                fir::ExecGraphNode::Expr(expr, mut span) => {
+                    span.package = entry_id;
+                    fir::ExecGraphNode::Expr(expr, span)
+                }
+                node => node,
+            })
+            .collect::<Vec<_>>()
+            .into()
+    };
+    let relocated_graph = fir::ExecGraph::new(
+        relocate(ExecGraphConfig::NoDebug),
+        relocate(ExecGraphConfig::Debug),
+    );
+    let item = store
+        .get_mut(lib_id)
+        .items
+        .get_mut(failing_item)
+        .expect("Failing should exist in the library package");
+    let fir::ItemKind::Callable(decl) = &mut item.kind else {
+        panic!("Failing should be callable");
+    };
+    let fir::CallableImpl::Spec(spec_impl) = &mut decl.implementation else {
+        panic!("Failing should have an explicit implementation");
+    };
+    spec_impl.body.exec_graph = relocated_graph;
+
+    let entry = store.get(entry_id).entry_exec_graph.clone();
+    let mut output = Vec::new();
+    let (error, frames) = eval_graph(
+        entry,
+        &mut SparseSim::new(),
+        &store,
+        ExecGraphConfig::NoDebug,
+        entry_id,
+        &mut Env::default(),
+        &mut GenericReceiver::new(&mut output),
+    )
+    .expect_err("division by zero should fail");
+
+    let Error::DivZero(error_span) = error else {
+        panic!("expected division-by-zero error");
+    };
+    assert_eq!(error_span.package, map_fir_package_to_hir(entry_id));
+    assert_eq!(frames.len(), 1, "expected one active callable frame");
+    let frame = &frames[0];
+    assert_eq!(frame.span.package, entry_id);
+    assert_ne!(frame.span.span, Span::default());
+    assert_eq!(frame.id.package, lib_id);
+    assert_eq!(frame.id.item, failing_item);
+    assert_eq!(frame.caller, entry_id);
 }
 
 fn check_output(file: &str, expr: &str, expect: &Expect) {
@@ -4701,7 +4831,7 @@ fn parallel_within_use_after_borrow_flag_checks_nonzero_release() {
                 0,
                 PackageSpan {
                     package: PackageId(
-                        2,
+                        0,
                     ),
                     span: Span {
                         lo: 3480,

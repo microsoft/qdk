@@ -7,10 +7,124 @@
     clippy::too_many_lines
 )]
 
-use crate::tests::{assert_blocks, get_rir_program_with_dbg_metadata};
+use crate::{
+    PartialEvalConfig, partially_evaluate,
+    tests::{CompilationContext, assert_blocks, get_rir_program_with_dbg_metadata},
+};
 
 use expect_test::expect;
 use indoc::indoc;
+use qsc_data_structures::{functors::FunctorApp, target::Profile};
+use qsc_fir::fir::{self, CallableImpl, ExprKind, PackageId};
+use qsc_rir::debug::DbgScope;
+
+#[test]
+fn debug_metadata_preserves_source_and_storage_identity_after_relocation() {
+    let source = indoc! {r#"
+        namespace Test {
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                mutable index = 0;
+                while index < 1 {
+                    H(q);
+                    set index += 1;
+                }
+            }
+        }
+    "#};
+    let capabilities = Profile::AdaptiveRIF.into();
+    let mut context = CompilationContext::new(source, capabilities);
+    let storage_package = context.entry.expr.package;
+    let source_package = PackageId::CORE;
+    assert_ne!(storage_package, source_package);
+
+    let package = context.fir_store.get_mut(storage_package);
+    let main_item_id = package
+        .items
+        .iter()
+        .find_map(|(item_id, item)| match &item.kind {
+            fir::ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main" => Some(item_id),
+            _ => None,
+        })
+        .expect("Main callable should exist");
+    let main_item = package
+        .items
+        .get_mut(main_item_id)
+        .expect("Main callable should exist");
+    let fir::ItemKind::Callable(main_decl) = &mut main_item.kind else {
+        panic!("Main item should be callable");
+    };
+    let CallableImpl::Spec(main_impl) = &mut main_decl.implementation else {
+        panic!("Main callable should have specializations");
+    };
+    main_impl.body.span.package = source_package;
+
+    let loop_expr_id = package
+        .exprs
+        .iter()
+        .find_map(|(expr_id, expr)| matches!(expr.kind, ExprKind::While(..)).then_some(expr_id))
+        .expect("while expression should exist");
+    for expr in package.exprs.values_mut() {
+        expr.span.package = source_package;
+    }
+
+    let program = partially_evaluate(
+        &context.fir_store,
+        &context.compute_properties,
+        &context.entry,
+        capabilities,
+        PartialEvalConfig {
+            generate_debug_metadata: true,
+        },
+    )
+    .expect("partial evaluation should succeed");
+
+    let main_scope = program
+        .dbg_info
+        .dbg_scopes
+        .values()
+        .find_map(|(scope, _)| match scope {
+            DbgScope::SubProgram {
+                name,
+                callable_id,
+                location,
+            } if name.as_ref() == "Main" => Some((callable_id, location)),
+            _ => None,
+        })
+        .expect("Main debug scope should exist");
+    assert_eq!(main_scope.0.package_id, usize::from(storage_package));
+    assert_eq!(main_scope.0.item_id, usize::from(main_item_id));
+    assert_eq!(main_scope.0.functor_app, FunctorApp::default());
+    assert_eq!(main_scope.1.package_id, usize::from(source_package));
+
+    let (loop_scope_id, loop_id) = program
+        .dbg_info
+        .dbg_scopes
+        .iter()
+        .find_map(|(scope_id, (scope, _))| match scope {
+            DbgScope::LexicalBlockFile {
+                loop_id, location, ..
+            } => {
+                assert_eq!(location.package_id, usize::from(source_package));
+                Some((scope_id, loop_id))
+            }
+            DbgScope::SubProgram { .. } => None,
+        })
+        .expect("loop debug scope should exist");
+    assert_eq!(loop_id.package_id, usize::from(storage_package));
+    assert_eq!(loop_id.expr_id, usize::from(loop_expr_id));
+    assert!(
+        program
+            .dbg_info
+            .dbg_locations
+            .values()
+            .any(|(location, _)| {
+                location.scope == loop_scope_id
+                    && location.location.package_id == usize::from(source_package)
+            })
+    );
+}
 
 #[test]
 fn no_gates() {
@@ -57,8 +171,8 @@ fn one_gate() {
                 Return Integer(0)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = SubProgram name=H location=(1-111225)
+                0 = SubProgram name=Main location=(2-40) callable=(2-1 adjoint=false controlled=0)
+                1 = SubProgram name=H location=(1-111278) callable=(1-249 adjoint=false controlled=0)
             dbg_locations:
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(1-111297) inlined_at=1"#]],
@@ -92,9 +206,9 @@ fn one_measurement() {
                 Return Integer(0)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = SubProgram name=H location=(1-111225)
-                2 = SubProgram name=M location=(1-112934)
+                0 = SubProgram name=Main location=(2-40) callable=(2-1 adjoint=false controlled=0)
+                1 = SubProgram name=H location=(1-111278) callable=(1-249 adjoint=false controlled=0)
+                2 = SubProgram name=M location=(1-112934) callable=(1-251 adjoint=false controlled=0)
             dbg_locations:
                 [1]: scope=0 location=(2-103)
                 [2]: scope=1 location=(1-111297) inlined_at=1
@@ -132,10 +246,10 @@ fn calls_to_other_callables() {
                 Return Integer(0)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = SubProgram name=Foo location=(2-138)
-                2 = SubProgram name=H location=(1-111225)
-                3 = SubProgram name=MResetZ location=(1-182276)
+                0 = SubProgram name=Main location=(2-40) callable=(2-1 adjoint=false controlled=0)
+                1 = SubProgram name=Foo location=(2-138) callable=(2-2 adjoint=false controlled=0)
+                2 = SubProgram name=H location=(1-111278) callable=(1-249 adjoint=false controlled=0)
+                3 = SubProgram name=MResetZ location=(1-182276) callable=(1-500 adjoint=false controlled=0)
             dbg_locations:
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-179) inlined_at=1
@@ -184,13 +298,13 @@ fn classical_for_loop() {
                 Return Integer(0)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                1 = LexicalBlockFile location=(2-99) discriminator=1
-                2 = SubProgram name=Foo location=(2-156)
-                3 = SubProgram name=X location=(1-134027)
-                4 = SubProgram name=Y location=(1-135249)
-                5 = LexicalBlockFile location=(2-99) discriminator=2
-                6 = LexicalBlockFile location=(2-99) discriminator=3
+                0 = SubProgram name=Main location=(2-40) callable=(2-1 adjoint=false controlled=0)
+                1 = LexicalBlockFile location=(2-99) loop=(2-16) discriminator=1
+                2 = SubProgram name=Foo location=(2-156) callable=(2-2 adjoint=false controlled=0)
+                3 = SubProgram name=X location=(1-134080) callable=(1-269 adjoint=false controlled=0)
+                4 = SubProgram name=Y location=(1-135302) callable=(1-270 adjoint=false controlled=0)
+                5 = LexicalBlockFile location=(2-99) loop=(2-16) discriminator=2
+                6 = LexicalBlockFile location=(2-99) loop=(2-16) discriminator=3
             dbg_locations:
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-127) inlined_at=1
@@ -270,15 +384,15 @@ fn nested_classical_for_loop() {
                 Return Integer(0)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-40)
-                5 = LexicalBlockFile location=(2-101) discriminator=1
-                6 = LexicalBlockFile location=(2-129) discriminator=1
-                7 = SubProgram name=Foo location=(2-208)
-                8 = SubProgram name=X location=(1-134027)
-                9 = LexicalBlockFile location=(2-129) discriminator=2
-                10 = LexicalBlockFile location=(2-129) discriminator=3
-                11 = LexicalBlockFile location=(2-101) discriminator=2
-                12 = LexicalBlockFile location=(2-101) discriminator=3
+                0 = SubProgram name=Main location=(2-40) callable=(2-1 adjoint=false controlled=0)
+                5 = LexicalBlockFile location=(2-101) loop=(2-16) discriminator=1
+                6 = LexicalBlockFile location=(2-129) loop=(2-43) discriminator=1
+                7 = SubProgram name=Foo location=(2-208) callable=(2-2 adjoint=false controlled=0)
+                8 = SubProgram name=X location=(1-134080) callable=(1-269 adjoint=false controlled=0)
+                9 = LexicalBlockFile location=(2-129) loop=(2-43) discriminator=2
+                10 = LexicalBlockFile location=(2-129) loop=(2-43) discriminator=3
+                11 = LexicalBlockFile location=(2-101) loop=(2-16) discriminator=2
+                12 = LexicalBlockFile location=(2-101) loop=(2-16) discriminator=3
             dbg_locations:
                 [5]: scope=0 location=(2-101)
                 [6]: scope=5 location=(2-129) inlined_at=5
@@ -337,9 +451,9 @@ fn lambda() {
                 Return Integer(0)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-1)
-                1 = SubProgram name=.lambda_2 location=(2-65)
-                2 = SubProgram name=H location=(1-111225)
+                0 = SubProgram name=Main location=(2-1) callable=(2-1 adjoint=false controlled=0)
+                1 = SubProgram name=.lambda_2 location=(2-72) callable=(2-2 adjoint=false controlled=0)
+                2 = SubProgram name=H location=(1-111278) callable=(1-249 adjoint=false controlled=0)
             dbg_locations:
                 [1]: scope=0 location=(2-99)
                 [2]: scope=1 location=(2-82) inlined_at=1
@@ -385,11 +499,11 @@ fn result_comparison_to_literal() {
                 Jump(1)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-22)
-                1 = SubProgram name=H location=(1-111225)
-                2 = SubProgram name=M location=(1-112934)
-                3 = SubProgram name=X location=(1-134027)
-                4 = SubProgram name=Reset location=(1-117327)
+                0 = SubProgram name=Main location=(2-22) callable=(2-1 adjoint=false controlled=0)
+                1 = SubProgram name=H location=(1-111278) callable=(1-249 adjoint=false controlled=0)
+                2 = SubProgram name=M location=(1-112934) callable=(1-251 adjoint=false controlled=0)
+                3 = SubProgram name=X location=(1-134080) callable=(1-269 adjoint=false controlled=0)
+                4 = SubProgram name=Reset location=(1-117327) callable=(1-256 adjoint=false controlled=0)
             dbg_locations:
                 [1]: scope=0 location=(2-86)
                 [2]: scope=1 location=(1-111297) inlined_at=1
@@ -448,11 +562,11 @@ fn if_else() {
                 Jump(1)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-22)
-                1 = SubProgram name=H location=(1-111225)
-                2 = SubProgram name=M location=(1-112934)
-                3 = SubProgram name=X location=(1-134027)
-                4 = SubProgram name=Y location=(1-135249)
+                0 = SubProgram name=Main location=(2-22) callable=(2-1 adjoint=false controlled=0)
+                1 = SubProgram name=H location=(1-111278) callable=(1-249 adjoint=false controlled=0)
+                2 = SubProgram name=M location=(1-112934) callable=(1-251 adjoint=false controlled=0)
+                3 = SubProgram name=X location=(1-134080) callable=(1-269 adjoint=false controlled=0)
+                4 = SubProgram name=Y location=(1-135302) callable=(1-270 adjoint=false controlled=0)
             dbg_locations:
                 [2]: scope=0 location=(2-112)
                 [3]: scope=1 location=(1-111297) inlined_at=2
@@ -505,9 +619,9 @@ fn branch_due_to_binop_short_circuit() {
                 Jump(1)
 
             dbg_scopes:
-                0 = SubProgram name=Main location=(2-1)
-                1 = SubProgram name=H location=(1-111225)
-                2 = SubProgram name=M location=(1-112934)
+                0 = SubProgram name=Main location=(2-1) callable=(2-1 adjoint=false controlled=0)
+                1 = SubProgram name=H location=(1-111278) callable=(1-249 adjoint=false controlled=0)
+                2 = SubProgram name=M location=(1-112934) callable=(1-251 adjoint=false controlled=0)
             dbg_locations:
                 [2]: scope=0 location=(2-75)
                 [3]: scope=1 location=(1-111297) inlined_at=2

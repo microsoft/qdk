@@ -8,7 +8,9 @@
 //! See: <https://llvm.org/docs/SourceLevelDebugging.html>
 
 use indenter::indented;
-use qsc_data_structures::{display::core::set_indentation, index_map::IndexMap};
+use qsc_data_structures::{
+    display::core::set_indentation, functors::FunctorApp, index_map::IndexMap,
+};
 use std::{
     fmt::{self, Display, Formatter, Write},
     rc::Rc,
@@ -18,10 +20,30 @@ use std::{
 /// This should be resolvable into a real source code location (file, line, column).
 #[derive(Clone, Debug, Copy)]
 pub struct DbgPackageOffset {
-    /// An FIR `PackageId`.
+    /// The FIR package that owns the source code offset.
     pub package_id: usize,
     /// The source code offset within the package.
     pub offset: u32,
+}
+
+/// The concrete FIR callable and specialization represented by a debug scope.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct DbgCallableId {
+    /// The package containing the callable in FIR storage.
+    pub package_id: usize,
+    /// The callable item ID within the FIR package.
+    pub item_id: usize,
+    /// The functor application selecting the callable specialization.
+    pub functor_app: FunctorApp,
+}
+
+/// The concrete FIR loop represented by a debug scope.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct DbgLoopId {
+    /// The package containing the loop expression in FIR storage.
+    pub package_id: usize,
+    /// The loop expression ID within the FIR package.
+    pub expr_id: usize,
 }
 
 /// A source code location. This is an analogue of the `DILocation` metadata in LLVM.
@@ -59,6 +81,8 @@ pub enum DbgScope {
     SubProgram {
         /// Callable name.
         name: Rc<str>,
+        /// Concrete FIR callable and specialization identity.
+        callable_id: DbgCallableId,
         /// Source code location of the callable implementation. Corresponds to `DIScope`'s `line` and `column` fields.
         location: DbgPackageOffset,
     },
@@ -66,6 +90,8 @@ pub enum DbgScope {
     LexicalBlockFile {
         /// Used to distinguish different scopes have the same source code location, such as different iterations of a loop body.
         discriminator: usize,
+        /// Concrete FIR loop identity.
+        loop_id: DbgLoopId,
         /// Source code location of the block. Corresponds to `DIScope`'s `line` and `column` fields.
         location: DbgPackageOffset,
     },
@@ -74,21 +100,35 @@ pub enum DbgScope {
 impl Display for DbgScope {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            DbgScope::SubProgram { name, location } => {
-                write!(
-                    f,
-                    "SubProgram name={name} location=({}-{})",
-                    location.package_id, location.offset
-                )?;
-            }
-            DbgScope::LexicalBlockFile {
-                discriminator,
+            DbgScope::SubProgram {
+                name,
+                callable_id,
                 location,
             } => {
                 write!(
                     f,
-                    "LexicalBlockFile location=({}-{}) discriminator={}",
-                    location.package_id, location.offset, discriminator
+                    "SubProgram name={name} location=({}-{}) callable=({}-{} adjoint={} controlled={})",
+                    location.package_id,
+                    location.offset,
+                    callable_id.package_id,
+                    callable_id.item_id,
+                    callable_id.functor_app.adjoint,
+                    callable_id.functor_app.controlled
+                )?;
+            }
+            DbgScope::LexicalBlockFile {
+                discriminator,
+                loop_id,
+                location,
+            } => {
+                write!(
+                    f,
+                    "LexicalBlockFile location=({}-{}) loop=({}-{}) discriminator={}",
+                    location.package_id,
+                    location.offset,
+                    loop_id.package_id,
+                    loop_id.expr_id,
+                    discriminator
                 )?;
             }
         }

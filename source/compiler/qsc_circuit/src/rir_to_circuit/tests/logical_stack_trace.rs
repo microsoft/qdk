@@ -15,13 +15,15 @@ use expect_test::expect;
 use indoc::indoc;
 use qsc_codegen::qir::fir_to_rir;
 use qsc_data_structures::{
-    index_map::IndexMap, language_features::LanguageFeatures, source::SourceMap, target::Profile,
+    functors::FunctorApp, index_map::IndexMap, language_features::LanguageFeatures,
+    source::SourceMap, target::Profile,
 };
 use qsc_fir::fir::{self};
 use qsc_frontend::compile::{self, PackageStore, compile};
 use qsc_lowerer::map_hir_package_to_fir;
 use qsc_partial_eval::{PartialEvalConfig, ProgramEntry};
 use qsc_passes::{PackageType, run_core_passes, run_default_passes};
+use qsc_rir::debug::DbgScope;
 
 // A simple test receiver that records the formatted call stack and gate name
 // for each received operation, one per line.
@@ -102,6 +104,17 @@ impl OperationReceiver for TestOperationReceiver<'_> {
 }
 
 fn check_trace(file: &str, expr: &str, expect: &Expect) {
+    let (trace, _, ()) = compile_and_trace(file, expr, None, |_, _, _| ());
+    expect.assert_eq(&trace);
+}
+
+#[allow(clippy::too_many_lines)]
+fn compile_and_trace<T>(
+    file: &str,
+    expr: &str,
+    dependency: Option<(&str, &str, Option<&str>)>,
+    mutate_fir: impl FnOnce(&mut fir::PackageStore, fir::PackageId, Option<fir::PackageId>) -> T,
+) -> (String, qsc_rir::rir::Program, T) {
     let capabilities = Profile::AdaptiveRIF.into();
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
     let mut core = compile::core();
@@ -121,10 +134,37 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         map_hir_package_to_fir(std_id),
     );
 
+    let mut dependencies = vec![(std_id, None)];
+    let dependency_fir = dependency.map(|(source_name, source, entry)| {
+        let sources = SourceMap::new([(source_name.into(), source.into())], entry.map(Into::into));
+        let mut unit = compile(
+            &store,
+            &[(std_id, None)],
+            sources,
+            capabilities,
+            LanguageFeatures::default(),
+        );
+        assert!(unit.errors.is_empty(), "{:?}", unit.errors);
+        let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
+        assert!(pass_errors.is_empty(), "{pass_errors:?}");
+        let dependency_id = store.insert(unit);
+        let dependency_fir_id = map_hir_package_to_fir(dependency_id);
+        let dependency_fir = qsc_lowerer::Lowerer::new().lower_package(
+            &store
+                .get(dependency_id)
+                .expect("dependency package should exist")
+                .package,
+            &fir_store,
+            dependency_fir_id,
+        );
+        dependencies.push((dependency_id, None));
+        (dependency_fir_id, dependency_fir)
+    });
+
     let sources = SourceMap::new([("A.qs".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
         &store,
-        &[(std_id, None)],
+        &dependencies,
         sources,
         capabilities,
         LanguageFeatures::default(),
@@ -133,7 +173,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
     let id = store.insert(unit);
-    let unit_fir = fir_lowerer.lower_package(
+    let unit_fir = qsc_lowerer::Lowerer::new().lower_package(
         &store.get(id).expect("package should exist").package,
         &fir_store,
         map_hir_package_to_fir(id),
@@ -145,6 +185,12 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         core_fir,
     );
     fir_store.insert(map_hir_package_to_fir(std_id), std_fir);
+    let dependency_id = dependency_fir
+        .as_ref()
+        .map(|(dependency_id, _)| *dependency_id);
+    if let Some((dependency_id, dependency_fir)) = dependency_fir {
+        fir_store.insert(dependency_id, dependency_fir);
+    }
     let id = map_hir_package_to_fir(id);
     fir_store.insert(id, unit_fir);
 
@@ -159,6 +205,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         )
             .into(),
     };
+    let fixture = mutate_fir(&mut fir_store, id, dependency_id);
     let compute_properties =
         qsc_passes::PassContext::run_fir_passes_on_fir(&fir_store, id, capabilities)
             .expect("FIR passes should succeed");
@@ -210,7 +257,7 @@ fn check_trace(file: &str, expr: &str, expect: &Expect) {
         panic!("error building operation list: {err}");
     }
 
-    expect.assert_eq(&builder.trace);
+    (builder.trace, rir, fixture)
 }
 
 #[test]
@@ -560,30 +607,377 @@ fn adjoint_operation_explicit_specialization() {
 }
 
 #[test]
-fn controlled_operation() {
-    check_trace(
+#[allow(clippy::too_many_lines)]
+fn relocated_rir_scopes_preserve_source_and_storage_identity() {
+    let dependency_source = indoc! {"
+        namespace Dependency {
+            operation Foreign(q : Qubit) : Unit {
+                for index in 0..0 {
+                    H(q);
+                }
+            }
+            export Foreign;
+        }
+    "};
+    let user_source = indoc! {"
+        namespace A {
+            operation Main(q : Qubit) : Unit {
+                for index in 0..0 {
+                    H(q);
+                }
+            }
+        }
+    "};
+    let (trace, rir, (user_package, dependency_package)) = compile_and_trace(
+        user_source,
         indoc! {"
-            operation Main() : Unit {
-                use q = Qubit();
-                use q1 = Qubit();
-                Controlled Foo([q1], q);
+            {
+                use qs = Qubit[2];
+                Dependency.Foreign(qs[0]);
+                A.Main(qs[1]);
+            }
+        "},
+        Some((
+            "Dependency.qs",
+            dependency_source,
+            Some(indoc! {"
+                {
+                    use qs = Qubit[2];
+                    Dependency.Foreign(qs[0]);
+                    Dependency.Foreign(qs[1]);
+                }
+            "}),
+        )),
+        |fir_store, user_package, dependency_package| {
+            let dependency_package = dependency_package.expect("dependency package should exist");
+            let (
+                dependency_callable_span,
+                dependency_loop_id,
+                dependency_loop_span,
+                dependency_condition_span,
+                dependency_body_span,
+                dependency_gate_span,
+            ) = {
+                let package = fir_store.get(dependency_package);
+                let callable_span = package
+                    .items
+                    .values()
+                    .find_map(|item| match &item.kind {
+                        fir::ItemKind::Callable(decl) if decl.name.name.as_ref() == "Foreign" => {
+                            let fir::CallableImpl::Spec(spec_impl) = &decl.implementation else {
+                                panic!("Foreign should have specializations");
+                            };
+                            Some(spec_impl.body.span)
+                        }
+                        _ => None,
+                    })
+                    .expect("Foreign callable should exist");
+                let (loop_id, loop_expr, condition, body) = package
+                    .exprs
+                    .iter()
+                    .find_map(|(expr_id, expr)| match expr.kind {
+                        fir::ExprKind::While(condition, body) => {
+                            Some((expr_id, expr, condition, body))
+                        }
+                        _ => None,
+                    })
+                    .expect("dependency loop should exist");
+                let loop_span = loop_expr.span;
+                let gate_span = package
+                    .exprs
+                    .values()
+                    .find(|expr| {
+                        matches!(expr.kind, fir::ExprKind::Call(..))
+                            && expr.span.package == loop_span.package
+                            && expr.span.lo >= loop_span.lo
+                            && expr.span.hi <= loop_span.hi
+                    })
+                    .expect("dependency gate call should exist")
+                    .span;
+                (
+                    callable_span,
+                    loop_id,
+                    loop_expr.span,
+                    package
+                        .exprs
+                        .get(condition)
+                        .expect("dependency condition should exist")
+                        .span,
+                    package
+                        .blocks
+                        .get(body)
+                        .expect("dependency loop body should exist")
+                        .span,
+                    gate_span,
+                )
+            };
+            let (user_loop_id, user_condition, user_body, user_gates) = {
+                let package = fir_store.get(user_package);
+                let (loop_id, loop_span, condition, body) = package
+                    .exprs
+                    .iter()
+                    .find_map(|(expr_id, expr)| match expr.kind {
+                        fir::ExprKind::While(condition, body) => {
+                            Some((expr_id, expr.span, condition, body))
+                        }
+                        _ => None,
+                    })
+                    .expect("user loop should exist");
+                let gates = package
+                    .exprs
+                    .iter()
+                    .filter_map(|(expr_id, expr)| {
+                        (matches!(expr.kind, fir::ExprKind::Call(..))
+                            && expr.span.package == loop_span.package
+                            && expr.span.lo >= loop_span.lo
+                            && expr.span.hi <= loop_span.hi)
+                            .then_some(expr_id)
+                    })
+                    .collect::<Vec<_>>();
+                assert!(!gates.is_empty(), "user gate call should exist");
+                (loop_id, condition, body, gates)
+            };
+            assert_eq!(dependency_loop_id, user_loop_id);
+
+            let package = fir_store.get_mut(user_package);
+            let main = package
+                .items
+                .values_mut()
+                .find_map(|item| match &mut item.kind {
+                    fir::ItemKind::Callable(decl) if decl.name.name.as_ref() == "Main" => {
+                        Some(decl)
+                    }
+                    _ => None,
+                })
+                .expect("Main callable should exist");
+            let fir::CallableImpl::Spec(main_impl) = &mut main.implementation else {
+                panic!("Main should have specializations");
+            };
+            main_impl.body.span = dependency_callable_span;
+            package
+                .exprs
+                .get_mut(user_loop_id)
+                .expect("user loop should exist")
+                .span = dependency_loop_span;
+            package
+                .exprs
+                .get_mut(user_condition)
+                .expect("user condition should exist")
+                .span = dependency_condition_span;
+            package
+                .blocks
+                .get_mut(user_body)
+                .expect("user loop body should exist")
+                .span = dependency_body_span;
+            for user_gate in user_gates {
+                package
+                    .exprs
+                    .get_mut(user_gate)
+                    .expect("user gate call should exist")
+                    .span = dependency_gate_span;
             }
 
-            operation Foo(q : Qubit) : Unit is Ctl {
+            (user_package, dependency_package)
+        },
+    );
+
+    expect![[r#"
+        Foreign@Dependency.qs:2:8 -> loop: 0..0@Dependency.qs:2:26[1] -> (1)@Dependency.qs:3:12 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_0), controls=())
+        Main@Dependency.qs:2:8 -> loop: 0..0@Dependency.qs:2:26[1] -> (1)@Dependency.qs:3:12 -> H@qsharp-library-source:Std/Intrinsic.qs:205:8 -> gate(H, targets=(q_1), controls=())
+    "#]]
+    .assert_eq(&trace);
+
+    let (main_id, main_location) = rir
+        .dbg_info
+        .dbg_scopes
+        .values()
+        .find_map(|(scope, _)| match scope {
+            DbgScope::SubProgram {
+                name,
+                callable_id,
+                location,
+            } if name.as_ref() == "Main" => Some((*callable_id, *location)),
+            _ => None,
+        })
+        .expect("Main debug scope should exist");
+    let (foreign_id, foreign_location) = rir
+        .dbg_info
+        .dbg_scopes
+        .values()
+        .find_map(|(scope, _)| match scope {
+            DbgScope::SubProgram {
+                name,
+                callable_id,
+                location,
+            } if name.as_ref() == "Foreign" => Some((*callable_id, *location)),
+            _ => None,
+        })
+        .expect("Foreign debug scope should exist");
+    assert_eq!(main_id.package_id, usize::from(user_package));
+    assert_eq!(main_location.package_id, usize::from(dependency_package));
+    assert_eq!(foreign_id.package_id, usize::from(dependency_package));
+    assert_eq!(foreign_location.package_id, usize::from(dependency_package));
+    assert_ne!(main_id.package_id, main_location.package_id);
+
+    let loop_scopes = rir
+        .dbg_info
+        .dbg_scopes
+        .iter()
+        .filter_map(|(scope_id, (scope, _))| match scope {
+            DbgScope::LexicalBlockFile {
+                discriminator,
+                loop_id,
+                location,
+            } => Some((scope_id, *loop_id, *location, *discriminator)),
+            DbgScope::SubProgram { .. } => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(loop_scopes.len(), 2);
+    assert_ne!(loop_scopes[0].0, loop_scopes[1].0);
+    assert_eq!(loop_scopes[0].1.expr_id, loop_scopes[1].1.expr_id);
+    assert_ne!(loop_scopes[0].1.package_id, loop_scopes[1].1.package_id);
+    assert!(
+        loop_scopes
+            .iter()
+            .any(|(_, loop_id, _, _)| loop_id.package_id == usize::from(user_package))
+    );
+    assert!(
+        loop_scopes
+            .iter()
+            .any(|(_, loop_id, _, _)| loop_id.package_id == usize::from(dependency_package))
+    );
+    for (_, _, location, discriminator) in loop_scopes {
+        assert_eq!(location.package_id, usize::from(dependency_package));
+        assert_eq!(discriminator, 1);
+    }
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn all_functor_app_scopes_use_distinct_identities() {
+    let source = indoc! {"
+            operation Main() : Unit {
+                use q = Qubit();
+                use control = Qubit();
+                Foo(q);
+                Adjoint Foo(q);
+                Controlled Foo([control], q);
+                Controlled Adjoint Foo([control], q);
+            }
+
+            operation Foo(q : Qubit) : Unit is Adj + Ctl {
                 body (...) {
                     X(q);
+                }
+
+                adjoint (...) {
+                    Y(q);
                 }
 
                 controlled (cs, ...) {
                     CNOT(cs[0], q);
                 }
+
+                controlled adjoint (cs, ...) {
+                    CNOT(cs[0], q);
+                }
             }
-        "},
-        "A.Main()",
-        &expect![[r#"
-            Main@A.qs:3:4 -> Foo@A.qs:12:8 -> CNOT@qsharp-library-source:Std/Intrinsic.qs:113:8 -> gate(X, targets=(q_0), controls=(q_1))
-        "#]],
-    );
+        "};
+    let (trace, rir, (foo_id, expected_scopes)) =
+        compile_and_trace(source, "A.Main()", None, |fir_store, user_package, _| {
+            let package = fir_store.get(user_package);
+            let (foo_id, foo) = package
+                .items
+                .iter()
+                .find_map(|(item_id, item)| match &item.kind {
+                    fir::ItemKind::Callable(decl) if decl.name.name.as_ref() == "Foo" => {
+                        Some((item_id, decl))
+                    }
+                    _ => None,
+                })
+                .expect("Foo callable should exist");
+            let fir::CallableImpl::Spec(spec_impl) = &foo.implementation else {
+                panic!("Foo should have specializations");
+            };
+            (
+                fir::StoreItemId {
+                    package: user_package,
+                    item: foo_id,
+                },
+                [
+                    (FunctorApp::default(), spec_impl.body.span),
+                    (
+                        FunctorApp {
+                            adjoint: true,
+                            controlled: 0,
+                        },
+                        spec_impl.adj.as_ref().expect("adjoint should exist").span,
+                    ),
+                    (
+                        FunctorApp {
+                            adjoint: false,
+                            controlled: 1,
+                        },
+                        spec_impl
+                            .ctl
+                            .as_ref()
+                            .expect("controlled should exist")
+                            .span,
+                    ),
+                    (
+                        FunctorApp {
+                            adjoint: true,
+                            controlled: 1,
+                        },
+                        spec_impl
+                            .ctl_adj
+                            .as_ref()
+                            .expect("controlled adjoint should exist")
+                            .span,
+                    ),
+                ],
+            )
+        });
+
+    expect![[r#"
+        Main@A.qs:3:4 -> Foo@A.qs:11:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_0), controls=())
+        Main@A.qs:4:4 -> Foo†@A.qs:15:8 -> Y@qsharp-library-source:Std/Intrinsic.qs:1082:8 -> gate(Y, targets=(q_0), controls=())
+        Main@A.qs:5:4 -> Foo@A.qs:19:8 -> CNOT@qsharp-library-source:Std/Intrinsic.qs:113:8 -> gate(X, targets=(q_0), controls=(q_1))
+        Main@A.qs:6:4 -> Foo†@A.qs:23:8 -> CNOT@qsharp-library-source:Std/Intrinsic.qs:113:8 -> gate(X, targets=(q_0), controls=(q_1))
+    "#]]
+    .assert_eq(&trace);
+
+    let foo_scopes = rir
+        .dbg_info
+        .dbg_scopes
+        .values()
+        .filter_map(|(scope, _)| match scope {
+            DbgScope::SubProgram {
+                callable_id,
+                location,
+                ..
+            } if callable_id.package_id == usize::from(foo_id.package)
+                && callable_id.item_id == usize::from(foo_id.item) =>
+            {
+                Some((*callable_id, *location))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(foo_scopes.len(), 4);
+    for (index, (callable_id, _)) in foo_scopes.iter().enumerate() {
+        assert!(!foo_scopes[..index].iter().any(|(id, _)| id == callable_id));
+        assert_eq!(callable_id.package_id, foo_scopes[0].0.package_id);
+        assert_eq!(callable_id.item_id, foo_scopes[0].0.item_id);
+    }
+    for (functor_app, expected_span) in expected_scopes {
+        let (_, location) = foo_scopes
+            .iter()
+            .find(|(callable_id, _)| callable_id.functor_app == functor_app)
+            .expect("expected functor scope should exist");
+        assert_eq!(location.package_id, usize::from(expected_span.package));
+        assert_eq!(location.offset, expected_span.lo);
+    }
 }
 
 #[test]
