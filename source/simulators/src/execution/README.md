@@ -36,6 +36,34 @@ The bytecode is a control-plan representation. A target adapter does not
 interpret bytecode or select branches. It receives only reached regions and
 host-visible requests.
 
+## Glossary
+
+- **Engine**: the computational method that evolves quantum state, such as
+  tensor4all, cuTensorNet, or a full-state simulator.
+- **Device**: the host target on which an engine runs, currently `cpu` or
+  `nvidia` in the planned MPS route.
+- **Simulation Method**: the QDK-facing `type=` selector, such as `"mps"`.
+- **Target**: the concrete Engine and Device pairing selected for dispatch.
+
+The `MpsOptions(device=...)` examples in
+[Next Integration Iteration](#next-integration-iteration) show how the
+Simulation Method remains stable while Device selects a Target.
+
+## Infrastructure Sharing vs. Profile Semantics
+
+Sharing `PreparedAdaptiveProgram` and `AdaptiveExecution` across Base and
+Adaptive QIR simplifies the implementation; it does not merge their QIR-level
+contracts. Base Profile's no-branching, statically resolvable guarantee is
+enforced independently by QIR validation, regardless of which Engine executes
+the program.
+
+`QuantumEvolutionRegion` enables that sharing without a profile-specific
+execution mode. Base Profile is the one-region restriction of the same general
+structure rather than a separate control implementation. The candidate
+single-region, no-branch fast path recognizes a Base-shaped program internally;
+it does not relax or change either profile's specification-level meaning or
+validation.
+
 ## Execution Flow
 
 `PreparedAdaptiveProgram` retains the original bytecode control tables and
@@ -180,6 +208,13 @@ do not introduce a parallel `BaseProfileExecutionDriver`. The first
 discriminating check is that representative Base QIR can use the existing
 control lowering and command protocol while preserving current MPS outputs.
 
+Correctness parity is necessary but not sufficient to prove Base and Adaptive
+control convergence. Before making that claim, retain performance parity
+evidence against the legacy Base runtime for per-shot dispatch and VM overhead,
+including elapsed time at no fewer than two operating points. This is a
+required evidence gate, not an assumption that follows from implementing the
+shared route.
+
 ```mermaid
 flowchart TB
     BaseQir[Base-profile QIR] --> Lowering
@@ -226,6 +261,15 @@ evidence defines proven engine capabilities. `source/mps/DESIGN.md` is
 historical and advisory, not a source of truth or required pre-read. It must not
 block, widen, or override this iteration. Report missing decisions or conflicts
 to the user instead of reconciling implementation back to that document.
+
+#### Exploration Inputs
+
+`tensor4all-mps-integration`, `cutensornet-rust-ffi`, `fire-and-ice-tn`, and
+`~/Work/qir-mps-tensornetwork` are exploration and demonstration sources, not
+production candidates or contracts. Their lessons and capability evidence are
+extracted and reshaped into this design; their APIs, symbol names, and option
+shapes are not imported verbatim. This includes the existing `MpsOptions` and
+`run_qir_mps` surface in `tensor4all-mps-integration`.
 
 The cuTensorNet noise spike and Fire and Ice tensor4all/QEC investigation run
 in parallel. Their findings provide capability and contract feedback; they do
