@@ -3,7 +3,9 @@
 
 //! Target-neutral quantum evolution regions and their consumer contract.
 
-use super::UnitaryOperation;
+use crate::MeasurementResult;
+
+use super::{MeasurementRequest, UnitaryOperation};
 
 /// A target-executable unit of quantum-state evolution between host-visible
 /// semantic boundaries.
@@ -55,6 +57,8 @@ pub trait RegionConsumer {
         &mut self,
         region: Self::PreparedRegion<'_>,
     ) -> Result<Self::RegionReport, Self::Error>;
+
+    fn measure(&mut self, request: MeasurementRequest) -> Result<MeasurementResult, Self::Error>;
 
     fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error>;
 

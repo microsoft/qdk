@@ -12,7 +12,7 @@ evolution. The public API remains available through `qdk_simulators::execution`;
 | `protocol.rs`  | Defines the commands and responses exchanged between Adaptive control and an execution target.               |
 | `region.rs`    | Defines target-neutral quantum evolution regions and the consumer lifecycle.                                 |
 | `unitary.rs`   | Defines resolved unitary operations and the legacy `Simulator` application bridge.                           |
-| `immediate.rs` | Adapts the legacy `Simulator` trait and provides the reference one-shot driver.                              |
+| `immediate.rs` | Provides the generic synchronous shot driver and adapts the legacy `Simulator` trait.                        |
 
 The source-level dependency direction is:
 
@@ -120,8 +120,9 @@ between host-visible semantic boundaries. The current payload contains only
 resolved unitary operations. Measurements, stochastic decisions, queries,
 ordered output, and classical branch selection remain outside a region.
 
-`run_prepared_shot` demonstrates the current synchronous orchestration with an
-`ImmediateSimulatorConsumer`:
+`drive_prepared_shot` provides synchronous orchestration for any
+`RegionConsumer`. `run_prepared_shot` retains the existing simulator-facing
+signature as a thin `ImmediateSimulatorConsumer` compatibility wrapper:
 
 ```text
 driver             AdaptiveExecution          RegionConsumer                 target
@@ -333,17 +334,14 @@ strategy.
 | CPU full-state      | `AdaptiveProgram<u64>` interpreted by the legacy Rust runtime; implements `Simulator`.                                           | Use `ImmediateSimulatorConsumer` first. Replace it only if region preparation provides a measured benefit.                                                                                                                              |
 | Clifford/stabilizer | Same legacy Adaptive runtime; implements `Simulator`.                                                                            | Use `ImmediateSimulatorConsumer`; preserve identical measurement, noise, and output behavior.                                                                                                                                           |
 | Adaptive GPU        | `AdaptiveProgram<u32>` and control are interpreted inside WGSL.                                                                  | A persistent GPU region consumer is possible, but host synchronization at every region or measurement may regress performance. Compare that design with retaining device-side control while sharing preparation and protocol semantics. |
-| MPS                 | Separate fallible `MpsSimulator`/`MpsEngine` API currently used by the Base-profile path.                                        | Implement a fallible consumer that translates resolved region operations into MPS operations while retaining one live MPS per shot. Add a target-neutral measurement capability before using a generic shot driver.                     |
+| MPS                 | Separate fallible `MpsSimulator`/`MpsEngine` API currently used by the Base-profile path.                                        | Implement a fallible consumer that translates resolved region operations into MPS operations while retaining one live MPS per shot and using the generic driver's target-neutral measurement protocol.                                 |
 | Sparse Q# evaluator | Executes the Q# evaluator graph through its own fallible backend and supports dynamic runtime services beyond Adaptive bytecode. | Keep the evaluator path unless a future normalization layer can preserve allocation, values, messages, dumps, custom intrinsics, and failure semantics. Region consumption may still be reusable below that control layer.              |
 
-Two extensions are needed before one generic driver can serve all applicable
-targets:
-
-1. Measurement must be represented by a target-neutral consumer capability;
-   the reference driver currently invokes the immediate consumer's measurement
-   method directly.
-2. Consumer reports and errors must be propagated by a generic driver instead
-   of relying on the immediate adapter's `Infallible` implementation.
+The generic driver performs target-neutral measurement through
+`RegionConsumer`, returns ordered region reports and the final execution
+report, and propagates control, consumer, and cleanup failures without assuming
+an infallible target. A cleanup failure is retained alongside a preceding
+control or consumer failure rather than replacing it.
 
 Base-profile programs use a restricted linear control program through the same
 target-neutral command protocol. Preparation should cache their fully resolved

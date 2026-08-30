@@ -15,7 +15,8 @@ pub use adaptive::{
 };
 pub use immediate::{
     ImmediateExecutionReport, ImmediatePreparedRegion, ImmediateRegionReport,
-    ImmediateSimulatorConsumer, run_prepared_shot,
+    ImmediateSimulatorConsumer, ShotExecutionError, ShotExecutionOutput, ShotExecutionResult,
+    drive_prepared_shot, run_prepared_shot,
 };
 pub use protocol::{
     AdaptiveCommand, AdaptiveResponse, MeasurementKind, MeasurementRequest, RegionId,

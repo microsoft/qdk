@@ -1,14 +1,14 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use std::{convert::Infallible, mem::size_of};
+use std::{convert::Infallible, fmt, mem::size_of};
 
 use super::{
     AdaptiveCommand, AdaptiveExecution, AdaptiveExecutionError, AdaptiveResponse,
     ImmediatePreparedRegion, ImmediateSimulatorConsumer, MeasurementKind, MeasurementRequest,
     OP_QUANTUM_GATE, PreparedAdaptiveProgram, QuantumEvolutionRegion, RegionConsumer, RegionId,
-    RegionPartitionError, RegionSite, UnitaryOperation, partition_unitary_regions,
-    run_prepared_shot,
+    RegionPartitionError, RegionSite, ShotExecutionError, UnitaryOperation, drive_prepared_shot,
+    partition_unitary_regions, run_prepared_shot,
 };
 use crate::{
     MeasurementResult, OutputRecord, Simulator,
@@ -159,6 +159,109 @@ fn measure_then_branch_program() -> AdaptiveProgram<u64> {
     program
 }
 
+fn unsupported_instruction_program() -> AdaptiveProgram<u64> {
+    adaptive_program(
+        vec![instruction(0x20, 0)],
+        vec![Block {
+            instr_offset: 0,
+            instr_count: 1,
+        }],
+        Vec::new(),
+    )
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TestConsumerFailure {
+    ExecuteRegion,
+    Measure,
+    Close,
+}
+
+impl fmt::Display for TestConsumerFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{self:?}")
+    }
+}
+
+impl std::error::Error for TestConsumerFailure {}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TestRegionReport {
+    sequence: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct TestExecutionReport {
+    region_count: usize,
+}
+
+struct FailingTestConsumer {
+    failure: Option<TestConsumerFailure>,
+    close_failure: bool,
+    region_count: usize,
+    closed: bool,
+}
+
+impl FailingTestConsumer {
+    fn new(failure: Option<TestConsumerFailure>, close_failure: bool) -> Self {
+        Self {
+            failure,
+            close_failure,
+            region_count: 0,
+            closed: false,
+        }
+    }
+}
+
+impl RegionConsumer for FailingTestConsumer {
+    type PreparedRegion<'region> = &'region [UnitaryOperation];
+    type RegionReport = TestRegionReport;
+    type ExecutionReport = TestExecutionReport;
+    type Error = TestConsumerFailure;
+
+    fn prepare_region<'region>(
+        &mut self,
+        region: &'region QuantumEvolutionRegion,
+    ) -> Result<Self::PreparedRegion<'region>, Self::Error> {
+        Ok(region.operations())
+    }
+
+    fn execute_region(
+        &mut self,
+        _region: Self::PreparedRegion<'_>,
+    ) -> Result<Self::RegionReport, Self::Error> {
+        if self.failure == Some(TestConsumerFailure::ExecuteRegion) {
+            return Err(TestConsumerFailure::ExecuteRegion);
+        }
+        self.region_count += 1;
+        Ok(TestRegionReport {
+            sequence: self.region_count,
+        })
+    }
+
+    fn measure(&mut self, _request: MeasurementRequest) -> Result<MeasurementResult, Self::Error> {
+        if self.failure == Some(TestConsumerFailure::Measure) {
+            return Err(TestConsumerFailure::Measure);
+        }
+        Ok(MeasurementResult::Zero)
+    }
+
+    fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error> {
+        Ok(TestExecutionReport {
+            region_count: self.region_count,
+        })
+    }
+
+    fn close(&mut self) -> Result<(), Self::Error> {
+        self.closed = true;
+        if self.close_failure {
+            Err(TestConsumerFailure::Close)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 #[test]
 fn immediate_consumer_executes_singleton_and_multi_operation_regions_in_order() {
     let mut simulator = FullStateSimulator::new(2, 2, 42, Default::default());
@@ -217,6 +320,127 @@ fn immediate_preparation_token_is_only_a_borrowed_slice() {
         size_of::<&[UnitaryOperation]>()
     );
     assert_infallible::<ImmediateSimulatorConsumer<'static, FullStateSimulator>>();
+}
+
+#[test]
+fn generic_driver_returns_consumer_reports() {
+    let program = PreparedAdaptiveProgram::new(measure_then_branch_program())
+        .expect("measure-then-branch scenario should prepare");
+    let mut consumer = FailingTestConsumer::new(None, false);
+
+    let output = drive_prepared_shot(&program, &mut consumer)
+        .expect("test consumer should complete the prepared shot");
+
+    assert_eq!(
+        output.records(),
+        [OutputRecord::Result(MeasurementResult::Zero)]
+    );
+    assert_eq!(
+        output.region_reports(),
+        [
+            TestRegionReport { sequence: 1 },
+            TestRegionReport { sequence: 2 },
+        ]
+    );
+    assert_eq!(
+        output.execution_report(),
+        &TestExecutionReport { region_count: 2 }
+    );
+    assert!(consumer.closed);
+}
+
+#[test]
+fn generic_driver_propagates_execute_region_error() {
+    let program = PreparedAdaptiveProgram::new(measure_then_branch_program())
+        .expect("measure-then-branch scenario should prepare");
+    let mut consumer = FailingTestConsumer::new(Some(TestConsumerFailure::ExecuteRegion), false);
+
+    assert_eq!(
+        drive_prepared_shot(&program, &mut consumer),
+        Err(ShotExecutionError::Consumer(
+            TestConsumerFailure::ExecuteRegion
+        ))
+    );
+    assert!(consumer.closed);
+}
+
+#[test]
+fn generic_driver_propagates_measurement_error() {
+    let program = PreparedAdaptiveProgram::new(measure_then_branch_program())
+        .expect("measure-then-branch scenario should prepare");
+    let mut consumer = FailingTestConsumer::new(Some(TestConsumerFailure::Measure), false);
+
+    assert_eq!(
+        drive_prepared_shot(&program, &mut consumer),
+        Err(ShotExecutionError::Consumer(TestConsumerFailure::Measure))
+    );
+    assert!(consumer.closed);
+}
+
+#[test]
+fn generic_driver_propagates_close_error() {
+    let program = PreparedAdaptiveProgram::new(measure_then_branch_program())
+        .expect("measure-then-branch scenario should prepare");
+    let mut consumer = FailingTestConsumer::new(None, true);
+
+    assert_eq!(
+        drive_prepared_shot(&program, &mut consumer),
+        Err(ShotExecutionError::Close(TestConsumerFailure::Close))
+    );
+    assert!(consumer.closed);
+}
+
+#[test]
+fn generic_driver_preserves_consumer_and_close_errors() {
+    let program = PreparedAdaptiveProgram::new(measure_then_branch_program())
+        .expect("measure-then-branch scenario should prepare");
+    let mut consumer = FailingTestConsumer::new(Some(TestConsumerFailure::ExecuteRegion), true);
+
+    assert_eq!(
+        drive_prepared_shot(&program, &mut consumer),
+        Err(ShotExecutionError::ConsumerAndClose {
+            consumer: TestConsumerFailure::ExecuteRegion,
+            close: TestConsumerFailure::Close,
+        })
+    );
+    assert!(consumer.closed);
+}
+
+#[test]
+fn generic_driver_propagates_control_error() {
+    let program = PreparedAdaptiveProgram::new(unsupported_instruction_program())
+        .expect("unsupported classical control should still prepare");
+    let mut consumer = FailingTestConsumer::new(None, false);
+
+    assert_eq!(
+        drive_prepared_shot(&program, &mut consumer),
+        Err(ShotExecutionError::Control(
+            AdaptiveExecutionError::UnsupportedInstruction {
+                opcode: 0x20,
+                instruction_index: 0,
+            }
+        ))
+    );
+    assert!(consumer.closed);
+}
+
+#[test]
+fn generic_driver_preserves_control_and_close_errors() {
+    let program = PreparedAdaptiveProgram::new(unsupported_instruction_program())
+        .expect("unsupported classical control should still prepare");
+    let mut consumer = FailingTestConsumer::new(None, true);
+
+    assert_eq!(
+        drive_prepared_shot(&program, &mut consumer),
+        Err(ShotExecutionError::ControlAndClose {
+            control: AdaptiveExecutionError::UnsupportedInstruction {
+                opcode: 0x20,
+                instruction_index: 0,
+            },
+            close: TestConsumerFailure::Close,
+        })
+    );
+    assert!(consumer.closed);
 }
 
 #[test]
@@ -404,15 +628,7 @@ fn adaptive_measurement_result_selects_only_the_reached_region() {
 
 #[test]
 fn adaptive_execution_reports_typed_control_failures() {
-    let unsupported_instruction = adaptive_program(
-        vec![instruction(0x20, 0)],
-        vec![Block {
-            instr_offset: 0,
-            instr_count: 1,
-        }],
-        Vec::new(),
-    );
-    let unsupported_instruction = PreparedAdaptiveProgram::new(unsupported_instruction)
+    let unsupported_instruction = PreparedAdaptiveProgram::new(unsupported_instruction_program())
         .expect("unsupported classical control should still prepare");
     assert_eq!(
         AdaptiveExecution::new(&unsupported_instruction).next_command(None),
