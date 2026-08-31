@@ -3771,3 +3771,134 @@ fn cross_package_same_hof_same_global_from_two_packages_is_correct() {
     // Inc(10) + Inc(20) = 32, both before and after the transforms.
     crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
 }
+
+/// Library used by the cross-package multi-candidate dispatch sweep.
+const SWEEP_LIB: &str = r#"
+namespace TestLib {
+    operation FA(q : Qubit) : Unit { X(q); }
+    operation FB(q : Qubit) : Unit { Y(q); }
+    operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+    export FA, FB, Run;
+}
+"#;
+
+/// Renders the entry package after the full pipeline, tolerating diagnostics so
+/// a declined shape can be inspected rather than aborting the test.
+fn swept_cross_package_rendering(user_source: &str) -> String {
+    let (store, package_id, _result) =
+        crate::test_utils::compile_and_run_pipeline_to_with_library_and_errors(
+            SWEEP_LIB,
+            user_source,
+            crate::PipelineStage::Full,
+        );
+    crate::pretty::write_package_qsharp_parseable(&store, package_id)
+}
+
+/// Asserts both candidates appear after the guard and in selection order, which
+/// a swapped candidate-to-guard mapping would violate.
+fn assert_guarded_in_order(rendered: &str, guard: &str, first: &str, second: &str) {
+    let g = rendered
+        .find(guard)
+        .unwrap_or_else(|| panic!("missing guard `{guard}` in:\n{rendered}"));
+    let f = rendered
+        .find(first)
+        .unwrap_or_else(|| panic!("missing candidate `{first}` in:\n{rendered}"));
+    let s = rendered
+        .find(second)
+        .unwrap_or_else(|| panic!("missing candidate `{second}` in:\n{rendered}"));
+    assert!(
+        g < f && f < s,
+        "expected `{guard}` then `{first}` then `{second}` in:\n{rendered}"
+    );
+}
+
+/// Candidates defined in a foreign package and chosen by a measurement-dependent
+/// condition must dispatch to both, in selection order.
+#[test]
+fn cross_package_conditional_selection_dispatches_both_candidates() {
+    let rendered = swept_cross_package_rendering(
+        r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let pick = MResetZ(q) == One;
+    let f = pick ? FA | FB;
+    f(q);
+}
+"#,
+    );
+    assert_guarded_in_order(&rendered, "if pick", "FA(q)", "FB(q)");
+}
+
+/// The same foreign candidates routed through a foreign higher-order operation
+/// must reach per-candidate specializations rather than collapsing to one.
+#[test]
+fn cross_package_hof_dispatches_both_specializations() {
+    let rendered = swept_cross_package_rendering(
+        r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let pick = MResetZ(q) == One;
+    Run(pick ? FA | FB, q);
+}
+"#,
+    );
+    assert_guarded_in_order(&rendered, "if pick", "Run_Empty__FA_", "Run_Empty__FB_");
+}
+
+/// Foreign candidates selected by a dynamic array index must be dispatched under
+/// an index guard that reaches every candidate; emitting one unconditionally
+/// would drop the other.
+#[test]
+fn cross_package_indexed_selection_guards_every_candidate() {
+    let rendered = swept_cross_package_rendering(
+        r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let ops = [FA, FB];
+    let idx = MResetZ(q) == One ? 0 | 1;
+    ops[idx](q);
+}
+"#,
+    );
+    assert_guarded_in_order(&rendered, "idx == 0", "FA(q)", "FB(q)");
+}
+
+/// Semantic anchor for the cross-package sweep.
+///
+/// Emitted-code assertions are necessary but not sufficient here, so one shape
+/// is also checked for behavioral equivalence. The oracle compares returned
+/// values, so the fixture returns a `Result` that differs by which candidate
+/// ran: only `Applied` flips the target, so dispatching the wrong candidate
+/// changes the returned value rather than going unnoticed.
+///
+/// The measured qubit starts in |0>, so `pick` is deterministically `false` and
+/// both qubits are released in |0>.
+#[test]
+fn cross_package_conditional_selection_preserves_semantics() {
+    let lib_source = r#"
+namespace TestLib {
+    operation Applied(q : Qubit) : Unit { X(q); }
+    operation Skipped(q : Qubit) : Unit { }
+    export Applied, Skipped;
+}
+"#;
+    let user_source = r#"
+import TestLib.*;
+@EntryPoint()
+operation Main() : Result {
+    use q = Qubit();
+    use target = Qubit();
+    let pick = MResetZ(q) == One;
+    let f = pick ? Applied | Skipped;
+    f(target);
+    return MResetZ(target);
+}
+"#;
+    crate::test_utils::check_semantic_equivalence_with_library(lib_source, user_source);
+}

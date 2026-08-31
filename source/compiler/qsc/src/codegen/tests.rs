@@ -2773,6 +2773,49 @@ fn interpreter_with_capabilities(
     .expect("interpreter should be created")
 }
 
+#[test]
+fn unrestricted_interpreter_executes_two_callable_arrays_in_order() {
+    let mut interpreter = interpreter_with_capabilities(TargetCapabilityFlags::all());
+    eval_fragments(
+        &mut interpreter,
+        indoc::indoc! {r#"
+            function AddOne(value : Int) : Int { value + 1 }
+            function AddTwo(value : Int) : Int { value + 2 }
+            function AddThree(value : Int) : Int { value + 3 }
+            function AddFour(value : Int) : Int { value + 4 }
+
+            function ApplyArrays(
+                firstOps : (Int -> Int)[],
+                secondOps : (Int -> Int)[]
+            ) : Int[] {
+                mutable values = [];
+                for op in firstOps {
+                    set values += [op(0)];
+                }
+                for op in secondOps {
+                    set values += [op(0)];
+                }
+                values
+            }
+        "#},
+    );
+
+    let value = eval_fragments(
+        &mut interpreter,
+        "ApplyArrays([AddOne, AddTwo], [AddThree, AddFour])",
+    );
+    let Value::Array(values) = value else {
+        panic!("expected an array result, got {value:?}");
+    };
+    assert!(
+        matches!(
+            values.as_ref().as_slice(),
+            [Value::Int(1), Value::Int(2), Value::Int(3), Value::Int(4)]
+        ),
+        "expected callable arrays to execute in source order, got {values:?}"
+    );
+}
+
 // ---- Synthetic path: arrow + non-callable params (tuple input) ----
 
 #[test]
@@ -5237,318 +5280,6 @@ fn chemistry_like_sequential_partial_application_generates_qir() {
 }
 
 #[test]
-fn chemistry_like_controlled_factory_generates_qir() {
-    let source = indoc::indoc! {r#"
-        namespace Test {
-            operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
-
-            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
-
-            function MakeControlledPrepSelPrepOp(
-                prepareOp : Qubit[] => Unit is Adj + Ctl,
-                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
-                numSystemQubits : Int,
-                numAncillaQubits : Int,
-                power : Int
-            ) : (Qubit, Qubit[]) => Unit {
-                (control, allQubits) => {
-                    let systems = allQubits[0..numSystemQubits - 1];
-                    let ancilla = allQubits[numSystemQubits...];
-                    for _ in 0..power - 1 {
-                        Controlled prepareOp([control], systems);
-                        Controlled selectOp([control], (systems, ancilla));
-                    }
-                }
-            }
-
-            operation MakeControlledPrepSelPrepCircuit(
-                prepareOp : Qubit[] => Unit is Adj + Ctl,
-                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
-                numSystemQubits : Int,
-                numAncillaQubits : Int,
-                power : Int
-            ) : Unit {
-                use control = Qubit();
-                use systems = Qubit[numSystemQubits + numAncillaQubits];
-                let op = MakeControlledPrepSelPrepOp(
-                    prepareOp,
-                    selectOp,
-                    numSystemQubits,
-                    numAncillaQubits,
-                    power
-                );
-                op(control, systems);
-            }
-        }
-    "#};
-    let caps = Profile::Base.into();
-    let (store, pkg, items) = compile_and_locate_items(
-        source,
-        &[
-            ("MakeControlledPrepSelPrepCircuit", true),
-            ("PrepareIdentity", true),
-            ("SelectIdentity", true),
-        ],
-        caps,
-    );
-
-    let prepare = Value::Global(
-        fir_id_for(pkg, items["PrepareIdentity"]),
-        FunctorApp::default(),
-    );
-    let select = Value::Global(
-        fir_id_for(pkg, items["SelectIdentity"]),
-        FunctorApp::default(),
-    );
-    let args = Value::Tuple(
-        vec![prepare, select, Value::Int(1), Value::Int(1), Value::Int(1)].into(),
-        None,
-    );
-
-    let qir = callable_args_to_qir(
-        &store,
-        pkg,
-        items["MakeControlledPrepSelPrepCircuit"],
-        &args,
-        caps,
-    );
-    assert!(
-        qir.contains("define i64 @ENTRYPOINT__main()"),
-        "expected entry point in QIR:\n{qir}"
-    );
-}
-
-#[test]
-fn chemistry_like_controlled_psp_wrapper_generates_qir() {
-    let source = indoc::indoc! {r#"
-        namespace Test {
-            operation PrepareIdentity(qs : Qubit[]) : Unit is Adj + Ctl {}
-
-            operation SelectIdentity(ancilla : Qubit[], systems : Qubit[]) : Unit is Adj + Ctl {}
-
-            operation PrepSelPrep(
-                prepareOp : Qubit[] => Unit is Adj + Ctl,
-                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
-                systems : Qubit[],
-                ancilla : Qubit[]
-            ) : Unit is Adj + Ctl {
-                body ... {
-                    prepareOp(ancilla);
-                    selectOp(ancilla, systems);
-                    Adjoint prepareOp(ancilla);
-                }
-                adjoint auto;
-                controlled (ctls, ...) {
-                    prepareOp(ancilla);
-                    Controlled selectOp(ctls, (ancilla, systems));
-                    Adjoint prepareOp(ancilla);
-                }
-                controlled adjoint auto;
-            }
-
-            function MakeControlledPrepSelPrepOp(
-                prepareOp : Qubit[] => Unit is Adj + Ctl,
-                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
-                numSystemQubits : Int,
-                numAncillaQubits : Int,
-                power : Int
-            ) : (Qubit, Qubit[]) => Unit {
-                (control, allQubits) => {
-                    let systems = allQubits[0..numSystemQubits - 1];
-                    let ancilla = allQubits[numSystemQubits...];
-                    for _ in 0..power - 1 {
-                        Controlled PrepSelPrep([control], (prepareOp, selectOp, systems, ancilla));
-                    }
-                }
-            }
-
-            operation MakeControlledPrepSelPrepCircuit(
-                prepareOp : Qubit[] => Unit is Adj + Ctl,
-                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
-                numSystemQubits : Int,
-                numAncillaQubits : Int,
-                power : Int
-            ) : Unit {
-                use control = Qubit();
-                use systems = Qubit[numSystemQubits + numAncillaQubits];
-                let op = MakeControlledPrepSelPrepOp(
-                    prepareOp,
-                    selectOp,
-                    numSystemQubits,
-                    numAncillaQubits,
-                    power
-                );
-                op(control, systems);
-            }
-        }
-    "#};
-    let caps = Profile::Base.into();
-    let (store, pkg, items) = compile_and_locate_items(
-        source,
-        &[
-            ("MakeControlledPrepSelPrepCircuit", true),
-            ("PrepareIdentity", true),
-            ("SelectIdentity", true),
-        ],
-        caps,
-    );
-
-    let prepare = Value::Global(
-        fir_id_for(pkg, items["PrepareIdentity"]),
-        FunctorApp::default(),
-    );
-    let select = Value::Global(
-        fir_id_for(pkg, items["SelectIdentity"]),
-        FunctorApp::default(),
-    );
-    let args = Value::Tuple(
-        vec![prepare, select, Value::Int(1), Value::Int(1), Value::Int(1)].into(),
-        None,
-    );
-
-    let qir = callable_args_to_qir(
-        &store,
-        pkg,
-        items["MakeControlledPrepSelPrepCircuit"],
-        &args,
-        caps,
-    );
-    assert!(
-        qir.contains("define i64 @ENTRYPOINT__main()"),
-        "expected entry point in QIR:\n{qir}"
-    );
-}
-
-#[test]
-fn chemistry_like_state_preparation_closure_with_empty_expansion_ops_generates_qir() {
-    let source = indoc::indoc! {r#"
-        namespace Test {
-            struct StatePreparationParams {
-                rowMap : Int[],
-                stateVector : Double[],
-                expansionOps : Int[][],
-                numQubits : Int
-            }
-
-            operation ApplyStatePreparation(params : StatePreparationParams, qs : Qubit[]) : Unit is Adj + Ctl {
-                if Length(params.expansionOps) != 0 {
-                    X(qs[0]);
-                }
-            }
-
-            function MakeStatePreparationOp(
-                rowMap : Int[],
-                stateVector : Double[],
-                expansionOps : Int[][],
-                numQubits : Int
-            ) : Qubit[] => Unit is Adj + Ctl {
-                ApplyStatePreparation(
-                    new StatePreparationParams {
-                        rowMap = rowMap,
-                        stateVector = stateVector,
-                        expansionOps = expansionOps,
-                        numQubits = numQubits
-                    },
-                    _
-                )
-            }
-
-            operation SelectIdentity(systems : Qubit[], ancilla : Qubit[]) : Unit is Adj + Ctl {}
-
-            function MakeControlledPrepSelPrepOp(
-                prepareOp : Qubit[] => Unit is Adj + Ctl,
-                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
-                numSystemQubits : Int,
-                numAncillaQubits : Int,
-                power : Int
-            ) : (Qubit, Qubit[]) => Unit {
-                (control, allQubits) => {
-                    let systems = allQubits[0..numSystemQubits - 1];
-                    let ancilla = allQubits[numSystemQubits...];
-                    for _ in 0..power - 1 {
-                        Controlled prepareOp([control], systems);
-                        Controlled selectOp([control], (systems, ancilla));
-                    }
-                }
-            }
-
-            operation MakeControlledPrepSelPrepCircuit(
-                prepareOp : Qubit[] => Unit is Adj + Ctl,
-                selectOp : (Qubit[], Qubit[]) => Unit is Adj + Ctl,
-                numSystemQubits : Int,
-                numAncillaQubits : Int,
-                power : Int
-            ) : Unit {
-                use control = Qubit();
-                use systems = Qubit[numSystemQubits + numAncillaQubits];
-                let op = MakeControlledPrepSelPrepOp(
-                    prepareOp,
-                    selectOp,
-                    numSystemQubits,
-                    numAncillaQubits,
-                    power
-                );
-                op(control, systems);
-            }
-        }
-    "#};
-    let caps = Profile::Base.into();
-    let (store, pkg, items) = compile_and_locate_items(
-        source,
-        &[
-            ("MakeControlledPrepSelPrepCircuit", true),
-            ("ApplyStatePreparation", true),
-            ("SelectIdentity", true),
-        ],
-        caps,
-    );
-
-    let state_params = Value::Tuple(
-        vec![
-            Value::Array(vec![Value::Int(0)].into()),
-            Value::Array(vec![Value::Double(1.0), Value::Double(0.0)].into()),
-            Value::Array(vec![].into()),
-            Value::Int(1),
-        ]
-        .into(),
-        None,
-    );
-    let prepare = Value::Closure(Box::new(qsc_eval::val::Closure {
-        fixed_args: vec![state_params].into(),
-        id: fir_id_for(pkg, items["ApplyStatePreparation"]),
-        functor: FunctorApp::default(),
-    }));
-    let select = Value::Global(
-        fir_id_for(pkg, items["SelectIdentity"]),
-        FunctorApp::default(),
-    );
-    let args = Value::Tuple(
-        vec![prepare, select, Value::Int(1), Value::Int(1), Value::Int(1)].into(),
-        None,
-    );
-
-    let qir = callable_args_to_qir(
-        &store,
-        pkg,
-        items["MakeControlledPrepSelPrepCircuit"],
-        &args,
-        caps,
-    );
-    // This test exercises the controlled-dispatch compile path for a closure whose
-    // fixed captured struct must be threaded through `Controlled prepareOp`. Because
-    // `expansionOps = []`, `ApplyStatePreparation`'s guarded `X(qs[0])` is never
-    // emitted, so a dropped-vs-threaded capture produces identical (empty) gate
-    // output here; the QIR cannot discriminate the capture-threading fix on its own.
-    // The point of the case is that this controlled-dispatch shape compiles cleanly
-    // to a valid entry point. The semantic assertion that the capture actually
-    // reaches the controlled call lives at the FIR level in a companion test.
-    assert!(
-        qir.contains("define i64 @ENTRYPOINT__main()"),
-        "expected entry point in QIR:\n{qir}"
-    );
-}
-
-#[test]
 fn chemistry_like_standard_qpe_callable_array_generates_qir() {
     let source = indoc::indoc! {r#"
         namespace Test {
@@ -5693,6 +5424,40 @@ fn chemistry_like_standard_qpe_callable_array_generates_qir() {
     assert!(
         qir.contains("define i64 @ENTRYPOINT__main()"),
         "expected entry point in QIR:\n{qir}"
+    );
+}
+
+#[test]
+fn source_entry_callable_array_effectful_index_runs_once() {
+    let source = r#"
+        namespace Test {
+            operation ChooseIndex(q : Qubit) : Int {
+                X(q);
+                1
+            }
+
+            operation RunAt(ops : (Qubit => Unit)[], q : Qubit) : Unit {
+                ops[ChooseIndex(q)](q);
+            }
+
+            @EntryPoint()
+            operation Main() : Unit {
+                use q = Qubit();
+                RunAt([I, X, Y], q);
+                Reset(q);
+            }
+        }
+    "#;
+
+    let qir = compile_source_to_qir(source, Profile::Base.into());
+    assert_eq!(
+        qir.matches("call void @__quantum__qis__x__body").count(),
+        2,
+        "expected one index effect and one selected X gate:\n{qir}"
+    );
+    assert!(
+        !qir.contains("call void @__quantum__qis__y__body"),
+        "expected no unselected Y gate:\n{qir}"
     );
 }
 

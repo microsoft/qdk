@@ -1687,6 +1687,19 @@ fn functor_capable_returned_wrapper_with_struct_capture_passes_pipeline() {
             Run(ApplyCaptured(new OpParams { enabled = true }, _))
         }
         "#;
+    let (mut store, package_id) = compile_to_monomorphized_fir(captured_wrapper_source);
+    let mut assigners = PackageAssigners::new(&store, package_id);
+    let outcome = defunctionalize(&mut store, package_id, &mut assigners);
+    assert!(
+        outcome.diagnostics.is_empty(),
+        "captured returned wrapper should defunctionalize cleanly: {:?}",
+        outcome.diagnostics
+    );
+    assert!(
+        outcome.residue_items.is_empty() && !outcome.entry_has_residue,
+        "captured returned wrapper should not require authorized residue: {:?}",
+        outcome.residue_items
+    );
     check_pipeline(captured_wrapper_source);
 
     let sibling_source = r#"

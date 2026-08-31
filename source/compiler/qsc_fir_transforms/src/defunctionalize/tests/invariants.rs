@@ -778,6 +778,27 @@ fn producer_summary_incomplete_lineage_is_fatal() {
         dynamic_count, 1,
         "the complete dynamic site must remain deferrable without duplicate diagnostics"
     );
+
+    let (mut pipeline_store, pipeline_package) = crate::test_utils::compile_to_fir(terminal_source);
+    let pipeline_result =
+        crate::run_pipeline_with_diagnostics(&mut pipeline_store, pipeline_package);
+    let pipeline_unsupported = pipeline_result
+        .errors
+        .iter()
+        .filter(|error| {
+            matches!(
+                error,
+                crate::PipelineError::Defunctionalize(
+                    super::super::Error::UnsupportedProducerLineage(_)
+                )
+            )
+        })
+        .count();
+    assert_eq!(
+        pipeline_unsupported, 2,
+        "both terminal unsupported sites must reach the fatal pipeline channel: {:?}",
+        pipeline_result.errors
+    );
 }
 
 #[test]

@@ -51,9 +51,7 @@ use std::rc::Rc;
 /// Combined local variable state for the analysis phase.
 ///
 /// `callable` holds flow-sensitive reaching-definitions for callable-typed
-/// locals (both mutable and immutable). `callable_origins` tracks the
-/// package-qualified producer items reaching the same program point without
-/// changing the callable lattice itself. `exprs` holds raw `ExprId` bindings for all immutable locals,
+/// locals (both mutable and immutable). `exprs` holds raw `ExprId` bindings for all immutable locals,
 /// supporting struct field resolution and type look-ups.
 /// `condition_substitutions` maps each higher-order-function parameter local to
 /// the caller-scope argument expression bound at the call site, so an `if` guard
@@ -64,7 +62,6 @@ pub(super) struct LocalState {
     owner: CaptureScope,
     clone_items: Rc<FxHashSet<StoreItemId>>,
     callable: FxHashMap<LocalVarId, CalleeLattice>,
-    callable_origins: FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
     exprs: FxHashMap<LocalVarId, ExprId>,
     condition_substitutions: FxHashMap<LocalVarId, ExprId>,
     /// Bindings visible at the current program point. Unlike `exprs`, this is
@@ -1872,7 +1869,6 @@ fn collect_call_sites(
             owner: CaptureScope::Entry,
             clone_items,
             callable: FxHashMap::default(),
-            callable_origins: FxHashMap::default(),
             exprs: FxHashMap::default(),
             condition_substitutions: FxHashMap::default(),
             visible_bindings: FxHashSet::default(),
@@ -2458,229 +2454,6 @@ fn record_dynamic_producer_value(
     }
     if leaf.incomplete {
         incomplete_site_ids.insert(site);
-    }
-}
-
-fn global_callee_item(package: &Package, callee_id: ExprId) -> Option<ItemId> {
-    let (base_id, _) = peel_body_functors(package, callee_id);
-    let ExprKind::Var(Res::Item(item_id), _) = package.get_expr(base_id).kind else {
-        return None;
-    };
-    Some(item_id)
-}
-
-fn callable_output_contains_arrow(store: &PackageStore, item_id: ItemId) -> bool {
-    let package = store.get(item_id.package);
-    let item = package.get_item(item_id.item);
-    matches!(
-        &item.kind,
-        ItemKind::Callable(decl) if super::ty_contains_arrow_through_udts(store, &decl.output)
-    )
-}
-
-fn callable_origins_from_expr(
-    pkg: &Package,
-    store: &PackageStore,
-    locals: &LocalState,
-    expr_id: ExprId,
-    package_id: PackageId,
-) -> FxHashSet<StoreItemId> {
-    callable_origins_from_expr_at_path(pkg, store, locals, expr_id, &[], package_id, 0)
-}
-
-#[allow(clippy::too_many_lines)]
-fn callable_origins_from_expr_at_path(
-    pkg: &Package,
-    store: &PackageStore,
-    locals: &LocalState,
-    expr_id: ExprId,
-    path: &[usize],
-    package_id: PackageId,
-    depth: usize,
-) -> FxHashSet<StoreItemId> {
-    if depth > MAX_RESOLVE_DEPTH {
-        return FxHashSet::default();
-    }
-
-    if !path.is_empty() {
-        if let ExprKind::Index(array_expr_id, index_expr_id) = pkg.get_expr(expr_id).kind {
-            let element_ids = resolve_indexed_array_element(
-                pkg,
-                store,
-                locals,
-                array_expr_id,
-                index_expr_id,
-                depth + 1,
-            )
-            .map_or_else(
-                || resolve_array_elements(pkg, store, locals, array_expr_id, depth + 1),
-                |element_id| Some(vec![element_id]),
-            )
-            .unwrap_or_default();
-            let mut origins = FxHashSet::default();
-            for element_id in element_ids {
-                origins.extend(callable_origins_from_expr_at_path(
-                    pkg,
-                    store,
-                    locals,
-                    element_id,
-                    path,
-                    package_id,
-                    depth + 1,
-                ));
-            }
-            return origins;
-        }
-
-        let field_path = FieldPath {
-            indices: path.to_vec(),
-        };
-        return resolve_struct_field(pkg, store, locals, expr_id, &field_path, depth + 1)
-            .map(|field_expr_id| {
-                callable_origins_from_expr_at_path(
-                    pkg,
-                    store,
-                    locals,
-                    field_expr_id,
-                    &[],
-                    package_id,
-                    depth + 1,
-                )
-            })
-            .unwrap_or_default();
-    }
-
-    match &pkg.get_expr(expr_id).kind {
-        ExprKind::Var(Res::Local(var), _) => locals
-            .callable_origins
-            .get(var)
-            .cloned()
-            .unwrap_or_default(),
-        ExprKind::Var(Res::Item(item_id), _) => {
-            let mut origins = FxHashSet::default();
-            if callable_output_contains_arrow(store, *item_id) {
-                origins.insert(StoreItemId::from((item_id.package, item_id.item)));
-            }
-            origins
-        }
-        ExprKind::Return(inner_expr_id) | ExprKind::UnOp(_, inner_expr_id) => {
-            callable_origins_from_expr_at_path(
-                pkg,
-                store,
-                locals,
-                *inner_expr_id,
-                &[],
-                package_id,
-                depth + 1,
-            )
-        }
-        ExprKind::Field(inner_expr_id, Field::Path(field_path)) => {
-            resolve_struct_field(pkg, store, locals, *inner_expr_id, field_path, depth + 1)
-                .map(|field_expr_id| {
-                    callable_origins_from_expr_at_path(
-                        pkg,
-                        store,
-                        locals,
-                        field_expr_id,
-                        &[],
-                        package_id,
-                        depth + 1,
-                    )
-                })
-                .unwrap_or_default()
-        }
-        ExprKind::Index(array_expr_id, index_expr_id) => {
-            let element_ids = resolve_indexed_array_element(
-                pkg,
-                store,
-                locals,
-                *array_expr_id,
-                *index_expr_id,
-                depth + 1,
-            )
-            .map_or_else(
-                || resolve_array_elements(pkg, store, locals, *array_expr_id, depth + 1),
-                |element_id| Some(vec![element_id]),
-            )
-            .unwrap_or_default();
-            let mut origins = FxHashSet::default();
-            for element_id in element_ids {
-                origins.extend(callable_origins_from_expr_at_path(
-                    pkg,
-                    store,
-                    locals,
-                    element_id,
-                    &[],
-                    package_id,
-                    depth + 1,
-                ));
-            }
-            origins
-        }
-        ExprKind::Block(block_id) => {
-            let block = pkg.get_block(*block_id);
-            let mut block_state = locals.clone();
-            analyze_block_flow(pkg, store, *block_id, &mut block_state, package_id, None);
-            block
-                .stmts
-                .last()
-                .and_then(|stmt_id| match pkg.get_stmt(*stmt_id).kind {
-                    StmtKind::Expr(expr_id) | StmtKind::Semi(expr_id) => Some(expr_id),
-                    StmtKind::Item(_) | StmtKind::Local(..) => None,
-                })
-                .map(|tail_expr_id| {
-                    callable_origins_from_expr_at_path(
-                        pkg,
-                        store,
-                        &block_state,
-                        tail_expr_id,
-                        &[],
-                        package_id,
-                        depth + 1,
-                    )
-                })
-                .unwrap_or_default()
-        }
-        ExprKind::If(_, body, otherwise) => {
-            let mut origins = callable_origins_from_expr_at_path(
-                pkg,
-                store,
-                locals,
-                *body,
-                &[],
-                package_id,
-                depth + 1,
-            );
-            if let Some(otherwise) = otherwise {
-                origins.extend(callable_origins_from_expr_at_path(
-                    pkg,
-                    store,
-                    locals,
-                    *otherwise,
-                    &[],
-                    package_id,
-                    depth + 1,
-                ));
-            }
-            origins
-        }
-        _ => {
-            let mut origins = FxHashSet::default();
-            crate::walk_utils::for_each_expr(pkg, expr_id, &mut |_expr_id, expr| {
-                if let ExprKind::Var(Res::Local(var), _) = expr.kind
-                    && let Some(local_origins) = locals.callable_origins.get(&var)
-                {
-                    origins.extend(local_origins);
-                }
-                if let ExprKind::Call(callee_id, _) = expr.kind
-                    && let Some(item_id) = global_callee_item(pkg, callee_id)
-                    && callable_output_contains_arrow(store, item_id)
-                {
-                    origins.insert(StoreItemId::from((item_id.package, item_id.item)));
-                }
-            });
-            origins
-        }
     }
 }
 
@@ -3511,7 +3284,6 @@ fn resolve_callee(
                 owner: locals.owner,
                 clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
-                callable_origins: locals.callable_origins.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
                 visible_bindings: locals.visible_bindings.clone(),
@@ -3706,7 +3478,6 @@ fn resolve_callee_projection(
                 owner: locals.owner,
                 clone_items: Rc::clone(&locals.clone_items),
                 callable: locals.callable.clone(),
-                callable_origins: locals.callable_origins.clone(),
                 exprs: locals.exprs.clone(),
                 condition_substitutions: locals.condition_substitutions.clone(),
                 visible_bindings: locals.visible_bindings.clone(),
@@ -3997,7 +3768,6 @@ fn resolve_callable_return(
         },
         clone_items: Rc::clone(&caller_locals.clone_items),
         callable: FxHashMap::default(),
-        callable_origins: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         visible_bindings: {
@@ -4872,14 +4642,6 @@ fn seed_param_bindings_from_call(
             state.exprs.insert(ident.id, arg_expr_id);
             state.condition_substitutions.insert(ident.id, arg_expr_id);
             if matches!(pat.ty, Ty::Arrow(_)) {
-                let origins = callable_origins_from_expr(
-                    caller_package,
-                    store,
-                    caller_locals,
-                    arg_expr_id,
-                    caller_package_id,
-                );
-                state.callable_origins.insert(ident.id, origins);
                 let lattice = resolve_callee(
                     caller_package,
                     store,
@@ -5465,7 +5227,6 @@ fn build_callable_flow_state(
         owner,
         clone_items,
         callable: FxHashMap::default(),
-        callable_origins: FxHashMap::default(),
         exprs: FxHashMap::default(),
         condition_substitutions: FxHashMap::default(),
         visible_bindings: FxHashSet::default(),
@@ -5621,14 +5382,6 @@ fn bind_callable_pat(
     match &pat.kind {
         PatKind::Bind(ident) => {
             if matches!(pat.ty, Ty::Arrow(_)) {
-                replace_callable_origins_from_expr(
-                    pkg,
-                    store,
-                    state,
-                    ident.id,
-                    init_expr_id,
-                    package_id,
-                );
                 let lattice = resolve_callee(
                     pkg,
                     store,
@@ -5708,16 +5461,6 @@ fn bind_callable_pat_projections(
     match &pat.kind {
         PatKind::Bind(ident) => {
             if matches!(pat.ty, Ty::Arrow(_)) {
-                let origins = callable_origins_from_expr_at_path(
-                    pkg,
-                    store,
-                    state,
-                    init_expr_id,
-                    path,
-                    package_id,
-                    0,
-                );
-                state.callable_origins.insert(ident.id, origins);
                 let lattice = resolve_callee_projection(
                     pkg,
                     store,
@@ -5790,19 +5533,6 @@ fn bind_callable_pats_from_indexed_array(
         if !matches!(sub_pat.ty, Ty::Arrow(_)) {
             continue; // Only bind arrow-typed locals.
         }
-        let mut origins = FxHashSet::default();
-        for &elem_expr_id in &array_elem_ids {
-            origins.extend(callable_origins_from_expr_at_path(
-                pkg,
-                store,
-                state,
-                elem_expr_id,
-                &[field_idx],
-                package_id,
-                0,
-            ));
-        }
-        state.callable_origins.insert(ident.id, origins);
 
         // Collect the callable at field_idx from each array element tuple.
         let mut lattice = CalleeLattice::Bottom;
@@ -5863,7 +5593,6 @@ fn analyze_expr_flow(
             if let ExprKind::Var(Res::Local(var), _) = &lhs.kind
                 && state.callable.contains_key(var)
             {
-                replace_callable_origins_from_expr(pkg, store, state, *var, *rhs_id, package_id);
                 let lattice = resolve_callee(
                     pkg,
                     store,
@@ -5898,7 +5627,6 @@ fn analyze_expr_flow(
             );
             // Fork: save callable and reaching-source state before branches.
             let pre_if = state.callable.clone();
-            let pre_if_origins = state.callable_origins.clone();
             analyze_expr_flow(
                 pkg,
                 store,
@@ -5908,10 +5636,8 @@ fn analyze_expr_flow(
                 recorder.as_deref_mut(),
             );
             let true_state = state.callable.clone();
-            let true_origins = state.callable_origins.clone();
             // Restore pre-if state and analyze false branch.
             state.callable = pre_if;
-            state.callable_origins = pre_if_origins;
             if let Some(else_expr) = otherwise {
                 analyze_expr_flow(
                     pkg,
@@ -5928,17 +5654,11 @@ fn analyze_expr_flow(
             // HOF-parameter-substituted boolean survives cleanup; a no-op for
             // ordinary runtime conditions.
             let false_state = std::mem::take(&mut state.callable);
-            let false_origins = std::mem::take(&mut state.callable_origins);
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&true_state, &false_state, remapped_cond);
-            state.callable_origins = join_callable_origin_states(&true_origins, &false_origins);
         }
         ExprKind::While(cond, block_id) => {
-            let (loop_head_origins, loop_exit_origins) =
-                converge_loop_callable_origins(pkg, store, *cond, *block_id, state, package_id);
-            state.callable_origins = loop_head_origins;
-
             let mut written = collect_written_vars_in_block(pkg, *block_id);
             collect_written_vars_expr(pkg, *cond, &mut written);
             for &var in &written {
@@ -5956,7 +5676,6 @@ fn analyze_expr_flow(
                 package_id,
                 recorder.as_deref_mut(),
             );
-            state.callable_origins = loop_exit_origins.clone();
 
             // Analyze the body for nested let bindings. Restore pre-existing
             // callable entries to their pre-loop values, but keep new entries
@@ -5973,7 +5692,6 @@ fn analyze_expr_flow(
             for (var, lattice) in loop_summary {
                 state.callable.insert(var, lattice);
             }
-            state.callable_origins = loop_exit_origins;
         }
         // Operand-position variants: recurse into every nested expression in
         // evaluation order (mirroring `walk_utils::walk_children`) so that a
@@ -6005,16 +5723,12 @@ fn analyze_expr_flow(
                 .map(|written| guard_dependent_callables(pkg, state, written))
                 .unwrap_or_default();
             let pre_rhs = state.callable.clone();
-            let pre_rhs_origins = state.callable_origins.clone();
             analyze_expr_flow(pkg, store, *rhs, state, package_id, recorder.as_deref_mut());
             let after_rhs = std::mem::take(&mut state.callable);
-            let after_rhs_origins = std::mem::take(&mut state.callable_origins);
             // `and`: RHS runs when the condition is true.
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&after_rhs, &pre_rhs, remapped_cond);
-            state.callable_origins =
-                join_callable_origin_states(&after_rhs_origins, &pre_rhs_origins);
             if let Some(written) = written {
                 invalidate_callable_value_dependents(pkg, state, written);
                 invalidate_named_callables(state, &guard_dependents);
@@ -6034,17 +5748,13 @@ fn analyze_expr_flow(
                 .map(|written| guard_dependent_callables(pkg, state, written))
                 .unwrap_or_default();
             let pre_rhs = state.callable.clone();
-            let pre_rhs_origins = state.callable_origins.clone();
             analyze_expr_flow(pkg, store, *rhs, state, package_id, recorder.as_deref_mut());
             let after_rhs = std::mem::take(&mut state.callable);
-            let after_rhs_origins = std::mem::take(&mut state.callable_origins);
             // `or`: RHS runs when the condition is false. Swap branches so the
             // reused condition `ExprId` dispatches as `if cond { orig } else { rhs }`.
             let remapped_cond = remap_condition_expr(pkg, state, *cond);
             state.callable =
                 join_callable_states_with_condition(&pre_rhs, &after_rhs, remapped_cond);
-            state.callable_origins =
-                join_callable_origin_states(&pre_rhs_origins, &after_rhs_origins);
             if let Some(written) = written {
                 invalidate_callable_value_dependents(pkg, state, written);
                 invalidate_named_callables(state, &guard_dependents);
@@ -6231,66 +5941,6 @@ fn join_callable_states_with_condition(
         result.insert(var, a_val.join_with_condition(b_val, condition));
     }
     result
-}
-
-fn replace_callable_origins_from_expr(
-    pkg: &Package,
-    store: &PackageStore,
-    state: &mut LocalState,
-    var: LocalVarId,
-    source: ExprId,
-    package_id: PackageId,
-) {
-    let origins = callable_origins_from_expr(pkg, store, state, source, package_id);
-    state.callable_origins.insert(var, origins);
-}
-
-fn join_callable_origin_states(
-    first: &FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
-    second: &FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
-) -> FxHashMap<LocalVarId, FxHashSet<StoreItemId>> {
-    let mut result = first.clone();
-    for (&var, sources) in second {
-        result.entry(var).or_default().extend(sources);
-    }
-    result
-}
-
-fn converge_loop_callable_origins(
-    pkg: &Package,
-    store: &PackageStore,
-    condition: ExprId,
-    body: BlockId,
-    state: &LocalState,
-    package_id: PackageId,
-) -> (
-    FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
-    FxHashMap<LocalVarId, FxHashSet<StoreItemId>>,
-) {
-    let entry_origins = state.callable_origins.clone();
-    let mut head_origins = entry_origins.clone();
-
-    loop {
-        let mut iteration_state = state.clone();
-        iteration_state.callable_origins.clone_from(&head_origins);
-        analyze_expr_flow(
-            pkg,
-            store,
-            condition,
-            &mut iteration_state,
-            package_id,
-            None,
-        );
-        let post_condition_origins = iteration_state.callable_origins.clone();
-        analyze_block_flow(pkg, store, body, &mut iteration_state, package_id, None);
-        let next_head_origins =
-            join_callable_origin_states(&entry_origins, &iteration_state.callable_origins);
-
-        if next_head_origins == head_origins {
-            return (head_origins, post_condition_origins);
-        }
-        head_origins = next_head_origins;
-    }
 }
 
 /// Collects all `LocalVarId`s that are targets of `Assign` expressions

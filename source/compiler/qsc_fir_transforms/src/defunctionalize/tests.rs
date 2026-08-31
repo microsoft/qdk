@@ -528,6 +528,142 @@ namespace Test {
     );
 }
 
+/// Returns the entry-package rendering after the full pipeline, tolerating
+/// pipeline diagnostics so a declined shape can be inspected rather than
+/// aborting the test.
+fn swept_rendering(source: &str) -> String {
+    let (store, package_id, _result) = crate::test_utils::compile_and_run_pipeline_to_with_errors(
+        source,
+        crate::PipelineStage::Full,
+    );
+    crate::pretty::write_package_qsharp_parseable(&store, package_id)
+}
+
+/// Asserts that `first` and `second` both appear and that `first` precedes
+/// `second` after `guard`, which is what distinguishes correct dispatch from a
+/// swapped candidate-to-guard mapping.
+fn assert_guarded_in_order(rendered: &str, guard: &str, first: &str, second: &str) {
+    let g = rendered
+        .find(guard)
+        .unwrap_or_else(|| panic!("missing guard `{guard}` in:\n{rendered}"));
+    let f = rendered
+        .find(first)
+        .unwrap_or_else(|| panic!("missing candidate `{first}` in:\n{rendered}"));
+    let s = rendered
+        .find(second)
+        .unwrap_or_else(|| panic!("missing candidate `{second}` in:\n{rendered}"));
+    assert!(
+        g < f && f < s,
+        "expected `{guard}` then `{first}` then `{second}` in:\n{rendered}"
+    );
+}
+
+/// A callable chosen from a struct field by a measurement-dependent condition
+/// must dispatch under a guard that reaches both candidates, in the order the
+/// source selects them. A dropped candidate or a swapped mapping is a silent
+/// miscompile that only emitted-code inspection catches.
+#[test]
+fn struct_field_conditional_selection_dispatches_both_candidates() {
+    let rendered = swept_rendering(
+        "
+namespace Test {
+    struct Holder { A : (Qubit => Unit), B : (Qubit => Unit) }
+    @EntryPoint()
+    operation Main() : Unit {
+        use q = Qubit();
+        let h = new Holder { A = X, B = Y };
+        let pick = MResetZ(q) == One;
+        let f = pick ? h.A | h.B;
+        f(q);
+    }
+}
+",
+    );
+    assert_guarded_in_order(&rendered, "if pick", "X(q)", "Y(q)");
+}
+
+/// The same selection routed through a higher-order operation must dispatch to
+/// per-candidate specializations rather than collapsing to one of them.
+#[test]
+fn struct_field_callable_into_hof_dispatches_both_specializations() {
+    let rendered = swept_rendering(
+        "
+namespace Test {
+    struct Holder { A : (Qubit => Unit), B : (Qubit => Unit) }
+    operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+    @EntryPoint()
+    operation Main() : Unit {
+        use q = Qubit();
+        let h = new Holder { A = X, B = Y };
+        let pick = MResetZ(q) == One;
+        Run(pick ? h.A | h.B, q);
+    }
+}
+",
+    );
+    assert_guarded_in_order(&rendered, "if pick", "Run_Empty__X_", "Run_Empty__Y_");
+}
+
+/// A callable read from a struct selected by a dynamic index is not resolvable,
+/// so the pass must defer the selection rather than choose an element. The
+/// assertion is positive about deferral: emitting either candidate as an
+/// unguarded call would be the miscompile.
+///
+/// Unlike the other sweep assertions, this one is not falsified by the
+/// candidate-drop mutation, because this shape never forms a multi-candidate
+/// lattice to collapse. It guards against a future change that starts resolving
+/// the shape incorrectly, and its limitation is recorded rather than implied.
+#[test]
+fn struct_dynamic_index_selection_defers_rather_than_choosing() {
+    let rendered = swept_rendering(
+        "
+namespace Test {
+    struct W { Op : (Qubit => Unit) }
+    @EntryPoint()
+    operation Main() : Unit {
+        use q = Qubit();
+        let ws = [new W { Op = X }, new W { Op = Y }];
+        let idx = MResetZ(q) == One ? 0 | 1;
+        let w = ws[idx];
+        w.Op(q);
+    }
+}
+",
+    );
+    assert!(
+        !rendered.contains("X(q)") && !rendered.contains("Y(q)"),
+        "a candidate was emitted directly instead of deferring the selection:\n{rendered}"
+    );
+}
+
+/// A callable held in a user-defined type's field and chosen by a
+/// measurement-dependent condition must dispatch under a guard reaching both
+/// candidates, in selection order.
+///
+/// This covers the UDT half of the sweep, which a plain `struct` does not
+/// exercise: `ty_contains_arrow_through_udts` walks UDT wrappers transparently
+/// while `ty_contains_arrow` keeps the rewrite side opaque to them, so the two
+/// predicates can disagree only when a real `newtype` is involved.
+#[test]
+fn udt_field_conditional_selection_dispatches_both_candidates() {
+    let rendered = swept_rendering(
+        "
+namespace Test {
+    newtype Choice = (A : (Qubit => Unit), B : (Qubit => Unit));
+    @EntryPoint()
+    operation Main() : Unit {
+        use q = Qubit();
+        let c = Choice(X, Y);
+        let pick = MResetZ(q) == One;
+        let f = pick ? c::A | c::B;
+        f(q);
+    }
+}
+",
+    );
+    assert_guarded_in_order(&rendered, "if pick", "X(q)", "Y(q)");
+}
+
 #[test]
 fn error_diagnostic_has_code() {
     use miette::Diagnostic;

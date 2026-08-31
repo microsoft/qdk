@@ -870,7 +870,8 @@ fn track_specialized_closures(
     // keyed by the combined key, so every participating producer body must be
     // recorded under that combined key. The combined and single-arg key spaces
     // are disjoint by argument count, so this is additive: missing a member
-    // here would leave a stray `Closure` that `exec_graph_rebuild` rejects.
+    // here would leave a stray `Closure` that the `PostDefunc` invariant
+    // rejects, unless the compilation is `residue_tolerant`.
     for group in groups.values() {
         let combined_key = build_combined_spec_key_for_group(group[0].hof_item_id, group);
         if spec_map.contains_key(&combined_key) {
