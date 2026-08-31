@@ -1456,7 +1456,7 @@ pub struct CircuitRenderingOptions {
 
 const CIRCUIT_RENDERING_OPTIONS_DESCRIPTION: &str = r#"Provides options for rendering an operation in circuit diagrams.
 
-The argument is a string containing comma-separated `key=value` pairs. Keys are case-insensitive.
+The argument is a comma-separated list of `key=value` expressions. Keys are case-insensitive.
 
 Supported options:
 
