@@ -2392,26 +2392,27 @@ impl<'noise> Compiler<'noise> {
         let mut probabilities = Vec::with_capacity(args.len());
         let mut has_invalid_probability = false;
         for arg in args {
-            match arg.value {
-                ArgValue::Default(value) => {
-                    if (0.0..=1.0).contains(&value) {
-                        probabilities.push(value);
-                    } else {
-                        self.push_error(Error::InvalidProbability {
-                            instruction: instruction.name.clone(),
-                            probability: value,
-                            span: instruction.span,
-                        });
-                        has_invalid_probability = true;
-                    }
-                }
-                ArgValue::Radians(_) => {
+            let value = match arg.value {
+                ArgValue::Default(value) => value,
+                ArgValue::Radians(value) => {
                     self.push_error(Error::UnexpectedRadians {
                         instruction: instruction.name.clone(),
                         span: arg.span,
                     });
                     has_invalid_probability = true;
+                    value
                 }
+            };
+
+            if (0.0..=1.0).contains(&value) {
+                probabilities.push(value);
+            } else {
+                self.push_error(Error::InvalidProbability {
+                    instruction: instruction.name.clone(),
+                    probability: value,
+                    span: instruction.span,
+                });
+                has_invalid_probability = true;
             }
         }
         if !has_invalid_probability {

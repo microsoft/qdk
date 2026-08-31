@@ -983,6 +983,30 @@ fn pauli_channel_1_with_probability_in_radians_yields_error() {
 }
 
 #[test]
+fn pauli_channel_1_with_multiple_probabilities_in_radians_yields_errors() {
+    check(
+        "PAULI_CHANNEL_1(0.1rad, 0.2rad, 0.3) 0",
+        &expect![[r#"
+            Qdk.Stim.Compiler.UnexpectedRadians
+
+              x argument for PAULI_CHANNEL_1 cannot be specified in radians
+               ,----
+             1 | PAULI_CHANNEL_1(0.1rad, 0.2rad, 0.3) 0
+               :                 ^^^^^^
+               `----
+
+            Qdk.Stim.Compiler.UnexpectedRadians
+
+              x argument for PAULI_CHANNEL_1 cannot be specified in radians
+               ,----
+             1 | PAULI_CHANNEL_1(0.1rad, 0.2rad, 0.3) 0
+               :                         ^^^^^^
+               `----
+        "#]],
+    );
+}
+
+#[test]
 fn pauli_channel_2_yields_expected_qir() {
     let source = "PAULI_CHANNEL_2(0,0,0, 0,0.1,0,0, 0,0,0,0.2, 0,0,0,0) 0 1";
     check(
