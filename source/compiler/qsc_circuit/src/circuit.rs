@@ -20,7 +20,7 @@ use std::{
 };
 
 /// Current format version.
-pub const CURRENT_VERSION: usize = 1;
+pub const CURRENT_VERSION: usize = 2;
 
 /// Representation of a quantum circuit group.
 #[derive(Clone, Serialize, Deserialize, Default, Debug)]
