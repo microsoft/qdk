@@ -1,0 +1,5 @@
+qdk-chemistry[jupyter]>=2.1.0
+# Pinned to 6.x: ipykernel 7 can leave notebooks hanging on the first cell.
+# Remove once https://github.com/microsoft/qdk/issues/3662 is fixed.
+ipykernel>=6.0,<7
+pyscf>=2.9.0,<2.12.1

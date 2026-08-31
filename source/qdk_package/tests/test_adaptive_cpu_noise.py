@@ -19,6 +19,7 @@ from qdk.simulation._simulation import Result
 import qdk
 import qdk.openqasm
 from typing import Literal
+from simulator_test_utils import check_histogram
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -206,6 +207,34 @@ def test_z_noise_on_h_i_h_yields_1(sim_type):
     noise = NoiseConfig()
     noise.cx.iz = 1.0
     check_result(H_I_H_QIR, "1", num_qubits=2, noise=noise, sim_type=sim_type)
+
+
+T_LOSS_QIR = """
+entry:
+  call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+  call void @__quantum__qis__t__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_loss_after_t_collapses_entangled_state(sim_type):
+    noise = NoiseConfig()
+    noise.t.loss = 1.0
+    counts = get_histogram(
+        T_LOSS_QIR,
+        shots=1000,
+        num_qubits=2,
+        num_results=2,
+        noise=noise,
+        sim_type=sim_type,
+    )
+
+    assert set(counts) == {"L0", "L1"}
+    assert counts["L0"] > 400
+    assert counts["L1"] > 400
 
 
 @pytest.mark.parametrize("sim_type", SIM_TYPES)
@@ -412,3 +441,49 @@ def test_noise_intrinsic_5q_xxxxx_flip(sim_type):
     # Initial: |01010> -> XXXXX flips all -> |10101>
     output = run_qir(QIR_NOISE_5Q, shots=1, noise=noise, type=sim_type)
     assert output == [[Result.One, Result.Zero, Result.One, Result.Zero, Result.One]]
+
+READOUT_NOISE_QIR = """
+entry:
+    call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__rt__readout_noise(double 1.0, double 0.0, %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__rt__readout_noise(double 0.0, double 1.0, %Result* inttoptr (i64 1 to %Result*))
+"""
+
+PROBABILISTIC_READOUT_NOISE_QIR = READOUT_NOISE_QIR.replace(
+    "readout_noise(double 1.0, double 0.0",
+    "readout_noise(double 0.2, double 0.0",
+).replace(
+    "readout_noise(double 0.0, double 1.0",
+    "readout_noise(double 0.0, double 0.3",
+)
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_readout_noise_flips_measurement_results(sim_type):
+    check_result(
+        READOUT_NOISE_QIR,
+        "10",
+        extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
+        num_qubits=2,
+        num_results=2,
+        sim_type=sim_type,
+    )
+
+
+@pytest.mark.parametrize("sim_type", SIM_TYPES)
+def test_readout_noise_matches_expected_distribution(sim_type):
+    shots = 10_000
+    counts = get_histogram(
+        PROBABILISTIC_READOUT_NOISE_QIR,
+        extra_decls="declare void @__quantum__rt__readout_noise(double, double, %Result*)",
+        num_qubits=2,
+        num_results=2,
+        shots=shots,
+        sim_type=sim_type,
+    )
+    check_histogram(
+        counts,
+        {"00": 0.24, "01": 0.56, "10": 0.06, "11": 0.14},
+        tolerance=0.04,
+    )

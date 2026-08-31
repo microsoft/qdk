@@ -459,7 +459,12 @@ impl<'package, T: Handler<'package>> Locator<'_, 'package, T> {
             }
             // The path is not a field accessor.
             None => match self.compilation.get_res(path.id) {
-                Some(res @ (resolve::Res::Item(..) | resolve::Res::Importable(_))) => {
+                Some(
+                    res @ (resolve::Res::Item(..)
+                    | resolve::Res::Importable(
+                        resolve::Importable::Callable(..) | resolve::Importable::Ty(..),
+                    )),
+                ) => {
                     if let Some(ref item_id) = res.item_id() {
                         let (item, _, resolved_item_id) = self
                             .compilation
@@ -479,9 +484,8 @@ impl<'package, T: Handler<'package>> Locator<'_, 'package, T> {
                                 );
                             }
                             hir::ItemKind::Namespace(_, _) => {
-                                panic!(
-                                    "Reference node should not refer to a namespace: {}",
-                                    path.id
+                                unreachable!(
+                                    "namespaces should be filtered out by the `Importable` match above"
                                 )
                             }
                             hir::ItemKind::Export(_, _) => {

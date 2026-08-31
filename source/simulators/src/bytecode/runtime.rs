@@ -15,7 +15,7 @@
 )]
 
 use crate::{
-    MeasurementResult, OutputRecord, Simulator,
+    MeasurementResult, OutputRecord, QubitID, ResultID, Simulator,
     bytecode::{AdaptiveProgram, Instruction},
 };
 
@@ -49,6 +49,8 @@ const OP_RESET: u8 = 0x12;
 const OP_READ_RESULT: u8 = 0x13;
 const OP_RECORD_OUTPUT: u8 = 0x14;
 const OP_READ_LOSS: u8 = 0x15;
+const OP_PEEK_LOSS: u8 = 0x16;
+const OP_READOUT_NOISE: u8 = 0x17;
 
 // Integer arithmetic
 const OP_ADD: u8 = 0x20;
@@ -256,14 +258,14 @@ fn dispatch_quantum_gate<S: Simulator>(
         let qubit_count = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
         let arg_offset = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
         let table_id = op.q1 as u32;
-        let targets: Vec<usize> = (0..qubit_count)
-            .map(|i| rt.read_reg(program.call_args[arg_offset + i]) as usize)
+        let targets: Vec<QubitID> = (0..qubit_count)
+            .map(|i| rt.read_reg(program.call_args[arg_offset + i]) as QubitID)
             .collect();
         sim.correlated_noise_intrinsic(table_id, &targets);
     } else {
         let angle = rt.resolve_f64(instr.src0, instr.opcode, 0);
-        let q1 = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
-        let q2 = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
+        let q1 = rt.resolve_u64(instr.aux1, instr.opcode, 4) as QubitID;
+        let q2 = rt.resolve_u64(instr.aux2, instr.opcode, 5) as QubitID;
         match op_id {
             OPID_X => sim.x(q1),
             OPID_Y => sim.y(q1),
@@ -299,8 +301,8 @@ fn dispatch_measure<S: Simulator>(
 ) {
     let op_idx = instr.aux0 as usize;
     let op = &program.quantum_ops[op_idx];
-    let qubit = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
-    let result_id = rt.resolve_u64(instr.aux2, instr.opcode, 5) as usize;
+    let qubit = rt.resolve_u64(instr.aux1, instr.opcode, 4) as QubitID;
+    let result_id = rt.resolve_u64(instr.aux2, instr.opcode, 5) as ResultID;
 
     match op.op_id {
         OPID_MZ => sim.mz(qubit, result_id),
@@ -317,7 +319,7 @@ fn dispatch_reset<S: Simulator>(
 ) {
     let op_idx = instr.aux0 as usize;
     let op = &program.quantum_ops[op_idx];
-    let qubit = rt.resolve_u64(instr.aux1, instr.opcode, 4) as usize;
+    let qubit = rt.resolve_u64(instr.aux1, instr.opcode, 4) as QubitID;
 
     match op.op_id {
         OPID_RESETZ => sim.resetz(qubit),
@@ -444,7 +446,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
             }
 
             OP_READ_RESULT => {
-                let result_id = rt.resolve_u64(instr.src0, flags, 0) as usize;
+                let result_id = rt.resolve_u64(instr.src0, flags, 0) as ResultID;
                 let measurements = sim.measurements();
                 let val = if result_id < measurements.len() {
                     match measurements[result_id] {
@@ -464,13 +466,28 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
                 // its measurement buffer when the qubit was lost prior to
                 // the measurement; here we simply project that to a 1/0 bool
                 // for the program to branch on.
-                let result_id = rt.resolve_u64(instr.src0, flags, 0) as usize;
+                let result_id = rt.resolve_u64(instr.src0, flags, 0) as ResultID;
                 let measurements = sim.measurements();
                 let val = u64::from(
                     result_id < measurements.len()
                         && matches!(measurements[result_id], MeasurementResult::Loss),
                 );
                 rt.write_reg(instr.dst, val);
+                rt.pc += 1;
+            }
+
+            OP_PEEK_LOSS => {
+                let target = rt.resolve_u64(instr.aux0, flags, 3) as QubitID;
+                let result_id = rt.resolve_u64(instr.aux1, flags, 4) as ResultID;
+                sim.peek_loss(target, result_id);
+                rt.pc += 1;
+            }
+
+            OP_READOUT_NOISE => {
+                let p_zero_as_one = rt.resolve_f64(instr.aux0, flags, 3);
+                let p_one_as_zero = rt.resolve_f64(instr.aux1, flags, 4);
+                let result_id = rt.resolve_u64(instr.aux2, flags, 5) as ResultID;
+                sim.apply_readout_noise(p_zero_as_one, p_one_as_zero, result_id);
                 rt.pc += 1;
             }
 
@@ -486,7 +503,7 @@ pub fn run_shot<S: Simulator>(program: &AdaptiveProgram<u64>, sim: &mut S) -> Ve
                 //       the host from the static QIR, so they are a no-op here.
                 match instr.aux1 {
                     0 => {
-                        let result_id = rt.resolve_u64(instr.src0, flags, 0) as usize;
+                        let result_id = rt.resolve_u64(instr.src0, flags, 0) as ResultID;
                         let measurements = sim.measurements();
                         let value = measurements
                             .get(result_id)

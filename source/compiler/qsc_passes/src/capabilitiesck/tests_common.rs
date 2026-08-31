@@ -18,6 +18,7 @@ pub fn check(source: &str, expect: &Expect, capabilities: TargetCapabilityFlags)
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
+        compilation_context.package_id,
         compute_properties,
         capabilities,
         &compilation_context.fir_store,
@@ -30,6 +31,7 @@ pub fn check_for_exe(source: &str, expect: &Expect, capabilities: TargetCapabili
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
+        compilation_context.package_id,
         compute_properties,
         capabilities,
         &compilation_context.fir_store,
@@ -45,6 +47,7 @@ pub fn capability_error_kinds(source: &str, capabilities: TargetCapabilityFlags)
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
+        compilation_context.package_id,
         compute_properties,
         capabilities,
         &compilation_context.fir_store,
@@ -139,7 +142,7 @@ impl CompilationContext {
     fn get_package_compute_properties_tuple(&self) -> (&Package, &PackageComputeProperties) {
         (
             self.fir_store.get(self.package_id),
-            self.compute_properties.get(self.package_id),
+            self.compute_properties.get(self.package_id, false),
         )
     }
 }

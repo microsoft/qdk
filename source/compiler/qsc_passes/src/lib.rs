@@ -25,10 +25,7 @@ mod spec_gen;
 mod test_attribute;
 
 use callable_limits::CallableLimits;
-use capabilitiesck::{
-    check_supported_capabilities, check_supported_capabilities_for_callable, lower_store,
-    run_rca_pass,
-};
+use capabilitiesck::{check_supported_capabilities_for_callable, lower_store, run_rca_pass};
 use entry_point::generate_entry_expr;
 use index_assignment::ConvertToWSlash;
 use loop_control::LoopControl;
@@ -47,7 +44,7 @@ use qsc_hir::{
     visit::Visitor,
 };
 use qsc_lowerer::map_hir_package_to_fir;
-use qsc_rca::{PackageComputeProperties, PackageStoreComputeProperties};
+use qsc_rca::PackageStoreComputeProperties;
 use replace_qubit_allocation::ReplaceQubitAllocation;
 use rustc_hash::FxHashMap;
 use std::rc::Rc;
@@ -135,6 +132,7 @@ impl PassContext {
         let mut loop_control = LoopControl::default();
         loop_control.visit_package(package);
         let loop_control_errors = loop_control.errors;
+        let uses_loop_control = loop_control.uses_loop_control;
 
         ConvertToWSlash { assigner }.visit_package(package);
         Validator::default().visit_package(package);
@@ -159,14 +157,19 @@ impl PassContext {
         let entry_point_errors = generate_entry_expr(package, assigner, package_type);
         Validator::default().visit_package(package);
 
-        // Hoist operand-position break/continue to statement position so the
-        // loop_unification desugar can rewrite them in place.
-        let loop_normalize_errors = {
-            let mut normalize = loop_normalize::LoopNormalize::new(assigner);
-            normalize.visit_package(package);
-            normalize.errors
+        let loop_normalize_errors = if uses_loop_control {
+            // Hoist operand-position break/continue to statement position so the
+            // loop_unification desugar can rewrite them in place.
+            let loop_normalize_errors = {
+                let mut normalize = loop_normalize::LoopNormalize::new(assigner);
+                normalize.visit_package(package);
+                normalize.errors
+            };
+            Validator::default().visit_package(package);
+            loop_normalize_errors
+        } else {
+            Vec::new()
         };
-        Validator::default().visit_package(package);
 
         let loop_uni_errors = {
             let mut loop_uni = LoopUni {
@@ -180,13 +183,14 @@ impl PassContext {
         Validator::default().visit_package(package);
 
         // Defense-in-depth: after loop_unification, no raw `break`/`continue`
-        // node should remain. `ResidualBreakContinue` is an internal invariant
+        // node should remain. `UnsupportedBreakContinue` is an internal invariant
         // check, so when `loop_control` already reported a misplaced
         // `break`/`continue`, the surviving raw node is the expected consequence
         // of that user error and `loop_control`'s diagnostic is the correct
         // user-facing one — only surface the invariant when `loop_control` found
         // no misplaced `break`/`continue`.
-        let residual_break_continue_errors = if loop_control_errors.is_empty() {
+        let residual_break_continue_errors = if uses_loop_control && loop_control_errors.is_empty()
+        {
             loop_unification::check_no_break_continue(package)
         } else {
             Vec::new()
@@ -255,14 +259,8 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
 
     let table = global::iter_package(PackageId::CORE, &core.package).collect();
 
-    // Hoist operand-position break/continue to statement position before the
-    // loop_unification desugar, matching the default pass pipeline.
-    let loop_normalize_errors = {
-        let mut normalize = loop_normalize::LoopNormalize::new(&mut core.assigner);
-        normalize.visit_package(&mut core.package);
-        normalize.errors
-    };
-    Validator::default().visit_package(&core.package);
+    // Core library is not expected to contain any break/continue, but if it does, report them as errors.
+    let break_continue_errors = loop_unification::check_no_break_continue(&core.package);
 
     let loop_uni_errors = {
         let mut loop_uni = LoopUni {
@@ -275,37 +273,18 @@ pub fn run_core_passes(core: &mut CompileUnit) -> Vec<Error> {
     };
     Validator::default().visit_package(&core.package);
 
-    // The core pipeline has no `loop_control` pass, so this residual-node check
-    // is the sole guard that no raw `break`/`continue` survived desugaring.
-    let residual_break_continue_errors = loop_unification::check_no_break_continue(&core.package);
-
     ReplaceQubitAllocation::new(&table, &mut core.assigner).visit_package(&mut core.package);
     Validator::default().visit_package(&core.package);
 
     borrow_errors
         .into_iter()
         .map(Error::BorrowCk)
-        .chain(loop_normalize_errors.into_iter().map(Error::LoopNormalize))
-        .chain(loop_uni_errors.into_iter().map(Error::LoopUnification))
         .chain(
-            residual_break_continue_errors
+            break_continue_errors
                 .into_iter()
                 .map(Error::LoopUnification),
         )
-        .collect()
-}
-
-pub fn run_rca(
-    package: &fir::Package,
-    compute_properties: &PackageComputeProperties,
-    capabilities: TargetCapabilityFlags,
-    store: &fir::PackageStore,
-) -> Vec<Error> {
-    let capabilities_errors =
-        check_supported_capabilities(package, compute_properties, capabilities, store);
-    capabilities_errors
-        .into_iter()
-        .map(Error::CapabilitiesCk)
+        .chain(loop_uni_errors.into_iter().map(Error::LoopUnification))
         .collect()
 }
 
@@ -316,9 +295,10 @@ pub fn run_rca_for_callable(
     capabilities: TargetCapabilityFlags,
 ) -> Vec<Error> {
     let package = fir_store.get(callable.package);
-    let package_compute_properties = compute_properties.get(callable.package);
+    let package_compute_properties = compute_properties.get(callable.package, false);
     let capabilities_errors = check_supported_capabilities_for_callable(
         package,
+        callable.package,
         package_compute_properties,
         callable.item,
         capabilities,

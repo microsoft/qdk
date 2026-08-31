@@ -86,13 +86,8 @@ const getQubitLabelElems = (container: HTMLElement): SVGTextElement[] => {
 };
 
 /**
- * Parse a host element's `data-wire-ys` attribute into a number array. The renderer writes the
- * wire-Y coordinates the element visually spans onto this attribute as a JSON array of numbers (see
- * [`gateFormatter.ts`](../renderer/formatters/gateFormatter.ts)).
- *
- * Returns `[]` when the attribute is missing or malformed — same convention `_wireYs` in
- * [`draggable.ts`](draggable.ts) follows. Lives here so the selection / drag controllers can read
- * host-element wire spans without duplicating the parse.
+ * Parse a host element's `data-wire-ys` attribute (a JSON number array of the wire-Y coordinates it
+ * spans, written by the renderer) into a number array. Returns `[]` when missing or malformed.
  */
 const parseWireYs = (elem: Element): number[] => {
   const wireYsAttr = elem.getAttribute("data-wire-ys");
@@ -108,12 +103,45 @@ const parseWireYs = (elem: Element): number[] => {
   return [];
 };
 
+/**
+ * Find the own dashed box `<rect>` of an expanded group by its `data-location`. The box is the
+ * group `<g>`'s first direct-child `<rect>` (`gate-unitary`, or `classical-container` when
+ * classically controlled); restricting to direct children skips nested children's boxes. Returns
+ * `null` when the group or its box isn't found (e.g. collapsed). Cloned by the shift-extend ghost.
+ *
+ * @param container The HTML container element containing the circuit visualization.
+ * @param location  The `data-location` string of the group.
+ * @returns The group's own box `<rect>`, or `null` if not found.
+ */
+const getGroupBoxElem = (
+  container: HTMLElement,
+  location: string,
+): SVGGraphicsElement | null => {
+  const circuitSvg = container.querySelector("svg.qviz");
+  if (circuitSvg == null) return null;
+  const groupElem = circuitSvg.querySelector<SVGGraphicsElement>(
+    `.gate[data-location="${location}"]`,
+  );
+  if (groupElem == null) return null;
+  for (const child of Array.from(groupElem.children)) {
+    if (
+      child.tagName.toLowerCase() === "rect" &&
+      (child.classList.contains("gate-unitary") ||
+        child.classList.contains("classical-container"))
+    ) {
+      return child as SVGGraphicsElement;
+    }
+  }
+  return null;
+};
+
 export {
   findGateElem,
   getWireData,
   getToolboxElems,
   getHostElems,
   getGateElems,
+  getGroupBoxElem,
   getQubitLabelElems,
   parseWireYs,
 };

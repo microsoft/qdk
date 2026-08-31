@@ -1,7 +1,7 @@
 pytest
 expecttest==0.3.0
 pyqir>=0.12.5,<0.13
-cirq==1.6.1; platform_system != 'Windows' or platform_machine == 'AMD64'
+cirq-core==1.6.1; platform_system != 'Windows' or platform_machine == 'AMD64'
 pandas>=2.1
 # `qdk.ec` test dependencies. The `ec` extra itself (qodec, paulimer, binar) is
 # not listed here: those distributions are not on PyPI yet, and tests/ec_tests

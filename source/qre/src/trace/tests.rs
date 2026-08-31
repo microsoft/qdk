@@ -1,9 +1,13 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use crate::isa::{Encoding, ISA, Instruction};
+use std::sync::{Arc, RwLock};
+
+use rustc_hash::FxHashSet;
+
+use crate::isa::{Encoding, ISA, Instruction, ProvenanceGraph};
 use crate::result::ErrorComposition;
-use crate::trace::{Trace, instruction_ids::*};
+use crate::trace::{Trace, estimate_parallel, estimate_with_graph, instruction_ids::*};
 
 #[test]
 fn test_trace_iteration() {
@@ -233,6 +237,155 @@ fn test_estimate_simple() {
     assert!((result.error() - 0.001).abs() <= f64::EPSILON);
     assert_eq!(result.runtime(), 100);
     assert_eq!(result.qubits(), 50);
+}
+
+#[test]
+fn estimate_parallel_propagates_errors() {
+    let mut trace = Trace::new(1);
+    trace.add_operation(T, vec![0], vec![]);
+
+    let isa = ISA::new();
+    let collection = estimate_parallel(
+        &[&trace],
+        &[&isa],
+        None,
+        false,
+        ErrorComposition::UnionBound,
+    );
+
+    assert_eq!(collection.total_jobs(), 1);
+    assert_eq!(collection.successful_estimates(), 0);
+    assert_eq!(collection.errors().len(), 1);
+    assert!(collection.errors()[0].contains("not present in ISA"));
+    assert_eq!(
+        collection.missing_instruction_ids(),
+        &FxHashSet::from_iter([T])
+    );
+    assert_eq!(collection.maximum_error_exceeded(), 0);
+}
+
+#[test]
+fn estimate_parallel_records_exact_error_without_cutoff() {
+    let mut trace = Trace::new(1);
+    trace.add_operation(T, vec![0], vec![]);
+    trace.add_operation(T, vec![0], vec![]);
+
+    let mut isa = ISA::new();
+    isa.add_instruction(Instruction::fixed_arity(
+        T,
+        Encoding::Logical,
+        1,
+        1,
+        Some(1),
+        None,
+        0.1,
+    ));
+
+    let collection = estimate_parallel(
+        &[&trace],
+        &[&isa],
+        Some(0.05),
+        false,
+        ErrorComposition::UnionBound,
+    );
+
+    assert_eq!(collection.successful_estimates(), 0);
+    assert_eq!(collection.maximum_error_exceeded(), 1);
+    assert_eq!(collection.minimum_error_for_success(), Some(0.2));
+}
+
+#[test]
+fn estimate_with_graph_reports_base_error_over_budget() {
+    let mut trace1 = Trace::new(1);
+    trace1.increment_base_error(0.3);
+    let mut trace2 = Trace::new(1);
+    trace2.increment_base_error(0.2);
+    let graph = Arc::new(RwLock::new(ProvenanceGraph::new()));
+
+    let collection = estimate_with_graph(
+        &[&trace1, &trace2],
+        &graph,
+        Some(0.1),
+        false,
+        ErrorComposition::UnionBound,
+    );
+
+    assert_eq!(collection.total_jobs(), 0);
+    assert_eq!(collection.successful_estimates(), 0);
+    assert_eq!(collection.errors().len(), 1);
+    assert!(collection.errors()[0].contains("0.2 > 0.1"));
+    assert_eq!(collection.minimum_error_for_success(), Some(0.2));
+}
+
+#[test]
+fn estimate_with_graph_reports_missing_instruction_ids() {
+    let mut trace = Trace::new(1);
+    trace.add_operation(T, vec![0], vec![]);
+    let graph = Arc::new(RwLock::new(ProvenanceGraph::new()));
+
+    let collection =
+        estimate_with_graph(&[&trace], &graph, None, false, ErrorComposition::UnionBound);
+
+    assert_eq!(collection.total_jobs(), 0);
+    assert_eq!(
+        collection.missing_instruction_ids(),
+        &FxHashSet::from_iter([T])
+    );
+}
+
+#[test]
+fn estimate_with_graph_records_exact_error_without_cutoff() {
+    let mut trace = Trace::new(1);
+    trace.add_operation(T, vec![0], vec![]);
+
+    let mut isa = ISA::new();
+    isa.add_instruction(Instruction::fixed_arity(
+        T,
+        Encoding::Logical,
+        1,
+        1,
+        Some(1),
+        None,
+        0.1,
+    ));
+    let graph = Arc::clone(isa.graph());
+    graph
+        .write()
+        .expect("Graph lock poisoned")
+        .build_pareto_index();
+
+    let collection = estimate_with_graph(
+        &[&trace],
+        &graph,
+        Some(0.05),
+        false,
+        ErrorComposition::UnionBound,
+    );
+
+    assert_eq!(collection.total_jobs(), 0);
+    assert_eq!(collection.successful_estimates(), 0);
+    assert_eq!(collection.maximum_error_exceeded(), 1);
+    assert_eq!(collection.minimum_error_for_success(), Some(0.1));
+}
+
+#[test]
+fn estimate_with_graph_ignores_base_error_for_some_traces() {
+    let mut rejected_trace = Trace::new(1);
+    rejected_trace.increment_base_error(0.2);
+    let valid_trace = Trace::new(1);
+    let graph = Arc::new(RwLock::new(ProvenanceGraph::new()));
+
+    let collection = estimate_with_graph(
+        &[&rejected_trace, &valid_trace],
+        &graph,
+        Some(0.1),
+        false,
+        ErrorComposition::UnionBound,
+    );
+
+    assert_eq!(collection.total_jobs(), 1);
+    assert_eq!(collection.successful_estimates(), 1);
+    assert!(collection.errors().is_empty());
 }
 
 #[test]

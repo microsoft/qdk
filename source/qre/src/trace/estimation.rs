@@ -10,7 +10,10 @@ use std::{
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{ErrorComposition, EstimationCollection, ISA, ProvenanceGraph, ResultSummary, Trace};
+use crate::{
+    Error, ErrorComposition, EstimationCollection, EstimationResult, ISA, ProvenanceGraph,
+    ResultSummary, Trace,
+};
 
 /// Estimates all (trace, ISA) combinations in parallel, returning only the
 /// successful results collected into an [`EstimationCollection`].
@@ -47,6 +50,20 @@ pub fn estimate_parallel<'a>(
     let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
 
+    if !isas.is_empty() {
+        let available_instruction_ids: FxHashSet<_> = isas
+            .iter()
+            .flat_map(|isa| isa.node_entries().map(|(id, _)| *id))
+            .collect();
+        for trace in traces {
+            for constraint in trace.required_instruction_ids(None).constraints() {
+                if !available_instruction_ids.contains(&constraint.id()) {
+                    collection.record_missing_instruction(constraint.id());
+                }
+            }
+        }
+    }
+
     std::thread::scope(|scope| {
         let num_threads = std::thread::available_parallelism().map_or(1, std::num::NonZero::get);
 
@@ -58,7 +75,7 @@ pub fn estimate_parallel<'a>(
             let tx = tx.clone();
             let next_job = &next_job;
             scope.spawn(move || {
-                let mut local_results = Vec::new();
+                let mut local_results: Vec<Result<EstimationResult, Error>> = Vec::new();
                 loop {
                     // Atomically claim the next job.  Relaxed ordering is
                     // sufficient because there is no dependent data between
@@ -72,14 +89,14 @@ pub fn estimate_parallel<'a>(
                     let trace_idx = job / num_isas;
                     let isa_idx = job % num_isas;
 
-                    if let Ok(mut estimation) =
-                        traces[trace_idx].estimate(isas[isa_idx], max_error, composition)
-                    {
-                        estimation.set_isa_index(isa_idx);
-                        estimation.set_trace_index(trace_idx);
-
-                        local_results.push(estimation);
-                    }
+                    let result = traces[trace_idx]
+                        .estimate(isas[isa_idx], max_error, composition)
+                        .map(|mut estimation| {
+                            estimation.set_isa_index(isa_idx);
+                            estimation.set_trace_index(trace_idx);
+                            estimation
+                        });
+                    local_results.push(result);
                 }
                 // Send all results from this worker in one batch.
                 let _ = tx.send(local_results);
@@ -92,21 +109,40 @@ pub fn estimate_parallel<'a>(
         // Collect results from all workers into the shared collection.
         let mut successful = 0;
         for local_results in rx {
-            if post_process {
-                for result in &local_results {
-                    collection.push_summary(ResultSummary {
-                        trace_index: result.trace_index().unwrap_or(0),
-                        isa_index: result.isa_index().unwrap_or(0),
-                        qubits: result.qubits(),
-                        runtime: result.runtime(),
-                    });
+            for result in local_results {
+                match result {
+                    Ok(result) => {
+                        collection.record_successful_error(result.error());
+                        if post_process {
+                            collection.push_summary(ResultSummary {
+                                trace_index: result.trace_index().unwrap_or(0),
+                                isa_index: result.isa_index().unwrap_or(0),
+                                qubits: result.qubits(),
+                                runtime: result.runtime(),
+                            });
+                        }
+                        successful += 1;
+                        collection.insert(result);
+                    }
+                    Err(error) => collection.push_error(&error),
                 }
             }
-            successful += local_results.len();
-            collection.extend(local_results);
         }
         collection.set_successful_estimates(successful);
     });
+
+    if collection.successful_estimates() == 0
+        && collection.maximum_error_exceeded() > 0
+        && max_error.is_some()
+    {
+        for trace in traces {
+            for isa in isas {
+                if let Ok(result) = trace.estimate(isa, None, composition) {
+                    collection.record_successful_error(result.error());
+                }
+            }
+        }
+    }
 
     // Attach ISAs only to Pareto-surviving results, avoiding O(M) HashMap
     // clones for discarded results.
@@ -297,6 +333,19 @@ pub fn estimate_with_graph(
     // cartesian product of Pareto-filtered nodes.  Each node carries
     // pre-computed (space, time) values for dominance pruning in Phase 2.
     let mut jobs: Vec<(usize, Vec<CombinationEntry>)> = Vec::new();
+    let mut collection = EstimationCollection::new();
+
+    let min_trace_error = traces
+        .iter()
+        .map(|trace| trace.base_error())
+        .reduce(f64::min)
+        .unwrap_or(0.0);
+    if min_trace_error > max_error {
+        collection.push_error(&Error::MaximumErrorExceeded {
+            actual_error: min_trace_error,
+            max_error,
+        });
+    }
 
     // Use the maximum number of instruction slots across all combinations to
     // size the pruning witness structure.  This will updated while we generate
@@ -328,40 +377,43 @@ pub fn estimate_with_graph(
         let required = trace.required_instruction_ids(Some(max_error));
 
         let graph_lock = graph.read().expect("Graph lock poisoned");
-        let id_and_nodes: Vec<_> = required
-            .constraints()
-            .iter()
-            .filter_map(|constraint| {
-                graph_lock.pareto_nodes(constraint.id()).map(|nodes| {
-                    (
-                        constraint.id(),
-                        nodes
-                            .iter()
-                            .filter(|&&node| {
-                                // Filter out nodes that don't meet the constraint bounds.
-                                let instruction = graph_lock.instruction(node);
-                                constraint.error_rate().is_none_or(|c| {
-                                    c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
-                                })
-                            })
-                            .map(|&node| {
-                                let instruction = graph_lock.instruction(node);
-                                let space = instruction.space(Some(1), &[]).unwrap_or(0);
-                                let time = instruction.time(Some(1), &[]).unwrap_or(0);
-                                NodeProfile {
-                                    node_index: node,
-                                    space,
-                                    time,
-                                }
-                            })
-                            .collect::<Vec<_>>(),
-                    )
+        let mut id_and_nodes = Vec::with_capacity(required.len());
+        let mut has_missing_instruction = false;
+        for constraint in required.constraints() {
+            let Some(nodes) = graph_lock.pareto_nodes(constraint.id()) else {
+                collection.record_missing_instruction(constraint.id());
+                has_missing_instruction = true;
+                continue;
+            };
+
+            let matching_nodes = nodes
+                .iter()
+                .filter(|&&node| {
+                    // Filter out nodes that don't meet the constraint bounds.
+                    let instruction = graph_lock.instruction(node);
+                    constraint.error_rate().is_none_or(|c| {
+                        c.evaluate(&instruction.error_rate(Some(1), &[]).unwrap_or(0.0))
+                    })
                 })
-            })
-            .collect();
+                .map(|&node| {
+                    let instruction = graph_lock.instruction(node);
+                    let space = instruction.space(Some(1), &[]).unwrap_or(0);
+                    let time = instruction.time(Some(1), &[]).unwrap_or(0);
+                    NodeProfile {
+                        node_index: node,
+                        space,
+                        time,
+                    }
+                })
+                .collect::<Vec<_>>();
+            id_and_nodes.push((constraint.id(), matching_nodes));
+        }
+        if id_and_nodes.iter().any(|(_, nodes)| nodes.is_empty()) {
+            collection.record_maximum_error_exceeded();
+        }
         drop(graph_lock);
 
-        if id_and_nodes.len() != required.len() {
+        if has_missing_instruction {
             // If any required instruction is missing from the graph, we can't
             // run any estimation for this trace.
             continue;
@@ -407,7 +459,6 @@ pub fn estimate_with_graph(
     // index.
     let isa_index = Arc::new(RwLock::new(ISAIndex::default()));
 
-    let mut collection = EstimationCollection::new();
     collection.set_total_jobs(total_jobs);
 
     std::thread::scope(|scope| {
@@ -447,9 +498,8 @@ pub fn estimate_with_graph(
                         isa.add_node(entry.instruction_id, entry.node.node_index);
                     }
 
-                    if let Ok(mut result) =
-                        traces[*trace_idx].estimate(&isa, Some(max_error), composition)
-                    {
+                    let result = traces[*trace_idx].estimate(&isa, Some(max_error), composition);
+                    if let Ok(mut result) = result {
                         let isa_idx = isa_index
                             .write()
                             .expect("RwLock should not be poisoned")
@@ -458,8 +508,10 @@ pub fn estimate_with_graph(
 
                         result.set_trace_index(*trace_idx);
 
-                        local_results.push(result);
+                        local_results.push(Ok(result));
                         record_success(combination, &pruning_witnesses[*trace_idx]);
+                    } else {
+                        local_results.push(result);
                     }
                 }
                 let _ = tx.send(local_results);
@@ -469,18 +521,24 @@ pub fn estimate_with_graph(
 
         let mut successful = 0;
         for local_results in rx {
-            if post_process {
-                for result in &local_results {
-                    collection.push_summary(ResultSummary {
-                        trace_index: result.trace_index().unwrap_or(0),
-                        isa_index: result.isa_index().unwrap_or(0),
-                        qubits: result.qubits(),
-                        runtime: result.runtime(),
-                    });
+            for result in local_results {
+                match result {
+                    Ok(result) => {
+                        collection.record_successful_error(result.error());
+                        if post_process {
+                            collection.push_summary(ResultSummary {
+                                trace_index: result.trace_index().unwrap_or(0),
+                                isa_index: result.isa_index().unwrap_or(0),
+                                qubits: result.qubits(),
+                                runtime: result.runtime(),
+                            });
+                        }
+                        successful += 1;
+                        collection.insert(result);
+                    }
+                    Err(error) => collection.push_error(&error),
                 }
             }
-            successful += local_results.len();
-            collection.extend(local_results);
         }
         collection.set_successful_estimates(successful);
     });
@@ -500,6 +558,48 @@ pub fn estimate_with_graph(
     }
 
     collection.set_isas(isa_index.into());
+
+    if collection.successful_estimates() == 0 && collection.maximum_error_exceeded() > 0 {
+        for trace in traces {
+            let required = trace.required_instruction_ids(None);
+            let graph_lock = graph.read().expect("Graph lock poisoned");
+            let mut id_and_nodes = Vec::with_capacity(required.len());
+            for constraint in required.constraints() {
+                let nodes = graph_lock
+                    .pareto_nodes(constraint.id())
+                    .into_iter()
+                    .flatten()
+                    .copied()
+                    .filter(|&node| constraint.is_satisfied_by(graph_lock.instruction(node)))
+                    .map(|node_index| NodeProfile {
+                        node_index,
+                        space: 0,
+                        time: 0,
+                    })
+                    .collect::<Vec<_>>();
+                id_and_nodes.push((constraint.id(), nodes));
+            }
+            drop(graph_lock);
+
+            let mut diagnostic_jobs = Vec::new();
+            let mut diagnostic_slots = 0;
+            push_cartesian_product(
+                &id_and_nodes,
+                0,
+                &mut diagnostic_jobs,
+                &mut diagnostic_slots,
+            );
+            for (_, combination) in diagnostic_jobs {
+                let mut isa = ISA::with_graph(Arc::clone(graph));
+                for entry in combination {
+                    isa.add_node(entry.instruction_id, entry.node.node_index);
+                }
+                if let Ok(result) = trace.estimate(&isa, None, composition) {
+                    collection.record_successful_error(result.error());
+                }
+            }
+        }
+    }
 
     collection
 }

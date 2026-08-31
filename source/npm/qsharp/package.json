@@ -24,6 +24,8 @@
     "./katas-md": "./dist/katas-md.js",
     "./state-viz": "./ux/circuit-vis/state-viz/worker/index.ts",
     "./ux": "./ux/index.ts",
+    "./ux/qsharp-ux.css": "./ux/qsharp-ux.css",
+    "./ux/bloch/bloch.css": "./ux/bloch/bloch.css",
     "./qdk-theme.css": "./ux/qdk-theme.css",
     "./rz-array.json": "./rz-array.json"
   },

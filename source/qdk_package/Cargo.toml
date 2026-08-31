@@ -16,8 +16,9 @@ num-bigint = { workspace = true }
 num-complex = { workspace = true }
 num-traits = { workspace = true }
 qsc = { path = "../compiler/qsc" }
+qdk_openqasm = { path = "../qdk_openqasm" }
 stim_compiler = { path = "../compiler/stim_compiler" }
-qdk_simulators = { path = "../simulators" }
+qdk_simulators = { path = "../simulators", features = ["gpu"] }
 resource_estimator = { path = "../resource_estimator" }
 qre = { path = "../qre" }
 miette = { workspace = true, features = ["fancy"] }

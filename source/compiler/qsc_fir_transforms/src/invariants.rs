@@ -2134,6 +2134,7 @@ fn check_local_reference(
 /// # Panics
 ///
 /// Panics with a descriptive message if any invariant is violated.
+#[allow(clippy::too_many_lines)]
 fn check_configured_exec_graph(
     package: &Package,
     nodes: &[ExecGraphNode],
@@ -2176,12 +2177,45 @@ fn check_configured_exec_graph(
                 );
             }
             // Invariant B: Expr references valid ExprId.
-            ExecGraphNode::Expr(expr_id) => {
-                assert!(
+            ExecGraphNode::Expr(expr, _) => match expr {
+                qsc_fir::fir::ExecGraphExpr::Expr(expr_id)
+                | qsc_fir::fir::ExecGraphExpr::Assign(expr_id)
+                | qsc_fir::fir::ExecGraphExpr::AssignOp {
+                    lhs: expr_id,
+                    op: _,
+                    lhs_span: _,
+                    rhs_span: _,
+                }
+                | qsc_fir::fir::ExecGraphExpr::AssignIndex {
+                    lhs: expr_id,
+                    mid_span: _,
+                } => assert!(
                     package.exprs.get(*expr_id).is_some(),
                     "Exec graph for {context} ({config_label}): node {i} references nonexistent Expr {expr_id}"
-                );
-            }
+                ),
+                qsc_fir::fir::ExecGraphExpr::Array(_)
+                | qsc_fir::fir::ExecGraphExpr::ArrayRepeat
+                | qsc_fir::fir::ExecGraphExpr::BinOp {
+                    op: _,
+                    lhs_span: _,
+                    rhs_span: _,
+                }
+                | qsc_fir::fir::ExecGraphExpr::Call {
+                    callee_span: _,
+                    args_span: _,
+                }
+                | qsc_fir::fir::ExecGraphExpr::Fail
+                | qsc_fir::fir::ExecGraphExpr::Index { index_span: _ }
+                | qsc_fir::fir::ExecGraphExpr::Range {
+                    has_start: _,
+                    has_step: _,
+                    has_end: _,
+                }
+                | qsc_fir::fir::ExecGraphExpr::UpdateIndex { mid_span: _ }
+                | qsc_fir::fir::ExecGraphExpr::Tuple(_)
+                | qsc_fir::fir::ExecGraphExpr::UnOp(_)
+                | qsc_fir::fir::ExecGraphExpr::Var(_) => {}
+            },
             // Invariant C: Bind references valid PatId.
             ExecGraphNode::Bind(pat_id) => {
                 assert!(

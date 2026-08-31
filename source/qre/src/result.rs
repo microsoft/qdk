@@ -6,9 +6,9 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
-use crate::{ISA, ParetoFrontier2D, ParetoItem2D, Property};
+use crate::{Error, ISA, ParetoFrontier2D, ParetoItem2D, Property};
 
 /// Controls how individual error contributions passed to
 /// [`EstimationResult::add_error`] are composed into the total error.
@@ -225,6 +225,14 @@ pub struct EstimationCollection {
     total_jobs: usize,
     successful_estimates: usize,
     isas: Vec<ISA>,
+    /// Errors for failed estimates.
+    errors: Vec<String>,
+    /// Number of candidate estimates rejected for exceeding the error budget.
+    maximum_error_exceeded: usize,
+    /// Minimum final error among candidates that completed without an error cutoff.
+    minimum_error_for_success: Option<f64>,
+    /// Instruction IDs required by traces but absent from every available ISA.
+    missing_instruction_ids: FxHashSet<u64>,
 }
 
 impl EstimationCollection {
@@ -251,6 +259,18 @@ impl EstimationCollection {
         self.successful_estimates = successful_estimates;
     }
 
+    pub fn record_successful_error(&mut self, error: f64) {
+        self.minimum_error_for_success = Some(
+            self.minimum_error_for_success
+                .map_or(error, |minimum| minimum.min(error)),
+        );
+    }
+
+    #[must_use]
+    pub fn minimum_error_for_success(&self) -> Option<f64> {
+        self.minimum_error_for_success
+    }
+
     pub fn push_summary(&mut self, summary: ResultSummary) {
         self.all_summaries.push(summary);
     }
@@ -272,6 +292,36 @@ impl EstimationCollection {
     #[must_use]
     pub fn isas(&self) -> &[ISA] {
         &self.isas
+    }
+
+    pub fn push_error(&mut self, err: &Error) {
+        if let Error::MaximumErrorExceeded { .. } = err {
+            self.record_maximum_error_exceeded();
+        }
+        self.errors.push(err.to_string());
+    }
+
+    pub fn record_maximum_error_exceeded(&mut self) {
+        self.maximum_error_exceeded += 1;
+    }
+
+    pub fn record_missing_instruction(&mut self, id: u64) {
+        self.missing_instruction_ids.insert(id);
+    }
+
+    #[must_use]
+    pub fn maximum_error_exceeded(&self) -> usize {
+        self.maximum_error_exceeded
+    }
+
+    #[must_use]
+    pub fn missing_instruction_ids(&self) -> &FxHashSet<u64> {
+        &self.missing_instruction_ids
+    }
+
+    #[must_use]
+    pub fn errors(&self) -> &[String] {
+        &self.errors
     }
 }
 

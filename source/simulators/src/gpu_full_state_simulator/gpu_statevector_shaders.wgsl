@@ -93,6 +93,7 @@ const OPID_PAULI_NOISE_1Q = 128u;
 const OPID_PAULI_NOISE_2Q = 129u;
 const OPID_LOSS_NOISE = 130u;
 const OPID_CORRELATED_NOISE = 131u;
+const OPID_READOUT_NOISE = 132u;
 
 // If the application of noise results in a custom matrix, it will have been stored in the shot buffer
 // These OPIDs indicate to use that matrix and for how many qubits. (The qubit ids are in the original Op)
@@ -181,6 +182,8 @@ const OP_RESET:         u32 = 0x12;
 const OP_READ_RESULT:   u32 = 0x13;
 const OP_RECORD_OUTPUT: u32 = 0x14;
 const OP_READ_LOSS:     u32 = 0x15;
+const OP_PEEK_LOSS:     u32 = 0x16;
+const OP_READOUT_NOISE: u32 = 0x17;
 
 // -- Integer Arithmetic -------------------------------------------------------
 const OP_ADD:           u32 = 0x20;
@@ -2169,7 +2172,7 @@ fn is_rotation_gate(id: u32) -> bool {
 fn is_dynamic_angle(shot_idx: u32) -> bool {
     let state = shots[shot_idx].interp;
     let instr = fetch_instr(state.pc - 1);
-    return (instr.opcode | FLAG_SRC0_IMM) != 0;
+    return (instr.opcode & FLAG_SRC0_IMM) == 0u;
 }
 
 // Commit a sampled qubit loss on an explicitly given qubit (measure + reset to
@@ -2386,6 +2389,24 @@ fn prepare_op_base_impl(shot_idx: u32) {
     // Handle correlated noise operations
     if (op.id == OPID_CORRELATED_NOISE) {
         prep_correlated_noise(shot_idx, op_idx);
+        return;
+    }
+
+    if (op.id == OPID_READOUT_NOISE) {
+        let result_id = op.q1;
+        let p_zero_as_one = op.unitary[0].x;
+        let p_one_as_zero = op.unitary[0].y;
+        let result_idx = shot_idx * RESULT_COUNT + result_id;
+        let result = atomicLoad(&results[result_idx]);
+        let sample = shot.rand_measure;
+        if (result == 0u && sample < p_zero_as_one) {
+            atomicStore(&results[result_idx], 1u);
+        } else if (result == 1u && sample < p_one_as_zero) {
+            atomicStore(&results[result_idx], 0u);
+        }
+        shot.op_type = OPID_ID;
+        shot.op_idx = op_idx;
+        shot.qubits_updated_last_op_mask = 0u;
         return;
     }
 
@@ -2767,7 +2788,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
                 pc = shots[shot_idx].interp.call_stack_frames[sp].return_pc;
                 let return_reg = shots[shot_idx].interp.call_stack_frames[sp].return_reg;
                 if return_reg != VOID_RETURN {
-                    write_reg(shot_idx, return_reg, read_reg(shot_idx, instr.src0));
+                    write_reg(shot_idx, return_reg, resolve_u32(shot_idx, instr.src0, flags, 0u));
                 }
             }
 
@@ -2845,7 +2866,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // register, allowing classical code to branch on measurement
             // outcomes.
             case OP_READ_RESULT {
-                let result_id = instr.src0;
+                let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let result_val = read_measurement_result(shot_idx, result_id);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, result_val));
                 pc++;
@@ -2861,7 +2882,7 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // structural and reconstructed by the host, so they remain no-ops.
             case OP_RECORD_OUTPUT {
                 if instr.aux1 == 0u {
-                    let result_id = instr.src0;
+                    let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                     let rec_val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                     atomicStore(&results[output_record_base(shot_idx) + instr.aux2], rec_val);
                 } else if instr.aux1 >= 3u {
@@ -2877,9 +2898,41 @@ fn interpret_classical(@builtin(global_invocation_id) gid: vec3<u32>) {
             // so we compare against 2u and write 1u when the result was a loss,
             // else 0u.
             case OP_READ_LOSS {
-                let result_id = instr.src0;
+                let result_id = resolve_u32(shot_idx, instr.src0, flags, 0u);
                 let val = atomicLoad(&results[shot_idx * RESULT_COUNT + result_id]);
                 write_reg(shot_idx, instr.dst, select(0u, 1u, val == 2u));
+                pc++;
+            }
+
+            // PEEK_LOSS: Reports whether a qubit was lost, but doesn't
+            // collapse the state.
+            case OP_PEEK_LOSS {
+                let qubit = resolve_u32(shot_idx, instr.aux0, flags, 3u);
+                let result_id = resolve_u32(shot_idx, instr.aux1, flags, 4u);
+                let result_idx = shot_idx * RESULT_COUNT + result_id;
+                let is_lost = shots[shot_idx].qubit_state[qubit].heat == -1.0;
+                atomicStore(&results[result_idx], select(0u, 1u, is_lost));
+                pc++;
+            }
+
+            // READOUT_NOISE: Simulates readout noise on a prior measurement result.
+            // That is, it flips the result with a probability that depends on the original value:
+            //   - If the result was 0, it flips to 1 with probability p_zero_as_one.
+            //   - If the result was 1, it flips to 0 with probability p_one_as_zero.
+            case OP_READOUT_NOISE {
+                let p_zero_as_one = resolve_f32(shot_idx, instr.aux0, flags, 3u);
+                let p_one_as_zero = resolve_f32(shot_idx, instr.aux1, flags, 4u);
+                let result_id = resolve_u32(shot_idx, instr.aux2, flags, 5u);
+                let result_idx = shot_idx * RESULT_COUNT + result_id;
+                let result = atomicLoad(&results[result_idx]);
+                let sample = next_rand_f32(shot_idx);
+
+                if ((result == 0u && sample < p_zero_as_one)) {
+                    atomicStore(&results[result_idx], 1u);
+                } else if ((result == 1u && sample < p_one_as_zero)) {
+                    atomicStore(&results[result_idx], 0u);
+                }
+
                 pc++;
             }
 

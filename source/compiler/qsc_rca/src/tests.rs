@@ -88,8 +88,7 @@ impl CompilationContext {
         self.compiler.update(increment);
 
         // Clear the compute properties of the package to update.
-        let package_compute_properties = self.compute_properties.get_mut(package_id);
-        package_compute_properties.clear();
+        self.compute_properties.clear_package(package_id);
         let analyzer = Analyzer::init_with_compute_properties(
             &self.fir_store,
             self.capabilities,
@@ -194,7 +193,7 @@ pub fn check_callable_compute_properties(
         .find_callable_id_by_name(callable_name)
         .expect("callable should exist");
 
-    let callable_compute_properties = package_store_compute_properties.get_item(callable_id);
+    let callable_compute_properties = package_store_compute_properties.get_item(callable_id, false);
     expect.assert_eq(&callable_compute_properties.to_string());
 }
 
@@ -203,11 +202,12 @@ pub fn check_last_statement_compute_properties(
     expect: &Expect,
 ) {
     let last_package_id = package_store_compute_properties
+        .props
         .iter()
         .map(|(package_id, _)| package_id)
         .max()
         .expect("at least one package should exist");
-    let package_compute_properties = package_store_compute_properties.get(last_package_id);
+    let package_compute_properties = package_store_compute_properties.get(last_package_id, false);
     let last_statement_id = package_compute_properties
         .stmts
         .iter()

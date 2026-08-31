@@ -13,6 +13,7 @@ import assert from "node:assert/strict";
 import { InteractionState } from "../../dist/ux/circuit-vis/actions/interactionState.js";
 import { DragController } from "../../dist/ux/circuit-vis/editor/controllers/dragController.js";
 import { QubitController } from "../../dist/ux/circuit-vis/editor/controllers/qubitController.js";
+import { Location } from "../../dist/ux/circuit-vis/data/location.js";
 import { at, build, circuit, gate, group, meas } from "./_helpers.mjs";
 
 /** @type {JSDOM | null} */
@@ -666,6 +667,397 @@ test("container mouseup teardown clears stale per-dropzone display marks", () =>
     "container mouseup must clear stale display:none from a previous drag",
   );
   assert.equal(/** @type {any} */ (dzAlsoHidden).style.display, "");
+
+  dragController.dispose();
+});
+
+// ---------------------------------------------------------------
+// Shift-extend lifecycle — contracts of the six private methods
+// that own the shift-extend pathway:
+//
+//   - `setupShiftExtend`: no-op for top-level sources; arms for
+//     internal-source drags.
+//   - `spawnShiftExtendDropzones`: emits dropzones only for wires
+//     outside the parent group's span, skips wires blocked by
+//     ancestor-column siblings, tags each dropzone with
+//     `data-shift-extend="true"`, and is re-spawn-safe.
+//   - `clearShiftExtendDropzones`: removes shift-extend dropzones,
+//     leaves regular dropzones alone.
+//   - `paintGhostBorder` / `clearGhostBorder`: append/replace a
+//     single `.shift-extend-ghost` rect in the overlay layer.
+//   - `tearDownShiftExtend`: clears dropzones, ghost border,
+//     `_shiftExtendCtx`, and the document shift-key listeners.
+//
+// Tests invoke the methods directly via `/** @type {any} */` casts
+// and stage `layoutMap.scopes` manually.
+// ---------------------------------------------------------------
+
+/**
+ * Install a `LayoutScope` for `parentLoc` into the controller's
+ * `ctx.layoutMap.scopes`. `columnXOffsets` defaults to a single
+ * column so `spawnShiftExtendDropzones`' `totalCols = real + 1`
+ * computes to 2 (one real + one trailing-append).
+ */
+function setScope(
+  /** @type {any} */ ctx,
+  /** @type {string} */ parentLoc,
+  columnXOffsets = [100],
+  columnWidths = [60],
+) {
+  ctx.layoutMap.scopes.set(parentLoc, { columnXOffsets, columnWidths });
+}
+
+test("setupShiftExtend no-ops for a top-level source (depth < 2)", () => {
+  // Top-level ops have no ancestor group to extend. Calling
+  // setupShiftExtend with their `Location` must leave the controller
+  // disarmed — no `_shiftExtendCtx`, no installed shift listeners.
+  const { dragController } = setup(circuit(2, [[gate("H", 0)]]));
+
+  /** @type {any} */ (dragController).setupShiftExtend(Location.parse("0,0"));
+
+  assert.equal(/** @type {any} */ (dragController)._shiftExtendCtx, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftDown, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftUp, null);
+
+  dragController.dispose();
+});
+
+test("setupShiftExtend arms _shiftExtendCtx and installs shift listeners for an internal-source drag", () => {
+  // A child of an expanded group (depth=2). The controller must
+  // capture the parent group's wire span + scope and install
+  // document keydown/keyup listeners so the user can toggle the
+  // shift-extend UI mid-drag.
+  // Parent group Foo spans wires 0..1 because its children occupy
+  // q0 and q1; the dragged child H is at inner location "0,0".
+  const { dragController, ctx } = setup(
+    circuit(4, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
+  // setupShiftExtend looks up the IMMEDIATE parent's scope.
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  const armed = /** @type {any} */ (dragController)._shiftExtendCtx;
+  assert.ok(armed, "_shiftExtendCtx must be populated");
+  assert.equal(armed.parentLoc, "0,0");
+  assert.equal(armed.parentMinWire, 0);
+  assert.equal(armed.parentMaxWire, 1);
+  assert.ok(
+    armed.parentScope.columnXOffsets,
+    "parentScope must carry layout geometry",
+  );
+
+  // Shift-key listeners installed (the toggle pathway).
+  assert.notEqual(
+    /** @type {any} */ (dragController)._onShiftDown,
+    null,
+    "keydown listener must be installed",
+  );
+  assert.notEqual(
+    /** @type {any} */ (dragController)._onShiftUp,
+    null,
+    "keyup listener must be installed",
+  );
+
+  dragController.dispose();
+});
+
+test("spawnShiftExtendDropzones emits dropzones only for wires outside the parent group's span", () => {
+  // Parent group spans wires 0..1, so only wires 2, 3, 4 get
+  // shift-extend dropzones (wires 0..1 already have regular inner
+  // dropzones). Each wire gets 3: a band + full box for the one real
+  // column, plus a band for the trailing-append column. 3 wires × 3 = 9.
+  const { fixture, dragController, ctx } = setup(
+    circuit(4, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+
+  const spawned = fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]");
+  // Wires {2, 3, 4} × 3 shapes = 9.
+  assert.equal(spawned.length, 9);
+
+  const wires = new Set(
+    Array.from(spawned).map((d) =>
+      Number(d.getAttribute("data-dropzone-wire")),
+    ),
+  );
+  assert.deepEqual(
+    [...wires].sort((a, b) => a - b),
+    [2, 3, 4],
+  );
+
+  dragController.dispose();
+});
+
+test("spawnShiftExtendDropzones skips wires blocked by ancestor-column siblings", () => {
+  // Top-level col 0 contains both the parent group (wires 0..1) AND
+  // a sibling X at wire 3. The filter marks wire 3 as blocked
+  // because dropping a child of the parent group onto wire 3 would
+  // have nowhere to go in the top-level column without colliding
+  // with X.
+  //
+  // Eligible outside-span wires: {2, 3, 4}. Blocked: {3}. Emitted: {2, 4}.
+  const { fixture, dragController, ctx } = setup(
+    circuit(4, [[group("Foo", [[gate("H", 0), gate("Z", 1)]]), gate("X", 3)]]),
+  );
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+
+  const spawned = fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]");
+  // 2 unblocked wires × 3 shapes = 6.
+  assert.equal(spawned.length, 6);
+
+  const wires = new Set(
+    Array.from(spawned).map((d) =>
+      Number(d.getAttribute("data-dropzone-wire")),
+    ),
+  );
+  assert.deepEqual(
+    [...wires].sort((a, b) => a - b),
+    [2, 4],
+  );
+  assert.ok(
+    !wires.has(3),
+    "wire 3 must be excluded — sibling X blocks it at the ancestor column",
+  );
+
+  dragController.dispose();
+});
+
+test("spawnShiftExtendDropzones emits both dropzone shapes and is re-spawn-safe", () => {
+  // Two contracts in one test (cheap to combine, hard to separate
+  // meaningfully):
+  //   1. Every spawned dropzone is tagged `data-shift-extend="true"`.
+  //      Each real column has both a band (insert a new inner column)
+  //      and a full box (drop into the column); the trailing-append
+  //      column has only a band.
+  //   2. Calling spawn twice in a row leaves the layer with one
+  //      copy, not two — the method clears its prior spawn first.
+  const { fixture, dragController, ctx } = setup(
+    circuit(3, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
+  setScope(ctx, "0,0");
+
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+  const firstSpawn = Array.from(
+    fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]"),
+  );
+  assert.ok(firstSpawn.length > 0, "first spawn must emit some dropzones");
+
+  // Every dropzone is tagged shift-extend.
+  for (const dz of firstSpawn) {
+    assert.equal(dz.getAttribute("data-shift-extend"), "true");
+  }
+
+  // Both shapes appear — a band (true) and a full box (false).
+  const interColVals = new Set(
+    firstSpawn.map((dz) => dz.getAttribute("data-dropzone-inter-column")),
+  );
+  assert.ok(
+    interColVals.has("true") && interColVals.has("false"),
+    "spawn must emit both the inter-column band and the full-column box",
+  );
+
+  // The trailing-append column (location "0,0-1,0" — colIndex 1 past
+  // the single real column) only ever gets the band, never a full box.
+  const trailingFullBoxes = firstSpawn.filter(
+    (dz) =>
+      dz.getAttribute("data-dropzone-location") === "0,0-1,0" &&
+      dz.getAttribute("data-dropzone-inter-column") === "false",
+  );
+  assert.equal(
+    trailingFullBoxes.length,
+    0,
+    "trailing-append column must not emit a full-column box",
+  );
+
+  // Re-spawn: count must NOT double. (Idempotency / re-arm safety.)
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+  const secondSpawn = fixture.dropzoneLayer.querySelectorAll(
+    "[data-shift-extend]",
+  );
+  assert.equal(
+    secondSpawn.length,
+    firstSpawn.length,
+    "second spawn must replace, not append",
+  );
+
+  dragController.dispose();
+});
+
+/**
+ * Append a rendered group box to the fixture SVG so `getGroupBoxElem`
+ * (and thus `paintGhostBorder`) can find it. Mirrors the DOM shape the
+ * renderer emits: a `<g class="gate" data-location="…">` whose first
+ * direct-child `<rect class="gate-unitary">` is the group's own dashed
+ * box. Only x/y/width/height are read by the ghost cloner.
+ */
+function appendGroupBox(
+  /** @type {SVGElement} */ svg,
+  /** @type {string} */ location,
+  { x = 80, y = 0, width = 100, height = 160 } = {},
+) {
+  const g = document.createElementNS(SVG_NS, "g");
+  g.setAttribute("class", "gate");
+  g.setAttribute("data-location", location);
+  const rect = document.createElementNS(SVG_NS, "rect");
+  rect.setAttribute("class", "gate-unitary");
+  rect.setAttribute("x", String(x));
+  rect.setAttribute("y", String(y));
+  rect.setAttribute("width", String(width));
+  rect.setAttribute("height", String(height));
+  g.appendChild(rect);
+  svg.appendChild(g);
+  return rect;
+}
+
+test("paintGhostBorder appends a .shift-extend-ghost rect and replaces a prior one", () => {
+  // Each `paintGhostBorder` call clears the existing ghost before
+  // appending a new one, so the overlay never carries two ghost
+  // rects at once. The ghost is cloned from the group's rendered box,
+  // so the fixture must carry a real box for the parent location.
+  const { fixture, dragController, ctx } = setup(
+    circuit(3, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
+  setScope(ctx, "0,0");
+  appendGroupBox(fixture.svg, "0,0");
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  // First paint — one ghost. (isBand=false: drop-into-column, no widen.)
+  /** @type {any} */ (dragController).paintGhostBorder(2, 0, false);
+  let ghosts = fixture.overlay.querySelectorAll(".shift-extend-ghost");
+  assert.equal(ghosts.length, 1);
+  const firstGhost = ghosts[0];
+
+  // Second paint at a different wire — old ghost replaced, not appended.
+  /** @type {any} */ (dragController).paintGhostBorder(0, 0, false);
+  ghosts = fixture.overlay.querySelectorAll(".shift-extend-ghost");
+  assert.equal(ghosts.length, 1, "second paint must replace, not append");
+  assert.notEqual(
+    ghosts[0],
+    firstGhost,
+    "new ghost element should be a fresh node",
+  );
+
+  // clearGhostBorder wipes it.
+  /** @type {any} */ (dragController).clearGhostBorder();
+  ghosts = fixture.overlay.querySelectorAll(".shift-extend-ghost");
+  assert.equal(ghosts.length, 0);
+
+  dragController.dispose();
+});
+
+test("paintGhostBorder widens the ghost for an outer inserting band, not for a full-box drop", () => {
+  // Hovering the trailing-append column's narrow band (isBand=true,
+  // colIndex past the last real column) inserts a new column, so the
+  // ghost grows wider than the rendered box. A full-column box drop
+  // (isBand=false) on the same column leaves the width at the box's.
+  const { fixture, dragController, ctx } = setup(
+    circuit(3, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
+  // Single real column at x=80 width=60; trailing column sits past it.
+  setScope(ctx, "0,0", [80], [60]);
+  const box = appendGroupBox(fixture.svg, "0,0", {
+    x: 80,
+    y: 0,
+    width: 80,
+    height: 160,
+  });
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+
+  const boxWidth = Number(box.getAttribute("width"));
+
+  // Full-box drop into column 0 → no horizontal growth.
+  /** @type {any} */ (dragController).paintGhostBorder(2, 0, false);
+  const fullBoxGhost = fixture.overlay.querySelector(".shift-extend-ghost");
+  assert.equal(Number(fullBoxGhost.getAttribute("width")), boxWidth);
+
+  // Inserting band at the trailing column (colIndex 1, past the single
+  // real column) → ghost grows wider than the box.
+  /** @type {any} */ (dragController).paintGhostBorder(2, 1, true);
+  const bandGhost = fixture.overlay.querySelector(".shift-extend-ghost");
+  assert.ok(
+    Number(bandGhost.getAttribute("width")) > boxWidth,
+    "trailing inserting band should widen the ghost past the box width",
+  );
+  // Left edge stays pinned to the box's — growth lands on the right.
+  assert.equal(
+    Number(bandGhost.getAttribute("x")),
+    Number(box.getAttribute("x")),
+  );
+
+  dragController.dispose();
+});
+
+test("tearDownShiftExtend clears dropzones, ghost border, _shiftExtendCtx, and shift listeners", () => {
+  // Full teardown chain. After teardown the controller is back to
+  // its initial unarmed state — no dropzones in the DOM, no ghost
+  // border, no listener refs.
+  const { fixture, dragController, ctx } = setup(
+    circuit(3, [[group("Foo", [[gate("H", 0), gate("X", 1)]])]]),
+  );
+  setScope(ctx, "0,0");
+  appendGroupBox(fixture.svg, "0,0");
+  /** @type {any} */ (dragController).setupShiftExtend(
+    Location.parse("0,0-0,0"),
+  );
+  /** @type {any} */ (dragController).spawnShiftExtendDropzones();
+  /** @type {any} */ (dragController).paintGhostBorder(2, 0, false);
+
+  // Sanity: state was actually armed.
+  assert.notEqual(/** @type {any} */ (dragController)._shiftExtendCtx, null);
+  assert.ok(
+    fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]").length > 0,
+  );
+  assert.equal(
+    fixture.overlay.querySelectorAll(".shift-extend-ghost").length,
+    1,
+  );
+
+  /** @type {any} */ (dragController).tearDownShiftExtend();
+
+  // Everything cleared.
+  assert.equal(/** @type {any} */ (dragController)._shiftExtendCtx, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftDown, null);
+  assert.equal(/** @type {any} */ (dragController)._onShiftUp, null);
+  assert.deepEqual(
+    /** @type {any} */ (dragController)._shiftExtendDropzones,
+    [],
+  );
+  assert.equal(
+    fixture.dropzoneLayer.querySelectorAll("[data-shift-extend]").length,
+    0,
+    "shift-extend dropzones must be gone from the DOM",
+  );
+  assert.equal(
+    fixture.overlay.querySelectorAll(".shift-extend-ghost").length,
+    0,
+    "ghost border must be gone from the overlay",
+  );
+
+  // Idempotent — calling teardown a second time must not throw.
+  assert.doesNotThrow(() =>
+    /** @type {any} */ (dragController).tearDownShiftExtend(),
+  );
 
   dragController.dispose();
 });
