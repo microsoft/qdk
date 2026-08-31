@@ -1240,8 +1240,7 @@ impl OperationOrGroup {
         name: &str,
         is_adjoint: bool,
         targets: &[QubitWire],
-        controls: &[QubitWire],
-        classical_controls: Vec<ControlRegister>,
+        controls: Vec<ControlRegister>,
         args: Vec<String>,
     ) -> Self {
         Self::new_single(Operation::Unitary(Unitary {
@@ -1255,17 +1254,7 @@ impl OperationOrGroup {
                     result: None,
                 })
                 .collect(),
-            controls: controls
-                .iter()
-                .map(|q| ControlRegister {
-                    register: Register {
-                        qubit: q.0,
-                        result: None,
-                    },
-                    inverted: false,
-                })
-                .chain(classical_controls)
-                .collect(),
+            controls,
             is_adjoint,
             is_conditional: false,
             metadata: None,
@@ -1690,31 +1679,23 @@ impl OperationReceiver for OperationListBuilder {
             .iter()
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
-        let controls = inputs
+        let controls: Vec<ControlRegister> = inputs
             .controls
             .iter()
-            .map(|q| wire_map.qubit_wire(*q))
-            .collect::<Vec<_>>();
-        let classical_controls = inputs
-            .classical_controls
-            .iter()
-            .map(|control| {
+            .map(|q| ControlRegister {
+                register: Register::quantum(wire_map.qubit_wire(*q).0),
+                inverted: false,
+            })
+            .chain(inputs.classical_controls.iter().map(|control| {
                 let result = wire_map.result_wire(control.result_id);
                 ControlRegister {
                     register: Register::classical(result.0, result.1),
                     inverted: control.inverted,
                 }
-            })
-            .collect();
+            }))
+            .collect::<Vec<_>>();
         self.push_op(
-            OperationOrGroup::new_unitary(
-                name,
-                is_adjoint,
-                &targets,
-                &controls,
-                classical_controls,
-                args,
-            ),
+            OperationOrGroup::new_unitary(name, is_adjoint, &targets, controls, args),
             call_stack,
             wire_map,
         );
