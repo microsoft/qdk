@@ -99,8 +99,7 @@ fn span_includes_args_when_no_targets() {
                         name: X_ERROR
                         tag: <none>
                         args:
-                            Arg [8-11]:
-                                value: 0.1
+                            Arg [8-11]: 0.1
                         targets: <empty>"#]],
     );
 }
@@ -116,12 +115,9 @@ fn each_arg_gets_its_own_span() {
                         name: PAULI_CHANNEL_1
                         tag: <none>
                         args:
-                            Arg [16-20]:
-                                value: 0.01
-                            Arg [22-26]:
-                                value: 0.02
-                            Arg [28-32]:
-                                value: 0.03
+                            Arg [16-20]: 0.01
+                            Arg [22-26]: 0.02
+                            Arg [28-32]: 0.03
                         targets:
                             Target [34-35]:
                                 kind: Qubit(0)"#]],
@@ -139,8 +135,7 @@ fn radians_arg_span_includes_the_suffix() {
                         name: R_X
                         tag: <none>
                         args:
-                            Arg [4-11]:
-                                value: -0.5 rad
+                            Arg [4-11]: -0.5 rad
                         targets:
                             Target [13-14]:
                                 kind: Qubit(0)"#]],
@@ -176,8 +171,7 @@ fn span_extends_past_tag_and_args_to_target() {
                         name: X_ERROR
                         tag: t
                         args:
-                            Arg [11-14]:
-                                value: 0.1
+                            Arg [11-14]: 0.1
                         targets:
                             Target [16-17]:
                                 kind: Qubit(5)"#]],

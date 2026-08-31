@@ -15,8 +15,7 @@ fn single_arg() {
                         name: DEPOLARIZE1
                         tag: <none>
                         args:
-                            Arg [12-17]:
-                                value: 0.001
+                            Arg [12-17]: 0.001
                         targets:
                             Target [19-20]:
                                 kind: Qubit(0)"#]],
@@ -34,12 +33,9 @@ fn multiple_comma_separated_args() {
                         name: PAULI_CHANNEL_1
                         tag: <none>
                         args:
-                            Arg [16-20]:
-                                value: 0.01
-                            Arg [22-26]:
-                                value: 0.02
-                            Arg [28-32]:
-                                value: 0.03
+                            Arg [16-20]: 0.01
+                            Arg [22-26]: 0.02
+                            Arg [28-32]: 0.03
                         targets:
                             Target [34-35]:
                                 kind: Qubit(0)"#]],
@@ -57,8 +53,7 @@ fn scientific_notation_arg() {
                         name: X_ERROR
                         tag: <none>
                         args:
-                            Arg [8-12]:
-                                value: 0.001
+                            Arg [8-12]: 0.001
                         targets:
                             Target [14-15]:
                                 kind: Qubit(0)"#]],
@@ -76,8 +71,7 @@ fn radians_args() {
                         name: R_X
                         tag: <none>
                         args:
-                            Arg [4-8]:
-                                value: 1 rad
+                            Arg [4-8]: 1 rad
                         targets:
                             Target [10-11]:
                                 kind: Qubit(0)"#]],
@@ -91,8 +85,7 @@ fn radians_args() {
                         name: R_Y
                         tag: <none>
                         args:
-                            Arg [4-11]:
-                                value: -0.5 rad
+                            Arg [4-11]: -0.5 rad
                         targets:
                             Target [13-14]:
                                 kind: Qubit(0)"#]],
@@ -106,8 +99,7 @@ fn radians_args() {
                         name: R_Z
                         tag: <none>
                         args:
-                            Arg [4-14]:
-                                value: 0.0025 rad
+                            Arg [4-14]: 0.0025 rad
                         targets:
                             Target [16-17]:
                                 kind: Qubit(0)"#]],
@@ -125,12 +117,9 @@ fn mixed_unit_args() {
                         name: U3
                         tag: <none>
                         args:
-                            Arg [3-6]:
-                                value: 0.1
-                            Arg [8-15]:
-                                value: -0.2 rad
-                            Arg [17-24]:
-                                value: 0.3 rad
+                            Arg [3-6]: 0.1
+                            Arg [8-15]: -0.2 rad
+                            Arg [17-24]: 0.3 rad
                         targets:
                             Target [26-27]:
                                 kind: Qubit(0)"#]],

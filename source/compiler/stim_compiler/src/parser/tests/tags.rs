@@ -65,8 +65,7 @@ fn tag_with_args_and_targets() {
                         name: X_ERROR
                         tag: t
                         args:
-                            Arg [11-14]:
-                                value: 0.1
+                            Arg [11-14]: 0.1
                         targets:
                             Target [16-17]:
                                 kind: Qubit(0)"#]],

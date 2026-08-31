@@ -52,8 +52,7 @@ fn args_no_targets() {
                         name: X_ERROR
                         tag: <none>
                         args:
-                            Arg [8-11]:
-                                value: 0.1
+                            Arg [8-11]: 0.1
                         targets: <empty>"#]],
     );
 }
@@ -69,8 +68,7 @@ fn args_with_targets() {
                         name: X_ERROR
                         tag: <none>
                         args:
-                            Arg [8-11]:
-                                value: 0.1
+                            Arg [8-11]: 0.1
                         targets:
                             Target [13-14]:
                                 kind: Qubit(0)

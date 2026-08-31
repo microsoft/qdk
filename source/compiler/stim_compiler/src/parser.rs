@@ -102,8 +102,7 @@ pub struct Arg {
 
 impl Display for Arg {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        writeln_header_with_span(f, "Arg", self.span)?;
-        write_field(f, "value", &self.value)
+        write!(f, "Arg {}: {}", self.span, self.value)
     }
 }
 
