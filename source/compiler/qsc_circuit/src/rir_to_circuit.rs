@@ -187,8 +187,8 @@ fn build_operation_list(
                 control_results.clone(),
             );
 
-            // A simple conditional branch containing only single-qubit gates can
-            // be rendered by attaching its result control directly to each gate.
+            // A simple conditional branch containing only single-qubit elementary gates can
+            // be rendered by attaching its control directly to each gate.
             debug_assert!(
                 classical_controls.is_empty(),
                 "nested conditionals cannot inherit compact classical controls"
@@ -198,10 +198,24 @@ fn build_operation_list(
                 Expr::Bool(BoolExpr::NotResult(result_id)) => Some((*result_id, true)),
                 _ => None,
             };
+            let branch_scope = branch_instruction_metadata.as_deref().map(|metadata| {
+                program_rir
+                    .dbg_info
+                    .get_location(metadata.dbg_location)
+                    .scope
+            });
             let then_is_compact = simple_control.is_some()
-                && branch_has_only_single_qubit_gates(program_rir, then_br);
+                && branch_has_only_single_qubit_elementary_gates(
+                    program_rir,
+                    then_br,
+                    branch_scope,
+                );
             let else_is_compact = simple_control.is_some()
-                && branch_has_only_single_qubit_gates(program_rir, else_br);
+                && branch_has_only_single_qubit_elementary_gates(
+                    program_rir,
+                    else_br,
+                    branch_scope,
+                );
             let then_controls = simple_control
                 .filter(|_| then_is_compact)
                 .map(|(result_id, inverted)| ClassicalControlInput {
@@ -303,18 +317,34 @@ fn push_operations_in_block(
     Ok(())
 }
 
-/// Returns whether every operation in `scf` is a single-qubit gate.
-fn branch_has_only_single_qubit_gates(program: &Program, scf: &StructuredControlFlow) -> bool {
+/// Returns whether every operation in `scf` is a directly invoked single-qubit elementary gate.
+fn branch_has_only_single_qubit_elementary_gates(
+    program: &Program,
+    scf: &StructuredControlFlow,
+    branch_scope: Option<DbgScopeId>,
+) -> bool {
     match scf {
         StructuredControlFlow::Seq(items) => items
             .iter()
-            .all(|item| branch_has_only_single_qubit_gates(program, item)),
+            .all(|item| branch_has_only_single_qubit_elementary_gates(program, item, branch_scope)),
         StructuredControlFlow::BasicBlock(id) => {
             let block = program.blocks.get(*id).expect("block should exist");
             block.0.iter().all(|instruction| {
-                let Instruction::Call(callable_id, operands, _, _) = instruction else {
+                let Instruction::Call(callable_id, operands, _, metadata) = instruction else {
                     return true;
                 };
+                let is_elementary = metadata.as_deref().is_some_and(|metadata| {
+                    program
+                        .dbg_info
+                        .get_location(metadata.dbg_location)
+                        .inlined_at
+                        .is_some_and(|location| {
+                            Some(program.dbg_info.get_location(location).scope) == branch_scope
+                        })
+                });
+                if !is_elementary {
+                    return false;
+                }
                 let callable = program
                     .callables
                     .get(*callable_id)

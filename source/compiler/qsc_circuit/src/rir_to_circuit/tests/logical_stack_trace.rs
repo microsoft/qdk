@@ -1076,6 +1076,14 @@ fn compact_classical_control_negative_cases() {
         if (M(q[0]) == One and M(q[1]) == Zero) {
             X(q[2]);
         }
+        // User-defined single-qubit operation.
+        if (M(q[0]) == One) {
+            Foo(q[3]);
+        }
+    }
+
+    operation Foo(q : Qubit) : Unit {
+        X(q);
     }
     "},
         "A.Main()",
@@ -1087,6 +1095,8 @@ fn compact_classical_control_negative_cases() {
             Main@A.qs:9:8 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_1)
             Main@A.qs:9:27[true] -> if: c_1 = |1〉@A.qs:9:27 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_1, c_2)
             Main@A.qs:9:4[true] -> if: f(c_1, c_2)@A.qs:10:8 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_2), controls=())
+            Main@A.qs:13:8 -> M@qsharp-library-source:Std/Intrinsic.qs:268:4 -> measure(M, q_0, c_3)
+            Main@A.qs:13:4[true] -> if: c_3 = |1〉@A.qs:14:8 -> Foo@A.qs:19:4 -> X@qsharp-library-source:Std/Intrinsic.qs:1038:8 -> gate(X, targets=(q_3), controls=())
         "#]],
     );
 }
