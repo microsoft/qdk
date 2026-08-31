@@ -138,17 +138,22 @@ Putting the SVG markup directly in a markdown cell keeps it in the notebook's ow
 <svg viewBox="0 0 120 40" role="img" aria-label="Example"><rect x="1" y="1" width="118" height="38" fill="none" stroke="var(--vscode-editor-foreground)"/><text x="60" y="25" text-anchor="middle" fill="var(--vscode-editor-foreground)">Example</text></svg>
 ```
 
+The same SVG adapts its foreground to dark and light editor themes:
+
+<div align="center">
+  <img src="../../media/inline-svg-themes.png" alt="The inline SVG example rendered in light and dark editor themes">
+</div>
+
 Keep the markup on a single line - if it spans multiple lines, markdown splits it into separate paragraphs and it won't render.
-Attachments that stay attachments must be base64-encoded.
+Non-SVG images must be embedded as base64-encoded text.
 
 ## Environment
 
 Setting up a Python environment can be tricky for new users and we want the focus to be on the course content, so we've added some helper functionality around installing and validating dependencies.
 
-- `requirements.txt` lists course dependencies; the Chemistry QPE course starts each unit with a commented-out `%pip install -r ../requirements.txt` for the learner to run, which is a pattern you may want to copy
-- The `QDK: Create a Microsoft Quantum Python virtual environment` command sets up an environment and prompts for the packages to install; the list it offers is specific to what QDK courses tend to need, so check that it covers your dependencies
+- The `QDK: Create a Microsoft Quantum Python virtual environment` command sets up an environment and prompts for the packages to install; the list it offers is specific to what QDK courses tend to need. If it already includes the packages you need, you can direct learners to the command palette for virtual environment setup.
 - `course.json` lets you list imports you expect to work so they can be checked before the learner starts the unit (e.g. in case the learner selected the wrong notebook kernel), which the course's `_check_env.py` reads
-- The course infrastructure depends on the Python and Jupyter VS Code extensions, so they'll be prompted if those are absent
+- The course infrastructure depends on the Python and Jupyter VS Code extensions, so the learner will be prompted if those are absent
 
 ## Trying it out
 
@@ -156,13 +161,12 @@ Open a workspace folder in VS Code and navigate to the Microsoft Quantum extensi
 If you've never used it before, it'll offer you a `Start Learning` button.
 Use `Switch Course` in the tree view to select your new content.
 Progress lives in `qdk-learning.json` at the workspace root: the current position, which activities are complete, the Python environment chosen per course, and whether a course has been picked yet.
-Delete it to get back to the first-run state.
-That resets progress only - the `*.workbook.ipynb` files are left alone, so delete those too for a completely clean run.
 
 When you switch to your course, temporary working copies of all the notebooks will be created (indicated by the `.workbook.ipynb` file extension).
 These copies omit all the exercise hints, solutions, and explanations and give the learner a notebook they can edit freely without worrying about overwriting anything important.
-An existing working copy isn't replaced when the course is copied, so if you based your course on a sample you'd previously run, delete any leftover `*.workbook.ipynb` files first.
+If the working copy is already present, it won't be overwritten the next time the course is loaded, so if you based your course on a sample you'd previously run, delete any leftover `*.workbook.ipynb` files first.
 Resetting a unit does overwrite that unit's working copy.
+To return to the first-run state, delete `qdk-learning.json` and all `*.workbook.ipynb` files.
 
 There are buttons and context menu items throughout the UI that connect the experience to the Copilot chat.
 Exercises, in particular, offer hints and explanations.
