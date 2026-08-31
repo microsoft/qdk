@@ -10,6 +10,7 @@
 
 import { afterEach, test } from "node:test";
 import assert from "node:assert/strict";
+import { CURRENT_VERSION } from "../../dist/ux/circuit-vis/data/circuit.js";
 import { Sqore } from "../../dist/ux/circuit-vis/sqore.js";
 import { circuit, gate, group } from "./_helpers.mjs";
 
@@ -266,4 +267,17 @@ test("updateCircuit: when circuitGroup has multiple circuits, only the first bec
   assert.equal(sqore.circuit, newGroup.circuits[0]);
   // The first circuit had 1 qubit, not 2.
   assert.equal(sqore.circuit.qubits.length, 1);
+});
+
+test("minimizeCircuits: upgrades an older circuit version for saving", () => {
+  const olderGroup = {
+    version: 0,
+    circuits: [circuit(1, [[gate("H", 0)]])],
+  };
+  sqore = new Sqore(olderGroup);
+
+  const savedGroup = sqore.minimizeCircuits(olderGroup);
+
+  assert.equal(savedGroup.version, CURRENT_VERSION);
+  assert.equal(olderGroup.version, 0, "the loaded circuit must not be mutated");
 });
