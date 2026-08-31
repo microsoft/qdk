@@ -470,6 +470,29 @@ def test_read_result():
     check_result(READ_RESULT_QIR, "11", num_results=2)
 
 
+DYNAMIC_READ_RESULT_QIR = """
+entry:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %result_id = sub i64 1, 1
+  %result = inttoptr i64 %result_id to %Result*
+  %one = call i1 @__quantum__qis__read_result__body(%Result* %result)
+  br i1 %one, label %then, label %end
+
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  br label %end
+
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_read_result_with_dynamic_result_id():
+    check_result(DYNAMIC_READ_RESULT_QIR, "11", num_results=2)
+
+
 # =========================================================================
 # OP_RECORD_OUTPUT — output recording
 # =========================================================================
@@ -488,6 +511,34 @@ entry:
 def test_record_output_ordering():
     """Two results recorded: result0=1, result1=0 → '10'."""
     check_result(RECORD_OUTPUT_QIR, "10", num_qubits=2, num_results=2)
+
+
+DYNAMIC_RECORD_OUTPUT_QIR = f"""\
+%Result = type opaque
+%Qubit = type opaque
+
+define i64 @ENTRYPOINT__main() #0 {{
+entry:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %result_id = sub i64 1, 1
+  %result = inttoptr i64 %result_id to %Result*
+  call void @__quantum__rt__tuple_record_output(i64 1, i8* null)
+  call void @__quantum__rt__result_record_output(%Result* %result, i8* null)
+  ret i64 0
+}}
+
+{_DECLS}
+attributes #0 = {{ "entry_point" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }}
+attributes #1 = {{ "irreversible" }}
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_record_output_with_dynamic_result_id():
+    results = run_qir(DYNAMIC_RECORD_OUTPUT_QIR, SHOTS, seed=42, type="gpu")
+    counts = Counter(map_result_list_to_str(result) for result in results)
+    assert counts == {"1": SHOTS}
 
 
 # =========================================================================
@@ -542,6 +593,39 @@ def test_read_loss():
     assert counts == {
         "L1": SHOTS
     }, f"Expected all {SHOTS} shots to be 'L1', got {counts}"
+
+
+DYNAMIC_READ_LOSS_QIR = """
+entry:
+  call void @__quantum__qis__s__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+  call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+  %result_id = sub i64 1, 1
+  %result = inttoptr i64 %result_id to %Result*
+  %lost = call i1 @__quantum__rt__read_loss(%Result* %result)
+  br i1 %lost, label %then, label %end
+
+then:
+  call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 1 to %Qubit*))
+  br label %end
+
+end:
+  call void @__quantum__qis__mresetz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_read_loss_with_dynamic_result_id():
+    qir = format_qir(
+        DYNAMIC_READ_LOSS_QIR,
+        extra_decls=READ_LOSS_DECLS,
+        num_qubits=2,
+        num_results=2,
+    )
+    noise = NoiseConfig()
+    noise.s.loss = 1.0
+    results = run_qir(qir, SHOTS, noise, seed=42, type="gpu")
+    counts = Counter(map_result_list_to_str(result) for result in results)
+    assert counts == {"L1": SHOTS}
 
 
 # =========================================================================
@@ -2055,6 +2139,28 @@ entry:
 def test_call_with_return_value():
     """Call a function returning i64, use result in comparison."""
     check_result(CALL_WITH_RETVAL_QIR, "1", extra_decls=CALL_WITH_RETVAL_QIR_FN)
+
+
+CALL_WITH_IMMEDIATE_RETVAL_QIR = """
+  %result = call i64 @get_seven()
+  %flag = icmp eq i64 %result, 7
+"""
+
+CALL_WITH_IMMEDIATE_RETVAL_QIR_FN = """
+define i64 @get_seven() {
+entry:
+  ret i64 7
+}
+"""
+
+
+@pytest.mark.skipif(not GPU_AVAILABLE, reason=SKIP_REASON)
+def test_call_with_immediate_return_value():
+    check_result(
+        build_arith_body(CALL_WITH_IMMEDIATE_RETVAL_QIR),
+        "1",
+        extra_decls=CALL_WITH_IMMEDIATE_RETVAL_QIR_FN,
+    )
 
 
 # =========================================================================

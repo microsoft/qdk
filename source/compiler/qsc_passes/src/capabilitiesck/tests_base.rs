@@ -49,9 +49,14 @@ fn use_of_dynamic_boolean_yields_error() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 104,
-                        hi: 116,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 104,
+                            hi: 116,
+                        },
                     },
                 ),
             ]
@@ -66,15 +71,25 @@ fn use_of_dynamic_int_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 226,
-                        hi: 251,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 226,
+                            hi: 251,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 226,
-                        hi: 251,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 226,
+                            hi: 251,
+                        },
                     },
                 ),
             ]
@@ -92,9 +107,14 @@ fn use_of_dynamic_pauli_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 104,
-                        hi: 116,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 104,
+                            hi: 116,
+                        },
                     },
                 ),
             ]
@@ -109,21 +129,36 @@ fn use_of_dynamic_range_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 108,
-                        hi: 137,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 108,
+                            hi: 137,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 108,
-                        hi: 137,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 108,
+                            hi: 137,
+                        },
                     },
                 ),
                 UseOfDynamicRange(
-                    Span {
-                        lo: 108,
-                        hi: 137,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 108,
+                            hi: 137,
+                        },
                     },
                 ),
             ]
@@ -138,21 +173,36 @@ fn use_of_dynamic_double_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 226,
-                        hi: 264,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 226,
+                            hi: 264,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 226,
-                        hi: 264,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 226,
+                            hi: 264,
+                        },
                     },
                 ),
                 UseOfDynamicDouble(
-                    Span {
-                        lo: 226,
-                        hi: 264,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 226,
+                            hi: 264,
+                        },
                     },
                 ),
             ]
@@ -167,15 +217,25 @@ fn use_of_dynamic_qubit_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 105,
-                        hi: 123,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 105,
+                            hi: 123,
+                        },
                     },
                 ),
                 UseOfDynamicQubit(
-                    Span {
-                        lo: 142,
-                        hi: 158,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 142,
+                            hi: 158,
+                        },
                     },
                 ),
             ]
@@ -190,21 +250,36 @@ fn use_of_dynamic_big_int_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 227,
-                        hi: 265,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 227,
+                            hi: 265,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 227,
-                        hi: 265,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 227,
+                            hi: 265,
+                        },
                     },
                 ),
                 UseOfDynamicBigInt(
-                    Span {
-                        lo: 227,
-                        hi: 265,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 227,
+                            hi: 265,
+                        },
                     },
                 ),
             ]
@@ -219,9 +294,14 @@ fn use_of_dynamic_string_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 130,
-                        hi: 144,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 130,
+                            hi: 144,
+                        },
                     },
                 ),
             ]
@@ -236,21 +316,36 @@ fn use_of_dynamically_sized_array_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 104,
-                        hi: 136,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 104,
+                            hi: 136,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 104,
-                        hi: 136,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 104,
+                            hi: 136,
+                        },
                     },
                 ),
                 UseOfDynamicallySizedArray(
-                    Span {
-                        lo: 104,
-                        hi: 136,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 104,
+                            hi: 136,
+                        },
                     },
                 ),
             ]
@@ -265,27 +360,47 @@ fn use_of_dynamic_udt_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 253,
-                        hi: 305,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 253,
+                            hi: 305,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 253,
-                        hi: 305,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 253,
+                            hi: 305,
+                        },
                     },
                 ),
                 UseOfDynamicDouble(
-                    Span {
-                        lo: 253,
-                        hi: 305,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 253,
+                            hi: 305,
+                        },
                     },
                 ),
                 UseOfDynamicUdt(
-                    Span {
-                        lo: 253,
-                        hi: 305,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 253,
+                            hi: 305,
+                        },
                     },
                 ),
             ]
@@ -303,9 +418,14 @@ fn use_of_dynamic_function_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 132,
-                        hi: 144,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 132,
+                            hi: 144,
+                        },
                     },
                 ),
             ]
@@ -323,9 +443,14 @@ fn use_of_dynamic_operation_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 132,
-                        hi: 144,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 132,
+                            hi: 144,
+                        },
                     },
                 ),
             ]
@@ -350,15 +475,25 @@ fn call_cyclic_function_with_dynamic_argument_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 211,
-                        hi: 243,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 211,
+                            hi: 243,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 211,
-                        hi: 243,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 211,
+                            hi: 243,
+                        },
                     },
                 ),
             ]
@@ -383,15 +518,25 @@ fn call_cyclic_operation_with_dynamic_argument_yields_no_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 212,
-                        hi: 244,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 212,
+                            hi: 244,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 212,
-                        hi: 244,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 212,
+                            hi: 244,
+                        },
                     },
                 ),
             ]
@@ -406,33 +551,58 @@ fn call_to_dynamic_function_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 132,
-                        hi: 144,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 132,
+                            hi: 144,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 170,
-                        hi: 178,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 170,
+                            hi: 178,
+                        },
                     },
                 ),
                 UseOfDynamicDouble(
-                    Span {
-                        lo: 170,
-                        hi: 178,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 170,
+                            hi: 178,
+                        },
                     },
                 ),
                 UseOfDynamicArrowFunction(
-                    Span {
-                        lo: 170,
-                        hi: 178,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 170,
+                            hi: 178,
+                        },
                     },
                 ),
                 CallToDynamicCallee(
-                    Span {
-                        lo: 170,
-                        hi: 178,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 170,
+                            hi: 178,
+                        },
                     },
                 ),
             ]
@@ -447,27 +617,47 @@ fn call_to_dynamic_operation_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 132,
-                        hi: 144,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 132,
+                            hi: 144,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 166,
-                        hi: 171,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 166,
+                            hi: 171,
+                        },
                     },
                 ),
                 UseOfDynamicArrowOperation(
-                    Span {
-                        lo: 166,
-                        hi: 171,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 166,
+                            hi: 171,
+                        },
                     },
                 ),
                 CallToDynamicCallee(
-                    Span {
-                        lo: 166,
-                        hi: 171,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 166,
+                            hi: 171,
+                        },
                     },
                 ),
             ]
@@ -492,15 +682,25 @@ fn measurement_within_dynamic_scope_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 99,
-                        hi: 110,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 99,
+                            hi: 110,
+                        },
                     },
                 ),
                 MeasurementWithinDynamicScope(
-                    Span {
-                        lo: 137,
-                        hi: 141,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 137,
+                            hi: 141,
+                        },
                     },
                 ),
             ]
@@ -515,9 +715,14 @@ fn custom_measurement_yields_errors() {
         &expect![[r#"
             [
                 CallToCustomMeasurement(
-                    Span {
-                        lo: 99,
-                        hi: 105,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 99,
+                            hi: 105,
+                        },
                     },
                 ),
             ]
@@ -532,9 +737,14 @@ fn custom_measurement_with_simulatable_intrinsic_yields_errors() {
         &expect![[r#"
             [
                 CallToCustomMeasurement(
-                    Span {
-                        lo: 99,
-                        hi: 105,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 99,
+                            hi: 105,
+                        },
                     },
                 ),
             ]
@@ -549,9 +759,14 @@ fn custom_reset_yields_errors() {
         &expect![[r#"
             [
                 CallToCustomReset(
-                    Span {
-                        lo: 145,
-                        hi: 151,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 145,
+                            hi: 151,
+                        },
                     },
                 ),
             ]
@@ -566,9 +781,14 @@ fn custom_reset_with_simulatable_intrinsic_yields_errors() {
         &expect![[r#"
             [
                 CallToCustomReset(
-                    Span {
-                        lo: 145,
-                        hi: 151,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 145,
+                            hi: 151,
+                        },
                     },
                 ),
             ]
@@ -583,33 +803,58 @@ fn use_of_dynamic_index_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 226,
-                        hi: 251,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 226,
+                            hi: 251,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 226,
-                        hi: 251,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 226,
+                            hi: 251,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 299,
-                        hi: 303,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 299,
+                            hi: 303,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 299,
-                        hi: 303,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 299,
+                            hi: 303,
+                        },
                     },
                 ),
                 UseOfDynamicIndex(
-                    Span {
-                        lo: 299,
-                        hi: 303,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 299,
+                            hi: 303,
+                        },
                     },
                 ),
             ]
@@ -622,27 +867,42 @@ fn use_of_dynamic_lhs_exp_binop_yields_errors() {
     check_profile(
         USE_DYNAMIC_LHS_EXP_BINOP,
         &expect![[r#"
-        [
-            UseOfDynamicBool(
-                Span {
-                    lo: 104,
-                    hi: 116,
-                },
-            ),
-            UseOfDynamicBool(
-                Span {
-                    lo: 138,
-                    hi: 143,
-                },
-            ),
-            UseOfDynamicInt(
-                Span {
-                    lo: 138,
-                    hi: 143,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfDynamicBool(
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 104,
+                            hi: 116,
+                        },
+                    },
+                ),
+                UseOfDynamicBool(
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 138,
+                            hi: 143,
+                        },
+                    },
+                ),
+                UseOfDynamicInt(
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 138,
+                            hi: 143,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -653,27 +913,47 @@ fn use_of_dynamic_rhs_exp_binop_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 104,
-                        hi: 116,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 104,
+                            hi: 116,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 138,
-                        hi: 143,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 138,
+                            hi: 143,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 138,
-                        hi: 143,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 138,
+                            hi: 143,
+                        },
                     },
                 ),
                 UseOfDynamicExponent(
-                    Span {
-                        lo: 138,
-                        hi: 143,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 138,
+                            hi: 143,
+                        },
                     },
                 ),
             ]
@@ -688,15 +968,25 @@ fn return_within_dynamic_scope_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 98,
-                        hi: 109,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 98,
+                            hi: 109,
+                        },
                     },
                 ),
                 ReturnWithinDynamicScope(
-                    Span {
-                        lo: 128,
-                        hi: 136,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 128,
+                            hi: 136,
+                        },
                     },
                 ),
             ]
@@ -711,51 +1001,91 @@ fn loop_with_dynamic_condition_yields_errors() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 106,
-                        hi: 118,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 106,
+                            hi: 118,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 141,
-                        hi: 159,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 141,
+                            hi: 159,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 141,
-                        hi: 159,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 141,
+                            hi: 159,
+                        },
                     },
                 ),
                 UseOfDynamicRange(
-                    Span {
-                        lo: 141,
-                        hi: 159,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 141,
+                            hi: 159,
+                        },
                     },
                 ),
                 LoopWithDynamicCondition(
-                    Span {
-                        lo: 141,
-                        hi: 159,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 141,
+                            hi: 159,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 150,
-                        hi: 156,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 150,
+                            hi: 156,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 150,
-                        hi: 156,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 150,
+                            hi: 156,
+                        },
                     },
                 ),
                 UseOfDynamicRange(
-                    Span {
-                        lo: 150,
-                        hi: 156,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 150,
+                            hi: 156,
+                        },
                     },
                 ),
             ]
@@ -778,15 +1108,20 @@ fn use_of_static_int_return_from_entry_point_errors() {
     check_profile_for_exe(
         USE_ENTRY_POINT_STATIC_INT,
         &expect![[r#"
-        [
-            UseOfIntOutput(
-                Span {
-                    lo: 63,
-                    hi: 66,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfIntOutput(
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -795,15 +1130,20 @@ fn use_of_static_double_return_from_entry_point_errors() {
     check_profile_for_exe(
         USE_ENTRY_POINT_STATIC_DOUBLE,
         &expect![[r#"
-        [
-            UseOfDoubleOutput(
-                Span {
-                    lo: 63,
-                    hi: 66,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfDoubleOutput(
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -812,15 +1152,20 @@ fn use_of_static_string_return_from_entry_point_errors() {
     check_profile_for_exe(
         USE_ENTRY_POINT_STATIC_STRING,
         &expect![[r#"
-        [
-            UseOfAdvancedOutput(
-                Span {
-                    lo: 63,
-                    hi: 66,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfAdvancedOutput(
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -829,15 +1174,20 @@ fn use_of_static_bool_return_from_entry_point_errors() {
     check_profile_for_exe(
         USE_ENTRY_POINT_STATIC_BOOL,
         &expect![[r#"
-        [
-            UseOfBoolOutput(
-                Span {
-                    lo: 63,
-                    hi: 66,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfBoolOutput(
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -846,15 +1196,20 @@ fn use_of_static_big_int_return_from_entry_point_errors() {
     check_profile_for_exe(
         USE_ENTRY_POINT_STATIC_BIG_INT,
         &expect![[r#"
-        [
-            UseOfAdvancedOutput(
-                Span {
-                    lo: 63,
-                    hi: 66,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfAdvancedOutput(
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -863,15 +1218,20 @@ fn use_of_static_pauli_return_from_entry_point_errors() {
     check_profile_for_exe(
         USE_ENTRY_POINT_STATIC_PAULI,
         &expect![[r#"
-        [
-            UseOfAdvancedOutput(
-                Span {
-                    lo: 63,
-                    hi: 66,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfAdvancedOutput(
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -880,15 +1240,20 @@ fn use_of_static_range_return_from_entry_point_errors() {
     check_profile_for_exe(
         USE_ENTRY_POINT_STATIC_RANGE,
         &expect![[r#"
-        [
-            UseOfAdvancedOutput(
-                Span {
-                    lo: 63,
-                    hi: 66,
-                },
-            ),
-        ]
-    "#]],
+            [
+                UseOfAdvancedOutput(
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
+                    },
+                ),
+            ]
+        "#]],
     );
 }
 
@@ -899,9 +1264,14 @@ fn use_of_static_int_in_tuple_return_from_entry_point_errors() {
         &expect![[r#"
             [
                 UseOfIntOutput(
-                    Span {
-                        lo: 63,
-                        hi: 66,
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
                     },
                 ),
             ]
@@ -916,9 +1286,14 @@ fn use_of_static_sized_array_in_tuple_error() {
         &expect![[r#"
             [
                 UseOfIntOutput(
-                    Span {
-                        lo: 63,
-                        hi: 66,
+                    PackageSpan {
+                        package: PackageId(
+                            2,
+                        ),
+                        span: Span {
+                            lo: 63,
+                            hi: 66,
+                        },
                     },
                 ),
             ]
@@ -933,9 +1308,14 @@ fn binary_op_with_dynamic_array_error() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 66,
-                        hi: 97,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 66,
+                            hi: 97,
+                        },
                     },
                 ),
             ]
@@ -1025,15 +1405,25 @@ fn parallel_with_dynamic_branch_yields_error() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 107,
-                        hi: 122,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 107,
+                            hi: 122,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 199,
-                        hi: 200,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 199,
+                            hi: 200,
+                        },
                     },
                 ),
             ]
@@ -1048,27 +1438,47 @@ fn parallel_within_with_dynamic_limit_yields_error() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 107,
-                        hi: 122,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 107,
+                            hi: 122,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 160,
-                        hi: 161,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 160,
+                            hi: 161,
+                        },
                     },
                 ),
                 UseOfDynamicInt(
-                    Span {
-                        lo: 160,
-                        hi: 161,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 160,
+                            hi: 161,
+                        },
                     },
                 ),
                 UseOfDynamicLimitInParallelExpr(
-                    Span {
-                        lo: 160,
-                        hi: 161,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 160,
+                            hi: 161,
+                        },
                     },
                 ),
             ]
@@ -1083,21 +1493,36 @@ fn parallel_with_indirect_branch_via_call_yields_error() {
         &expect![[r#"
             [
                 UseOfDynamicBool(
-                    Span {
-                        lo: 79,
-                        hi: 91,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 79,
+                            hi: 91,
+                        },
                     },
                 ),
                 UseOfDynamicBool(
-                    Span {
-                        lo: 217,
-                        hi: 223,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 217,
+                            hi: 223,
+                        },
                     },
                 ),
                 UseOfDynamicBranchingInParallelExpr(
-                    Span {
-                        lo: 217,
-                        hi: 223,
+                    PackageSpan {
+                        package: PackageId(
+                            3,
+                        ),
+                        span: Span {
+                            lo: 217,
+                            hi: 223,
+                        },
                     },
                 ),
             ]

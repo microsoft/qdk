@@ -59,7 +59,9 @@ const packagePickItems: vscode.QuickPickItem[] = [
     picked: false,
   },
   {
-    label: "ipykernel",
+    // Pinned to 6.x: ipykernel 7 can leave notebooks hanging on the first cell.
+    // Remove once https://github.com/microsoft/qdk/issues/3662 is fixed.
+    label: "ipykernel<7",
     description: "Jupyter kernel",
     detail: "Enable Jupyter notebook functionality in VS Code",
     picked: true,
