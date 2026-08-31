@@ -329,14 +329,14 @@ const _opToRenderData = (
   // Classically-controlled operations are encoded as operations whose `controls` are classical
   // registers (i.e. `Register.result` is set), with IDs provided via `metadata.controlResultIds`.
   const hasChildren = children != null && children.length > 0;
-  const hasClassicalControls =
+  const isClassicallyControlledGroup =
     op.kind === "unitary" &&
     hasChildren &&
     ((controls?.some((reg) => reg.result != null) ?? false) ||
       (op.metadata?.controlResultIds?.length ?? 0) > 0);
 
   const expandedAttr = dataAttributes?.["expanded"];
-  const defaultExpanded = hasClassicalControls && hasChildren;
+  const defaultExpanded = isClassicallyControlledGroup;
   const isExpanded =
     expandedAttr === undefined ? defaultExpanded : expandedAttr === "true";
   renderData.isExpanded = isExpanded;
@@ -356,7 +356,7 @@ const _opToRenderData = (
   // `_processChildren` `topY === minTargetY` check fails for nested classically-controlled children
   // and their `topPadding` doesn't propagate up, causing stacked nested conditionals to render box
   // tops and labels at the same y.
-  if (hasClassicalControls && op.kind === "unitary" && op.controls) {
+  if (isClassicallyControlledGroup && op.kind === "unitary" && op.controls) {
     const ownClassicalControlYs = op.controls
       .filter((r) => r.result != null)
       .map((reg) => _getRegY(reg, registers));
@@ -368,7 +368,7 @@ const _opToRenderData = (
     }
   }
 
-  if (hasClassicalControls) {
+  if (isClassicallyControlledGroup) {
     // Classically-controlled operations. These are treated as composite/group operations when they
     // have children. Expanded vs. collapsed rendering is controlled via the `expanded` state.
 
