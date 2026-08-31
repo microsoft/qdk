@@ -17,7 +17,6 @@ fn single_arg() {
                         args:
                             Arg [12-17]:
                                 value: 0.001
-
                         targets:
                             Target [19-20]:
                                 kind: Qubit(0)"#]],
@@ -37,13 +36,10 @@ fn multiple_comma_separated_args() {
                         args:
                             Arg [16-20]:
                                 value: 0.01
-
                             Arg [22-26]:
                                 value: 0.02
-
                             Arg [28-32]:
                                 value: 0.03
-
                         targets:
                             Target [34-35]:
                                 kind: Qubit(0)"#]],
@@ -63,7 +59,6 @@ fn scientific_notation_arg() {
                         args:
                             Arg [8-12]:
                                 value: 0.001
-
                         targets:
                             Target [14-15]:
                                 kind: Qubit(0)"#]],
@@ -75,50 +70,47 @@ fn radians_args() {
     check(
         "R_X(1rad) 0",
         &expect![[r#"
-        Circuit [0-11]:
-            items:
-                Instruction [0-11]:
-                    name: R_X
-                    tag: <none>
-                    args:
-                        Arg [4-8]:
-                            value: 1 rad
-
-                    targets:
-                        Target [10-11]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-11]:
+                items:
+                    Instruction [0-11]:
+                        name: R_X
+                        tag: <none>
+                        args:
+                            Arg [4-8]:
+                                value: 1 rad
+                        targets:
+                            Target [10-11]:
+                                kind: Qubit(0)"#]],
     );
     check(
         "R_Y(-0.5rad) 0",
         &expect![[r#"
-        Circuit [0-14]:
-            items:
-                Instruction [0-14]:
-                    name: R_Y
-                    tag: <none>
-                    args:
-                        Arg [4-11]:
-                            value: -0.5 rad
-
-                    targets:
-                        Target [13-14]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-14]:
+                items:
+                    Instruction [0-14]:
+                        name: R_Y
+                        tag: <none>
+                        args:
+                            Arg [4-11]:
+                                value: -0.5 rad
+                        targets:
+                            Target [13-14]:
+                                kind: Qubit(0)"#]],
     );
     check(
         "R_Z(+2.5e-3rad) 0",
         &expect![[r#"
-        Circuit [0-17]:
-            items:
-                Instruction [0-17]:
-                    name: R_Z
-                    tag: <none>
-                    args:
-                        Arg [4-14]:
-                            value: 0.0025 rad
-
-                    targets:
-                        Target [16-17]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-17]:
+                items:
+                    Instruction [0-17]:
+                        name: R_Z
+                        tag: <none>
+                        args:
+                            Arg [4-14]:
+                                value: 0.0025 rad
+                        targets:
+                            Target [16-17]:
+                                kind: Qubit(0)"#]],
     );
 }
 
@@ -127,24 +119,21 @@ fn mixed_unit_args() {
     check(
         "U3(0.1, -0.2rad, 3e-1rad) 0",
         &expect![[r#"
-        Circuit [0-27]:
-            items:
-                Instruction [0-27]:
-                    name: U3
-                    tag: <none>
-                    args:
-                        Arg [3-6]:
-                            value: 0.1
-
-                        Arg [8-15]:
-                            value: -0.2 rad
-
-                        Arg [17-24]:
-                            value: 0.3 rad
-
-                    targets:
-                        Target [26-27]:
-                            kind: Qubit(0)"#]],
+            Circuit [0-27]:
+                items:
+                    Instruction [0-27]:
+                        name: U3
+                        tag: <none>
+                        args:
+                            Arg [3-6]:
+                                value: 0.1
+                            Arg [8-15]:
+                                value: -0.2 rad
+                            Arg [17-24]:
+                                value: 0.3 rad
+                        targets:
+                            Target [26-27]:
+                                kind: Qubit(0)"#]],
     );
 }
 

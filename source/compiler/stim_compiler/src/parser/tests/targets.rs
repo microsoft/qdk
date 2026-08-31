@@ -447,7 +447,6 @@ fn loss_target() {
                         args:
                             Arg [2-6]:
                                 value: 0.01
-
                         targets:
                             Target [8-10]:
                                 kind: Loss(0)"#]],

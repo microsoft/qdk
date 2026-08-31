@@ -54,7 +54,6 @@ fn args_no_targets() {
                         args:
                             Arg [8-11]:
                                 value: 0.1
-
                         targets: <empty>"#]],
     );
 }
@@ -72,7 +71,6 @@ fn args_with_targets() {
                         args:
                             Arg [8-11]:
                                 value: 0.1
-
                         targets:
                             Target [13-14]:
                                 kind: Qubit(0)

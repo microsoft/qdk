@@ -67,7 +67,6 @@ fn tag_with_args_and_targets() {
                         args:
                             Arg [11-14]:
                                 value: 0.1
-
                         targets:
                             Target [16-17]:
                                 kind: Qubit(0)"#]],
