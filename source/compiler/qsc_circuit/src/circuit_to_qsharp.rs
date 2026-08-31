@@ -140,12 +140,11 @@ fn operation_return_type(circuit: &Circuit) -> &'static str {
         _ => "Result[]",
     }
 }
-
 fn supports_ctl_adj(circuit: &Circuit) -> bool {
     !circuit.component_grid.iter().any(|col| {
-        col.components.iter().any(|op| {
-            !matches!(op, Operation::Unitary(unitary) if unitary.controls.iter().all(|control| !control.register.is_classical()))
-        })
+        col.components
+            .iter()
+            .any(|op| !matches!(op, Operation::Unitary(_)))
     })
 }
 
