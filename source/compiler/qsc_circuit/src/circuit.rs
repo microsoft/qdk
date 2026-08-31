@@ -883,13 +883,7 @@ impl CircuitDisplay<'_> {
         let mut col_width = 0;
         for op in &col.components {
             let target_rows = get_target_rows(op, register_to_row);
-            let control_rows = get_control_rows(op, register_to_row)
-                .into_iter()
-                .filter(|(row, _)| match rows[*row].wire {
-                    Wire::Qubit { .. } => true,
-                    Wire::Classical { start_column } => start_column.is_some(),
-                })
-                .collect::<Vec<_>>();
+            let control_rows = get_control_rows(op, register_to_row);
 
             let mut all_rows = target_rows.clone();
             all_rows.extend(control_rows.iter().map(|(row, _)| row));
@@ -1037,6 +1031,9 @@ fn add_operation_to_rows(
             if matches!(row.wire, Wire::Qubit { .. }) && operation.is_measurement() {
                 row.add_measurement(column, operation.source_location());
             } else {
+                if matches!(row.wire, Wire::Classical { .. }) {
+                    row.start_classical(0);
+                }
                 row.add_object(column, if *inverted { "○" } else { "●" });
             }
         }
