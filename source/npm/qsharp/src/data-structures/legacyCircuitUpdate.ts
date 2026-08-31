@@ -42,6 +42,12 @@ export function toCircuitGroup(circuit: any): ToCircuitGroupResult {
 
   if (circuit?.version) {
     const version = circuit.version;
+    if (typeof version === "number" && version > CURRENT_VERSION) {
+      return {
+        ok: false,
+        error: `Circuit file version ${version} is newer than the supported version ${CURRENT_VERSION}. Update the QDK extension to render this circuit.`,
+      };
+    }
     if (isCircuitGroup(circuit)) {
       return { ok: true, circuitGroup: circuit };
     } else if (isCircuit(circuit)) {
