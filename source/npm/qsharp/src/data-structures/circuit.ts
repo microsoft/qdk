@@ -6,7 +6,7 @@ import { isRegister, Register } from "./register.js";
 /**
  * Current format version.
  */
-export const CURRENT_VERSION = 1;
+export const CURRENT_VERSION = 2;
 
 export interface CircuitGroup {
   circuits: Circuit[];
