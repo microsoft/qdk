@@ -4,6 +4,41 @@
 use indoc::formatdoc;
 use proptest::prelude::*;
 
+/// Regression for a consumed-closure stand-in reaching a live call.
+///
+/// A call expression dispatched over several distinct closure candidates gets a
+/// per-row specialization for each, but the rewrite cannot discriminate between
+/// them when the value arrives through a dynamic index and identical conditional
+/// arms. Consuming the producers anyway replaced them with `fail`-bodied
+/// stand-ins that the surviving read of `ops[idx]` still invoked, so the
+/// pipeline succeeded and the program aborted at runtime with a
+/// compiler-internal message instead of applying `Rx` or `Ry`.
+///
+/// The rotation angle is zero so both qubits end in a deterministic, releasable
+/// state; the dispatched gate still appears in the effect trace, which is what
+/// distinguishes correct dispatch from a call into the stand-in.
+#[test]
+fn consumed_closure_stand_in_is_not_specialized_against() {
+    crate::test_utils::check_semantic_equivalence(indoc::indoc! {r#"
+        namespace Test {
+            operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+            @EntryPoint()
+            operation Main() : (Result, Result) {
+                use q = Qubit();
+                use target = Qubit();
+                let a = 0.0;
+                let ops = [q0 => Rx(a, q0), q0 => Ry(a, q0)];
+                let m = MResetZ(q);
+                let idx = m == One ? 0 | 1;
+                let cond2 = m == One;
+                let f = cond2 ? ops[idx] | ops[idx];
+                Run(f, target);
+                return (m, MResetZ(target));
+            }
+        }
+    "#});
+}
+
 /// Regression for controlled dispatch of a *capturing* closure passed to a
 /// higher-order operation whose callable parameter is **not** the first
 /// argument. The HOF applies `Controlled op(ctls, q)`, so rewrite must nest the

@@ -848,6 +848,21 @@ fn track_specialized_closures(
                     cs.call_expr_id, cs.call_pkg_id,
                 );
             }
+            // A call expression dispatched over several distinct candidates is
+            // only safe to consume when a specialization actually covers the
+            // whole group. Per-row specs can exist without the rewrite being
+            // able to discriminate between them, and consuming then replaces
+            // the producers with `fail`-bodied stand-ins that the surviving
+            // value read still invokes.
+            if let Some(group) = groups.get(&(cs.call_pkg_id, cs.call_expr_id))
+                && group.len() > 1
+                && !spec_map.contains_key(&build_combined_spec_key_for_group(
+                    group[0].hof_item_id,
+                    group,
+                ))
+            {
+                continue;
+            }
             specialized_closure_targets.insert(StoreItemId::from((cs.call_pkg_id, *target)));
         }
     }

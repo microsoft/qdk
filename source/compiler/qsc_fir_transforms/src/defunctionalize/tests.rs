@@ -1222,6 +1222,36 @@ fn dispatched_callable_before_static_sibling_declines_instead_of_aborting() {
 ///
 /// A tuple destructure and a mutable reassignment defeat the same tracing and
 /// were measured to miscompile identically, so all three are asserted here.
+/// Companion to the semantic equivalence test of the same shape, which lives
+/// behind the `slow-proptest-tests` feature and so does not run by default.
+///
+/// Consuming producers for a call the rewrite cannot discriminate replaced them
+/// with `fail`-bodied stand-ins that the surviving `ops[idx]` read still
+/// invoked. No stand-in may survive in emitted code here.
+#[test]
+fn dispatched_closure_array_emits_no_consumed_closure_stand_in() {
+    let source = r#"
+        operation Run(f : Qubit => Unit, q : Qubit) : Unit { f(q); }
+        @EntryPoint()
+        operation Main() : Unit {
+            use q = Qubit();
+            let a = 1.0;
+            let ops = [q0 => Rx(a, q0), q0 => Ry(a, q0)];
+            let idx = MResetZ(q) == One ? 0 | 1;
+            let cond2 = MResetZ(q) == One;
+            let f = cond2 ? ops[idx] | ops[idx];
+            Run(f, q);
+        }
+    "#;
+    let (store, package_id) =
+        crate::test_utils::compile_and_run_pipeline_to(source, crate::PipelineStage::Full);
+    let rendered = crate::pretty::write_package_qsharp_parseable(&store, package_id);
+    assert!(
+        !rendered.contains("__defunc_consumed_closure"),
+        "a consumed-closure stand-in survived into emitted code:\n{rendered}"
+    );
+}
+
 #[test]
 fn identical_conditional_arms_over_indexed_array_keep_both_candidates() {
     fn emitted(body: &str) -> String {

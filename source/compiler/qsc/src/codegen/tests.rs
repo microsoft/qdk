@@ -7261,6 +7261,41 @@ namespace Test {
         "expected a dynamic-bool capability diagnostic, got:\n{rendered}"
     );
 }
+
+#[test]
+fn dispatched_callable_before_classical_field_reports_diagnostics() {
+    // A tuple parameter mixing callables with a classical field between them,
+    // where the dispatched callable sits at an earlier field than the static
+    // one. Argument promotion used to leave the call site disagreeing with the
+    // callee's input type, tripping the `PostArgPromote/PostAll` call invariant
+    // and aborting the compiler on valid Q#.
+    let source = r#"
+operation Apply(data : (Qubit => Unit, Int, Qubit => Unit), q : Qubit) : Unit {
+    let (f, n, g) = data;
+    f(q); g(q);
+}
+@EntryPoint()
+operation Main() : Unit {
+    use q = Qubit();
+    let first = if MResetZ(q) == One { X } else { Y };
+    Apply((first, 5, Z), q);
+}
+"#;
+    let errors =
+        compile_source_to_qir_result(source, TargetCapabilityFlags::from(Profile::AdaptiveRIF))
+            .expect_err("AdaptiveRIF must reject a measurement-dependent callable");
+
+    // Reaching any capability diagnostic at all means the transform pipeline ran
+    // to completion; the regression aborted the process before this point.
+    assert!(
+        errors.iter().any(|e| matches!(
+            e,
+            crate::interpret::Error::Pass(with_source)
+                if matches!(with_source.error(), qsc_passes::Error::CapabilitiesCk(..))
+        )),
+        "expected capability diagnostics, got: {errors:?}"
+    );
+}
 /// A primitive supplied at a differently-typed primitive slot must be rejected at
 /// the validator boundary. Before this contract existed, each rejection witness
 /// below aborted the compiler instead: the literal witnesses tripped the FIR
