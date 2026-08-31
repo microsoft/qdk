@@ -13,30 +13,43 @@ import { CopilotToolError } from "./gh-copilot/types.js";
 const pythonEnvsNotInstalledMsg = `The Python Environments extension (${EXTENSION_ID}) is not installed or is disabled.`;
 
 /**
- * A package offered in the venv picker. `label` is display text only; the
- * requirement passed to pip is built from the fields below, so a version
- * constraint never leaks into the UI.
+ * A package offered in the venv picker. This is plain data: the pip
+ * requirement and the label shown to the learner are both derived from these
+ * fields, so they can't drift apart, and a version constraint never leaks
+ * into the UI. Converted to a {@link vscode.QuickPickItem} only when shown.
  */
-interface PackagePickItem extends vscode.QuickPickItem {
+interface PackageChoice {
   /** Distribution name, e.g. `qdk-chemistry`. */
   packageName: string;
   /** Extras to request, e.g. `["jupyter"]`. */
   extras?: string[];
-  /** Version constraint, e.g. `>=6.0,<7`. */
+  /** Version constraint, e.g. `>=6.0,<7`. Not shown in the picker. */
   versionSpecifier?: string;
+  /** Short text shown beside the label. */
+  description: string;
+  /** Longer text shown under the label. */
+  detail: string;
+  /** Whether the item is checked by default. */
+  picked?: boolean;
+}
+
+/** `qdk` plus `["azure"]` renders as `qdk[azure]`. */
+function packageLabel(choice: PackageChoice): string {
+  const extras = choice.extras ?? [];
+  return extras.length > 0
+    ? `${choice.packageName}[${extras.join(",")}]`
+    : choice.packageName;
 }
 
 // All packages offered in the command palette picker (in display order)
-const packagePickItems: PackagePickItem[] = [
+const packageChoices: PackageChoice[] = [
   {
-    label: "qdk",
     packageName: "qdk",
     description: "Quantum Development Kit (core)",
     detail: "Compile, simulate, and estimate resources for quantum programs",
     picked: true,
   },
   {
-    label: "qdk[azure]",
     packageName: "qdk",
     extras: ["azure"],
     description: "QDK optional support for Azure Quantum",
@@ -44,7 +57,6 @@ const packagePickItems: PackagePickItem[] = [
     picked: false,
   },
   {
-    label: "qdk[cirq]",
     packageName: "qdk",
     extras: ["cirq"],
     description: "QDK optional support for Cirq",
@@ -52,7 +64,6 @@ const packagePickItems: PackagePickItem[] = [
     picked: false,
   },
   {
-    label: "qdk[jupyter]",
     packageName: "qdk",
     extras: ["jupyter"],
     description: "QDK optional support for Jupyter notebooks",
@@ -61,7 +72,6 @@ const packagePickItems: PackagePickItem[] = [
     picked: true,
   },
   {
-    label: "qdk[qiskit]",
     packageName: "qdk",
     extras: ["qiskit"],
     description: "QDK optional support for Qiskit",
@@ -69,7 +79,6 @@ const packagePickItems: PackagePickItem[] = [
     picked: false,
   },
   {
-    label: "qdk-chemistry",
     packageName: "qdk-chemistry",
     description: "Microsoft Quantum Development Kit for Chemistry (core)",
     detail: "Chemistry library only, without the notebook or PySCF plugins",
@@ -78,7 +87,6 @@ const packagePickItems: PackagePickItem[] = [
   {
     // The `jupyter` extra pulls in `plugins`, which is where qdk-chemistry
     // bounds pyscf. Without it pyscf would be left unconstrained.
-    label: "qdk-chemistry[jupyter]",
     packageName: "qdk-chemistry",
     extras: ["jupyter"],
     description: "QDK/Chemistry optional support for Jupyter notebooks",
@@ -87,7 +95,6 @@ const packagePickItems: PackagePickItem[] = [
     picked: false,
   },
   {
-    label: "ipykernel",
     packageName: "ipykernel",
     // Pinned to 6.x: ipykernel 7 can leave notebooks hanging on the first cell.
     // Remove once https://github.com/microsoft/qdk/issues/3662 is fixed.
@@ -97,7 +104,6 @@ const packagePickItems: PackagePickItem[] = [
     picked: true,
   },
   {
-    label: "ipympl",
     packageName: "ipympl",
     description: "Interactive Matplotlib widgets",
     detail: "Enable interactive plots in Jupyter notebooks",
@@ -110,39 +116,31 @@ const packagePickItems: PackagePickItem[] = [
  * name the same package so ticking `qdk` and `qdk[jupyter]` installs
  * `qdk[jupyter]` rather than passing both. Selection order is preserved.
  */
-function toRequirements(selected: readonly PackagePickItem[]): string[] {
-  const order: string[] = [];
+function toRequirements(selected: readonly PackageChoice[]): string[] {
   const byName = new Map<
     string,
-    { extras: string[]; versionSpecifiers: string[] }
+    { extras: string[]; versionSpecifier: string }
   >();
 
   for (const item of selected) {
     let merged = byName.get(item.packageName);
     if (!merged) {
-      merged = { extras: [], versionSpecifiers: [] };
+      merged = { extras: [], versionSpecifier: "" };
       byName.set(item.packageName, merged);
-      order.push(item.packageName);
     }
     for (const extra of item.extras ?? []) {
       if (!merged.extras.includes(extra)) {
         merged.extras.push(extra);
       }
     }
-    // Constraints from every selected row are kept, so pinning two rows of the
-    // same package narrows the range instead of silently dropping one.
-    if (
-      item.versionSpecifier &&
-      !merged.versionSpecifiers.includes(item.versionSpecifier)
-    ) {
-      merged.versionSpecifiers.push(item.versionSpecifier);
+    if (item.versionSpecifier) {
+      merged.versionSpecifier = item.versionSpecifier;
     }
   }
 
-  return order.map((name) => {
-    const { extras, versionSpecifiers } = byName.get(name)!;
+  return [...byName].map(([name, { extras, versionSpecifier }]) => {
     const extrasPart = extras.length > 0 ? `[${extras.join(",")}]` : "";
-    return `${name}${extrasPart}${versionSpecifiers.join(",")}`;
+    return `${name}${extrasPart}${versionSpecifier}`;
   });
 }
 
@@ -256,7 +254,7 @@ export async function createQuantumVenv(): Promise<{ action: string }> {
   }
 
   // Don't interrupt the chat by showing a picker - just use the defaults
-  const selectedPackages = packagePickItems.filter((item) => item.picked);
+  const selectedPackages = packageChoices.filter((item) => item.picked);
 
   const packagesToInstall = toRequirements(selectedPackages);
 
@@ -336,7 +334,10 @@ export async function createQuantumVenvForCommand(): Promise<void> {
   }
 
   const selectedPackages = await vscode.window.showQuickPick(
-    packagePickItems.map((item) => ({ ...item })),
+    packageChoices.map((choice) => ({
+      ...choice,
+      label: packageLabel(choice),
+    })),
     {
       canPickMany: true,
       placeHolder: "Select packages to install",
