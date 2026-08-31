@@ -168,9 +168,11 @@ fn peek_loss_with_readout_noise_in_radians_yields_error() {
     );
 }
 
-  #[test]
-  fn peek_loss_with_negative_readout_noise_in_radians_yields_errors() {
-    check("PEEK_LOSS(-0.1rad) 0", &expect![[r#"
+#[test]
+fn peek_loss_with_negative_readout_noise_in_radians_yields_errors() {
+    check(
+        "PEEK_LOSS(-0.1rad) 0",
+        &expect![[r#"
         Qdk.Stim.Compiler.UnexpectedRadians
 
           x argument for PEEK_LOSS cannot be specified in radians
@@ -186,8 +188,9 @@ fn peek_loss_with_readout_noise_in_radians_yields_error() {
          1 | PEEK_LOSS(-0.1rad) 0
            : ^^^^^^^^^^^^^^^^^^^^
            `----
-    "#]]);
-  }
+    "#]],
+    );
+}
 
 #[test]
 fn peek_loss_with_negated_target_yields_error() {
