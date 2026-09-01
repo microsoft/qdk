@@ -2029,18 +2029,23 @@ impl<'a> PartialEvaluator<'a> {
                 ),
                 callee_expr_span,
             )),
-            "Length" => {
-                let Value::Array(arr) = args_value else {
-                    return Err(Error::Unexpected(
-                        "length call on dynamically sized array".to_string(),
-                        callee_expr_span,
-                    ));
-                };
-                match arr.len().try_into() {
+            "Length" => match args_value {
+                Value::Array(arr) => match arr.len().try_into() {
                     Ok(len) => Ok(Value::Int(len)),
                     Err(_) => Err(EvalError::ArrayTooLarge(args_span).into()),
-                }
-            }
+                },
+                Value::Var(val::Var {
+                    ty: VarTy::Array(size),
+                    ..
+                }) => match size.try_into() {
+                    Ok(len) => Ok(Value::Int(len)),
+                    Err(_) => Err(EvalError::ArrayTooLarge(args_span).into()),
+                },
+                _ => Err(Error::Unexpected(
+                    "length call on dynamically sized array".to_string(),
+                    callee_expr_span,
+                )),
+            },
             "IntAsDouble" | "Truncate" => self.convert_value(&args_value, args_span),
 
             // These intrinsic functions should be evaluated immediately rather than emitted if all
