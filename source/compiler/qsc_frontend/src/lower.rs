@@ -27,6 +27,7 @@ use qsc_hir::{
     mut_visit::MutVisitor,
     ty::{Arrow, FunctorSetValue, GenericArg, ParamId, Ty, TypeParameter},
 };
+use rustc_hash::FxHashSet;
 use std::{
     clone::Clone,
     iter::{once, repeat},
@@ -49,6 +50,12 @@ pub(super) enum Error {
     #[error("invalid attribute arguments: expected {0}")]
     #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrArgs"))]
     InvalidAttrArgs(String, #[label] Span),
+    #[error("unknown option")]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.UnknownOption"))]
+    UnknownOption(#[label] Span),
+    #[error("duplicate option")]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.DuplicateOption"))]
+    DuplicateOption(#[label] Span),
     #[error("invalid use of the {0} attribute on a function")]
     #[diagnostic(help("try declaring the callable as an operation"))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrOnFunction"))]
@@ -383,61 +390,104 @@ impl With<'_> {
                 }
             },
             Ok(hir::Attr::CircuitRenderingOptions(_)) => {
-                let arg = if let ast::ExprKind::Paren(arg) = &*attr.arg.kind {
-                    &*arg.kind
-                } else {
-                    &*attr.arg.kind
-                };
-                let ast::ExprKind::Lit(literal) = arg else {
-                    self.lowerer.errors.push(Error::InvalidAttrArgs(
-                        "a string containing comma-separated key=value pairs".to_string(),
-                        attr.arg.span,
-                    ));
-                    return None;
-                };
-                let ast::Lit::String(value) = literal.as_ref() else {
-                    self.lowerer.errors.push(Error::InvalidAttrArgs(
-                        "a string literal containing comma-separated key=value pairs".to_string(),
-                        attr.arg.span,
-                    ));
-                    return None;
-                };
-
-                let mut options = hir::CircuitRenderingOptions::default();
-                for pair in value.split(',') {
-                    let mut parts = pair.split('=');
-                    let (Some(key), Some(value), None) = (parts.next(), parts.next(), parts.next())
-                    else {
+                let mut options = Vec::new();
+                match &*attr.arg.kind {
+                    ast::ExprKind::Paren(inner) => options.push(inner.clone()),
+                    ast::ExprKind::Tuple(args) if !args.is_empty() => {
+                        options.extend(args.iter().cloned());
+                    }
+                    _ => {
                         self.lowerer.errors.push(Error::InvalidAttrArgs(
-                            "a string containing comma-separated key=value pairs".to_string(),
-                            attr.arg.span,
-                        ));
-                        return None;
-                    };
-                    let (key, value) = (key.trim().to_ascii_lowercase(), value.trim());
-                    if key.is_empty() || value.is_empty() {
-                        self.lowerer.errors.push(Error::InvalidAttrArgs(
-                            "non-empty keys and values".to_string(),
+                            "a comma-separated list of key=value pairs".to_string(),
                             attr.arg.span,
                         ));
                         return None;
                     }
-                    if key == "hidebox" {
-                        options.hide_box = match value {
-                            "true" => true,
-                            "false" => false,
+                }
+                let mut parsed_options = hir::CircuitRenderingOptions::default();
+                let mut seen_keys = FxHashSet::default();
+                for option in options {
+                    if let ast::ExprKind::Assign(lhs, rhs) = &*option.kind {
+                        let ast::ExprKind::Path(PathKind::Ok(path)) = &*lhs.kind else {
+                            self.lowerer.errors.push(Error::InvalidAttrArgs(
+                                "a key=value pair with a valid key".to_string(),
+                                lhs.span,
+                            ));
+                            return None;
+                        };
+                        let key = path.name.name.as_ref().to_ascii_lowercase();
+                        if !seen_keys.insert(key.clone()) {
+                            self.lowerer
+                                .errors
+                                .push(Error::DuplicateOption(path.name.span));
+                            return None;
+                        }
+                        match key.as_str() {
+                            "hidebox" => {
+                                let ast::ExprKind::Lit(literal) = &*rhs.kind else {
+                                    self.lowerer.errors.push(Error::InvalidAttrArgs(
+                                        "hideBox requires a valid boolean value".to_string(),
+                                        rhs.span,
+                                    ));
+                                    return None;
+                                };
+                                let ast::Lit::Bool(value) = literal.as_ref() else {
+                                    self.lowerer.errors.push(Error::InvalidAttrArgs(
+                                        "hideBox requires a valid boolean value".to_string(),
+                                        rhs.span,
+                                    ));
+                                    return None;
+                                };
+                                parsed_options.hide_box = *value;
+                            }
+                            "inputsizes" => {
+                                let ast::ExprKind::Array(values) = &*rhs.kind else {
+                                    self.lowerer.errors.push(Error::InvalidAttrArgs(
+                                        "inputSizes requires an array of positive integer literals"
+                                            .to_string(),
+                                        rhs.span,
+                                    ));
+                                    return None;
+                                };
+                                let input_sizes = values
+                                    .iter()
+                                    .map(|value| {
+                                        let ast::ExprKind::Lit(literal) = &*value.kind else {
+                                            return None;
+                                        };
+                                        let ast::Lit::Int(value) = literal.as_ref() else {
+                                            return None;
+                                        };
+                                        u32::try_from(*value).ok().filter(|&value| value > 0)
+                                    })
+                                    .collect::<Option<Vec<_>>>();
+                                let Some(input_sizes) = input_sizes else {
+                                    self.lowerer.errors.push(Error::InvalidAttrArgs(
+                                        "inputSizes requires an array of positive integer literals"
+                                            .to_string(),
+                                        rhs.span,
+                                    ));
+                                    return None;
+                                };
+                                parsed_options.input_sizes = Some(input_sizes);
+                            }
                             _ => {
-                                self.lowerer.errors.push(Error::InvalidAttrArgs(
-                                    "true or false for hideBox".to_string(),
-                                    attr.arg.span,
-                                ));
+                                self.lowerer
+                                    .errors
+                                    .push(Error::UnknownOption(path.name.span));
                                 return None;
                             }
-                        };
+                        }
+                    } else {
+                        self.lowerer.errors.push(Error::InvalidAttrArgs(
+                            "a key=value pair".to_string(),
+                            option.span,
+                        ));
+                        return None;
                     }
                 }
 
-                Some(hir::Attr::CircuitRenderingOptions(options))
+                Some(hir::Attr::CircuitRenderingOptions(parsed_options))
             }
             Ok(hir::Attr::Unimplemented) => match &*attr.arg.kind {
                 ast::ExprKind::Tuple(args) if args.is_empty() => Some(hir::Attr::Unimplemented),
