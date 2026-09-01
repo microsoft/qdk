@@ -1,18 +1,21 @@
 """Tests for deterministic gadget completion."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
 import qodec as qc
 
-from qdk.ec import complete_gadget
+from qdk.ec._completion import complete_gadget
 
 
 def _readout(
     value: Sequence[object] | Mapping[str, Sequence[object]],
 ) -> list[str] | dict[str, list[str]]:
     if isinstance(value, Mapping):
-        return {name: [str(atom) for atom in equation] for name, equation in value.items()}
+        return {
+            name: [str(atom) for atom in equation] for name, equation in value.items()
+        }
     return [str(atom) for atom in value]
 
 

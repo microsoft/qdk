@@ -9,6 +9,7 @@ without committing to paulimer's specific choice of stabiliser representation
 * Frame ``q`` is the support of ``sign_matrix`` row ``q``.
 * Bell-correlation invariants survive a round-trip through the snapshot.
 """
+
 from __future__ import annotations
 
 from paulimer import OutcomeCompleteSimulation, SparsePauli, UnitaryOpcode

@@ -30,7 +30,7 @@ from .stabilizer_code import StabilizerCode
 
 
 @dataclass
-class CircuitAction:
+class ChannelAction:
     """Input/output stabilizers and logical mapping of a program."""
 
     observables: FrameGroup
@@ -38,10 +38,24 @@ class CircuitAction:
     mapping: Mapping[Pauli, PauliFrame]
 
     def is_equivalent_to(
-        self, other: "CircuitAction", modulo_paulis: bool = False
+        self, other: "ChannelAction", *, modulo_paulis: bool = False
     ) -> bool:
         return are_equivalent_mod_paulis(self, other) and (
             modulo_paulis or are_outcome_equivalent(self, other)
+        )
+
+    def why_not_equivalent_to(self, other: "ChannelAction") -> str:
+        if self.is_equivalent_to(other):
+            return ""
+        if self.is_equivalent_to(other, modulo_paulis=True):
+            return "Channels differ in their outcome-dependent Pauli signs."
+        return "Channels differ."
+
+    def __str__(self) -> str:
+        return (
+            f"observables: {self.observables}\n"
+            f"stabilizers: {self.stabilizers}\n"
+            f"mapping: {self.mapping}"
         )
 
 
@@ -74,7 +88,7 @@ def action_of(
     with_respect_to: Union[
         SubsystemCode, tuple[SubsystemCode, SubsystemCode], None
     ] = None,
-) -> CircuitAction:
+) -> ChannelAction:
     if with_respect_to is None:
         return _action_of(program, input_qubits=sorted(input_qubits_of(program)))
     if isinstance(with_respect_to, SubsystemCode):
@@ -95,7 +109,7 @@ def _action_of(
     input_qubits: Sequence[int],
     codespace_projector: Sequence[Pauli] = (),
     output_support: Sequence[int] | None = None,
-) -> CircuitAction:
+) -> ChannelAction:
     auxiliary_origin = _aux_origin_of(
         program,
         input_qubits=input_qubits,
@@ -136,7 +150,7 @@ def _assemble_action(
     auxiliary: set[int],
     auxiliary_to_input: Mapping[int, int],
     physical_support: frozenset[int],
-) -> CircuitAction:
+) -> ChannelAction:
     def input_adjust(pauli: Pauli) -> Pauli:
         relabeled = Pauli(
             {
@@ -159,7 +173,7 @@ def _assemble_action(
         PauliFrame(input_adjust(framed.pauli), framed.frame)
         for framed in stabilizers_in.standardized().generators
     )
-    return CircuitAction(observables, stabilizers_out.standardized(), mapping)
+    return ChannelAction(observables, stabilizers_out.standardized(), mapping)
 
 
 def _aux_origin_of(
@@ -178,10 +192,10 @@ def _aux_origin_of(
 
 
 def _decode(
-    action: CircuitAction,
+    action: ChannelAction,
     *,
     with_respect_to: tuple[SubsystemCode, SubsystemCode],
-) -> CircuitAction:
+) -> ChannelAction:
     _validate(action, with_respect_to=with_respect_to)
     code_in, code_out = with_respect_to
     stabilizers_group = action.stabilizers.unframed
@@ -209,10 +223,14 @@ def _decode(
     mapping = {}
     for basis_element in code_in.logical_basis:
         target = _quotient_of(basis_element, action.observables.unframed)
+        # A logical with no image is normal here, not a failure to characterize:
+        # a destructive measurement produces both cases below.
         if not target.weight:
+            # Read out by the circuit rather than carried forward.
             continue
         factorization = indexed_inputs.factorization_of(target)
         if factorization is None:
+            # Nothing the channel carries reproduces it, so no output holds it.
             continue
         factors: frozenset[int] = frozenset()
         for factor in factorization:
@@ -223,7 +241,7 @@ def _decode(
         mapping[code_in.logical_action_of(target)] = PauliFrame(
             code_out.logical_action_of(output.pauli), output.frame
         ) * (target.phase**3)
-    return CircuitAction(observables, stabilizers, mapping)
+    return ChannelAction(observables, stabilizers, mapping)
 
 
 def _phase_of(pauli: Pauli, *, within: PauliGroup) -> Pauli:
@@ -265,7 +283,7 @@ def _logical_form_of(
 
 
 def _validate(
-    action: CircuitAction,
+    action: ChannelAction,
     *,
     with_respect_to: tuple[SubsystemCode, SubsystemCode],
 ) -> None:
@@ -283,7 +301,7 @@ def _validate(
         complex(generator.phase) != generator.phase
         for generator in relative_syndrome.generators
     ):
-        warn("Output code signs are conditional.")
+        warn("Output code signs are conditional.", RuntimeWarning, stacklevel=3)
 
 
 def _validate_group(group: PauliGroup, *, against: SubsystemCode) -> None:
@@ -308,7 +326,15 @@ def _unsigned(group: PauliGroup) -> PauliGroup:
     return PauliGroup([abs(generator) for generator in group.generators])
 
 
-def are_equivalent_mod_paulis(action1: CircuitAction, action2: CircuitAction) -> bool:
+def are_equivalent_mod_paulis(action1: ChannelAction, action2: ChannelAction) -> bool:
+    """Whether two actions agree once measurement-dependent signs are ignored.
+
+    Precondition: both actions must be decoded against the same logical
+    labelling, because the mappings are compared key by key rather than
+    canonicalized first. Actions produced by :func:`action_of` for the same
+    pair of codes satisfy this; two actions decoded against different logical
+    bases for the same code do not.
+    """
     if _unsigned(action1.observables.unframed) != _unsigned(
         action2.observables.unframed
     ) or _unsigned(action1.stabilizers.unframed) != _unsigned(
@@ -324,7 +350,7 @@ def _abs_of(iterable: Iterable[Pauli]) -> list[Pauli]:
     return list(map(abs, iterable))
 
 
-def are_outcome_equivalent(action1: CircuitAction, action2: CircuitAction) -> bool:
+def are_outcome_equivalent(action1: ChannelAction, action2: ChannelAction) -> bool:
     items1 = _outcome_items(action1)
     items2 = _outcome_items(action2)
     if len(items1) != len(items2):
@@ -356,19 +382,24 @@ def are_outcome_equivalent(action1: CircuitAction, action2: CircuitAction) -> bo
 
 
 def _outcome_items(
-    action: CircuitAction,
+    action: ChannelAction,
 ) -> list[tuple[complex, frozenset[int], bool]]:
     items = []
     for framed in action.observables.standardized().generators:
         items.append((framed.pauli.phase, framed.frame, False))
     for framed in action.stabilizers.standardized().generators:
         items.append((framed.pauli.phase, framed.frame, False))
-    mapping = sorted(action.mapping.items(), key=lambda item: str(item[0]))
+    mapping = sorted(action.mapping.items(), key=lambda item: _sort_key(item[0]))
     for key, _ in mapping:
         items.append((key.phase, frozenset(), False))
     for _, value in mapping:
         items.append((value.pauli.phase, value.frame, True))
     return items
+
+
+def _sort_key(pauli: Pauli) -> tuple[tuple[int, ...], tuple[str, ...]]:
+    """A structural order, so comparison does not depend on Pauli formatting."""
+    return tuple(pauli.support), tuple(str(character) for character in pauli.characters)
 
 
 def declared_program_of(gadget: qc.Gadget) -> Program:
@@ -448,7 +479,7 @@ def _stack_encodings(encodings: Sequence[qc.Encoding]) -> SeparableCode:
     return SeparableCode(*blocks)
 
 
-def declared_action_of(gadget: qc.Gadget) -> CircuitAction:
+def declared_action_of(gadget: qc.Gadget) -> ChannelAction:
     codes_in, codes_out = declared_codes_of(gadget)
     return action_of(
         declared_program_of(gadget),
@@ -456,7 +487,7 @@ def declared_action_of(gadget: qc.Gadget) -> CircuitAction:
     )
 
 
-def realized_action_of(gadget: qc.Gadget) -> CircuitAction:
+def realized_action_of(gadget: qc.Gadget) -> ChannelAction:
     codes_in, codes_out = realized_codes_of(gadget)
     return action_of(
         program_of(gadget),
@@ -475,7 +506,7 @@ def gadget_action_mismatch(gadget: qc.Gadget) -> str | None:
 
 
 __all__ = [
-    "CircuitAction",
+    "ChannelAction",
     "action_of",
     "are_equivalent_mod_paulis",
     "are_outcome_equivalent",

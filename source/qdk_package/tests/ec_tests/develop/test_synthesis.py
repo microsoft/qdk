@@ -1,4 +1,4 @@
-"""``qdk.ec.qodec_from_code`` — synthesizing a qodec from a code.
+"""``qdk.ec.build_qodec`` — synthesizing a qodec from a code.
 
 The suite is organised around what synthesis promises: a *structurally* valid
 qodec whose gadgets are *semantically* verified and that *round-trips*.
@@ -14,8 +14,11 @@ import qodec as qc
 from ec_tests.testing import code_catalog as catalog
 from ec_tests.testing.qodecs import c4
 import qdk.ec as ec
-from qdk.ec import action, distance, lint
-from qdk.ec import qodec_from_code, synthesis_notes
+from qdk.ec import _audit
+from qdk.ec import _distance as distance
+from qdk.ec._analysis import channel_action as action
+from qdk.ec._completion import complete_qodec
+from qdk.ec._synthesis import _METADATA_KEY, _synthesize as qodec_from_code
 from qdk.ec._analysis.code_algebra import as_qodec_code
 
 #: Codes for which every instruction is expected to synthesize. Each entry is
@@ -35,6 +38,18 @@ FULLY_SUPPORTED = [
 
 def _code(label: str, factory) -> qc.Code:
     return as_qodec_code(factory(), label)
+
+
+def synthesis_notes(qodec: qc.Qodec) -> dict:
+    """The synthesis record left in a synthesized qodec's metadata."""
+    section = dict(qodec.metadata).get(_METADATA_KEY) or {}
+    return dict(section.get("synthesis", {}))
+
+
+def _round_tripped(qodec: qc.Qodec, directory: Path) -> qc.Qodec:
+    # qodec.save/load take strings, not os.PathLike.
+    qodec.save(str(directory), single_file=True)
+    return qc.Qodec.load(str(directory))
 
 
 @pytest.fixture(scope="module")
@@ -321,7 +336,7 @@ def test_audit_reports_no_unexpected_errors(label: str, factory) -> None:
 
     unexpected = [
         f"{d.rule}: {d.summary}"
-        for d in lint.diagnose(built).errors()
+        for d in _audit.audit(built).errors
         if d.rule != _KNOWN_AUDIT_RULE
     ]
     assert unexpected == []
@@ -334,7 +349,7 @@ def test_the_known_audit_rule_also_fires_on_the_hand_authored_fixture() -> None:
     rules = {
         d.rule
         for gadget in fixture.layers[0].gadgets.values()
-        for d in lint.Auditor().audit_gadget(gadget, qodec=fixture).errors()
+        for d in _audit.Auditor().audit_gadget(gadget, qodec=fixture).errors
     }
     assert _KNOWN_AUDIT_RULE in rules
 
@@ -342,17 +357,19 @@ def test_the_known_audit_rule_also_fires_on_the_hand_authored_fixture() -> None:
 # ── Round-tripping ──────────────────────────────────────────────────────────
 
 
-def test_synthesized_qodec_round_trips_through_yaml(steane: qc.Qodec) -> None:
-    restored = ec.from_yaml(ec.to_yaml(steane))
+def test_synthesized_qodec_round_trips_through_yaml(
+    steane: qc.Qodec, tmp_path: Path
+) -> None:
+    restored = _round_tripped(steane, tmp_path / "bundle")
 
     assert restored.name == steane.name
     assert sorted(restored.layers[0].gadgets) == sorted(steane.layers[0].gadgets)
 
 
-def test_structured_omissions_round_trip_through_yaml() -> None:
+def test_structured_omissions_round_trip_through_yaml(tmp_path: Path) -> None:
     built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
 
-    restored = ec.from_yaml(ec.to_yaml(built))
+    restored = _round_tripped(built, tmp_path / "bundle")
 
     assert synthesis_notes(restored)["omitted"] == synthesis_notes(built)["omitted"]
 
@@ -360,8 +377,8 @@ def test_structured_omissions_round_trip_through_yaml() -> None:
 def test_synthesized_qodec_round_trips_through_disk(
     steane: qc.Qodec, tmp_path: Path
 ) -> None:
-    ec.save_yaml(steane, tmp_path / "bundle")
-    restored = ec.load_yaml(tmp_path / "bundle")
+    steane.save(str(tmp_path / "bundle"))
+    restored = qc.Qodec.load(str(tmp_path / "bundle"))
 
     assert restored.name == steane.name
     assert sorted(restored.codes) == sorted(steane.codes)
@@ -370,7 +387,7 @@ def test_synthesized_qodec_round_trips_through_disk(
 def test_completion_is_idempotent_on_a_synthesized_qodec(
     steane: qc.Qodec,
 ) -> None:
-    recompleted = ec.complete_qodec(steane)
+    recompleted = complete_qodec(steane)
 
     for mnemonic, gadget in steane.layers[0].gadgets.items():
         before = {frozenset(str(a) for a in c) for c in gadget.checks}
@@ -514,25 +531,3 @@ def test_an_unnamed_code_requires_an_explicit_name() -> None:
 
     with pytest.raises(ValueError, match="no name"):
         qodec_from_code(code)
-
-
-# ── Memory programs ─────────────────────────────────────────────────────────
-
-
-def test_memory_program_reports_missing_instructions() -> None:
-    built = qodec_from_code(_code("five_qubit", catalog.make_five_qubit_code))
-
-    with pytest.raises(ValueError, match="missing"):
-        ec.memory_program(built)
-
-
-def test_memory_program_has_the_expected_shape(steane: qc.Qodec) -> None:
-    program = ec.memory_program(steane, rounds=3)
-
-    assert [call.mnemonic for call in program.instructions] == [
-        "prepare_z",
-        "idle",
-        "idle",
-        "idle",
-        "measure_z",
-    ]

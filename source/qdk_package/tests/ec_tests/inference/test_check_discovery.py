@@ -1,4 +1,4 @@
-"""Smoke tests for check discovery through `qdk.ec.checks`.
+"""Smoke tests for internal check discovery.
 
 The module's heavy logic is exercised through `audit` and the C4 demo;
 this file pins the public surface (`profile_of`, `simulate_channel`,
@@ -7,19 +7,19 @@ this file pins the public surface (`profile_of`, `simulate_channel`,
 
 from __future__ import annotations
 
-from qdk.ec.checks import Profile, profile_of
+from qdk.ec._checks import Profile, profile_of
 from qdk.ec._analysis.propagation import simulate_channel
 from ec_tests.testing.qodecs import c4
 
 
-def test_profile_of_returns_profile_with_checks_and_observables() -> None:
+def test_profile_of_returns_profile_with_checks_and_readouts() -> None:
     qodec = c4()
     gadget = qodec.layers[0].gadgets["measure_zz"]
     profile = profile_of(gadget)
     assert isinstance(profile, Profile)
     assert len(profile.checks) >= 1
     # measure_zz declares two observe outcomes, named positionally.
-    assert set(profile.observables) >= {"0", "1"}
+    assert set(profile.readouts) >= {"0", "1"}
 
 
 def test_profile_of_idle_round_finds_four_stabilizer_checks() -> None:

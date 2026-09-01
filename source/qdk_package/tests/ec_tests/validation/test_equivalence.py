@@ -1,8 +1,8 @@
 """Tests for gadget action profiling and equivalence."""
 
 import qodec as qc
-from qdk.ec.action import CircuitAction, realized_action_of
-from qdk.ec.equivalence import gadgets_equivalent, why_not_equivalent
+from qdk.ec._analysis.channel_action import ChannelAction, realized_action_of
+from qdk.ec._analysis.equivalence import gadgets_equivalent, why_not_equivalent
 
 
 def test_gadget_is_equivalent_to_itself(translation: qc.Layer) -> None:
@@ -28,10 +28,10 @@ def test_distinct_preparations_are_not_equivalent(
     assert why_not_equivalent(prepare_xx_gadget, prepare_zz_gadget)
 
 
-def test_gadget_equivalence_uses_canonical_circuit_actions(
+def test_gadget_equivalence_uses_canonical_channel_actions(
     idle_gadget: qc.Gadget,
 ) -> None:
     action = realized_action_of(idle_gadget)
 
-    assert isinstance(action, CircuitAction)
+    assert isinstance(action, ChannelAction)
     assert action.is_equivalent_to(realized_action_of(idle_gadget))

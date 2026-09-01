@@ -10,7 +10,7 @@ import qodec as qc
 
 from .._layout import ProgramLayout
 from .._readouts import observables_as_xor_map
-from .._analysis.circuit_action import realized_codes_of
+from .._analysis.channel_action import realized_codes_of
 from .._analysis.propagation.conditional import (
     ConditionalChoiResult,
     conditional_choi_state,

@@ -131,6 +131,18 @@ class FrameGroup:
         if factors is None:
             return None
         frame_of = {abs(framed.pauli): framed.frame for framed in self.generators}
+        # A weightless factor is the factorization's overall phase, which no
+        # generator carries and which flips no outcome.
+        missing = [
+            factor
+            for factor in factors
+            if factor.weight and abs(factor) not in frame_of
+        ]
+        if missing:
+            raise ValueError(
+                f"factor {missing[0]!r} of {target!r} is not a generator of this "
+                "group, so it carries no frame"
+            )
         return [
             PauliFrame(factor, frame_of.get(abs(factor), frozenset()))
             for factor in factors

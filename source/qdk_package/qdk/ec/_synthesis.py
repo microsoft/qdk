@@ -6,7 +6,7 @@ nothing about how to prepare, preserve, or read out an encoded state. A
 :class:`qodec.Qodec` is the *runnable* artifact: a layered pipeline whose
 gadgets lower each logical instruction into a concrete circuit.
 
-:func:`qodec_from_code` bridges the two. Given a code, it emits a two-layer
+:func:`build_qodec` bridges the two. Given a code, it emits a two-layer
 qodec — a synthesized logical ISA over the code's ``k`` logical qubits,
 lowering to a physical stim ISA — with a textbook circuit for each logical
 instruction:
@@ -33,13 +33,14 @@ such fault announce itself. This is the ``t``-flag construction of Chamberland &
 Beverland (arXiv:1708.02246), whose ``t = 1`` case is Chao & Reichardt's
 two-extra-qubit circuit for distance-3 codes (arXiv:1705.02329).
 
-The default ``t`` is ``(d - 1) // 2`` for a code of distance ``d``. Pass
-``flags=0`` to synthesize the naive, non-fault-tolerant circuit deliberately.
+The default ``t`` is ``(d - 1) // 2`` for a code of distance ``d``, which is the
+fault-tolerant answer; ``flags=0`` synthesizes the naive, non-fault-tolerant
+circuit deliberately and is not reachable from :func:`build_qodec`.
 
 Checks and readouts are *not* hand-derived: each synthesized gadget is a draft
 that :func:`~qdk.ec._completion.complete_gadget` finishes by exact
 simulation. Every finished gadget is then verified with
-:func:`~qdk.ec.action.gadget_action_mismatch`, so an instruction
+the internal gadget-action comparison, so an instruction
 survives only if its circuit provably realizes the action it declares. See
 :ref:`unsupported-instructions` below.
 
@@ -69,16 +70,16 @@ stabilizers cannot be recovered that way, leaving the last layer of the circuit
 unprotected; such codes will not reach their code distance through this
 construction even with flags.
 
-Rather than guess which case applies, :func:`qodec_from_code` keeps only the
-instructions whose gadgets complete *and* verify, and records every omission
-with its reason under the returned qodec's
-``metadata["qdk.ec"]["synthesis"]["omitted"]`` (see :func:`synthesis_notes`).
-Pass ``strict=True`` to turn any omission into an exception instead.
+:func:`build_qodec` refuses to guess which case applies: by default an
+instruction whose gadget does not complete *and* verify raises. Pass
+``strict=False`` to the internal synthesizer instead to keep only the
+instructions that survive and record every omission with its reason under the
+returned qodec's ``metadata["qdk.ec"]["synthesis"]["omitted"]``.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal, Optional
 
@@ -87,8 +88,8 @@ from qodec.actions import Clifford, Observe, Pauli as PauliAction, Stabilize
 from qodec.gadgets import Circuit, Encoding
 from qodec.instructions import Block, BlockOperand, Instruction, InstructionSet
 
-from .action import gadget_action_mismatch
-from .distance import code_distance_of
+from ._analysis.channel_action import gadget_action_mismatch
+from ._distance import code_distance_of
 from ._analysis.propagation.pauli import Pauli, characters_of
 from ._analysis.propagation.pauli_remap import code_qubit_count
 from ._completion import complete_gadget
@@ -96,7 +97,7 @@ from ._readouts import as_readout
 from ._references import as_references
 
 if TYPE_CHECKING:
-    from qodec.circuits import Program
+    from ._analysis.code_algebra import SubsystemCode
 
 #: Name given to the synthesized physical instruction set.
 _PHYSICAL_ISA_NAME = "stim"
@@ -525,43 +526,7 @@ def _attempt_candidate(
     return gadget
 
 
-def memory_program(qodec: qc.Qodec, *, rounds: int = 1) -> "Program":
-    """The standard memory experiment over a synthesized ``qodec``.
-
-    ``prepare_z``, then ``rounds`` of ``idle``, then ``measure_z``.
-
-    Raises :class:`ValueError` if ``qodec`` lacks any of those instructions,
-    which is what happens when synthesis had to omit them.
-    """
-    from qodec.circuits import Program
-
-    isa = qodec.layers[0].isa
-    mnemonics = ["prepare_z", *["idle"] * rounds, "measure_z"]
-    missing = [
-        name for name in dict.fromkeys(mnemonics) if name not in isa.instructions
-    ]
-    if missing:
-        raise ValueError(
-            f"qodec {qodec.name!r} cannot express a memory experiment; it is "
-            f"missing {', '.join(missing)}"
-        )
-
-    def call(mnemonic: str) -> "qc.instructions.InstructionCall":
-        instruction = isa.instruction(mnemonic)
-        inputs: dict[str, qc.instructions.InstructionCall.Argument] = {
-            str(i): "q" for i in range(len(list(instruction.inputs)))
-        }
-        outputs: dict[str, qc.instructions.InstructionCall.Argument] = {
-            str(i): "q" for i in range(len(list(instruction.outputs)))
-        }
-        if not inputs and not outputs:
-            return qc.instructions.InstructionCall(mnemonic)
-        return qc.instructions.InstructionCall(mnemonic, inputs=inputs, outputs=outputs)
-
-    return Program([call(name) for name in mnemonics], isa)
-
-
-def qodec_from_code(
+def _synthesize(
     code: qc.Code,
     *,
     name: Optional[str] = None,
@@ -682,7 +647,7 @@ def qodec_from_code(
     metadata: dict[str, object] = {
         _METADATA_KEY: {
             "synthesis": {
-                "source": "qdk.ec.qodec_from_code",
+                "source": "qdk.ec.build_qodec",
                 "code": code.name,
                 "physical_qubits": data_width,
                 "logical_qubits": logical_count,
@@ -709,18 +674,48 @@ def qodec_from_code(
     return built
 
 
-def synthesis_notes(qodec: qc.Qodec) -> dict[str, object]:
-    """The synthesis record :func:`qodec_from_code` left on ``qodec``.
+def build_qodec(
+    code: qc.Code | SubsystemCode,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    strategy: str = "flagged-css/v1",
+    strict: bool = True,
+) -> qc.Qodec:
+    """Synthesize a two-layer qodec from a bare stabilizer code.
 
-    Returns an empty mapping for a qodec that was not synthesized.
+    ``strict`` defaults to ``True``: an instruction whose gadget does not
+    complete and verify raises rather than being silently omitted.
+
+    ``strategy`` is reserved for a future second construction and is named in
+    the returned qodec's description.
     """
-    section = dict(qodec.metadata).get(_METADATA_KEY)
-    if not isinstance(section, Mapping):
-        return {}
-    notes = section.get("synthesis")
-    if not isinstance(notes, Mapping):
-        return {}
-    return dict(notes)
+    from ._analysis.code_algebra import SubsystemCode, as_qodec_code
+
+    if strategy != "flagged-css/v1":
+        raise ValueError(f"unknown qodec construction strategy {strategy!r}")
+    materialized = (
+        as_qodec_code(code, name or "code") if isinstance(code, SubsystemCode) else code
+    )
+    return _synthesize(
+        materialized,
+        name=name,
+        description=(
+            description
+            if description is not None
+            else _default_description(materialized, strategy)
+        ),
+        strict=strict,
+    )
 
 
-__all__ = ["memory_program", "qodec_from_code", "synthesis_notes"]
+def _default_description(code: qc.Code, strategy: str) -> str:
+    physical = code_qubit_count(code)
+    logical = len(list(code.x))
+    return (
+        f"Synthesized from the {code.name!r} stabilizer code "
+        f"([[{physical}, {logical}]]). Strategy: {strategy}."
+    )
+
+
+__all__ = ["build_qodec"]

@@ -39,7 +39,10 @@ class ChannelSimulation:
 @dataclass(frozen=True)
 class Profile:
     checks: list[Equation]
-    observables: dict[str, list[int]]
+
+    #: Every readout the instruction declares — flags as well as observe
+    #: outcomes — keyed by name. Not just the observables.
+    readouts: dict[str, list[int]]
 
 
 @dataclass(frozen=True)
@@ -59,12 +62,12 @@ def simulate_program(
 def choi_prepare(gadget: qc.Gadget) -> OutcomeCompleteSimulation:
     program = program_of(gadget)
     input_qubits = _input_data_qubits(gadget)
-    qubit_count = ProgramLayout.of(program).total_qubits
-    simulation = _fresh_sim(qubit_count + len(input_qubits))
+    auxiliary_origin = _auxiliary_origin(program, input_qubits)
+    simulation = _fresh_sim(auxiliary_origin + len(input_qubits))
     for offset, data_qubit in enumerate(input_qubits):
         simulation.apply_unitary(
             UnitaryOpcode.PrepareBell,
-            [data_qubit, qubit_count + offset],
+            [data_qubit, auxiliary_origin + offset],
         )
     return simulation
 
@@ -107,10 +110,10 @@ def profile_of(gadget: qc.Gadget) -> Profile:
     rows = _deterministic_rows(result)
     checks = [row for row in rows if not row.declared]
     declared_rows = [row for row in rows if row.declared]
-    observables, excluded = _emit_observables(result, gadget, declared_rows, checks)
+    readouts, excluded = _emit_readouts(result, gadget, declared_rows, checks)
     return Profile(
         checks=_emit_checks(result, checks, exclude=excluded),
-        observables=observables,
+        readouts=readouts,
     )
 
 
@@ -223,7 +226,7 @@ def _classify(
             return
 
 
-def _emit_observables(
+def _emit_readouts(
     result: ChannelSimulation,
     gadget: qc.Gadget,
     declared_rows: Sequence[CheckRow],
@@ -241,11 +244,11 @@ def _emit_observables(
     discoverable = {
         name: index for index, (name, _) in enumerate(result.declared_outcomes)
     }
-    observables = {}
+    readouts = {}
     flag_patterns = []
     flag_bindings = _flag_bindings_of(gadget)
     authored = observables_as_xor_map(gadget)
-    for name in _declared_observable_names(gadget):
+    for name in _declared_readout_names(gadget):
         if name in discoverable:
             index = discoverable[name]
             if index not in by_index:
@@ -262,8 +265,8 @@ def _emit_observables(
             flag_patterns.append(outcomes)
         else:
             raise KeyError(f"flag {name!r} is not bound by gadget readouts")
-        observables[name] = sorted(outcomes)
-    return observables, flag_patterns
+        readouts[name] = sorted(outcomes)
+    return readouts, flag_patterns
 
 
 def _flag_bindings_of(gadget: qc.Gadget) -> dict[str, frozenset[int]]:
@@ -272,7 +275,7 @@ def _flag_bindings_of(gadget: qc.Gadget) -> dict[str, frozenset[int]]:
     }
 
 
-def _declared_observable_names(gadget: qc.Gadget) -> list[str]:
+def _declared_readout_names(gadget: qc.Gadget) -> list[str]:
     """Every readout the instruction declares: its flags, then its observe outcomes."""
     instruction = gadget.implements
     return [
@@ -326,9 +329,9 @@ def _declared_observable_probes(
     gadget: qc.Gadget,
 ) -> list[tuple[str, Pauli | None]]:
     program = program_of(gadget)
-    qubit_count = ProgramLayout.of(program).total_qubits
+    auxiliary_origin = _auxiliary_origin(program, _input_data_qubits(gadget))
     partners = {
-        qubit: qubit_count + offset
+        qubit: auxiliary_origin + offset
         for offset, qubit in enumerate(_input_data_qubits(gadget))
     }
     specs: list[tuple[str, Pauli | None]] = [
@@ -343,6 +346,14 @@ def _declared_observable_probes(
             specs.append((str(position), relabel(probe, partners)))
             position += 1
     return specs
+
+
+def _auxiliary_origin(program: Program, input_qubits: Sequence[int]) -> int:
+    # Must agree with `channel_action._aux_origin_of`, which also accounts for a
+    # codespace projector and an output support. The two only coincide while
+    # neither reaches past the program's own qubits.
+    support = set(range(ProgramLayout.of(program).total_qubits)) | set(input_qubits)
+    return max(support) + 1 if support else 0
 
 
 __all__ = [

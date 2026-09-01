@@ -3,8 +3,7 @@
 from collections.abc import Iterable, Iterator
 from typing import Protocol, TYPE_CHECKING, runtime_checkable
 
-from ._diagnostic import Diagnostic, Phase
-from ._severity import Severity
+from ._diagnostic import Diagnostic, Phase, Severity
 
 if TYPE_CHECKING:
     import qodec as qc

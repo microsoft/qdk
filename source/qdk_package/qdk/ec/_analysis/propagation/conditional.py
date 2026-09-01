@@ -46,6 +46,8 @@ def conditional_choi_state(
 
     for offset, qubit in enumerate(input_qubits):
         auxiliary = aux_origin + offset
+        # Measuring XX then ZZ is a Bell preparation with random signs: the pair
+        # ends up in one of the four Bell states, and the frames carry which.
         simulation.measure(Pauli({qubit: "X", auxiliary: "X"}))
         simulation.measure(Pauli({qubit: "Z", auxiliary: "Z"}))
 

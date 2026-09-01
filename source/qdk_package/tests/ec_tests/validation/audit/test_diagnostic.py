@@ -1,11 +1,12 @@
 """Tests for `Diagnostic`, `Severity`, and `Phase`."""
+
 from __future__ import annotations
 
 import dataclasses
 
 import pytest
 
-from qdk.ec.lint import Diagnostic, Phase, Severity
+from qdk.ec._audit import Diagnostic, Phase, Severity
 
 
 def test_severity_enum_values() -> None:
@@ -13,17 +14,13 @@ def test_severity_enum_values() -> None:
 
 
 def test_diagnostic_is_frozen() -> None:
-    diag = Diagnostic(
-        rule="r/x", severity=Severity.ERROR, summary="x", where="y"
-    )
+    diag = Diagnostic(rule="r/x", severity=Severity.ERROR, summary="x", where="y")
     with pytest.raises(dataclasses.FrozenInstanceError):
         diag.summary = "modified"  # type: ignore[misc]
 
 
 def test_diagnostic_default_detail_is_empty() -> None:
-    diag = Diagnostic(
-        rule="r/x", severity=Severity.WARNING, summary="x", where="y"
-    )
+    diag = Diagnostic(rule="r/x", severity=Severity.WARNING, summary="x", where="y")
     assert diag.detail == ""
 
 

@@ -45,7 +45,9 @@ def sparse_pauli_elements(  # pylint: disable=too-many-arguments, too-many-posit
     min_weight: int = 0,
     max_weight: int = 100,
     phase_strategy: strategies.SearchStrategy[complex] = sparse_phases(),
-    qubit_strategy: strategies.SearchStrategy[int] = strategies.integers(min_value=0, max_value=1000),
+    qubit_strategy: strategies.SearchStrategy[int] = strategies.integers(
+        min_value=0, max_value=1000
+    ),
 ) -> Pauli:
     character_string = draw_from(
         pauli_strings(size=size, min_weight=min_weight, max_weight=max_weight)

@@ -6,6 +6,7 @@ public API. ``sparse_phases`` now yields the four allowed unit-magnitude complex
 phases. The ``min_conditions``/``max_conditions`` parameters are accepted for
 backward compatibility with older test signatures and are ignored.
 """
+
 from typing import Optional
 from hypothesis import strategies
 

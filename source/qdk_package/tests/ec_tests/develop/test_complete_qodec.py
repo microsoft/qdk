@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import qodec as qc
+import pytest
 
 from ec_tests.testing.qodecs import c4
-from qdk.ec import complete_qodec
+from qdk.ec import _completion
+from qdk.ec._completion import complete_qodec
 
 
 def _stripped(qodec: qc.Qodec) -> qc.Qodec:
@@ -19,7 +21,10 @@ def _stripped(qodec: qc.Qodec) -> qc.Qodec:
                 inputs=list(gadget.inputs),
                 outputs=list(gadget.outputs),
                 checks=[],
-                readouts=[[str(atom) for atom in _equation(entry)] for entry in gadget.readouts],
+                readouts=[
+                    [str(atom) for atom in _equation(entry)]
+                    for entry in gadget.readouts
+                ],
                 parameters=dict(gadget.parameters),
                 metadata=dict(gadget.metadata),
             )
@@ -39,9 +44,7 @@ def _equation(entry: object) -> list[object]:
 def test_complete_qodec_fills_in_checks_for_every_gadget() -> None:
     draft = _stripped(c4())
     assert all(
-        not gadget.checks
-        for layer in draft.layers
-        for gadget in layer.gadgets.values()
+        not gadget.checks for layer in draft.layers for gadget in layer.gadgets.values()
     )
 
     completed = complete_qodec(draft)
@@ -61,9 +64,7 @@ def test_complete_qodec_leaves_the_input_untouched() -> None:
     complete_qodec(draft)
 
     assert all(
-        not gadget.checks
-        for layer in draft.layers
-        for gadget in layer.gadgets.values()
+        not gadget.checks for layer in draft.layers for gadget in layer.gadgets.values()
     )
 
 
@@ -94,6 +95,23 @@ def test_complete_qodec_matches_the_authored_checks() -> None:
             assert {
                 frozenset(str(atom) for atom in check) for check in authored.checks
             } <= {
-                frozenset(str(atom) for atom in check)
-                for check in rediscovered.checks
+                frozenset(str(atom) for atom in check) for check in rediscovered.checks
             }, f"completion dropped an authored check of {mnemonic!r}"
+
+
+def test_completion_error_identifies_gadget_and_preserves_cause(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cause = ValueError("invalid circuit")
+
+    def fail(_gadget: qc.Gadget) -> qc.Gadget:
+        raise cause
+
+    monkeypatch.setattr(_completion, "complete_gadget", fail)
+
+    with pytest.raises(
+        RuntimeError, match="failed to derive layer 2 gadget 'broken'"
+    ) as caught:
+        _completion._try_complete_gadget(object(), 2, "broken")  # type: ignore[arg-type]
+
+    assert caught.value.__cause__ is cause

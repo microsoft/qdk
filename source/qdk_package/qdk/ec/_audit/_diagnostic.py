@@ -3,8 +3,6 @@
 from dataclasses import dataclass
 from enum import Enum
 
-from ._severity import Severity
-
 
 class Phase(Enum):
     STRUCTURAL = "structural"
@@ -14,11 +12,19 @@ class Phase(Enum):
 
 @dataclass(frozen=True)
 class Diagnostic:
+    class Severity(Enum):
+        INFO = "info"
+        WARNING = "warning"
+        ERROR = "error"
+
     rule: str
     severity: Severity
     summary: str
     where: str
     detail: str = ""
+
+
+Severity = Diagnostic.Severity
 
 
 __all__ = ["Diagnostic", "Phase"]

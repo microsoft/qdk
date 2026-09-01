@@ -1,4 +1,5 @@
 """Tests for stabilizer-code distance estimation."""
+
 from __future__ import annotations
 from typing import Iterable
 import operator
@@ -7,7 +8,7 @@ import pytest
 from qdk.ec._analysis.stabilizer_code import StabilizerCode
 from ec_tests.testing import code_catalog as catalog
 from qdk.ec._analysis.propagation.pauli import Pauli
-from qdk.ec.distance import (
+from qdk.ec._distance import (
     MwpfSolverOptions,
     code_distance_bounds_of,
     code_distance_of,
@@ -85,6 +86,6 @@ def test_distance_upper_bound_short_circuits_search() -> None:
     assert distance > 2
     assert witness == []
 
+
 def product_of(paulis: Iterable[Pauli]) -> Pauli:
     return reduce(operator.mul, paulis, Pauli({}))
-

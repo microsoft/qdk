@@ -1,14 +1,13 @@
-"""Intrinsic Pauli-fault effects of qodec gadgets."""
+"""Internal intrinsic Pauli-fault effects of qodec gadgets."""
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 
 import qodec as qc
 
-from ._readouts import observables_as_xor_map
-from ._references import outcomes_of, parse_equations
 from ._analysis.propagation.interpreter import program_of, propagate_faults
 from ._analysis.propagation.pauli import Pauli, PauliCharacter
 from ._analysis.propagation.pauli_remap import (
@@ -17,52 +16,87 @@ from ._analysis.propagation.pauli_remap import (
     logical_chars,
     remap_to_global,
 )
+from ._readouts import readout_slots
+from ._references import outcomes_of, parse_equations
 
 
 @dataclass(frozen=True)
-class Fault:
-    """A Pauli fault injected after one or more program instructions."""
+class FaultEvent:
+    """One deterministic Pauli fault injected after named instructions."""
 
-    errors: dict[int, Pauli]
+    locations: Mapping[int, Pauli]
+
+    def __post_init__(self) -> None:
+        normalized = {
+            int(location): error
+            for location, error in self.locations.items()
+            if error.weight
+        }
+        object.__setattr__(self, "locations", MappingProxyType(normalized))
+
+    @classmethod
+    def after(cls, instruction: int, error: Pauli) -> "FaultEvent":
+        return cls({instruction: error})
+
+    @property
+    def weight(self) -> int:
+        return sum(error.weight for error in self.locations.values())
+
+    def __mul__(self, other: "FaultEvent") -> "FaultEvent":
+        combined = dict(self.locations)
+        for location, error in other.locations.items():
+            product = combined.get(location, Pauli.identity()) * error
+            if product.weight:
+                combined[location] = product
+            else:
+                combined.pop(location, None)
+        return FaultEvent(combined)
+
+    def __hash__(self) -> int:
+        return hash(
+            tuple(
+                sorted(
+                    (location, str(error)) for location, error in self.locations.items()
+                )
+            )
+        )
 
 
 @dataclass(frozen=True)
 class FaultEffect:
-    """The intrinsic semantic effect of one fault-basis element."""
+    """What one fault does at a gadget's checks, readouts, and outputs."""
 
-    flipped_checks: frozenset[int] = field(default_factory=frozenset)
-    flipped_observables: frozenset[int] = field(default_factory=frozenset)
-    residuals: dict[int, Pauli] = field(default_factory=dict)
+    syndrome: frozenset[int] = field(default_factory=frozenset)
+    readout_flips: frozenset[int] = field(default_factory=frozenset)
+    output_error: Mapping[int, Pauli] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "output_error", MappingProxyType(dict(self.output_error))
+        )
 
-@dataclass(frozen=True)
-class FaultProfile:
-    """A positional mapping from an explicit fault basis to its effects."""
-
-    basis: tuple[Fault, ...]
-    effects: tuple[FaultEffect, ...]
-
-    def __len__(self) -> int:
-        return len(self.basis)
-
-    def __iter__(self) -> Iterator[tuple[Fault, FaultEffect]]:
-        return iter(zip(self.basis, self.effects))
+    def __hash__(self) -> int:
+        output = tuple(
+            sorted((entry, str(error)) for entry, error in self.output_error.items())
+        )
+        return hash((self.syndrome, self.readout_flips, output))
 
 
-def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
-    """Map an explicit Pauli fault basis to probability-free effects."""
+def fault_effects_of(
+    gadget: qc.Gadget, basis: Sequence[FaultEvent]
+) -> tuple[FaultEffect, ...]:
+    """Map an explicit Pauli fault basis to probability-free effects.
+
+    Positionally aligned with ``basis``. The whole basis is evaluated in one
+    simulation, which is why there is no single-fault entry point.
+    """
     fault_basis = tuple(basis)
     if not fault_basis:
-        return FaultProfile((), ())
+        return ()
 
     program = program_of(gadget)
     checks = [outcomes_of(check) for check in parse_equations(gadget.checks)]
-    observable_map = observables_as_xor_map(gadget)
-    observables = list(observable_map.values())
-    flag_names = set(gadget.implements.flags)
-    flag_indices = {
-        index for index, name in enumerate(observable_map) if name in flag_names
-    }
+    readouts = [outcomes_of(slot.equation) for slot in readout_slots(gadget)]
     z_probes, z_layout = _build_basis_probes(gadget.outputs, "Z")
     x_probes, x_layout = _build_basis_probes(gadget.outputs, "X")
     deltas, hidden_count, outcome_count = propagate_faults(
@@ -82,11 +116,10 @@ def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
             for index, positions in enumerate(checks)
             if sum(position in flipped_outcomes for position in positions) % 2
         )
-        flipped_observables = frozenset(
+        readout_flips = frozenset(
             index
-            for index, positions in enumerate(observables)
-            if index not in flag_indices
-            and sum(position in flipped_outcomes for position in positions) % 2
+            for index, positions in enumerate(readouts)
+            if sum(position in flipped_outcomes for position in positions) % 2
         )
         z_flips = {
             index
@@ -101,7 +134,7 @@ def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
         effects.append(
             FaultEffect(
                 flipped_checks,
-                flipped_observables,
+                readout_flips,
                 _combine_residual_passes(
                     gadget.outputs,
                     z_flips,
@@ -111,12 +144,7 @@ def fault_profile_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> FaultProfile:
                 ),
             )
         )
-    return FaultProfile(fault_basis, tuple(effects))
-
-
-def fault_effects_of(gadget: qc.Gadget, basis: Sequence[Fault]) -> list[FaultEffect]:
-    """Return only the effects from :func:`fault_profile_of`."""
-    return list(fault_profile_of(gadget, basis).effects)
+    return tuple(effects)
 
 
 def _build_basis_probes(
@@ -165,9 +193,6 @@ def _combine_residual_passes(
 
 
 __all__ = [
-    "Fault",
     "FaultEffect",
-    "FaultProfile",
-    "fault_effects_of",
-    "fault_profile_of",
+    "FaultEvent",
 ]

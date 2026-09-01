@@ -5,9 +5,8 @@ from dataclasses import dataclass
 
 import qodec as qc
 
-from ...lint._diagnostic import Diagnostic, Phase
-from ...lint._rule import Rule
-from ...lint._severity import Severity
+from .._diagnostic import Diagnostic, Phase, Severity
+from .._rule import Rule
 
 
 @dataclass(frozen=True)
