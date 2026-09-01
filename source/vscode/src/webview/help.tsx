@@ -3,7 +3,7 @@
 
 import { useEffect, useRef } from "preact/hooks";
 
-declare const resourcesUri: string; // Set by the HTML in the window
+const resourcesUri = document.body.dataset.resourcesUri ?? "";
 
 let svgPromise: Promise<Response>;
 

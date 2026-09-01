@@ -336,23 +336,24 @@ export class QSharpWebViewPanel {
     const webviewCss = getUri(["out", "webview", "webview.css"]);
     const webviewJs = getUri(["out", "webview", "webview.js"]);
     const resourcesUri = getUri(["resources"]);
+    const cspSource = webview.cspSource;
 
     return /*html*/ `
   <!DOCTYPE html>
   <html lang="en">
     <head>
       <meta charset="UTF-8">
+      <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; img-src ${cspSource}; style-src ${cspSource} 'unsafe-inline'; font-src ${cspSource}; script-src ${cspSource};" />
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
       <title>Q#</title>
       <link rel="stylesheet" href="${githubCss}" />
       <link rel="stylesheet" href="${katexCss}" />
       <link rel="stylesheet" href="${webviewCss}" />
       <script src="${webviewJs}"></script>
-      <script>
-        window.resourcesUri = "${resourcesUri.toString()}";
-      </script>
     </head>
-    <body>
+    <!-- Share this URI with the help panel via attribute so we don't need a script (which would be blocked) -->
+    <body data-resources-uri="${resourcesUri.toString()}">
     </body>
   </html>
 `;

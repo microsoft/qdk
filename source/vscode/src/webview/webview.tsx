@@ -20,16 +20,17 @@ import { HelpPage } from "./help";
 import { DocumentationView, IDocFile } from "./docview";
 import "./webview.css";
 
+import DOMPurify from "dompurify";
 // eslint-disable-next-line @typescript-eslint/ban-ts-comment
 // @ts-ignore - there are no types for this
 import mk from "@vscode/markdown-it-katex";
 import markdownIt from "markdown-it";
-const md = markdownIt("commonmark");
+const md = markdownIt("commonmark", { html: false });
 md.use(mk, {
   enableMathBlockInHtml: true,
   enableMathInlineInHtml: true,
 });
-setRenderer((input: string) => md.render(input));
+setRenderer((input: string) => DOMPurify.sanitize(md.render(input)));
 
 window.addEventListener("message", onMessage);
 window.addEventListener("load", main);
