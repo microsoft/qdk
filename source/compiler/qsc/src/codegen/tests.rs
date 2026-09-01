@@ -6230,7 +6230,7 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
 }
 
 #[test]
-fn mutable_fixed_size_arrays() {
+fn mutable_fixed_size_arrays_in_main() {
     let source = indoc::indoc! {r#"
         operation Main() : Bool[] {
             mutable results = [false, false];

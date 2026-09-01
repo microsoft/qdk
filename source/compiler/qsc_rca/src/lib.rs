@@ -23,6 +23,7 @@ use indenter::indented;
 use qsc_data_structures::display::core::set_indentation;
 use qsc_data_structures::{index_map::IndexMap, target::TargetCapabilityFlags};
 use qsc_fir::fir::LocalVarId;
+use qsc_fir::ty::FunctorSetValue;
 use qsc_fir::{
     fir::{
         BlockId, ExprId, LocalItemId, PackageId, StmtId, StoreBlockId, StoreExprId, StoreItemId,
@@ -30,7 +31,7 @@ use qsc_fir::{
     },
     ty::Ty,
 };
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use std::{
     cmp::Ord,
@@ -147,15 +148,15 @@ impl PackageStoreComputeProperties {
     }
 
     #[must_use]
-    pub fn is_mutable_fixed_size_array(
+    pub fn get_mutable_fixed_size_array_entry(
         &self,
-        id: LocalVarId,
+        key: (Option<StoreItemId>, Option<FunctorSetValue>),
         package_id: PackageId,
         parallel: bool,
-    ) -> bool {
+    ) -> Option<&MutableFixedSizeArraysEntry> {
         self.get(package_id, parallel)
             .mutable_fixed_size_arrays
-            .contains(&id)
+            .get(&key)
     }
 }
 
@@ -172,8 +173,9 @@ pub struct PackageComputeProperties {
     pub exprs: IndexMap<ExprId, ApplicationGeneratorSet>,
     /// The expressions that were unresolved callees at analysis time.
     pub unresolved_callee_exprs: FxHashSet<ExprId>,
-    /// The local variable ids of any mutable fixed size arrays detected during analysis.
-    pub mutable_fixed_size_arrays: FxHashSet<LocalVarId>,
+    /// The mutable fixed size arrays for each package item and specialization.
+    pub mutable_fixed_size_arrays:
+        FxHashMap<(Option<StoreItemId>, Option<FunctorSetValue>), MutableFixedSizeArraysEntry>,
 }
 
 impl Default for PackageComputeProperties {
@@ -184,7 +186,7 @@ impl Default for PackageComputeProperties {
             stmts: IndexMap::new(),
             exprs: IndexMap::new(),
             unresolved_callee_exprs: FxHashSet::default(),
-            mutable_fixed_size_arrays: FxHashSet::default(),
+            mutable_fixed_size_arrays: FxHashMap::default(),
         }
     }
 }
@@ -222,18 +224,11 @@ impl Display for PackageComputeProperties {
 }
 
 impl PackageComputeProperties {
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.items.clear();
         self.blocks.clear();
         self.stmts.clear();
         self.exprs.clear();
-    }
-
-    #[must_use]
-    pub fn get_block(&self, id: BlockId) -> &ApplicationGeneratorSet {
-        self.blocks
-            .get(id)
-            .expect("block compute properties not found")
     }
 
     #[must_use]
@@ -242,20 +237,32 @@ impl PackageComputeProperties {
             .get(id)
             .expect("expression compute properties not found")
     }
+}
 
-    #[must_use]
-    pub fn get_item(&self, id: LocalItemId) -> &ItemComputeProperties {
-        self.items
-            .get(id)
-            .expect("item compute properties not found")
-    }
+#[derive(Clone, Debug, Default)]
+pub struct MutableFixedSizeArraysEntry {
+    pub inherent: FxHashSet<LocalVarId>,
+    pub param_application: Vec<MutableFixedSizeArraysParamApplication>,
+}
 
-    #[must_use]
-    pub fn get_stmt(&self, id: StmtId) -> &ApplicationGeneratorSet {
-        self.stmts
-            .get(id)
-            .expect("statement compute properties not found")
-    }
+#[derive(Clone, Debug)]
+pub enum MutableFixedSizeArraysParamApplication {
+    None,
+    Element(MutableFixedSizeArraysElementApplication),
+    Array(MutableFixedSizeArraysArrayApplication),
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MutableFixedSizeArraysElementApplication {
+    pub constant: FxHashSet<LocalVarId>,
+    pub variable: FxHashSet<LocalVarId>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct MutableFixedSizeArraysArrayApplication {
+    pub constant_content: FxHashSet<LocalVarId>,
+    pub static_size: FxHashSet<LocalVarId>,
+    pub dynamic_size: FxHashSet<LocalVarId>,
 }
 
 /// The compute properties of an item.

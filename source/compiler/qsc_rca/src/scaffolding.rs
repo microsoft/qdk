@@ -3,17 +3,18 @@
 
 use crate::{
     ApplicationGeneratorSet, CallableComputeProperties, ComputePropertiesLookup,
-    ItemComputeProperties, PackageComputeProperties, PackageStoreComputeProperties,
-    common::GlobalSpecId,
+    ItemComputeProperties, MutableFixedSizeArraysEntry, PackageComputeProperties,
+    PackageStoreComputeProperties, common::GlobalSpecId,
 };
 use qsc_data_structures::index_map::IndexMap;
 use qsc_fir::{
     fir::{
-        self, BlockId, ExprId, LocalItemId, LocalVarId, PackageId, StmtId, StoreBlockId,
-        StoreExprId, StoreItemId, StoreStmtId,
+        self, BlockId, ExprId, LocalItemId, PackageId, StmtId, StoreBlockId, StoreExprId,
+        StoreItemId, StoreStmtId,
     },
     ty::FunctorSetValue,
 };
+use rustc_hash::FxHashMap;
 
 /// Scaffolding used to build the package store compute properties.
 #[derive(Debug)]
@@ -309,8 +310,9 @@ pub struct InternalPackageComputeProperties {
     pub exprs: IndexMap<ExprId, ApplicationGeneratorSet>,
     /// The expressions that were unresolved callees at analysis time.
     pub unresolved_callee_exprs: Vec<ExprId>,
-    /// The local variable ids of any mutable fixed size arrays detected during analysis.
-    pub mutable_fixed_size_arrays: Vec<LocalVarId>,
+    /// The mutable fixed size arrays for each package item and specialization.
+    pub mutable_fixed_size_arrays:
+        FxHashMap<(Option<StoreItemId>, Option<FunctorSetValue>), MutableFixedSizeArraysEntry>,
 }
 
 /// Scaffolding used to build the compute properties of an item.

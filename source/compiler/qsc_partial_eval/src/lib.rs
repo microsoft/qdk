@@ -43,8 +43,9 @@ use qsc_fir::{
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
 use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
-    ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
-    RuntimeFeatureFlags, ValueKind,
+    ComputeKind, ComputePropertiesLookup, ItemComputeProperties,
+    MutableFixedSizeArraysParamApplication, PackageStoreComputeProperties, RuntimeFeatureFlags,
+    ValueKind,
     errors::{
         Error as CapabilityError, generate_errors_from_runtime_features,
         get_missing_runtime_features,
@@ -3642,12 +3643,93 @@ impl<'a> PartialEvaluator<'a> {
     }
 
     fn is_mutable_fixed_size_array(&self, id: LocalVarId) -> bool {
+        let current_scope = self.eval_context.get_current_scope();
         let current_package_id = self.get_current_package_id();
-        self.compute_properties.is_mutable_fixed_size_array(
-            id,
+        let key = match current_scope.callable {
+            None => (None, None),
+            Some((local_item_id, functor_app)) => (
+                Some((current_package_id, local_item_id).into()),
+                Some(functor_app_to_functor_set_value(functor_app)),
+            ),
+        };
+        let Some(entry) = self.compute_properties.get_mutable_fixed_size_array_entry(
+            key,
             current_package_id,
             self.in_parallel_scope(),
-        )
+        ) else {
+            return false;
+        };
+        if entry.inherent.contains(&id) {
+            return true;
+        }
+        for (idx, arg) in current_scope.args_compute_kind.iter().enumerate() {
+            let ComputeKind::Dynamic {
+                runtime_features,
+                value_kind,
+            } = arg
+            else {
+                continue;
+            };
+            match entry
+                .param_application
+                .get(idx)
+                .expect("param applications should be present")
+            {
+                MutableFixedSizeArraysParamApplication::None => {}
+                MutableFixedSizeArraysParamApplication::Element(
+                    mutable_fixed_size_arrays_element_application,
+                ) => match value_kind {
+                    ValueKind::Constant => {
+                        if mutable_fixed_size_arrays_element_application
+                            .constant
+                            .contains(&id)
+                        {
+                            return true;
+                        }
+                    }
+                    ValueKind::Variable => {
+                        if mutable_fixed_size_arrays_element_application
+                            .variable
+                            .contains(&id)
+                        {
+                            return true;
+                        }
+                    }
+                },
+                MutableFixedSizeArraysParamApplication::Array(
+                    mutable_fixed_size_arrays_array_application,
+                ) => match value_kind {
+                    ValueKind::Variable
+                        if runtime_features
+                            .contains(RuntimeFeatureFlags::UseOfDynamicallySizedArray) =>
+                    {
+                        if mutable_fixed_size_arrays_array_application
+                            .dynamic_size
+                            .contains(&id)
+                        {
+                            return true;
+                        }
+                    }
+                    ValueKind::Variable => {
+                        if mutable_fixed_size_arrays_array_application
+                            .static_size
+                            .contains(&id)
+                        {
+                            return true;
+                        }
+                    }
+                    ValueKind::Constant => {
+                        if mutable_fixed_size_arrays_array_application
+                            .constant_content
+                            .contains(&id)
+                        {
+                            return true;
+                        }
+                    }
+                },
+            }
+        }
+        false
     }
 
     fn get_call_compute_kind(&self, callable_scope: &Scope) -> ComputeKind {

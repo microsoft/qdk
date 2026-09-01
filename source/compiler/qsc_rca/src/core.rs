@@ -196,15 +196,25 @@ impl<'a> Analyzer<'a> {
         let mut default_value_kind = ValueKind::Constant;
         // If we are within a dynamic scope, the compute kind of the assign index expression must be variable and an additional
         // runtime feature is used to mark the array itself as dynamic.
-        let is_dynamic_array = if application_instance.active_dynamic_scopes.is_empty() {
-            false
+        let (is_dynamic_array, key) = if application_instance.active_dynamic_scopes.is_empty() {
+            (false, (None, None))
         } else {
             default_value_kind = ValueKind::Variable;
             replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {
                 runtime_features: RuntimeFeatureFlags::UseOfDynamicArray,
                 value_kind: ValueKind::Constant,
             });
-            true
+            let key = match self.get_current_context() {
+                AnalysisContext::TopLevel(_) => (None, None),
+                AnalysisContext::Item(item_context) => (
+                    Some(item_context.id),
+                    item_context
+                        .current_spec_context
+                        .as_ref()
+                        .map(|s| s.functor_set_value),
+                ),
+            };
+            (true, key)
         };
 
         let mut updated_compute_kind = ComputeKind::Static;
@@ -229,7 +239,7 @@ impl<'a> Analyzer<'a> {
         if is_dynamic_array {
             application_instance
                 .mutable_fixed_size_arrays
-                .push(*local_var_id);
+                .push((key, *local_var_id));
         }
 
         // The compute kind of this expression is determined by aggregating the runtime features of the index and
