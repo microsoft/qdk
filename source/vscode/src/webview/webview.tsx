@@ -30,7 +30,12 @@ md.use(mk, {
   enableMathBlockInHtml: true,
   enableMathInlineInHtml: true,
 });
-setRenderer((input: string) => DOMPurify.sanitize(md.render(input)));
+// Allow only the protocols used in doc/kata/estimator content
+// Borrowed from DOMPurify and filtered to our protocols
+const ALLOWED_URI = /^(?:(?:https|xref):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i;
+setRenderer((input: string) =>
+  DOMPurify.sanitize(md.render(input), { ALLOWED_URI_REGEXP: ALLOWED_URI }),
+);
 
 window.addEventListener("message", onMessage);
 window.addEventListener("load", main);

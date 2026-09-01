@@ -64,7 +64,12 @@ md.use((mk as any).default, {
   enableMathBlockInHtml: true,
   enableMathInlineInHtml: true,
 }); // Not sure why it's not using the default export automatically :-/
-setRenderer((input: string) => DOMPurify.sanitize(md.render(input)));
+// Allow only the protocols used in doc/kata/estimator content
+// Borrowed from DOMPurify and filtered to our protocols
+const ALLOWED_URI = /^(?:(?:https|xref):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i;
+setRenderer((input: string) =>
+  DOMPurify.sanitize(md.render(input), { ALLOWED_URI_REGEXP: ALLOWED_URI }),
+);
 
 export type ActiveTab =
   | "results-tab"
