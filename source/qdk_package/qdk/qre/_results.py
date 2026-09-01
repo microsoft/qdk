@@ -213,6 +213,7 @@ class EstimationTableEntry:
             and the number of copies required.
         properties: Additional key-value properties attached to the
             estimation result.
+        cost_usd: Cost of running application, in US dollars.
     """
 
     qubits: int
