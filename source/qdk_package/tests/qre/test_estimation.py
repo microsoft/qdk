@@ -94,7 +94,7 @@ def test_estimation_max_error():
 def test_estimation_includes_usd_cost():
     app = QSharpApplication(LogicalCounts({"numQubits": 1, "measurementCount": 1}))
     arch = GateBased(gate_time=50, measurement_time=100)
-    arch.usd_cost_per_hour = 3.6e12  # One USD per nanosecond.
+    arch.usd_cost_per_hour = 2 * 3600 * 1e9  # 2 USD per nanosecond.
 
     results = estimate(
         app,
@@ -102,10 +102,11 @@ def test_estimation_includes_usd_cost():
         SurfaceCode.q() * ExampleFactory.q(),
         PSSPC.q() * LatticeSurgery.q(),
     )
+    assert results[0].runtime == 1050
 
     frame = results.as_frame()
     assert "USD cost" in frame.columns
-    assert frame["USD cost"].tolist() == [results[0].runtime]
+    assert frame["USD cost"].tolist() == [2100.0]
 
 
 @pytest.mark.skipif(
