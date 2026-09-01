@@ -7,7 +7,7 @@ mod tests;
 use crate::lex::{
     self,
     Delim::{Brace, Paren},
-    Lexer, Token,
+    DoubleUnit, Lexer, Token,
     TokenKind::{self},
 };
 use miette::Diagnostic;
@@ -80,7 +80,7 @@ pub struct Instruction {
     pub span: Span,
     pub name: String,
     pub tag: Option<String>,
-    pub args: Vec<f64>,
+    pub args: Vec<Arg>,
     pub targets: Vec<Target>,
 }
 
@@ -91,6 +91,33 @@ impl Display for Instruction {
         writeln_opt_field(f, "tag", self.tag.as_ref())?;
         writeln_list_field(f, "args", &self.args)?;
         write_list_field(f, "targets", &self.targets)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Arg {
+    pub span: Span,
+    pub value: ArgValue,
+}
+
+impl Display for Arg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Arg {}: {}", self.span, self.value)
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ArgValue {
+    Default(f64),
+    Radians(f64),
+}
+
+impl Display for ArgValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ArgValue::Default(value) => write!(f, "{value}"),
+            ArgValue::Radians(value) => write!(f, "{value} rad"),
+        }
     }
 }
 
@@ -250,6 +277,12 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("floating-point literal is too large to fit in a 64-bit float")]
+    #[diagnostic(code("Qdk.Stim.Parser.FloatTooLarge"))]
+    FloatTooLarge {
+        #[label]
+        span: Span,
+    },
     #[error("measurement record offset cannot be zero; the most recent measurement is rec[-1]")]
     #[diagnostic(code("Qdk.Stim.Parser.ZeroMeasurementRecord"))]
     ZeroMeasurementRecord {
@@ -369,26 +402,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_number(&mut self) -> Option<Token> {
-        match self.next() {
-            Some(token) if token.kind == TokenKind::Uint || token.kind == TokenKind::Double => {
-                Some(token)
-            }
-            Some(token) => {
-                self.emit_error(Error::Expected {
-                    expected: "number",
-                    found: token.kind,
-                    span: token.span,
-                });
-                None
-            }
-            None => {
-                self.emit_eof_error();
-                None
-            }
-        }
-    }
-
     fn expect_line_end(&mut self) -> Option<()> {
         match self.peek() {
             None => Some(()), // End of file
@@ -493,17 +506,14 @@ impl<'a> Parser<'a> {
     fn parse_instruction(&mut self) -> Option<Instruction> {
         let name_token = self.expect_token(TokenKind::InstructionName)?;
         let lo = name_token.span.lo;
-        let name = self.extract_string(name_token, None);
+        let name = self.extract_string(name_token.span);
 
         let tag_token = self.next_if(|t| t.kind == TokenKind::Tag);
         let tag: Option<String> = tag_token.map(|tag_token| {
-            self.extract_string(
-                tag_token,
-                Some(Span {
-                    lo: tag_token.span.lo + 1,
-                    hi: tag_token.span.hi - 1,
-                }),
-            )
+            self.extract_string(Span {
+                lo: tag_token.span.lo + 1,
+                hi: tag_token.span.hi - 1,
+            })
         });
 
         let mut args = Vec::new();
@@ -520,8 +530,7 @@ impl<'a> Parser<'a> {
                 .peek()
                 .is_some_and(|t| t.kind != TokenKind::Close(Paren))
             {
-                let arg = self.expect_number()?;
-                args.push(self.extract_double(arg, None));
+                args.push(self.parse_arg()?);
             }
             // Each subsequent arg must be preceded by a comma
             while self
@@ -529,8 +538,7 @@ impl<'a> Parser<'a> {
                 .is_some_and(|t| t.kind != TokenKind::Close(Paren))
             {
                 self.expect_token(TokenKind::Comma)?;
-                let arg = self.expect_number()?;
-                args.push(self.extract_double(arg, None));
+                args.push(self.parse_arg()?);
             }
             paren_hi = Some(self.expect_token(TokenKind::Close(Paren))?.span.hi);
         }
@@ -557,6 +565,36 @@ impl<'a> Parser<'a> {
             tag,
             args,
             targets,
+        })
+    }
+
+    fn parse_arg(&mut self) -> Option<Arg> {
+        let token = self.expect_any()?;
+
+        let value = match token.kind {
+            TokenKind::Uint | TokenKind::Double(DoubleUnit::Default) => {
+                ArgValue::Default(self.extract_double(token.span)?)
+            }
+            TokenKind::Double(DoubleUnit::Radians) => {
+                let value_span = Span {
+                    lo: token.span.lo,
+                    hi: token.span.hi - 3, // strip "rad" suffix
+                };
+                ArgValue::Radians(self.extract_double(value_span)?)
+            }
+            found => {
+                self.emit_error(Error::Expected {
+                    expected: "number",
+                    found,
+                    span: token.span,
+                });
+                return None;
+            }
+        };
+
+        Some(Arg {
+            span: token.span,
+            value,
         })
     }
 
@@ -722,13 +760,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn extract_double(&self, token: Token, span: Option<Span>) -> f64 {
-        self.extract_string(token, span)
+    fn extract_double(&mut self, value_span: Span) -> Option<f64> {
+        let value = self
+            .slice_input(value_span)
             .parse::<f64>()
-            .unwrap_or_else(|_| unreachable!("lexer guarantees a valid double literal"))
+            .unwrap_or_else(|_| unreachable!("lexer guarantees a valid double literal"));
+
+        if !value.is_finite() {
+            self.emit_error(Error::FloatTooLarge { span: value_span });
+            return None;
+        }
+        Some(value)
     }
 
-    fn extract_string(&self, token: Token, span: Option<Span>) -> String {
-        self.slice_input(span.unwrap_or(token.span)).to_string()
+    fn extract_string(&self, source_span: Span) -> String {
+        self.slice_input(source_span).to_string()
     }
 }

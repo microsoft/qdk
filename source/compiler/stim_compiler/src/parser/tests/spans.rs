@@ -99,8 +99,46 @@ fn span_includes_args_when_no_targets() {
                         name: X_ERROR
                         tag: <none>
                         args:
-                            0.1
+                            Arg [8-11]: 0.1
                         targets: <empty>"#]],
+    );
+}
+
+#[test]
+fn each_arg_gets_its_own_span() {
+    check(
+        "PAULI_CHANNEL_1(0.01, 0.02, 0.03) 0",
+        &expect![[r#"
+            Circuit [0-35]:
+                items:
+                    Instruction [0-35]:
+                        name: PAULI_CHANNEL_1
+                        tag: <none>
+                        args:
+                            Arg [16-20]: 0.01
+                            Arg [22-26]: 0.02
+                            Arg [28-32]: 0.03
+                        targets:
+                            Target [34-35]:
+                                kind: Qubit(0)"#]],
+    );
+}
+
+#[test]
+fn radians_arg_span_includes_the_suffix() {
+    check(
+        "R_X(-0.5rad) 0",
+        &expect![[r#"
+            Circuit [0-14]:
+                items:
+                    Instruction [0-14]:
+                        name: R_X
+                        tag: <none>
+                        args:
+                            Arg [4-11]: -0.5 rad
+                        targets:
+                            Target [13-14]:
+                                kind: Qubit(0)"#]],
     );
 }
 
@@ -127,16 +165,16 @@ fn span_extends_past_tag_and_args_to_target() {
     check(
         "X_ERROR[t](0.1) 5\n",
         &expect![[r#"
-        Circuit [0-18]:
-            items:
-                Instruction [0-17]:
-                    name: X_ERROR
-                    tag: t
-                    args:
-                        0.1
-                    targets:
-                        Target [16-17]:
-                            kind: Qubit(5)"#]],
+            Circuit [0-18]:
+                items:
+                    Instruction [0-17]:
+                        name: X_ERROR
+                        tag: t
+                        args:
+                            Arg [11-14]: 0.1
+                        targets:
+                            Target [16-17]:
+                                kind: Qubit(5)"#]],
     );
 }
 

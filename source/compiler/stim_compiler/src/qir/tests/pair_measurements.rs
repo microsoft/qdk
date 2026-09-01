@@ -143,6 +143,50 @@ fn mxx_with_readout_noise_yields_correct_qir() {
 }
 
 #[test]
+fn mxx_with_invalid_readout_noise_yields_error() {
+    check(
+        "MXX(1.1) 0 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for MXX must be between 0 and 1; found 1.1
+           ,----
+         1 | MXX(1.1) 0 1
+           : ^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+    check(
+        "MXX(-0.1) 0 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for MXX must be between 0 and 1; found -0.1
+           ,----
+         1 | MXX(-0.1) 0 1
+           : ^^^^^^^^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
+fn mxx_with_readout_noise_in_radians_yields_error() {
+    check(
+        "MXX(0.1rad) 0 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.UnexpectedRadians
+
+          x argument for MXX cannot be specified in radians
+           ,----
+         1 | MXX(0.1rad) 0 1
+           :     ^^^^^^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn myy_measurement_yields_correct_qir() {
     let source = "MYY 0 1";
     check(
