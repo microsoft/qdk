@@ -3443,3 +3443,25 @@ fn test_circuit_rendering_options_unrecognized_option() {
         "#]],
     );
 }
+
+#[test]
+fn test_circuit_rendering_options_duplicate_option() {
+    check_errors(
+        indoc! {"
+            namespace input {
+                @CircuitRenderingOptions(hideBox=true, hideBox=false)
+                operation Foo() : Unit {}
+            }
+        "},
+        &expect![[r#"
+            [
+                DuplicateOption(
+                    Span {
+                        lo: 61,
+                        hi: 68,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}

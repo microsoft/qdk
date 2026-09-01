@@ -27,6 +27,7 @@ use qsc_hir::{
     mut_visit::MutVisitor,
     ty::{Arrow, FunctorSetValue, GenericArg, ParamId, Ty, TypeParameter},
 };
+use rustc_hash::FxHashSet;
 use std::{
     clone::Clone,
     iter::{once, repeat},
@@ -52,6 +53,9 @@ pub(super) enum Error {
     #[error("unknown option")]
     #[diagnostic(code("Qdk.Qsc.LowerAst.UnknownOption"))]
     UnknownOption(#[label] Span),
+    #[error("duplicate option")]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.DuplicateOption"))]
+    DuplicateOption(#[label] Span),
     #[error("invalid use of the {0} attribute on a function")]
     #[diagnostic(help("try declaring the callable as an operation"))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrOnFunction"))]
@@ -401,6 +405,7 @@ impl With<'_> {
                     }
                 }
                 let mut parsed_options = hir::CircuitRenderingOptions::default();
+                let mut seen_keys = FxHashSet::default();
                 for option in options {
                     if let ast::ExprKind::Assign(lhs, rhs) = &*option.kind {
                         let ast::ExprKind::Path(PathKind::Ok(path)) = &*lhs.kind else {
@@ -411,6 +416,12 @@ impl With<'_> {
                             return None;
                         };
                         let key = path.name.name.as_ref().to_ascii_lowercase();
+                        if !seen_keys.insert(key.clone()) {
+                            self.lowerer
+                                .errors
+                                .push(Error::DuplicateOption(path.name.span));
+                            return None;
+                        }
                         match key.as_str() {
                             "hidebox" => {
                                 let ast::ExprKind::Lit(literal) = &*rhs.kind else {
