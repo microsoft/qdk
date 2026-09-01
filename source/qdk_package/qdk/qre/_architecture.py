@@ -85,7 +85,7 @@ class Architecture(ABC):
         """
         if self.usd_cost_per_hour is not None:
             runtime_hours = runtime_nanos / (3600 * 1e9)
-            return round(runtime_hours * self.usd_cost_per_hour, 2)
+            return runtime_hours * self.usd_cost_per_hour
         return None
 
     @property

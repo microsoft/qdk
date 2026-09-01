@@ -301,7 +301,12 @@ def estimate(
     )
 
     if any(e.cost_usd is not None for e in table):
-        table.add_column("USD cost", lambda entry: entry.cost_usd)
+        table.add_column(
+            "USD cost",
+            lambda entry: (
+                round(entry.cost_usd, 2) if entry.cost_usd is not None else None
+            ),
+        )
 
     # Fill in the stats for this estimation run
     table.stats.num_traces = num_traces
