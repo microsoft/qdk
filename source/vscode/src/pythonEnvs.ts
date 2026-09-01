@@ -21,8 +21,8 @@ const pythonEnvsNotInstalledMsg = `The Python Environments extension (${EXTENSIO
 interface PackageChoice {
   /** Distribution name, e.g. `qdk-chemistry`. */
   packageName: string;
-  /** Extras to request, e.g. `["jupyter"]`. */
-  extras?: string[];
+  /** Extra to request, e.g. `jupyter`. */
+  extra?: string;
   /** Version constraint, e.g. `>=6.0,<7`. Not shown in the picker. */
   versionSpecifier?: string;
   /** Short text shown beside the label. */
@@ -33,11 +33,10 @@ interface PackageChoice {
   picked?: boolean;
 }
 
-/** `qdk` plus `["azure"]` renders as `qdk[azure]`. */
+/** `qdk` plus `"azure"` renders as `qdk[azure]`. */
 function packageLabel(choice: PackageChoice): string {
-  const extras = choice.extras ?? [];
-  return extras.length > 0
-    ? `${choice.packageName}[${extras.join(",")}]`
+  return choice.extra
+    ? `${choice.packageName}[${choice.extra}]`
     : choice.packageName;
 }
 
@@ -51,21 +50,21 @@ const packageChoices: PackageChoice[] = [
   },
   {
     packageName: "qdk",
-    extras: ["azure"],
+    extra: "azure",
     description: "QDK optional support for Azure Quantum",
     detail: "Submit jobs to Azure Quantum hardware and cloud simulators",
     picked: false,
   },
   {
     packageName: "qdk",
-    extras: ["cirq"],
+    extra: "cirq",
     description: "QDK optional support for Cirq",
     detail: "Interop with Cirq via qdk.cirq",
     picked: false,
   },
   {
     packageName: "qdk",
-    extras: ["jupyter"],
+    extra: "jupyter",
     description: "QDK optional support for Jupyter notebooks",
     detail:
       "Enable Q# code cells and interactive quantum widgets in Jupyter notebooks",
@@ -73,7 +72,7 @@ const packageChoices: PackageChoice[] = [
   },
   {
     packageName: "qdk",
-    extras: ["qiskit"],
+    extra: "qiskit",
     description: "QDK optional support for Qiskit",
     detail: "Interop with Qiskit via qdk.qiskit",
     picked: false,
@@ -88,7 +87,7 @@ const packageChoices: PackageChoice[] = [
     // The `jupyter` extra pulls in `plugins`, which is where qdk-chemistry
     // bounds pyscf. Without it pyscf would be left unconstrained.
     packageName: "qdk-chemistry",
-    extras: ["jupyter"],
+    extra: "jupyter",
     description: "QDK/Chemistry optional support for Jupyter notebooks",
     detail:
       "Add the notebook and simulation plugins, including PySCF. Required by the chemistry course.",
@@ -128,10 +127,8 @@ function toRequirements(selected: readonly PackageChoice[]): string[] {
       merged = { extras: [], versionSpecifier: "" };
       byName.set(item.packageName, merged);
     }
-    for (const extra of item.extras ?? []) {
-      if (!merged.extras.includes(extra)) {
-        merged.extras.push(extra);
-      }
+    if (item.extra) {
+      merged.extras.push(item.extra);
     }
     if (item.versionSpecifier) {
       merged.versionSpecifier = item.versionSpecifier;
