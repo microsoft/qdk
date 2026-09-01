@@ -6331,7 +6331,7 @@ fn mutable_fixed_size_arrays_in_callable_varying_by_input_params() {
         }
         operation Main() : (Bool[], Bool[]) {
             use q = Qubit[2];
-            (Foo(M(q[0]), M(q[1])), Foo(Zero, Zero))
+            (Foo(M(q[0]), M(q[1])), Foo(Zero, One))
         }
     "#};
     let qir = compile_source_to_qir(source, Profile::Adaptive.into());
@@ -6378,7 +6378,7 @@ fn mutable_fixed_size_arrays_in_callable_varying_by_input_params() {
           call void @__quantum__rt__bool_record_output(i1 %var_10, ptr @3)
           call void @__quantum__rt__array_record_output(i64 2, ptr @4)
           call void @__quantum__rt__bool_record_output(i1 false, ptr @5)
-          call void @__quantum__rt__bool_record_output(i1 false, ptr @6)
+          call void @__quantum__rt__bool_record_output(i1 true, ptr @6)
           ret i64 0
         }
 
