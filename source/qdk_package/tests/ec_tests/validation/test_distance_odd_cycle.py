@@ -1,4 +1,5 @@
 """Tests for the ``OddCycles`` distance engine and its solver backends."""
+
 from __future__ import annotations
 
 from qdk.ec._analysis.distance_solvers import (
@@ -51,7 +52,12 @@ def test_mwpf_matches_exhaustive_on_triangle_cycle() -> None:
 
 
 def test_duplicate_columns_are_deduplicated_but_witness_uses_original_ids() -> None:
-    check_matrix = [frozenset({0, 1}), frozenset({0, 1}), frozenset({1, 2}), frozenset({0, 2})]
+    check_matrix = [
+        frozenset({0, 1}),
+        frozenset({0, 1}),
+        frozenset({1, 2}),
+        frozenset({0, 2}),
+    ]
     parity_indicators = [frozenset({0}), frozenset({0}), frozenset(), frozenset()]
     odd_cycles = OddCycles(check_matrix, parity_indicators)
     assert len(odd_cycles.check_matrix) == 3

@@ -32,7 +32,12 @@ def make_rotated_surface_code_with_labels(
 def _remap_pauli(
     coord_pauli: dict[Coordinate, str], index_of: dict[Coordinate, int]
 ) -> Pauli:
-    return Pauli({index_of[coord]: cast(PauliCharacter, char) for coord, char in coord_pauli.items()})
+    return Pauli(
+        {
+            index_of[coord]: cast(PauliCharacter, char)
+            for coord, char in coord_pauli.items()
+        }
+    )
 
 
 def _rotated_surface_code_data_qubits(

@@ -73,7 +73,7 @@ def assert_group_property_consistency_of(code: SubsystemCode) -> None:
     assert code.stabilizer.generators == code.stabilizers
     assert code.anti_stabilizer.generators == code.anti_stabilizers
     assert code.logical.generators == code.logical_basis
-    assert code.gauge.generators == code.gauge_basis
+    assert tuple(code.gauge.generators) == code.gauge_basis
 
 
 def assert_encoding_clifford_of(code: SubsystemCode) -> None:

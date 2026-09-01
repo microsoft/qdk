@@ -7,10 +7,9 @@ from dataclasses import replace
 
 import qodec as qc
 
-from ._diagnostic import Diagnostic, Phase
+from ._diagnostic import Diagnostic, Phase, Severity
 from ._report import Report
 from ._rule import Rule, filter_rules
-from ._severity import Severity
 
 
 class Auditor:
@@ -39,33 +38,33 @@ class Auditor:
     def audit(self, qodec: qc.Qodec) -> Report:
         return self._run(qodec, self._qodec_targets(qodec))
 
-    def audit_code(self, code: qc.Code, *, qodec: qc.Qodec | None = None) -> Report:
-        return self._run(qodec or _placeholder_qodec(), [code])
+    def audit_code(self, code: qc.Code, *, qodec: qc.Qodec) -> Report:
+        return self._run(qodec, [code])
 
     def audit_instruction_set(
         self,
         isa: qc.InstructionSet,
         *,
-        qodec: qc.Qodec | None = None,
+        qodec: qc.Qodec,
     ) -> Report:
-        return self._run(qodec or _placeholder_qodec(), [isa])
+        return self._run(qodec, [isa])
 
     def audit_gadget(
         self,
         gadget: qc.Gadget,
         *,
-        qodec: qc.Qodec | None = None,
+        qodec: qc.Qodec,
     ) -> Report:
-        return self._run(qodec or _placeholder_qodec(), [gadget])
+        return self._run(qodec, [gadget])
 
     def audit_layer(
         self,
         layer: qc.Layer,
         *,
-        qodec: qc.Qodec | None = None,
+        qodec: qc.Qodec,
     ) -> Report:
         targets = [layer, *layer.gadgets.values()]
-        return self._run(qodec or _placeholder_qodec(), targets)
+        return self._run(qodec, targets)
 
     def _run(
         self,
@@ -120,15 +119,23 @@ class Auditor:
         return targets
 
 
-def audit(qodec: qc.Qodec, **kwargs: object) -> Report:
-    return Auditor(**kwargs).audit(qodec)  # type: ignore[arg-type]
+def audit(
+    qodec: qc.Qodec,
+    *,
+    disabled: Collection[str] = (),
+    promote_warnings: bool = False,
+) -> Report:
+    """Run every enabled audit rule over a whole qodec.
 
-
-def _placeholder_qodec() -> qc.Qodec:
-    return qc.Qodec(
-        layers=[qc.Layer(qc.InstructionSet("_placeholder"))],
-        name="_placeholder",
-    )
+    The returned report carries every diagnostic the rules produced, including
+    informational ones; filtering is the caller's to do on read.
+    ``promote_warnings`` reclassifies warnings as errors, it does not filter.
+    """
+    return Auditor(
+        disabled=disabled,
+        include_informational=True,
+        strict=promote_warnings,
+    ).audit(qodec)
 
 
 __all__ = ["Auditor", "audit"]

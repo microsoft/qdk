@@ -8,6 +8,7 @@ from dataclasses import dataclass
 import qodec as qc
 
 from ..._readouts import flag_slots, observable_slots, readout_slots
+from ..._layout import ProgramLayout
 from ..._references import (
     Atom,
     LogicalSign,
@@ -15,15 +16,17 @@ from ..._references import (
     parse_equations,
     stabilizer_signs_of,
 )
-from ..._analysis.circuit_action import (
+from ..._analysis.channel_action import (
     declared_action_of,
+    input_qubits_of,
     realized_action_of,
 )
+from ..._analysis.propagation.interpreter import program_of
+from ..._analysis.propagation.pauli_remap import encoding_qubit_relocation
 from ..._analysis.declaration_issues import declaration_issues
-from ...lint._diagnostic import Diagnostic, Phase
-from ...lint._readout_check import readout_disagreements
-from ...lint._rule import Rule
-from ...lint._severity import Severity
+from .._diagnostic import Diagnostic, Phase, Severity
+from .._readout_check import readout_disagreements
+from .._rule import Rule
 
 
 def _where(gadget: qc.Gadget) -> str:
@@ -94,6 +97,40 @@ class UnsupportedActionAtomRule:
                 _where(gadget),
                 "The instruction's logical action could not be lifted; "
                 "gadget/action-mismatch will be skipped.",
+            )
+
+
+@dataclass(frozen=True)
+class PreparedInputRule:
+    name: str = "gadget/prepared-input"
+    severity: Severity = Severity.ERROR
+    phase: Phase = Phase.STRUCTURAL
+    target: type = qc.Gadget
+
+    def __call__(self, target: object, *, qodec: qc.Qodec) -> Iterator[Diagnostic]:
+        gadget = _gadget(target)
+        declared = {
+            qubit
+            for encoding in gadget.inputs
+            for qubit in encoding_qubit_relocation(encoding).values()
+        }
+        if not declared:
+            return
+        program = program_of(gadget)
+        try:
+            prepared = set(range(ProgramLayout.of(program).total_qubits)) - set(
+                input_qubits_of(program)
+            )
+        except (KeyError, TypeError, ValueError):
+            return
+        overlap = declared & prepared
+        if overlap:
+            yield Diagnostic(
+                self.name,
+                self.severity,
+                "gadget circuit prepares qubits declared as encoded inputs",
+                _where(gadget),
+                f"prepared input qubits: {sorted(overlap)}",
             )
 
 
@@ -308,6 +345,7 @@ RULES: tuple[Rule, ...] = (
     MissingObservableRule(),
     MissingFlagRule(),
     UnsupportedActionAtomRule(),
+    PreparedInputRule(),
     FlagContentRule(),
     ActionMismatchRule(),
     ReadoutMismatchRule(),
@@ -320,6 +358,7 @@ __all__ = [
     "IncompleteOutputFrameRule",
     "MissingFlagRule",
     "MissingObservableRule",
+    "PreparedInputRule",
     "ReferenceOutOfBoundsRule",
     "ReadoutMismatchRule",
     "RULES",

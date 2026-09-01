@@ -3,6 +3,7 @@
 The audit tests exercise against a vendored, current-model ``repetition3``
 qodec kept under ``tests/validation/audit/fixtures/``.
 """
+
 from pathlib import Path
 
 import pytest

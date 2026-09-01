@@ -2,8 +2,7 @@
 
 from dataclasses import dataclass, field
 
-from ._diagnostic import Diagnostic
-from ._severity import Severity
+from ._diagnostic import Diagnostic, Severity
 
 
 @dataclass(frozen=True)
@@ -12,18 +11,21 @@ class Report:
 
     @property
     def ok(self) -> bool:
-        return not self.errors()
+        return not self.errors
 
+    @property
     def errors(self) -> tuple[Diagnostic, ...]:
         return tuple(
             item for item in self.diagnostics if item.severity is Severity.ERROR
         )
 
+    @property
     def warnings(self) -> tuple[Diagnostic, ...]:
         return tuple(
             item for item in self.diagnostics if item.severity is Severity.WARNING
         )
 
+    @property
     def informational(self) -> tuple[Diagnostic, ...]:
         return tuple(
             item for item in self.diagnostics if item.severity is Severity.INFO
@@ -45,16 +47,16 @@ class Report:
         if not self.diagnostics:
             return "audit: ok (no diagnostics)"
         lines = []
-        for diagnostic in self.diagnostics:
+        for diagnostic in (*self.errors, *self.warnings):
             lines.append(
                 f"{diagnostic.severity.value}: {diagnostic.rule}: "
                 f"{diagnostic.where}: {diagnostic.summary}"
             )
             lines.extend(f"    {line}" for line in diagnostic.detail.splitlines())
         lines.append(
-            f"audit: {len(self.errors())} error(s), "
-            f"{len(self.warnings())} warning(s), "
-            f"{len(self.diagnostics)} total"
+            f"audit: {len(self.errors)} error(s), "
+            f"{len(self.warnings)} warning(s), "
+            f"{len(self.informational)} informational"
         )
         return "\n".join(lines)
 

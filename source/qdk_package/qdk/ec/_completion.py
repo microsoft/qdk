@@ -6,7 +6,7 @@ import qodec as qc
 
 from ._readouts import as_readout, set_gadget_readouts
 from ._references import as_references
-from .checks import profile_of
+from ._checks import profile_of
 
 
 def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
@@ -27,7 +27,7 @@ def complete_gadget(gadget: qc.Gadget) -> qc.Gadget:
         parameters=dict(gadget.parameters),
         metadata=dict(gadget.metadata),
     )
-    set_gadget_readouts(completed, discovered.observables)
+    set_gadget_readouts(completed, discovered.readouts)
     return completed
 
 
@@ -57,12 +57,25 @@ def complete_qodec(qodec: qc.Qodec) -> qc.Qodec:
     )
 
 
+def derive(target: qc.Gadget | qc.Qodec) -> qc.Gadget | qc.Qodec:
+    """Discover checks and readout bindings, returning a new artifact."""
+    if isinstance(target, qc.Gadget):
+        return complete_gadget(target)
+    if isinstance(target, qc.Qodec):
+        return complete_qodec(target)
+    raise TypeError(
+        f"expected qodec.Gadget or qodec.Qodec, got {type(target).__name__}"
+    )
+
+
 def _try_complete_gadget(gadget: qc.Gadget, index: int, mnemonic: str) -> qc.Gadget:
     """Enrich a gadget completion error with its location within a qodec."""
     try:
         return complete_gadget(gadget)
-    except Exception as error:  # noqa: BLE001 - re-raised with context
-        raise type(error)(f"layer {index} gadget {mnemonic!r}: {error}") from error
+    except Exception as error:  # noqa: BLE001 - preserve the original as the cause
+        raise RuntimeError(
+            f"failed to derive layer {index} gadget {mnemonic!r}"
+        ) from error
 
 
-__all__ = ["complete_gadget", "complete_qodec"]
+__all__ = ["derive"]

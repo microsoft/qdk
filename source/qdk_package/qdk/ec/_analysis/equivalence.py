@@ -6,7 +6,7 @@ from typing import Iterable
 
 import qodec as qc
 
-from .circuit_action import realized_action_of
+from .channel_action import realized_action_of
 
 EncodingSignature = tuple[tuple[int, tuple[int, ...]], ...]
 

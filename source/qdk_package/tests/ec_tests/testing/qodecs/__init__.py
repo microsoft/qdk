@@ -6,6 +6,7 @@ in the qdk.ec package itself. ``c4`` is a saved snapshot of the retired
 ``qdk.ec.qodecs.c4()`` output. Regenerate with
 ``qodec.save(path, single_file=True)``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path

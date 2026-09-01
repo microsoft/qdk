@@ -28,6 +28,9 @@ from .propagation.pauli import (
 if TYPE_CHECKING:
     import qodec as qc
 
+    from .distance_solvers import BoundsSolver as _BoundsSolver
+    from .distance_solvers import ExactSolver as _ExactSolver
+
 
 class SubsystemCode:  # pylint: disable=too-many-public-methods
     """Internal algebraic interpretation of a qodec code.
@@ -59,6 +62,13 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
             )
             self._support |= frozenset(PauliGroup(gauge_basis).support)
             self._declared_gauge = PauliGroup(gauge_basis)
+
+    @classmethod
+    def of(cls, code: "qc.Code | SubsystemCode") -> "SubsystemCode":
+        """View a qodec code as a subsystem code. This operation is idempotent."""
+        if isinstance(code, SubsystemCode):
+            return code
+        return subsystem_code_of(code)
 
     @property
     def stabilizer(self) -> PauliGroup:
@@ -99,8 +109,8 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         )
 
     @property
-    def gauge_basis(self) -> Sequence[Pauli]:
-        return self.gauge.generators
+    def gauge_basis(self) -> tuple[Pauli, ...]:
+        return tuple(self.gauge.generators)
 
     @property
     def logical(self) -> PauliGroup:
@@ -122,12 +132,57 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     def logical_qubit_count(self) -> int:
         return len(self.logical_basis) // 2
 
-    def syndrome_of(self, error: Pauli) -> set[int]:
-        return {
+    def syndrome_of(self, error: Pauli) -> frozenset[int]:
+        return frozenset(
             label
             for label, generator in enumerate(self.stabilizers)
             if not generator.commutes_with(error)
-        }
+        )
+
+    def logical_effect_of(self, error: Pauli) -> Pauli:
+        """Return the logical Pauli induced by ``error``."""
+        return self.logical_action_of(error)
+
+    def distance(
+        self,
+        *,
+        errors: "str | Sequence[Pauli]" = "XZ",
+        coset_representative: Pauli | None = None,
+        upper_bound: int | None = None,
+        solver: "_ExactSolver | None" = None,
+    ) -> tuple[int, list[Pauli]]:
+        from .._distance import code_distance_of
+
+        return code_distance_of(
+            self,
+            errors=errors,
+            coset_representative=coset_representative,
+            distance_upper_bound=upper_bound,
+            solver=solver,
+        )
+
+    def distance_bounds(
+        self,
+        *,
+        errors: "str | Sequence[Pauli]" = "XZ",
+        coset_representative: Pauli | None = None,
+        upper_bound: int | None = None,
+        solver: "_BoundsSolver | None" = None,
+    ) -> tuple[int, int, list[Pauli]]:
+        from .._distance import code_distance_bounds_of
+
+        return code_distance_bounds_of(
+            self,
+            errors=errors,
+            coset_representative=coset_representative,
+            distance_upper_bound=upper_bound,
+            solver=solver,
+        )
+
+    def encoding_clifford(
+        self, *, supported_by: Sequence[int] | None = None
+    ) -> CliffordUnitary:
+        return encoding_clifford_of(self, supported_by=supported_by)
 
     def is_trivial_error(self, error: Pauli) -> bool:
         return self.is_logical_error(error) and self.is_trivial_logical_error(error)
@@ -178,6 +233,7 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
     def is_equivalent_to(
         self,
         other: "SubsystemCode",
+        *,
         including_signs: bool = False,
         strict_basis: bool = True,
     ) -> bool:
@@ -192,6 +248,19 @@ class SubsystemCode:  # pylint: disable=too-many-public-methods
         return _are_equivalent(
             self.logical, other.logical, including_signs=including_signs
         )
+
+    def why_not_equivalent_to(self, other: "SubsystemCode") -> str:
+        if self.support != other.support:
+            return f"Code supports differ: {self.support!r} vs {other.support!r}."
+        if not _are_equivalent(
+            self.stabilizer, other.stabilizer, including_signs=False
+        ):
+            return "Stabilizer groups differ."
+        if self.logical_basis != other.logical_basis:
+            return "Logical bases differ."
+        if self.gauge_basis != other.gauge_basis:
+            return "Gauge bases differ."
+        return ""
 
     def relocated(self, by: Mapping[int, int]) -> "SubsystemCode":
         return SubsystemCode(

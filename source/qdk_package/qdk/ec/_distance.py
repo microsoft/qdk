@@ -1,14 +1,4 @@
-"""Code distance: how much protection a code actually provides.
-
-:func:`code_distance_of` computes the exact distance together with a witness —
-a minimum-weight logical operator that realizes it. :func:`code_distance_bounds_of`
-returns bounds instead, which is what you want for codes too large to solve
-exactly.
-
-Both accept ``**options`` selecting a solver: :class:`ExhaustiveSolverOptions`
-for an exact search, or :class:`MwpfSolverOptions` for the matching-based
-bound (needs the ``mwpf`` backend).
-"""
+"""Internal code-distance analysis."""
 
 from __future__ import annotations
 
@@ -35,8 +25,6 @@ from ._analysis.distance_solvers import (
 from ._analysis.odd_cycles import OddCycles, cycle_labels
 from ._analysis.propagation.pauli import Pauli
 
-#: The error set a distance search ranges over: a basis string such as ``"XZ"``,
-#: or an explicit list of Pauli errors.
 Errors = Union[str, Sequence[Pauli]]
 
 

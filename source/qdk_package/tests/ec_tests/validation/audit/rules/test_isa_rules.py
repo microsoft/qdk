@@ -5,13 +5,14 @@ encodes into — a leftover qodec does not reject at load. It is skipped for
 ISAs whose instructions use no block operands at all (e.g. a physical gate
 ISA), where the block model does not apply.
 """
+
 from __future__ import annotations
 
 from collections.abc import Iterator
 
 import qodec as qc
-from qdk.ec.lint import Diagnostic, Severity
-from qdk.ec.lint.rules.instruction_set import UnreferencedBlockRule
+from qdk.ec._audit import Diagnostic, Severity
+from qdk.ec._audit.rules.instruction_set import UnreferencedBlockRule
 
 
 def _placeholder_qodec() -> qc.Qodec:

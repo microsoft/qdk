@@ -37,7 +37,7 @@ applications = ["cirq-core==1.6.1,<1.7"]
 # `qodec` is the declarative qodec file format and object model; `paulimer` and
 # `binar` provide the Clifford/binary-algebra kernels the analyses run on.
 ec = [
-  "qodec>=0.0.0a1",
+  "qodec>=0.0.0a1,<0.1",
   "paulimer>=0.2.2",
   "binar>=0.1.2",
   "more-itertools>=10.0",
@@ -52,6 +52,11 @@ all = [
   "pandas>=2.1",
   "ply>=3.11",
   "qsharp-jupyterlab==0.0.0",
+  "qodec>=0.0.0a1,<0.1",
+  "paulimer>=0.2.2",
+  "binar>=0.1.2",
+  "more-itertools>=10.0",
+  "mwpf>=0.2.2",
 ]
 
 [tool.pytest.ini_options]

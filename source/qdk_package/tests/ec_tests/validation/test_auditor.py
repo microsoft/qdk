@@ -1,4 +1,4 @@
-"""Tests for the `qdk.ec.lint` framework and built-in rules.
+"""Tests for the private audit framework and built-in rules.
 
 Inputs come from the vendored, current-model ``repetition3`` qodec
 (``tests/analysis/audit/fixtures/repetition3.qodec.yaml``, exposed by the
@@ -11,12 +11,12 @@ from __future__ import annotations
 from collections.abc import Iterator, Mapping, Sequence
 
 import qodec as qc
-from qdk.ec.lint import (
+from qdk.ec._audit import (
     Auditor,
     Diagnostic,
     Phase,
     Severity,
-    diagnose as audit,
+    audit,
 )
 
 # ----------------------------------------------------------------------------
@@ -70,7 +70,7 @@ def test_repetition3_audits_without_errors(rep3_qodec: qc.Qodec) -> None:
 def test_repetition3_audits_clean_with_informational(
     rep3_qodec: qc.Qodec,
 ) -> None:
-    report = audit(rep3_qodec, include_informational=True)
+    report = Auditor(include_informational=True).audit(rep3_qodec)
     assert report.ok, str(report)
 
 
@@ -98,7 +98,7 @@ def test_dropped_readouts_triggers_missing_observable(
     stripped = _clone(measure_z, readouts=[])
     report = Auditor().audit_gadget(stripped, qodec=rep3_qodec)
     assert not report.ok
-    assert "gadget/missing-observable" in {d.rule for d in report.errors()}
+    assert "gadget/missing-observable" in {d.rule for d in report.errors}
 
 
 # ----------------------------------------------------------------------------
@@ -119,7 +119,7 @@ def test_truncated_readout_triggers_readout_mismatch(
     corrupted = _clone(measure_z, readouts=truncated)
     report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
     assert not report.ok
-    assert "gadget/readout-mismatch" in {d.rule for d in report.errors()}
+    assert "gadget/readout-mismatch" in {d.rule for d in report.errors}
 
 
 # ----------------------------------------------------------------------------
@@ -138,7 +138,7 @@ def test_out_of_range_encoding_entry_is_flagged(
     corrupted = _clone(measure_z, checks=checks)
     report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
     assert not report.ok
-    assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors()}
+    assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors}
 
 
 def test_out_of_range_stabilizer_index_is_flagged(
@@ -151,7 +151,7 @@ def test_out_of_range_stabilizer_index_is_flagged(
     checks.append(["in[0].stabilizers[9]"])
     corrupted = _clone(idle, checks=checks)
     report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
-    assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors()}
+    assert "gadget/reference-out-of-bounds" in {d.rule for d in report.errors}
 
 
 # ----------------------------------------------------------------------------
@@ -175,7 +175,27 @@ def test_unbound_flag_triggers_missing_flag(rep3_qodec: qc.Qodec) -> None:
     # readouts=[] leaves the declared 'reject' flag unbound.
     gadget = qc.Gadget(flagged, circuit, outputs=[encoding], readouts=[])
     report = Auditor().audit_gadget(gadget, qodec=rep3_qodec)
-    assert "gadget/missing-flag" in {d.rule for d in report.errors()}
+    assert "gadget/missing-flag" in {d.rule for d in report.errors}
+
+
+def test_prepared_declared_input_is_rejected(rep3_qodec: qc.Qodec) -> None:
+    idle = rep3_qodec.layers[0].gadgets["idle"]
+    circuit = qc.gadgets.Circuit(
+        idle.circuit.isa,
+        f"R 0\n{idle.circuit.source}",
+        format=idle.circuit.format,
+    )
+    corrupted = qc.Gadget(
+        idle.implements,
+        circuit,
+        inputs=list(idle.inputs),
+        outputs=list(idle.outputs),
+        checks=list(idle.checks),
+        readouts=list(idle.readouts),
+    )
+
+    report = Auditor().audit_gadget(corrupted, qodec=rep3_qodec)
+    assert "gadget/prepared-input" in {d.rule for d in report.errors}
 
 
 # ----------------------------------------------------------------------------

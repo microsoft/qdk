@@ -2,8 +2,8 @@
 
 import qodec as qc
 from qdk.ec._references import outcomes_of, parse_equations
-from qdk.ec.checks import essential_checks_of
-from qdk.ec.readouts import outcomes_flipped_by_anti_observables_of
+from qdk.ec._checks import essential_checks_of
+from qdk.ec._analysis.essential_checks import outcomes_flipped_by_anti_observables_of
 
 
 def test_anti_observable_flips_one_per_logical_basis_element(

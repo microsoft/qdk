@@ -13,7 +13,7 @@ def test_intersection_of() -> None:
     group1 = PauliGroup([Pauli({0: "X"}), Pauli({1: "Y"}), Pauli({2: "Z"})])
     group2 = PauliGroup([Pauli({0: "X", 1: "Y", 2: "Z"})])
     intersection = group1 & group2
-    assert 2 ** intersection.log2_size > 0
+    assert 2**intersection.log2_size > 0
     for pauli in intersection.elements:
         assert pauli in group1 and pauli in group2
 

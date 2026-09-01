@@ -1,147 +1,157 @@
-"""The ``qdk.ec`` public API surface.
-
-This pins the shape agreed for the package so a refactor cannot silently drop
-or rename a documented entry point.
-
-The bracketed headings in the spec (``[develop]``, ``[profile]``,
-``[test / audit]``) are conceptual groupings, not modules — so this file also
-asserts they are *not* importable, which is what keeps the flat shape honest.
-"""
+"""The deliberately small, flat public surface of ``qdk.ec``."""
 
 from __future__ import annotations
 
-import importlib
+import importlib.util
+import inspect
+import sys
 
 import pytest
 
-import qdk.ec
+import qdk.ec as ec
 
-#: module -> the attributes that module must export via ``__all__``.
-_SURFACE: dict[str, tuple[str, ...]] = {
-    # develop: primitives and smart tooling, flat on the package root
-    "qdk.ec": (
-        "complete_gadget",
-        "complete_qodec",
-        "from_yaml",
-        "load_yaml",
-        "qodec_from_code",
-        "save_yaml",
-        "to_yaml",
-    ),
-    # profile
-    "qdk.ec.action": (
-        "action_of",
-        "declared_action_of",
-        "gadget_action_mismatch",
-        "input_qubits_of",
-        "realized_action_of",
-    ),
-    "qdk.ec.checks": (
-        "checks_of",
-        "essential_checks_of",
-        "outcome_code_of",
-    ),
-    "qdk.ec.code": (
-        "encoding_clifford_of",
-        "gauge_basis_of",
-        "logical_effect_of",
-        "syndrome_of",
-    ),
-    "qdk.ec.distance": (
-        "code_distance_bounds_of",
-        "code_distance_of",
-    ),
-    "qdk.ec.faults": (
-        "fault_effects_of",
-        "fault_profile_of",
-    ),
-    "qdk.ec.readouts": (
-        "outcome_profile_of",
-        "outcomes_flipped_by_anti_observables_of",
-        "profile_of",
-    ),
-    # test / audit
-    "qdk.ec.equivalence": (
-        "actions_equivalent_mod_pauli",
-        "actions_outcome_equivalent",
-        "codes_equivalent",
-        "gadgets_equivalent",
-        "why_not_equivalent",
-    ),
-    "qdk.ec.lint": ("Report", "Severity", "diagnose", "why_not_valid"),
+_SURFACE = {
+    "ChannelAction",
+    "Diagnostic",
+    "FaultEffect",
+    "FaultEvent",
+    "GadgetProfile",
+    "Pauli",
+    "Report",
+    "SubsystemCode",
+    "audit",
+    "build_qodec",
+    "derive",
 }
 
-#: Submodules the package root must expose.
-_SUBMODULES = (
-    "action",
-    "checks",
-    "code",
-    "distance",
-    "equivalence",
-    "faults",
-    "lint",
-    "readouts",
+_RETIRED_MODULES = (
+    "qdk.ec.action",
+    "qdk.ec.checks",
+    "qdk.ec.code",
+    "qdk.ec.distance",
+    "qdk.ec.equivalence",
+    "qdk.ec.faults",
+    "qdk.ec.readouts",
+    "qdk.ec.lint",
 )
 
-#: The spec's bracketed headings are conceptual; these must not be modules.
-_CONCEPTUAL = ("develop", "profile", "audit")
+
+def test_api_surface_is_exact() -> None:
+    assert set(ec.__all__) == _SURFACE
+    assert set(dir(ec)) == _SURFACE
+    assert all(getattr(ec, name) is not None for name in _SURFACE)
 
 
-@pytest.mark.parametrize(
-    ("module_name", "attribute"),
-    [
-        (module_name, attribute)
-        for module_name, attributes in _SURFACE.items()
-        for attribute in attributes
-    ],
-)
-def test_documented_attribute_is_reachable(module_name: str, attribute: str) -> None:
-    module = importlib.import_module(module_name)
-
-    assert hasattr(module, attribute), f"{module_name}.{attribute} is missing"
-    assert attribute in getattr(
-        module, "__all__", ()
-    ), f"{module_name}.{attribute} is not exported via __all__"
-
-
-@pytest.mark.parametrize("name", _SUBMODULES)
-def test_documented_submodule_is_reachable(name: str) -> None:
-    assert name in qdk.ec.__all__
-    assert importlib.import_module(f"qdk.ec.{name}") is getattr(qdk.ec, name)
+def test_old_names_are_not_exported() -> None:
+    assert not {
+        "action",
+        "checks",
+        "code",
+        "distance",
+        "equivalence",
+        "faults",
+        "lint",
+        "readouts",
+        "complete_gadget",
+        "complete_qodec",
+        "qodec_from_code",
+    } & set(ec.__all__)
 
 
-@pytest.mark.parametrize("name", _CONCEPTUAL)
-def test_conceptual_headings_are_not_modules(name: str) -> None:
-    """``[develop]``, ``[profile]`` and ``[test / audit]`` group the API in the
-    spec; they must not reappear as importable packages."""
-    assert name not in qdk.ec.__all__
-    assert not hasattr(qdk.ec, name)
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module(f"qdk.ec.{name}")
+@pytest.mark.parametrize("module_name", _RETIRED_MODULES)
+def test_retired_module_is_not_importable(module_name: str) -> None:
+    importlib.invalidate_caches()
+    sys.modules.pop(module_name, None)
+
+    assert importlib.util.find_spec(module_name) is None
+    with pytest.raises(ModuleNotFoundError, match=module_name):
+        importlib.import_module(module_name)
 
 
-def test_unknown_attribute_raises_attribute_error() -> None:
-    with pytest.raises(AttributeError):
-        qdk.ec.not_a_subpackage  # noqa: B018
-
-
-def test_equivalence_predicates_are_the_underlying_functions() -> None:
-    """The public names are aliases, not reimplementations."""
-    from qdk.ec import code, equivalence
-    from qdk.ec._analysis import circuit_action
-    from qdk.ec._analysis import equivalence as _equivalence
-
-    assert equivalence.actions_equivalent_mod_pauli is (
-        circuit_action.are_equivalent_mod_paulis
+def test_function_signatures() -> None:
+    assert (
+        str(inspect.signature(ec.derive))
+        == "(target: 'qc.Gadget | qc.Qodec') -> 'qc.Gadget | qc.Qodec'"
     )
-    assert equivalence.actions_outcome_equivalent is (
-        circuit_action.are_outcome_equivalent
+    assert str(inspect.signature(ec.audit)) == (
+        "(qodec: 'qc.Qodec', *, disabled: 'Collection[str]' = (), "
+        "promote_warnings: 'bool' = False) -> 'Report'"
     )
-    assert equivalence.codes_equivalent is code.codes_equivalent
-    assert equivalence.gadgets_equivalent is _equivalence.gadgets_equivalent
-    assert equivalence.why_not_equivalent is _equivalence.why_not_equivalent
+    assert str(inspect.signature(ec.build_qodec)) == (
+        "(code: 'qc.Code | SubsystemCode', *, name: 'str | None' = None, "
+        "description: 'str | None' = None, strategy: 'str' = "
+        "'flagged-css/v1', strict: 'bool' = True) -> 'qc.Qodec'"
+    )
 
 
-def test_analysis_internals_stay_private() -> None:
-    """The engines behind the profiling modules are not public API."""
-    assert "_analysis" not in qdk.ec.__all__
+def test_diagnostic_severity_is_nested() -> None:
+    diagnostic = ec.Diagnostic(
+        "rule", ec.Diagnostic.Severity.WARNING, "summary", "artifact"
+    )
+    assert diagnostic.severity is ec.Diagnostic.Severity.WARNING
+    assert "Severity" not in ec.__all__
+
+
+def test_fault_event_composition_and_weight() -> None:
+    x = ec.Pauli({2: "X"})
+    z = ec.Pauli({3: "Z"})
+    fault = ec.FaultEvent.after(4, x) * ec.FaultEvent.after(6, z)
+
+    assert fault.weight == 2
+    assert fault.locations == {4: x, 6: z}
+    assert fault * fault == ec.FaultEvent({})
+    assert hash(fault)
+
+
+def test_subsystem_code_view_is_idempotent(bundle) -> None:
+    code = next(iter(bundle.codes.values()))
+    view = ec.SubsystemCode.of(code)
+
+    assert ec.SubsystemCode.of(view) is view
+    assert isinstance(view.syndrome_of(ec.Pauli.identity()), frozenset)
+    assert view.logical_effect_of(ec.Pauli.identity()) == ec.Pauli.identity()
+    assert view.why_not_equivalent_to(view) == ""
+
+
+def test_gadget_profile_contract(idle_gadget) -> None:
+    profile = ec.GadgetProfile(idle_gadget)
+
+    assert isinstance(profile.action, ec.ChannelAction)
+    assert isinstance(profile.objective, ec.ChannelAction)
+    assert all(isinstance(check, frozenset) for check in profile.checks)
+    assert all(isinstance(readout, frozenset) for readout in profile.readouts)
+    assert profile.why_not_equivalent_to(profile) == ""
+    fault, effect = profile.fault_effects[0]
+    assert isinstance(fault, ec.FaultEvent)
+    assert isinstance(effect, ec.FaultEffect)
+    assert profile.effects_of([fault]) == (effect,)
+
+
+def test_gadget_profile_accepts_a_bare_circuit(idle_gadget) -> None:
+    """A circuit is a gadget with trivial encodings, so nothing is silently empty."""
+    profile = ec.GadgetProfile(idle_gadget.circuit)
+
+    assert profile.objective is None
+    assert isinstance(profile.action, ec.ChannelAction)
+    assert all(isinstance(readout, frozenset) for readout in profile.readouts)
+    assert all(isinstance(check, frozenset) for check in profile.checks)
+    outputs = profile._circuit_outputs
+    for _, effect in profile.fault_effects:
+        assert set(effect.output_error) == set(range(len(outputs)))
+        assert all(position < len(profile.checks) for position in effect.syndrome)
+        assert all(
+            position < len(profile.readouts) for position in effect.readout_flips
+        )
+    assert any(
+        effect.syndrome or effect.readout_flips for _, effect in profile.fault_effects
+    )
+
+
+def test_gadget_profile_rejects_other_targets() -> None:
+    with pytest.raises(TypeError, match="Gadget or qodec.gadgets.Circuit"):
+        ec.GadgetProfile(object())
+
+
+def test_derive_rejects_bare_circuit(idle_gadget) -> None:
+    with pytest.raises(TypeError, match="Gadget or qodec.Qodec"):
+        ec.derive(idle_gadget.circuit)

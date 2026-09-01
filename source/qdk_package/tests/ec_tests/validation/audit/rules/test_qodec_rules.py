@@ -5,8 +5,8 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import qodec as qc
-from qdk.ec.lint import Diagnostic, Severity
-from qdk.ec.lint.rules.qodec import (
+from qdk.ec._audit import Diagnostic, Severity
+from qdk.ec._audit.rules.qodec import (
     MissingRealizationRule,
     MissingSourceInstructionRule,
 )

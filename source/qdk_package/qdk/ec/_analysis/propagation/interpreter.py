@@ -248,7 +248,7 @@ def propagate_faults(
     propagator = _FramePropagator(len(fault_basis))
     injections: dict[int, list[tuple[int, Pauli]]] = {}
     for fault_index, fault in enumerate(fault_basis):
-        for instruction_index, pauli in fault.errors.items():
+        for instruction_index, pauli in fault.locations.items():
             injections.setdefault(instruction_index, []).append((fault_index, pauli))
 
     def inject_at(instruction_index: int) -> None:
