@@ -6,7 +6,8 @@ Run `pip install .` from the `jupyterlab` directory to build the extension.
 
 ## Installing
 
-You will need to install `jupyterlab` and `jupyter-builder` to install and test the extension.
+You will need to install `jupyterlab` to test the extension and
+`jupyter-builder` to rebuild its frontend assets directly.
 
 ```bash
 pip install jupyterlab jupyter-builder
