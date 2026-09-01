@@ -221,6 +221,7 @@ class EstimationTableEntry:
     source: InstructionSource
     factories: dict[int, FactoryResult] = field(default_factory=dict)
     properties: dict[int, int | float | bool | str] = field(default_factory=dict)
+    cost_usd: float | None = None
 
     @classmethod
     def from_result(
@@ -242,6 +243,7 @@ class EstimationTableEntry:
             source=InstructionSource.from_isa(ctx, result.isa),
             factories=result.factories.copy(),
             properties=result.properties.copy(),
+            cost_usd=ctx.arch.cost_usd(result.qubits, result.runtime),
         )
 
 

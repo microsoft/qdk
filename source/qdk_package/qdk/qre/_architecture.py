@@ -6,6 +6,7 @@ from __future__ import annotations
 import copy
 import dataclasses
 from abc import ABC, abstractmethod
+from decimal import Decimal
 from enum import IntEnum
 from typing import TYPE_CHECKING, cast
 
@@ -40,6 +41,11 @@ class Architecture(ABC):
 
     family: TechnologyFamily = TechnologyFamily.UNKNOWN
 
+    # Cost of running application, in USD per hour.
+    # If defined, it's assumed that the cost of running application is proportional to 
+    # the runtime.
+    usd_cost_per_hour: float | None = None
+
     @abstractmethod
     def provided_isa(self, ctx: ISAContext) -> ISA:
         """
@@ -62,6 +68,26 @@ class Architecture(ABC):
             ISAContext: A new enumeration context.
         """
         return ISAContext(self)
+
+    def cost_usd(self, qubits: int, runtime_nanos: int) -> float | None:
+        """Estimates cost, in US dollars, of running an application.
+
+        Subclasses need to define usd_`cost_per_hour` (if USD cost is proportional to 
+        runtime) or override `cost_usd`.
+
+        Args:
+            qubits: estimated number of qubits.
+            runtime_nanos: estimated runtime, in nanoseconds.
+
+        Returns:
+            If there is not enough information to estimate cost, returns None.
+            If application cannot be run on this architecture, returns Infinity.
+            Otherwise, returns estimated cost of running an applicaiton, in dollars.
+        """
+        if self.usd_cost_per_hour is not None:
+            runtime_hours = runtime_nanos / (3600 * 1e9)
+            return round(runtime_hours * self.usd_cost_per_hour, 2)
+        return None
 
     @property
     def assumptions(self) -> list[str]:
@@ -233,6 +259,7 @@ class ISAContext:
 
         self._bindings: dict[str, ISA] = {}
         self._transforms: dict[int, Architecture | ISATransform] = {0: arch}
+        self.arch = arch
 
     def _with_binding(self, name: str, isa: ISA) -> ISAContext:
         """Return a new context with an additional binding (internal use)."""
