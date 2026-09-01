@@ -58,12 +58,13 @@ import {
   decodeGatesUrl,
 } from "qsharp-lang/ux";
 
-const md = markdownIt("commonmark");
+import DOMPurify from "dompurify";
+const md = markdownIt("commonmark", { html: false });
 md.use((mk as any).default, {
   enableMathBlockInHtml: true,
   enableMathInlineInHtml: true,
 }); // Not sure why it's not using the default export automatically :-/
-setRenderer((input: string) => md.render(input));
+setRenderer((input: string) => DOMPurify.sanitize(md.render(input)));
 
 export type ActiveTab =
   | "results-tab"
