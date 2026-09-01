@@ -6,7 +6,6 @@ from __future__ import annotations
 import copy
 import dataclasses
 from abc import ABC, abstractmethod
-from decimal import Decimal
 from enum import IntEnum
 from typing import TYPE_CHECKING, cast
 
@@ -42,7 +41,7 @@ class Architecture(ABC):
     family: TechnologyFamily = TechnologyFamily.UNKNOWN
 
     # Cost of running application, in USD per hour.
-    # If defined, it's assumed that the cost of running application is proportional to 
+    # If defined, it's assumed that the cost of running application is proportional to
     # the runtime.
     usd_cost_per_hour: float | None = None
 
@@ -72,7 +71,7 @@ class Architecture(ABC):
     def cost_usd(self, qubits: int, runtime_nanos: int) -> float | None:
         """Estimates cost, in US dollars, of running an application.
 
-        Subclasses need to define usd_`cost_per_hour` (if USD cost is proportional to 
+        Subclasses need to define `usd_cost_per_hour` (if USD cost is proportional to
         runtime) or override `cost_usd`.
 
         Args:
@@ -82,7 +81,7 @@ class Architecture(ABC):
         Returns:
             If there is not enough information to estimate cost, returns None.
             If application cannot be run on this architecture, returns Infinity.
-            Otherwise, returns estimated cost of running an applicaiton, in dollars.
+            Otherwise, returns estimated cost of running an application, in dollars.
         """
         if self.usd_cost_per_hour is not None:
             runtime_hours = runtime_nanos / (3600 * 1e9)
