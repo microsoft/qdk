@@ -3421,3 +3421,25 @@ fn test_circuit_rendering_options() {
         })]
     );
 }
+
+#[test]
+fn test_circuit_rendering_options_unrecognized_option() {
+    check_errors(
+        indoc! {"
+            namespace input {
+                @CircuitRenderingOptions(foo=true)
+                operation Foo() : Unit {}
+            }
+        "},
+        &expect![[r#"
+            [
+                UnknownOption(
+                    Span {
+                        lo: 47,
+                        hi: 50,
+                    },
+                ),
+            ]
+        "#]],
+    );
+}

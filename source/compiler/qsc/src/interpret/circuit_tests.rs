@@ -568,7 +568,7 @@ fn callable_with_hidden_box_is_flattened_in_circuit() {
                     H(q);
                 }
 
-                @CircuitRenderingOptions(unknownOption=value, hideBox=true)
+                @CircuitRenderingOptions(hideBox=true)
                 operation Invisible(q : Qubit) : Unit {
                     X(q);
                     Y(q);

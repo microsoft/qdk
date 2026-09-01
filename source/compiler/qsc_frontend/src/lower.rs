@@ -49,6 +49,9 @@ pub(super) enum Error {
     #[error("invalid attribute arguments: expected {0}")]
     #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrArgs"))]
     InvalidAttrArgs(String, #[label] Span),
+    #[error("unknown option")]
+    #[diagnostic(code("Qdk.Qsc.LowerAst.UnknownOption"))]
+    UnknownOption(#[label] Span),
     #[error("invalid use of the {0} attribute on a function")]
     #[diagnostic(help("try declaring the callable as an operation"))]
     #[diagnostic(code("Qdk.Qsc.LowerAst.InvalidAttrOnFunction"))]
@@ -457,7 +460,12 @@ impl With<'_> {
                                 };
                                 parsed_options.input_sizes = Some(input_sizes);
                             }
-                            _ => {}
+                            _ => {
+                                self.lowerer
+                                    .errors
+                                    .push(Error::UnknownOption(path.name.span));
+                                return None;
+                            }
                         }
                     } else {
                         self.lowerer.errors.push(Error::InvalidAttrArgs(
