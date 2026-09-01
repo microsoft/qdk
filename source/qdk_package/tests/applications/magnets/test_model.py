@@ -16,6 +16,7 @@ from qdk.applications.magnets import (
     Hyperedge,
     Hypergraph,
     IsingModel,
+    MthNearestNeighborChain1D,
     Model,
     PauliString,
 )
@@ -198,6 +199,35 @@ def test_ising_model_coefficients_and_paulis():
     assert ops_by_qubits[(2,)] == PauliString.from_qubits((2,), "X", -0.5)
 
 
+def test_ising_model_uses_edge_marks_to_select_couplings():
+    geometry = MthNearestNeighborChain1D(4, 2, self_loops=True)
+    model = IsingModel(geometry, h=0.5, J=[2.0, 0.75])
+
+    ops_by_qubits = {tuple(sorted(op.qubits)): op for op in model._ops}
+
+    assert ops_by_qubits[(0, 1)].coefficient == -2.0
+    assert ops_by_qubits[(1, 2)].coefficient == -2.0
+    assert ops_by_qubits[(2, 3)].coefficient == -2.0
+    assert ops_by_qubits[(0, 2)].coefficient == -0.75
+    assert ops_by_qubits[(1, 3)].coefficient == -0.75
+
+
+def test_ising_model_rejects_unmarked_edges_with_coupling_list():
+    geometry = make_chain(2)
+
+    with pytest.raises(ValueError, match="coupling edges must be marked"):
+        IsingModel(geometry, h=1.0, J=[2.0])
+
+
+def test_ising_model_rejects_edge_mark_outside_coupling_list():
+    edge = Hyperedge([0, 1])
+    edge.mark = 1
+    geometry = Hypergraph([edge])
+
+    with pytest.raises(ValueError, match="Edge mark 1 is outside the range of J"):
+        IsingModel(geometry, h=1.0, J=[2.0])
+
+
 def test_ising_model_term_grouping_indices():
     geometry = make_chain_with_vertices(4)
     model = IsingModel(geometry, h=1.0, J=1.0)
@@ -239,6 +269,33 @@ def test_heisenberg_model_coefficients_and_paulis():
     ]
     for pauli in expected:
         assert pauli in model._ops
+
+
+def test_heisenberg_model_uses_edge_marks_to_select_couplings():
+    geometry = MthNearestNeighborChain1D(4, 2)
+    model = HeisenbergModel(geometry, J=[2.0, 0.75])
+
+    for pauli in ("XX", "YY", "ZZ"):
+        for vertices in ((0, 1), (1, 2), (2, 3)):
+            assert PauliString.from_qubits(vertices, pauli, -2.0) in model._ops
+        for vertices in ((0, 2), (1, 3)):
+            assert PauliString.from_qubits(vertices, pauli, -0.75) in model._ops
+
+
+def test_heisenberg_model_rejects_unmarked_edges_with_coupling_list():
+    geometry = make_chain(2)
+
+    with pytest.raises(ValueError, match="coupling edges must be marked"):
+        HeisenbergModel(geometry, J=[2.0])
+
+
+def test_heisenberg_model_rejects_edge_mark_outside_coupling_list():
+    edge = Hyperedge([0, 1])
+    edge.mark = 1
+    geometry = Hypergraph([edge])
+
+    with pytest.raises(ValueError, match="Edge mark 1 is outside the range of J"):
+        HeisenbergModel(geometry, J=[2.0])
 
 
 def test_heisenberg_model_term_grouping_colors_and_paulis():
