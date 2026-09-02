@@ -420,7 +420,18 @@ impl Interpreter {
                         caps_errors
                             .into_iter()
                             .map(|error| {
-                                Error::Pass(WithSource::from_map(&source_package.sources, error))
+                                let sources = if let qsc_passes::Error::CapabilitiesCk(err) = &error
+                                {
+                                    let err_package = err.span().package;
+                                    &compiler
+                                        .package_store()
+                                        .get((Into::<usize>::into(err_package)).into())
+                                        .expect("package for error should exist in store")
+                                        .sources
+                                } else {
+                                    &source_package.sources
+                                };
+                                Error::Pass(WithSource::from_map(sources, error))
                             })
                             .collect::<Vec<_>>()
                     })?;
@@ -1738,7 +1749,20 @@ impl Interpreter {
 
             caps_errors
                 .into_iter()
-                .map(|error| Error::Pass(WithSource::from_map(&source_package.sources, error)))
+                .map(|error| {
+                    let sources = if let qsc_passes::Error::CapabilitiesCk(err) = &error {
+                        let err_package = err.span().package;
+                        &self
+                            .compiler
+                            .package_store()
+                            .get((Into::<usize>::into(err_package)).into())
+                            .expect("package for error should exist in store")
+                            .sources
+                    } else {
+                        &source_package.sources
+                    };
+                    Error::Pass(WithSource::from_map(sources, error))
+                })
                 .collect::<Vec<_>>()
         })?;
 
