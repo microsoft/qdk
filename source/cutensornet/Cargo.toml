@@ -1,0 +1,23 @@
+[package]
+name = "qdk_cutensornet"
+
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+libloading = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+num-complex = { workspace = true }
+qdk_simulators = { path = "../simulators", default-features = false }
+
+[lints]
+workspace = true
+
+[lib]
+doctest = false

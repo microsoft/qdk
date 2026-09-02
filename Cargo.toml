@@ -14,6 +14,7 @@ members = [
     "source/compiler/qsc_fir",
     "source/compiler/qsc_fir_transforms",
     "source/compiler/qsc_frontend",
+    "source/cutensornet",
     "source/compiler/qsc_hir",
     "source/compiler/qsc_openqasm_compiler",
     "source/compiler/stim_compiler",
@@ -65,6 +66,7 @@ gungraun = "0.19.4"
 indoc = "2.0"
 js-sys = "0.3"
 libfuzzer-sys = "0.4"
+libloading = "0.8.9"
 log = "0.4"
 miette = { version = "7.6" }
 thiserror = "2.0"
