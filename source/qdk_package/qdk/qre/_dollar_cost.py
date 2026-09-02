@@ -202,4 +202,6 @@ class DollarCostModelFromSpec(DollarCostModel):
 
         up_hours_per_year = 365 * 24 * system.uptime
         cost_per_nanosecond = cost_per_year / (up_hours_per_year * 3600 * 1e9)
-        return round(runtime_nanos * cost_per_nanosecond, 2)
+        return round(
+            runtime_nanos / system.magical_speedup_factor * cost_per_nanosecond, 2
+        )
