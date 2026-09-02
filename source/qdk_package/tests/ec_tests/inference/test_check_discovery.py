@@ -8,7 +8,7 @@ this file pins the public surface (`profile_of`, `simulate_channel`,
 from __future__ import annotations
 
 from qdk.ec._checks import Profile, profile_of
-from qdk.ec._analysis.propagation import simulate_channel
+from qdk.ec._analysis.check_discovery import simulate_channel
 from ec_tests.testing.qodecs import c4
 
 

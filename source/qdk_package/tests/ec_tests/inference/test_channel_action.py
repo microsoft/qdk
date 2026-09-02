@@ -17,7 +17,7 @@ from qdk.ec._analysis.channel_action import (
     input_qubits_of,
     realized_action_of,
 )
-from qdk.ec._analysis.propagation import program_of
+from qdk.ec._analysis.propagation.interpreter import program_of
 from qdk.ec._analysis.propagation.frames import FrameGroup, PauliFrame
 from qdk.ec._analysis.propagation.pauli import Pauli
 

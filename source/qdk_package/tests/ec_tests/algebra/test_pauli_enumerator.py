@@ -2,8 +2,8 @@ from typing import Any, Callable
 import math
 from hypothesis import strategies, given
 
-# from qdk.ec.collections.big_sequence import BigSequence
-from qdk.ec._analysis.propagation.pauli import Pauli, PauliEnumerator
+from qdk.ec._analysis.propagation.pauli import Pauli
+from ec_tests.testing.pauli_enumeration import PauliEnumerator
 
 
 @strategies.composite

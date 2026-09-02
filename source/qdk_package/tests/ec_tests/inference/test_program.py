@@ -4,7 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from qdk.ec._analysis.propagation import Program, program_of
+from qdk.ec._analysis.propagation.interpreter import program_of
+from qodec.circuits import Program
 import qodec as qc
 
 

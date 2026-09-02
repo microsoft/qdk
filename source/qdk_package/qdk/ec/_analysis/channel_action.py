@@ -20,7 +20,6 @@ from .propagation.pauli import (
     Pauli,
     complex_conjugate_of,
     identity,
-    relabel,
     restrict,
 )
 from .propagation.pauli_remap import encoding_qubit_relocation
@@ -344,10 +343,6 @@ def are_equivalent_mod_paulis(action1: ChannelAction, action2: ChannelAction) ->
     mapping1 = {abs(key): abs(value.pauli) for key, value in action1.mapping.items()}
     mapping2 = {abs(key): abs(value.pauli) for key, value in action2.mapping.items()}
     return mapping1 == mapping2
-
-
-def _abs_of(iterable: Iterable[Pauli]) -> list[Pauli]:
-    return list(map(abs, iterable))
 
 
 def are_outcome_equivalent(action1: ChannelAction, action2: ChannelAction) -> bool:

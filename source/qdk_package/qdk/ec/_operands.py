@@ -12,13 +12,11 @@ label's identity does not depend on the wire form it arrived in: the operand
 ``3`` and the operand ``"3"`` both name qubit ``3``.
 
 Consumers match on the label type — ``isinstance(label, int)`` — rather than
-re-parsing text, and rebuild calls with :func:`map_call_labels` rather than
-re-implementing the walk over ``inputs`` and ``outputs``.
+re-parsing text.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Union
 
 import qodec as qc
@@ -60,47 +58,7 @@ def qubit_labels(value: "Argument") -> list[QubitLabel]:
     return [_as_label(value)]
 
 
-def label_text(label: QubitLabel) -> str:
-    """Render one label as the text an operand carries."""
-    return str(label)
-
-
-def operand_of(labels: Sequence[QubitLabel]) -> str:
-    """Render labels back into an operand value.
-
-    The whitespace-joined string form is used unconditionally: it is the only
-    operand shape that can carry symbolic labels, and lowering emits those for
-    every block qubit.
-    """
-    return " ".join(label_text(label) for label in labels)
-
-
-def map_call_labels(
-    call: qc.instructions.InstructionCall,
-    relabel: Callable[[QubitLabel], QubitLabel],
-) -> qc.instructions.InstructionCall:
-    """Return a copy of ``call`` with ``relabel`` applied to every qubit label."""
-
-    def mapped(
-        operands: dict[str, "Argument"],
-    ) -> dict[str, "Argument"]:
-        return {
-            name: operand_of([relabel(label) for label in qubit_labels(value)])
-            for name, value in operands.items()
-        }
-
-    return qc.instructions.InstructionCall(
-        call.mnemonic,
-        inputs=mapped(dict(call.inputs)),
-        outputs=mapped(dict(call.outputs)),
-        parameters=call.parameters,
-    )
-
-
 __all__ = [
     "QubitLabel",
-    "label_text",
-    "map_call_labels",
-    "operand_of",
     "qubit_labels",
 ]

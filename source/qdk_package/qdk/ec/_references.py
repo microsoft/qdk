@@ -169,17 +169,6 @@ def stabilizer_signs_of(
     ]
 
 
-def logical_signs_of(
-    equation: Iterable[Atom], *, side: Side | None = None
-) -> list[LogicalSign]:
-    """The logical-sign atoms of an equation, optionally one side only."""
-    return [
-        atom
-        for atom in equation
-        if isinstance(atom, LogicalSign) and side in (None, atom.side)
-    ]
-
-
 def outcome_equation(indices: Iterable[int]) -> Equation:
     """An outcome-XOR pattern as an equation."""
     return tuple(Outcome(index) for index in indices)
@@ -199,7 +188,6 @@ __all__ = [
     "Side",
     "StabilizerSign",
     "as_references",
-    "logical_signs_of",
     "outcome_equation",
     "outcomes_of",
     "parse_equation",

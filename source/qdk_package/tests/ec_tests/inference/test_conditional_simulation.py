@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from paulimer import OutcomeCompleteSimulation, SparsePauli, UnitaryOpcode
 
-from qdk.ec._analysis.propagation import frame_group_of
+from qdk.ec._analysis.propagation.stabilizer import frame_group_of
 from qdk.ec._analysis.propagation.frames import FrameGroup
 from qdk.ec._analysis.propagation.pauli import Pauli
 

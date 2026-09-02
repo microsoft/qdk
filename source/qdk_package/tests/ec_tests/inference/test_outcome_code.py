@@ -1,7 +1,7 @@
 """Tests for outcome-code profiling."""
 
 from qdk.ec._checks import OutcomeCode, outcome_code_of
-from qdk.ec._analysis.propagation import program_of
+from qdk.ec._analysis.propagation.interpreter import program_of
 import qodec as qc
 
 

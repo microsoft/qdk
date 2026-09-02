@@ -15,7 +15,8 @@ from qdk.ec._analysis.propagation.groups import is_stabilizer_group
 from ec_tests.testing import code_catalog
 from paulimer import PauliGroup
 
-from qdk.ec._analysis.propagation.pauli import Pauli, PauliEnumerator, identity
+from qdk.ec._analysis.propagation.pauli import Pauli, identity
+from ec_tests.testing.pauli_enumeration import PauliEnumerator
 
 bacon_shor_codes = [
     code_catalog.make_bacon_shor_code(number_of_rows, number_of_columns)
