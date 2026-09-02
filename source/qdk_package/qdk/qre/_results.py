@@ -180,7 +180,10 @@ class EstimationTable(list["EstimationTableEntry"]):
         return plot_estimates(self, **kwargs)
 
     def add_cost_column(
-        self, *, cost_model: DollarCostModel | None = None, cost_spec_path: str = ""
+        self,
+        *,
+        cost_model: DollarCostModel | None = None,
+        cost_spec: str = "",
     ):
         """Adds "USD cost" column to the table.
 
@@ -188,8 +191,10 @@ class EstimationTable(list["EstimationTableEntry"]):
             cost_model: object used to compute quantum application cost.
             cost_spec (str): Path to JSON specification used to compute costs.
         """
-        if cost_spec_path != "":
-            self.add_cost_column(cost_model=DollarCostModelFromSpec(cost_spec_path))
+        if cost_spec != "":
+            if cost_model is not None:
+                raise ValueError("Cannot specify both cost_model and cost_spec")
+            self.add_cost_column(cost_model=DollarCostModelFromSpec(cost_spec))
         elif cost_model is not None:
             self.add_column(
                 "USD cost",
