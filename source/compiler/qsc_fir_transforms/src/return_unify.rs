@@ -585,7 +585,7 @@ fn process_callable_returns(
         if has_return {
             errors.push(Error::UnsupportedEarlyReturnType(
                 format!("{return_ty}"),
-                PackageSpan::new(owning_pkg, callable.name.span),
+                PackageSpan::new(owning_pkg, callable.name.span.span),
             ));
             skipped.insert(StoreItemId {
                 package: owning_pkg,
@@ -704,7 +704,7 @@ fn check_normalize_supportable(
             {
                 errors.push(Error::UnsupportedHoistContext(
                     format!("{}", expr.ty),
-                    PackageSpan::new(package_id, expr.span),
+                    PackageSpan::new(package_id, expr.span.span),
                 ));
             }
             ExprKind::Block(bid) | ExprKind::While(_, bid) => block_ids.push(*bid),
@@ -725,7 +725,7 @@ fn check_normalize_supportable(
                 if !is_type_defaultable(package, package_id, pat_ty) {
                     errors.push(Error::UnsupportedHoistContext(
                         format!("{pat_ty}"),
-                        PackageSpan::new(package_id, package.get_expr(*init_id).span),
+                        PackageSpan::new(package_id, package.get_expr(*init_id).span.span),
                     ));
                 }
             }

@@ -45,7 +45,6 @@
 
 use expect_test::expect;
 use indoc::indoc;
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{
@@ -60,6 +59,7 @@ use crate::fir_builder::{
 };
 use crate::return_unify::simplify::dead_local::{self, eligible_local_binding};
 use crate::return_unify::tests::check_simplify_rule_q;
+use qsc_fir::fir::PackageSpan;
 
 /// Allocate an `Int` literal `ExprId`.
 fn int_lit(package: &mut Package, assigner: &mut Assigner, value: i64) -> qsc_fir::fir::ExprId {
@@ -68,14 +68,14 @@ fn int_lit(package: &mut Package, assigner: &mut Assigner, value: i64) -> qsc_fi
         assigner,
         Ty::Prim(Prim::Int),
         ExprKind::Lit(Lit::Int(value)),
-        Span::default(),
+        PackageSpan::default(),
     )
 }
 
 /// Allocate a trailing `Expr(Int)` literal statement.
 fn trailing_int(package: &mut Package, assigner: &mut Assigner, value: i64) -> StmtId {
     let lit = int_lit(package, assigner, value);
-    alloc_expr_stmt(package, assigner, lit, Span::default())
+    alloc_expr_stmt(package, assigner, lit, PackageSpan::default())
 }
 
 #[test]
@@ -184,7 +184,7 @@ fn given_preserved_local_with_default_init_dead_local_drops_binding() {
         &mut assigner,
         vec![decl, tail],
         Ty::Prim(Prim::Int),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let fired = dead_local::apply(&mut package, &mut assigner, PackageId::CORE, block);
@@ -410,9 +410,14 @@ fn given_local_used_in_closure_capture_dead_local_does_not_drop() {
         &mut assigner,
         closure_ty,
         ExprKind::Closure(vec![x_local], LocalItemId::from(0)),
-        Span::default(),
+        PackageSpan::default(),
     );
-    let semi = alloc_semi_stmt(&mut package, &mut assigner, closure_expr, Span::default());
+    let semi = alloc_semi_stmt(
+        &mut package,
+        &mut assigner,
+        closure_expr,
+        PackageSpan::default(),
+    );
 
     let tail = trailing_int(&mut package, &mut assigner, 42);
     let block = alloc_block(
@@ -420,7 +425,7 @@ fn given_local_used_in_closure_capture_dead_local_does_not_drop() {
         &mut assigner,
         vec![decl, semi, tail],
         Ty::Prim(Prim::Int),
-        Span::default(),
+        PackageSpan::default(),
     );
 
     let fired = dead_local::apply(&mut package, &mut assigner, PackageId::CORE, block);

@@ -18,7 +18,6 @@ pub fn check(source: &str, expect: &Expect, capabilities: TargetCapabilityFlags)
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
-        compilation_context.package_id,
         compute_properties,
         capabilities,
         &compilation_context.fir_store,
@@ -31,7 +30,6 @@ pub fn check_for_exe(source: &str, expect: &Expect, capabilities: TargetCapabili
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
-        compilation_context.package_id,
         compute_properties,
         capabilities,
         &compilation_context.fir_store,
@@ -47,7 +45,6 @@ pub fn capability_error_kinds(source: &str, capabilities: TargetCapabilityFlags)
     let (package, compute_properties) = compilation_context.get_package_compute_properties_tuple();
     let errors = check_supported_capabilities(
         package,
-        compilation_context.package_id,
         compute_properties,
         capabilities,
         &compilation_context.fir_store,
@@ -73,7 +70,7 @@ fn lower_hir_package_store(
 ) -> PackageStore {
     let mut fir_store = PackageStore::new();
     for (id, unit) in hir_package_store {
-        let pkg = lowerer.lower_package(&unit.package, &fir_store);
+        let pkg = lowerer.lower_package(&unit.package, &fir_store, map_hir_package_to_fir(id));
         fir_store.insert(map_hir_package_to_fir(id), pkg);
     }
     fir_store
