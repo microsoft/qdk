@@ -3,7 +3,7 @@
 import qodec as qc
 from paulimer import SparsePauli
 
-from qdk.ec._code import syndrome_of
+from qdk.ec import SubsystemCode
 from qdk.ec._distance import code_distance_of
 
 
@@ -17,7 +17,8 @@ def repetition_code() -> qc.Code:
 
 
 def test_syndrome_of_accepts_qodec_code() -> None:
-    assert syndrome_of(repetition_code(), SparsePauli({0: "X"})) == {0}
+    view = SubsystemCode.of(repetition_code())
+    assert view.syndrome_of(SparsePauli({0: "X"})) == frozenset({0})
 
 
 def test_code_distance_of_accepts_qodec_code() -> None:

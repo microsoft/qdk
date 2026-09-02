@@ -1,9 +1,6 @@
-from hypothesis import strategies, given, settings
+from hypothesis import strategies, given
 from ec_tests.testing.code_catalog.surface_codes import (
     make_rotated_surface_code,
-)
-from ec_tests.algebra.test_stabilizer_codes import (
-    assert_lookup_decoder_distance,
 )
 from ec_tests.algebra.test_subsystem_codes import (
     assert_valid_logical_basis,
@@ -25,15 +22,6 @@ def odd_integers_strategy(
 def test_rotated_surface_code_length(x_distance: int, z_distance: int) -> None:
     code = make_rotated_surface_code(x_distance=x_distance, z_distance=z_distance)
     assert code.length == x_distance * z_distance
-
-
-@given(
-    odd_integers_strategy(min_value=3, max_value=5),
-)
-@settings(deadline=10000, max_examples=2)
-def test_rotated_surface_code_distance(distance: int) -> None:
-    code = make_rotated_surface_code(x_distance=distance, z_distance=distance)
-    assert_lookup_decoder_distance(code, distance)
 
 
 @given(

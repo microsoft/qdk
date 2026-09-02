@@ -3,7 +3,7 @@ import pytest
 from paulimer import DensePauli
 from paulimer import PauliGroup
 
-from qdk.ec._analysis.propagation.pauli import Pauli, PauliEnumerator, identity
+from qdk.ec._analysis.propagation.pauli import Pauli, identity
 from qdk.ec._analysis.stabilizer_code import StabilizerCode
 from ec_tests.testing import code_catalog
 from ec_tests.algebra.test_subsystem_codes import (
@@ -11,26 +11,6 @@ from ec_tests.algebra.test_subsystem_codes import (
     assert_consistency_of,
     assert_valid_logical_basis,
 )
-
-
-def assert_lookup_decoder_distance(
-    code: StabilizerCode, distance: int, qubit_errors: str = "XYZ"
-) -> None:
-    return
-    if not set(qubit_errors) <= set("XYZ") or len(qubit_errors) == 0:
-        raise ValueError("invalid error type.")
-    maximum_weight = (distance - 1) // 2
-    errors = list(
-        PauliEnumerator(code.support, characters=qubit_errors).up_to_weight(
-            maximum_weight
-        )
-    )
-    decoder = BasicLookupDecoder.from_code(code, errors=errors)  # type: ignore[name-defined]  # TODO: BasicLookupDecoder import is commented out; this helper is broken
-    for error in errors:
-        syndrome = code.syndrome_of(error)
-        error *= decoder(syndrome)
-        assert code.is_trivial_error(error)
-
 
 reed_muller_codes = [
     code_catalog.make_quantum_reed_muller_code(
@@ -94,11 +74,6 @@ def test_five_qubit_code_and_logical_op() -> None:
     assert code_.logical_qubit_count == 1
 
 
-def test_five_qubit_code_look_up_decoder() -> None:
-    code = code_catalog.make_five_qubit_code()
-    assert_lookup_decoder_distance(code, 3)
-
-
 def test_shor_code() -> None:
     code = code_catalog.make_shor_code()
     expected_generators = [
@@ -130,11 +105,6 @@ def test_shor_code_and_logical_op() -> None:
     assert code_.logical_qubit_count == 1
 
 
-def test_shor_code_look_up_decoder() -> None:
-    code = code_catalog.make_shor_code()
-    assert_lookup_decoder_distance(code, 3)
-
-
 def test_steane_code() -> None:
     code = code_catalog.make_steane_code()
     assert code.length == 7
@@ -153,11 +123,6 @@ def test_steane_code_and_logical_op() -> None:
     assert PauliGroup(code_.stabilizers) == PauliGroup(code.stabilizers)
     assert code_.length == 7
     assert code_.logical_qubit_count == 1
-
-
-def test_steane_code_look_up_decoder() -> None:
-    code = code_catalog.make_steane_code()
-    assert_lookup_decoder_distance(code, 3)
 
 
 steane_generator_strings = [
@@ -237,12 +202,6 @@ def test_repetition_code() -> None:
         assert code.logical_qubit_count == 1
 
 
-def test_repetition_code_look_up_decoder() -> None:
-    for distance in range(3, 6):
-        code = code_catalog.make_repetition_code(distance)
-        assert_lookup_decoder_distance(code, distance, qubit_errors="Z")
-
-
 def test_hamming_code() -> None:
     for number_of_checks in range(3, 7):
         code = code_catalog.make_quantum_hamming_code(number_of_checks)
@@ -251,12 +210,6 @@ def test_hamming_code() -> None:
             code.logical_qubit_count
             == pow(2, number_of_checks) - 1 - 2 * number_of_checks
         )
-
-
-def test_hamming_code_look_up_decoder() -> None:
-    for number_of_checks in range(3, 7):
-        code = code_catalog.make_quantum_hamming_code(number_of_checks)
-        assert_lookup_decoder_distance(code, 3)
 
 
 def expected_classical_reed_muller_code_dimension(
@@ -320,7 +273,6 @@ def test_quantum_golay_codes() -> None:
     code = code_catalog.make_quantum_golay_code()
     assert code.length == 23
     assert code.logical_qubit_count == 1
-    assert_lookup_decoder_distance(code, 7)
 
 
 def test_color_code_832() -> None:

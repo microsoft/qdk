@@ -5,11 +5,11 @@ from hypothesis import given, strategies, settings
 from multiset import Multiset
 from qdk.ec._analysis.propagation.pauli import (
     Pauli,
-    PauliEnumerator,
     characters_of,
 )
 from qdk.ec._analysis.separable_code import SeparableCode
 from qdk.ec._analysis.stabilizer_code import StabilizerCode
+from ec_tests.testing.pauli_enumeration import PauliEnumerator
 from ec_tests.algebra.test_stabilizer_codes import stabilizer_codes as _stabilizer_codes
 
 

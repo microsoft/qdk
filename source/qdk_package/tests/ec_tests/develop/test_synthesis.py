@@ -13,7 +13,6 @@ import qodec as qc
 
 from ec_tests.testing import code_catalog as catalog
 from ec_tests.testing.qodecs import c4
-import qdk.ec as ec
 from qdk.ec import _audit
 from qdk.ec import _distance as distance
 from qdk.ec._analysis import channel_action as action

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from itertools import compress
 from typing import Iterable, Sequence
 
 import binar
@@ -14,24 +13,6 @@ from .pauli import Pauli
 
 def is_stabilizer_group(group: PauliGroup) -> bool:
     return group.is_abelian and 2 not in group.phases
-
-
-def subgroup_of(
-    group: PauliGroup, *, indicated_by: Iterable[Iterable[int]]
-) -> PauliGroup:
-    if len(group.generators) == 0:
-        return group
-    return PauliGroup(
-        element_of(group, indicated_by=[bool(value) for value in indicator])
-        for indicator in indicated_by
-    )
-
-
-def element_of(group: PauliGroup, indicated_by: Iterable[bool]) -> Pauli:
-    element = Pauli.identity()
-    for generator in compress(group.generators, indicated_by):
-        element = element * generator
-    return element
 
 
 def restriction_indicator_basis_of(
@@ -73,9 +54,7 @@ def rank_extension_of(rows: Sequence[Sequence[int]]) -> Sequence[Sequence[int]]:
 
 
 __all__ = [
-    "element_of",
     "is_stabilizer_group",
     "rank_extension_of",
     "restriction_indicator_basis_of",
-    "subgroup_of",
 ]

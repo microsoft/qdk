@@ -11,7 +11,6 @@ from qdk.ec._references import (
     LogicalSign,
     Outcome,
     StabilizerSign,
-    logical_signs_of,
     outcome_equation,
     outcomes_of,
     parse_equation,
@@ -78,8 +77,6 @@ def test_sign_selectors_filter_by_side() -> None:
     assert stabilizer_signs_of(equation, side="in") == [StabilizerSign("in", 0, 2)]
     assert stabilizer_signs_of(equation, side="out") == [StabilizerSign("out", 1, 0)]
     assert len(stabilizer_signs_of(equation)) == 2
-    assert logical_signs_of(equation, side="in") == [LogicalSign("in", 0, "z", 1)]
-    assert logical_signs_of(equation, side="out") == []
 
 
 def test_sign_keys_are_side_independent() -> None:
