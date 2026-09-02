@@ -173,22 +173,22 @@ fn peek_loss_with_negative_readout_noise_in_radians_yields_errors() {
     check(
         "PEEK_LOSS(-0.1rad) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.UnexpectedRadians
+            Qdk.Stim.Compiler.UnexpectedRadians
 
-          x argument for PEEK_LOSS cannot be specified in radians
-           ,----
-         1 | PEEK_LOSS(-0.1rad) 0
-           :           ^^^^^^^
-           `----
+              x argument for PEEK_LOSS cannot be specified in radians
+               ,----
+             1 | PEEK_LOSS(-0.1rad) 0
+               :           ^^^^^^^
+               `----
 
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for PEEK_LOSS must be between 0 and 1; found -0.1
-           ,----
-         1 | PEEK_LOSS(-0.1rad) 0
-           : ^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for PEEK_LOSS must be between 0 and 1; found -0.1
+               ,----
+             1 | PEEK_LOSS(-0.1rad) 0
+               :           ^^^^^^^
+               `----
+        "#]],
     );
 }
 
