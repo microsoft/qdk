@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
+#![allow(clippy::too_many_lines)]
+
 use crate::tests::{get_rir_program_with_adaptive_profile, get_rir_program_with_capabilities};
 
 use super::{assert_block_instructions, assert_blocks, assert_callable, get_rir_program};
