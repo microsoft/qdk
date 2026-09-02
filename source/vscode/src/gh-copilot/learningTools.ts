@@ -6,6 +6,7 @@ import {
   LearningService,
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
+  isNotebookCourse,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
   type CurrentActivity,
@@ -326,17 +327,13 @@ export class LearningTools {
    */
   async resetExercise(): Promise<StateSnapshot> {
     await this.ensureInitialized();
-    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
-      // For notebook courses the cell the user means is the one selected in
-      // the editor, which is also what serializeState reports. Clicking a cell
-      // doesn't move the stored position, so sync it before resetting —
-      // otherwise the service would restore whichever cell the position
-      // happens to point at.
-      await this.syncNotebookPosition();
-      await this.service.resetExercise("chat");
+      // Resolve the target from the editor — the selected cell for notebook
+      // courses — rather than the stored position, matching hint/solution.
+      const state = this.serializeState(true);
+      await this.service.resetExerciseAt(state.position.location, "chat");
       await this.showActivity();
-      return { state: this.serializeState(false) }; // Q# only
+      return { state: this.serializeState(true) };
     });
   }
 
@@ -350,9 +347,9 @@ export class LearningTools {
   confirmReset(): vscode.PreparedToolInvocation | undefined {
     const confirmation: vscode.PreparedToolInvocation = {
       confirmationMessages: {
-        title: "Reset Exercise",
+        title: "Reset Activity",
         message:
-          "Reset the current exercise to the original placeholder? Your code will be lost.",
+          "Reset the current activity to its starter code? Your code will be lost.",
       },
     };
 
@@ -408,7 +405,7 @@ export class LearningTools {
         await this.showActivity();
       }
 
-      return { unitId, unitTitle, state: this.serializeState() };
+      return { unitId, unitTitle, state: this.serializeState(false) };
     });
   }
 
@@ -464,28 +461,6 @@ export class LearningTools {
 
   private async showActivity(): Promise<void> {
     await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
-  }
-
-  /**
-   * Move the stored position to the cell selected in the active notebook
-   * editor, so the reset targets the cell the learner is looking at. Throws
-   * when the selected cell isn't an activity.
-   */
-  private async syncNotebookPosition(): Promise<void> {
-    if (!isNotebookCourse(this.service.getActiveCourseInfo())) {
-      return;
-    }
-    const cellId = this.selectedNotebookCellId();
-    if (cellId === undefined) {
-      return;
-    }
-
-    if (!(await this.service.goToActivityByCellId(cellId, "chat"))) {
-      throw new CopilotToolError(
-        "The selected cell isn't an exercise or code cell, so there's nothing to reset. " +
-          "Select the cell to reset, or reset the whole unit instead.",
-      );
-    }
   }
 
   /**
