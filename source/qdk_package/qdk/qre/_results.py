@@ -9,9 +9,9 @@ from typing import Any, Callable, Iterable, Optional
 import pandas as pd
 
 from ._architecture import ISAContext
-from ._dollar_cost import DollarCostModel, DollarCostModelFromSpec
 from ._instruction import InstructionSource
 from ._qre import EstimationResult, FactoryResult, instruction_name, property_name
+from .dollar_cost import DollarCostModel, DollarCostModelFromSpec
 from .property_keys import (
     PHYSICAL_COMPUTE_QUBITS,
     PHYSICAL_FACTORY_QUBITS,
