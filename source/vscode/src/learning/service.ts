@@ -950,30 +950,53 @@ export class LearningService {
    * current cell.
    */
   async resetExercise(source?: TelemetrySource): Promise<void> {
-    const course = this.activeCourse;
+    await this.resetExerciseAt(
+      this.requireWorkspace().progressData.position,
+      source,
+    );
+  }
+
+  /**
+   * Reset the exercise at {@link location} and clear its completion — one
+   * `.qs` file for Q# courses, or one cell for notebook courses. Lets
+   * editor-aware callers target the selected cell rather than the stored
+   * position, mirroring {@link getHintContext} and {@link getAllSolutions}.
+   */
+  async resetExerciseAt(
+    location: ActivityLocation,
+    source?: TelemetrySource,
+  ): Promise<void> {
+    const ws = this.requireWorkspace();
+    const course = this.requireCourse(ws, location.courseId);
+
     if (isNotebookCourse(course)) {
-      const cellId = this.getCurrentExerciseCellId();
-      if (!cellId) {
+      const unit = this.findCourseUnit(course, location.unitId);
+      const activity = unit.activities.find(
+        (a) => a.id === location.activityId,
+      );
+      if (
+        !activity ||
+        (activity.type !== "exercise" && activity.type !== "code-cell")
+      ) {
         throw new Error("The current activity has no code cell to reset.");
       }
-      const unit = this.findCourseUnit(course, this.position.unitId);
-      const restored = await restoreUnitWorkbookCell(unit, cellId);
+      const restored = await restoreUnitWorkbookCell(unit, location.activityId);
       if (!restored) {
         throw new Error(
-          "Could not restore this exercise cell. Reset the whole unit instead.",
+          "Could not restore this cell. Reset the whole unit instead.",
         );
       }
-      this.markIncomplete(this.requireWorkspace().progressData.position);
+      this.markIncomplete(location);
       await this.saveProgress();
       this._onDidChangeState.fire(this.getState());
       if (source) {
-        this.sendActivityActionTelemetry("reset", source);
+        this.sendActivityActionTelemetry("reset", source, activity.type);
       }
       return;
     }
 
-    const exercise = this.resolveExercise();
-    const uri = this.getExerciseFileUri();
+    const exercise = this.resolveExerciseAt(location);
+    const uri = this.exerciseFileUri(location.unitId, exercise.id);
     // Save any unsaved edits first so the editor is clean, then overwrite
     // the file on disk. The editor will pick up the change automatically
     // because it's no longer dirty.
@@ -982,11 +1005,11 @@ export class LearningService {
       uri,
       new TextEncoder().encode(exercise.placeholderCode),
     );
-    this.markIncomplete(this.requireWorkspace().progressData.position);
+    this.markIncomplete(location);
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     if (source) {
-      this.sendActivityActionTelemetry("reset", source);
+      this.sendActivityActionTelemetry("reset", source, exercise.type);
     }
   }
 
@@ -1204,8 +1227,9 @@ export class LearningService {
       | "reset"
       | "reset-unit",
     source: TelemetrySource,
+    activityType: CatalogActivity["type"] = this.findCurrentActivity().activity
+      .type,
   ): void {
-    const activityType = this.findCurrentActivity().activity.type;
     sendTelemetryEvent(
       EventType.LearningActivityAction,
       { action, activityType, source },
