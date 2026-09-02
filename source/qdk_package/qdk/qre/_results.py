@@ -4,17 +4,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Optional, Callable, Any, Iterable
+from typing import Any, Callable, Iterable, Optional
 
 import pandas as pd
 
 from ._architecture import ISAContext
-from ._qre import FactoryResult, instruction_name, EstimationResult, property_name
+from ._dollar_cost import DollarCostModel, DollarCostModelFromSpec
 from ._instruction import InstructionSource
+from ._qre import EstimationResult, FactoryResult, instruction_name, property_name
 from .property_keys import (
     PHYSICAL_COMPUTE_QUBITS,
-    PHYSICAL_MEMORY_QUBITS,
     PHYSICAL_FACTORY_QUBITS,
+    PHYSICAL_MEMORY_QUBITS,
 )
 
 
@@ -177,6 +178,27 @@ class EstimationTable(list["EstimationTableEntry"]):
             object: A ``matplotlib.figure.Figure`` containing the plot.
         """
         return plot_estimates(self, **kwargs)
+
+    def add_cost_column(
+        self, *, cost_model: DollarCostModel | None = None, cost_spec_path: str = ""
+    ):
+        """Adds "USD cost" column to the table.
+
+        Args:
+            cost_model: object used to compute quantum application cost.
+            cost_spec (str): Path to JSON specification used to compute costs.
+        """
+        if cost_spec_path != "":
+            self.add_cost_column(cost_model=DollarCostModelFromSpec(cost_spec_path))
+        elif cost_model is not None:
+            self.add_column(
+                "USD cost",
+                lambda entry: cost_model.cost_usd(
+                    qubits=entry.qubits, runtime_nanos=entry.runtime
+                ),
+            )
+        else:
+            raise ValueError("Must specify cost_model or cost_spec")
 
 
 @dataclass(frozen=True, slots=True)
