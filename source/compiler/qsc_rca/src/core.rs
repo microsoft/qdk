@@ -197,7 +197,25 @@ impl<'a> Analyzer<'a> {
         // If we are within a dynamic scope, the compute kind of the assign index expression must be variable and an additional
         // runtime feature is used to mark the array itself as dynamic.
         let (is_dynamic_array, key) = if application_instance.active_dynamic_scopes.is_empty() {
-            (false, (None, None))
+            if replacement_value_compute_kind.is_variable_value_kind()
+                && self
+                    .target_capabilities
+                    .contains(TargetCapabilityFlags::StaticSizedArrays)
+            {
+                let key = match self.get_current_context() {
+                    AnalysisContext::TopLevel(_) => (None, None),
+                    AnalysisContext::Item(item_context) => (
+                        Some(item_context.id),
+                        item_context
+                            .current_spec_context
+                            .as_ref()
+                            .map(|s| s.functor_set_value),
+                    ),
+                };
+                (true, key)
+            } else {
+                (false, (None, None))
+            }
         } else {
             default_value_kind = ValueKind::Variable;
             replacement_value_compute_kind.aggregate(ComputeKind::Dynamic {

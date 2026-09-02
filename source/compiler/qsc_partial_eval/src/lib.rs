@@ -2785,6 +2785,12 @@ impl<'a> PartialEvaluator<'a> {
             let Ty::Array(array_elem_ty) = array_ty else {
                 panic!("expected array type in index expression");
             };
+            if !matches!(index_value, Value::Var(_) | Value::Int(_)) {
+                return Err(Error::Unexpected(
+                    "index is not an integer".to_string(),
+                    self.get_expr_package_span(index_expr_id),
+                ));
+            }
             let index_operand = self.map_eval_value_to_rir_operand(&index_value);
             let Ok(rir::Ty::Prim(elem_rir_prim_ty)) = map_fir_type_to_rir_type(array_elem_ty)
             else {

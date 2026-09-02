@@ -1224,26 +1224,33 @@ fn rotation_call_within_a_while_loop_over_dynamic_array() {
             blocks:
                 Block 0: Block:
                     Call id(1), args( Pointer, )
+                    Variable(0, Array(3, Double)) = StoreArray [Double(0), Double(1), Double(2)]
                     Call id(2), args( Qubit(0), Result(0), )
-                    Variable(0, Boolean) = Call id(3), args( Result(0), )
-                    Variable(1, Boolean) = Store Variable(0, Boolean)
-                    Branch Variable(1, Boolean), 2, 3
+                    Variable(1, Boolean) = Call id(3), args( Result(0), )
+                    Variable(2, Boolean) = Store Variable(1, Boolean)
+                    Branch Variable(2, Boolean), 2, 3
                 Block 1: Block:
-                    Variable(3, Integer) = Store Integer(0)
-                    Call id(4), args( Double(0), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(1)
-                    Call id(4), args( Variable(2, Double), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(2)
-                    Call id(4), args( Double(2), Qubit(0), )
-                    Variable(3, Integer) = Store Integer(3)
-                    Call id(5), args( Integer(0), Tag(0, 3), )
-                    Return Integer(0)
+                    StoreIndex Variable(3, Double), Integer(1), Variable(0, Array(3, Double))
+                    Variable(4, Integer) = Store Integer(0)
+                    Jump(4)
                 Block 2: Block:
-                    Variable(2, Double) = Store Double(1.5)
+                    Variable(3, Double) = Store Double(1.5)
                     Jump(1)
                 Block 3: Block:
-                    Variable(2, Double) = Store Double(1)
+                    Variable(3, Double) = Store Double(1)
                     Jump(1)
+                Block 4: Block:
+                    Variable(5, Boolean) = Icmp Slt, Variable(4, Integer), Integer(3)
+                    Branch Variable(5, Boolean), 6, 5
+                Block 5: Block:
+                    Call id(5), args( Integer(0), Tag(0, 3), )
+                    Return Integer(0)
+                Block 6: Block:
+                    Variable(6, Double) = Index Variable(0, Array(3, Double)), Variable(4, Integer)
+                    Call id(4), args( Variable(6, Double), Qubit(0), )
+                    Variable(7, Integer) = Add Variable(4, Integer), Integer(1)
+                    Variable(4, Integer) = Store Variable(7, Integer)
+                    Jump(4)
             config: Config:
                 capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
             num_qubits: 1
