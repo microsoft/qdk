@@ -61,6 +61,35 @@ fn output_records_to_pylist(py: Python<'_>, output: Vec<Vec<OutputRecord>>) -> P
         .into_py_any(py)
 }
 
+fn run_shared_execution_full_state_shots(
+    prepared_program: &PreparedAdaptiveProgram<u64>,
+    shots: u32,
+    seed: Option<u32>,
+) -> PyResult<Vec<Vec<OutputRecord>>> {
+    let noise: CumulativeNoiseConfig = noise_config::NoiseConfig::NOISELESS.into();
+    let noise = Arc::new(noise);
+    let num_qubits = prepared_program.program().num_qubits as usize;
+    let num_results = prepared_program.program().num_results as usize;
+
+    let mut rng = if let Some(seed) = seed {
+        StdRng::seed_from_u64(seed.into())
+    } else {
+        StdRng::from_rng(&mut rand::rng())
+    };
+
+    (0..shots)
+        .map(|_| rng.random())
+        .collect::<Vec<u32>>()
+        .par_iter()
+        .map(|shot_seed| {
+            let mut simulator =
+                FullStateSimulator::new(num_qubits, num_results, *shot_seed, noise.clone());
+            run_prepared_shot(prepared_program, &mut simulator)
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| PyValueError::new_err(error.to_string()))
+}
+
 #[pyfunction]
 pub fn run_clifford<'py>(
     py: Python<'py>,
@@ -318,6 +347,25 @@ pub fn run_cpu_adaptive<'py>(
     output_records_to_pylist(py, output)
 }
 
+/// Runs the public MPS contract through a full-state placeholder.
+///
+/// This does not provide MPS or NVIDIA execution. It exists only to solidify
+/// the public contract before a real region consumer is integrated.
+#[pyfunction]
+pub(crate) fn run_mps_full_state_placeholder<'py>(
+    py: Python<'py>,
+    input: &Bound<'py, PyDict>,
+    shots: u32,
+    seed: Option<u32>,
+) -> PyResult<Py<PyAny>> {
+    let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
+    let prepared_program = PreparedAdaptiveProgram::new(program)
+        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let output = run_shared_execution_full_state_shots(&prepared_program, shots, seed)?;
+
+    output_records_to_pylist(py, output)
+}
+
 /// Diagnostic probe for Base-profile QIR lowered to Adaptive bytecode.
 #[pyfunction]
 pub(crate) fn _shared_execution_base_profile_probe<'py>(
@@ -330,29 +378,7 @@ pub(crate) fn _shared_execution_base_profile_probe<'py>(
     let prepared_program = PreparedAdaptiveProgram::new(program)
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
     let region_count = prepared_program.regions().len();
-
-    let noise: CumulativeNoiseConfig = noise_config::NoiseConfig::NOISELESS.into();
-    let noise = Arc::new(noise);
-    let num_qubits = prepared_program.program().num_qubits as usize;
-    let num_results = prepared_program.program().num_results as usize;
-
-    let mut rng = if let Some(seed) = seed {
-        StdRng::seed_from_u64(seed.into())
-    } else {
-        StdRng::from_rng(&mut rand::rng())
-    };
-
-    let output = (0..shots)
-        .map(|_| rng.random())
-        .collect::<Vec<u32>>()
-        .par_iter()
-        .map(|shot_seed| {
-            let mut simulator =
-                FullStateSimulator::new(num_qubits, num_results, *shot_seed, noise.clone());
-            run_prepared_shot(&prepared_program, &mut simulator)
-        })
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|error| PyValueError::new_err(error.to_string()))?;
+    let output = run_shared_execution_full_state_shots(&prepared_program, shots, seed)?;
 
     Ok((output_records_to_pylist(py, output)?, region_count))
 }

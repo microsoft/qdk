@@ -1178,6 +1178,19 @@ def run_cpu_adaptive(
     """
     ...
 
+def run_mps_full_state_placeholder(
+    input: dict,
+    shots: int,
+    seed: Optional[int] = None,
+) -> List[List[object]]:
+    """
+    Run the public MPS contract through a CPU full-state placeholder.
+
+    This function does not provide MPS or NVIDIA execution. The input is an
+    `AdaptiveProgram` converted to a dict using the .as_dict() method.
+    """
+    ...
+
 def run_clifford_adaptive(
     input: dict,
     shots: int,

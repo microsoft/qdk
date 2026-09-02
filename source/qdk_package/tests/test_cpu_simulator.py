@@ -3,7 +3,7 @@
 
 from collections import Counter
 from pathlib import Path
-from typing import Sequence, cast
+from typing import Any, Sequence, cast
 import math
 import random
 
@@ -15,7 +15,7 @@ from qdk import qsharp
 from qdk import TargetProfile
 from qdk import openqasm
 
-from qdk.simulation import NoiseConfig
+from qdk.simulation import MpsOptions, NoiseConfig, run_qir
 from qdk.simulation._simulation import (
     _shared_execution_base_profile_probe,
     run_qir_cpu,
@@ -69,6 +69,50 @@ declare void @__quantum__qis__x__body(%Qubit*)
 declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
 declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
 declare void @__quantum__rt__tuple_record_output(i64, i8*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
+"""
+
+
+NO_OUTPUT_RECORDING_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    ret void
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="2" }
+"""
+
+
+BELL_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__h__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__cx__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Qubit* inttoptr (i64 1 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 1 to %Qubit*), %Result* inttoptr (i64 1 to %Result*))
+    call void @__quantum__rt__array_record_output(i64 2, i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 1 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__h__body(%Qubit*)
+declare void @__quantum__qis__cx__body(%Qubit*, %Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__array_record_output(i64, i8*)
 declare void @__quantum__rt__result_record_output(%Result*, i8*)
 
 attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
@@ -169,6 +213,152 @@ def test_shared_execution_base_profile_probe_rejects_unsupported_opcodes(
         match=rf"unsupported adaptive opcode 0x{opcode} at instruction 0",
     ):
         _shared_execution_base_profile_probe(qir, shots=1, seed=42)
+
+
+def test_mps_options_is_publicly_exported():
+    assert MpsOptions().device is None
+    assert MpsOptions(device="nvidia").device == "nvidia"
+
+
+def test_mps_full_state_placeholder_preserves_ordered_results_across_shots():
+    shots = 8
+    expected = run_qir(ORDERED_RESULTS_BASE_QIR, shots=shots, seed=42, type="cpu")
+    actual = run_qir(
+        ORDERED_RESULTS_BASE_QIR,
+        shots=shots,
+        seed=42,
+        type="mps",
+        mps_options=MpsOptions(device="nvidia"),
+    )
+
+    assert actual == expected == [(Result.One, Result.Zero)] * shots
+
+
+def test_mps_full_state_placeholder_reports_all_results_without_output_recording():
+    expected = run_qir(
+        NO_OUTPUT_RECORDING_BASE_QIR,
+        shots=1,
+        seed=42,
+        type="cpu",
+    )
+    actual = run_qir(
+        NO_OUTPUT_RECORDING_BASE_QIR,
+        shots=1,
+        seed=42,
+        type="mps",
+    )
+
+    assert actual == expected == ["10"]
+
+
+def test_mps_full_state_placeholder_seeded_bell_shots_are_reproducible_and_varied():
+    first = run_qir(BELL_BASE_QIR, shots=100, seed=42, type="mps")
+    second = run_qir(BELL_BASE_QIR, shots=100, seed=42, type="mps")
+
+    assert first == second
+    assert len({tuple(outcome) for outcome in first}) > 1
+    assert all(
+        outcome in ([Result.Zero, Result.Zero], [Result.One, Result.One])
+        for outcome in first
+    )
+
+
+def test_mps_full_state_placeholder_rejects_noise():
+    with pytest.raises(ValueError, match='Noise is not supported for type="mps"'):
+        run_qir(
+            SINGLE_MEASUREMENT_BASE_QIR,
+            noise=NoiseConfig(),
+            type="mps",
+        )
+
+
+def test_mps_full_state_placeholder_rejects_adaptive_profile():
+    qir = SINGLE_MEASUREMENT_BASE_QIR.replace(
+        '"qir_profiles"="base_profile"',
+        '"qir_profiles"="adaptive_profile"',
+    )
+
+    with pytest.raises(ValueError, match="requires Base-profile QIR"):
+        run_qir(qir, type="mps")
+
+
+def test_mps_full_state_placeholder_rejects_non_base_profile():
+    qir = SINGLE_MEASUREMENT_BASE_QIR.replace(
+        '"qir_profiles"="base_profile"',
+        '"qir_profiles"="custom_profile"',
+    )
+
+    with pytest.raises(ValueError, match="requires Base-profile QIR"):
+        run_qir(qir, type="mps")
+
+
+@pytest.mark.parametrize(
+    "opcode,instruction,declaration",
+    [
+        (
+            "16",
+            "call void @__quantum__qis__peek_loss__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))",
+            "declare void @__quantum__qis__peek_loss__body(%Qubit*, %Result*)",
+        ),
+        (
+            "17",
+            "call void @__quantum__rt__readout_noise(double 0.0, double 0.0, %Result* inttoptr (i64 0 to %Result*))",
+            "declare void @__quantum__rt__readout_noise(double, double, %Result*)",
+        ),
+    ],
+    ids=["OP_PEEK_LOSS_0x16", "OP_READOUT_NOISE_0x17"],
+)
+def test_mps_full_state_placeholder_rejects_unsupported_shared_execution_opcode(
+    opcode: str, instruction: str, declaration: str
+):
+    qir = UNSUPPORTED_SHARED_EXECUTION_QIR.replace(
+        "{instruction}", instruction
+    ).replace(
+        "{declaration}", declaration
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=rf"unsupported adaptive opcode 0x{opcode} at instruction 0",
+    ):
+        run_qir(qir, type="mps")
+
+
+@pytest.mark.parametrize("device", ["cpu", "amd"])
+def test_mps_full_state_placeholder_rejects_unsupported_devices(device: str):
+    options = MpsOptions(device=cast(Any, device))
+
+    with pytest.raises(ValueError, match="Unsupported MPS device"):
+        run_qir(
+            SINGLE_MEASUREMENT_BASE_QIR,
+            type="mps",
+            mps_options=options,
+        )
+
+
+def test_run_qir_rejects_mps_options_for_non_mps_type():
+    with pytest.raises(ValueError, match="mps_options can only be used"):
+        run_qir(
+            SINGLE_MEASUREMENT_BASE_QIR,
+            type="cpu",
+            mps_options=MpsOptions(),
+        )
+
+
+def test_run_qir_rejects_dict_mps_options():
+    with pytest.raises(TypeError, match="mps_options must be an MpsOptions"):
+        run_qir(
+            SINGLE_MEASUREMENT_BASE_QIR,
+            type="mps",
+            mps_options=cast(Any, {"device": "nvidia"}),
+        )
+
+
+def test_run_qir_existing_cpu_positional_behavior_is_unchanged():
+    expected = run_qir_cpu(ORDERED_RESULTS_BASE_QIR, 4, None, 42)
+    actual = run_qir(ORDERED_RESULTS_BASE_QIR, 4, None, 42, "cpu")
+
+    assert actual == expected == [(Result.One, Result.Zero)] * 4
 
 
 def test_cpu_seeding_no_noise():

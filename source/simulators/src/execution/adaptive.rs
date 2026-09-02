@@ -140,6 +140,7 @@ where
 pub struct PreparedAdaptiveProgram<Word: Unsigned> {
     program: AdaptiveProgram<Word>,
     regions: Box<[RegionSite]>,
+    has_output_recording: bool,
 }
 
 impl<Word> PreparedAdaptiveProgram<Word>
@@ -148,7 +149,15 @@ where
 {
     pub fn new(program: AdaptiveProgram<Word>) -> Result<Self, RegionPartitionError> {
         let regions = partition_unitary_regions(&program)?.into_boxed_slice();
-        Ok(Self { program, regions })
+        let has_output_recording = program
+            .instructions
+            .iter()
+            .any(|instruction| instruction.opcode.into() & 0xFF == u64::from(OP_RECORD_OUTPUT));
+        Ok(Self {
+            program,
+            regions,
+            has_output_recording,
+        })
     }
 
     #[must_use]
@@ -277,7 +286,15 @@ impl<'program> AdaptiveExecution<'program> {
             match instruction.primary_opcode() {
                 OP_RET => {
                     self.state = AdaptiveExecutionState::Complete;
-                    return Ok(AdaptiveCommand::Complete(std::mem::take(&mut self.records)));
+                    let records = if self.prepared_program.has_output_recording {
+                        std::mem::take(&mut self.records)
+                    } else {
+                        std::mem::take(&mut self.measurements)
+                            .into_iter()
+                            .map(OutputRecord::Result)
+                            .collect()
+                    };
+                    return Ok(AdaptiveCommand::Complete(records));
                 }
                 OP_JUMP => self.jump(instruction.dst),
                 OP_BRANCH => {

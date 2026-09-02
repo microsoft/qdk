@@ -159,6 +159,40 @@ fn measure_then_branch_program() -> AdaptiveProgram<u64> {
     program
 }
 
+fn measure_without_output_program() -> AdaptiveProgram<u64> {
+    const IMMEDIATE_AUX1: u64 = 1 << 20;
+    const IMMEDIATE_AUX2: u64 = 1 << 21;
+
+    let mut program = adaptive_program(
+        vec![
+            Instruction {
+                opcode: OP_QUANTUM_GATE | IMMEDIATE_AUX1,
+                aux0: 0,
+                aux1: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x11 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+                aux0: 1,
+                aux1: 0,
+                aux2: 1,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x02,
+                ..Instruction::default()
+            },
+        ],
+        vec![Block {
+            instr_offset: 0,
+            instr_count: 3,
+        }],
+        vec![operation(5), operation(21)],
+    );
+    program.num_results = 3;
+    program
+}
+
 fn unsupported_instruction_program() -> AdaptiveProgram<u64> {
     adaptive_program(
         vec![instruction(0x20, 0)],
@@ -198,6 +232,7 @@ struct TestExecutionReport {
 struct FailingTestConsumer {
     failure: Option<TestConsumerFailure>,
     close_failure: bool,
+    measurement_result: MeasurementResult,
     region_count: usize,
     closed: bool,
 }
@@ -207,9 +242,15 @@ impl FailingTestConsumer {
         Self {
             failure,
             close_failure,
+            measurement_result: MeasurementResult::Zero,
             region_count: 0,
             closed: false,
         }
+    }
+
+    fn with_measurement_result(mut self, measurement_result: MeasurementResult) -> Self {
+        self.measurement_result = measurement_result;
+        self
     }
 }
 
@@ -243,7 +284,7 @@ impl RegionConsumer for FailingTestConsumer {
         if self.failure == Some(TestConsumerFailure::Measure) {
             return Err(TestConsumerFailure::Measure);
         }
-        Ok(MeasurementResult::Zero)
+        Ok(self.measurement_result)
     }
 
     fn finish_execution(&mut self) -> Result<Self::ExecutionReport, Self::Error> {
@@ -347,6 +388,52 @@ fn generic_driver_returns_consumer_reports() {
         &TestExecutionReport { region_count: 2 }
     );
     assert!(consumer.closed);
+}
+
+#[test]
+fn no_output_fallback_preserves_loss_and_unmeasured_result_slots() {
+    let program = PreparedAdaptiveProgram::new(measure_without_output_program())
+        .expect("measurement-only scenario should prepare");
+    let mut consumer =
+        FailingTestConsumer::new(None, false).with_measurement_result(MeasurementResult::Loss);
+
+    let output = drive_prepared_shot(&program, &mut consumer)
+        .expect("test consumer should complete the prepared shot");
+
+    assert_eq!(
+        output.records(),
+        [
+            OutputRecord::Result(MeasurementResult::Zero),
+            OutputRecord::Result(MeasurementResult::Loss),
+            OutputRecord::Result(MeasurementResult::Zero),
+        ]
+    );
+}
+
+#[test]
+fn immediate_no_output_fallback_matches_simulator_measurement_register() {
+    let program = PreparedAdaptiveProgram::new(measure_without_output_program())
+        .expect("measurement-only scenario should prepare");
+    let mut simulator = FullStateSimulator::new(2, 3, 42, Default::default());
+
+    let actual = run_prepared_shot(&program, &mut simulator)
+        .expect("supported prepared scenario should execute");
+    let expected = simulator
+        .measurements()
+        .iter()
+        .copied()
+        .map(OutputRecord::Result)
+        .collect::<Vec<_>>();
+
+    assert_eq!(actual, expected);
+    assert_eq!(
+        actual,
+        [
+            OutputRecord::Result(MeasurementResult::Zero),
+            OutputRecord::Result(MeasurementResult::One),
+            OutputRecord::Result(MeasurementResult::Zero),
+        ]
+    );
 }
 
 #[test]

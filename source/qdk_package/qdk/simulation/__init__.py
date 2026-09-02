@@ -19,8 +19,8 @@ This module exposes the core building blocks for noise-aware quantum simulation:
   its qubit operands is lost. Assign it to a noise table's ``on_loss`` attribute
   (e.g. ``noise.cx.on_loss = LossPolicy.SKIP``).
 
-- :func:`~qdk.simulation.run_qir` — simulates QIR as given in one of
-  three backend simulators: clifford, gpu or cpu.
+- :func:`~qdk.simulation.run_qir` — simulates QIR using the clifford, gpu,
+  cpu, or MPS-contract method.
 
 - :class:`~qdk.simulation.DensityMatrixSimulator` — an experimental simulator that uses
   a density-matrix to track its state.
@@ -30,7 +30,7 @@ This module exposes the core building blocks for noise-aware quantum simulation:
 """
 
 from .._device._atom import NeutralAtomDevice
-from ._simulation import NoiseConfig, LossPolicy, run_qir
+from ._simulation import LossPolicy, MpsOptions, NoiseConfig, run_qir
 from ._noisy_simulator import (
     NoisySimulatorError,
     DensityMatrixSimulator,
@@ -45,6 +45,7 @@ __all__ = [
     "NeutralAtomDevice",
     "NoiseConfig",
     "LossPolicy",
+    "MpsOptions",
     "run_qir",
     "NoisySimulatorError",
     "Operation",

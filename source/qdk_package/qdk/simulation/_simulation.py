@@ -1,6 +1,7 @@
 # Copyright (c) Microsoft Corporation.
 # Licensed under the MIT License.
 
+from dataclasses import dataclass
 from pathlib import Path
 import random
 from typing import Callable, Literal, List, Optional, Tuple, TypeAlias, Union, cast
@@ -14,6 +15,7 @@ from .._native import (
     run_adaptive_parallel_shots,
     run_cpu_adaptive,
     run_cpu_full_state,
+    run_mps_full_state_placeholder,
     NoiseConfig,
     LossPolicy,
     GpuContext,
@@ -46,6 +48,21 @@ from .._adaptive_pass import (
 
 if TYPE_CHECKING:  # This is in the pyi file only
     from .._native import GpuShotResults
+
+
+@dataclass(frozen=True)
+class MpsOptions:
+    """Options for the public MPS simulation contract.
+
+    The current implementation uses a full-state simulator placeholder to
+    solidify this contract. It does not provide MPS or NVIDIA execution.
+
+    :param device: Select ``"nvidia"`` for the future NVIDIA backend contract.
+        Omitting the device uses the same temporary full-state placeholder.
+        CPU tensor-network execution is deferred.
+    """
+
+    device: Optional[Literal["nvidia"]] = None
 
 
 class AggregateGatesPass(pyqir.QirModuleVisitor):
@@ -569,15 +586,32 @@ def preprocess_simulation_input(
     return (mod, shots, noise, seed)
 
 
-def is_adaptive(mod: Module) -> bool:
-    """Check if the QIR module uses the Adaptive Profile."""
+def _qir_profile(mod: Module) -> Optional[str]:
     entry = next(filter(pyqir.is_entry_point, mod.functions), None)
     if entry is None:
-        return False
+        return None
     func_attrs = entry.attributes.func
     if "qir_profiles" not in func_attrs:
-        return False
-    return func_attrs["qir_profiles"].string_value == "adaptive_profile"
+        return None
+    return func_attrs["qir_profiles"].string_value
+
+
+def _validate_base_profile(mod: Module) -> None:
+    errors = mod.verify()
+    if errors is not None:
+        raise ValueError(f"Module verification failed: {errors}")
+
+    profile = _qir_profile(mod)
+    if profile != "base_profile":
+        actual = profile if profile is not None else "unspecified"
+        raise ValueError(
+            f"MPS simulation requires Base-profile QIR; found profile {actual!r}"
+        )
+
+
+def is_adaptive(mod: Module) -> bool:
+    """Check if the QIR module uses the Adaptive Profile."""
+    return _qir_profile(mod) == "adaptive_profile"
 
 
 def str_to_result(result: str):
@@ -681,6 +715,37 @@ def _shared_execution_base_profile_probe(
     recorder = OutputRecordingPass()
     recorder.run(mod)
     return ([recorder.process_output(shot) for shot in records], region_count)
+
+
+def _run_qir_mps_full_state_placeholder(
+    input: Union[QirInputData, str, bytes],
+    shots: Optional[int] = 1,
+    noise: Optional[NoiseConfig] = None,
+    seed: Optional[int] = None,
+    mps_options: Optional[MpsOptions] = None,
+) -> List:
+    """Run the public MPS contract through a non-MPS full-state placeholder."""
+    if mps_options is not None and not isinstance(mps_options, MpsOptions):
+        raise TypeError("mps_options must be an MpsOptions instance")
+
+    options = mps_options if mps_options is not None else MpsOptions()
+    if options.device not in (None, "nvidia"):
+        raise ValueError(
+            f"Unsupported MPS device: {options.device!r}. "
+            'Only device="nvidia" is accepted; device="cpu" is deferred.'
+        )
+    if noise is not None:
+        raise ValueError('Noise is not supported for type="mps"')
+
+    mod, shots, _, seed = preprocess_simulation_input(input, shots, None, seed)
+    _validate_base_profile(mod)
+    DecomposeCcxPass().run(mod)
+
+    program = AdaptiveProfilePass(Bytecode.Bit64).run(mod)
+    records = run_mps_full_state_placeholder(program.as_dict(), shots, seed)
+    recorder = OutputRecordingPass()
+    recorder.run(mod)
+    return [recorder.process_output(shot) for shot in records]
 
 
 def run_qir_gpu(
@@ -813,7 +878,8 @@ def run_qir(
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
-    type: Optional[Literal["clifford", "cpu", "gpu"]] = None,
+    type: Optional[Literal["clifford", "cpu", "gpu", "mps"]] = None,
+    mps_options: Optional[MpsOptions] = None,
 ) -> List:
     """
     Simulate the given QIR source.
@@ -823,14 +889,21 @@ def run_qir(
         Use ``"clifford"`` if your QIR only contains Clifford gates and measurements.
         Use ``"gpu"`` if you have a GPU available in your system.
         Use ``"cpu"`` as a fallback option if you don't have a GPU in your system.
+        Use ``"mps"`` for the MPS entry-point contract. Its current implementation
+        is a full-state placeholder, not MPS or NVIDIA execution.
         If ``None`` (default), the GPU simulator will be tried first, falling back to
         CPU if a suitable GPU device could not be located.
     :param shots: The number of shots to run.
     :param noise: A noise model to use in the simulation.
     :param seed: A seed for reproducibility.
+    :param mps_options: Typed options for ``type="mps"``. Supplying these options
+        with any other simulator type is an error.
     :return: A list of measurement results, in the order they happened during the simulation.
     :rtype: List
     """
+    if type != "mps" and mps_options is not None:
+        raise ValueError('mps_options can only be used with type="mps"')
+
     if type is None:
         try:
             try_create_gpu_adapter()
@@ -845,5 +918,9 @@ def run_qir(
             return run_qir_cpu(input, shots, noise, seed)
         case "gpu":
             return run_qir_gpu(input, shots, noise, seed)
+        case "mps":
+            return _run_qir_mps_full_state_placeholder(
+                input, shots, noise, seed, mps_options
+            )
         case _:
             raise ValueError(f"Invalid simulator type: {type}")

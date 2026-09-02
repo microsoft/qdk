@@ -173,11 +173,28 @@ matches the existing Base CPU output across multiple shots. This route is not a
 documented API or production dispatch path and does not add backend or noise
 support.
 
+The public `run_qir(type="mps", mps_options=MpsOptions(...))` contract now
+routes noiseless Base-profile QIR through the same lowering and preparation,
+then through a separately named native entry point using
+`drive_prepared_shot` and
+`ImmediateSimulatorConsumer<FullStateSimulator>`. Preparation is shared per
+request, while simulator, RNG, measurement, and control state remain fresh per
+shot. This full-state implementation is an explicit contract-solidification
+placeholder. It is not an MPS engine, NVIDIA execution, backend completion, or
+a performance claim. The private probe remains available as a separate
+diagnostic route.
+
 ## Next Integration Iteration
 
-The next iteration is a non-production, end-to-end Base-profile integration
-through one shared control execution and two real MPS consumers. Base Profile
-is a restriction of the same control execution used for Adaptive Profile, not
+The next backend iteration is a non-production, end-to-end Base-profile
+integration through the established public/shared-control path and a real
+NVIDIA cuTensorNet MPS consumer, replacing the full-state placeholder at the
+consumer boundary. Near-term scope is NVIDIA cuTensorNet integration only. A CPU
+tensor4all-rs consumer (`Tensor4AllMpsConsumer`) is a later, not-yet-scheduled
+follow-on iteration; it is deferred and out of scope for the current work,
+though the shared control/driver design below is kept consumer-agnostic so
+that a second consumer can be added without rework. Base Profile is a
+restriction of the same control execution used for Adaptive Profile, not
 a separate tensor-network execution model. Its control program is linear: it
 does not branch on measurement results, and preparation can resolve and cache
 its immutable region definitions once for reuse across shots. Resolving a
@@ -185,6 +202,57 @@ region means decoding operation IDs, angles, qubit operands, and region
 boundaries into target-neutral `UnitaryOperation` values. It does not mean
 sharing mutable quantum state, measurement outcomes, native operator
 registrations, workspaces, or other target-specific resources between shots.
+
+This integration proceeds in four iterations, each independently evidenced
+and separately reviewed before the next begins:
+
+1. **Port the native cuTensorNet crate, unchanged.** Bring over the crate
+  from `cutensornet-rust-ffi` at its committed HEAD `2f48bd233` as a new
+  workspace member, in full -- dynamic loading, bindings, the error/result
+  layer, the qualified static execution lifecycle, and the branch-
+  continuation machinery. Porting only the Base stage (B0-B5) is
+  insufficient: `cutensornetStateCaptureMPS` arrived with branch
+  continuation and is required here, because Base runs through the Adaptive
+  lowering and measurement must return to the caller and continue. Exclude
+  the untracked, in-progress noise work (`selected_pauli.rs`). Gate the
+  member with the workspace's existing `gpu` cargo feature convention
+  (`source/simulators/src/lib.rs:7`). Also port the VM provisioning and
+  evidence scripts (`bootstrap-os.sh`, `bootstrap-rust.sh`,
+  `bootstrap-cuda.sh`, `verify-environment.sh`, `collect-evidence.sh`,
+  `rebuild-all.sh`), without which the ported code cannot be validated on
+  the A100. Evidence bar: every non-ignored test passes locally on CPU
+  against the crate's `FakeReplayApi` mock, and every `#[ignore]`-gated
+  A100 test passes on the qualified host; no drift from the source
+  worktree's committed HEAD.
+2. **Decompose the measurement primitive.** `cutensornet-rust-ffi`'s
+  qualified measurement/branch sequence exists only as a monolithic,
+  `#[cfg(test)]`-gated harness (`Session::simulate_with_branch` et al.)
+  that takes a whole circuit and a pre-forced outcome upfront, with no
+  return-to-caller point between mass computation and projection.
+  Refactor the ported crate's internals into independently callable
+  steps (compute-masses / project-given-outcome / capture-continue) and
+  expose the right visibility boundary for iteration 3 to consume.
+  Validate the decomposition reproduces the exact same qualified numbers
+  as the monolithic call.
+3. **Implement `CuTensorNetMpsConsumer: RegionConsumer`.** Wrap the
+  decomposed primitives from iteration 2 behind the trait
+  (`prepare_region`/`execute_region` on the static lifecycle, `measure()`
+  on the mass/project split, `finish_execution`/`close` for output
+  reconstruction and cleanup). Validate against the CPU oracle
+  (`ImmediateSimulatorConsumer<FullStateSimulator>`) purely through the
+  trait; no `run_qir` wiring yet.
+4. **Wire into `run_qir(type="mps", device="nvidia")`, end-to-end.** Real
+  Base-profile QIR through the real entry point on an actual NVIDIA host.
+  Retained evidence: (a) deterministic Base fixtures match
+  `run_qir(type="cpu")` exactly, per shot, with no tolerance; (b) stochastic
+  fixtures reproduce exactly under a fixed seed on the same backend, and agree
+  with CPU distributionally within a stated tolerance at a stated shot count;
+  (c) elapsed time at no fewer than two operating points, with shot count
+  varied across them.
+
+Only iteration 1 requires fresh approval beyond this iteration's own
+(new native/GPU-gated dependency in the workspace); iterations 2-4 build
+on that approved boundary.
 
 Caching resolved region content is one optimization this structure enables; a
 further one is available but not yet implemented. When a prepared program has
@@ -226,33 +294,46 @@ flowchart TB
     Prepared --> Execution[Control execution<br/>one mutable instance per shot]
     Execution <-->|Execution commands and responses| Driver[QDK shot driver<br/>RNG, outputs, errors, completion]
 
-    Driver --> CpuConsumer[Tensor4AllMpsConsumer]
     Driver --> NvidiaConsumer[CuTensorNetMpsConsumer]
-    CpuConsumer --> Tensor4All[tensor4all-rs<br/>CPU]
     NvidiaConsumer --> CuTensorNet[cuTensorNet<br/>NVIDIA GPU]
 
     Driver --> Result[Existing QIR outputs<br/>optional target report]
+
+    Driver -.->|later, deferred iteration| CpuConsumer[Tensor4AllMpsConsumer]
+    CpuConsumer -.-> Tensor4All[tensor4all-rs<br/>CPU]
 ```
 
 The temporary host selection for this iteration keeps the Simulation Method
 stable and constrains the Device explicitly:
 
 ```python
-run_qir(qir, type="mps", mps_options=MpsOptions(device="cpu"))
 run_qir(qir, type="mps", mps_options=MpsOptions(device="nvidia"))
 ```
 
-`device="cpu"` resolves to tensor4all-rs and `device="nvidia"` resolves to
-cuTensorNet. Omitting `device` preserves the current CPU behavior during this
-iteration. Explicit selection never falls back silently. Engine and Device
-remain distinct internally and the execution report records both. Automatic
-selection from host capabilities or Program Requirements is future work.
+`device="nvidia"` is the accepted forward contract for the next cuTensorNet
+consumer, but it currently executes the explicitly named full-state
+placeholder; it does not yet claim NVIDIA execution. Omitting `device` uses the
+same placeholder. `device="cpu"` resolving to tensor4all-rs is deferred to the
+later follow-on iteration described below and is rejected without fallback.
+Unknown devices are also rejected. Engine and Device remain distinct
+internally. Automatic selection from host capabilities or Program Requirements
+is future work.
 
 The iteration must establish one path for target-neutral measurements,
 QDK-owned outcome sampling, consumer failures, target reports, completion, and
-cleanup. The tensor4all consumer is the first parity implementation. The
-cuTensorNet consumer retains its deferred native lifecycle; it is not forced
-through the eager `MpsEngine` trait.
+cleanup, using the cuTensorNet consumer as the first real, non-placeholder
+implementation. It is not forced through the eager `MpsEngine` trait.
+
+### Deferred Follow-On: CPU tensor4all-rs Consumer
+
+Building `Tensor4AllMpsConsumer` against tensor4all-rs (CPU) is explicitly
+out of scope for the current iteration. It is a later, not-yet-scheduled
+follow-on that reuses the same shared control execution, `RegionConsumer`
+contract, and shot driver validated by the NVIDIA cuTensorNet work. It should
+not be started until the cuTensorNet consumer is complete and a separate,
+explicit go-ahead is given for the CPU consumer. `device="cpu"` resolving to
+tensor4all-rs, and the tensor4all parity implementation itself, belong to that
+later iteration, not this one.
 
 ### Authority and Coordination
 
@@ -334,7 +415,7 @@ strategy.
 | CPU full-state      | `AdaptiveProgram<u64>` interpreted by the legacy Rust runtime; implements `Simulator`.                                           | Use `ImmediateSimulatorConsumer` first. Replace it only if region preparation provides a measured benefit.                                                                                                                              |
 | Clifford/stabilizer | Same legacy Adaptive runtime; implements `Simulator`.                                                                            | Use `ImmediateSimulatorConsumer`; preserve identical measurement, noise, and output behavior.                                                                                                                                           |
 | Adaptive GPU        | `AdaptiveProgram<u32>` and control are interpreted inside WGSL.                                                                  | A persistent GPU region consumer is possible, but host synchronization at every region or measurement may regress performance. Compare that design with retaining device-side control while sharing preparation and protocol semantics. |
-| MPS                 | Separate fallible `MpsSimulator`/`MpsEngine` API currently used by the Base-profile path.                                        | Implement a fallible consumer that translates resolved region operations into MPS operations while retaining one live MPS per shot and using the generic driver's target-neutral measurement protocol.                                 |
+| MPS                 | `run_qir(type="mps")` uses shared execution through `ImmediateSimulatorConsumer<FullStateSimulator>`, a non-MPS placeholder.     | Replace the placeholder with a fallible NVIDIA cuTensorNet consumer that retains one live MPS per shot and uses the generic driver's target-neutral measurement protocol. A CPU tensor4all consumer remains deferred.                   |
 | Sparse Q# evaluator | Executes the Q# evaluator graph through its own fallible backend and supports dynamic runtime services beyond Adaptive bytecode. | Keep the evaluator path unless a future normalization layer can preserve allocation, values, messages, dumps, custom intrinsics, and failure semantics. Region consumption may still be reusable below that control layer.              |
 
 The generic driver performs target-neutral measurement through
@@ -400,6 +481,22 @@ placement remain owned by their respective execution layers.
 
 ## Current Constraints
 
+- Public `type="mps"` execution is restricted to noiseless Base-profile QIR.
+  It accepts omitted `device` or `device="nvidia"`, but both currently use the
+  full-state contract placeholder. Unsupported devices fail without fallback.
+- The public MPS route rejects shared-control opcodes `OP_PEEK_LOSS` (`0x16`)
+  and `OP_READOUT_NOISE` (`0x17`) explicitly.
+- The shared layer prepares generically over `Word` but currently executes only
+  at `u64` (`AdaptiveExecution`, `drive_prepared_shot`, `run_prepared_shot`);
+  generalising the driver over `Word` is deferred to the consumer iteration.
+  Region consumers are word-agnostic by design — they receive
+  `QuantumEvolutionRegion`s and never see bytecode — so the legacy GPU path's
+  `Bytecode.Bit32` convention, which exists because that path executes bytecode
+  on-device, does not apply to backend routes here.
+- Shared execution detects output-recording instructions once during
+  preparation. Without them, completion returns every result-register slot in
+  index order, preserving default `Zero` values for unmeasured slots and
+  `Loss` values returned by a consumer.
 - Region preparation currently recognizes only the supported unitary operation
   subset.
 - Adaptive control currently handles the bytecode instructions exercised by
