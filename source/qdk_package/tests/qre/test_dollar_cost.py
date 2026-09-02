@@ -18,7 +18,7 @@ def test_compute_dollar_cost_from_json_spec():
     assert cost == 68.49
 
 
-def _cost_model(tmp_path: Path, **system_overrides: dict):
+def _cost_model(tmp_path: Path, **system_overrides: float):
     spec = {
         "system": {
             "name": "test",
