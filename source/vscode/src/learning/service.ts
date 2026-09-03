@@ -527,8 +527,8 @@ export class LearningService {
         return;
       }
       try {
-        const didSave = await notebook.save();
-        saved = didSave || !notebook.isDirty;
+        await notebook.save();
+        saved = !notebook.isDirty;
         if (!saved) {
           log.warn(`Could not save learning workbook ${notebook.uri.fsPath}.`);
         }
