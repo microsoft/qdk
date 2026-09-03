@@ -7,6 +7,8 @@
 mod branch;
 #[path = "library/simulation/circuit.rs"]
 mod circuit;
+#[path = "library/simulation/consumer.rs"]
+mod consumer;
 #[path = "library/simulation/error.rs"]
 mod error;
 #[path = "library/simulation/ffi.rs"]
@@ -19,6 +21,11 @@ mod query;
 mod replay;
 
 pub(super) use circuit::{Circuit, Gate, SimulationResult};
+#[allow(
+    unused_imports,
+    reason = "crate-private integration surface for the MPS shot loop"
+)]
+pub(super) use consumer::{CuTensorNetMpsConsumer, CuTensorNetSampleMatrix};
 pub(super) use error::SimulationError;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) use ffi::Complex64Abi;
