@@ -207,41 +207,41 @@ declare void @__quantum__qis__cz__body(ptr, ptr)
 
 declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-define internal void @CNOT(ptr %var_53, ptr %var_54) {
+define internal void @CNOT(ptr %var_54, ptr %var_55) {
 block_31:
-  call void @__quantum__qis__cx__body(ptr %var_53, ptr %var_54)
+  call void @__quantum__qis__cx__body(ptr %var_54, ptr %var_55)
   ret void
 }
 
 declare void @__quantum__qis__cx__body(ptr, ptr)
 
-define internal void @Rx(double %var_55, ptr %var_56) {
+define internal void @Rx(double %var_56, ptr %var_57) {
 block_32:
-  call void @__quantum__qis__rx__body(double %var_55, ptr %var_56)
+  call void @__quantum__qis__rx__body(double %var_56, ptr %var_57)
   ret void
 }
 
 declare void @__quantum__qis__rx__body(double, ptr)
 
-define internal void @Rz(double %var_57, ptr %var_58) {
+define internal void @Rz(double %var_58, ptr %var_59) {
 block_33:
-  call void @__quantum__qis__rz__body(double %var_57, ptr %var_58)
+  call void @__quantum__qis__rz__body(double %var_58, ptr %var_59)
   ret void
 }
 
 declare void @__quantum__qis__rz__body(double, ptr)
 
-define internal void @Rzz(double %var_59, ptr %var_60, ptr %var_61) {
+define internal void @Rzz(double %var_60, ptr %var_61, ptr %var_62) {
 block_34:
-  call void @__quantum__qis__rzz__body(double %var_59, ptr %var_60, ptr %var_61)
+  call void @__quantum__qis__rzz__body(double %var_60, ptr %var_61, ptr %var_62)
   ret void
 }
 
 declare void @__quantum__qis__rzz__body(double, ptr, ptr)
 
-define internal void @CNOT__Adj(ptr %var_62, ptr %var_63) {
+define internal void @CNOT__Adj(ptr %var_63, ptr %var_64) {
 block_35:
-  call void @__quantum__qis__cx__body(ptr %var_62, ptr %var_63)
+  call void @__quantum__qis__cx__body(ptr %var_63, ptr %var_64)
   ret void
 }
 
@@ -258,7 +258,7 @@ attributes #1 = { "irreversible" }
 
 ; module flags
 
-!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8}
+!llvm.module.flags = !{!0, !1, !2, !3, !4, !5, !6, !7, !8, !9}
 
 !0 = !{i32 1, !"qir_major_version", i32 2}
 !1 = !{i32 7, !"qir_minor_version", i32 1}
@@ -269,3 +269,4 @@ attributes #1 = { "irreversible" }
 !6 = !{i32 7, !"backwards_branching", i2 3}
 !7 = !{i32 1, !"arrays", i1 true}
 !8 = !{i32 1, !"ir_functions", i1 true}
+!9 = !{i32 1, !"writable_results", i1 true}

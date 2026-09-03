@@ -7,6 +7,7 @@ mod insert_alloca_load;
 mod prune_unneeded_stores;
 mod reindex_qubits;
 mod remap_block_ids;
+mod result_literal;
 mod simplify_control_flow;
 mod ssa_check;
 mod ssa_transform;
@@ -28,7 +29,8 @@ pub use unreachable_code_check::check_unreachable_code;
 
 use crate::{
     passes::{
-        insert_alloca_load::insert_alloca_load_instrs, prune_unneeded_stores::prune_unneeded_stores,
+        insert_alloca_load::insert_alloca_load_instrs,
+        prune_unneeded_stores::prune_unneeded_stores, result_literal::transform_result_literals,
     },
     rir::Program,
     utils::build_predecessors_map,
@@ -54,6 +56,7 @@ pub fn check_and_transform(program: &mut Program) {
     if uses_non_ssa_pipeline {
         prune_unneeded_stores(program);
         insert_alloca_load_instrs(program);
+        transform_result_literals(program);
     } else {
         let preds = build_predecessors_map(program);
         transform_to_ssa(program, &preds);
