@@ -3,6 +3,9 @@
 
 """Unit tests for Trotter-Suzuki decomposition classes and factory functions."""
 
+from collections.abc import Callable
+from typing import Any
+
 import pytest
 
 cirq = pytest.importorskip("cirq")
@@ -27,6 +30,14 @@ def make_two_term_model() -> Model:
     model.add_interaction(edge, "ZZ", -2.0, term=0, color=0)
     model.add_interaction(edge, "XX", -0.5, term=1, color=0)
     return model
+
+
+def assert_operations_controlled_by(circuit: Any, control_qubit: Any) -> None:
+    operations = tuple(circuit.all_operations())
+    assert operations
+    for operation in operations:
+        assert isinstance(operation, cirq.ControlledOperation)
+        assert operation.controls == (control_qubit,)
 
 
 # TrotterStep tests
@@ -126,6 +137,25 @@ def test_trotter_step_first_order_repr():
     """Test repr representation of TrotterStep."""
     trotter = TrotterStep(terms=[0, 1, 2], time_step=0.5)
     assert "TrotterStep" in repr(trotter)
+
+
+def test_trotter_step_cirq_is_uncontrolled_by_default():
+    """Test that a control qubit is opt-in."""
+    circuit = TrotterStep(terms=[0, 1], time_step=0.5).cirq(make_two_term_model())
+
+    operations = tuple(circuit.all_operations())
+    assert operations
+    assert all(not isinstance(op, cirq.ControlledOperation) for op in operations)
+
+
+def test_trotter_step_cirq_controls_every_operation():
+    """Test that every term evolution uses the configured control qubit."""
+    control_qubit = cirq.LineQubit(2)
+    circuit = TrotterStep(
+        terms=[0, 1], time_step=0.5, controlled_on=control_qubit.x
+    ).cirq(make_two_term_model())
+
+    assert_operations_controlled_by(circuit, control_qubit)
 
 
 # strang_splitting factory tests
@@ -252,6 +282,16 @@ def test_suzuki_recursion_repr():
     assert "SuzukiRecursion" in repr(suzuki)
 
 
+def test_suzuki_recursion_preserves_control_qubit():
+    """Test that Suzuki recursion preserves controlled evolution."""
+    control_qubit = cirq.LineQubit(2)
+    base = strang_splitting(terms=[0, 1], time=1.0, controlled_on=control_qubit.x)
+
+    assert_operations_controlled_by(
+        suzuki_recursion(base).cirq(make_two_term_model()), control_qubit
+    )
+
+
 def test_suzuki_recursion_time_weights_sum():
     """Test that time weights in Suzuki recursion sum correctly."""
     base = TrotterStep(terms=[0, 1], time_step=1.0)
@@ -364,6 +404,16 @@ def test_yoshida_recursion_repr():
     assert "YoshidaRecursion" in repr(yoshida)
 
 
+def test_yoshida_recursion_preserves_control_qubit():
+    """Test that Yoshida recursion preserves controlled evolution."""
+    control_qubit = cirq.LineQubit(2)
+    base = strang_splitting(terms=[0, 1], time=1.0, controlled_on=control_qubit.x)
+
+    assert_operations_controlled_by(
+        yoshida_recursion(base).cirq(make_two_term_model()), control_qubit
+    )
+
+
 def test_yoshida_recursion_time_weights_sum():
     """Test that time weights in Yoshida recursion sum correctly."""
     base = TrotterStep(terms=[0, 1], time_step=1.0)
@@ -449,6 +499,20 @@ def test_fourth_order_trotter_suzuki_basic():
     assert fourth.time_step == 1.0
 
 
+@pytest.mark.parametrize("method", [strang_splitting, fourth_order_trotter_suzuki])
+def test_trotter_factories_create_controlled_circuits(
+    method: Callable[..., TrotterStep],
+):
+    """Test that factory methods pass the control through to generated circuits."""
+    control_qubit = cirq.LineQubit(2)
+
+    circuit = method(terms=[0, 1], time=1.0, controlled_on=control_qubit.x).cirq(
+        make_two_term_model()
+    )
+
+    assert_operations_controlled_by(circuit, control_qubit)
+
+
 def test_fourth_order_trotter_suzuki_equals_suzuki_of_strang():
     """Test that fourth_order_trotter_suzuki equals suzuki_recursion(strang_splitting)."""
     fourth = fourth_order_trotter_suzuki(terms=[0, 1, 2], time=0.5)
@@ -498,6 +562,19 @@ def test_trotter_expansion_order_property():
     model = make_two_term_model()
     expansion = TrotterExpansion(strang_splitting, model, time=1.0, num_steps=4)
     assert expansion.order == 2
+
+
+def test_trotter_expansion_accepts_two_argument_method():
+    """Test compatibility with custom methods that predate controlled evolution."""
+
+    def custom_method(terms: list[int], time: float) -> TrotterStep:
+        return TrotterStep(terms, time)
+
+    expansion = TrotterExpansion(
+        custom_method, make_two_term_model(), time=1.0, num_steps=4
+    )
+
+    assert expansion.order == 1
 
 
 def test_trotter_expansion_nterms_property():
@@ -587,6 +664,22 @@ def test_trotter_expansion_cirq_repetitions():
 
     op = expansion.cirq()
     assert op.repetitions == 5
+
+
+def test_trotter_expansion_cirq_preserves_control_qubit():
+    """Test that repeated expansions retain the configured control qubit."""
+    control_qubit = cirq.LineQubit(2)
+    expansion = TrotterExpansion(
+        strang_splitting,
+        make_two_term_model(),
+        time=1.0,
+        num_steps=5,
+        controlled_on=control_qubit.x,
+    )
+
+    operation = expansion.cirq()
+    assert operation.repetitions == 5
+    assert_operations_controlled_by(operation.circuit, control_qubit)
 
 
 def test_strang_splitting_rejects_empty_terms():
