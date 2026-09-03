@@ -14,6 +14,7 @@ pub fn check_types(program: &Program) {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn check_instr_types(program: &Program, instr: &Instruction) {
     match instr {
         Instruction::Call(id, args, var, _) => {
@@ -109,6 +110,22 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             assert_eq!(
                 src.ty, dest.ty,
                 "expected source and destination arrays to have the same type"
+            );
+        }
+        Instruction::SliceArray(array, start, step, end, var) => {
+            let Ty::Array(slice_size, elem_ty) = &var.ty else {
+                panic!("expected variable to be of array type");
+            };
+            let Ty::Array(_, array_elem_ty) = &array.ty else {
+                panic!("expected array to be of array type");
+            };
+            assert_eq!(array_elem_ty, elem_ty);
+            assert_eq!(
+                *slice_size,
+                ((end - start + 1) / step)
+                    .max(0)
+                    .try_into()
+                    .expect("computed slice size should fit into i64")
             );
         }
 

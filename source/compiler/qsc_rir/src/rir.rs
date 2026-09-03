@@ -418,6 +418,7 @@ pub enum Instruction {
     Alloca(Variable),
     Index(Operand, Operand, Variable),
     CopyArray(Variable, Variable),
+    SliceArray(Variable, i64, i64, i64, Variable),
     Return(Option<Operand>),
 }
 
@@ -534,6 +535,13 @@ impl Display for Instruction {
             Self::CopyArray(source_array, dest_array) => {
                 let mut indent = set_indentation(indented(f), 0);
                 write!(indent, "{dest_array} = CopyArray {source_array}")?;
+            }
+            Self::SliceArray(array_var, start, step, end, result_var) => {
+                let mut indent = set_indentation(indented(f), 0);
+                write!(
+                    indent,
+                    "{result_var} = SliceArray {array_var}, {start}, {step}, {end}"
+                )?;
             }
             Self::Return(None) => write!(f, "Return")?,
             Self::Return(Some(operand)) => write!(f, "Return {operand}")?,

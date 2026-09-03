@@ -126,6 +126,20 @@ fn add_alloca_load_to_block(
                 *next_var_id = next_var_id.successor();
                 continue;
             }
+            Instruction::SliceArray(array, start, step, end, dest) => {
+                if (*step > 0 && start > end) || (*step < 0 && start < end) {
+                    continue;
+                }
+                vars_to_alloca.insert(dest.variable_id, *dest);
+                block
+                    .0
+                    .push(Instruction::SliceArray(*array, *start, *step, *end, *dest));
+                // Drop the cached load for this variable so a later read in this
+                // block reloads the freshly stored value instead of a stale one.
+                var_map.remove(&dest.variable_id);
+                *next_var_id = next_var_id.successor();
+                continue;
+            }
 
             // Replace any arguments with the new values of stored variables.
             Instruction::Call(_, args, _, _) => {

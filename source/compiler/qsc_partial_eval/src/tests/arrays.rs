@@ -9,7 +9,7 @@
 
 use super::{
     assert_block_instructions, assert_callable, assert_error, get_partial_evaluation_error,
-    get_rir_program,
+    get_rir_program, get_rir_program_with_adaptive_profile,
 };
 use expect_test::expect;
 use indoc::indoc;
@@ -1104,5 +1104,123 @@ fn result_array_index_range_returns_length_as_end() {
             num_results: 2
             tags:
                 [0]: 0_i
+    "#]].assert_eq(&program.to_string());
+}
+
+#[test]
+fn mutable_fixed_size_array_slicing() {
+    let program = get_rir_program_with_adaptive_profile(indoc! {r#"
+        @EntryPoint()
+        operation Main() : Int[] {
+            use qs = Qubit[4];
+            mutable arr = [0, size = Length(qs)];
+            for idx in 0..Length(qs)-1 {
+                if M(qs[idx]) == One {
+                    arr[idx] = 1;
+                }
+            }
+            arr[...2...]
+        }
+    "#});
+    expect![[r#"
+        Program:
+            entry: 0
+            callables:
+                Callable 0: Callable:
+                    name: main
+                    call_type: Regular
+                    input_type: <VOID>
+                    output_type: Integer
+                    body: 0
+                Callable 1: Callable:
+                    name: __quantum__rt__initialize
+                    call_type: Regular
+                    input_type:
+                        [0]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 2: Callable:
+                    name: __quantum__qis__m__body
+                    call_type: Measurement
+                    input_type:
+                        [0]: Qubit
+                        [1]: Result
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 3: Callable:
+                    name: __quantum__rt__read_result
+                    call_type: Readout
+                    input_type:
+                        [0]: Result
+                    output_type: Boolean
+                    body: <NONE>
+                Callable 4: Callable:
+                    name: __quantum__rt__array_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+                Callable 5: Callable:
+                    name: __quantum__rt__int_record_output
+                    call_type: OutputRecording
+                    input_type:
+                        [0]: Integer
+                        [1]: Pointer
+                    output_type: <VOID>
+                    body: <NONE>
+            blocks:
+                Block 0: Block:
+                    Call id(1), args( Pointer, )
+                    Variable(0, Integer) = Store Integer(0)
+                    Variable(0, Integer) = Store Integer(1)
+                    Variable(0, Integer) = Store Integer(2)
+                    Variable(0, Integer) = Store Integer(3)
+                    Variable(0, Integer) = Store Integer(4)
+                    Variable(1, Array(4, Integer)) = StoreArray [Integer(0), Integer(0), Integer(0), Integer(0)]
+                    Variable(2, Integer) = Store Integer(0)
+                    Jump(1)
+                Block 1: Block:
+                    Variable(3, Boolean) = Icmp Sle, Variable(2, Integer), Integer(3)
+                    Variable(4, Boolean) = Store Bool(true)
+                    Branch Variable(3, Boolean), 3, 4
+                Block 2: Block:
+                    Variable(9, Array(2, Integer)) = SliceArray Variable(1, Array(4, Integer)), 0, 2, 3
+                    Variable(10, Array(2, Integer)) = CopyArray Variable(9, Array(2, Integer))
+                    Variable(11, Integer) = Index Variable(10, Array(2, Integer)), Integer(0)
+                    Variable(12, Integer) = Index Variable(10, Array(2, Integer)), Integer(1)
+                    Call id(4), args( Integer(2), Tag(0, 3), )
+                    Call id(5), args( Variable(11, Integer), Tag(1, 5), )
+                    Call id(5), args( Variable(12, Integer), Tag(2, 5), )
+                    Return Integer(0)
+                Block 3: Block:
+                    Branch Variable(4, Boolean), 5, 2
+                Block 4: Block:
+                    Variable(4, Boolean) = Store Bool(false)
+                    Jump(3)
+                Block 5: Block:
+                    Variable(5, Qubit) = Index Array(0), Variable(2, Integer)
+                    Call id(2), args( Variable(5, Qubit), Result(0), )
+                    Variable(6, Boolean) = Call id(3), args( Result(0), )
+                    Variable(7, Boolean) = Store Variable(6, Boolean)
+                    Branch Variable(7, Boolean), 7, 6
+                Block 6: Block:
+                    Variable(8, Integer) = Add Variable(2, Integer), Integer(1)
+                    Variable(2, Integer) = Store Variable(8, Integer)
+                    Jump(1)
+                Block 7: Block:
+                    StoreIndex Integer(1), Variable(2, Integer), Variable(1, Array(4, Integer))
+                    Jump(6)
+            config: Config:
+                capabilities: TargetCapabilityFlags(Adaptive | IntegerComputations | FloatingPointComputations | BackwardsBranching | StaticSizedArrays | CallSupport)
+            num_qubits: 4
+            num_results: 1
+            tags:
+                [0]: 0_a
+                [1]: 1_a0i
+                [2]: 2_a1i
+            array_literals:
+                [0]: [Qubit(0), Qubit(1), Qubit(2), Qubit(3)]
     "#]].assert_eq(&program.to_string());
 }

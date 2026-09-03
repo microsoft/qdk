@@ -242,6 +242,9 @@ impl ToQir<String> for rir::Instruction {
             rir::Instruction::CopyArray(src, dest) => {
                 store_to_qir(rir::Operand::Variable(*src), *dest, program)
             }
+            rir::Instruction::SliceArray(array, start, step, end, var) => {
+                slice_array_to_qir(*array, *start, *step, *end, *var, program)
+            }
             rir::Instruction::StoreIndex(..) => {
                 unreachable!("StoreIndex instructions should be eliminated by passes")
             }
@@ -329,6 +332,51 @@ fn store_array_to_qir(
         )
         .expect("writing to string should succeed");
         if i != final_operand_idx {
+            writeln!(qir).expect("writing to string should succeed");
+        }
+    }
+    qir
+}
+
+fn slice_array_to_qir(
+    array: rir::Variable,
+    start: i64,
+    step: i64,
+    end: i64,
+    var: rir::Variable,
+    program: &rir::Program,
+) -> String {
+    let var_str = ToQir::<String>::to_qir(&var.variable_id, program);
+    let array_ty = get_variable_ty(array);
+    let var_ty = get_variable_ty(var);
+    let elem_ty = if let rir::Ty::Array(_, elem_ty) = array.ty {
+        get_prim_ty(elem_ty)
+    } else {
+        panic!("expected array type for variable {array:?}");
+    };
+    let array_str = ToQir::<String>::to_qir(&array.variable_id, program);
+    let mut qir = String::new();
+    let mut idx = start;
+    let mut new_idx = 0;
+    while (step > 0 && idx <= end) || (step < 0 && idx >= end) {
+        let temp_var = format!("{var_str}_{new_idx}");
+        writeln!(
+            qir,
+            "  {temp_var}_src = getelementptr {array_ty}, ptr {array_str}, i64 0, i64 {idx}"
+        )
+        .expect("writing to string should succeed");
+        writeln!(qir, "  {temp_var} = load {elem_ty}, ptr {temp_var}_src")
+            .expect("writing to string should succeed");
+        writeln!(
+            qir,
+            "  {temp_var}_dst = getelementptr {var_ty}, ptr {var_str}, i64 0, i64 {new_idx}"
+        )
+        .expect("writing to string should succeed");
+        write!(qir, "  store {elem_ty} {temp_var}, ptr {temp_var}_dst")
+            .expect("writing to string should succeed");
+        idx += step;
+        new_idx += 1;
+        if (step > 0 && idx <= end) || (step < 0 && idx >= end) {
             writeln!(qir).expect("writing to string should succeed");
         }
     }

@@ -33,20 +33,20 @@ fn process_callable(program: &mut Program, callable_id: CallableId) {
     while let Some(block_id) = blocks_to_visit.pop() {
         visited_blocks.insert(block_id);
         let mut used_vars_in_block = FxHashSet::default();
-        let mut index_vars_in_block = FxHashSet::default();
+        let mut must_keep_vars_in_block = FxHashSet::default();
         let stored_vars_before_block = stored_vars.clone();
         check_var_usage(
             program,
             block_id,
             &mut stored_vars,
             &mut used_vars_in_block,
-            &mut index_vars_in_block,
+            &mut must_keep_vars_in_block,
         );
 
         for var in used_vars_in_block {
             if !used_vars.insert(var)
                 || stored_vars_before_block.contains(&var)
-                || index_vars_in_block.contains(&var)
+                || must_keep_vars_in_block.contains(&var)
             {
                 // This variable was already marked as used, which means it is used cross-block.
                 // Alternatively, the variable was stored before this block and is used here.
@@ -105,7 +105,7 @@ fn check_var_usage(
     block_id: crate::rir::BlockId,
     stored_vars: &mut FxHashSet<VariableId>,
     used_vars: &mut FxHashSet<VariableId>,
-    index_vars: &mut FxHashSet<VariableId>,
+    must_keep_vars: &mut FxHashSet<VariableId>,
 ) {
     let block = program.get_block(block_id);
     for instr in &block.0 {
@@ -130,12 +130,13 @@ fn check_var_usage(
                 }
                 if let crate::rir::Operand::Variable(var) = index {
                     used_vars.insert(var.variable_id);
-                    index_vars.insert(var.variable_id);
+                    must_keep_vars.insert(var.variable_id);
                 }
                 stored_vars.insert(variable.variable_id);
             }
-            Instruction::CopyArray(src, dest) => {
+            Instruction::CopyArray(src, dest) | Instruction::SliceArray(src, _, _, _, dest) => {
                 used_vars.insert(src.variable_id);
+                must_keep_vars.insert(src.variable_id);
                 stored_vars.insert(dest.variable_id);
             }
 
@@ -202,7 +203,7 @@ fn check_var_usage(
                 }
                 if let crate::rir::Operand::Variable(var) = index_operand {
                     used_vars.insert(var.variable_id);
-                    index_vars.insert(var.variable_id);
+                    must_keep_vars.insert(var.variable_id);
                 }
                 assert!(
                     !stored_vars.contains(&variable2.variable_id),
