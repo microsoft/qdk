@@ -7,10 +7,7 @@ use std::{fmt, ops::Range};
 
 use num_traits::Unsigned;
 
-use crate::{
-    MeasurementResult, OutputRecord,
-    bytecode::{AdaptiveProgram, Instruction},
-};
+use crate::{MeasurementResult, OutputRecord, QubitID, bytecode::AdaptiveProgram};
 
 use super::{
     AdaptiveCommand, AdaptiveResponse, MeasurementKind, MeasurementRequest, OPID_MRESETZ, OPID_MZ,
@@ -39,6 +36,47 @@ pub struct RegionSite {
     pub block_id: u32,
     pub instruction_range: Range<usize>,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MeasuredQubit {
+    pub qubit: QubitID,
+    pub result_id: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MeasurementMetadataError {
+    InvalidOperationIndex {
+        instruction_index: usize,
+        operation_index: usize,
+    },
+    NonImmediateOperand {
+        instruction_index: usize,
+        operand: &'static str,
+    },
+}
+
+impl fmt::Display for MeasurementMetadataError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InvalidOperationIndex {
+                instruction_index,
+                operation_index,
+            } => write!(
+                formatter,
+                "adaptive measurement at instruction {instruction_index} references missing quantum operation {operation_index}"
+            ),
+            Self::NonImmediateOperand {
+                instruction_index,
+                operand,
+            } => write!(
+                formatter,
+                "adaptive measurement at instruction {instruction_index} has non-immediate {operand}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for MeasurementMetadataError {}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RegionPartitionError {
@@ -90,7 +128,23 @@ pub fn partition_unitary_regions<Word>(
 where
     Word: Unsigned + Copy + Into<u64>,
 {
+    Ok(prepare_execution_metadata(program, false)?.regions)
+}
+
+struct PreparedExecutionMetadata {
+    regions: Vec<RegionSite>,
+    measured_qubits: Result<Vec<MeasuredQubit>, MeasurementMetadataError>,
+}
+
+fn prepare_execution_metadata<Word>(
+    program: &AdaptiveProgram<Word>,
+    collect_measurements: bool,
+) -> Result<PreparedExecutionMetadata, RegionPartitionError>
+where
+    Word: Unsigned + Copy + Into<u64>,
+{
     let mut regions = Vec::new();
+    let mut measured_qubits = Ok(Vec::new());
     for (block_id, block) in program.block_table.iter().enumerate() {
         let start = usize::try_from(block.instr_offset.into()).map_err(|_| {
             RegionPartitionError::InvalidBlockRange {
@@ -125,21 +179,40 @@ where
         for instruction_index in start..end {
             if is_unitary_instruction(program, instruction_index)? {
                 region_start.get_or_insert(instruction_index);
-            } else if let Some(region_start) = region_start.take() {
-                push_region(&mut regions, block_id, region_start..instruction_index)?;
+            } else {
+                if let Some(region_start) = region_start.take() {
+                    push_region(&mut regions, block_id, region_start..instruction_index)?;
+                }
+                if collect_measurements
+                    && measured_qubits.is_ok()
+                    && program.instructions[instruction_index].opcode.into() & 0xFF
+                        == u64::from(OP_MEASURE)
+                {
+                    match decode_prepared_measurement(program, instruction_index) {
+                        Ok(measured_qubit) => measured_qubits
+                            .as_mut()
+                            .expect("measurement metadata should be available")
+                            .push(measured_qubit),
+                        Err(error) => measured_qubits = Err(error),
+                    }
+                }
             }
         }
         if let Some(region_start) = region_start {
             push_region(&mut regions, block_id, region_start..end)?;
         }
     }
-    Ok(regions)
+    Ok(PreparedExecutionMetadata {
+        regions,
+        measured_qubits,
+    })
 }
 
 #[derive(Debug)]
 pub struct PreparedAdaptiveProgram<Word: Unsigned> {
     program: AdaptiveProgram<Word>,
     regions: Box<[RegionSite]>,
+    measured_qubits: Result<Box<[MeasuredQubit]>, MeasurementMetadataError>,
     has_output_recording: bool,
 }
 
@@ -148,14 +221,15 @@ where
     Word: Unsigned + Copy + Into<u64>,
 {
     pub fn new(program: AdaptiveProgram<Word>) -> Result<Self, RegionPartitionError> {
-        let regions = partition_unitary_regions(&program)?.into_boxed_slice();
+        let metadata = prepare_execution_metadata(&program, true)?;
         let has_output_recording = program
             .instructions
             .iter()
             .any(|instruction| instruction.opcode.into() & 0xFF == u64::from(OP_RECORD_OUTPUT));
         Ok(Self {
             program,
-            regions,
+            regions: metadata.regions.into_boxed_slice(),
+            measured_qubits: metadata.measured_qubits.map(Vec::into_boxed_slice),
             has_output_recording,
         })
     }
@@ -168,6 +242,13 @@ where
     #[must_use]
     pub fn regions(&self) -> &[RegionSite] {
         &self.regions
+    }
+
+    pub fn measured_qubits(&self) -> Result<&[MeasuredQubit], MeasurementMetadataError> {
+        match &self.measured_qubits {
+            Ok(measured_qubits) => Ok(measured_qubits),
+            Err(error) => Err(*error),
+        }
     }
 
     #[must_use]
@@ -186,6 +267,10 @@ pub enum AdaptiveExecutionError {
     },
     UnsupportedMeasurement {
         operation_id: u64,
+        instruction_index: usize,
+    },
+    InvalidMeasurementOperationIndex {
+        operation_index: usize,
         instruction_index: usize,
     },
 }
@@ -208,6 +293,13 @@ impl fmt::Display for AdaptiveExecutionError {
             } => write!(
                 formatter,
                 "unsupported adaptive measurement {operation_id} at instruction {instruction_index}"
+            ),
+            Self::InvalidMeasurementOperationIndex {
+                operation_index,
+                instruction_index,
+            } => write!(
+                formatter,
+                "adaptive measurement at instruction {instruction_index} references missing quantum operation {operation_index}"
             ),
         }
     }
@@ -305,7 +397,7 @@ impl<'program> AdaptiveExecution<'program> {
                         instruction.aux1
                     });
                 }
-                OP_MEASURE => return self.measurement_command(instruction),
+                OP_MEASURE => return self.measurement_command(),
                 OP_READ_RESULT => {
                     let result_id =
                         bytecode_index(self.resolve_u64(instruction.src0, instruction.opcode, 0));
@@ -388,12 +480,28 @@ impl<'program> AdaptiveExecution<'program> {
             .expect("prepared region should contain only supported unitary operations")
     }
 
-    fn measurement_command(
-        &mut self,
-        instruction: Instruction<u64>,
-    ) -> Result<AdaptiveCommand, AdaptiveExecutionError> {
-        let operation_id =
-            self.prepared_program.program().quantum_ops[bytecode_index(instruction.aux0)].op_id;
+    fn measurement_command(&mut self) -> Result<AdaptiveCommand, AdaptiveExecutionError> {
+        let (operation_id, measured_qubit) = decode_measurement(
+            self.prepared_program.program(),
+            self.instruction_index,
+            |operand, flags, flag, _| {
+                let operand_index = match flag {
+                    FLAG_AUX1_IMM => 4,
+                    FLAG_AUX2_IMM => 5,
+                    _ => unreachable!("measurement decoder uses only auxiliary operands"),
+                };
+                Ok::<_, std::convert::Infallible>(self.resolve_u64(operand, flags, operand_index))
+            },
+        )
+        .map_err(|error| match error {
+            MeasurementDecodeError::InvalidOperationIndex { operation_index } => {
+                AdaptiveExecutionError::InvalidMeasurementOperationIndex {
+                    operation_index,
+                    instruction_index: self.instruction_index,
+                }
+            }
+            MeasurementDecodeError::Operand(error) => match error {},
+        })?;
         let kind = match operation_id {
             OPID_MZ => MeasurementKind::MeasureZ,
             OPID_MRESETZ => MeasurementKind::MeasureResetZ,
@@ -406,8 +514,8 @@ impl<'program> AdaptiveExecution<'program> {
         };
         let request = MeasurementRequest {
             kind,
-            qubit: bytecode_index(self.resolve_u64(instruction.aux1, instruction.opcode, 4)),
-            result_id: bytecode_index(self.resolve_u64(instruction.aux2, instruction.opcode, 5)),
+            qubit: measured_qubit.qubit,
+            result_id: measured_qubit.result_id,
         };
         self.instruction_index += 1;
         self.state = AdaptiveExecutionState::AwaitingMeasurementResult {
@@ -436,6 +544,83 @@ impl<'program> AdaptiveExecution<'program> {
             self.registers[bytecode_index(operand)]
         }
     }
+}
+
+enum MeasurementDecodeError<E> {
+    InvalidOperationIndex { operation_index: usize },
+    Operand(E),
+}
+
+fn decode_prepared_measurement<Word>(
+    program: &AdaptiveProgram<Word>,
+    instruction_index: usize,
+) -> Result<MeasuredQubit, MeasurementMetadataError>
+where
+    Word: Unsigned + Copy + Into<u64>,
+{
+    decode_measurement(program, instruction_index, |operand, flags, flag, name| {
+        if flags & flag == 0 {
+            return Err(MeasurementMetadataError::NonImmediateOperand {
+                instruction_index,
+                operand: name,
+            });
+        }
+        Ok(operand)
+    })
+    .map(|(_, measured_qubit)| measured_qubit)
+    .map_err(|error| match error {
+        MeasurementDecodeError::InvalidOperationIndex { operation_index } => {
+            MeasurementMetadataError::InvalidOperationIndex {
+                instruction_index,
+                operation_index,
+            }
+        }
+        MeasurementDecodeError::Operand(error) => error,
+    })
+}
+
+fn decode_measurement<Word, E>(
+    program: &AdaptiveProgram<Word>,
+    instruction_index: usize,
+    mut resolve_operand: impl FnMut(u64, u64, u64, &'static str) -> Result<u64, E>,
+) -> Result<(u64, MeasuredQubit), MeasurementDecodeError<E>>
+where
+    Word: Unsigned + Copy + Into<u64>,
+{
+    let instruction = &program.instructions[instruction_index];
+    let operation_index = usize::try_from(instruction.aux0.into()).map_err(|_| {
+        MeasurementDecodeError::InvalidOperationIndex {
+            operation_index: usize::MAX,
+        }
+    })?;
+    let operation_id = program
+        .quantum_ops
+        .get(operation_index)
+        .ok_or(MeasurementDecodeError::InvalidOperationIndex { operation_index })?
+        .op_id
+        .into();
+    let flags = instruction.opcode.into();
+    let qubit = resolve_operand(
+        instruction.aux1.into(),
+        flags,
+        FLAG_AUX1_IMM,
+        "qubit operand",
+    )
+    .map_err(MeasurementDecodeError::Operand)?;
+    let result_id = resolve_operand(
+        instruction.aux2.into(),
+        flags,
+        FLAG_AUX2_IMM,
+        "result operand",
+    )
+    .map_err(MeasurementDecodeError::Operand)?;
+    Ok((
+        operation_id,
+        MeasuredQubit {
+            qubit: bytecode_index(qubit),
+            result_id: bytecode_index(result_id),
+        },
+    ))
 }
 
 fn is_unitary_instruction<Word>(

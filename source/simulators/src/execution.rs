@@ -10,8 +10,8 @@ mod region;
 mod unitary;
 
 pub use adaptive::{
-    AdaptiveExecution, AdaptiveExecutionError, PreparedAdaptiveProgram, RegionPartitionError,
-    RegionSite, partition_unitary_regions,
+    AdaptiveExecution, AdaptiveExecutionError, MeasuredQubit, MeasurementMetadataError,
+    PreparedAdaptiveProgram, RegionPartitionError, RegionSite, partition_unitary_regions,
 };
 pub use immediate::{
     ImmediateExecutionReport, ImmediatePreparedRegion, ImmediateRegionReport,

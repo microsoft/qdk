@@ -5,10 +5,10 @@ use std::{convert::Infallible, fmt, mem::size_of};
 
 use super::{
     AdaptiveCommand, AdaptiveExecution, AdaptiveExecutionError, AdaptiveResponse,
-    ImmediatePreparedRegion, ImmediateSimulatorConsumer, MeasurementKind, MeasurementRequest,
-    OP_QUANTUM_GATE, PreparedAdaptiveProgram, QuantumEvolutionRegion, RegionConsumer, RegionId,
-    RegionPartitionError, RegionSite, ShotExecutionError, UnitaryOperation, drive_prepared_shot,
-    partition_unitary_regions, run_prepared_shot,
+    ImmediatePreparedRegion, ImmediateSimulatorConsumer, MeasuredQubit, MeasurementKind,
+    MeasurementRequest, OP_QUANTUM_GATE, PreparedAdaptiveProgram, QuantumEvolutionRegion,
+    RegionConsumer, RegionId, RegionPartitionError, RegionSite, ShotExecutionError,
+    UnitaryOperation, drive_prepared_shot, partition_unitary_regions, run_prepared_shot,
 };
 use crate::{
     MeasurementResult, OutputRecord, Simulator,
@@ -625,22 +625,40 @@ fn partitioner_rejects_invalid_block_and_operation_references() {
 
 #[test]
 fn prepared_adaptive_program_retains_control_and_computes_regions_once() {
+    const IMMEDIATE_AUX1: u64 = 1 << 20;
+    const IMMEDIATE_AUX2: u64 = 1 << 21;
+
     let program = adaptive_program(
         vec![
             instruction(OP_QUANTUM_GATE, 0),
             instruction(OP_QUANTUM_GATE, 1),
-            instruction(0x11, 0),
+            Instruction {
+                opcode: 0x11 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+                aux0: 2,
+                aux1: 1,
+                aux2: 0,
+                ..Instruction::default()
+            },
         ],
         vec![Block {
             instr_offset: 0,
             instr_count: 3,
         }],
-        vec![operation(5), operation(15)],
+        vec![operation(5), operation(15), operation(21)],
     );
 
     let prepared =
         PreparedAdaptiveProgram::new(program).expect("well-formed adaptive control should prepare");
     assert_eq!(prepared.program().num_qubits, 2);
+    assert_eq!(
+        prepared
+            .measured_qubits()
+            .expect("measurement operands should be immediate"),
+        [MeasuredQubit {
+            qubit: 1,
+            result_id: 0,
+        }]
+    );
     assert_eq!(
         prepared.regions(),
         [RegionSite {
@@ -650,6 +668,50 @@ fn prepared_adaptive_program_retains_control_and_computes_regions_once() {
         }]
     );
     assert_eq!(prepared.into_program().instructions.len(), 3);
+}
+
+#[test]
+fn prepared_adaptive_program_has_no_measured_qubits_without_measurements() {
+    let program = adaptive_program(
+        vec![instruction(OP_QUANTUM_GATE, 0)],
+        vec![Block {
+            instr_offset: 0,
+            instr_count: 1,
+        }],
+        vec![operation(5)],
+    );
+
+    let prepared =
+        PreparedAdaptiveProgram::new(program).expect("unitary-only control should prepare");
+
+    assert!(
+        prepared
+            .measured_qubits()
+            .expect("unitary-only metadata should be available")
+            .is_empty()
+    );
+}
+
+#[test]
+fn prepared_adaptive_program_orders_mid_circuit_measurements() {
+    let prepared = PreparedAdaptiveProgram::new(measure_then_branch_program())
+        .expect("measure-then-branch scenario should prepare");
+
+    assert_eq!(
+        prepared
+            .measured_qubits()
+            .expect("measurement operands should be immediate"),
+        [
+            MeasuredQubit {
+                qubit: 0,
+                result_id: 0,
+            },
+            MeasuredQubit {
+                qubit: 1,
+                result_id: 1,
+            },
+        ]
+    );
 }
 
 #[test]
