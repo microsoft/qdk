@@ -9,14 +9,16 @@ and interaction graphs.
 """
 
 from .complete import CompleteBipartiteGraph, CompleteGraph
-from .lattice1d import Chain1D, Ring1D
-from .lattice2d import Patch2D, Torus2D
+from .lattice1d import Chain1D, MthNearestNeighborChain1D, Ring1D
+from .lattice2d import Patch2D, SecondNearestNeighborPatch2D, Torus2D
 
 __all__ = [
     "CompleteBipartiteGraph",
     "CompleteGraph",
     "Chain1D",
+    "MthNearestNeighborChain1D",
     "Ring1D",
     "Patch2D",
+    "SecondNearestNeighborPatch2D",
     "Torus2D",
 ]
