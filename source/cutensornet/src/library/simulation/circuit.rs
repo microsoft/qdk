@@ -1,6 +1,8 @@
 use super::SimulationError;
 use super::policy::ExecutionPolicy;
 use num_complex::Complex64;
+use qdk_simulators::execution::UnitaryOperation;
+use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Gate {
@@ -9,6 +11,78 @@ pub enum Gate {
     Rx { theta: f64, target: u32 },
     Rz { theta: f64, target: u32 },
     Cnot { control: u32, target: u32 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
+pub(super) enum UnitaryOperationConversionError {
+    #[error("unitary operation {operation} is not supported by cuTensorNet")]
+    UnsupportedOperation { operation: &'static str },
+
+    #[error(
+        "unitary operation {operation} uses qubit index {index}, which exceeds the cuTensorNet u32 range"
+    )]
+    QubitIndexOutOfRange {
+        operation: &'static str,
+        index: usize,
+    },
+}
+
+impl Gate {
+    pub(super) fn from_unitary_operation(
+        operation: UnitaryOperation,
+    ) -> Result<Option<Self>, UnitaryOperationConversionError> {
+        let gate = match operation {
+            UnitaryOperation::I { .. } => return Ok(None),
+            UnitaryOperation::X { target } => Self::X {
+                target: gate_qubit("X", target)?,
+            },
+            UnitaryOperation::H { target } => Self::H {
+                target: gate_qubit("H", target)?,
+            },
+            UnitaryOperation::Rx { angle, target } => Self::Rx {
+                theta: angle,
+                target: gate_qubit("Rx", target)?,
+            },
+            UnitaryOperation::Rz { angle, target } => Self::Rz {
+                theta: angle,
+                target: gate_qubit("Rz", target)?,
+            },
+            UnitaryOperation::Cx { control, target } => Self::Cnot {
+                control: gate_qubit("Cx", control)?,
+                target: gate_qubit("Cx", target)?,
+            },
+            UnitaryOperation::Y { .. } => return unsupported_operation("Y"),
+            UnitaryOperation::Z { .. } => return unsupported_operation("Z"),
+            UnitaryOperation::S { .. } => return unsupported_operation("S"),
+            UnitaryOperation::SAdj { .. } => return unsupported_operation("SAdj"),
+            UnitaryOperation::Sx { .. } => return unsupported_operation("Sx"),
+            UnitaryOperation::SxAdj { .. } => return unsupported_operation("SxAdj"),
+            UnitaryOperation::T { .. } => return unsupported_operation("T"),
+            UnitaryOperation::TAdj { .. } => return unsupported_operation("TAdj"),
+            UnitaryOperation::Ry { .. } => return unsupported_operation("Ry"),
+            UnitaryOperation::Cy { .. } => return unsupported_operation("Cy"),
+            UnitaryOperation::Cz { .. } => return unsupported_operation("Cz"),
+            UnitaryOperation::Rxx { .. } => return unsupported_operation("Rxx"),
+            UnitaryOperation::Ryy { .. } => return unsupported_operation("Ryy"),
+            UnitaryOperation::Rzz { .. } => return unsupported_operation("Rzz"),
+            UnitaryOperation::Swap { .. } => return unsupported_operation("Swap"),
+        };
+        Ok(Some(gate))
+    }
+}
+
+fn gate_qubit(
+    operation: &'static str,
+    index: usize,
+) -> Result<u32, UnitaryOperationConversionError> {
+    u32::try_from(index)
+        .map_err(|_| UnitaryOperationConversionError::QubitIndexOutOfRange { operation, index })
+}
+
+fn unsupported_operation(
+    operation: &'static str,
+) -> Result<Option<Gate>, UnitaryOperationConversionError> {
+    Err(UnitaryOperationConversionError::UnsupportedOperation { operation })
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -307,10 +381,147 @@ fn validate_storage(
 #[cfg(test)]
 mod tests {
     use super::SimulationError;
-    use super::{Circuit, Gate, contract_open_mps};
+    use super::{Circuit, Gate, UnitaryOperationConversionError, contract_open_mps};
     use num_complex::Complex64;
-    use qdk_simulators::SparseStateSim;
+    use qdk_simulators::{SparseStateSim, execution::UnitaryOperation};
     use std::f64::consts::FRAC_1_SQRT_2;
+
+    #[test]
+    fn supported_unitary_operations_map_to_gates() {
+        let operations = [
+            (UnitaryOperation::X { target: 3 }, Gate::X { target: 3 }),
+            (UnitaryOperation::H { target: 4 }, Gate::H { target: 4 }),
+            (
+                UnitaryOperation::Rx {
+                    angle: 0.25,
+                    target: 5,
+                },
+                Gate::Rx {
+                    theta: 0.25,
+                    target: 5,
+                },
+            ),
+            (
+                UnitaryOperation::Rz {
+                    angle: -0.75,
+                    target: 6,
+                },
+                Gate::Rz {
+                    theta: -0.75,
+                    target: 6,
+                },
+            ),
+            (
+                UnitaryOperation::Cx {
+                    control: 7,
+                    target: 8,
+                },
+                Gate::Cnot {
+                    control: 7,
+                    target: 8,
+                },
+            ),
+        ];
+
+        for (operation, expected) in operations {
+            assert_eq!(Gate::from_unitary_operation(operation), Ok(Some(expected)));
+        }
+    }
+
+    #[test]
+    fn identity_unitary_operation_emits_no_gate() {
+        assert_eq!(
+            Gate::from_unitary_operation(UnitaryOperation::I { target: 9 }),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn unsupported_unitary_operations_name_the_operation() {
+        let operations = [
+            (UnitaryOperation::Y { target: 0 }, "Y"),
+            (UnitaryOperation::Z { target: 0 }, "Z"),
+            (UnitaryOperation::S { target: 0 }, "S"),
+            (UnitaryOperation::SAdj { target: 0 }, "SAdj"),
+            (UnitaryOperation::Sx { target: 0 }, "Sx"),
+            (UnitaryOperation::SxAdj { target: 0 }, "SxAdj"),
+            (UnitaryOperation::T { target: 0 }, "T"),
+            (UnitaryOperation::TAdj { target: 0 }, "TAdj"),
+            (
+                UnitaryOperation::Ry {
+                    angle: 0.5,
+                    target: 0,
+                },
+                "Ry",
+            ),
+            (
+                UnitaryOperation::Cy {
+                    control: 0,
+                    target: 1,
+                },
+                "Cy",
+            ),
+            (
+                UnitaryOperation::Cz {
+                    control: 0,
+                    target: 1,
+                },
+                "Cz",
+            ),
+            (
+                UnitaryOperation::Rxx {
+                    angle: 0.5,
+                    q1: 0,
+                    q2: 1,
+                },
+                "Rxx",
+            ),
+            (
+                UnitaryOperation::Ryy {
+                    angle: 0.5,
+                    q1: 0,
+                    q2: 1,
+                },
+                "Ryy",
+            ),
+            (
+                UnitaryOperation::Rzz {
+                    angle: 0.5,
+                    q1: 0,
+                    q2: 1,
+                },
+                "Rzz",
+            ),
+            (UnitaryOperation::Swap { q1: 0, q2: 1 }, "Swap"),
+        ];
+
+        for (operation, name) in operations {
+            let error = Gate::from_unitary_operation(operation)
+                .expect_err("unsupported operation should fail conversion");
+            assert_eq!(
+                error,
+                UnitaryOperationConversionError::UnsupportedOperation { operation: name }
+            );
+            assert_eq!(
+                error.to_string(),
+                format!("unitary operation {name} is not supported by cuTensorNet")
+            );
+        }
+    }
+
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn unitary_operation_rejects_qubit_indices_outside_u32() {
+        let index = usize::try_from(u64::from(u32::MAX) + 1).expect("usize should be 64-bit");
+
+        assert_eq!(
+            Gate::from_unitary_operation(UnitaryOperation::X { target: index }),
+            Err(UnitaryOperationConversionError::QubitIndexOutOfRange {
+                operation: "X",
+                index,
+            })
+        );
+    }
 
     #[test]
     fn circuit_rejects_invalid_gate_targets() {

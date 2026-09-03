@@ -10,11 +10,11 @@ repository.workspace = true
 
 [dependencies]
 libloading = { workspace = true }
+qdk_simulators = { path = "../simulators", default-features = false }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 num-complex = { workspace = true }
-qdk_simulators = { path = "../simulators", default-features = false }
 
 [lints]
 workspace = true
