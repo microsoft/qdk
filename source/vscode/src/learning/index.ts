@@ -12,9 +12,7 @@ import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js"
 import { registerNotebookSync } from "./notebookSync.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
-import { WORKBOOK_SUFFIX } from "./constants.js";
 import { registerLearningWelcomeView } from "./welcomeView.js";
-import { isNotebookCourse } from "./courseLayout.js";
 
 export function initLearning(
   context: vscode.ExtensionContext,
@@ -45,15 +43,9 @@ export function initLearning(
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeNotebookDocument((e) => {
-      // When a cell finishes executing (executionSummary changes), auto-save
-      // the notebook, check if it corresponds to an exercise in the active
-      // python-notebook course and update focus. If execution succeeded,
-      // mark complete.
-      if (
-        !learningService.initialized ||
-        !isNotebookCourse(learningService.getActiveCourseInfo()) ||
-        !e.notebook.uri.path.endsWith(WORKBOOK_SUFFIX)
-      ) {
+      // Jupyter updates workbook metadata after selecting or starting a
+      // kernel. Save in response to the update instead of racing it on open.
+      if (!learningService.isCourseWorkbook(e.notebook.uri)) {
         return;
       }
 
@@ -78,11 +70,11 @@ export function initLearning(
           }
         }
       }
-      if (hasExecutionChange) {
+      if (e.metadata !== undefined || hasExecutionChange) {
         // Moving between notebooks is clumsy when they're unsaved.  Since this
         // is a working copy we created on the user's behalf, we're free to
         // auto-save.
-        void e.notebook.save();
+        void learningService.saveCourseWorkbook(e.notebook);
       }
     }),
   );

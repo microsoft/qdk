@@ -134,6 +134,8 @@ export class LearningService {
   private _initPromise: Promise<boolean> | undefined;
   /** Whether {@link _initPromise} was started with `createIfMissing`. */
   private _initCreates = false;
+  private readonly _workbookSaveQueues = new Map<string, Promise<void>>();
+  private _closeStaleTabsRequest = 0;
   private readonly _disposables: vscode.Disposable[] = [];
   private _progressLoadingError: string | undefined;
 
@@ -494,6 +496,56 @@ export class LearningService {
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     return true;
+  }
+
+  /** True when the URI is one of the loaded course's learner workbooks. */
+  isCourseWorkbook(uri: vscode.Uri): boolean {
+    return (
+      this.workspace !== undefined &&
+      this.resolveWorkbookLocation(uri) !== undefined
+    );
+  }
+
+  /**
+   * Save a course workbook after any earlier save for the same document.
+   * Returns false when the document is not a course workbook or could not save.
+   */
+  async saveCourseWorkbook(
+    notebook: vscode.NotebookDocument,
+  ): Promise<boolean> {
+    if (!this.isCourseWorkbook(notebook.uri)) {
+      return false;
+    }
+
+    const key = notebook.uri.toString();
+    const previous = this._workbookSaveQueues.get(key) ?? Promise.resolve();
+    let saved = true;
+    const current = previous.then(async () => {
+      // VS Code updates isDirty after notebook-change listeners return.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (!notebook.isDirty) {
+        return;
+      }
+      try {
+        const didSave = await notebook.save();
+        saved = didSave || !notebook.isDirty;
+        if (!saved) {
+          log.warn(`Could not save learning workbook ${notebook.uri.fsPath}.`);
+        }
+      } catch (e) {
+        saved = false;
+        log.warn(
+          `Could not save learning workbook ${notebook.uri.fsPath}: ${String(e)}`,
+        );
+      }
+    });
+    this._workbookSaveQueues.set(key, current);
+
+    await current;
+    if (this._workbookSaveQueues.get(key) === current) {
+      this._workbookSaveQueues.delete(key);
+    }
+    return saved;
   }
 
   /**
@@ -1451,12 +1503,34 @@ export class LearningService {
     if (!this.workspace) {
       return;
     }
+    const request = ++this._closeStaleTabsRequest;
     const learningRoot = this.learningContentRoot.toString();
     const keepStr = keepUri?.toString();
+    const workbooksThatFailedToSave = new Set<string>();
+
+    for (const notebook of vscode.workspace.notebookDocuments) {
+      const uri = notebook.uri.toString();
+      if (
+        uri.startsWith(learningRoot) &&
+        uri !== keepStr &&
+        this.isCourseWorkbook(notebook.uri) &&
+        !(await this.saveCourseWorkbook(notebook))
+      ) {
+        workbooksThatFailedToSave.add(uri);
+      }
+    }
+
+    if (request !== this._closeStaleTabsRequest) {
+      return;
+    }
 
     await this.closeTabs((uri) => {
       const uriStr = uri.toString();
-      return uriStr.startsWith(learningRoot) && uriStr !== keepStr;
+      return (
+        uriStr.startsWith(learningRoot) &&
+        uriStr !== keepStr &&
+        !workbooksThatFailedToSave.has(uriStr)
+      );
     });
   }
 

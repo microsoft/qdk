@@ -294,6 +294,15 @@ async function openCourseNotebook(
       const envPath = await service.getJupyterEnvironmentPath(courseId);
       if (envPath) {
         await api.openNotebook(notebookUri, envPath);
+        const document = vscode.workspace.notebookDocuments.find(
+          (notebook) => notebook.uri.toString() === notebookUri.toString(),
+        );
+        if (document) {
+          await vscode.window.showNotebookDocument(document, {
+            viewColumn: vscode.ViewColumn.Active,
+            preview: false,
+          });
+        }
         opened = true;
       } else {
         log.info("Didn't find a course virtual environment to use in notebook");
@@ -325,15 +334,6 @@ async function openCourseNotebook(
     revealNotebookTop(notebookUri);
   } else if (cellId) {
     revealNotebookCell(notebookUri, cellId);
-  }
-
-  // The notebook may appear dirty immediately after opening (e.g. cell
-  // language adjustments). Save so the user starts with a clean state.
-  const doc = vscode.workspace.notebookDocuments.find(
-    (n) => n.uri.toString() === notebookUri.toString(),
-  );
-  if (doc?.isDirty) {
-    await doc.save();
   }
 }
 
