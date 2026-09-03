@@ -86,7 +86,7 @@ pub const SIMPLETELEPORTATION_EXPECT_DEBUG: Expect = expect![[r#"
     |000⟩: 1.0000+0.0000𝑖
     Teleportation successful: true.
     true"#]];
-pub const SIMPLETELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 2123"];
+pub const SIMPLETELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 1463"];
 pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 3118"];
 pub const SIMPLETELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 4030"];

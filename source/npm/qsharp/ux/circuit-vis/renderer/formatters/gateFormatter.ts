@@ -596,9 +596,13 @@ const _controlledGate = (renderData: GateRenderData): SVGElement => {
       throw new Error(`ERROR: Unrecognized gate: ${label} of type ${type}`);
   }
   // Get SVGs for control dots
-  const controlledDotsSvg: SVGElement[] = controlsY.map((y) =>
-    controlDot(x, y, [y]),
-  );
+  const controlledDotsSvg: SVGElement[] = controlsY.map((y, index) => {
+    const dot = controlDot(x, y, [y]);
+    if (renderData.controlsInverted?.[index]) {
+      dot.classList.add("anti-control-dot");
+    }
+    return dot;
+  });
   // Create control lines
   const maxY: number = Math.max(...controlsY, ...(targetsY as number[]));
   const minY: number = Math.min(...controlsY, ...(targetsY as number[]));
