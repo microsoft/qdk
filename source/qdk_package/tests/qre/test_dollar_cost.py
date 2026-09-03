@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 
 import pytest
-from qdk.qre.dollar_cost import DollarCostModelFromSpec
+from qdk.qre.dollar_cost import CostSpec, DollarCostModelFromSpec
 
 COST_SPEC_PATH = str(
     Path(__file__).resolve().parents[4] / "samples/qre/example_cost_spec.json"
@@ -18,11 +18,26 @@ def test_compute_dollar_cost_from_json_spec():
     assert cost == 68.49
 
 
+def test_cost_spec_minimal_required_fields():
+    spec = CostSpec.from_dict(
+        {
+            "system": {
+                "name": "test",
+                "lifetime_in_years": 1,
+                "uptime": 1,
+            }
+        }
+    )
+
+    assert spec.fixed_units == []
+    assert spec.scaled_units == []
+    assert spec.opex == []
+
+
 def _cost_model(tmp_path: Path, **system_overrides: float):
     spec = {
         "system": {
             "name": "test",
-            "target_year": 2030,
             "lifetime_in_years": 1,
             "uptime": 1,
             "magical_speedup_factor": 1,

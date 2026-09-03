@@ -4,9 +4,9 @@
 import json
 import math
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from dataclasses import dataclass
-
-from dataclasses_json import dataclass_json
+from typing import Any
 
 
 class DollarCostModel(ABC):
@@ -27,7 +27,6 @@ class DollarCostModel(ABC):
         return None
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class System:
     """Hardware and operating assumptions for the quantum system.
@@ -41,22 +40,27 @@ class System:
 
     Attributes:
         name: Human-readable specification name.
-        target_year: Calendar year targeted by the specification.
         lifetime_in_years: Expected operating lifetime of the system.
         uptime: Fraction of each year during which the system is available.
-        control_lines_per_physical_qubit: Control lines required per qubit.
-        readout_lines_per_physical_qubit: Readout lines required per qubit.
-        fixed_control_lines: Control lines required independently of qubit count.
-        fixed_readout_lines: Readout lines required independently of qubit count.
-        magical_speedup_factor: Runtime reduction supplied by external assumptions.
+        target_year: Calendar year targeted by the specification (optional).
+        control_lines_per_physical_qubit: Control lines required per qubit (optional,
+            defaults to 0).
+        readout_lines_per_physical_qubit: Readout lines required per qubit (optional,
+            defaults to 0).
+        fixed_control_lines: Control lines required independently of qubit count
+            (optional, defaults to 0).
+        fixed_readout_lines: Readout lines required independently of qubit count
+            (optional, defaults to 0).
+        magical_speedup_factor: Runtime reduction supplied by external assumptions
+            (optional, defaults to 1).
         physical_qubits: Number of physical qubits (optional).
         qubits_per_node: Number of physical qubits available in one node (optional).
     """
 
     name: str
-    target_year: int
     lifetime_in_years: float
     uptime: float
+    target_year: int | None = None
     control_lines_per_physical_qubit: float = 0
     readout_lines_per_physical_qubit: float = 0
     fixed_control_lines: int = 0
@@ -78,7 +82,6 @@ class System:
             raise ValueError("qubits_per_node must be positive, if specified")
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class FixedUnit:
     """A system component.
@@ -87,7 +90,8 @@ class FixedUnit:
         name: Human-readable component name.
         cost: Cost of one component in dollars.
         quantity: Number of components required.
-        eos_factor: End-of-support multiplier applied to the component cost.
+        eos_factor: End-of-support multiplier applied to the component cost (optional,
+            defaults to 1.0).
     """
 
     name: str
@@ -96,7 +100,6 @@ class FixedUnit:
     eos_factor: float = 1.0
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class ScaledUnit:
     """A system component whose quantity scales (e.g. with number of control or readout
@@ -105,10 +108,13 @@ class ScaledUnit:
     Attributes:
         name: Human-readable component name.
         cost: Cost of one component in dollars.
-        eos_factor: End-of-support multiplier applied to the component cost.
-        units_per_control_line: Components required for each control line.
-        units_per_readout_line: Components required for each readout line.
-        units_per_qubit: Components required for each qubit.
+        eos_factor: End-of-support multiplier applied to the component cost (optional,
+            defaults to 1.0).
+        units_per_control_line: Components required for each control line (optional,
+            defaults to 0).
+        units_per_readout_line: Components required for each readout line (optional,
+            defaults to 0).
+        units_per_qubit: Components required for each qubit (optional, defaults to 0).
     """
 
     name: str
@@ -119,7 +125,6 @@ class ScaledUnit:
     units_per_qubit: int = 0
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class OpExUnit:
     """A recurring annual operating expense.
@@ -133,7 +138,6 @@ class OpExUnit:
     cost_per_year: float
 
 
-@dataclass_json
 @dataclass(frozen=True)
 class CostSpec:
     """Typed representation of a complete system cost specification.
@@ -151,6 +155,16 @@ class CostSpec:
     fixed_units: list[FixedUnit]
     scaled_units: list[ScaledUnit]
     opex: list[OpExUnit]
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> "CostSpec":
+        """Create a specification from decoded JSON data."""
+        return cls(
+            system=System(**data["system"]),
+            fixed_units=[FixedUnit(**item) for item in data.get("fixed_units", [])],
+            scaled_units=[ScaledUnit(**item) for item in data.get("scaled_units", [])],
+            opex=[OpExUnit(**item) for item in data.get("opex", [])],
+        )
 
 
 class DollarCostModelFromSpec(DollarCostModel):
