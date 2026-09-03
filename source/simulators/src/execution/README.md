@@ -719,6 +719,57 @@ The manifest should describe the wire format, not execution policy. Region
 partitioning, simulator capabilities, noise behavior, and host/device control
 placement remain owned by their respective execution layers.
 
+## Known Defects
+
+Open defects, as distinct from the accepted limits below.
+
+### Sampler seed configuration writes one attribute twice
+
+`configure_sampler_path_seed` and `configure_sampler_sample_seed` both write
+`CUTENSORNET_SAMPLER_CONFIG_DETERMINISTIC` on the same sampler handle. The first
+runs before `cutensornetSamplerPrepare` and the second immediately before
+`cutensornetSamplerSample`, so the later write always wins and the pathfinding
+seed is silently discarded.
+
+The attribute is documented as seeding the pseudo-random generator that advances
+on sample calls. It is the sampling PRNG and nothing else, so there is no
+sampler pathfinding seed for this function to set. The function does not merely
+lose a race, it encodes an interface that does not exist, which is why the
+resolution is removal rather than reordering. Pathfinding determinism, if it is
+reachable at all, belongs to contraction optimizer configuration and must not be
+obtained by setting process-global environment variables.
+
+Retained A100 evidence that reports a fixed pathfinding seed alongside a fixed
+sample seed remains valid, because reproducibility was genuinely observed. Only
+its explanation changes: one seed was in effect, not two.
+
+Existing coverage asserts the exact call sequence, including the discarded
+write, so it enshrines the defect rather than detecting it. The fake records
+call events and cannot observe that two writes collide on one key. Replacement
+coverage should model sampler attribute state so a second write to an already
+written attribute fails, which closes the class rather than this instance.
+
+The defect is present in both the integration and qualification trees, in
+different files, because the native implementation moved during the port. A fix
+on one tree will not cherry-pick onto the other, and independent edits are
+cheaper than coordinating a port, provided the resulting trait signature is
+identical in both. Diverging here would reintroduce exactly the backend API
+drift this layer exists to prevent.
+
+Resolution is removal. The public surface exposes no function that attaches a
+contraction optimizer configuration, optimizer information, or an explicit
+contraction path to either the state or the sampler. Optimizer configuration
+applies to network descriptors alone, so a pathfinding seed cannot be set on
+this path at all, and the only remaining route would be the process-global
+environment variables this integration rejects. Reproducibility is therefore
+documented as covering the sampling generator within a process, and the
+pathfinding seed is deleted rather than reimplemented.
+
+Effort is 45 minutes to one hour for the removal across both trees, not the
+15 minutes a single-tree deletion would suggest: the change touches 16 sites in
+the integration tree and 19 in the qualification tree, and the ordered-sequence
+assertion must be rewritten rather than shortened.
+
 ## Current Constraints
 
 - Public `type="mps"` execution is restricted to noiseless Base-profile QIR.
