@@ -125,21 +125,21 @@ fn correlated_error_with_invalid_probability_yields_error() {
               x probability for CORRELATED_ERROR must be between 0 and 1; found 1.5
                ,----
              1 | CORRELATED_ERROR(1.5) X0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^
+               :                  ^^^
                `----
         "#]],
     );
     check(
         "CORRELATED_ERROR(-0.1) X0",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for CORRELATED_ERROR must be between 0 and 1; found -0.1
-           ,----
-         1 | CORRELATED_ERROR(-0.1) X0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for CORRELATED_ERROR must be between 0 and 1; found -0.1
+               ,----
+             1 | CORRELATED_ERROR(-0.1) X0
+               :                  ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -206,10 +206,13 @@ fn correlated_error_with_probability_of_exactly_one_is_valid() {
 }
 
 #[test]
-fn else_correlated_error_with_preceding_correlated_error_yields_expected_qir() {
+fn correlated_error_chain_with_input_probabilities_summing_above_one_is_valid() {
+    // The resulting mutually exclusive probabilities sum to at most 1
+    // when each input probability is in [0, 1].
     let source = indoc! {"
-        CORRELATED_ERROR(0.01) X0
-        ELSE_CORRELATED_ERROR(0.02) Z0
+        CORRELATED_ERROR(0.5) X0
+        ELSE_CORRELATED_ERROR(0.5) Y0
+        ELSE_CORRELATED_ERROR(0.5) Z0
     "};
     check(
         source,
@@ -218,8 +221,9 @@ fn else_correlated_error_with_preceding_correlated_error_yields_expected_qir() {
             intrinsics:
                 0: NoiseTable:
                     qubits: 1
-                    X: 0.01
-                    Z: 0.0198
+                    X: 0.5
+                    Y: 0.25
+                    Z: 0.125
 
 
             define i64 @ENTRYPOINT__main() #0 {
@@ -252,6 +256,27 @@ fn else_correlated_error_with_preceding_correlated_error_yields_expected_qir() {
             !6 = !{i32 7, !"backwards_branching", i2 3}
             !7 = !{i32 1, !"arrays", i1 true}
         "#]],
+    );
+}
+
+#[test]
+fn else_correlated_error_with_invalid_probability_yields_error() {
+    let source = indoc! {"
+        CORRELATED_ERROR(0.01) X0
+        ELSE_CORRELATED_ERROR(1.5) X0
+    "};
+    check(
+        source,
+        &expect![[r#"
+        Qdk.Stim.Compiler.InvalidProbability
+
+          x probability for ELSE_CORRELATED_ERROR must be between 0 and 1; found 1.5
+           ,-[2:23]
+         1 | CORRELATED_ERROR(0.01) X0
+         2 | ELSE_CORRELATED_ERROR(1.5) X0
+           :                       ^^^
+           `----
+    "#]],
     );
 }
 
@@ -552,7 +577,7 @@ fn depolarize1_with_invalid_probability_yields_error() {
               x probability for DEPOLARIZE1 must be between 0 and 1; found 1.5
                ,----
              1 | DEPOLARIZE1(1.5) 0
-               : ^^^^^^^^^^^^^^^^^^
+               :             ^^^
                `----
         "#]],
     );
@@ -560,14 +585,14 @@ fn depolarize1_with_invalid_probability_yields_error() {
     check(
         "DEPOLARIZE1(-0.1) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for DEPOLARIZE1 must be between 0 and 1; found -0.1
-           ,----
-         1 | DEPOLARIZE1(-0.1) 0
-           : ^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for DEPOLARIZE1 must be between 0 and 1; found -0.1
+               ,----
+             1 | DEPOLARIZE1(-0.1) 0
+               :             ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -865,7 +890,7 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
               x too few arguments for instruction PAULI_CHANNEL_1; expected 3, found 2
                ,----
              1 | PAULI_CHANNEL_1(0.1, 0.2) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^^^^^^
                `----
         "#]],
     );
@@ -877,14 +902,15 @@ fn pauli_channel_1_with_probabilities_exceeding_one_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne
+            Qdk.Stim.Compiler.InvalidProbabilitySum
 
-          x noise probabilities must sum to at most 1.0, but they sum to 1.5
-           ,----
-         1 | PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probabilities for PAULI_CHANNEL_1 must sum to at most 1.0, but they sum to
+              | 1.5
+               ,----
+             1 | PAULI_CHANNEL_1(0.5, 0.5, 0.5) 0
+               :                 ^^^^^^^^^^^^^
+               `----
+        "#]],
     );
 }
 
@@ -947,7 +973,7 @@ fn pauli_channel_1_with_invalid_probability_yields_error() {
               x probability for PAULI_CHANNEL_1 must be between 0 and 1; found -0.1
                ,----
              1 | PAULI_CHANNEL_1(-0.1, 0.2, 0.3) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^^
                `----
         "#]],
     );
@@ -955,14 +981,14 @@ fn pauli_channel_1_with_invalid_probability_yields_error() {
     check(
         "PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for PAULI_CHANNEL_1 must be between 0 and 1; found 1.5
-           ,----
-         1 | PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0
-           : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-           `----
-    "#]],
+              x probability for PAULI_CHANNEL_1 must be between 0 and 1; found 1.5
+               ,----
+             1 | PAULI_CHANNEL_1(1.5, 0.0, 0.0) 0
+               :                 ^^^
+               `----
+        "#]],
     );
 }
 
@@ -1094,7 +1120,24 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
               x too few arguments for instruction PAULI_CHANNEL_2; expected 15, found 1
                ,----
              1 | PAULI_CHANNEL_2(0.1) 0 1
-               : ^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^
+               `----
+        "#]],
+    );
+}
+
+#[test]
+fn pauli_channel_2_with_probabilities_exceeding_one_yields_error() {
+    check(
+        "PAULI_CHANNEL_2(0.6,0.6,0,0,0,0,0,0,0,0,0,0,0,0,0) 0 1",
+        &expect![[r#"
+            Qdk.Stim.Compiler.InvalidProbabilitySum
+
+              x probabilities for PAULI_CHANNEL_2 must sum to at most 1.0, but they sum to
+              | 1.2
+               ,----
+             1 | PAULI_CHANNEL_2(0.6,0.6,0,0,0,0,0,0,0,0,0,0,0,0,0) 0 1
+               :                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
                `----
         "#]],
     );
@@ -1174,7 +1217,7 @@ fn x_error_with_probability_exceeding_one_yields_error() {
               x probability for X_ERROR must be between 0 and 1; found 1.5
                ,----
              1 | X_ERROR(1.5) 0
-               : ^^^^^^^^^^^^^^
+               :         ^^^
                `----
         "#]],
     );

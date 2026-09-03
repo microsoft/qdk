@@ -375,9 +375,9 @@ fn select_block_with_args_yields_error() {
             Qdk.Stim.Compiler.UnsupportedArgument
 
               x unsupported argument in instruction: SELECT
-               ,-[1:1]
+               ,-[1:8]
              1 | SELECT(0.5) {
-               : ^^^^^^^^^^^
+               :        ^^^
              2 |   M 0
                `----
         "#]],
@@ -1332,16 +1332,16 @@ fn require_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
-          x unsupported argument in instruction: REQUIRE
-           ,-[3:3]
-         2 |   M 0
-         3 |   REQUIRE(0.5) rec[-1]
-           :   ^^^^^^^^^^^^^^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x unsupported argument in instruction: REQUIRE
+               ,-[3:11]
+             2 |   M 0
+             3 |   REQUIRE(0.5) rec[-1]
+               :           ^^^
+             4 | }
+               `----
+        "#]],
     );
 }
 
@@ -1769,16 +1769,16 @@ fn notleaked_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
-          x unsupported argument in instruction: NOTLEAKED
-           ,-[3:3]
-         2 |   M 0
-         3 |   NOTLEAKED(0.5) rec[-1]
-           :   ^^^^^^^^^^^^^^^^^^^^^^
-         4 | }
-           `----
-    "#]],
+              x unsupported argument in instruction: NOTLEAKED
+               ,-[3:13]
+             2 |   M 0
+             3 |   NOTLEAKED(0.5) rec[-1]
+               :             ^^^
+             4 | }
+               `----
+        "#]],
     );
 }
 

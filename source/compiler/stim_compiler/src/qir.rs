@@ -431,6 +431,14 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("probabilities for {instruction} must sum to at most 1.0, but they sum to {total}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.InvalidProbabilitySum"))]
+    InvalidProbabilitySum {
+        instruction: String,
+        total: f64,
+        #[label]
+        span: Span,
+    },
     #[error("NOTLEAKED cannot reference a record produced by PEEK_LOSS")]
     #[diagnostic(code("Qdk.Stim.Compiler.NotLeakedOnPeekLoss"))]
     NotLeakedOnPeekLoss {
@@ -472,6 +480,14 @@ pub enum Error {
         #[label]
         span: Span,
     },
+    #[error("qubit {qubit} is repeated in instruction: {instruction}")]
+    #[diagnostic(code("Qdk.Stim.Compiler.RepeatedQubit"))]
+    RepeatedQubit {
+        instruction: String,
+        qubit: StimQubitId,
+        #[label]
+        span: Span,
+    },
     #[error("measurement record target in an unsupported position in instruction: {instruction}")]
     #[diagnostic(code("Qdk.Stim.Compiler.MisplacedMeasurementRecord"))]
     MisplacedMeasurementRecord {
@@ -506,20 +522,6 @@ pub enum Error {
     )]
     #[diagnostic(code("Qdk.Stim.Compiler.OrphanedElseCorrelatedError"))]
     OrphanedElseCorrelatedError {
-        #[label]
-        span: Span,
-    },
-    #[error("noise probabilities must sum to at most 1.0, but they sum to {total}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NoiseProbabilitiesExceedOne"))]
-    NoiseProbabilitiesExceedOne {
-        total: f64,
-        #[label]
-        span: Span,
-    },
-    #[error("noise probabilities must be non-negative, but found {probability}")]
-    #[diagnostic(code("Qdk.Stim.Compiler.NegativeNoiseProbability"))]
-    NegativeNoiseProbability {
-        probability: f64,
         #[label]
         span: Span,
     },
@@ -639,12 +641,6 @@ fn select_label(scope: u32) -> String {
 struct CorrelatedRow {
     terms: Vec<(FaultChar, StimQubitId)>,
     probability: f64,
-    span: Span,
-}
-
-struct CorrelatedGroup {
-    rows: Vec<CorrelatedRow>,
-    span: Span,
 }
 
 #[derive(PartialEq, Eq, Hash)]
@@ -669,7 +665,7 @@ impl NoiseKey {
 struct NoiseAccumulator<'noise> {
     config: &'noise mut NoiseConfig<f64, f64>,
     intrinsic_ids: FxHashMap<NoiseKey, u32>,
-    current_correlated_group: Option<CorrelatedGroup>,
+    current_correlated_group: Option<Vec<CorrelatedRow>>,
 }
 
 impl<'noise> NoiseAccumulator<'noise> {
@@ -693,47 +689,27 @@ impl<'noise> NoiseAccumulator<'noise> {
     }
 
     fn push_correlated_row(&mut self, row: CorrelatedRow) {
-        let current_group = self
-            .current_correlated_group
-            .get_or_insert(CorrelatedGroup {
-                rows: Vec::new(),
-                span: row.span,
-            });
-
-        current_group.span = Span {
-            lo: current_group.span.lo,
-            hi: row.span.hi,
-        };
-        current_group.rows.push(row);
+        self.current_correlated_group
+            .get_or_insert_with(Vec::new)
+            .push(row);
     }
 
-    fn try_build_noise_table(
+    fn build_noise_table(
         &self,
         num_qubits: u32,
         pauli_strings: Vec<PauliAndLossString>,
         probabilities: Vec<f64>,
-        span: Span,
-    ) -> Result<NoiseTable<f64>, Error> {
-        if let Some(&probability) = probabilities.iter().find(|&&p| p < 0.0) {
-            return Err(Error::NegativeNoiseProbability { probability, span });
-        }
-        let total_probability: f64 = probabilities.iter().sum();
-        if total_probability > 1.0 {
-            return Err(Error::NoiseProbabilitiesExceedOne {
-                total: total_probability,
-                span,
-            });
-        }
-        Ok(NoiseTable {
+    ) -> NoiseTable<f64> {
+        NoiseTable {
             qubits: num_qubits,
             pauli_strings,
             probabilities,
             on_loss: LossPolicy::Skip, // required field; Skip is the default policy
-        })
+        }
     }
 
-    fn flush_correlated_group(&mut self) -> Result<(NoiseTable<f64>, Vec<StimQubitId>), Error> {
-        let CorrelatedGroup { rows, span } = self
+    fn flush_correlated_group(&mut self) -> (NoiseTable<f64>, Vec<StimQubitId>) {
+        let rows = self
             .current_correlated_group
             .take()
             .expect("a correlated group must be present to flush"); // this is a compiler invariant
@@ -754,13 +730,9 @@ impl<'noise> NoiseAccumulator<'noise> {
             probabilities.push(remaining_probability * row.probability); // each row fires only if all previous ones didn't
             remaining_probability *= 1.0 - row.probability;
         }
-        let noise_table = self.try_build_noise_table(
-            pauli_string_width as u32,
-            pauli_strings,
-            probabilities,
-            span,
-        )?;
-        Ok((noise_table, qubits))
+        let noise_table =
+            self.build_noise_table(pauli_string_width as u32, pauli_strings, probabilities);
+        (noise_table, qubits)
     }
 
     fn collect_qubits(&self, rows: &[CorrelatedRow]) -> Vec<StimQubitId> {
@@ -1068,10 +1040,7 @@ impl<'noise> Compiler<'noise> {
                 s.op_2("cx", q1, q0);
                 s.op("h", q1);
             }),
-            "II" => {
-                self.unsupported_args(instruction);
-                self.expect_target_pairs(instruction);
-            }
+            "II" => self.broadcast_pair(instruction, |_, _, _| {}),
             "ISWAP" => self.broadcast_pair(instruction, |s, q0, q1| {
                 // Stim decomposition (into H, S, CX, M, R): H 0; CX 0 1; CX 1 0; H 1; S 1; S 0
                 s.op("h", q0);
@@ -1218,18 +1187,15 @@ impl<'noise> Compiler<'noise> {
             "ELSE_CORRELATED_ERROR" => self.continue_correlated_noise(instruction),
 
             "DEPOLARIZE1" => self.broadcast_noise(instruction, |s, q, p| {
-                let Some(table) = s.build_noise_table(
+                let table = s.noise_accumulator.build_noise_table(
                     1,
                     ["X", "Y", "Z"].map(encode_pauli).to_vec(),
                     vec![p / 3.0; 3],
-                    instruction.span,
-                ) else {
-                    return;
-                };
+                );
                 s.op_noise(table, &[q]);
             }),
             "DEPOLARIZE2" => self.broadcast_pair_noise(instruction, |s, q0, q1, p| {
-                let Some(table) = s.build_noise_table(
+                let table = s.noise_accumulator.build_noise_table(
                     2,
                     [
                         "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
@@ -1238,30 +1204,22 @@ impl<'noise> Compiler<'noise> {
                     .map(encode_pauli)
                     .to_vec(),
                     vec![p / 15.0; 15],
-                    instruction.span,
-                ) else {
-                    return;
-                };
+                );
 
                 s.op_noise(table, &[q0, q1]);
             }),
             "HERALDED_ERASE" | "HERALDED_PAULI_CHANNEL_1" => self.unsupported(instruction),
-            "II_ERROR" => {
-                self.expect_target_pairs(instruction);
-            }
+            "II_ERROR" => self.for_each_pair(instruction, |_, _, _| {}),
             "I_ERROR" => (),
             "PAULI_CHANNEL_1" => {
                 let Some(probabilities) = self.expect_probabilities(instruction, 3) else {
                     return;
                 };
-                let Some(table) = self.build_noise_table(
+                let table = self.noise_accumulator.build_noise_table(
                     1,
                     ["X", "Y", "Z"].map(encode_pauli).to_vec(),
                     probabilities,
-                    instruction.span,
-                ) else {
-                    return;
-                };
+                );
                 self.for_each_qubit(instruction, |s, q| {
                     s.op_noise(table.clone(), &[q]);
                 });
@@ -1271,7 +1229,7 @@ impl<'noise> Compiler<'noise> {
                     return;
                 };
 
-                let Some(table) = self.build_noise_table(
+                let table = self.noise_accumulator.build_noise_table(
                     2,
                     [
                         "IX", "IY", "IZ", "XI", "XX", "XY", "XZ", "YI", "YX", "YY", "YZ", "ZI",
@@ -1280,10 +1238,7 @@ impl<'noise> Compiler<'noise> {
                     .map(encode_pauli)
                     .to_vec(),
                     probabilities,
-                    instruction.span,
-                ) else {
-                    return;
-                };
+                );
                 self.for_each_pair(instruction, |s, q0, q1| {
                     s.op_noise(table.clone(), &[q0, q1]);
                 });
@@ -1291,14 +1246,11 @@ impl<'noise> Compiler<'noise> {
             "X_ERROR" | "Y_ERROR" | "Z_ERROR" | "LOSS_ERROR" => {
                 let fault = FaultChar::from_instruction_name(&instruction.name);
                 self.broadcast_noise(instruction, |s, q, p| {
-                    let Some(table) = s.build_noise_table(
+                    let table = s.noise_accumulator.build_noise_table(
                         1,
                         vec![encode_pauli(fault.as_str())],
                         vec![p],
-                        instruction.span,
-                    ) else {
-                        return;
-                    };
+                    );
                     s.op_noise(table, &[q]);
                 });
             }
@@ -1541,10 +1493,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some((q0, _)) = self.expect_qubit(instruction, &pair[0], false) else {
-                continue;
-            };
-            let Some((q1, _)) = self.expect_qubit(instruction, &pair[1], false) else {
+            let Some([(q0, _), (q1, _)]) = self.expect_qubit_pair(instruction, pair, false) else {
                 continue;
             };
             operation(self, q0, q1);
@@ -1560,10 +1509,8 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for pair in pairs {
-            let Some((q0, neg0)) = self.expect_qubit(instruction, &pair[0], true) else {
-                continue;
-            };
-            let Some((q1, neg1)) = self.expect_qubit(instruction, &pair[1], true) else {
+            let Some([(q0, neg0), (q1, neg1)]) = self.expect_qubit_pair(instruction, pair, true)
+            else {
                 continue;
             };
             operation(self, q0, q1, neg0 ^ neg1);
@@ -1579,13 +1526,7 @@ impl<'noise> Compiler<'noise> {
             return;
         };
         for triple in triples {
-            let Some((q0, _)) = self.expect_qubit(instruction, &triple[0], false) else {
-                continue;
-            };
-            let Some((q1, _)) = self.expect_qubit(instruction, &triple[1], false) else {
-                continue;
-            };
-            let Some((q2, _)) = self.expect_qubit(instruction, &triple[2], false) else {
+            let Some([q0, q1, q2]) = self.expect_qubit_triple(instruction, triple) else {
                 continue;
             };
             operation(self, q0, q1, q2);
@@ -1728,10 +1669,9 @@ impl<'noise> Compiler<'noise> {
         for pair in pairs {
             match (&pair[0].kind, &pair[1].kind) {
                 (TargetKind::Qubit { .. }, TargetKind::Qubit { .. }) => {
-                    let Some((control, _)) = self.expect_qubit(instruction, &pair[0], false) else {
-                        continue;
-                    };
-                    let Some((target, _)) = self.expect_qubit(instruction, &pair[1], false) else {
+                    let Some([(control, _), (target, _)]) =
+                        self.expect_qubit_pair(instruction, pair, false)
+                    else {
                         continue;
                     };
                     quantum(self, control, target);
@@ -1818,13 +1758,8 @@ impl<'noise> Compiler<'noise> {
             terms.push((fault, qubit));
         }
 
-        let row = CorrelatedRow {
-            probability,
-            terms,
-            span: instruction.span,
-        };
-
-        self.noise_accumulator.push_correlated_row(row);
+        self.noise_accumulator
+            .push_correlated_row(CorrelatedRow { probability, terms });
     }
 
     fn continue_correlated_noise(&mut self, instruction: &Instruction) {
@@ -1841,10 +1776,8 @@ impl<'noise> Compiler<'noise> {
         if self.noise_accumulator.current_correlated_group.is_none() {
             return;
         }
-        match self.noise_accumulator.flush_correlated_group() {
-            Ok((noise_table, qubits)) => self.op_noise(noise_table, &qubits),
-            Err(error) => self.push_error(error),
-        }
+        let (noise_table, qubits) = self.noise_accumulator.flush_correlated_group();
+        self.op_noise(noise_table, &qubits);
     }
 
     /// Converts a Pauli product to a canonical form: one factor per qubit, sorted by
@@ -2036,27 +1969,6 @@ impl<'noise> Compiler<'noise> {
         }
     }
 
-    fn build_noise_table(
-        &mut self,
-        num_qubits: u32,
-        pauli_strings: Vec<PauliAndLossString>,
-        probabilities: Vec<f64>,
-        span: Span,
-    ) -> Option<NoiseTable<f64>> {
-        match self.noise_accumulator.try_build_noise_table(
-            num_qubits,
-            pauli_strings,
-            probabilities,
-            span,
-        ) {
-            Ok(table) => Some(table),
-            Err(error) => {
-                self.push_error(error);
-                None
-            }
-        }
-    }
-
     fn compile_require(&mut self, instruction: &Instruction) {
         let Some(record_metadata) = self.validate_select_condition(instruction) else {
             return;
@@ -2245,6 +2157,52 @@ impl<'noise> Compiler<'noise> {
         Some((value, negated))
     }
 
+    fn expect_qubit_pair(
+        &mut self,
+        instruction: &Instruction,
+        pair: &[Target],
+        allow_negated: bool,
+    ) -> Option<[(StimQubitId, bool); 2]> {
+        let (q0, neg0) = self.expect_qubit(instruction, &pair[0], allow_negated)?;
+        let (q1, neg1) = self.expect_qubit(instruction, &pair[1], allow_negated)?;
+
+        if q0 == q1 {
+            self.push_error(Error::RepeatedQubit {
+                instruction: instruction.name.clone(),
+                qubit: q1,
+                span: pair[1].span,
+            });
+            return None;
+        }
+
+        Some([(q0, neg0), (q1, neg1)])
+    }
+
+    fn expect_qubit_triple(
+        &mut self,
+        instruction: &Instruction,
+        triple: &[Target],
+    ) -> Option<[StimQubitId; 3]> {
+        let (q0, _) = self.expect_qubit(instruction, &triple[0], false)?;
+        let (q1, _) = self.expect_qubit(instruction, &triple[1], false)?;
+        let (q2, _) = self.expect_qubit(instruction, &triple[2], false)?;
+
+        let (repeated_qubit_value, repeated_qubit_span) = if q0 == q1 {
+            (q1, triple[1].span)
+        } else if q0 == q2 || q1 == q2 {
+            (q2, triple[2].span)
+        } else {
+            return Some([q0, q1, q2]);
+        };
+
+        self.push_error(Error::RepeatedQubit {
+            instruction: instruction.name.clone(),
+            qubit: repeated_qubit_value,
+            span: repeated_qubit_span,
+        });
+        None
+    }
+
     fn expect_fault_char(
         &mut self,
         instruction: &Instruction,
@@ -2391,7 +2349,7 @@ impl<'noise> Compiler<'noise> {
 
         let mut probabilities = Vec::with_capacity(args.len());
         let mut has_invalid_probability = false;
-        for arg in args {
+        for &arg in &args {
             let value = match arg.value {
                 ArgValue::Default(value) => value,
                 ArgValue::Radians(value) => {
@@ -2410,16 +2368,26 @@ impl<'noise> Compiler<'noise> {
                 self.push_error(Error::InvalidProbability {
                     instruction: instruction.name.clone(),
                     probability: value,
-                    span: instruction.span,
+                    span: arg.span,
                 });
                 has_invalid_probability = true;
             }
         }
-        if !has_invalid_probability {
-            Some(probabilities)
-        } else {
-            None
+        if has_invalid_probability {
+            return None;
         }
+
+        let total: f64 = probabilities.iter().sum();
+        if total > 1.0 {
+            self.push_error(Error::InvalidProbabilitySum {
+                instruction: instruction.name.clone(),
+                total,
+                span: args_span(&args),
+            });
+            return None;
+        }
+
+        Some(probabilities)
     }
 
     fn expect_args(&mut self, instruction: &Instruction, expected: usize) -> Option<Vec<Arg>> {
@@ -2437,7 +2405,7 @@ impl<'noise> Compiler<'noise> {
                 instruction: instruction.name.clone(),
                 expected,
                 found: args.len(),
-                span: instruction.span,
+                span: args_span(&args[expected..]),
             });
             return None;
         } else if args.len() < expected {
@@ -2445,7 +2413,7 @@ impl<'noise> Compiler<'noise> {
                 instruction: instruction.name.clone(),
                 expected,
                 found: args.len(),
-                span: instruction.span,
+                span: args_span(args),
             });
             return None;
         }
@@ -2463,7 +2431,7 @@ impl<'noise> Compiler<'noise> {
         if !instruction.args.is_empty() {
             self.push_error(Error::UnsupportedArgument {
                 instruction: instruction.name.clone(),
-                span: instruction.span,
+                span: args_span(&instruction.args),
             });
         }
     }
