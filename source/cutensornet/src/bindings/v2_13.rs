@@ -160,6 +160,22 @@ pub const cutensornetExpectationAttributes_t_CUTENSORNET_EXPECTATION_INFO_FLOPS:
     cutensornetExpectationAttributes_t = 64;
 #[doc = " \\brief This enum lists attributes associated with computation of a tensor network state expectation value."]
 pub type cutensornetExpectationAttributes_t = ::std::os::raw::c_uint;
+#[doc = " \\brief Opaque structure holding the tensor network state sampler."]
+pub type cutensornetStateSampler_t = *mut ::std::os::raw::c_void;
+#[doc = "< DEPRECATED int32_t: Number of hyper-samples used by the tensor network contraction path finder."]
+pub const cutensornetSamplerAttributes_t_CUTENSORNET_SAMPLER_OPT_NUM_HYPER_SAMPLES:
+    cutensornetSamplerAttributes_t = 0;
+#[doc = "< int32_t: Number of hyper-samples used by the tensor network contraction path finder."]
+pub const cutensornetSamplerAttributes_t_CUTENSORNET_SAMPLER_CONFIG_NUM_HYPER_SAMPLES:
+    cutensornetSamplerAttributes_t = 1;
+#[doc = "< int32_t: A positive random seed will ensure deterministic sampling results across multiple application runs."]
+pub const cutensornetSamplerAttributes_t_CUTENSORNET_SAMPLER_CONFIG_DETERMINISTIC:
+    cutensornetSamplerAttributes_t = 2;
+#[doc = "< double: Total Flop count estimate associated with generating a single sample from the tensor network state."]
+pub const cutensornetSamplerAttributes_t_CUTENSORNET_SAMPLER_INFO_FLOPS:
+    cutensornetSamplerAttributes_t = 64;
+#[doc = " \\brief This enum lists attributes associated with tensor network state sampling."]
+pub type cutensornetSamplerAttributes_t = ::std::os::raw::c_uint;
 #[doc = "< Open boundary condition."]
 pub const cutensornetBoundaryCondition_t_CUTENSORNET_BOUNDARY_CONDITION_OPEN:
     cutensornetBoundaryCondition_t = 0;
@@ -445,5 +461,52 @@ unsafe extern "C" {
     #[doc = " \\brief Destroys the tensor network state expectation value representation.\n\n \\param[in,out] tensorNetworkExpectation Tensor network state expectation value representation."]
     pub fn cutensornetDestroyExpectation(
         tensorNetworkExpectation: cutensornetStateExpectation_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Creates a tensor network state sampler.\n\n \\details A tensor network state sampler produces samples from the state tensor\n with the probability equal to the squared absolute value of the corresponding\n element of the state tensor. One can also choose any subset of tensor network\n state modes to sample only from the subspace spanned by them. The order of\n specified state modes will be respected when producing the output samples.\n\n \\note For the purpose of quantum circuit simulations, the tensor network state\n sampler can generate bit-strings (or qudit-strings) from the output state of\n the defined quantum circuit (i.e., the tensor network defined by gate applications).\n\n \\note The provided tensor network state must stay alive during\n the lifetime of the tensor network state sampler.\n Additionally, applying a tensor operator to the tensor network state\n after it was used to create the tensor network state sampler\n will invalidate the tensor network state sampler. On the other hand,\n simply updating tensor operator data via cutensornetStateUpdateTensorOperator()\n is allowed.\n\n \\param[in] handle cuTensorNet library handle.\n \\param[in] tensorNetworkState Tensor network state.\n \\param[in] numModesToSample Number of the tensor network state modes to sample from.\n \\param[in] modesToSample Pointer to the state modes to sample from (can be NULL when all modes are requested).\n \\param[out] tensorNetworkSampler Tensor network sampler.\n\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetCreateSampler(
+        handle: cutensornetHandle_t,
+        tensorNetworkState: cutensornetState_t,
+        numModesToSample: i32,
+        modesToSample: *const i32,
+        tensorNetworkSampler: *mut cutensornetStateSampler_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Configures the tensor network state sampler.\n\n \\param[in] handle cuTensorNet library handle.\n \\param[in,out] tensorNetworkSampler Tensor network state sampler.\n \\param[in] attribute Configuration attribute.\n \\param[in] attributeValue Pointer to the configuration attribute value (type-erased).\n \\param[in] attributeSize The size of the configuration attribute value.\n\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetSamplerConfigure(
+        handle: cutensornetHandle_t,
+        tensorNetworkSampler: cutensornetStateSampler_t,
+        attribute: cutensornetSamplerAttributes_t,
+        attributeValue: *const ::std::os::raw::c_void,
+        attributeSize: usize,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Prepares the tensor network state sampler.\n\n \\param[in] handle cuTensorNet library handle.\n \\param[in] tensorNetworkSampler Tensor network sampler.\n \\param[in] maxWorkspaceSizeDevice Upper limit on the amount of available GPU scratch memory (bytes).\n \\param[out] workDesc Workspace descriptor (the required scratch/cache memory sizes will be set).\n \\param[in] cudaStream CUDA stream.\n\n \\note The cudaStream argument is unused in the current release (can be set to 0x0).\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetSamplerPrepare(
+        handle: cutensornetHandle_t,
+        tensorNetworkSampler: cutensornetStateSampler_t,
+        maxWorkspaceSizeDevice: usize,
+        workDesc: cutensornetWorkspaceDescriptor_t,
+        cudaStream: cudaStream_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Performs sampling of the tensor network state, that is, generates the requested number of samples.\n\n \\note Each sampler instance is initialized with a randomly seeded pseudo-random number generator (PRNG), which advances on \\ref cutensornetSamplerSample calls. To\n generate reproducible sequences of samples, set \\ref CUTENSORNET_SAMPLER_CONFIG_DETERMINISTIC through\n \\ref cutensornetSamplerConfigure to a positive \\c int32_t seed before calling this function.\n Setting the attribute to \\c 0 reinitializes the PRNG with a random seed.\n\n \\param[in] handle cuTensorNet library handle.\n \\param[in] tensorNetworkSampler Tensor network state sampler.\n \\param[in] numShots Number of samples to generate.\n \\param[in] workDesc Workspace descriptor (the required scratch/cache memory buffers must be set by the user).\n \\param[out] samples Host memory pointer where the generated state tensor samples will be stored at.\n The samples will be stored as samples[SampleId][ModeId] in C notation and the originally specified\n order of the tensor network state modes to sample from will be respected.\n \\param[in] cudaStream CUDA stream.\n\n \\warning The provided workspace descriptor \\p workDesc must have the Device Scratch buffer\n set explicitly since user-provided memory pools are not supported in the current release.\n Additionally, the attached workspace buffer must be 256-byte aligned in the current release.\n\n \\warning In the current release, the execution of this API function will synchronize\n the provided CUDA stream. This restriction may be released in the future.\n\n \\note Requires an active CUDA capable device and a properly created cuTensorNet handle, returns CUTENSORNET_STATUS_NOT_INITIALIZED otherwise."]
+    pub fn cutensornetSamplerSample(
+        handle: cutensornetHandle_t,
+        tensorNetworkSampler: cutensornetStateSampler_t,
+        numShots: i64,
+        workDesc: cutensornetWorkspaceDescriptor_t,
+        samples: *mut i64,
+        cudaStream: cudaStream_t,
+    ) -> cutensornetStatus_t;
+}
+unsafe extern "C" {
+    #[doc = " \\brief Destroys the tensor network state sampler.\n\n \\param[in,out] tensorNetworkSampler Tensor network state sampler."]
+    pub fn cutensornetDestroySampler(
+        tensorNetworkSampler: cutensornetStateSampler_t,
     ) -> cutensornetStatus_t;
 }

@@ -43,6 +43,11 @@ const CUTENSORNET_REQUIRED_SYMBOLS: &[&str] = &[
     "cutensornetExpectationPrepare",
     "cutensornetExpectationCompute",
     "cutensornetDestroyExpectation",
+    "cutensornetCreateSampler",
+    "cutensornetSamplerConfigure",
+    "cutensornetSamplerPrepare",
+    "cutensornetSamplerSample",
+    "cutensornetDestroySampler",
 ];
 #[cfg(test)]
 const CUDART_REQUIRED_SYMBOLS: &[&str] = &[
@@ -212,7 +217,7 @@ mod tests {
 
     #[test]
     fn symbol_inventories_match_the_frozen_surface() {
-        assert_eq!(CUTENSORNET_REQUIRED_SYMBOLS.len(), 25);
+        assert_eq!(CUTENSORNET_REQUIRED_SYMBOLS.len(), 30);
         assert_eq!(CUDART_REQUIRED_SYMBOLS.len(), 12);
         assert!(!CUTENSORNET_REQUIRED_SYMBOLS.contains(&"cutensornetGetLastError"));
     }
