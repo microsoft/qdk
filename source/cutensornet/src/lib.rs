@@ -8,6 +8,7 @@ mod bindings;
 mod error;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod library;
+mod simulation;
 #[cfg(any(test, all(target_os = "linux", target_arch = "x86_64")))]
 mod version;
 

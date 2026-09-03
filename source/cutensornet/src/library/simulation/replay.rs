@@ -1,24 +1,29 @@
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use super::query::BaseQueryResult;
 use super::{
-    Circuit, Gate, Session, SimulationError, SimulationResult, branch,
+    Circuit, Gate, OpaqueHandle, SimulationError, SimulationResult, Stream, branch,
     circuit::{
         ExecutionReport, StatePhaseTimings, StateReadout, WorkspaceReport, contract_open_mps,
     },
     ffi::Complex64Abi,
     policy::ExecutionPolicy,
     query::{
-        AdjacentZQuery, B2_EXPECTATION_HYPER_SAMPLES, BaseQueryResult, QueryPhaseTimings,
-        QueryResult, normalize_expectation,
+        AdjacentZQuery, B2_EXPECTATION_HYPER_SAMPLES, QueryPhaseTimings, QueryResult,
+        normalize_expectation,
     },
-    session::{OpaqueHandle, Stream},
 };
-use crate::bindings::v2_13;
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use crate::library::Session;
 use num_complex::Complex64;
-use std::{f64::consts::FRAC_1_SQRT_2, mem::size_of, sync::Arc, time::Instant};
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+use std::sync::Arc;
+use std::{f64::consts::FRAC_1_SQRT_2, mem::size_of, time::Instant};
 
 #[cfg(test)]
+#[path = "replay/tests.rs"]
 mod tests;
 
-pub(super) struct MpsTarget {
+pub(crate) struct MpsTarget {
     extents: Vec<Box<[i64]>>,
     extent_pointers: Box<[*const i64]>,
     output_elements: Vec<usize>,
@@ -61,14 +66,14 @@ impl MpsTarget {
         })
     }
 
-    pub(super) fn extent_pointers(&self) -> &[*const i64] {
+    pub(crate) fn extent_pointers(&self) -> &[*const i64] {
         &self.extent_pointers
     }
 }
 
-pub(super) struct OutputMetadata {
-    pub(super) extents: Vec<Box<[i64]>>,
-    pub(super) strides: Vec<Box<[i64]>>,
+pub(crate) struct OutputMetadata {
+    pub(crate) extents: Vec<Box<[i64]>>,
+    pub(crate) strides: Vec<Box<[i64]>>,
 }
 
 impl OutputMetadata {
@@ -87,7 +92,19 @@ impl OutputMetadata {
     }
 }
 
-pub(super) trait ReplayApi {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StateF64Attribute {
+    SvdAbsoluteCutoff,
+    SvdRelativeCutoff,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StateU32Configuration {
+    SvdAlgorithmGesvd,
+    MpsGaugeSimple,
+}
+
+pub(crate) trait ReplayApi {
     fn memory_info(&self) -> Result<(usize, usize), SimulationError>;
     fn allocate(&self, bytes: usize) -> Result<OpaqueHandle, SimulationError>;
     fn free(&self, allocation: OpaqueHandle) -> Result<(), SimulationError>;
@@ -127,15 +144,14 @@ pub(super) trait ReplayApi {
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
-        attribute: v2_13::cutensornetStateAttributes_t,
+        attribute: StateF64Attribute,
         value: f64,
     ) -> Result<(), SimulationError>;
     fn configure_state_u32(
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
-        attribute: v2_13::cutensornetStateAttributes_t,
-        value: u32,
+        configuration: StateU32Configuration,
     ) -> Result<(), SimulationError>;
     fn create_workspace(&self, handle: OpaqueHandle) -> Result<OpaqueHandle, SimulationError>;
     fn destroy_workspace(&self, workspace: OpaqueHandle) -> Result<(), SimulationError>;
@@ -179,7 +195,7 @@ pub(super) trait ReplayApi {
         &self,
         handle: OpaqueHandle,
         operator: OpaqueHandle,
-        coefficient: v2_13::cuDoubleComplex,
+        coefficient: Complex64,
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
     ) -> Result<(), SimulationError>;
@@ -213,6 +229,7 @@ pub(super) trait ReplayApi {
     ) -> Result<(Complex64, Complex64), SimulationError>;
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 impl Session {
     #[cfg(test)]
     pub(super) fn simulate_with_branch(
@@ -710,7 +727,7 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
             self.api.append_product(
                 self.handle,
                 operator,
-                v2_13::double2 { x: 1.0, y: 0.0 },
+                Complex64::new(1.0, 0.0),
                 &factor_modes,
                 &[z_tensor, z_tensor],
             )?;
@@ -824,7 +841,7 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
             self.api.append_product(
                 self.handle,
                 operator,
-                v2_13::double2 { x: 1.0, y: 0.0 },
+                Complex64::new(1.0, 0.0),
                 &[vec![mode].into_boxed_slice()],
                 &[tensor],
             )?;
@@ -915,27 +932,22 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
         self.api.configure_state_f64(
             self.handle,
             state,
-            v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ABS_CUTOFF,
+            StateF64Attribute::SvdAbsoluteCutoff,
             self.policy.absolute_cutoff,
         )?;
         self.api.configure_state_f64(
             self.handle,
             state,
-            v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_REL_CUTOFF,
+            StateF64Attribute::SvdRelativeCutoff,
             self.policy.relative_cutoff,
         )?;
         self.api.configure_state_u32(
             self.handle,
             state,
-            v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO,
-            v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD,
+            StateU32Configuration::SvdAlgorithmGesvd,
         )?;
-        self.api.configure_state_u32(
-            self.handle,
-            state,
-            v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_GAUGE_OPTION,
-            v2_13::cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_SIMPLE,
-        )
+        self.api
+            .configure_state_u32(self.handle, state, StateU32Configuration::MpsGaugeSimple)
     }
 
     fn allocate_complex(
@@ -1493,6 +1505,7 @@ fn validate_b1_width_result(width: usize, result: &SimulationResult, readout: St
     }
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 #[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
 #[allow(
@@ -1571,6 +1584,7 @@ fn base_profile_a100_qualification() {
     );
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 #[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
 #[allow(
@@ -1611,6 +1625,7 @@ fn b0_a100_ordering_and_gate_qualification() {
     cleanup.expect("native session cleanup should succeed");
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 #[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
 #[allow(
@@ -1666,6 +1681,7 @@ fn b1_a100_width_qualification() {
     cleanup.expect("native session cleanup should succeed");
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 #[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
 #[allow(
@@ -1693,6 +1709,7 @@ fn b2_a100_trotter_query_qualification() {
     );
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 #[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
 #[allow(
@@ -1710,6 +1727,7 @@ fn b3_a100_matched_bond_qualification() {
     );
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 #[ignore = "requires the pinned CUDA 12.9/cuTensorNet 2.13 A100 environment"]
 #[allow(
@@ -1742,6 +1760,7 @@ fn b4_a100_convergence_qualification() {
     clippy::used_underscore_binding,
     reason = "the hardware qualification emits one complete traceable cell record and retains the Phase 2 library guard"
 )]
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 fn run_trotter_query_qualification(
     stage: &str,
     width: u32,
@@ -1882,6 +1901,7 @@ fn maximum_global_phase_error(actual: &[Complex64], expected: &[Complex64]) -> f
         .fold(0.0_f64, f64::max)
 }
 
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 #[test]
 #[ignore = "requires a CUDA 12.9/cuTensorNet 2.13 GPU environment"]
 #[allow(

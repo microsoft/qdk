@@ -11,13 +11,13 @@ use std::{
     sync::Arc,
 };
 
+mod simulation;
+pub(crate) use simulation::Session;
+
 const CUTENSORNET_NAME: &str = "cuTensorNet";
 const CUDART_NAME: &str = "CUDA Runtime";
 const CUTENSORNET_OVERRIDE: &str = "QDK_CUTENSORNET_LIBRARY";
 const CUDART_OVERRIDE: &str = "QDK_CUDART_LIBRARY";
-
-#[cfg(test)]
-mod simulation;
 
 const CUTENSORNET_DEFAULTS: &[&str] = &[
     "/usr/lib/x86_64-linux-gnu/libcuquantum/12/libcutensornet.so.2",

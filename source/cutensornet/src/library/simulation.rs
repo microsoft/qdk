@@ -1,21 +1,20 @@
-mod branch;
-mod circuit;
-mod error;
-mod ffi;
-mod policy;
-mod query;
-mod replay;
+#![allow(
+    dead_code,
+    reason = "the private native adapter becomes live in the consumer integration iteration"
+)]
+
+#[path = "simulation/session.rs"]
 mod session;
 
-pub(super) use circuit::{Circuit, Gate, SimulationResult};
-pub(super) use error::SimulationError;
-pub(super) use session::Session;
+pub(crate) use session::Session;
 
 use super::NativeApi;
 use crate::bindings::{cudart_12, v2_13};
-use ffi::Complex64Abi;
-use replay::{MpsTarget, OutputMetadata, ReplayApi};
-use session::{OpaqueHandle, SessionApi, Stream};
+use crate::simulation::{
+    Complex64Abi, MpsTarget, OpaqueHandle, OutputMetadata, ReplayApi, SimulationError,
+    StateF64Attribute, StateU32Configuration, Stream,
+};
+use session::SessionApi;
 use std::{
     ffi::{CStr, c_void},
     mem::size_of,
@@ -107,7 +106,7 @@ impl SessionApi for NativeApi {
             )
         };
         self.check_cuda("cudaStreamCreateWithFlags", status)?;
-        NonNull::new(stream).ok_or(SimulationError::MissingNativeResource {
+        NonNull::new(stream.cast()).ok_or(SimulationError::MissingNativeResource {
             operation: "cudaStreamCreateWithFlags",
             resource: "CUDA stream",
         })
@@ -115,13 +114,13 @@ impl SessionApi for NativeApi {
 
     fn synchronize_stream(&self, stream: Stream) -> Result<(), SimulationError> {
         // SAFETY: `stream` is owned by the live session and has not been destroyed.
-        let status = unsafe { (self.cuda_functions.stream_synchronize)(stream.as_ptr()) };
+        let status = unsafe { (self.cuda_functions.stream_synchronize)(stream.as_ptr().cast()) };
         self.check_cuda("cudaStreamSynchronize", status)
     }
 
     fn destroy_stream(&self, stream: Stream) -> Result<(), SimulationError> {
         // SAFETY: the session consumes this owned stream exactly once.
-        let status = unsafe { (self.cuda_functions.stream_destroy)(stream.as_ptr()) };
+        let status = unsafe { (self.cuda_functions.stream_destroy)(stream.as_ptr().cast()) };
         self.check_cuda("cudaStreamDestroy", status)
     }
 
@@ -315,9 +314,17 @@ impl ReplayApi for NativeApi {
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
-        attribute: v2_13::cutensornetStateAttributes_t,
+        attribute: StateF64Attribute,
         value: f64,
     ) -> Result<(), SimulationError> {
+        let attribute = match attribute {
+            StateF64Attribute::SvdAbsoluteCutoff => {
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ABS_CUTOFF
+            }
+            StateF64Attribute::SvdRelativeCutoff => {
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_REL_CUTOFF
+            }
+        };
         // SAFETY: the attribute is paired with its audited f64 representation,
         // and cuTensorNet copies the call-local value before returning.
         let status = unsafe {
@@ -336,9 +343,18 @@ impl ReplayApi for NativeApi {
         &self,
         handle: OpaqueHandle,
         state: OpaqueHandle,
-        attribute: v2_13::cutensornetStateAttributes_t,
-        value: u32,
+        configuration: StateU32Configuration,
     ) -> Result<(), SimulationError> {
+        let (attribute, value) = match configuration {
+            StateU32Configuration::SvdAlgorithmGesvd => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_SVD_ALGO,
+                v2_13::cutensornetTensorSVDAlgo_t_CUTENSORNET_TENSOR_SVD_ALGO_GESVD,
+            ),
+            StateU32Configuration::MpsGaugeSimple => (
+                v2_13::cutensornetStateAttributes_t_CUTENSORNET_STATE_CONFIG_MPS_GAUGE_OPTION,
+                v2_13::cutensornetStateMPSGaugeOption_t_CUTENSORNET_STATE_MPS_GAUGE_SIMPLE,
+            ),
+        };
         // SAFETY: the attribute is paired with its audited 32-bit enum
         // representation, and cuTensorNet copies the value before returning.
         let status = unsafe {
@@ -388,7 +404,7 @@ impl ReplayApi for NativeApi {
                 state.as_ptr(),
                 maximum_workspace_bytes,
                 workspace.as_ptr(),
-                stream.as_ptr(),
+                stream.as_ptr().cast(),
             )
         };
         self.check_cutensornet("cutensornetStatePrepare", status)
@@ -471,7 +487,7 @@ impl ReplayApi for NativeApi {
                 extent_pointers.as_mut_ptr(),
                 stride_pointers.as_mut_ptr(),
                 output_pointers.as_mut_ptr(),
-                stream.as_ptr(),
+                stream.as_ptr().cast(),
             )
         };
         self.check_cutensornet("cutensornetStateCompute", status)?;
@@ -522,7 +538,7 @@ impl ReplayApi for NativeApi {
         &self,
         handle: OpaqueHandle,
         operator: OpaqueHandle,
-        coefficient: v2_13::cuDoubleComplex,
+        coefficient: num_complex::Complex64,
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
     ) -> Result<(), SimulationError> {
@@ -531,6 +547,10 @@ impl ReplayApi for NativeApi {
                 reason: "Query product factors do not match".to_string(),
             });
         }
+        let coefficient = v2_13::double2 {
+            x: coefficient.re,
+            y: coefficient.im,
+        };
         let factor_count = i32::try_from(factor_modes.len()).map_err(|_| {
             SimulationError::ResourceSizeOverflow {
                 resource: "Query product factor count",
@@ -638,7 +658,7 @@ impl ReplayApi for NativeApi {
                 expectation.as_ptr(),
                 maximum_workspace_bytes,
                 workspace.as_ptr(),
-                stream.as_ptr(),
+                stream.as_ptr().cast(),
             )
         };
         self.check_cutensornet("cutensornetExpectationPrepare", status)
@@ -662,7 +682,7 @@ impl ReplayApi for NativeApi {
                 workspace.as_ptr(),
                 (&raw mut value).cast(),
                 (&raw mut norm).cast(),
-                stream.as_ptr(),
+                stream.as_ptr().cast(),
             )
         };
         self.check_cutensornet("cutensornetExpectationCompute", status)?;

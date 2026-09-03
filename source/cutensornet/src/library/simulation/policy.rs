@@ -21,8 +21,8 @@ pub(super) enum Gauge {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) struct ExecutionPolicy {
-    pub(super) device_ordinal: i32,
+pub(crate) struct ExecutionPolicy {
+    pub(crate) device_ordinal: i32,
     pub(super) precision: Precision,
     pub(super) bond_cap: i64,
     pub(super) absolute_cutoff: f64,
@@ -73,7 +73,7 @@ impl ExecutionPolicy {
         }
     }
 
-    pub(super) fn validate(self) -> Result<Self, SimulationError> {
+    pub(crate) fn validate(self) -> Result<Self, SimulationError> {
         if self.device_ordinal < 0 {
             return Err(invalid("device ordinal must be nonnegative"));
         }
@@ -113,7 +113,7 @@ fn invalid(reason: &'static str) -> SimulationError {
 #[cfg(test)]
 mod tests {
     use super::{ExecutionPolicy, Gauge, Precision, SvdAlgorithm};
-    use crate::library::simulation::SimulationError;
+    use crate::simulation::SimulationError;
 
     fn assert_relative_close(actual: f64, expected: f64) {
         assert!(actual.is_finite());

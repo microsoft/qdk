@@ -3,17 +3,13 @@ use super::{
     combine_execution_and_cleanup, convert_layout, fixture_operator, maximum_bond,
     saturating_power_of_two, target_bond_extent, validate_realized_extents,
 };
-use crate::{
-    bindings::v2_13,
-    library::simulation::{
-        Circuit, Gate, SimulationError,
-        branch::{BranchRequest, BranchSimulationResult, SelectedBranch},
-        circuit::StateReadout,
-        ffi::Complex64Abi,
-        policy::ExecutionPolicy,
-        query::{AdjacentZQuery, B2_EXPECTATION_HYPER_SAMPLES},
-        session::{OpaqueHandle, Stream},
-    },
+use crate::simulation::{
+    Circuit, Gate, OpaqueHandle, SimulationError, Stream,
+    branch::{BranchRequest, BranchSimulationResult, SelectedBranch},
+    circuit::StateReadout,
+    ffi::Complex64Abi,
+    policy::ExecutionPolicy,
+    query::{AdjacentZQuery, B2_EXPECTATION_HYPER_SAMPLES},
 };
 use std::{cell::RefCell, collections::VecDeque, ffi::c_void, ptr::NonNull};
 
@@ -383,7 +379,7 @@ impl ReplayApi for FakeReplayApi {
         &self,
         _handle: OpaqueHandle,
         _state: OpaqueHandle,
-        _attribute: v2_13::cutensornetStateAttributes_t,
+        _attribute: super::StateF64Attribute,
         _value: f64,
     ) -> Result<(), SimulationError> {
         self.record(self.next_configure_f64())
@@ -393,8 +389,7 @@ impl ReplayApi for FakeReplayApi {
         &self,
         _handle: OpaqueHandle,
         _state: OpaqueHandle,
-        _attribute: v2_13::cutensornetStateAttributes_t,
-        _value: u32,
+        _configuration: super::StateU32Configuration,
     ) -> Result<(), SimulationError> {
         self.record(self.next_configure_u32())
     }
@@ -523,12 +518,12 @@ impl ReplayApi for FakeReplayApi {
         &self,
         _handle: OpaqueHandle,
         _operator: OpaqueHandle,
-        coefficient: v2_13::cuDoubleComplex,
+        coefficient: Complex64,
         factor_modes: &[Box<[i32]>],
         factor_tensors: &[OpaqueHandle],
     ) -> Result<(), SimulationError> {
-        assert!((coefficient.x - 1.0).abs() <= f64::EPSILON);
-        assert!(coefficient.y.abs() <= f64::EPSILON);
+        assert!((coefficient.re - 1.0).abs() <= f64::EPSILON);
+        assert!(coefficient.im.abs() <= f64::EPSILON);
         assert_eq!(factor_modes.len(), factor_tensors.len());
         self.state
             .borrow_mut()

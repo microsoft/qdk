@@ -3,7 +3,7 @@ use std::mem::{align_of, offset_of, size_of};
 
 #[repr(C, align(16))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub(super) struct Complex64Abi {
+pub(crate) struct Complex64Abi {
     pub(super) re: f64,
     pub(super) im: f64,
 }

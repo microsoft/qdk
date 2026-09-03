@@ -110,7 +110,7 @@ mod tests {
         AdjacentZQuery, B2_EXPECTATION_HYPER_SAMPLES, QueryResult, WorkspaceReport,
         normalize_expectation,
     };
-    use crate::library::simulation::SimulationError;
+    use crate::simulation::SimulationError;
     use num_complex::Complex64;
 
     #[test]

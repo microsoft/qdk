@@ -1,9 +1,8 @@
-use super::{SimulationError, policy::ExecutionPolicy};
-use crate::{bindings::v2_13, library::NativeApi};
-use std::{ffi::c_void, marker::PhantomData, ptr::NonNull, rc::Rc, sync::Arc};
-
-pub(super) type OpaqueHandle = NonNull<c_void>;
-pub(super) type Stream = NonNull<v2_13::CUstream_st>;
+use crate::{
+    library::NativeApi,
+    simulation::{ExecutionPolicy, OpaqueHandle, SimulationError, Stream},
+};
+use std::{marker::PhantomData, rc::Rc, sync::Arc};
 
 pub(super) trait SessionApi: Send + Sync {
     fn device_count(&self) -> Result<i32, SimulationError>;
@@ -29,7 +28,7 @@ pub struct Session {
 }
 
 impl Session {
-    pub(super) fn new(
+    pub(crate) fn new(
         api: Arc<NativeApi>,
         policy: ExecutionPolicy,
     ) -> Result<Self, SimulationError> {
@@ -46,27 +45,27 @@ impl Session {
         self.resources.device_ordinal
     }
 
-    pub(super) fn close(mut self) -> Result<(), SimulationError> {
+    pub(crate) fn close(mut self) -> Result<(), SimulationError> {
         self.resources.close()
     }
 
-    pub(super) fn api(&self) -> &NativeApi {
+    pub(crate) fn api(&self) -> &NativeApi {
         self.resources.api.as_ref()
     }
 
-    pub(super) fn stream(&self) -> Stream {
+    pub(crate) fn stream(&self) -> Stream {
         self.resources
             .stream
             .expect("a live session always owns its CUDA stream")
     }
 
-    pub(super) fn handle(&self) -> OpaqueHandle {
+    pub(crate) fn handle(&self) -> OpaqueHandle {
         self.resources
             .handle
             .expect("a live session always owns its cuTensorNet handle")
     }
 
-    pub(super) fn policy(&self) -> ExecutionPolicy {
+    pub(crate) fn policy(&self) -> ExecutionPolicy {
         self.policy
     }
 }
