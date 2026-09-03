@@ -275,6 +275,119 @@ requires incremental measurement, where each `Measure` draws from a conditional
 marginal and collapses the state, which is also what Adaptive Profile
 feedforward will require.
 
+## Demo and Validation Cases
+
+These cases are downstream of the walkthrough table. They are what we run once
+`run_qir(type="mps")` works, not work items that make it work, so they are not
+rows and carry no effort estimate.
+
+Both demonstrations rest on one property. For a fixed-depth, nearest-neighbor
+circuit the exact MPS bond is bounded by depth and does not grow with width.
+Width is cheap and depth is the cost, so every case fixes depth and varies
+width.
+
+### Certification rule
+
+A run is exact when the achieved bond stays strictly below the requested cap.
+When the achieved bond equals the cap the state was truncated and the result
+carries an unquantified error, so a capped run certifies nothing regardless of
+how plausible its value looks. Reporting the requested cap is therefore not
+sufficient evidence. The achieved bond must be read back from the engine and
+retained with every measurement, which is why that readback gates these cases.
+
+### NVIDIA cuTensorNet case
+
+Trotter, depth 8, cap 128, gauge simple, SVD algorithm `GESVD`. Achieved bond is
+19 at every width below, well under the cap, so each point is exact rather than
+truncated. Bond tracks depth alone: depth 8 gives 19, depth 16 gives 62, depth
+32 gives 618, and depth 44 saturates a 1024 cap. Depths at or above 44 are
+unusable for demonstration because they are always truncated.
+
+| Width | Reference seconds | Expectation |
+| ---: | ---: | ---: |
+| 128 | 6.91 | 62.743030735 |
+| 256 | 18.35 | 127.195622825 |
+| 512 | 62.75 | 256.100807003 |
+| 1024 | 197.28 | 513.911175361 |
+
+The expectation is exactly extensive in width:
+
+```
+E(n) = 0.503535876 * n - 1.709561354
+```
+
+Fitted from two small widths, this reproduces every retained point from 12 to
+1024 qubits to within 1e-9, which is floating-point noise. It is a property of
+the workload rather than of any simulator, so it is an oracle no implementation
+can contaminate, and it is the only practical correctness check at widths where
+no reference simulator can run. It confirms extensivity but not the absolute
+constant, because a wrong yet still extensive implementation would also be
+linear. Pin the constant at a width the CPU full-state path can reach, then let
+the linear law carry that validation outward.
+
+The reference seconds are indicators and acceptance targets, not qualification
+evidence: they were produced by the CUDA-Q Python stack, which configures itself
+through process-global environment variables that this integration rejects.
+Binding the C API directly, with no Python layer, should meet or beat them.
+Landing materially slower is a defect signal rather than a measurement.
+
+### CPU tensor4all case
+
+Fixed-depth three-layer nearest-neighbor TFIM QAOA, exact C64, bond 8, one
+tensor thread, 12 GiB address-space cap, on a WSL2 aarch64 host.
+
+| Width | Wall time | Peak RSS |
+| ---: | ---: | ---: |
+| 64 | 2.97 s | 132,016 KiB |
+| 128 | 11.30 s | 147,640 KiB |
+| 256 | 44.57 s | 275,760 KiB |
+| 512 | 195.13 s | 777,084 KiB |
+| 1024 | 820.98 s | 2,757,252 KiB |
+
+Raising that demo to two threads made it worse rather than better, because the
+pinned provider serializes important tensor paths through process-global locks.
+At that revision thread count is configured by a process-global environment
+variable and a typed per-run option is unsupported. The same class of defect
+appears in both backends, which argues for a typed resource option on the shared
+MPS surface rather than a fix in either backend.
+
+### QDK baselines
+
+The claim these cases support is that the circuit is out of reach for every
+current QDK simulator, and each path fails for a different reason.
+
+- Dense full-state costs `2^n * 16` bytes, since amplitudes are `Complex<f64>`.
+  That is 4 GiB at 28 qubits and 16 TiB at 40.
+- Sparse is measured dead earlier than dense, not later. It stores roughly 160
+  bytes per amplitude, about ten times dense, so 26 qubits already costs 54.52 s
+  and 11.3 GB, and 28 qubits is refused outright at a 42.9 GB estimate.
+- Clifford cannot express the circuit at all, being excluded by gate set rather
+  than by size.
+
+Sparse is reachable through Q# even though `run_qir` does not offer it, so it
+belongs in the comparison.
+
+### Scaling observation
+
+At fixed depth and fixed bond the cost of MPS should be linear in width, since
+each site takes a constant number of gates costing `O(bond^3)`. The retained
+points do not show that. Fitting the tables above gives `O(n^2.03)` for the CPU
+path and `O(n^1.61)` for cuTensorNet, leaving roughly seventeen-fold and
+threefold headroom at 1024 qubits against the linear ideal. Absolute times are
+not comparable across those rows, since the hosts, bonds and circuits differ,
+but the exponent is a property of the implementation rather than the host. The
+signature is consistent with canonicalizing the whole chain per gate or per
+layer instead of moving an orthogonality center locally. This is an observation
+to confirm against achieved-bond data, not yet a diagnosis.
+
+### Provenance
+
+Reference measurements and workload definitions come from the earlier
+`QDK-QIR-TensorNetwork-POC-package` campaign, under `campaign/gpu-evidence.csv`,
+`campaign/cpu-envelope/envelope.csv`, `campaign/chi-scaling/`, and
+`qdk_probe_results.csv`. The CPU case is retained in the tensor4all worktree
+under `samples/python_interop/mps_qaoa_demo/`.
+
 ## Next Integration Iteration
 
 The next backend iteration is a non-production, end-to-end Base-profile
