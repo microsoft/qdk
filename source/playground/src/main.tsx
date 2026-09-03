@@ -59,7 +59,7 @@ import {
 } from "qsharp-lang/ux";
 
 import DOMPurify from "dompurify";
-const md = markdownIt("commonmark", { html: false });
+const md = markdownIt("commonmark");
 md.use((mk as any).default, {
   enableMathBlockInHtml: true,
   enableMathInlineInHtml: true,
