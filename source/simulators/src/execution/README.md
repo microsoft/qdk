@@ -297,11 +297,17 @@ retained with every measurement, which is why that readback gates these cases.
 
 ### NVIDIA cuTensorNet case
 
-Trotter, depth 8, cap 128, gauge simple, SVD algorithm `GESVD`. Achieved bond is
-19 at every width below, well under the cap, so each point is exact rather than
-truncated. Bond tracks depth alone: depth 8 gives 19, depth 16 gives 62, depth
-32 gives 618, and depth 44 saturates a 1024 cap. Depths at or above 44 are
-unusable for demonstration because they are always truncated.
+Two operating points, because they answer different questions. Bond tracks depth
+alone, so width is free and depth is the cost: depth 8 gives bond 19, depth 16
+gives 62, depth 32 gives 618, and depth 44 saturates a 1024 cap. Depths at or
+above 44 are unusable for demonstration because they are always truncated.
+
+Both points use Trotter, gauge simple, SVD algorithm `GESVD`.
+
+#### Point A, depth 8: oracle and width ladder
+
+Cap 128, achieved bond 19 at every width, well under the cap, so each point is
+exact rather than truncated.
 
 | Width | Reference seconds | Expectation |
 | ---: | ---: | ---: |
@@ -325,11 +331,41 @@ constant, because a wrong yet still extensive implementation would also be
 linear. Pin the constant at a width the CPU full-state path can reach, then let
 the linear law carry that validation outward.
 
-The reference seconds are indicators and acceptance targets, not qualification
-evidence: they were produced by the CUDA-Q Python stack, which configures itself
-through process-global environment variables that this integration rejects.
-Binding the C API directly, with no Python layer, should meet or beat them.
-Landing materially slower is a defect signal rather than a measurement.
+#### Point B, depth 32: the capability claim
+
+Width alone does not justify the accelerator. The CPU case below reaches 1024
+qubits unaided, so a depth-8 width ladder would restate on an A100 a result the
+CPU already owns. What the CPU cannot enter is the high-bond regime, because
+per-gate cost grows with the cube of the bond. Against the CPU case at bond 8,
+bond 618 is roughly `(618/8)^3`, about five hundred thousand times the per-gate
+work.
+
+Cap 1024, achieved bond 618, below the cap and therefore still exact.
+
+| Width | Reference seconds |
+| ---: | ---: |
+| 32 | 31.13 |
+| 64 | 90.47 |
+| 128 | 215.82 |
+
+Depth 32 is the deepest retained point that stays below its cap, which makes it
+the only depth that is simultaneously beyond CPU reach and still certifiable.
+That is what makes it the capability claim rather than depth 44.
+
+Headroom here is thin and must be measured rather than assumed. Bond 618 against
+a 1024 cap is a factor of 1.65, and these rows come from a different stack, so a
+modestly higher bond on this path would cap and forfeit the certification. Run
+this point at cap 2048 so the achieved bond is observed with room to spare, and
+retain it even when it lands at 618 again.
+
+#### Reference seconds
+
+The reference seconds above are indicators and acceptance targets, not
+qualification evidence: they were produced by the CUDA-Q Python stack, which
+configures itself through process-global environment variables that this
+integration rejects. Binding the C API directly, with no Python layer, should
+meet or beat them. Landing materially slower is a defect signal rather than a
+measurement.
 
 ### CPU tensor4all case
 
