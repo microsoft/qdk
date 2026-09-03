@@ -6,6 +6,7 @@
 )]
 mod bindings;
 mod error;
+mod execution;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 mod library;
 mod simulation;
@@ -13,6 +14,8 @@ mod simulation;
 mod version;
 
 pub use error::AvailabilityError;
+#[doc(hidden)]
+pub use execution::{MpsExecutionError, run_mps_shots};
 
 use std::{fmt, path::PathBuf};
 
@@ -78,7 +81,7 @@ pub struct AvailabilityReport {
 pub struct Availability {
     report: AvailabilityReport,
     #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-    _libraries: std::sync::Arc<library::NativeApi>,
+    libraries: std::sync::Arc<library::NativeApi>,
 }
 
 impl Availability {

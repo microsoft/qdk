@@ -219,33 +219,32 @@ surface must make this distinction discoverable without reading source. The
 mechanism is undecided and is recorded here so that it is not decided by
 default.
 
-| #   | Block                                                                                                        | Input                                                     | Output                                                     | Demo               | Effort | Comment |
-| --- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------- | ------------------ | ------------ | ----------- |
-| 1   | [`run_qir`](../../../qdk_package/qdk/simulation/_simulation.py) Simulation Method dispatch                   | QIR source, `type="mps"`, `MpsOptions(device=...)`, shots, seed | Target selection; call to the MPS entry point           | Missing: availability probe and hardware-test split | 45m | Follows the hardware-gate pattern in `test_adaptive_gpu_bytecode.py`, which gates wgpu rather than NVIDIA and therefore needs a separate variable; `AvailabilityError` already carries the `OSError` message |
-| 2   | [`preprocess_simulation_input`, `_validate_base_profile`](../../../qdk_package/qdk/simulation/_simulation.py) | QIR source                                                | Validated Base Profile module                              | Done | -- | Shared with every other Simulation Method; nothing target-specific |
-| 3   | `AdaptiveProfilePass(Bytecode.Bit64)`                                                                        | Base Profile module                                       | Adaptive bytecode (`AdaptiveProgram<Word>`)                | Done | -- | The same lowering pass production Adaptive QIR already uses |
-| 4   | [Native entry point](../../../qdk_package/src/qir_simulation/cpu_simulators.rs)                              | Bytecode dict, shots, seed                                | `AdaptiveProgram<u64>`                                     | Missing: swap the full-state call for the MPS shot loop | 15m | `run_mps_full_state_placeholder` is already wired to `run_qir`; one call changes |
-| 5   | [`PreparedAdaptiveProgram::new`](adaptive.rs)                                                                | `AdaptiveProgram<u64>`                                    | Prepared program with region sites resolved once           | Done | -- | Shared with the Base-profile probe; unchanged |
-| 6   | [`measured_qubits()`](adaptive.rs)                                                                           | Prepared program                                          | Ordered measured qubits with `result_id` mapping           | Done | -- | Computed during the existing region walk through the decoder shared with runtime execution |
-| 7   | [MPS shot loop](../../../qdk_package/src/qir_simulation/cpu_simulators.rs)                                   | Prepared program, shots, seed                             | `Vec<Vec<OutputRecord>>`; owns the session lifetime        | Missing: whole shot loop | 1h | Transcribes `run_shared_execution_full_state_shots` (28 lines), sequential rather than `par_iter` |
-| 8   | Target adapter `CuTensorNetMpsConsumer`                                                                      | The single `QuantumEvolutionRegion`, sample matrix, shot index | Measurement bits from the precomputed sample row       | Done | -- | Crate-private per-shot view with no-op region and close methods, guarded against multiple regions and feedforward |
-| 9   | [`Gate::from_unitary_operation`](../../../cutensornet/src/library/simulation/circuit.rs)                     | `UnitaryOperation`                                        | `Gate`, no gate for `I`, or a typed unsupported error      | Done | -- | Landed in `11a651339`; exhaustive over all unitary variants with no catch-all, and its four tests run on any host since `f262a60ae` |
-| 10  | [`SessionApi`](../../../cutensornet/src/library/simulation/session.rs) / [`ReplayApi`](../../../cutensornet/src/library/simulation/replay.rs) via `NativeApi` | `Circuit` and `ExecutionPolicy`     | Evolved MPS state on the Device                            | Done | -- | Ported `SamplerApi`, `PreparedSampler`, session/replay sampling, and cross-platform FakeApi coverage from `eed6e1bbe`; pure logic remains ungated while the native adapter stays with the existing native implementations to preserve loader encapsulation |
-| 11  | cuTensorNet Sampler Engine APIs                                                                              | State handle, measured modes, shot count, derived seed    | Flat `int64` array indexed `[shot * n_measured + j]`       | Done | -- | Ported the five generated bindings and required symbols from `eed6e1bbe`; the frozen surface is 30 symbols |
-| 12  | Sample narrowing                                                                                             | Flat `int64` buffer                                       | `u8` buffer plus the qubit-to-column map                   | Missing: native sample narrowing; column map done | 15m | The device buffer is flat `[shot * measured + j]`; plain indexing |
-| 13  | [`AdaptiveExecution`](adaptive.rs)                                                                           | Prepared program and one buffer row                       | Ordered `OutputRecord`s for that shot                      | Done | -- | Unchanged; already accumulates the output records during the walk |
-| 14  | [`drive_prepared_shot`](immediate.rs)                                                                        | Prepared program and a per-shot `RegionConsumer`          | `ShotExecutionOutput`                                      | Done | -- | Unchanged; `close()` fires per shot, which is why the consumer must be a view |
-| 15  | Shot loop collection                                                                                         | One `Vec<OutputRecord>` per shot                          | `Vec<Vec<OutputRecord>>`; session closed once              | Missing: collection and session close | 15m | Same `collect::<Result<Vec<_>, _>>()` as the full-state loop |
-| 16  | [`output_records_to_pylist`](../../../qdk_package/src/qir_simulation/cpu_simulators.rs)                       | `Vec<Vec<OutputRecord>>`                                  | Python list                                                | Done | -- | Unchanged; already target-neutral |
-| 17  | [`run_qir`](../../../qdk_package/qdk/simulation/_simulation.py) return                                       | Python list                                               | Same records, ordering, and errors as `type="cpu"`         | Done | -- | Unchanged; `OutputRecordingPass` shapes the returned records |
+| #   | Block                                                                                                                                                         | Input                                                           | Output                                                | Demo                                                                 | Effort | Comment                                                                                                                                                                                                                                                    |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------- | -------------------------------------------------------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | [`run_qir`](../../../qdk_package/qdk/simulation/_simulation.py) Simulation Method dispatch                                                                    | QIR source, `type="mps"`, `MpsOptions(device=...)`, shots, seed | Target selection; call to the MPS entry point         | Partial: NVIDIA hardware-test split done; availability probe missing | TBD    | The three NVIDIA acceptance tests use a separate `QDK_NVIDIA_TESTS` opt-in and an `OSError` execution probe; the public availability probe and `device=None` semantics remain deferred                                                                     |
+| 2   | [`preprocess_simulation_input`, `_validate_base_profile`](../../../qdk_package/qdk/simulation/_simulation.py)                                                 | QIR source                                                      | Validated Base Profile module                         | Done                                                                 | --     | Shared with every other Simulation Method; nothing target-specific                                                                                                                                                                                         |
+| 3   | `AdaptiveProfilePass(Bytecode.Bit64)`                                                                                                                         | Base Profile module                                             | Adaptive bytecode (`AdaptiveProgram<Word>`)           | Done                                                                 | --     | The same lowering pass production Adaptive QIR already uses                                                                                                                                                                                                |
+| 4   | [Native entry point](../../../qdk_package/src/qir_simulation/cpu_simulators.rs)                                                                               | Bytecode dict, shots, seed                                      | `AdaptiveProgram<u64>`                                | Done                                                                 | --     | The existing native signature is unchanged; program errors remain `ValueError` and discovery/device errors surface as `OSError`                                                                                                                            |
+| 5   | [`PreparedAdaptiveProgram::new`](adaptive.rs)                                                                                                                 | `AdaptiveProgram<u64>`                                          | Prepared program with region sites resolved once      | Done                                                                 | --     | Shared with the Base-profile probe; unchanged                                                                                                                                                                                                              |
+| 6   | [`measured_qubits()`](adaptive.rs)                                                                                                                            | Prepared program                                                | Ordered measured qubits with `result_id` mapping      | Done                                                                 | --     | Computed during the existing region walk through the decoder shared with runtime execution                                                                                                                                                                 |
+| 7   | [MPS shot loop](../../../qdk_package/src/qir_simulation/cpu_simulators.rs)                                                                                    | Prepared program, shots, seed                                   | `Vec<Vec<OutputRecord>>`; owns the session lifetime   | Done                                                                 | --     | Converts the single region before discovery, then owns one session, one state evolution, one batch sample, and sequential per-shot replay                                                                                                                  |
+| 8   | Target adapter `CuTensorNetMpsConsumer`                                                                                                                       | The single `QuantumEvolutionRegion`, sample matrix, shot index  | Measurement bits from the precomputed sample row      | Done                                                                 | --     | Crate-private per-shot view with no-op region and close methods, guarded against multiple regions and feedforward                                                                                                                                          |
+| 9   | [`Gate::from_unitary_operation`](../../../cutensornet/src/library/simulation/circuit.rs)                                                                      | `UnitaryOperation`                                              | `Gate`, no gate for `I`, or a typed unsupported error | Done                                                                 | --     | Landed in `11a651339`; exhaustive over all unitary variants with no catch-all, and its four tests run on any host since `f262a60ae`                                                                                                                        |
+| 10  | [`SessionApi`](../../../cutensornet/src/library/simulation/session.rs) / [`ReplayApi`](../../../cutensornet/src/library/simulation/replay.rs) via `NativeApi` | `Circuit` and `ExecutionPolicy`                                 | Evolved MPS state on the Device                       | Done                                                                 | --     | Ported `SamplerApi`, `PreparedSampler`, session/replay sampling, and cross-platform FakeApi coverage from `eed6e1bbe`; pure logic remains ungated while the native adapter stays with the existing native implementations to preserve loader encapsulation |
+| 11  | cuTensorNet Sampler Engine APIs                                                                                                                               | State handle, measured modes, shot count, derived seed          | Flat `int64` array indexed `[shot * n_measured + j]`  | Done                                                                 | --     | Ported the five generated bindings and required symbols from `eed6e1bbe`; the frozen surface is 30 symbols                                                                                                                                                 |
+| 12  | Sample narrowing                                                                                                                                              | Flat `int64` buffer                                             | `u8` buffer plus the qubit-to-column map              | Done                                                                 | --     | Uses `u8::try_from` once over the owned buffer and reports the original `i64` plus flat index; the sample matrix remains the sole owner of column indexing                                                                                                 |
+| 13  | [`AdaptiveExecution`](adaptive.rs)                                                                                                                            | Prepared program and one buffer row                             | Ordered `OutputRecord`s for that shot                 | Done                                                                 | --     | Unchanged; already accumulates the output records during the walk                                                                                                                                                                                          |
+| 14  | [`drive_prepared_shot`](immediate.rs)                                                                                                                         | Prepared program and a per-shot `RegionConsumer`                | `ShotExecutionOutput`                                 | Done                                                                 | --     | Unchanged; `close()` fires per shot, which is why the consumer must be a view                                                                                                                                                                              |
+| 15  | Shot loop collection                                                                                                                                          | One `Vec<OutputRecord>` per shot                                | `Vec<Vec<OutputRecord>>`; session closed once         | Done                                                                 | --     | Collects the sequential per-shot views after batch sampling and closes the session exactly once                                                                                                                                                            |
+| 16  | [`output_records_to_pylist`](../../../qdk_package/src/qir_simulation/cpu_simulators.rs)                                                                       | `Vec<Vec<OutputRecord>>`                                        | Python list                                           | Done                                                                 | --     | Unchanged; already target-neutral                                                                                                                                                                                                                          |
+| 17  | [`run_qir`](../../../qdk_package/qdk/simulation/_simulation.py) return                                                                                        | Python list                                                     | Same records, ordering, and errors as `type="cpu"`    | Done                                                                 | --     | Unchanged; `OutputRecordingPass` shapes the returned records                                                                                                                                                                                               |
 
 Effort is a rough estimate for one implementer already familiar with the code.
-It excludes review, A100 validation, and the demonstration circuit, none of
-which are functional blocks in this walk. The missing work totals just under
-two and a half hours. The estimates are low because every remaining block
-has a working sibling to copy rather than a design to invent; the comment
-column names the sibling in each case, so the numbers can be argued with
-directly.
+It excludes review, A100 validation, and the demonstration circuit. Order A
+closes the execution blocks in rows 4, 7, 12, and 15 plus the NVIDIA hardware
+test split in row 1. The public availability probe and `device=None` semantics
+remain; their original estimate was bundled with the now-complete test split,
+so this walk does not assign a replacement estimate by subtraction.
 
 Rows 10 and 11 were ported from committed source `eed6e1bbe`, which carries the
 symbol allowlist, five Sampler bindings, `SamplerApi`, and `PreparedSampler`
@@ -309,12 +308,12 @@ Both points use Trotter, gauge simple, SVD algorithm `GESVD`.
 Cap 128, achieved bond 19 at every width, well under the cap, so each point is
 exact rather than truncated.
 
-| Width | Reference seconds | Expectation |
-| ---: | ---: | ---: |
-| 128 | 6.91 | 62.743030735 |
-| 256 | 18.35 | 127.195622825 |
-| 512 | 62.75 | 256.100807003 |
-| 1024 | 197.28 | 513.911175361 |
+| Width | Reference seconds |   Expectation |
+| ----: | ----------------: | ------------: |
+|   128 |              6.91 |  62.743030735 |
+|   256 |             18.35 | 127.195622825 |
+|   512 |             62.75 | 256.100807003 |
+|  1024 |            197.28 | 513.911175361 |
 
 The expectation is exactly extensive in width:
 
@@ -343,10 +342,10 @@ work.
 Cap 1024, achieved bond 618, below the cap and therefore still exact.
 
 | Width | Reference seconds |
-| ---: | ---: |
-| 32 | 31.13 |
-| 64 | 90.47 |
-| 128 | 215.82 |
+| ----: | ----------------: |
+|    32 |             31.13 |
+|    64 |             90.47 |
+|   128 |            215.82 |
 
 Depth 32 is the deepest retained point that stays below its cap, which makes it
 the only depth that is simultaneously beyond CPU reach and still certifiable.
@@ -372,13 +371,13 @@ measurement.
 Fixed-depth three-layer nearest-neighbor TFIM QAOA, exact C64, bond 8, one
 tensor thread, 12 GiB address-space cap, on a WSL2 aarch64 host.
 
-| Width | Wall time | Peak RSS |
-| ---: | ---: | ---: |
-| 64 | 2.97 s | 132,016 KiB |
-| 128 | 11.30 s | 147,640 KiB |
-| 256 | 44.57 s | 275,760 KiB |
-| 512 | 195.13 s | 777,084 KiB |
-| 1024 | 820.98 s | 2,757,252 KiB |
+| Width | Wall time |      Peak RSS |
+| ----: | --------: | ------------: |
+|    64 |    2.97 s |   132,016 KiB |
+|   128 |   11.30 s |   147,640 KiB |
+|   256 |   44.57 s |   275,760 KiB |
+|   512 |  195.13 s |   777,084 KiB |
+|  1024 |  820.98 s | 2,757,252 KiB |
 
 Raising that demo to two threads made it worse rather than better, because the
 pinned provider serializes important tensor paths through process-global locks.
@@ -447,48 +446,48 @@ This integration proceeds in four iterations, each independently evidenced
 and separately reviewed before the next begins:
 
 1. **Port the native cuTensorNet crate, unchanged.** Bring over the crate
-  from `cutensornet-rust-ffi` at its committed HEAD `2f48bd233` as a new
-  workspace member, in full -- dynamic loading, bindings, the error/result
-  layer, the qualified static execution lifecycle, and the branch-
-  continuation machinery. Porting only the Base stage (B0-B5) is
-  insufficient: `cutensornetStateCaptureMPS` arrived with branch
-  continuation and is required here, because Base runs through the Adaptive
-  lowering and measurement must return to the caller and continue. Exclude
-  the untracked, in-progress noise work (`selected_pauli.rs`). Gate the
-  member with the workspace's existing `gpu` cargo feature convention
-  (`source/simulators/src/lib.rs:7`). Also port the VM provisioning and
-  evidence scripts (`bootstrap-os.sh`, `bootstrap-rust.sh`,
-  `bootstrap-cuda.sh`, `verify-environment.sh`, `collect-evidence.sh`,
-  `rebuild-all.sh`), without which the ported code cannot be validated on
-  the A100. Evidence bar: every non-ignored test passes locally on CPU
-  against the crate's `FakeReplayApi` mock, and every `#[ignore]`-gated
-  A100 test passes on the qualified host; no drift from the source
-  worktree's committed HEAD.
+   from `cutensornet-rust-ffi` at its committed HEAD `2f48bd233` as a new
+   workspace member, in full -- dynamic loading, bindings, the error/result
+   layer, the qualified static execution lifecycle, and the branch-
+   continuation machinery. Porting only the Base stage (B0-B5) is
+   insufficient: `cutensornetStateCaptureMPS` arrived with branch
+   continuation and is required here, because Base runs through the Adaptive
+   lowering and measurement must return to the caller and continue. Exclude
+   the untracked, in-progress noise work (`selected_pauli.rs`). Gate the
+   member with the workspace's existing `gpu` cargo feature convention
+   (`source/simulators/src/lib.rs:7`). Also port the VM provisioning and
+   evidence scripts (`bootstrap-os.sh`, `bootstrap-rust.sh`,
+   `bootstrap-cuda.sh`, `verify-environment.sh`, `collect-evidence.sh`,
+   `rebuild-all.sh`), without which the ported code cannot be validated on
+   the A100. Evidence bar: every non-ignored test passes locally on CPU
+   against the crate's `FakeReplayApi` mock, and every `#[ignore]`-gated
+   A100 test passes on the qualified host; no drift from the source
+   worktree's committed HEAD.
 2. **Decompose the measurement primitive.** `cutensornet-rust-ffi`'s
-  qualified measurement/branch sequence exists only as a monolithic,
-  `#[cfg(test)]`-gated harness (`Session::simulate_with_branch` et al.)
-  that takes a whole circuit and a pre-forced outcome upfront, with no
-  return-to-caller point between mass computation and projection.
-  Refactor the ported crate's internals into independently callable
-  steps (compute-masses / project-given-outcome / capture-continue) and
-  expose the right visibility boundary for iteration 3 to consume.
-  Validate the decomposition reproduces the exact same qualified numbers
-  as the monolithic call.
+   qualified measurement/branch sequence exists only as a monolithic,
+   `#[cfg(test)]`-gated harness (`Session::simulate_with_branch` et al.)
+   that takes a whole circuit and a pre-forced outcome upfront, with no
+   return-to-caller point between mass computation and projection.
+   Refactor the ported crate's internals into independently callable
+   steps (compute-masses / project-given-outcome / capture-continue) and
+   expose the right visibility boundary for iteration 3 to consume.
+   Validate the decomposition reproduces the exact same qualified numbers
+   as the monolithic call.
 3. **Implement `CuTensorNetMpsConsumer: RegionConsumer`.** Wrap the
-  decomposed primitives from iteration 2 behind the trait
-  (`prepare_region`/`execute_region` on the static lifecycle, `measure()`
-  on the mass/project split, `finish_execution`/`close` for output
-  reconstruction and cleanup). Validate against the CPU oracle
-  (`ImmediateSimulatorConsumer<FullStateSimulator>`) purely through the
-  trait; no `run_qir` wiring yet.
+   decomposed primitives from iteration 2 behind the trait
+   (`prepare_region`/`execute_region` on the static lifecycle, `measure()`
+   on the mass/project split, `finish_execution`/`close` for output
+   reconstruction and cleanup). Validate against the CPU oracle
+   (`ImmediateSimulatorConsumer<FullStateSimulator>`) purely through the
+   trait; no `run_qir` wiring yet.
 4. **Wire into `run_qir(type="mps", device="nvidia")`, end-to-end.** Real
-  Base-profile QIR through the real entry point on an actual NVIDIA host.
-  Retained evidence: (a) deterministic Base fixtures match
-  `run_qir(type="cpu")` exactly, per shot, with no tolerance; (b) stochastic
-  fixtures reproduce exactly under a fixed seed on the same backend, and agree
-  with CPU distributionally within a stated tolerance at a stated shot count;
-  (c) elapsed time at no fewer than two operating points, with shot count
-  varied across them.
+   Base-profile QIR through the real entry point on an actual NVIDIA host.
+   Retained evidence: (a) deterministic Base fixtures match
+   `run_qir(type="cpu")` exactly, per shot, with no tolerance; (b) stochastic
+   fixtures reproduce exactly under a fixed seed on the same backend, and agree
+   with CPU distributionally within a stated tolerance at a stated shot count;
+   (c) elapsed time at no fewer than two operating points, with shot count
+   varied across them.
 
 Only iteration 1 requires fresh approval beyond this iteration's own
 (new native/GPU-gated dependency in the workspace); iterations 2-4 build

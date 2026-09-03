@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use qdk_simulators::{
-    MeasurementResult, QubitID,
+    MeasurementResult, OutputRecord, QubitID,
     execution::{
-        MeasuredQubit, MeasurementKind, MeasurementRequest, PreparedAdaptiveProgram,
-        QuantumEvolutionRegion, RegionConsumer,
+        MeasuredQubit, MeasurementKind, MeasurementMetadataError, MeasurementRequest,
+        PreparedAdaptiveProgram, QuantumEvolutionRegion, RegionConsumer, ShotExecutionError,
+        drive_prepared_shot,
     },
 };
 use thiserror::Error;
@@ -25,6 +26,9 @@ pub(crate) enum CuTensorNetMpsConsumerError {
         "cuTensorNet batch sampling cannot replay a measurement of qubit {qubit} after MeasureResetZ"
     )]
     UnsupportedMeasurementAfterReset { qubit: QubitID },
+
+    #[error("cuTensorNet batch sampling cannot resolve measurement metadata: {error}")]
+    InvalidMeasurementMetadata { error: MeasurementMetadataError },
 
     #[error(
         "sample matrix has {actual} values; {shot_count} shots over {measured_qubit_count} measured qubits require {expected}"
@@ -53,12 +57,49 @@ pub(crate) enum CuTensorNetMpsConsumerError {
     #[error("sample matrix has no column for measured qubit {qubit}")]
     MissingQubitColumn { qubit: QubitID },
 
+    #[error("sampler output contains invalid value {value} at flat buffer index {index}")]
+    InvalidSamplerOutput { index: usize, value: i64 },
+
     #[error("sample matrix contains invalid value {value} for shot {shot_index}, qubit {qubit}")]
     InvalidSampleValue {
         shot_index: usize,
         qubit: QubitID,
         value: u8,
     },
+}
+
+#[derive(Debug, Error)]
+pub(crate) enum CuTensorNetMpsShotLoopError {
+    #[error(transparent)]
+    Consumer(#[from] CuTensorNetMpsConsumerError),
+
+    #[error(transparent)]
+    Shot(#[from] ShotExecutionError<CuTensorNetMpsConsumerError>),
+}
+
+#[allow(
+    clippy::boxed_local,
+    clippy::needless_pass_by_value,
+    reason = "PreparedSampler transfers its owned Box<[i64]> buffer to the narrowing boundary"
+)]
+pub(crate) fn narrow_samples(
+    samples: Box<[i64]>,
+) -> Result<Box<[u8]>, CuTensorNetMpsConsumerError> {
+    samples
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, value)| {
+            let narrowed = u8::try_from(value)
+                .map_err(|_| CuTensorNetMpsConsumerError::InvalidSamplerOutput { index, value })?;
+            if matches!(narrowed, 0 | 1) {
+                Ok(narrowed)
+            } else {
+                Err(CuTensorNetMpsConsumerError::InvalidSamplerOutput { index, value })
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(Vec::into_boxed_slice)
 }
 
 #[derive(Debug)]
@@ -69,16 +110,30 @@ pub(crate) struct CuTensorNetSampleMatrix<'samples> {
 }
 
 impl<'samples> CuTensorNetSampleMatrix<'samples> {
-    pub(crate) fn new(
-        measured_qubits: &[MeasuredQubit],
-        shot_count: usize,
-        samples: &'samples [u8],
-    ) -> Result<Self, CuTensorNetMpsConsumerError> {
+    fn columns(measured_qubits: &[MeasuredQubit]) -> BTreeMap<QubitID, usize> {
         let mut column_by_qubit = BTreeMap::new();
         for request in measured_qubits {
             let next_column = column_by_qubit.len();
             column_by_qubit.entry(request.qubit).or_insert(next_column);
         }
+        column_by_qubit
+    }
+
+    pub(crate) fn sampled_qubits(measured_qubits: &[MeasuredQubit]) -> Box<[QubitID]> {
+        let column_by_qubit = Self::columns(measured_qubits);
+        let mut qubits = vec![0; column_by_qubit.len()];
+        for (qubit, column) in column_by_qubit {
+            qubits[column] = qubit;
+        }
+        qubits.into_boxed_slice()
+    }
+
+    pub(crate) fn new(
+        measured_qubits: &[MeasuredQubit],
+        shot_count: usize,
+        samples: &'samples [u8],
+    ) -> Result<Self, CuTensorNetMpsConsumerError> {
+        let column_by_qubit = Self::columns(measured_qubits);
         let measured_qubit_count = column_by_qubit.len();
         let expected = shot_count.checked_mul(measured_qubit_count).ok_or(
             CuTensorNetMpsConsumerError::SampleCountOverflow {
@@ -129,6 +184,28 @@ impl<'samples> CuTensorNetSampleMatrix<'samples> {
             }),
         }
     }
+}
+
+pub(crate) fn collect_sampled_shots(
+    prepared_program: &PreparedAdaptiveProgram<u64>,
+    shot_count: usize,
+    samples: Box<[i64]>,
+) -> Result<Vec<Vec<OutputRecord>>, CuTensorNetMpsShotLoopError> {
+    let samples = narrow_samples(samples)?;
+    let matrix = CuTensorNetSampleMatrix::new(
+        prepared_program
+            .measured_qubits()
+            .map_err(|error| CuTensorNetMpsConsumerError::InvalidMeasurementMetadata { error })?,
+        shot_count,
+        &samples,
+    )?;
+    (0..shot_count)
+        .map(|shot_index| {
+            let mut consumer = CuTensorNetMpsConsumer::new(prepared_program, &matrix, shot_index)?;
+            let output = drive_prepared_shot(prepared_program, &mut consumer)?;
+            Ok(output.into_records())
+        })
+        .collect()
 }
 
 #[derive(Debug)]
@@ -221,7 +298,10 @@ impl RegionConsumer for CuTensorNetMpsConsumer<'_, '_> {
 
 #[cfg(test)]
 mod tests {
-    use super::{CuTensorNetMpsConsumer, CuTensorNetMpsConsumerError, CuTensorNetSampleMatrix};
+    use super::{
+        CuTensorNetMpsConsumer, CuTensorNetMpsConsumerError, CuTensorNetSampleMatrix,
+        narrow_samples,
+    };
     use qdk_simulators::{
         MeasurementResult, OutputRecord,
         bytecode::{AdaptiveProgram, Block, Instruction, Op},
@@ -366,6 +446,28 @@ mod tests {
     }
 
     #[test]
+    fn sample_narrowing_rejects_negative_values_with_the_flat_index() {
+        assert_eq!(
+            narrow_samples(vec![0, 1, -1].into_boxed_slice()),
+            Err(CuTensorNetMpsConsumerError::InvalidSamplerOutput {
+                index: 2,
+                value: -1,
+            })
+        );
+    }
+
+    #[test]
+    fn sample_narrowing_rejects_values_above_one_without_truncation() {
+        assert_eq!(
+            narrow_samples(vec![1, 256].into_boxed_slice()),
+            Err(CuTensorNetMpsConsumerError::InvalidSamplerOutput {
+                index: 1,
+                value: 256,
+            })
+        );
+    }
+
+    #[test]
     fn consumer_rejects_programs_without_exactly_one_region() {
         let prepared = program(
             vec![gate(0), record(0), gate(1), ret()],
@@ -382,7 +484,8 @@ mod tests {
         .expect("empty measurement matrix should be valid");
 
         assert_eq!(
-            CuTensorNetMpsConsumer::new(&prepared, &matrix, 0).unwrap_err(),
+            CuTensorNetMpsConsumer::new(&prepared, &matrix, 0)
+                .expect_err("multiple regions should be rejected"),
             CuTensorNetMpsConsumerError::UnsupportedRegionCount { actual: 2 }
         );
     }

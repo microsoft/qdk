@@ -25,12 +25,15 @@ mod sampler;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(crate) use sampler::SamplerApi;
 
-pub(super) use circuit::{Circuit, Gate, SimulationResult};
+pub(super) use circuit::{Circuit, Gate, SimulationResult, UnitaryOperationConversionError};
 #[allow(
     unused_imports,
     reason = "crate-private integration surface for the MPS shot loop"
 )]
-pub(super) use consumer::{CuTensorNetMpsConsumer, CuTensorNetSampleMatrix};
+pub(super) use consumer::{
+    CuTensorNetMpsConsumer, CuTensorNetMpsConsumerError, CuTensorNetSampleMatrix,
+    collect_sampled_shots,
+};
 pub(super) use error::SimulationError;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 pub(super) use ffi::Complex64Abi;
@@ -40,6 +43,7 @@ pub(super) use policy::ExecutionPolicy;
 pub(super) use replay::{
     MpsTarget, OutputMetadata, ReplayApi, StateF64Attribute, StateU32Configuration,
 };
+pub(super) use sampler::SamplingRequest;
 
 use std::{ffi::c_void, ptr::NonNull};
 

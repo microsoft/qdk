@@ -12,6 +12,7 @@ repository.workspace = true
 libloading = { workspace = true }
 num-complex = { workspace = true }
 qdk_simulators = { path = "../simulators", default-features = false }
+rand = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

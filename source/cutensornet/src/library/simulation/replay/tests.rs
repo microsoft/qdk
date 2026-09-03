@@ -832,6 +832,19 @@ fn target_bonds_are_checked_without_exponential_allocation() {
 }
 
 #[test]
+fn single_qubit_target_has_one_physical_extent_and_no_bond() {
+    let target = MpsTarget::new(1, 128).expect("single-qubit target should be valid");
+
+    assert_eq!(target.extents, [vec![2].into_boxed_slice()]);
+    assert_eq!(target.extent_pointers.len(), 1);
+    assert_eq!(target.output_elements, [2]);
+    assert_eq!(
+        maximum_bond(&[vec![2]]).expect("single-site MPS has an implicit unit bond"),
+        1
+    );
+}
+
+#[test]
 fn target_bonds_respect_caps_below_and_above_physical_limits() {
     assert_eq!(target_bond_extent(8, 3, 3).expect("center cut is valid"), 3);
     assert_eq!(

@@ -14,7 +14,7 @@ pub enum Gate {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Error, PartialEq)]
-pub(super) enum UnitaryOperationConversionError {
+pub(crate) enum UnitaryOperationConversionError {
     #[error("unitary operation {operation} is not supported by cuTensorNet")]
     UnsupportedOperation { operation: &'static str },
 
@@ -28,7 +28,7 @@ pub(super) enum UnitaryOperationConversionError {
 }
 
 impl Gate {
-    pub(super) fn from_unitary_operation(
+    pub(crate) fn from_unitary_operation(
         operation: UnitaryOperation,
     ) -> Result<Option<Self>, UnitaryOperationConversionError> {
         let gate = match operation {

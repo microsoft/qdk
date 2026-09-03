@@ -6,7 +6,12 @@ use crate::qir_simulation::{
     NoiseConfig, QirInstruction, QirInstructionId, adaptive_program_from_pydict,
     unbind_noise_config,
 };
-use pyo3::{IntoPyObjectExt, exceptions::PyValueError, prelude::*, types::PyList};
+use pyo3::{
+    IntoPyObjectExt,
+    exceptions::{PyOSError, PyValueError},
+    prelude::*,
+    types::PyList,
+};
 use pyo3::{PyResult, pyfunction, types::PyDict};
 use qdk_simulators::{
     MeasurementResult, OutputRecord, Simulator,
@@ -347,10 +352,7 @@ pub fn run_cpu_adaptive<'py>(
     output_records_to_pylist(py, output)
 }
 
-/// Runs the public MPS contract through a full-state placeholder.
-///
-/// This does not provide MPS or NVIDIA execution. It exists only to solidify
-/// the public contract before a real region consumer is integrated.
+/// Runs a Base-profile program through cuTensorNet MPS batch sampling.
 #[pyfunction]
 pub(crate) fn run_mps_full_state_placeholder<'py>(
     py: Python<'py>,
@@ -361,7 +363,14 @@ pub(crate) fn run_mps_full_state_placeholder<'py>(
     let program: bytecode::AdaptiveProgram<u64> = adaptive_program_from_pydict(input)?;
     let prepared_program = PreparedAdaptiveProgram::new(program)
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
-    let output = run_shared_execution_full_state_shots(&prepared_program, shots, seed)?;
+    let output =
+        qdk_cutensornet::run_mps_shots(&prepared_program, shots, seed).map_err(|error| {
+            if error.is_environment_error() {
+                PyOSError::new_err(error.to_string())
+            } else {
+                PyValueError::new_err(error.to_string())
+            }
+        })?;
 
     output_records_to_pylist(py, output)
 }

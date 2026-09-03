@@ -1838,6 +1838,7 @@ dependencies = [
  "num-complex",
  "num-traits",
  "pyo3",
+ "qdk_cutensornet",
  "qdk_openqasm",
  "qdk_simulators",
  "qre",
@@ -1858,6 +1859,7 @@ dependencies = [
  "libloading",
  "num-complex",
  "qdk_simulators",
+ "rand 0.10.2",
  "thiserror",
 ]
 

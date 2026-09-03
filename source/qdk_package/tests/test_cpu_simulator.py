@@ -5,6 +5,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Sequence, cast
 import math
+import os
 import random
 
 import pytest
@@ -135,6 +136,22 @@ attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubi
 """
 
 
+NVIDIA_MPS_AVAILABLE = False
+NVIDIA_MPS_SKIP_REASON = "QDK_NVIDIA_TESTS not set"
+if os.environ.get("QDK_NVIDIA_TESTS"):
+    try:
+        run_qir(
+            SINGLE_MEASUREMENT_BASE_QIR,
+            shots=1,
+            seed=42,
+            type="mps",
+            mps_options=MpsOptions(device="nvidia"),
+        )
+        NVIDIA_MPS_AVAILABLE = True
+    except OSError as error:
+        NVIDIA_MPS_SKIP_REASON = str(error)
+
+
 def read_file(file_name: str) -> str:
     return Path(file_name).read_text(encoding="utf-8")
 
@@ -220,7 +237,8 @@ def test_mps_options_is_publicly_exported():
     assert MpsOptions(device="nvidia").device == "nvidia"
 
 
-def test_mps_full_state_placeholder_preserves_ordered_results_across_shots():
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+def test_mps_preserves_ordered_results_across_shots():
     shots = 8
     expected = run_qir(ORDERED_RESULTS_BASE_QIR, shots=shots, seed=42, type="cpu")
     actual = run_qir(
@@ -234,7 +252,8 @@ def test_mps_full_state_placeholder_preserves_ordered_results_across_shots():
     assert actual == expected == [(Result.One, Result.Zero)] * shots
 
 
-def test_mps_full_state_placeholder_reports_all_results_without_output_recording():
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+def test_mps_reports_all_results_without_output_recording():
     expected = run_qir(
         NO_OUTPUT_RECORDING_BASE_QIR,
         shots=1,
@@ -246,14 +265,21 @@ def test_mps_full_state_placeholder_reports_all_results_without_output_recording
         shots=1,
         seed=42,
         type="mps",
+        mps_options=MpsOptions(device="nvidia"),
     )
 
     assert actual == expected == ["10"]
 
 
-def test_mps_full_state_placeholder_seeded_bell_shots_are_reproducible_and_varied():
-    first = run_qir(BELL_BASE_QIR, shots=100, seed=42, type="mps")
-    second = run_qir(BELL_BASE_QIR, shots=100, seed=42, type="mps")
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+def test_mps_seeded_bell_shots_are_reproducible_and_varied():
+    options = MpsOptions(device="nvidia")
+    first = run_qir(
+        BELL_BASE_QIR, shots=100, seed=42, type="mps", mps_options=options
+    )
+    second = run_qir(
+        BELL_BASE_QIR, shots=100, seed=42, type="mps", mps_options=options
+    )
 
     assert first == second
     assert len({tuple(outcome) for outcome in first}) > 1
@@ -263,7 +289,7 @@ def test_mps_full_state_placeholder_seeded_bell_shots_are_reproducible_and_varie
     )
 
 
-def test_mps_full_state_placeholder_rejects_noise():
+def test_mps_rejects_noise():
     with pytest.raises(ValueError, match='Noise is not supported for type="mps"'):
         run_qir(
             SINGLE_MEASUREMENT_BASE_QIR,
@@ -272,7 +298,7 @@ def test_mps_full_state_placeholder_rejects_noise():
         )
 
 
-def test_mps_full_state_placeholder_rejects_adaptive_profile():
+def test_mps_rejects_adaptive_profile():
     qir = SINGLE_MEASUREMENT_BASE_QIR.replace(
         '"qir_profiles"="base_profile"',
         '"qir_profiles"="adaptive_profile"',
@@ -282,7 +308,7 @@ def test_mps_full_state_placeholder_rejects_adaptive_profile():
         run_qir(qir, type="mps")
 
 
-def test_mps_full_state_placeholder_rejects_non_base_profile():
+def test_mps_rejects_non_base_profile():
     qir = SINGLE_MEASUREMENT_BASE_QIR.replace(
         '"qir_profiles"="base_profile"',
         '"qir_profiles"="custom_profile"',
@@ -308,7 +334,7 @@ def test_mps_full_state_placeholder_rejects_non_base_profile():
     ],
     ids=["OP_PEEK_LOSS_0x16", "OP_READOUT_NOISE_0x17"],
 )
-def test_mps_full_state_placeholder_rejects_unsupported_shared_execution_opcode(
+def test_mps_rejects_unsupported_shared_execution_opcode(
     opcode: str, instruction: str, declaration: str
 ):
     qir = UNSUPPORTED_SHARED_EXECUTION_QIR.replace(
@@ -325,7 +351,7 @@ def test_mps_full_state_placeholder_rejects_unsupported_shared_execution_opcode(
 
 
 @pytest.mark.parametrize("device", ["cpu", "amd"])
-def test_mps_full_state_placeholder_rejects_unsupported_devices(device: str):
+def test_mps_rejects_unsupported_devices(device: str):
     options = MpsOptions(device=cast(Any, device))
 
     with pytest.raises(ValueError, match="Unsupported MPS device"):

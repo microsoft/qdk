@@ -46,7 +46,7 @@ impl ExecutionPolicy {
         }
     }
 
-    pub(super) const fn base_qualification() -> Self {
+    pub(crate) const fn base_qualification() -> Self {
         Self {
             device_ordinal: 0,
             precision: Precision::F64,

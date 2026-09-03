@@ -717,14 +717,14 @@ def _shared_execution_base_profile_probe(
     return ([recorder.process_output(shot) for shot in records], region_count)
 
 
-def _run_qir_mps_full_state_placeholder(
+def _run_qir_mps(
     input: Union[QirInputData, str, bytes],
     shots: Optional[int] = 1,
     noise: Optional[NoiseConfig] = None,
     seed: Optional[int] = None,
     mps_options: Optional[MpsOptions] = None,
 ) -> List:
-    """Run the public MPS contract through a non-MPS full-state placeholder."""
+    """Run Base-profile QIR through NVIDIA cuTensorNet MPS."""
     if mps_options is not None and not isinstance(mps_options, MpsOptions):
         raise TypeError("mps_options must be an MpsOptions instance")
 
@@ -919,7 +919,7 @@ def run_qir(
         case "gpu":
             return run_qir_gpu(input, shots, noise, seed)
         case "mps":
-            return _run_qir_mps_full_state_placeholder(
+            return _run_qir_mps(
                 input, shots, noise, seed, mps_options
             )
         case _:

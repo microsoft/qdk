@@ -16,6 +16,7 @@ use super::{
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use crate::library::Session;
 use num_complex::Complex64;
+use qdk_simulators::QubitID;
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use std::sync::Arc;
 use std::{f64::consts::FRAC_1_SQRT_2, mem::size_of, time::Instant};
@@ -32,9 +33,9 @@ pub(crate) struct MpsTarget {
 
 impl MpsTarget {
     fn new(qubit_count: usize, bond_cap: i64) -> Result<Self, SimulationError> {
-        if qubit_count < 2 {
+        if qubit_count == 0 {
             return Err(SimulationError::InvalidCircuit {
-                reason: "the native MPS fixture requires at least two qubits".to_string(),
+                reason: "the native MPS fixture requires at least one qubit".to_string(),
             });
         }
         let bonds = (0..qubit_count - 1)
@@ -42,7 +43,9 @@ impl MpsTarget {
             .collect::<Result<Vec<_>, _>>()?;
         let mut extents = Vec::with_capacity(qubit_count);
         for site in 0..qubit_count {
-            let shape = if site == 0 {
+            let shape = if qubit_count == 1 {
+                vec![2]
+            } else if site == 0 {
                 vec![2, bonds[0]]
             } else if site + 1 == qubit_count {
                 vec![bonds[site - 1], 2]
@@ -232,11 +235,12 @@ pub(crate) trait ReplayApi {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 impl Session {
-    fn sample(
+    pub(crate) fn sample(
         &mut self,
         circuit: &Circuit,
+        sampled_qubits: &[QubitID],
         request: SamplingRequest,
-    ) -> Result<FullBitstringSamples, SimulationError> {
+    ) -> Result<Box<[i64]>, SimulationError> {
         let mut replay = Replay::new(
             self.api(),
             self.handle(),
@@ -244,7 +248,7 @@ impl Session {
             circuit,
             self.policy(),
         )?;
-        let execution = replay.sample_full_bitstrings(circuit, request);
+        let execution = replay.sample_qubits(circuit, sampled_qubits, request);
         let cleanup = replay.close();
         combine_execution_and_cleanup(execution, cleanup)
     }
@@ -410,11 +414,6 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
         policy: ExecutionPolicy,
     ) -> Result<Self, SimulationError> {
         let policy = policy.validate()?;
-        if circuit.qubit_count() < 2 {
-            return Err(SimulationError::InvalidCircuit {
-                reason: "the native MPS fixture requires at least two qubits".to_string(),
-            });
-        }
         let qubit_count = usize::try_from(circuit.qubit_count()).map_err(|_| {
             SimulationError::ResourceSizeOverflow {
                 resource: "state mode count",
@@ -568,6 +567,20 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
     where
         Api: SamplerApi,
     {
+        let sampled_qubits = (0..self.state_extents.len()).collect::<Vec<_>>();
+        let output = self.sample_qubits(circuit, &sampled_qubits, request)?;
+        FullBitstringSamples::new(sampled_qubits.len(), output)
+    }
+
+    fn sample_qubits(
+        &mut self,
+        circuit: &Circuit,
+        sampled_qubits: &[QubitID],
+        request: SamplingRequest,
+    ) -> Result<Box<[i64]>, SimulationError>
+    where
+        Api: SamplerApi,
+    {
         self.finalize_initial(circuit, &mut StatePhaseTimings::default())?;
         drop(
             self.materialize_current_state(
@@ -575,11 +588,21 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
                 StatePhaseTimings::default(),
             )?,
         );
-        let modes_to_sample = (0..self.state_extents.len())
-            .map(|mode| {
-                i32::try_from(mode).map_err(|_| SimulationError::ResourceSizeOverflow {
-                    resource: "sampler mode identifier",
-                })
+        let modes_to_sample = sampled_qubits
+            .iter()
+            .map(|&qubit| {
+                let qubit = u32::try_from(qubit).map_err(|_| SimulationError::InvalidCircuit {
+                    reason: format!("qubit {qubit} does not fit the native mode identifier"),
+                })?;
+                if qubit >= circuit.qubit_count() {
+                    return Err(SimulationError::InvalidCircuit {
+                        reason: format!(
+                            "qubit {qubit} is outside a {}-qubit circuit",
+                            circuit.qubit_count()
+                        ),
+                    });
+                }
+                mode_id(qubit)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let (free_before_bytes, _) = self.api.memory_info()?;
@@ -623,7 +646,7 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
             self.api
                 .set_workspace(self.handle, workspace, scratch, workspace_bytes)?;
             let output = sampler.sample(&request, workspace, self.stream)?;
-            FullBitstringSamples::new(modes_to_sample.len(), output)
+            Ok(output)
         })();
         combine_execution_and_cleanup(execution, sampler.close())
     }
@@ -1314,6 +1337,9 @@ fn validate_realized_extents(
 }
 
 fn maximum_bond(realized: &[Vec<usize>]) -> Result<usize, SimulationError> {
+    if matches!(realized, [shape] if shape.as_slice() == [2]) {
+        return Ok(1);
+    }
     realized
         .iter()
         .take(realized.len().saturating_sub(1))
@@ -1604,7 +1630,7 @@ fn base_profile_a100_qualification() {
     let policy = ExecutionPolicy::bell_regression()
         .validate()
         .expect("Bell policy should be valid");
-    let mut session = Session::new(Arc::clone(&availability._libraries), policy)
+    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
     let mut circuit = Circuit::new(2).expect("two-qubit fixture should be valid");
     circuit
@@ -1682,7 +1708,7 @@ fn b0_a100_ordering_and_gate_qualification() {
     let policy = ExecutionPolicy::bell_regression()
         .validate()
         .expect("B0 policy should be valid");
-    let mut session = Session::new(Arc::clone(&availability._libraries), policy)
+    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
     for (label, circuit, expected) in b0_qualification_cases() {
         let started = Instant::now();
@@ -1721,7 +1747,7 @@ fn b0_a100_ordering_and_gate_qualification() {
 fn b1_a100_width_qualification() {
     let availability = crate::discover().expect("native libraries should be available");
     let policy = ExecutionPolicy::base_qualification();
-    let mut session = Session::new(Arc::clone(&availability._libraries), policy)
+    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
 
     for width in [2_u32, 3, 63, 64, 128] {
@@ -1861,7 +1887,7 @@ fn run_trotter_query_qualification(
     let availability = crate::discover().expect("native libraries should be available");
     let discovery_seconds = discovery_started.elapsed().as_secs_f64();
     let session_started = Instant::now();
-    let mut session = Session::new(Arc::clone(&availability._libraries), policy)
+    let mut session = Session::new(Arc::clone(&availability.libraries), policy)
         .expect("native session should be created");
     let session_creation_seconds = session_started.elapsed().as_secs_f64();
     let fixture_started = Instant::now();
@@ -2082,7 +2108,7 @@ fn b5_branch_capture_and_continuation_matches_qdk_sparse_oracle() {
             .map(|left| 1.0 - 2.0 * oracle.joint_probability(&[left, left + 1]))
             .sum::<f64>();
 
-        let mut session = Session::new(Arc::clone(&availability._libraries), policy)
+        let mut session = Session::new(Arc::clone(&availability.libraries), policy)
             .expect("native session should be created");
         let result = session
             .simulate_with_branch(

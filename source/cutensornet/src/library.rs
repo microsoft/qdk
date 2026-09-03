@@ -336,7 +336,7 @@ pub(crate) fn discover(
     };
     Ok(Availability {
         report,
-        _libraries: Arc::new(NativeApi {
+        libraries: Arc::new(NativeApi {
             cudart,
             cutensornet,
             cuda_functions,

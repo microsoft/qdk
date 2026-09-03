@@ -57,7 +57,7 @@ where
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct SamplingRequest {
+pub(crate) struct SamplingRequest {
     shots: usize,
     hyper_samples: i32,
     path_seed: Option<i32>,
@@ -65,7 +65,7 @@ pub(super) struct SamplingRequest {
 }
 
 impl SamplingRequest {
-    pub(super) fn new(
+    pub(crate) fn new(
         shots: usize,
         hyper_samples: i32,
         path_seed: Option<i32>,
@@ -230,8 +230,88 @@ mod tests {
         FullBitstringSamples, PreparedSampler, SamplerApi, SamplerContext, SamplingRequest,
         require_positive,
     };
-    use crate::simulation::{OpaqueHandle, SimulationError, Stream};
+    use crate::simulation::{OpaqueHandle, SimulationError, Stream, collect_sampled_shots};
+    use qdk_simulators::{
+        MeasurementResult, OutputRecord,
+        bytecode::{AdaptiveProgram, Block, Instruction, Op},
+        execution::PreparedAdaptiveProgram,
+    };
     use std::{ptr::NonNull, sync::Mutex};
+
+    const IMMEDIATE_SRC0: u64 = 1 << 16;
+    const IMMEDIATE_AUX1: u64 = 1 << 20;
+    const IMMEDIATE_AUX2: u64 = 1 << 21;
+
+    fn sampled_program() -> PreparedAdaptiveProgram<u64> {
+        let instructions = vec![
+            Instruction {
+                opcode: 0x10 | IMMEDIATE_SRC0 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+                aux1: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x11 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+                aux0: 1,
+                aux1: 0,
+                aux2: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x11 | IMMEDIATE_AUX1 | IMMEDIATE_AUX2,
+                aux0: 1,
+                aux1: 1,
+                aux2: 1,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x14 | IMMEDIATE_SRC0,
+                src0: 0,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x14 | IMMEDIATE_SRC0,
+                src0: 1,
+                ..Instruction::default()
+            },
+            Instruction {
+                opcode: 0x02,
+                ..Instruction::default()
+            },
+        ];
+        PreparedAdaptiveProgram::new(AdaptiveProgram {
+            num_qubits: 2,
+            num_results: 2,
+            num_registers: 0,
+            entry_block: 0,
+            block_table: vec![Block {
+                instr_offset: 0,
+                instr_count: instructions.len() as u64,
+            }],
+            instructions,
+            function_table: Vec::new(),
+            phi_entries: Vec::new(),
+            switch_cases: Vec::new(),
+            call_args: Vec::new(),
+            constant_data: Vec::new(),
+            quantum_ops: vec![
+                Op {
+                    op_id: 5,
+                    q1: 0,
+                    q2: 0,
+                    q3: 0,
+                    angle: 0,
+                },
+                Op {
+                    op_id: 21,
+                    q1: 0,
+                    q2: 0,
+                    q3: 0,
+                    angle: 0,
+                },
+            ],
+        })
+        .expect("sampled program should prepare")
+    }
 
     struct FakeApi {
         events: Mutex<Vec<&'static str>>,
@@ -334,7 +414,7 @@ mod tests {
             assert_eq!(shots, 3);
             assert_eq!(output.len(), 6);
             self.record("sample")?;
-            output.copy_from_slice(&[0, 0, 1, 1, 0, 0]);
+            output.copy_from_slice(&[0, 1, 1, 0, 1, 1]);
             Ok(())
         }
     }
@@ -366,17 +446,30 @@ mod tests {
         let output = prepared
             .sample(&request, workspace, stream)
             .expect("sampling should succeed");
-        let bitstrings =
-            FullBitstringSamples::new(2, output).expect("qubit samples should contain only bits");
-        assert_eq!(bitstrings.width(), 2);
-        assert_eq!(bitstrings.shots(), 3);
-        assert_eq!(bitstrings.shot(0), Some([0, 0].as_slice()));
-        assert_eq!(bitstrings.shot(1), Some([1, 1].as_slice()));
-        assert_eq!(bitstrings.shot(2), Some([0, 0].as_slice()));
-        assert_eq!(bitstrings.shot(3), None);
-        prepared.close().expect("sampler cleanup should succeed");
+        let shot_records = collect_sampled_shots(&sampled_program(), 3, output)
+            .expect("sample rows should drive prepared shots");
         assert_eq!(
-            api.events(),
+            shot_records,
+            [
+                vec![
+                    OutputRecord::Result(MeasurementResult::Zero),
+                    OutputRecord::Result(MeasurementResult::One),
+                ],
+                vec![
+                    OutputRecord::Result(MeasurementResult::One),
+                    OutputRecord::Result(MeasurementResult::Zero),
+                ],
+                vec![
+                    OutputRecord::Result(MeasurementResult::One),
+                    OutputRecord::Result(MeasurementResult::One),
+                ],
+            ]
+        );
+        prepared.close().expect("sampler cleanup should succeed");
+        let events = api.events();
+        assert_eq!(events.iter().filter(|event| **event == "sample").count(), 1);
+        assert_eq!(
+            events,
             [
                 "create_sampler",
                 "configure_hyper_samples",
