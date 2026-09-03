@@ -174,7 +174,7 @@ class DollarCostModelFromSpec(DollarCostModel):
 
     def __init__(self, path: str):
         with open(path, "r", encoding="utf-8") as f:
-            self.spec = CostSpec.from_dict(json.load(f))  # type: ignore
+            self.spec = CostSpec.from_dict(json.load(f))
 
     def cost_usd(self, *, qubits: int, runtime_nanos: int) -> float | None:
         if qubits < 0 or runtime_nanos < 0:
