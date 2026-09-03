@@ -175,14 +175,14 @@ support.
 
 The public `run_qir(type="mps", mps_options=MpsOptions(...))` contract now
 routes noiseless Base-profile QIR through the same lowering and preparation,
-then through a separately named native entry point using
-`drive_prepared_shot` and
-`ImmediateSimulatorConsumer<FullStateSimulator>`. Preparation is shared per
-request, while simulator, RNG, measurement, and control state remain fresh per
-shot. This full-state implementation is an explicit contract-solidification
-placeholder. It is not an MPS engine, NVIDIA execution, backend completion, or
-a performance claim. The private probe remains available as a separate
-diagnostic route.
+then through a separately named native entry point into cuTensorNet.
+Preparation is shared per request: the region is converted once, the state is
+evolved once, and every shot is drawn from a single batch sample. Control
+state and per-shot record reconstruction stay fresh per shot, driven by
+`drive_prepared_shot` exactly as the full-state route drives it. The route
+requires NVIDIA hardware and CUDA, is compiled only for Linux x86_64, and
+returns a discovery error elsewhere. The private probe remains available as a
+separate diagnostic route.
 
 ## A Walk Through `run_qir` MPS
 
@@ -211,12 +211,14 @@ reached through `type="mps"` and needs CUDA and cuTensorNet. The two are
 independent, so this walk names NVIDIA hardware explicitly and never borrows the
 existing `gpu` vocabulary for it.
 
-TODO: the `run_qir` docstring still tells a user who has NVIDIA hardware to
+DEFECT: the `run_qir` docstring still tells a user who has NVIDIA hardware to
 select `type="gpu"`, which reaches wgpu rather than cuTensorNet. That guidance
-is accurate today only because `type="mps"` is a placeholder. Before the MPS
-path performs real NVIDIA execution, the public documentation and the option
-surface must make this distinction discoverable without reading source. The
-mechanism is undecided and is recorded here so that it is not decided by
+was accurate only while `type="mps"` was a placeholder. Since the MPS path
+began performing real NVIDIA execution the docstring actively misdirects
+exactly the users the cuTensorNet route exists to serve, so this is a
+user-facing defect rather than deferred work. The public documentation and the
+option surface must make the distinction discoverable without reading source.
+The mechanism is undecided and is recorded here so that it is not decided by
 default.
 
 | #   | Block                                                                                                                                                         | Input                                                           | Output                                                | Demo                                                                 | Effort | Comment                                                                                                                                                                                                                                                                                                       |
@@ -452,14 +454,14 @@ under `samples/python_interop/mps_qaoa_demo/`.
 
 ## Next Integration Iteration
 
-The next backend iteration is a non-production, end-to-end Base-profile
-integration through the established public/shared-control path and a real
-NVIDIA cuTensorNet MPS consumer, replacing the full-state placeholder at the
-consumer boundary. Near-term scope is NVIDIA cuTensorNet integration only. A CPU
-tensor4all-rs consumer (`Tensor4AllMpsConsumer`) is a later, not-yet-scheduled
-follow-on iteration; it is deferred and out of scope for the current work,
-though the shared control/driver design below is kept consumer-agnostic so
-that a second consumer can be added without rework. Base Profile is a
+This iteration is code-complete: noiseless Base-profile QIR runs end to end
+through the established public path and a real NVIDIA cuTensorNet MPS consumer,
+replacing the full-state placeholder at the consumer boundary. Near-term scope
+is NVIDIA cuTensorNet integration only. A CPU tensor4all-rs consumer
+(`Tensor4AllMpsConsumer`) is a later, not-yet-scheduled follow-on iteration; it
+is deferred and out of scope for the current work, though the shared
+control/driver design below is kept consumer-agnostic so that a second consumer
+can be added without rework. Base Profile is a
 restriction of the same control execution used for Adaptive Profile, not
 a separate tensor-network execution model. Its control program is linear: it
 does not branch on measurement results, and preparation can resolve and cache
@@ -472,7 +474,8 @@ registrations, workspaces, or other target-specific resources between shots.
 This integration proceeds in four iterations, each independently evidenced
 and separately reviewed before the next begins:
 
-1. **Port the native cuTensorNet crate, unchanged.** Bring over the crate
+1. **Port the native cuTensorNet crate, unchanged.** Delivered in
+   `f1257acf1`. Bring over the crate
    from `cutensornet-rust-ffi` at its committed HEAD `2f48bd233` as a new
    workspace member, in full -- dynamic loading, bindings, the error/result
    layer, the qualified static execution lifecycle, and the branch-
@@ -490,7 +493,8 @@ and separately reviewed before the next begins:
    against the crate's `FakeReplayApi` mock, and every `#[ignore]`-gated
    A100 test passes on the qualified host; no drift from the source
    worktree's committed HEAD.
-2. **Decompose the measurement primitive.** `cutensornet-rust-ffi`'s
+2. **Decompose the measurement primitive.** Superseded; see below.
+   `cutensornet-rust-ffi`'s
    qualified measurement/branch sequence exists only as a monolithic,
    `#[cfg(test)]`-gated harness (`Session::simulate_with_branch` et al.)
    that takes a whole circuit and a pre-forced outcome upfront, with no
@@ -500,14 +504,15 @@ and separately reviewed before the next begins:
    expose the right visibility boundary for iteration 3 to consume.
    Validate the decomposition reproduces the exact same qualified numbers
    as the monolithic call.
-3. **Implement `CuTensorNetMpsConsumer: RegionConsumer`.** Wrap the
+3. **Implement `CuTensorNetMpsConsumer: RegionConsumer`.** Delivered. Wrap the
    decomposed primitives from iteration 2 behind the trait
    (`prepare_region`/`execute_region` on the static lifecycle, `measure()`
    on the mass/project split, `finish_execution`/`close` for output
    reconstruction and cleanup). Validate against the CPU oracle
    (`ImmediateSimulatorConsumer<FullStateSimulator>`) purely through the
    trait; no `run_qir` wiring yet.
-4. **Wire into `run_qir(type="mps", device="nvidia")`, end-to-end.** Real
+4. **Wire into `run_qir(type="mps", device="nvidia")`, end-to-end.** Code
+   delivered; evidence outstanding. Real
    Base-profile QIR through the real entry point on an actual NVIDIA host.
    Retained evidence: (a) deterministic Base fixtures match
    `run_qir(type="cpu")` exactly, per shot, with no tolerance; (b) stochastic
@@ -516,9 +521,22 @@ and separately reviewed before the next begins:
    (c) elapsed time at no fewer than two operating points, with shot count
    varied across them.
 
-Only iteration 1 requires fresh approval beyond this iteration's own
-(new native/GPU-gated dependency in the workspace); iterations 2-4 build
-on that approved boundary.
+Two deviations from that plan are recorded here so the difference between what
+was designed and what was built is not lost. Iteration 2's compute-masses /
+project-given-outcome decomposition was never implemented: Base Profile has no
+mid-circuit branch, so the batch sampler supplies every shot from one call and
+the mass/project split was unnecessary. It remains required for Adaptive
+Profile, where measurement must return to the caller and continue. Iteration
+1's `gpu` cargo feature gate was also not used; the crate is gated by target
+triple, `#[cfg(all(target_os = "linux", target_arch = "x86_64"))]`, because
+`gpu` already denotes wgpu in this workspace and reusing it would have merged
+the two vocabularies this walk deliberately keeps apart.
+
+What remains is iteration 4's evidence, not its code. Points (a), (b), and (c)
+above must be collected on an actual A100; until they are, NVIDIA execution is
+implemented but not retained as evidence. Row 1's availability probe and the
+`run_qir` docstring defect recorded above are the other two open items; both
+are consumers of the availability surface described below.
 
 Caching resolved region content is one optimization this structure enables; a
 further one is available but not yet implemented. When a prepared program has
@@ -576,19 +594,62 @@ stable and constrains the Device explicitly:
 run_qir(qir, type="mps", mps_options=MpsOptions(device="nvidia"))
 ```
 
-`device="nvidia"` is the accepted forward contract for the next cuTensorNet
-consumer, but it currently executes the explicitly named full-state
-placeholder; it does not yet claim NVIDIA execution. Omitting `device` uses the
-same placeholder. `device="cpu"` resolving to tensor4all-rs is deferred to the
-later follow-on iteration described below and is rejected without fallback.
-Unknown devices are also rejected. Engine and Device remain distinct
+`device="nvidia"` selects the cuTensorNet consumer and now performs real NVIDIA
+execution. Omitting `device` takes the same path. Neither value is probed for
+availability before the run, so an unavailable device surfaces as an `OSError`
+raised by the run itself. `device="cpu"` resolving to tensor4all-rs is deferred
+to the later follow-on iteration described below and is rejected without
+fallback. Unknown devices are also rejected. Engine and Device remain distinct
 internally. Automatic selection from host capabilities or Program Requirements
 is future work.
 
-The iteration must establish one path for target-neutral measurements,
+This iteration established one path for target-neutral measurements,
 QDK-owned outcome sampling, consumer failures, target reports, completion, and
 cleanup, using the cuTensorNet consumer as the first real, non-placeholder
 implementation. It is not forced through the eager `MpsEngine` trait.
+
+### Deferred Follow-On: NVIDIA Availability Surface
+
+`qdk_cutensornet::discover()` (`source/cutensornet/src/lib.rs:107`) is a
+complete availability diagnostic that no Python caller can reach. It returns an
+`AvailabilityReport` carrying both resolved library paths, the cuTensorNet
+version, the CUDA runtime version that library was built against, and the
+host's runtime and driver versions. Its error type is already a diagnostic
+taxonomy of seven variants: `UnsupportedPlatform`, `InvalidOverride`,
+`LibraryNotFound` with every attempted path, `LoadFailed`,
+`MissingRequiredSymbol`, `UnsupportedVersion`, and `VersionProbeFailed`. It
+performs no device selection, allocation, handle creation, or GPU work, so it
+is safe to call as a pure probe, and the `QDK_CUTENSORNET_LIBRARY` and
+`QDK_CUDART_LIBRARY` overrides are the remedy it implies.
+
+Nothing in `source/qdk_package/src` references it. Four consumers therefore
+answer "is NVIDIA usable here?" independently: the test probe in
+`tests/test_cpu_simulator.py` runs a full circuit and catches `OSError` to
+answer a question that needs no GPU work at all; row 1's availability probe is
+unbuilt; the `run_qir` docstring defect recorded above is the discoverability
+face of the same gap; and a user-facing diagnostic would be the fourth.
+
+The decision is one exposed surface rather than four. Expose `discover()` once
+as a narrow Python entry point returning the typed report or raising the typed
+error. A user-facing diagnostic is then a presentation layer over it, row 1's
+probe is one call to it, and the test probe collapses to that same call.
+Whatever is built must call `discover()` and must never reimplement path
+search, version rules, or the supported-platform test. A second copy of that
+policy is exactly the duplication this separation exists to prevent.
+
+Two constraints on its shape. It is a Python entry point rather than a separate
+binary, because a diagnostic must be reachable where the failure is observed
+and must not carry its own distribution story. And it is named for NVIDIA and
+cuTensorNet, never borrowing the `gpu` vocabulary, which in this workspace
+denotes wgpu.
+
+This also fills a real gap. Iteration 1 specified porting
+`verify-environment.sh` and the other VM provisioning scripts; they were not
+ported, so this worktree has no environment verification tooling for the A100,
+where library discovery is the most likely first failure. A minimal version is
+therefore useful for bring-up and not only for users. It stays deferred behind
+the demo evidence: the smallest valuable slice is the exposed surface alone,
+with the presentation layer following separately.
 
 ### Deferred Follow-On: CPU tensor4all-rs Consumer
 
@@ -681,7 +742,7 @@ strategy.
 | CPU full-state      | `AdaptiveProgram<u64>` interpreted by the legacy Rust runtime; implements `Simulator`.                                           | Use `ImmediateSimulatorConsumer` first. Replace it only if region preparation provides a measured benefit.                                                                                                                              |
 | Clifford/stabilizer | Same legacy Adaptive runtime; implements `Simulator`.                                                                            | Use `ImmediateSimulatorConsumer`; preserve identical measurement, noise, and output behavior.                                                                                                                                           |
 | Adaptive GPU        | `AdaptiveProgram<u32>` and control are interpreted inside WGSL.                                                                  | A persistent GPU region consumer is possible, but host synchronization at every region or measurement may regress performance. Compare that design with retaining device-side control while sharing preparation and protocol semantics. |
-| MPS                 | `run_qir(type="mps")` uses shared execution through `ImmediateSimulatorConsumer<FullStateSimulator>`, a non-MPS placeholder.     | Replace the placeholder with a fallible NVIDIA cuTensorNet consumer that retains one live MPS per shot and uses the generic driver's target-neutral measurement protocol. A CPU tensor4all consumer remains deferred.                   |
+| MPS                 | `run_qir(type="mps")` uses shared execution through `CuTensorNetMpsConsumer` on NVIDIA cuTensorNet; Linux x86_64 only.           | Collect the A100 evidence, add the device-availability probe, and correct the docstring that still sends NVIDIA users to `type="gpu"`. A CPU tensor4all consumer remains deferred.                                                      |
 | Sparse Q# evaluator | Executes the Q# evaluator graph through its own fallible backend and supports dynamic runtime services beyond Adaptive bytecode. | Keep the evaluator path unless a future normalization layer can preserve allocation, values, messages, dumps, custom intrinsics, and failure semantics. Region consumption may still be reusable below that control layer.              |
 
 The generic driver performs target-neutral measurement through
