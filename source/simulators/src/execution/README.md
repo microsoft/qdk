@@ -211,6 +211,14 @@ reached through `type="mps"` and needs CUDA and cuTensorNet. The two are
 independent, so this walk names NVIDIA hardware explicitly and never borrows the
 existing `gpu` vocabulary for it.
 
+TODO: the `run_qir` docstring still tells a user who has NVIDIA hardware to
+select `type="gpu"`, which reaches wgpu rather than cuTensorNet. That guidance
+is accurate today only because `type="mps"` is a placeholder. Before the MPS
+path performs real NVIDIA execution, the public documentation and the option
+surface must make this distinction discoverable without reading source. The
+mechanism is undecided and is recorded here so that it is not decided by
+default.
+
 | #   | Block                                                                                                        | Input                                                     | Output                                                     | Demo               | Effort | Comment |
 | --- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------- | ---------------------------------------------------------- | ------------------ | ------------ | ----------- |
 | 1   | [`run_qir`](../../../qdk_package/qdk/simulation/_simulation.py) Simulation Method dispatch                   | QIR source, `type="mps"`, `MpsOptions(device=...)`, shots, seed | Target selection; call to the MPS entry point           | Missing: availability probe and hardware-test split | 45m | Follows the hardware-gate pattern in `test_adaptive_gpu_bytecode.py`, which gates wgpu rather than NVIDIA and therefore needs a separate variable; `AvailabilityError` already carries the `OSError` message |
