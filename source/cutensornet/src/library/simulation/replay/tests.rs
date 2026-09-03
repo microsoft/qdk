@@ -10,6 +10,7 @@ use crate::simulation::{
     ffi::Complex64Abi,
     policy::ExecutionPolicy,
     query::{AdjacentZQuery, B2_EXPECTATION_HYPER_SAMPLES},
+    sampler::{SamplerApi, SamplingRequest},
 };
 use std::{cell::RefCell, collections::VecDeque, ffi::c_void, ptr::NonNull};
 
@@ -47,6 +48,13 @@ enum Event {
     QueryMemoryInfo,
     QueryWorkspaceSize,
     QuerySetWorkspace,
+    CreateSampler,
+    ConfigureSamplerHyperSamples,
+    ConfigureSamplerPathSeed,
+    PrepareSampler,
+    ConfigureSamplerSampleSeed,
+    Sample,
+    DestroySampler,
     DestroyWorkspace,
     DestroyState,
     Free(usize),
@@ -81,6 +89,13 @@ impl Event {
             Self::DestroyQueryWorkspace => "destroy_query_workspace",
             Self::DestroyExpectation => "destroy_expectation",
             Self::DestroyNetworkOperator => "destroy_network_operator",
+            Self::CreateSampler => "create_sampler",
+            Self::ConfigureSamplerHyperSamples => "configure_sampler_hyper_samples",
+            Self::ConfigureSamplerPathSeed => "configure_sampler_path_seed",
+            Self::PrepareSampler => "prepare_sampler",
+            Self::ConfigureSamplerSampleSeed => "configure_sampler_sample_seed",
+            Self::Sample => "sample",
+            Self::DestroySampler => "destroy_sampler",
             Self::DestroyWorkspace => "destroy_workspace",
             Self::DestroyState => "destroy_state",
             Self::Free(_) => "free",
@@ -590,6 +605,84 @@ impl ReplayApi for FakeReplayApi {
     }
 }
 
+impl SamplerApi for FakeReplayApi {
+    fn create_sampler(
+        &self,
+        _handle: OpaqueHandle,
+        _state: OpaqueHandle,
+        modes_to_sample: &[i32],
+    ) -> Result<OpaqueHandle, SimulationError> {
+        assert_eq!(modes_to_sample, [0, 1]);
+        self.record(Event::CreateSampler)?;
+        Ok(self.handle())
+    }
+
+    fn destroy_sampler(&self, _sampler: OpaqueHandle) -> Result<(), SimulationError> {
+        self.record(Event::DestroySampler)
+    }
+
+    fn configure_sampler_hyper_samples(
+        &self,
+        _handle: OpaqueHandle,
+        _sampler: OpaqueHandle,
+        hyper_samples: i32,
+    ) -> Result<(), SimulationError> {
+        assert_eq!(hyper_samples, 8);
+        self.record(Event::ConfigureSamplerHyperSamples)
+    }
+
+    fn configure_sampler_path_seed(
+        &self,
+        _handle: OpaqueHandle,
+        _sampler: OpaqueHandle,
+        seed: i32,
+    ) -> Result<(), SimulationError> {
+        assert_eq!(seed, 11);
+        self.record(Event::ConfigureSamplerPathSeed)
+    }
+
+    fn prepare_sampler(
+        &self,
+        _handle: OpaqueHandle,
+        _sampler: OpaqueHandle,
+        maximum_workspace_bytes: usize,
+        _workspace: OpaqueHandle,
+        _stream: Stream,
+    ) -> Result<(), SimulationError> {
+        assert_eq!(
+            maximum_workspace_bytes,
+            ExecutionPolicy::bell_regression().maximum_workspace_bytes
+        );
+        self.record(Event::PrepareSampler)
+    }
+
+    fn configure_sampler_sample_seed(
+        &self,
+        _handle: OpaqueHandle,
+        _sampler: OpaqueHandle,
+        seed: i32,
+    ) -> Result<(), SimulationError> {
+        assert_eq!(seed, 29);
+        self.record(Event::ConfigureSamplerSampleSeed)
+    }
+
+    fn sample(
+        &self,
+        _handle: OpaqueHandle,
+        _sampler: OpaqueHandle,
+        shots: i64,
+        _workspace: OpaqueHandle,
+        output: &mut [i64],
+        _stream: Stream,
+    ) -> Result<(), SimulationError> {
+        assert_eq!(shots, 3);
+        assert_eq!(output.len(), 6);
+        self.record(Event::Sample)?;
+        output.copy_from_slice(&[0, 0, 1, 1, 0, 0]);
+        Ok(())
+    }
+}
+
 fn circuit() -> Circuit {
     let mut circuit = Circuit::new(2).expect("two-qubit fixture should be valid");
     circuit
@@ -936,6 +1029,39 @@ fn successful_replay_cleans_up_in_dependency_order() {
     let mut expected_freed_handles = api.allocation_handles();
     expected_freed_handles.reverse();
     assert_eq!(api.freed_handles(), expected_freed_handles);
+}
+
+#[test]
+fn sampler_materializes_mps_before_creation_and_retains_it_through_cleanup() {
+    let api = FakeReplayApi::new([]);
+    let circuit = circuit();
+    let mut replay = new_replay(&api, &circuit).expect("replay should be created");
+    let request =
+        SamplingRequest::new(3, 8, Some(11), 29).expect("sampling request should be valid");
+
+    let samples = replay
+        .sample_full_bitstrings(&circuit, request)
+        .expect("sampling should succeed");
+    assert_eq!(samples.shot(1), Some([1, 1].as_slice()));
+    replay.close().expect("replay cleanup should succeed");
+
+    let events = api.events();
+    let finalized = positions(&events, Event::FinalizeMps)[0];
+    let prepared_state = positions(&events, Event::PrepareState)[0];
+    let computed_state = positions(&events, Event::ComputeState)[0];
+    let synchronized_state = positions(&events, Event::Synchronize(0))[0];
+    let created_sampler = positions(&events, Event::CreateSampler)[0];
+    let destroyed_sampler = positions(&events, Event::DestroySampler)[0];
+    let destroyed_state = positions(&events, Event::DestroyState)[0];
+    let first_free = positions(&events, Event::Free(0))[0];
+
+    assert!(finalized < prepared_state);
+    assert!(prepared_state < computed_state);
+    assert!(computed_state < synchronized_state);
+    assert!(synchronized_state < created_sampler);
+    assert!(created_sampler < destroyed_sampler);
+    assert!(destroyed_sampler < destroyed_state);
+    assert!(destroyed_state < first_free);
 }
 
 #[test]

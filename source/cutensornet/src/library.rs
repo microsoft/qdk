@@ -160,6 +160,37 @@ type ExpectationComputeFn = unsafe extern "C" fn(
 ) -> v2_13::cutensornetStatus_t;
 type DestroyExpectationFn =
     unsafe extern "C" fn(v2_13::cutensornetStateExpectation_t) -> v2_13::cutensornetStatus_t;
+type CreateSamplerFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetState_t,
+    i32,
+    *const i32,
+    *mut v2_13::cutensornetStateSampler_t,
+) -> v2_13::cutensornetStatus_t;
+type SamplerConfigureFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetStateSampler_t,
+    v2_13::cutensornetSamplerAttributes_t,
+    *const c_void,
+    usize,
+) -> v2_13::cutensornetStatus_t;
+type SamplerPrepareFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetStateSampler_t,
+    usize,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    v2_13::cudaStream_t,
+) -> v2_13::cutensornetStatus_t;
+type SamplerSampleFn = unsafe extern "C" fn(
+    v2_13::cutensornetHandle_t,
+    v2_13::cutensornetStateSampler_t,
+    i64,
+    v2_13::cutensornetWorkspaceDescriptor_t,
+    *mut i64,
+    v2_13::cudaStream_t,
+) -> v2_13::cutensornetStatus_t;
+type DestroySamplerFn =
+    unsafe extern "C" fn(v2_13::cutensornetStateSampler_t) -> v2_13::cutensornetStatus_t;
 
 #[allow(dead_code)]
 struct CuTensorNetFunctions {
@@ -190,6 +221,11 @@ struct CuTensorNetFunctions {
     expectation_prepare: ExpectationPrepareFn,
     expectation_compute: ExpectationComputeFn,
     destroy_expectation: DestroyExpectationFn,
+    create_sampler: CreateSamplerFn,
+    sampler_configure: SamplerConfigureFn,
+    sampler_prepare: SamplerPrepareFn,
+    sampler_sample: SamplerSampleFn,
+    destroy_sampler: DestroySamplerFn,
 }
 
 #[allow(dead_code)]
@@ -577,6 +613,41 @@ fn resolve_cutensornet_functions<R: SymbolResolver>(
             path,
             "cutensornetDestroyExpectation",
             b"cutensornetDestroyExpectation\0",
+        )?,
+        create_sampler: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetCreateSampler",
+            b"cutensornetCreateSampler\0",
+        )?,
+        sampler_configure: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetSamplerConfigure",
+            b"cutensornetSamplerConfigure\0",
+        )?,
+        sampler_prepare: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetSamplerPrepare",
+            b"cutensornetSamplerPrepare\0",
+        )?,
+        sampler_sample: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetSamplerSample",
+            b"cutensornetSamplerSample\0",
+        )?,
+        destroy_sampler: resolve_required(
+            resolver,
+            CUTENSORNET_NAME,
+            path,
+            "cutensornetDestroySampler",
+            b"cutensornetDestroySampler\0",
         )?,
     })
 }

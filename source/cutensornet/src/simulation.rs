@@ -19,6 +19,11 @@ mod policy;
 mod query;
 #[path = "library/simulation/replay.rs"]
 mod replay;
+#[path = "library/simulation/sampler.rs"]
+mod sampler;
+
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
+pub(crate) use sampler::SamplerApi;
 
 pub(super) use circuit::{Circuit, Gate, SimulationResult};
 #[allow(

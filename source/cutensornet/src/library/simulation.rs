@@ -11,7 +11,7 @@ pub(crate) use session::Session;
 use super::NativeApi;
 use crate::bindings::{cudart_12, v2_13};
 use crate::simulation::{
-    Complex64Abi, MpsTarget, OpaqueHandle, OutputMetadata, ReplayApi, SimulationError,
+    Complex64Abi, MpsTarget, OpaqueHandle, OutputMetadata, ReplayApi, SamplerApi, SimulationError,
     StateF64Attribute, StateU32Configuration, Stream,
 };
 use session::SessionApi;
@@ -77,6 +77,178 @@ impl NativeApi {
                 message: self.cutensornet_message(status),
             })
         }
+    }
+
+    fn configure_sampler_i32(
+        &self,
+        handle: OpaqueHandle,
+        sampler: OpaqueHandle,
+        attribute: v2_13::cutensornetSamplerAttributes_t,
+        value: i32,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: the attribute is paired with its audited int32 value and the
+        // native API copies the call-local setting before returning.
+        let status = unsafe {
+            (self.cutensornet_functions.sampler_configure)(
+                handle.as_ptr(),
+                sampler.as_ptr(),
+                attribute,
+                (&raw const value).cast::<c_void>(),
+                size_of::<i32>(),
+            )
+        };
+        self.check_cutensornet("cutensornetSamplerConfigure", status)
+    }
+}
+
+impl SamplerApi for NativeApi {
+    fn create_sampler(
+        &self,
+        handle: OpaqueHandle,
+        state: OpaqueHandle,
+        modes_to_sample: &[i32],
+    ) -> Result<OpaqueHandle, SimulationError> {
+        if modes_to_sample.is_empty() {
+            return Err(SimulationError::InvalidSamplerConfiguration {
+                reason: "at least one state mode must be selected",
+            });
+        }
+        let mode_count = i32::try_from(modes_to_sample.len()).map_err(|_| {
+            SimulationError::ResourceSizeOverflow {
+                resource: "sampler mode count",
+            }
+        })?;
+        let mut sampler = std::ptr::null_mut();
+        // SAFETY: handle/state are live, the mode slice has `mode_count`
+        // entries, and `sampler` is a writable out-pointer.
+        let status = unsafe {
+            (self.cutensornet_functions.create_sampler)(
+                handle.as_ptr(),
+                state.as_ptr(),
+                mode_count,
+                modes_to_sample.as_ptr(),
+                &raw mut sampler,
+            )
+        };
+        self.check_cutensornet("cutensornetCreateSampler", status)?;
+        NonNull::new(sampler).ok_or(SimulationError::MissingNativeResource {
+            operation: "cutensornetCreateSampler",
+            resource: "state sampler",
+        })
+    }
+
+    fn destroy_sampler(&self, sampler: OpaqueHandle) -> Result<(), SimulationError> {
+        // SAFETY: sampler cleanup consumes the owned sampler exactly once.
+        let status = unsafe { (self.cutensornet_functions.destroy_sampler)(sampler.as_ptr()) };
+        self.check_cutensornet("cutensornetDestroySampler", status)
+    }
+
+    fn configure_sampler_hyper_samples(
+        &self,
+        handle: OpaqueHandle,
+        sampler: OpaqueHandle,
+        hyper_samples: i32,
+    ) -> Result<(), SimulationError> {
+        require_positive(hyper_samples, "sampler hyper-samples must be positive")?;
+        self.configure_sampler_i32(
+            handle,
+            sampler,
+            v2_13::cutensornetSamplerAttributes_t_CUTENSORNET_SAMPLER_CONFIG_NUM_HYPER_SAMPLES,
+            hyper_samples,
+        )
+    }
+
+    fn configure_sampler_path_seed(
+        &self,
+        handle: OpaqueHandle,
+        sampler: OpaqueHandle,
+        seed: i32,
+    ) -> Result<(), SimulationError> {
+        require_positive(seed, "sampler pathfinding seed must be positive")?;
+        self.configure_sampler_i32(
+            handle,
+            sampler,
+            v2_13::cutensornetSamplerAttributes_t_CUTENSORNET_SAMPLER_CONFIG_DETERMINISTIC,
+            seed,
+        )
+    }
+
+    fn prepare_sampler(
+        &self,
+        handle: OpaqueHandle,
+        sampler: OpaqueHandle,
+        maximum_workspace_bytes: usize,
+        workspace: OpaqueHandle,
+        stream: Stream,
+    ) -> Result<(), SimulationError> {
+        // SAFETY: every native owner is live and the workspace limit is passed
+        // by value from the validated execution policy.
+        let status = unsafe {
+            (self.cutensornet_functions.sampler_prepare)(
+                handle.as_ptr(),
+                sampler.as_ptr(),
+                maximum_workspace_bytes,
+                workspace.as_ptr(),
+                stream.as_ptr().cast(),
+            )
+        };
+        self.check_cutensornet("cutensornetSamplerPrepare", status)
+    }
+
+    fn configure_sampler_sample_seed(
+        &self,
+        handle: OpaqueHandle,
+        sampler: OpaqueHandle,
+        seed: i32,
+    ) -> Result<(), SimulationError> {
+        require_positive(seed, "sampler sample seed must be positive")?;
+        self.configure_sampler_i32(
+            handle,
+            sampler,
+            v2_13::cutensornetSamplerAttributes_t_CUTENSORNET_SAMPLER_CONFIG_DETERMINISTIC,
+            seed,
+        )
+    }
+
+    fn sample(
+        &self,
+        handle: OpaqueHandle,
+        sampler: OpaqueHandle,
+        shots: i64,
+        workspace: OpaqueHandle,
+        output: &mut [i64],
+        stream: Stream,
+    ) -> Result<(), SimulationError> {
+        require_positive(shots, "sampler shot count must be positive")?;
+        if output.is_empty() {
+            return Err(SimulationError::InvalidSamplerConfiguration {
+                reason: "sampler output buffer must not be empty",
+            });
+        }
+        // SAFETY: every native owner is live and the nonempty host output
+        // buffer remains writable for the synchronous sampler call.
+        let status = unsafe {
+            (self.cutensornet_functions.sampler_sample)(
+                handle.as_ptr(),
+                sampler.as_ptr(),
+                shots,
+                workspace.as_ptr(),
+                output.as_mut_ptr(),
+                stream.as_ptr().cast(),
+            )
+        };
+        self.check_cutensornet("cutensornetSamplerSample", status)
+    }
+}
+
+fn require_positive<T>(value: T, reason: &'static str) -> Result<(), SimulationError>
+where
+    T: Copy + PartialOrd + From<u8>,
+{
+    if value > T::from(0) {
+        Ok(())
+    } else {
+        Err(SimulationError::InvalidSamplerConfiguration { reason })
     }
 }
 

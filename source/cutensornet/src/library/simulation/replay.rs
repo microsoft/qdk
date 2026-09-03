@@ -11,6 +11,7 @@ use super::{
         AdjacentZQuery, B2_EXPECTATION_HYPER_SAMPLES, QueryPhaseTimings, QueryResult,
         normalize_expectation,
     },
+    sampler::{FullBitstringSamples, PreparedSampler, SamplerApi, SamplerContext, SamplingRequest},
 };
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 use crate::library::Session;
@@ -231,6 +232,23 @@ pub(crate) trait ReplayApi {
 
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 impl Session {
+    fn sample(
+        &mut self,
+        circuit: &Circuit,
+        request: SamplingRequest,
+    ) -> Result<FullBitstringSamples, SimulationError> {
+        let mut replay = Replay::new(
+            self.api(),
+            self.handle(),
+            self.stream(),
+            circuit,
+            self.policy(),
+        )?;
+        let execution = replay.sample_full_bitstrings(circuit, request);
+        let cleanup = replay.close();
+        combine_execution_and_cleanup(execution, cleanup)
+    }
+
     #[cfg(test)]
     pub(super) fn simulate_with_branch(
         &mut self,
@@ -540,6 +558,74 @@ impl<'api, Api: ReplayApi + ?Sized> Replay<'api, Api> {
         let mut timings = StatePhaseTimings::default();
         self.finalize_initial(circuit, &mut timings)?;
         self.materialize_current_state(readout, timings)
+    }
+
+    fn sample_full_bitstrings(
+        &mut self,
+        circuit: &Circuit,
+        request: SamplingRequest,
+    ) -> Result<FullBitstringSamples, SimulationError>
+    where
+        Api: SamplerApi,
+    {
+        self.finalize_initial(circuit, &mut StatePhaseTimings::default())?;
+        drop(
+            self.materialize_current_state(
+                StateReadout::MetadataOnly,
+                StatePhaseTimings::default(),
+            )?,
+        );
+        let modes_to_sample = (0..self.state_extents.len())
+            .map(|mode| {
+                i32::try_from(mode).map_err(|_| SimulationError::ResourceSizeOverflow {
+                    resource: "sampler mode identifier",
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let (free_before_bytes, _) = self.api.memory_info()?;
+        let workspace = self.workspace();
+        let mut sampler = PreparedSampler::new(
+            self.api,
+            SamplerContext {
+                handle: self.handle,
+                state: self.state(),
+                workspace,
+                stream: self.stream,
+                maximum_workspace_bytes: self.policy.maximum_workspace_bytes,
+            },
+            &modes_to_sample,
+            &request,
+        )?;
+        let execution = (|| {
+            let workspace_bytes = self.api.workspace_size(self.handle, workspace)?;
+            if workspace_bytes <= 0 {
+                return Err(SimulationError::InvalidNativeResult {
+                    reason: format!("recommended sampler workspace size is {workspace_bytes}"),
+                });
+            }
+            let workspace_size = usize::try_from(workspace_bytes).map_err(|_| {
+                SimulationError::ResourceSizeOverflow {
+                    resource: "sampler device workspace",
+                }
+            })?;
+            validate_workspace_size(
+                workspace_size,
+                self.policy.maximum_workspace_bytes,
+                free_before_bytes,
+            )?;
+            let scratch = self.allocate_bytes(workspace_size, "sampler device workspace")?;
+            if !(scratch.as_ptr() as usize).is_multiple_of(256) {
+                return Err(SimulationError::InvalidNativeResult {
+                    reason: "cudaMalloc returned sampler workspace below 256-byte alignment"
+                        .to_string(),
+                });
+            }
+            self.api
+                .set_workspace(self.handle, workspace, scratch, workspace_bytes)?;
+            let output = sampler.sample(&request, workspace, self.stream)?;
+            FullBitstringSamples::new(modes_to_sample.len(), output)
+        })();
+        combine_execution_and_cleanup(execution, sampler.close())
     }
 
     fn finalize_initial(
