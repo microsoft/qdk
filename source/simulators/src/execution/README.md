@@ -230,8 +230,8 @@ default.
 | 7   | [MPS shot loop](../../../qdk_package/src/qir_simulation/cpu_simulators.rs)                                   | Prepared program, shots, seed                             | `Vec<Vec<OutputRecord>>`; owns the session lifetime        | Missing: whole shot loop | 1h | Transcribes `run_shared_execution_full_state_shots` (28 lines), sequential rather than `par_iter` |
 | 8   | Target adapter `CuTensorNetMpsConsumer`                                                                      | The single `QuantumEvolutionRegion`, sample matrix, shot index | Measurement bits from the precomputed sample row       | Done | -- | Crate-private per-shot view with no-op region and close methods, guarded against multiple regions and feedforward |
 | 9   | [`Gate::from_unitary_operation`](../../../cutensornet/src/library/simulation/circuit.rs)                     | `UnitaryOperation`                                        | `Gate`, no gate for `I`, or a typed unsupported error      | Done | -- | Landed in `11a651339`; exhaustive over all unitary variants with no catch-all, and its four tests run on any host since `f262a60ae` |
-| 10  | [`SessionApi`](../../../cutensornet/src/library/simulation/session.rs) / [`ReplayApi`](../../../cutensornet/src/library/simulation/replay.rs) via `NativeApi` | `Circuit` and `ExecutionPolicy`     | Evolved MPS state on the Device                            | Missing: sampling method on the trait and `NativeApi` | 1.5h | Repeats the out-pointer and `check_cutensornet` shape of `create_handle`; `FakeApi` exercises it without NVIDIA hardware |
-| 11  | cuTensorNet Sampler Engine APIs                                                                              | State handle, measured modes, shot count, derived seed    | Flat `int64` array indexed `[shot * n_measured + j]`       | Missing: five Sampler symbols, owned by cutensor | 30m, VM risk | An allowlist edit in `generate-bindings.sh`; the frozen-surface test moves from 25 symbols to 30 |
+| 10  | [`SessionApi`](../../../cutensornet/src/library/simulation/session.rs) / [`ReplayApi`](../../../cutensornet/src/library/simulation/replay.rs) via `NativeApi` | `Circuit` and `ExecutionPolicy`     | Evolved MPS state on the Device                            | Missing here: port `sampler.rs` and expose sampling on the trait | 45m | `SamplerApi` and `PreparedSampler` are committed upstream in `eed6e1bbe` (614 lines) and qualified on A100; what remains is the port plus `FakeApi` coverage so it exercises without NVIDIA hardware |
+| 11  | cuTensorNet Sampler Engine APIs                                                                              | State handle, measured modes, shot count, derived seed    | Flat `int64` array indexed `[shot * n_measured + j]`       | Missing here: port the five symbols and their bindings | 15m | Committed upstream in `2f48bd233`; this worktree's allowlist still has none. Required symbols go from 37 to 42, mirroring the byte-identical port in `f1257acf1` |
 | 12  | Sample narrowing                                                                                             | Flat `int64` buffer                                       | `u8` buffer plus the qubit-to-column map                   | Missing: native sample narrowing; column map done | 15m | The device buffer is flat `[shot * measured + j]`; plain indexing |
 | 13  | [`AdaptiveExecution`](adaptive.rs)                                                                           | Prepared program and one buffer row                       | Ordered `OutputRecord`s for that shot                      | Done | -- | Unchanged; already accumulates the output records during the walk |
 | 14  | [`drive_prepared_shot`](immediate.rs)                                                                        | Prepared program and a per-shot `RegionConsumer`          | `ShotExecutionOutput`                                      | Done | -- | Unchanged; `close()` fires per shot, which is why the consumer must be a view |
@@ -241,18 +241,19 @@ default.
 
 Effort is a rough estimate for one implementer already familiar with the code.
 It excludes review, A100 validation, and the demonstration circuit, none of
-which are functional blocks in this walk. The missing work totals roughly five
-hours. The estimates are low because almost every remaining block has a working
-sibling to copy rather than a design to invent; the comment column names the
-sibling in each case, so the numbers can be argued with directly.
+which are functional blocks in this walk. The missing work totals roughly three
+and a half hours. The estimates are low because almost every remaining block
+has a working sibling to copy rather than a design to invent; the comment
+column names the sibling in each case, so the numbers can be argued with
+directly.
 
-Row 10 is the largest remaining block because the sampling lifecycle has no
-counterpart in this repository, and it owns the `ExecutionPolicy` defaults,
-which need justification rather than invention. Row 11 is mechanical, but it
-depends on a bindings generator pinned to an exact toolchain, so its elapsed
-time may be dominated by a round trip to a machine that has that toolchain.
-Effort and elapsed time are not the same quantity here, and only elapsed time
-constrains a schedule.
+Rows 10 and 11 changed character on 2026-09-02. Both are now implemented and
+qualified on an A100 in `cutensornet-rust-ffi` — `2f48bd233` for the symbol
+allowlist and bindings, `eed6e1bbe` for `SamplerApi` and `PreparedSampler` — so
+neither is a design problem any more. What remains in this worktree is a port
+plus `FakeApi` coverage. The bindings-generator round trip that row 11 was
+priced for has already happened, which is why its risk note is gone. Port from
+those commits, never from a working tree.
 
 Three constraints hold this together and are easy to violate silently.
 
