@@ -295,21 +295,54 @@ whenever the SVD cutoffs discard Schmidt values, and that discarding is
 invisible to a cap comparison: a run can report a bond far below its cap while
 having truncated at every site.
 
-Measured 2026-09-03: width 128 at depth 8 under
-`ExecutionPolicy::base_qualification` (absolute cutoff 1e-10) achieved bond 12,
-where the retained POC measurement of the same circuit achieved bond 19. The
-two agree on the observable to twelve significant figures, so the difference is
-cutoff policy, not physics. Achieved bond is a policy artifact and is not by
-itself a correctness statement.
+Achieved bond is a policy artifact, not a correctness statement. Measured
+2026-09-03 on an NVIDIA A100 80GB PCIe, the depth-8 domain-wall Trotter circuit
+holds bond exactly 12 at widths 128, 256, 512, and 1024 under
+`ExecutionPolicy::base_qualification` (absolute cutoff 1e-10), while tightening
+the cutoff to 1e-16 at width 128 raises the bond to 26. The retained POC
+measurement of the same circuit reported bond 19 and agrees on the observable
+to twelve significant figures. Bond tracks cutoff policy and circuit depth; it
+does not track width, and it does not by itself certify anything.
 
 The certificate is the state norm. Report `1 - squared_norm`, the discarded
-weight, alongside the achieved bond and the requested cap; a run is exact to
-the reported tolerance when that quantity sits at or below it. Both the bond
-and the norm must be read back from the engine and retained with every
+weight, alongside the achieved bond and the requested cap. Both the bond and
+the norm must be read back from the engine and retained with every
 measurement, which is why that readback gates these cases.
 `CUTENSORNET_STATE_CONFIG_MPS_SVD_S_NORMALIZATION` must remain unset, because
 enabling it renormalizes the state and destroys the only evidence we have that
 truncation occurred.
+
+Two properties of that certificate must be understood before reading it.
+
+**The noise floor scales with width.** Untruncated runs do not report a norm of
+exactly one. Floating-point error accumulates across the contraction, and the
+deviation is proportional to the number of sites at roughly `1.6e-15` per
+qubit:
+
+| Width | Steps | Bond | `squared_norm - 1` |
+| ----- | ----- | ---- | ------------------ |
+| 128   | 8     | 12   | +1.99e-13          |
+| 256   | 8     | 12   | +3.97e-13          |
+| 512   | 8     | 12   | +8.31e-13          |
+| 1024  | 8     | 12   | +1.84e-12          |
+
+A single fixed tolerance is therefore the wrong test. Compare the discarded
+weight against a width-scaled floor, not against a constant.
+
+**The sign discriminates.** Discarded weight is a sum of squared Schmidt values
+and cannot be negative, so a negative reading means the measurement sits below
+its own noise floor. Accumulated floating-point error drifts the norm upward
+and yields negative discarded weight; genuine truncation removes weight, drives
+the norm down, and yields positive discarded weight. Every untruncated run
+above is negative. The two runs that reached high bond under a 2048 cap are
+positive: depth 32 at bond 447 reports `+2.52e-13`, and depth 44 at the 2048
+cap reports `+6.56e-13`, the largest magnitude measured at width 128.
+
+The corollary is a resolution limit. Truncation smaller than the width-scaled
+floor cannot be detected by this certificate at all, which near width 1024
+means anything below roughly `2e-12`. A run whose discarded weight is negative
+has not been shown to be exact; it has been shown to be indistinguishable from
+exact at the precision available.
 
 ### NVIDIA cuTensorNet case
 
@@ -325,20 +358,27 @@ Both points use Trotter, gauge simple, SVD algorithm `GESVD`.
 
 #### Point A, depth 8: oracle and width ladder
 
-Cap 128. Achieved bond 12 at width 128 under `base_qualification`, measured
-2026-09-03 on A100; the POC recorded 19 for the same circuit under a tighter
-cutoff. Width-independence is expected from the POC, which held bond 19 across
-widths 12 through 64, but on our policy it is so far confirmed at width 128
-alone. Below-cap is necessary but not sufficient for exactness — see the
-certification rule — and the discarded weight has not yet been retained for
-these points.
+Cap 128. Achieved bond 12 at widths 128, 256, 512, and 1024 under
+`base_qualification`, measured 2026-09-03 on A100; the POC recorded 19 for the
+same circuit under a tighter cutoff. Width-independence was expected from the
+POC, which held bond 19 across widths 12 through 64. It is now confirmed on our
+policy across a further four doublings: the bond is exactly 12 at every width
+measured, and the discarded weight has been retained for all of them. Below-cap
+remains necessary but not sufficient for exactness — see the certification
+rule.
 
-| Width | Reference seconds |   Expectation |
-| ----: | ----------------: | ------------: |
-|   128 |              6.91 |  62.743030735 |
-|   256 |             18.35 | 127.195622825 |
-|   512 |             62.75 | 256.100807003 |
-|  1024 |            197.28 | 513.911175361 |
+| Width | Reference seconds |   Expectation | A100 sampling seconds |
+| ----: | ----------------: | ------------: | --------------------: |
+|   128 |              6.91 |  62.743030735 |                  3.92 |
+|   256 |             18.35 | 127.195622825 |                  8.16 |
+|   512 |             62.75 | 256.100807003 |                 16.62 |
+|  1024 |            197.28 | 513.911175361 |                 33.51 |
+
+The last column is one `sample` call and is the only cost the `run_qir` path
+pays. It doubles as the width doubles, which is the linear scaling MPS predicts
+at fixed bond. It is not comparable to the reference column, which covers the
+POC's full run including its expectation computation; our equivalent of that
+work is the separate query described below.
 
 The expectation is exactly extensive in width:
 
@@ -364,11 +404,31 @@ per-gate cost grows with the cube of the bond. Against the CPU case at bond 8,
 bond 618 is roughly `(618/8)^3`, about five hundred thousand times the per-gate
 work.
 
-Cap 1024, achieved bond 618 in the POC's retained rows. Ours will land lower
-under `base_qualification`'s looser cutoff, by the same mechanism that produced
-12 rather than 19 at depth 8, so 618 is an upper reference rather than a
-prediction. Below-cap does not by itself certify exactness; see the
-certification rule.
+Cap 1024, achieved bond 618 in the POC's retained rows. Measured 2026-09-03 on
+A100 under `base_qualification`'s looser cutoff with the cap raised to 2048,
+depth 32 at width 128 achieved bond 447 — lower than the POC's 618, by the same
+mechanism that produced 12 rather than 19 at depth 8. Depth 16 achieved bond
+46, and depth 44 saturated the 2048 cap outright. Below-cap does not by itself
+certify exactness; see the certification rule.
+
+| Depth | Bond | Sampling seconds | Discarded weight |
+| ----: | ---: | ---------------: | ---------------: |
+|    16 |   46 |            13.48 |        -4.30e-13 |
+|    32 |  447 |           135.69 |        +2.52e-13 |
+|    44 | 2048 |          1541.19 |        +6.56e-13 |
+
+Depth 44 is the first measurement in which truncation was genuinely active, and
+its discarded weight turned positive accordingly. Cost is driven by bond rather
+than by depth: 16 to 32 doubles the depth but multiplies the bond by ten and the
+time by ten. Extrapolating a power law across that regime change underestimates
+badly, so depth timings must be measured rather than projected.
+
+**This case cannot run through `run_qir` as it stands.** That path hardcodes
+`base_qualification`, whose cap is 128, and `MpsOptions` exposes no override.
+A depth-32 run would truncate at bond 128 and return plausible but wrong
+results with no diagnostic, because the achieved bond would sit at the cap and
+the discarded weight is not surfaced to the caller. Point B is reachable only
+through the Rust harness until the cap becomes configurable.
 
 | Width | Reference seconds |
 | ----: | ----------------: |
