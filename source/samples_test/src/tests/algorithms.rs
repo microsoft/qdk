@@ -11,7 +11,7 @@ pub const BERNSTEINVAZIRANI_EXPECT_DEBUG: Expect = expect!["[127, 238, 512]"];
 pub const BERNSTEINVAZIRANI_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 29822"];
 pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 20277"];
-pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 18517"];
+pub const BERNSTEINVAZIRANI_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 19343"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, One, Zero, One]"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =
@@ -19,7 +19,7 @@ pub const BERNSTEINVAZIRANINISQ_EXPECT_CIRCUIT: Expect =
 pub const BERNSTEINVAZIRANINISQ_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 4194"];
 pub const BERNSTEINVAZIRANINISQ_EXPECT_QIR_ADAPTIVE: Expect =
-    expect!["generated QIR of length 4496"];
+    expect!["generated QIR of length 4762"];
 pub const BITFLIPCODE_EXPECT: Expect = expect![[r#"
     STATE:
     |010⟩: 0.4472+0.0000𝑖
@@ -38,12 +38,12 @@ pub const BITFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     One"#]];
 pub const BITFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 6530"];
 pub const BITFLIPCODE_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 3794"];
-pub const BITFLIPCODE_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 5457"];
+pub const BITFLIPCODE_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 5858"];
 pub const DEUTSCHJOZSA_EXPECT: Expect = expect!["[true, false, true, false]"];
 pub const DEUTSCHJOZSA_EXPECT_DEBUG: Expect = expect!["[true, false, true, false]"];
 pub const DEUTSCHJOZSA_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 197703"];
 pub const DEUTSCHJOZSA_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 82661"];
-pub const DEUTSCHJOZSA_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 25864"];
+pub const DEUTSCHJOZSA_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 31414"];
 pub const DEUTSCHJOZSANISQ_EXPECT: Expect =
     expect!["([One, Zero, Zero, Zero, Zero], [Zero, Zero, Zero, Zero, Zero])"];
 pub const DEUTSCHJOZSANISQ_EXPECT_DEBUG: Expect =
@@ -51,7 +51,7 @@ pub const DEUTSCHJOZSANISQ_EXPECT_DEBUG: Expect =
 pub const DEUTSCHJOZSANISQ_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 5865"];
 pub const DEUTSCHJOZSANISQ_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 7022"];
-pub const DEUTSCHJOZSANISQ_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 6895"];
+pub const DEUTSCHJOZSANISQ_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 7431"];
 pub const DOTPRODUCTVIAPHASEESTIMATION_EXPECT: Expect = expect![[r#"
     Computing inner product of vectors (cos(Θ₁/2), sin(Θ₁/2))⋅(cos(Θ₂/2), sin(Θ₂/2)) ≈ -cos(x𝝅/2ⁿ)
     Θ₁=0.4487989505128276, Θ₂=0.6283185307179586.
@@ -86,7 +86,7 @@ pub const GROVER_EXPECT_DEBUG: Expect = expect![[r#"
     [Zero, One, Zero, One, Zero]"#]];
 pub const GROVER_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 36701"];
 pub const GROVER_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 19889"];
-pub const GROVER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 15446"];
+pub const GROVER_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 19685"];
 pub const HIDDENSHIFT_EXPECT: Expect = expect![[r#"
     Found 170 successfully!
     Found 512 successfully!
@@ -99,18 +99,18 @@ pub const HIDDENSHIFT_EXPECT_DEBUG: Expect = expect![[r#"
     [170, 512, 999]"#]];
 pub const HIDDENSHIFT_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 42131"];
 pub const HIDDENSHIFT_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 25479"];
-pub const HIDDENSHIFT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 29723"];
+pub const HIDDENSHIFT_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 33470"];
 pub const HIDDENSHIFTNISQ_EXPECT: Expect = expect!["[One, Zero, Zero, Zero, Zero, One]"];
 pub const HIDDENSHIFTNISQ_EXPECT_DEBUG: Expect = expect!["[One, Zero, Zero, Zero, Zero, One]"];
 pub const HIDDENSHIFTNISQ_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4379"];
 pub const HIDDENSHIFTNISQ_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 5455"];
-pub const HIDDENSHIFTNISQ_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8448"];
+pub const HIDDENSHIFTNISQ_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 9661"];
 pub const PHASEESTIMATION_EXPECT: Expect = expect!["1.0799224746714913"];
 pub const PHASEESTIMATION_EXPECT_DEBUG: Expect = expect!["1.0799224746714913"];
 pub const PHASEESTIMATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 249358"];
 pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 95778"];
-pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 15701"];
+pub const PHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 16253"];
 pub const PHASEFLIPCODE_EXPECT: Expect = expect![[r#"
     STATE:
     |000⟩: 0.4743+0.0000𝑖
@@ -153,7 +153,7 @@ pub const PHASEFLIPCODE_EXPECT_DEBUG: Expect = expect![[r#"
     One"#]];
 pub const PHASEFLIPCODE_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 8247"];
 pub const PHASEFLIPCODE_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 4734"];
-pub const PHASEFLIPCODE_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 7695"];
+pub const PHASEFLIPCODE_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 8636"];
 pub const QRNG_EXPECT: Expect = expect!["7568811972615905454"];
 pub const QRNG_EXPECT_DEBUG: Expect = expect!["7568811972615905454"];
 pub const QRNG_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 232827"];
@@ -190,7 +190,7 @@ pub const SIMPLEPHASEESTIMATION_EXPECT_CIRCUIT: Expect =
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 39770"];
 pub const SIMPLEPHASEESTIMATION_EXPECT_QIR_ADAPTIVE: Expect =
-    expect!["generated QIR of length 12224"];
+    expect!["generated QIR of length 12492"];
 pub const SIMPLEVQE_EXPECT: Expect = expect![[r#"
    Beginning descent from value 0.43300000000000005.
    Value improved to 0.35300000000000004.
@@ -219,7 +219,7 @@ pub const SUPERDENSECODING_EXPECT_DEBUG: Expect = expect!["((false, true), (fals
 pub const SUPERDENSECODING_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 4291"];
 pub const SUPERDENSECODING_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 4842"];
-pub const SUPERDENSECODING_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 5812"];
+pub const SUPERDENSECODING_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 5947"];
 pub const TELEPORTATION_EXPECT: Expect = expect![[r#"
     Teleporting state |0〉
     STATE:
@@ -282,7 +282,7 @@ pub const TELEPORTATION_EXPECT_DEBUG: Expect = expect![[r#"
     [Zero, One, Zero, One]"#]];
 pub const TELEPORTATION_EXPECT_CIRCUIT: Expect = expect!["generated circuit of length 12039"];
 pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE_RIF: Expect = expect!["generated QIR of length 8555"];
-pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 9085"];
+pub const TELEPORTATION_EXPECT_QIR_ADAPTIVE: Expect = expect!["generated QIR of length 9625"];
 pub const THREEQUBITREPETITIONCODE_EXPECT: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_DEBUG: Expect = expect!["(true, 0)"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_CIRCUIT: Expect =
@@ -290,4 +290,4 @@ pub const THREEQUBITREPETITIONCODE_EXPECT_CIRCUIT: Expect =
 pub const THREEQUBITREPETITIONCODE_EXPECT_QIR_ADAPTIVE_RIF: Expect =
     expect!["generated QIR of length 18122"];
 pub const THREEQUBITREPETITIONCODE_EXPECT_QIR_ADAPTIVE: Expect =
-    expect!["generated QIR of length 7159"];
+    expect!["generated QIR of length 7429"];

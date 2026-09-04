@@ -249,15 +249,41 @@ fn index_to_qir(
     result_var: &rir::Variable,
     program: &rir::Program,
 ) -> String {
-    // Only need to emit the getelementptr instruction here, as passes are expected to insert the subsequent load instruction.
-    format!(
-        "  {} = getelementptr {}, ptr {}, {} {}",
-        ToQir::<String>::to_qir(&result_var.variable_id, program),
-        ToQir::<String>::to_qir(&result_var.ty, program),
-        get_value_as_str(array_op, program),
-        get_value_ty(index_op),
-        get_value_as_str(index_op, program)
+    let mut qir = String::new();
+    let result_ty = ToQir::<String>::to_qir(&result_var.ty, program);
+    let result_var = ToQir::<String>::to_qir(&result_var.variable_id, program);
+    let index_ty = get_value_ty(index_op);
+    let index_val = get_value_as_str(index_op, program);
+    let array_size = match array_op {
+        rir::Operand::Literal(rir::Literal::Array(id)) => program
+            .array_literals
+            .get(*id)
+            .expect("array should exist")
+            .contents
+            .len(),
+        rir::Operand::Variable(rir::Variable {
+            ty: rir::Ty::Array(size, _),
+            ..
+        }) => *size,
+        _ => panic!("expected array operand to be an array literal or array variable"),
+    };
+    writeln!(
+        qir,
+        "  {result_var}_offset_chk = icmp slt {index_ty} {index_val}, 0"
     )
+    .expect("writing to string should succeed");
+    writeln!(
+        qir,
+        "  {result_var}_offset = select i1 {result_var}_offset_chk, {index_ty} 1, {index_ty} 0"
+    )
+    .expect("writing to string should succeed");
+    write!(
+        qir,
+        "  {result_var} = getelementptr [{array_size} x {result_ty}], ptr {}, {index_ty} {result_var}_offset, {index_ty} {index_val}",
+        get_value_as_str(array_op, program),
+    )
+    .expect("writing to string should succeed");
+    qir
 }
 
 fn convert_to_qir(
