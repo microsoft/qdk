@@ -127,9 +127,6 @@ fn add_alloca_load_to_block(
                 continue;
             }
             Instruction::SliceArray(array, start, step, end, dest) => {
-                if (*step > 0 && start > end) || (*step < 0 && start < end) {
-                    continue;
-                }
                 vars_to_alloca.insert(dest.variable_id, *dest);
                 block
                     .0

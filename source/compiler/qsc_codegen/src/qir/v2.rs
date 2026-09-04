@@ -717,7 +717,10 @@ impl ToQir<String> for rir::Block {
     fn to_qir(&self, program: &rir::Program) -> String {
         self.0
             .iter()
-            .map(|instr| ToQir::<String>::to_qir(instr, program))
+            .filter_map(|instr| {
+                let s = ToQir::<String>::to_qir(instr, program);
+                if s.is_empty() { None } else { Some(s) }
+            })
             .collect::<Vec<_>>()
             .join("\n")
     }
