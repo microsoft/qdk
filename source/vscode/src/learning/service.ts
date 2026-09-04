@@ -134,6 +134,8 @@ export class LearningService {
   private _initPromise: Promise<boolean> | undefined;
   /** Whether {@link _initPromise} was started with `createIfMissing`. */
   private _initCreates = false;
+  private _workbookSaveQueue: Promise<void> = Promise.resolve();
+  private _closeStaleTabsRequest = 0;
   private readonly _disposables: vscode.Disposable[] = [];
   private _progressLoadingError: string | undefined;
 
@@ -494,6 +496,54 @@ export class LearningService {
     await this.saveProgress();
     this._onDidChangeState.fire(this.getState());
     return true;
+  }
+
+  /** True when the URI is one of the loaded course's learner workbooks. */
+  isCourseWorkbook(uri: vscode.Uri): boolean {
+    return (
+      this.workspace !== undefined &&
+      this.resolveWorkbookLocation(uri) !== undefined
+    );
+  }
+
+  /**
+   * Save a course workbook after any earlier save for the same document.
+   * Returns false when the document is not a course workbook or could not save.
+   */
+  async saveCourseWorkbook(
+    notebook: vscode.NotebookDocument,
+  ): Promise<boolean> {
+    if (!this.isCourseWorkbook(notebook.uri)) {
+      return false;
+    }
+
+    const previous = this._workbookSaveQueue.catch((e) => {
+      log.warn(`Previous learning workbook save failed: ${String(e)}`);
+    });
+    let saved = true;
+    const current = previous.then(async () => {
+      // VS Code updates isDirty after notebook-change listeners return.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      if (!notebook.isDirty) {
+        return;
+      }
+      try {
+        await notebook.save();
+        saved = !notebook.isDirty;
+        if (!saved) {
+          log.warn(`Could not save learning workbook ${notebook.uri.fsPath}.`);
+        }
+      } catch (e) {
+        saved = false;
+        log.warn(
+          `Could not save learning workbook ${notebook.uri.fsPath}: ${String(e)}`,
+        );
+      }
+    });
+    this._workbookSaveQueue = current;
+
+    await current;
+    return saved;
   }
 
   /**
@@ -1415,14 +1465,10 @@ export class LearningService {
     );
   }
 
-  /**
-   * Close every open text or notebook tab whose URI matches {@link predicate}.
-   * Tabs backed by any other input kind (diff views, webviews, terminals) are
-   * skipped, since they have no single URI to match against.
-   */
-  private async closeTabs(
+  /** Find every open text or notebook tab whose URI matches the predicate. */
+  private findTabs(
     predicate: (uri: vscode.Uri, tab: vscode.Tab) => boolean,
-  ): Promise<void> {
+  ): vscode.Tab[] {
     const matches: vscode.Tab[] = [];
     for (const group of vscode.window.tabGroups.all) {
       for (const tab of group.tabs) {
@@ -1437,6 +1483,18 @@ export class LearningService {
         }
       }
     }
+    return matches;
+  }
+
+  /**
+   * Close every open text or notebook tab whose URI matches {@link predicate}.
+   * Tabs backed by any other input kind (diff views, webviews, terminals) are
+   * skipped, since they have no single URI to match against.
+   */
+  private async closeTabs(
+    predicate: (uri: vscode.Uri, tab: vscode.Tab) => boolean,
+  ): Promise<void> {
+    const matches = this.findTabs(predicate);
     if (matches.length > 0) {
       await vscode.window.tabGroups.close(matches);
     }
@@ -1451,13 +1509,44 @@ export class LearningService {
     if (!this.workspace) {
       return;
     }
+    const request = ++this._closeStaleTabsRequest;
     const learningRoot = this.learningContentRoot.toString();
     const keepStr = keepUri?.toString();
-
-    await this.closeTabs((uri) => {
+    const staleTabs = this.findTabs((uri) => {
       const uriStr = uri.toString();
       return uriStr.startsWith(learningRoot) && uriStr !== keepStr;
     });
+    const tabsToClose: vscode.Tab[] = [];
+
+    for (const tab of staleTabs) {
+      const input = tab.input;
+      if (
+        input instanceof vscode.TabInputNotebook &&
+        this.isCourseWorkbook(input.uri)
+      ) {
+        const uri = input.uri.toString();
+        const notebook = vscode.workspace.notebookDocuments.find(
+          (document) => document.uri.toString() === uri,
+        );
+        if (notebook && !(await this.saveCourseWorkbook(notebook))) {
+          continue;
+        }
+      }
+      tabsToClose.push(tab);
+    }
+
+    // A newer navigation may have made one of these tabs current again.
+    if (request !== this._closeStaleTabsRequest) {
+      return;
+    }
+
+    const openTabs = new Set(
+      vscode.window.tabGroups.all.flatMap((group) => group.tabs),
+    );
+    const openTabsToClose = tabsToClose.filter((tab) => openTabs.has(tab));
+    if (openTabsToClose.length > 0) {
+      await vscode.window.tabGroups.close(openTabsToClose);
+    }
   }
 
   /** Turns a catalog activity into the typed content payload (exercise, lesson-example, or lesson-text). */
