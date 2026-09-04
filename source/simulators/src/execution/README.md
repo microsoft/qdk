@@ -722,6 +722,29 @@ explicit go-ahead is given for the CPU consumer. `device="cpu"` resolving to
 tensor4all-rs, and the tensor4all parity implementation itself, belong to that
 later iteration, not this one.
 
+### Deferred Follow-On: Contraction Path for Narrow Circuits
+
+cuTensorNet exposes a contraction-based tensor network method alongside MPS
+factorization, and the vendor names it as the supported route for state widths
+that MPS cannot represent. This crate implements MPS only, so a circuit below
+the two-qubit floor is refused rather than redirected, and the refusal message
+deliberately points at `type="cpu"` instead of at contraction, because no
+contraction selector exists to point at.
+
+Adding one would be the principled remedy for narrow circuits, and it is the
+only remedy that does not distort the state representation: the rejected
+alternative was padding the chain with an idle ancilla, which is mathematically
+exact but introduces an unenforced invariant between logical and physical width
+across every site that consumes the extent vector. That invariant is easy to
+violate silently — `sampled_qubits` is derived from `state_extents.len()`, so a
+padded chain would report one extra bit rather than fail — and the failure mode
+is a wrong answer instead of an error. Rejecting is smaller, louder and
+reversible; padding is neither.
+
+This stays deferred. It is a genuine roadmap item rather than a gap in the
+current iteration, because the demo cases are wide and the narrow case is
+already served correctly by the full-state path.
+
 ### Authority and Coordination
 
 For this iteration, current executable code and tests define implemented
@@ -917,6 +940,28 @@ Effort is 45 minutes to one hour for the removal across both trees, not the
 the integration tree and 19 in the qualification tree, and the ordered-sequence
 assertion must be rewritten rather than shortened.
 
+### Host fakes cannot observe vendor preconditions
+
+Every `replay` test runs against a `ReplayApi` fake that records call events and
+returns success for any sequence. The fake encodes our model of the library, so
+the suite confirms that model rather than the library, and it cannot fail on a
+call the real implementation would refuse.
+
+This produced a test asserting the opposite of the vendor contract.
+`single_qubit_target_has_one_physical_extent_and_no_bond` asserted that a
+single-site target is valid, while `cutensornetStateFinalizeMPS` rejects a state
+of one mode outright. The assertion was a host-side claim about a vendor-side
+property it had no way to observe, and it passed for exactly that reason. It
+survived because the crate has no live-GPU Rust test at all, and because the
+one-qubit path was unreachable until QDK integration first supplied a one-qubit
+fixture, at which point it failed immediately on real hardware.
+
+Correcting that one assertion closes the instance, not the class. Closing the
+class means encoding documented vendor preconditions in the fake, so that a call
+the library would refuse also fails under test. The same exposure applies to any
+future CPU consumer built the same way: a fake that always succeeds will
+certify a target the backend will not accept.
+
 ## Current Constraints
 
 - Public `type="mps"` execution is restricted to noiseless Base-profile QIR and
@@ -924,6 +969,19 @@ assertion must be rewritten rather than shortened.
   and both take the same path; neither is probed before execution, so an
   unavailable device surfaces as an `OSError` raised by the run itself.
   Unsupported devices fail without fallback.
+- Public `type="mps"` execution requires at least two qubits.
+  `cutensornetStateFinalizeMPS` does not support a state of one mode, as
+  documented in the vendor header carried at `bindings/v2_13.rs`, and a chain of
+  one site has no bond to factorize. `MpsTarget::new` rejects `qubit_count < 2`
+  before any state-creating call. This is a vendor floor rather than a QDK
+  policy and should not be expected to lift upstream.
+- Platform availability is reported ahead of circuit shape. `discover()` and
+  `Session::new` run before any target is constructed, so on a host without
+  cuTensorNet an unsupported-platform error surfaces even for a circuit that
+  would also be refused on width. The ordering is deliberate, since the platform
+  error is the actionable one there, but it means width rejection is observable
+  only on a supported host and its coverage must be gated on NVIDIA
+  availability rather than run everywhere.
 - Public `type="mps"` execution runs at `ExecutionPolicy::base_qualification()`
   — `bond_cap` 128, absolute cutoff 1e-10 — so a qualification policy is
   currently serving as the production default. Circuits whose Schmidt rank
