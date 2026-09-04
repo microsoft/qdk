@@ -9,6 +9,7 @@ import {
 import { registerLearningCommands } from "./commands.js";
 import { LessonPanelManager, registerLessonPanelSerializer } from "./panel.js";
 import { createNotebookCellStatusBarProvider } from "./notebookCellStatusBar.js";
+import { registerNotebookRendererMessaging } from "./notebookRendererMessaging.js";
 import { registerNotebookSync } from "./notebookSync.js";
 import { registerLearningProgressView } from "./progressTreeView.js";
 import { LearningService } from "./service.js";
@@ -91,6 +92,7 @@ export function initLearning(
   registerLearningCommands(context, learningService, panelManager);
   registerLessonPanelSerializer(context, panelManager);
   registerNotebookSync(context, learningService);
+  registerNotebookRendererMessaging(context, learningService);
   return learningService;
 }
 

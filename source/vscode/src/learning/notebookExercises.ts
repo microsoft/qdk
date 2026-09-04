@@ -39,6 +39,18 @@ import type {
 /** Tag marking the code cell a learner edits. */
 const EXERCISE_TAG = "exercise";
 
+/**
+ * Tag marking a code cell that only shows a registered quiz.
+ *
+ * A quiz cell is learner content, so unlike the authoring tags it stays in the
+ * working copy — but it is not an activity, for the reasons in
+ * `parseNotebookActivities`. It is called out because it sits *inside* a
+ * section's prose: without the tag it would hide the section heading from the
+ * code cell that follows it, which would then fall back to being named after
+ * its cell id.
+ */
+const QUIZ_TAG = "quiz";
+
 /** Tags marking author-only cells, removed from the learner's working copy. */
 const AUTHORING_TAGS = ["hint", "solution", "explanation"] as const;
 
@@ -86,6 +98,16 @@ export function parseNotebookActivities(
   for (let i = 0; i < cells.length; i++) {
     const cell = cells[i];
     const tags = cellTags(cell);
+
+    // A quiz cell stays in the learner's copy but is not an activity. Its
+    // outputs are already in the notebook, running it does not produce a
+    // result the service records, and whether the learner answered correctly
+    // never leaves the renderer — so a progress entry would claim tracking
+    // that does not exist. Skipped before `current` is cleared so a quiz
+    // between an exercise and its hint would not orphan the hint.
+    if (tags.includes(QUIZ_TAG)) {
+      continue;
+    }
 
     const authoringTag = AUTHORING_TAGS.find((t) => tags.includes(t));
 
@@ -310,6 +332,11 @@ function extractTitleFromPrecedingCell(
       AUTHORING_TAGS.some((t) => tags.includes(t))
     ) {
       break;
+    }
+    // A quiz sits within a section rather than starting one, so look straight
+    // past it for the heading instead of stopping at it.
+    if (tags.includes(QUIZ_TAG)) {
+      continue;
     }
     if (cellKind(cell) !== "markdown") {
       break;
