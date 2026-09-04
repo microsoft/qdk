@@ -889,8 +889,8 @@ def run_qir(
         Use ``"clifford"`` if your QIR only contains Clifford gates and measurements.
         Use ``"gpu"`` if you have a GPU available in your system.
         Use ``"cpu"`` as a fallback option if you don't have a GPU in your system.
-        Use ``"mps"`` for the MPS entry-point contract. Its current implementation
-        is a full-state placeholder, not MPS or NVIDIA execution.
+        "mps" runs noiseless Base-profile QIR on NVIDIA cuTensorNet, requires a
+        supported host, and requires at least two qubits.
         If ``None`` (default), the GPU simulator will be tried first, falling back to
         CPU if a suitable GPU device could not be located.
     :param shots: The number of shots to run.
