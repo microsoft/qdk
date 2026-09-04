@@ -1,0 +1,55 @@
+# Reduced measurements from the 2026-09-04 A100 evidence set.
+# source_sha: 5b124bde08635834e85f1fb66458fcf180db2b81
+# bundle_sha256: 15908df1d0c40f08389b294ec07bcc8143bccaeb0eb3d315dcba4d25a0164a18
+# host: NVIDIA A100 80GB PCIe (GPU-8d9930e5-1138-a960-2b15-2dc47add6e50)
+# circuit: depth=8 theta=0.30 seed=42
+# Extracted from runs[] in the retained JSON files; see DEMO.md Appendix D.
+# outcome values: success | timeout | not_run
+# not_run means the measurement was never attempted because the CPU run in the
+# same invocation consumed the whole time budget. It is not an MPS failure.
+#
+# peak_gpu_mib is per harness invocation, sampled at 200 ms, so both headline
+# records of a width share one value. Values at width >= 1024 were corrected on
+# 2026-09-05: the live log parser had undercounted four-digit readings. The
+# corrected series is linear in width; the earlier "flat 606-922 MiB" reading
+# was a parsing artifact, not a measurement.
+#
+# Follow-up campaign 2026-09-04 (same host and commit; bundle sha256
+# 83fb4fbeddecdab50aae2f62f5d81b37dd444f8c51b833d241969e3e2f903136):
+#  - width 128 peak_gpu_mib re-measured at 50 ms sampling (231 samples vs 58)
+#    and corrected from 664 to 722 MiB. The 200 ms sampler missed the peak of
+#    that ~5 s invocation. Model value at width 128 is 721 MiB.
+#  - crossover widths 26 and 28 MPS were measured separately, MPS-only, after
+#    the CPU timeouts. Two independent replicates each, listed separately and
+#    deliberately not averaged. GPU/host memory was not captured for these.
+dataset,width,backend,shots,label,total_seconds,per_shot_seconds,outcome,peak_gpu_mib,peak_host_bytes
+ladder,128,mps,1,headline-1-shot,5.163,5.163,success,722,1370505216
+ladder,128,mps,2,headline-2-shot,5.147,2.574,success,722,1372336128
+ladder,256,mps,1,headline-1-shot,9.554,9.554,success,788,1476247552
+ladder,256,mps,2,headline-2-shot,9.380,4.690,success,788,1474482176
+ladder,512,mps,1,headline-1-shot,18.062,18.062,success,922,1708249088
+ladder,512,mps,2,headline-2-shot,18.084,9.042,success,922,1708232704
+ladder,1024,mps,1,headline-1-shot,35.391,35.391,success,1190,2177437696
+ladder,1024,mps,2,headline-2-shot,35.519,17.759,success,1190,2175729664
+ladder,2048,mps,1,headline-1-shot,69.624,69.624,success,1726,3117744128
+ladder,2048,mps,2,headline-2-shot,69.563,34.781,success,1726,3118235648
+ladder,4096,mps,1,headline-1-shot,140.757,140.757,success,2798,4975529984
+ladder,4096,mps,2,headline-2-shot,141.488,70.744,success,2798,4970651648
+ladder,8192,mps,1,headline-1-shot,285.585,285.585,success,4942,8676216832
+ladder,8192,mps,2,headline-2-shot,284.755,142.378,success,4942,8675139584
+crossover,16,cpu,10,cpu,0.612,0.061,success,,251785216
+crossover,16,mps,10,mps,1.659,0.166,success,610,
+crossover,20,cpu,10,cpu,18.912,1.891,success,,536993792
+crossover,20,mps,10,mps,1.777,0.178,success,610,
+crossover,22,cpu,10,cpu,93.101,9.310,success,,1476419584
+crossover,22,mps,10,mps,1.878,0.188,success,610,
+crossover,24,cpu,10,cpu,417.107,41.711,success,,12807569408
+crossover,24,mps,10,mps,1.910,0.191,success,610,
+crossover,26,cpu,10,cpu,1200.776,120.078,timeout,,21567799296
+crossover,26,mps,10,mps,1.916,0.192,success,,
+crossover,26,mps,10,mps,1.945,0.195,success,,
+crossover,28,cpu,10,cpu,1203.900,120.390,timeout,,85992361984
+crossover,28,mps,10,mps,1.960,0.196,success,,
+crossover,28,mps,10,mps,1.962,0.196,success,,
+correctness,16,cpu,1000,cpu,20.582,0.021,success,,
+correctness,16,mps,1000,mps,1.646,0.002,success,,
