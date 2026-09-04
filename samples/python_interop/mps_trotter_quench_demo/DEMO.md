@@ -958,6 +958,20 @@ nothing else does either: no test validates the tensor evolution's *result*
 
 ## Appendix A — Environment setup
 
+### A.0 Obtaining the source
+
+The demo is on a branch, not on `main`:
+
+```bash
+git clone https://github.com/microsoft/qdk.git
+cd qdk
+git checkout domingom/simulator-execution-integration
+```
+
+With an existing clone, `git fetch origin` then `git checkout domingom/simulator-execution-integration`
+is enough. Every command in this document is run **from the repository root**, not from the demo
+directory.
+
 ### A.1 Hardware and OS
 
 | | Reference host |
