@@ -274,13 +274,11 @@ block_c{pauli}_exit:
             "attributes #0 = {{ \"entry_point\" \"output_labeling_schema\" \"qir_profiles\"=\"adaptive_profile\" \"required_num_qubits\"=\"{num_qubits}\" \"required_num_results\"=\"{num_results}\" }}"
         );
         writeln!(self, "attributes #1 = {{ \"irreversible\" }}");
-        writeln!(self);
-        writeln!(self, "; module flags");
-        writeln!(self);
         if self.has_noise_intrinsic {
             writeln!(self, "attributes #2 = {{ \"qdk_noise\" }}");
-            writeln!(self);
         }
+        writeln!(self);
+        writeln!(self, "; module flags");
         writeln!(
             self,
             "!llvm.module.flags = !{{!0, !1, !2, !3, !4, !5, !6, !7}}"
