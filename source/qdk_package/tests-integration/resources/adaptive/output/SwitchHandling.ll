@@ -15,7 +15,9 @@ block_1:
   br i1 %var_3, label %block_2, label %block_3
 block_2:
   %var_49 = load i64, ptr %var_2
-  %var_4 = getelementptr ptr, ptr @array0, i64 %var_49
+  %var_4_offset_chk = icmp slt i64 %var_49, 0
+  %var_4_offset = select i1 %var_4_offset_chk, i64 1, i64 0
+  %var_4 = getelementptr [2 x ptr], ptr @array0, i64 %var_4_offset, i64 %var_49
   %var_50 = load ptr, ptr %var_4
   call void @X(ptr %var_50)
   %var_7 = add i64 %var_49, 1
@@ -53,7 +55,9 @@ block_8:
   br i1 %var_19, label %block_9, label %block_10
 block_9:
   %var_42 = load i64, ptr %var_18
-  %var_20 = getelementptr ptr, ptr @array0, i64 %var_42
+  %var_20_offset_chk = icmp slt i64 %var_42, 0
+  %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+  %var_20 = getelementptr [2 x ptr], ptr @array0, i64 %var_20_offset, i64 %var_42
   %var_43 = load ptr, ptr %var_20
   call void @Reset(ptr %var_43)
   %var_23 = add i64 %var_42, 1
