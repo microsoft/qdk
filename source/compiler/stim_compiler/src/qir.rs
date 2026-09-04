@@ -247,7 +247,8 @@ block_c{pauli}_exit:
 
     fn write_declarations(&mut self) {
         writeln!(self);
-        let decls: Vec<String> = self.used_intrinsics.values().cloned().collect();
+        let mut decls: Vec<String> = self.used_intrinsics.values().cloned().collect();
+        decls.sort_unstable();
         for decl in decls {
             writeln!(self, "{decl}");
         }
