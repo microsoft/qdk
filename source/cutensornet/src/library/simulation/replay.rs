@@ -33,9 +33,12 @@ pub(crate) struct MpsTarget {
 
 impl MpsTarget {
     fn new(qubit_count: usize, bond_cap: i64) -> Result<Self, SimulationError> {
-        if qubit_count == 0 {
+        // cuTensorNet requires at least two sites for MPS finalization
+        // (bindings/v2_13.rs:338). This crate implements only MPS and has one
+        // unconditional finalize_mps call below, so it cannot represent one site.
+        if qubit_count < 2 {
             return Err(SimulationError::InvalidCircuit {
-                reason: "the native MPS fixture requires at least one qubit".to_string(),
+                reason: "MPS simulation requires at least two qubits; use type=\"cpu\" for single-qubit circuits".to_string(),
             });
         }
         let bonds = (0..qubit_count - 1)
@@ -43,9 +46,7 @@ impl MpsTarget {
             .collect::<Result<Vec<_>, _>>()?;
         let mut extents = Vec::with_capacity(qubit_count);
         for site in 0..qubit_count {
-            let shape = if qubit_count == 1 {
-                vec![2]
-            } else if site == 0 {
+            let shape = if site == 0 {
                 vec![2, bonds[0]]
             } else if site + 1 == qubit_count {
                 vec![bonds[site - 1], 2]

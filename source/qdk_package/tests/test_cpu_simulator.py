@@ -90,7 +90,27 @@ entry:
 declare void @__quantum__qis__x__body(%Qubit*)
 declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
 
-attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="2" }
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="2" "required_num_results"="2" }
+"""
+
+
+SINGLE_QUBIT_BASE_QIR = """\
+%Result = type opaque
+%Qubit = type opaque
+
+define void @ENTRYPOINT__main() #0 {
+entry:
+    call void @__quantum__qis__x__body(%Qubit* inttoptr (i64 0 to %Qubit*))
+    call void @__quantum__qis__mz__body(%Qubit* inttoptr (i64 0 to %Qubit*), %Result* inttoptr (i64 0 to %Result*))
+    call void @__quantum__rt__result_record_output(%Result* inttoptr (i64 0 to %Result*), i8* null)
+    ret void
+}
+
+declare void @__quantum__qis__x__body(%Qubit*)
+declare void @__quantum__qis__mz__body(%Qubit*, %Result*)
+declare void @__quantum__rt__result_record_output(%Result*, i8*)
+
+attributes #0 = { "entry_point" "qir_profiles"="base_profile" "required_num_qubits"="1" "required_num_results"="1" }
 """
 
 
@@ -316,6 +336,19 @@ def test_mps_rejects_non_base_profile():
 
     with pytest.raises(ValueError, match="requires Base-profile QIR"):
         run_qir(qir, type="mps")
+
+
+@pytest.mark.skipif(not NVIDIA_MPS_AVAILABLE, reason=NVIDIA_MPS_SKIP_REASON)
+def test_mps_rejects_single_qubit_circuits():
+    with pytest.raises(
+        OSError,
+        match='MPS simulation requires at least two qubits; use type="cpu" for single-qubit circuits',
+    ):
+        run_qir(
+            SINGLE_QUBIT_BASE_QIR,
+            type="mps",
+            mps_options=MpsOptions(device="nvidia"),
+        )
 
 
 @pytest.mark.parametrize(
