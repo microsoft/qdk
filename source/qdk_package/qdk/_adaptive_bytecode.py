@@ -47,6 +47,7 @@ OP_RECORD_OUTPUT = 0x14
 OP_READ_LOSS = 0x15
 OP_PEEK_LOSS = 0x16
 OP_READOUT_NOISE = 0x17
+OP_WRITE_RESULT = 0x18
 
 # ── Integer Arithmetic ───────────────────────────────────────────────────────
 OP_ADD = 0x20
