@@ -37,7 +37,7 @@ fn measurement_decl_works() {
 #[test]
 fn read_result_decl_works() {
     let decl = builder::read_result_decl();
-    expect!["declare i1 @__quantum__rt__read_result(ptr)"]
+    expect!["declare i1 @__quantum__rt__read_result(ptr) #2"]
         .assert_eq(&decl.to_qir(&rir::Program::default()));
 }
 
@@ -156,6 +156,7 @@ fn bell_program() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="2" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -189,7 +190,7 @@ fn teleport_program() {
 
         declare void @__quantum__qis__mresetz__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__result_record_output(ptr, ptr)
 
@@ -221,6 +222,7 @@ fn teleport_program() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="3" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -314,6 +316,7 @@ fn ir_function_program() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -602,6 +605,7 @@ fn scalar_ir_function_program() {
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="0" "required_num_results"="0" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
