@@ -122,7 +122,7 @@ fn check_instr_types(program: &Program, instr: &Instruction) {
             assert_eq!(array_elem_ty, elem_ty);
             assert_eq!(
                 *slice_size,
-                ((end - start + 1) / step)
+                ((end - start + (if *step > 0 { 1 } else { -1 })) / step)
                     .max(0)
                     .try_into()
                     .expect("computed slice size should fit into i64")

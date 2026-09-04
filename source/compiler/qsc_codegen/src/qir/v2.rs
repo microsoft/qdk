@@ -360,9 +360,10 @@ fn slice_array_to_qir(
     let mut new_idx = 0;
     while (step > 0 && idx <= end) || (step < 0 && idx >= end) {
         let temp_var = format!("{var_str}_{new_idx}");
+        let offset = i32::from(idx < 0);
         writeln!(
             qir,
-            "  {temp_var}_src = getelementptr {array_ty}, ptr {array_str}, i64 0, i64 {idx}"
+            "  {temp_var}_src = getelementptr {array_ty}, ptr {array_str}, i64 {offset}, i64 {idx}"
         )
         .expect("writing to string should succeed");
         writeln!(qir, "  {temp_var} = load {elem_ty}, ptr {temp_var}_src")

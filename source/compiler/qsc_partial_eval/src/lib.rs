@@ -2824,17 +2824,16 @@ impl<'a> PartialEvaluator<'a> {
                 )))
             } else {
                 // The index must be a range, so emit a slicing instruction.
+                let last_index = TryInto::<i64>::try_into(*array_size).map_err(|_| {
+                    EvalError::ArrayTooLarge(self.get_expr_package_span(index_expr_id))
+                })? - 1;
                 let (range_start, range_step, range_end) = index_value.unwrap_range();
                 let (start, step, end) = (
-                    range_start.unwrap_or_default(),
+                    range_start.unwrap_or(if range_step > 0 { 0 } else { last_index }),
                     range_step,
-                    range_end.unwrap_or(
-                        TryInto::<i64>::try_into(*array_size).map_err(|_| {
-                            EvalError::ArrayTooLarge(self.get_expr_package_span(index_expr_id))
-                        })? - 1,
-                    ),
+                    range_end.unwrap_or(if range_step > 0 { last_index } else { 0 }),
                 );
-                let slice_size = ((end - start + 1) / step)
+                let slice_size = ((end - start + (if step > 0 { 1 } else { -1 })) / step)
                     .max(0)
                     .try_into()
                     .expect("array size should fit into usize");
