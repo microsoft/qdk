@@ -254,7 +254,8 @@ block_c{pauli}_exit:
     }
 
     fn write_definitions(&mut self) {
-        let definitions: Vec<String> = self.defined_functions.values().cloned().collect();
+        let mut definitions: Vec<String> = self.defined_functions.values().cloned().collect();
+        definitions.sort_unstable();
         for definition in definitions {
             writeln!(self);
             writeln!(self, "{definition}");
