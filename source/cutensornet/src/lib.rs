@@ -167,7 +167,7 @@ mod tests {
         Availability, AvailabilityError, CUDART_REQUIRED_SYMBOLS, CUTENSORNET_REQUIRED_SYMBOLS,
         validate_override_path,
     };
-    use std::{ffi::OsString, path::Path};
+    use std::ffi::OsString;
 
     fn assert_send_sync<T: Send + Sync>() {}
 
@@ -190,18 +190,18 @@ mod tests {
 
     #[test]
     fn rejects_missing_absolute_override_without_fallback() {
-        let path = format!(
-            "/qdk-cutensornet-test-missing-{}-{}",
+        let path = std::env::temp_dir().join(format!(
+            "qdk-cutensornet-test-missing-{}-{}",
             std::process::id(),
             line!()
-        );
+        ));
         assert!(matches!(
-            validate_override_path("TEST_LIBRARY", Some(OsString::from(&path))),
+            validate_override_path("TEST_LIBRARY", Some(path.clone().into_os_string())),
             Err(AvailabilityError::InvalidOverride {
                 variable: "TEST_LIBRARY",
                 path: found,
                 reason: "path does not exist",
-            }) if found.as_path() == Path::new(&path)
+            }) if found == path
         ));
     }
 
