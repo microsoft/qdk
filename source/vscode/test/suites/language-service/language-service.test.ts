@@ -21,6 +21,7 @@ suite("Q# Language Service Tests", function suite() {
 
   const testQs = joinPath(workspaceFolderUri, "test.qs");
   const noErrorsQs = joinPath(workspaceFolderUri, "no-errors.qs");
+  const specModeQasm = joinPath(workspaceFolderUri, "spec-mode.qasm");
   const mainPackageMainQs = joinPath(packages, "MainPackage", "src", "Main.qs");
   const depPackageMainQs = joinPath(packages, "DepPackage", "src", "Main.qs");
   const missingDepMainQs = joinPath(packages, "MissingDep", "src", "Main.qs");
@@ -219,6 +220,37 @@ suite("Q# Language Service Tests", function suite() {
 
     for (const lens of actualCodeLenses) {
       assert.include(doc.getText(lens.range), "function Test()");
+    }
+  });
+
+  test("OpenQASM spec mode shows the switch lens", async () => {
+    const config = vscode.workspace.getConfiguration("qdk");
+    await config.update(
+      "openqasm.mode",
+      "spec",
+      vscode.ConfigurationTarget.Workspace,
+    );
+
+    try {
+      const doc = await openDocumentAndWaitForProcessing(specModeQasm);
+      await waitForDiagnosticsToBeEmpty(specModeQasm);
+
+      const lenses = (await vscode.commands.executeCommand(
+        "vscode.executeCodeLensProvider",
+        doc.uri,
+      )) as vscode.CodeLens[];
+
+      assert.lengthOf(lenses, 1);
+      assert.equal(
+        lenses[0].command?.command,
+        "qsharp-vscode.openqasmSwitchToQdk",
+      );
+    } finally {
+      await config.update(
+        "openqasm.mode",
+        undefined,
+        vscode.ConfigurationTarget.Workspace,
+      );
     }
   });
 

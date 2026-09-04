@@ -4,11 +4,15 @@
 use super::get_code_lenses;
 use crate::{
     Encoding,
+    compilation::Compilation,
+    protocol::OpenQasmMode,
     test_utils::{
         compile_notebook_with_fake_stdlib, compile_with_fake_stdlib_and_markers_no_cursor,
     },
 };
 use expect_test::{Expect, expect};
+use qsc::PackageType;
+use std::sync::Arc;
 
 fn check(source_with_markers: &str, expect: &Expect) {
     let (compilation, expected_code_lens_ranges) =
@@ -239,4 +243,32 @@ fn no_code_lenses_with_compilation_errors() {
         lenses.is_empty(),
         "code lenses should not be present when there are compilation errors"
     );
+}
+
+const OPENQASM_PROGRAM: &str = r#"OPENQASM 3.0;
+include "stdgates.inc";
+qubit[2] q;
+bit[2] c;
+h q[0];
+cx q[0], q[1];
+c = measure q;
+"#;
+
+fn openqasm_lenses(mode: OpenQasmMode) -> Vec<crate::protocol::CodeLens> {
+    let compilation = Compilation::new_qasm(
+        PackageType::Exe,
+        vec![(Arc::from("<source>"), Arc::from(OPENQASM_PROGRAM))],
+        vec![],
+        &Arc::from("test project"),
+        mode,
+    );
+    get_code_lenses(&compilation, "<source>", Encoding::Utf8)
+}
+
+#[test]
+fn no_code_lenses_for_openqasm_in_spec_mode() {
+    // The same program in qdk mode has lenses, so the suppression is the mode's
+    // doing rather than the program having nothing to offer.
+    assert!(!openqasm_lenses(OpenQasmMode::Qdk).is_empty());
+    assert!(openqasm_lenses(OpenQasmMode::Spec).is_empty());
 }

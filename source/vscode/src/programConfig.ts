@@ -11,6 +11,7 @@ import {
 import * as vscode from "vscode";
 import { isOpenQasmDocument, isQdkDocument } from "./common";
 import { invokeAndReportCommandDiagnostics } from "./diagnostics";
+import { ensureQdkFeaturesAvailable } from "./language-service/openqasmMode";
 import { loadOpenQasmProject, loadProject } from "./projectSystem";
 
 /**
@@ -110,8 +111,17 @@ export async function getProgramForDocument(
   options: {
     showModalError?: boolean;
     targetProfileFallback?: TargetProfile;
+    resumeAfterSpecModeSwitch?: boolean;
   } = {},
 ): Promise<FullProgramConfigOrError> {
+  const modeError = await ensureQdkFeaturesAvailable(
+    doc,
+    options.resumeAfterSpecModeSwitch,
+  );
+  if (modeError) {
+    return { success: false, errorMsg: modeError };
+  }
+
   // Project configs come from the document
   try {
     const program = await invokeAndReportCommandDiagnostics(
