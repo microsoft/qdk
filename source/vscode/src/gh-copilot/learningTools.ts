@@ -6,6 +6,7 @@ import {
   LearningService,
   LEARNING_WORKSPACE_FOLDER,
   detectLearningWorkspace,
+  isNotebookCourse,
   resolveNewWorkspaceRoot,
   type CourseDescriptor,
   type CurrentActivity,
@@ -326,11 +327,85 @@ export class LearningTools {
    */
   async resetExercise(): Promise<StateSnapshot> {
     await this.ensureInitialized();
-    this.throwIfNotQSharpCourse();
     return this.invoke(async () => {
-      await this.service.resetExercise("chat");
+      // Resolve the target from the editor — the selected cell for notebook
+      // courses — rather than the stored position, matching hint/solution.
+      const state = this.serializeState(true);
+      await this.service.resetExerciseAt(state.position.location, "chat");
       await this.showActivity();
-      return { state: this.serializeState(false) }; // Q# only
+      return { state: this.serializeState(true) };
+    });
+  }
+
+  /**
+   * Confirmation for the reset tool. Returns `undefined` — no prompt — when
+   * the current activity has no code to restore, so the user isn't asked to
+   * approve a reset that will fail.
+   *
+   * **Must be free of side-effects** — only reads state and the editor.
+   */
+  confirmReset(): vscode.PreparedToolInvocation | undefined {
+    const confirmation: vscode.PreparedToolInvocation = {
+      confirmationMessages: {
+        title: "Reset Activity",
+        message:
+          "Reset the current activity to its starter code? Your code will be lost.",
+      },
+    };
+
+    // Uninitialized or unreadable state: let invoke() surface the problem.
+    if (!this.service.initialized) {
+      return confirmation;
+    }
+
+    try {
+      if (!isNotebookCourse(this.service.getActiveCourseInfo())) {
+        // Q# courses can only reset exercises.
+        return this.service.getCurrentActivityType() === "exercise"
+          ? confirmation
+          : undefined;
+      }
+
+      const cellId = this.selectedNotebookCellId();
+      if (cellId === undefined) {
+        // No workbook cell selected — the reset targets the stored position.
+        return confirmation;
+      }
+      return this.service.isActivityCellId(cellId) ? confirmation : undefined;
+    } catch {
+      // Never block the tool on a confirmation-time failure.
+      return confirmation;
+    }
+  }
+
+  /**
+   * Reset an entire unit, clearing completion for all of its activities.
+   * Defaults to the current unit.
+   */
+  async resetUnit(input?: {
+    unitId?: string;
+  }): Promise<{ unitId: string; unitTitle: string } & StateSnapshot> {
+    await this.ensureInitialized();
+    return this.invoke(async () => {
+      const { unitId, unitTitle } = await this.service.resetUnit(
+        { unitId: input?.unitId },
+        "chat",
+      );
+
+      // Notebook courses close the workbook during a reset and don't use the
+      // lesson panel, so re-open the fresh copy. The open command resolves the
+      // notebook from the current position, so move there first — the reset
+      // unit isn't necessarily the one the learner was on.
+      if (isNotebookCourse(this.service.getActiveCourseInfo())) {
+        await this.service.goTo({ unitId }, "chat");
+        await vscode.commands.executeCommand(
+          "qsharp-vscode.learningOpenNotebook",
+        );
+      } else {
+        await this.showActivity();
+      }
+
+      return { unitId, unitTitle, state: this.serializeState(false) };
     });
   }
 
@@ -386,6 +461,25 @@ export class LearningTools {
 
   private async showActivity(): Promise<void> {
     await vscode.commands.executeCommand("qsharp-vscode.learningShowActivity");
+  }
+
+  /**
+   * The id of the cell selected in the active notebook editor, when that
+   * editor is the current unit's workbook. `undefined` otherwise, in which
+   * case callers fall back to the stored position.
+   */
+  private selectedNotebookCellId(): string | undefined {
+    const editor = vscode.window.activeNotebookEditor;
+    const selection = editor?.selections[0];
+    if (!editor || !selection) {
+      return undefined;
+    }
+    const workbook = this.service.getCurrentCodeFileUri();
+    if (!workbook || editor.notebook.uri.toString() !== workbook.toString()) {
+      return undefined;
+    }
+    const cellId = editor.notebook.cellAt(selection.start).metadata?.id;
+    return typeof cellId === "string" ? cellId : undefined;
   }
 
   private getCurrentFileUri(): vscode.Uri {
