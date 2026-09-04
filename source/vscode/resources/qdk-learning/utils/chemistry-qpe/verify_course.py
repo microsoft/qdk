@@ -27,7 +27,7 @@ COURSE = args.course
 EXPECTED_TOTALS = Counter(
     {
         "units": 7,
-        "cells": 181,
+        "cells": 191,
         "exercises": 6,
         "hints": 6,
         "solutions": 6,
@@ -44,6 +44,10 @@ AUTHORING_KINDS = {
     "explanation": "markdown",
 }
 REGISTER_CALLS = {"register_exercise", "register_value_exercise"}
+#: A converted self-check question. One ``quiz()`` call can name several ids,
+#: so the questions are counted from the ids rather than from the calls.
+QUIZ_CALL = re.compile(r"^quiz\(([^)]*)\)", re.M)
+QUIZ_ID = re.compile(r'"([^"]+)"')
 EXPECTED_ATTACHMENT_MIMES = {
     "tutorial_qpe_atomic_basis_functions.png": "image/png",
     "tutorial_qpe_example_molecular_orbitals.png": "image/png",
@@ -169,6 +173,9 @@ for unit in manifest["units"]:
                 current_exercise = None
             counts["sections"] += any(tag.startswith("section:") for tag in tags)
             counts["quizzes"] += source.count("<details>")
+            counts["quizzes"] += sum(
+                len(QUIZ_ID.findall(call)) for call in QUIZ_CALL.findall(source)
+            )
             for name in re.findall(r'<svg[^>]+data-asset="([^"]+)"', source):
                 counts["inline_svgs"] += 1
                 if name not in EXPECTED_INLINE_SVGS:
@@ -250,8 +257,11 @@ for unit in manifest["units"]:
             if cell.cell_type == "code":
                 counts["code_cells"] += 1
                 uses_unit_module |= "_unit" in source
-                allow_cell_output = args.allow_outputs and not (
-                    tags & AUTHORING_KINDS.keys()
+                # A quiz cell's output is the question itself, baked so it is
+                # visible on opening rather than after a run. That is content,
+                # not a leftover from executing the notebook.
+                allow_cell_output = "quiz" in tags or (
+                    args.allow_outputs and not (tags & AUTHORING_KINDS.keys())
                 )
                 if cell.get("outputs") and not allow_cell_output:
                     problems.append(f"{cell.id}: code cell ships output")

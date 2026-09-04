@@ -3,7 +3,7 @@
 
 //@ts-check
 
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build as esbuildBuild, context } from "esbuild";
@@ -84,6 +84,22 @@ const platformBuildOptions = {
       __PLATFORM__: JSON.stringify("node"),
     },
   },
+  renderer: {
+    ...commonBuildOptions,
+    external: [],
+    platform: "browser",
+    format: "esm",
+    entryPoints: [join(thisDir, "src", "notebookRenderer", "index.ts")],
+    outfile: join(thisDir, "out", "renderer", "qdkLearning.js"),
+    // A notebook renderer is loaded as a single JS module — VS Code won't pick
+    // up a sibling stylesheet — so CSS is bundled as text and injected at
+    // activation instead of emitted as a separate file.
+    loader: { ".css": "text" },
+    define: {
+      "import.meta.url": "undefined",
+      __PLATFORM__: JSON.stringify("browser"),
+    },
+  },
 };
 
 // ── Inline worker plugin ────────────────────────────────────────────
@@ -127,6 +143,134 @@ const inlineStateComputeWorkerPlugin = {
     );
   },
 };
+
+// ── Renderer/emitter contract check ─────────────────────────────────
+
+/**
+ * Fail the build if the renderer's schema and the Python emitter have drifted.
+ *
+ * The payload contract is written twice — TypeScript types the renderer
+ * validates against, and the dicts `_learning_output.py` builds — and nothing
+ * in either type system spans that gap. Checks the values whose disagreement
+ * breaks a learner: MIME type, payload kinds, schema version, and the field
+ * names the renderer reads.
+ */
+export function checkRendererContract() {
+  const schemaPath = join(thisDir, "src", "notebookRenderer", "schema.ts");
+  const rendererPath = join(
+    thisDir,
+    "src",
+    "notebookRenderer",
+    "multipleChoice.ts",
+  );
+  const emitterPath = join(
+    thisDir,
+    "resources",
+    "qdk-learning",
+    "courses",
+    "chemistry-qpe",
+    "_learning_output.py",
+  );
+
+  const schema = readFileSync(schemaPath, "utf8");
+  const renderer = readFileSync(rendererPath, "utf8");
+  const emitter = readFileSync(emitterPath, "utf8");
+
+  const mismatches = [];
+  const required = (label, value) => {
+    if (value === undefined) {
+      throw new Error(`Could not read ${label} while checking the contract.`);
+    }
+    return value;
+  };
+
+  const tsMime = required(
+    "MIME_TYPE in schema.ts",
+    /^export const MIME_TYPE = "([^"]+)"/m.exec(schema)?.[1],
+  );
+  const pyMime = required(
+    "MIME_TYPE in _learning_output.py",
+    /^MIME_TYPE = "([^"]+)"/m.exec(emitter)?.[1],
+  );
+  if (tsMime !== pyMime) {
+    mismatches.push(`MIME type differs: "${tsMime}" vs "${pyMime}".`);
+  }
+
+  // Every payload the emitter builds must name a kind the renderer handles.
+  const tsKinds = [...schema.matchAll(/^\s+kind: "([a-z-]+)";/gm)].map(
+    (m) => m[1],
+  );
+  const pyKinds = [...emitter.matchAll(/"kind": "([a-z-]+)"/g)].map(
+    (m) => m[1],
+  );
+  const unknown = pyKinds.filter((k) => !tsKinds.includes(k));
+  if (unknown.length > 0) {
+    mismatches.push(
+      `Python emits kinds the renderer does not handle: ${[...new Set(unknown)].join(", ")}.`,
+    );
+  }
+
+  const tsVersion = required(
+    "SUPPORTED_SCHEMA_VERSION",
+    /const SUPPORTED_SCHEMA_VERSION = (\d+)/.exec(
+      readFileSync(
+        join(thisDir, "src", "notebookRenderer", "index.ts"),
+        "utf8",
+      ),
+    )?.[1],
+  );
+  const pyVersion = required(
+    '"schemaVersion" in _learning_output.py',
+    /"schemaVersion": (\d+)/.exec(emitter)?.[1],
+  );
+  if (tsVersion !== pyVersion) {
+    mismatches.push(
+      `Schema version differs: renderer accepts ${tsVersion}, emitter writes ${pyVersion}.`,
+    );
+  }
+
+  // Field names the renderer reads off a multiple-choice payload. Renaming one
+  // on either side leaves the question blank rather than failing loudly — or,
+  // for `multiSelect`, silently builds a radio group for a question with
+  // several correct answers, which then cannot be answered at all.
+  //
+  // The emitter writes most fields as dict literal keys (`"prompt": ...`) but
+  // sets optional ones by assignment (`payload["multiSelect"] = True`), so the
+  // Python probe has to accept both spellings.
+  const payloadFields = ["prompt", "options", "multiSelect"];
+  const optionFields = ["id", "text", "correct", "explanation"];
+  for (const field of payloadFields) {
+    const inTs = new RegExp(`payload\\.${field}\\b`).test(renderer);
+    const inPy = new RegExp(`"${field}"\\s*(?::|\\])`).test(emitter);
+    if (inTs !== inPy) {
+      mismatches.push(
+        `Payload field "${field}" is ${inTs ? "read by the renderer but never written by the emitter" : "written by the emitter but never read by the renderer"}.`,
+      );
+    }
+  }
+  for (const field of optionFields) {
+    const inTs = new RegExp(`option\\.${field}\\b`).test(renderer);
+    const inPy = new RegExp(`"${field}"`).test(emitter);
+    if (inTs !== inPy) {
+      mismatches.push(
+        `Option field "${field}" is ${inTs ? "read by the renderer but never written by the emitter" : "written by the emitter but never read by the renderer"}.`,
+      );
+    }
+  }
+
+  if (mismatches.length > 0) {
+    throw new Error(
+      `QDK learning renderer contract mismatch:\n  - ${mismatches.join("\n  - ")}\n` +
+        `Update both ${schemaPath} and ${emitterPath} together.`,
+    );
+  }
+
+  const kinds = new Set(tsKinds).size;
+  console.log(
+    `Renderer contract OK (v${tsVersion}, ${kinds} payload kind${kinds === 1 ? "" : "s"}, ` +
+      `${payloadFields.length + optionFields.length} fields).`,
+  );
+}
 
 // ── Asset copy helpers ──────────────────────────────────────────────
 
@@ -217,7 +361,7 @@ async function buildPlatform(platform) {
 
   console.log(`Running esbuild for platform: ${platform}`);
   await esbuildBuild(options);
-  console.log(`Built bundle to ${options.outdir}`);
+  console.log(`Built bundle to ${options.outdir ?? options.outfile}`);
 }
 
 function getTimeStr() {
@@ -268,7 +412,16 @@ export async function watchVsCode() {
     },
   });
 
+  // The notebook renderer is a separate bundle with its own format and CSS
+  // loader, so it needs its own watcher rather than another entry point above.
+  const rendererCtx = await context({
+    ...platformBuildOptions.renderer,
+    plugins: [buildPlugin],
+    color: false,
+  });
+
   ctx.watch();
+  rendererCtx.watch();
 }
 
 (async () => {
@@ -281,12 +434,14 @@ export async function watchVsCode() {
     } else {
       copyKatex();
       copyWasmToVsCode();
+      checkRendererContract();
 
       await Promise.all([
         buildPlatform("ui"),
         buildPlatform("browser"),
         buildPlatform("node"),
         buildPlatform("node-worker"),
+        buildPlatform("renderer"),
       ]);
     }
   }

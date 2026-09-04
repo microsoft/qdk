@@ -118,6 +118,67 @@ Use `register_exercise(name, validate, ...)` when a unit needs its own checking;
 When validation fails, `_course_lib` shows the message and raises, so the cell errors out.
 Once the cell runs successfully, the exercise will be considered to be complete.
 
+## Quizzes
+
+A quiz is a multiple-choice question the learner answers in the cell output.
+Unlike an exercise, it is a self-check: answering doesn't record progress, so a quiz is a place to think rather than something to complete.
+
+Register the question in the unit's `_unit.py`, next to the exercise registrations:
+
+```python
+from _learning_output import quiz, register_quiz  # noqa: E402, F401
+
+register_quiz(
+    "grid-spacing",
+    "Which control changes the energy-grid spacing?",
+    [
+        ("bits", "The number of phase bits", True, "It sets how finely the interval is discretized."),
+        ("shots", "The number of shots per bit", False, "More shots stabilize each bit; spacing is untouched."),
+        ("space", "The size of the active space", False, "That changes the Hamiltonian itself."),
+    ],
+)
+```
+
+Each option is `(id, text, correct, explanation)`.
+The explanation is shown after the learner commits to a choice, so write it as the reason that option is right or wrong rather than as a hint.
+A single-select question needs exactly one correct option, and ids must be unique; anything else raises when the cell runs, so mistakes surface while you're authoring.
+
+For a question with several right answers, pass `multi_select=True`:
+
+```python
+register_quiz(
+    "ancilla-traits",
+    "Which of these are true of the readout ancilla?",
+    [
+        ("h-gates", "It receives the H gates and the feedback rotation", True, "That is what puts it in superposition."),
+        ("controls", "It controls the Hamiltonian evolution", True, "The controlled-unitary hangs off this wire."),
+        ("state", "It holds the prepared molecular state", False, "The compute register does that."),
+    ],
+    multi_select=True,
+)
+```
+
+The learner then gets checkboxes and an explicit "Select all that apply", and has to find every correct option to pass.
+A multi-select question needs at least two correct options and at least one incorrect one — a "select all that apply" with a single answer teaches learners to distrust the instruction, and one where everything applies can't be answered wrongly.
+
+Options are shuffled, seeded from the quiz id.
+It's natural to write the correct answer first, which would otherwise make "always pick A" a winning strategy across a unit.
+The order is stable, so re-running the notebook doesn't reshuffle or produce a spurious diff.
+
+The notebook cell then just names the quiz, and is tagged `quiz` the same way exercise cells are tagged:
+
+```python
+quiz("grid-spacing")
+```
+
+The tag keeps the cell out of the progress tree, and lets the cell below it still find the section heading above.
+One call can name several quizzes (`quiz("a", "b")`) when a section asks two questions in a row - the progress tree names a code cell after the heading above it, so two adjacent quiz cells would appear under the same name.
+
+Run the cell once and save, so the question ships with the notebook and a learner sees it on opening rather than after running.
+
+The answers are in the saved cell output, because grading happens in the renderer without a kernel.
+This keeps them out of the cell source the learner reads, which is the same protection the collapsible-answer style gave; it isn't a guarantee against a determined learner opening the `.ipynb`.
+
 ## Editing a published course
 
 Progress is tracked per cell, using the notebook's nbformat cell IDs.
