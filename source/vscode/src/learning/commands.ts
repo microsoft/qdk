@@ -294,15 +294,6 @@ async function openCourseNotebook(
       const envPath = await service.getJupyterEnvironmentPath(courseId);
       if (envPath) {
         await api.openNotebook(notebookUri, envPath);
-        const document = vscode.workspace.notebookDocuments.find(
-          (notebook) => notebook.uri.toString() === notebookUri.toString(),
-        );
-        if (document) {
-          await vscode.window.showNotebookDocument(document, {
-            viewColumn: vscode.ViewColumn.Active,
-            preview: false,
-          });
-        }
         opened = true;
       } else {
         log.info("Didn't find a course virtual environment to use in notebook");

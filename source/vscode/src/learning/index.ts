@@ -43,8 +43,7 @@ export function initLearning(
   );
   context.subscriptions.push(
     vscode.workspace.onDidChangeNotebookDocument((e) => {
-      // Jupyter updates workbook metadata after selecting or starting a
-      // kernel. Save in response to the update instead of racing it on open.
+      // Save after cell execution and update exercise completion.
       if (!learningService.isCourseWorkbook(e.notebook.uri)) {
         return;
       }
@@ -70,7 +69,7 @@ export function initLearning(
           }
         }
       }
-      if (e.metadata !== undefined || hasExecutionChange) {
+      if (hasExecutionChange) {
         // Moving between notebooks is clumsy when they're unsaved.  Since this
         // is a working copy we created on the user's behalf, we're free to
         // auto-save.
