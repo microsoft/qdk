@@ -5980,12 +5980,13 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="3" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -6058,12 +6059,13 @@ fn array_with_dynamic_contents_passed_as_argument_with_static_index_does_not_emi
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__int_record_output(i64, ptr)
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="2" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
@@ -6210,7 +6212,7 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
 
         declare void @__quantum__qis__m__body(ptr, ptr) #1
 
-        declare i1 @__quantum__rt__read_result(ptr)
+        declare i1 @__quantum__rt__read_result(ptr) #2
 
         declare void @__quantum__rt__array_record_output(i64, ptr)
 
@@ -6218,6 +6220,7 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
 
         attributes #0 = { "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" "required_num_qubits"="1" "required_num_results"="6" }
         attributes #1 = { "irreversible" }
+        attributes #2 = { nofree nosync nounwind willreturn memory(argmem: read) }
 
         ; module flags
 
