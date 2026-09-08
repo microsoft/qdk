@@ -730,6 +730,18 @@ RECIPES = {
             "run the script from the Visual Studio Code integrated terminal",
             "python tutorial_run_iqpe.py",
         ],
+        "quiz_overrides": {
+            "What bitstring distribution and energy estimate did the script produce?": {
+                "question": "How should you interpret the repeated-run output?",
+                "body": [
+                    "The printed ``Complete-run bitstring counts`` show the sampled "
+                    "distribution, while ``Modal bitstring`` identifies the unique most "
+                    "frequent result used for energy reconstruction. Read the modal "
+                    "active-space energy, reconstructed total, and signed CASCI error from "
+                    "the same output rather than expecting one exact sampled distribution.",
+                ],
+            },
+        },
         "rewrites": [
             (
                 "## IQPE circuit visualization",
@@ -1631,6 +1643,8 @@ def convert(key, *, check=False, allow_cell_id_changes=False):
     used_regions = set()
     drop_blocks = recipe.get("drop_blocks", [])
     rewrites = recipe.get("rewrites", [])
+    quiz_overrides = recipe.get("quiz_overrides", {})
+    used_quiz_overrides = set()
 
     def rewrite(text):
         for old, new in rewrites + COMMON_REWRITES:
@@ -1681,6 +1695,11 @@ def convert(key, *, check=False, allow_cell_id_changes=False):
         _, name, argument, options, body = block
         if name == "admonition" and options.get("class") == "quiz-question":
             flush()
+            override = quiz_overrides.get(argument)
+            if override is not None:
+                used_quiz_overrides.add(argument)
+                argument = override["question"]
+                body = override["body"]
             emit(md(rewrite(quiz(argument, body))))
             continue
         if name == "literalinclude":
@@ -1799,6 +1818,12 @@ def convert(key, *, check=False, allow_cell_id_changes=False):
     if unused_regions:
         raise SystemExit(
             f"unused region recipe hooks for {key}: {', '.join(sorted(unused_regions))}"
+        )
+    unused_quiz_overrides = set(quiz_overrides) - used_quiz_overrides
+    if unused_quiz_overrides:
+        raise SystemExit(
+            f"unused quiz overrides for {key}: "
+            f"{', '.join(sorted(unused_quiz_overrides))}"
         )
     nav = navigation(recipe["unit_dir"])
     if nav:

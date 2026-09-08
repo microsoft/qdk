@@ -56,9 +56,8 @@ list the same units; the converter stops if they disagree. The links point at
 the learner's `*.workbook.ipynb` copies, which the extension materializes beside
 the authored notebooks, so they only resolve inside a learner's workspace.
 
-- `rst_to_notebook.py` reconstructs selected unit notebooks. `RECIPES` holds
-    the per-chapter decisions a human still has to make; `--check` detects drift
-    without writing.
-- `bake_outputs.py` runs a notebook so its outputs ship with the course.
-- `verify_course.py` checks every unit loads, validates, and carries what the
-    tree needs. Pass `--allow-outputs` when reviewing baked notebooks.
+| Script               | What it does                                                                                                                                        |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `rst_to_notebook.py` | Reconstructs selected unit notebooks. `RECIPES` holds the per-chapter decisions a human still has to make; `--check` detects drift without writing. |
+| `bake_outputs.py`    | Runs a notebook so its outputs ship with the course.                                                                                                |
+| `verify_course.py`   | Checks every unit loads, validates, and carries what the tree needs. Pass `--allow-outputs` when reviewing baked notebooks.                         |
