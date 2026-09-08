@@ -722,13 +722,19 @@ fn callable_to_qir(callable: &rir::Callable, is_entry: bool, program: &rir::Prog
         let callable_name = llvm_global_name(&callable.name);
         return format!(
             "declare {output_type} {callable_name}({input_type}){}",
-            match callable.call_type {
-                rir::CallableType::Measurement | rir::CallableType::Reset => {
-                    // These callables are a special case that need the irreversible attribute.
-                    " #1"
+            if callable_name == "@__quantum__rt__read_result" {
+                // Read result gets special attributes that mark it as side-effect free to allow
+                // LLVM to optimize it out when the resulting i1 value is unused.
+                " #2"
+            } else {
+                match callable.call_type {
+                    rir::CallableType::Measurement | rir::CallableType::Reset => {
+                        // These callables are a special case that need the irreversible attribute.
+                        " #1"
+                    }
+                    rir::CallableType::NoiseIntrinsic => " #3",
+                    _ => "",
                 }
-                rir::CallableType::NoiseIntrinsic => " #2",
-                _ => "",
             }
         );
     };
@@ -839,7 +845,7 @@ impl ToQir<String> for rir::Program {
 fn get_additional_module_attributes(program: &rir::Program) -> String {
     let mut attrs = String::new();
     if program.attrs.contains(Attributes::QdkNoise) {
-        attrs.push_str("\nattributes #2 = { \"qdk_noise\" }");
+        attrs.push_str("\nattributes #3 = { \"qdk_noise\" }");
     }
 
     attrs

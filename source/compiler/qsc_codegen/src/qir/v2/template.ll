@@ -2,7 +2,8 @@
 {}
 
 attributes #0 = {{ "entry_point" "output_labeling_schema" "qir_profiles"="adaptive_profile" {}"required_num_results"="{}" }}
-attributes #1 = {{ "irreversible" }}{}
+attributes #1 = {{ "irreversible" }}
+attributes #2 = {{ nofree nosync nounwind willreturn memory(argmem: read) }}{}
 
 ; module flags
 
