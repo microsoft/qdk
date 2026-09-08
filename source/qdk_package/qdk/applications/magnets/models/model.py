@@ -157,12 +157,13 @@ class IsingModel(Model):
         H = -J * Σ_{<i,j>} Z_i Z_j - h * Σ_i X_i
 
     - Single-vertex edges define X-field terms with coefficient ``-h``.
-    - Two-vertex edges define ZZ-coupling terms with coefficient ``-J``.
+        - Two-vertex edges define ZZ-coupling terms with coefficient ``-J``. If
+            ``J`` is a list, each edge's zero-based mark selects its coupling.
     - Terms are grouped into two groups: ``0`` for field terms and ``1`` for
       coupling terms.
     """
 
-    def __init__(self, geometry: Hypergraph, h: float, J: float):
+    def __init__(self, geometry: Hypergraph, h: float, J: float | list[float]):
         super().__init__(geometry)
         self.h = h
         self.J = J
@@ -177,7 +178,19 @@ class IsingModel(Model):
                 color = coloring.color(edge.vertices)
                 if color is None:
                     raise ValueError("Geometry edge coloring failed to assign a color.")
-                self.add_interaction(edge, "ZZ", -J, term=1, color=color)
+                if isinstance(J, list):
+                    if edge.mark is None:
+                        raise ValueError(
+                            "All coupling edges must be marked when J is a list."
+                        )
+                    if edge.mark < 0 or edge.mark >= len(J):
+                        raise ValueError(
+                            f"Edge mark {edge.mark} is outside the range of J."
+                        )
+                    coupling = J[edge.mark]
+                else:
+                    coupling = J
+                self.add_interaction(edge, "ZZ", -coupling, term=1, color=color)
 
     def __str__(self) -> str:
         return (
@@ -198,11 +211,13 @@ class HeisenbergModel(Model):
     The Hamiltonian is:
         H = -J * Σ_{<i,j>} (X_i X_j + Y_i Y_j + Z_i Z_j)
 
-    - Two-vertex edges define XX, YY, and ZZ coupling terms with coefficient ``-J``.
+        - Two-vertex edges define XX, YY, and ZZ coupling terms with coefficient
+            ``-J``. If ``J`` is a list, each edge's zero-based mark selects its
+            coupling.
     - Terms are grouped into three parts: ``0`` for XX, ``1`` for YY, and ``2`` for ZZ.
     """
 
-    def __init__(self, geometry: Hypergraph, J: float):
+    def __init__(self, geometry: Hypergraph, J: float | list[float]):
         super().__init__(geometry)
         self.J = J
         self.coloring: HypergraphEdgeColoring = geometry.edge_coloring()
@@ -213,9 +228,21 @@ class HeisenbergModel(Model):
                 color = self.coloring.color(edge.vertices)
                 if color is None:
                     raise ValueError("Geometry edge coloring failed to assign a color.")
-                self.add_interaction(edge, "XX", -J, term=0, color=color)
-                self.add_interaction(edge, "YY", -J, term=1, color=color)
-                self.add_interaction(edge, "ZZ", -J, term=2, color=color)
+                if isinstance(J, list):
+                    if edge.mark is None:
+                        raise ValueError(
+                            "All coupling edges must be marked when J is a list."
+                        )
+                    if edge.mark < 0 or edge.mark >= len(J):
+                        raise ValueError(
+                            f"Edge mark {edge.mark} is outside the range of J."
+                        )
+                    coupling = J[edge.mark]
+                else:
+                    coupling = J
+                self.add_interaction(edge, "XX", -coupling, term=0, color=color)
+                self.add_interaction(edge, "YY", -coupling, term=1, color=color)
+                self.add_interaction(edge, "ZZ", -coupling, term=2, color=color)
 
     def __str__(self) -> str:
         return (

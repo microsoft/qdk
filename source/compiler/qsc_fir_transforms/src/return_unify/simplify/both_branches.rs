@@ -53,7 +53,6 @@
 //! [`super::expr_tree_contains_qubit_type`] walker. Typed Q# cannot
 //! return qubits, so this almost never fires.
 
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{BlockId, ExprId, ExprKind, Package, PackageLookup, StmtId, StmtKind},
@@ -124,7 +123,7 @@ fn try_apply_once(
     }
 
     let new_if = build_replacement_if(package, assigner, cond_id, v1_id, v2_id, &block_ty);
-    let new_stmt = alloc_expr_stmt(package, assigner, new_if, Span::default());
+    let new_stmt = alloc_expr_stmt(package, assigner, new_if, package.synthetic_span());
 
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts.truncate(guard_idx);
@@ -169,36 +168,36 @@ fn build_replacement_if(
     v2_id: ExprId,
     block_ty: &Ty,
 ) -> ExprId {
-    let v1_stmt = alloc_expr_stmt(package, assigner, v1_id, Span::default());
+    let v1_stmt = alloc_expr_stmt(package, assigner, v1_id, package.synthetic_span());
     let then_bid = alloc_block(
         package,
         assigner,
         vec![v1_stmt],
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let then_expr = alloc_block_expr(
         package,
         assigner,
         then_bid,
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
 
-    let v2_stmt = alloc_expr_stmt(package, assigner, v2_id, Span::default());
+    let v2_stmt = alloc_expr_stmt(package, assigner, v2_id, package.synthetic_span());
     let else_bid = alloc_block(
         package,
         assigner,
         vec![v2_stmt],
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let else_expr = alloc_block_expr(
         package,
         assigner,
         else_bid,
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
 
     alloc_if_expr(
@@ -208,6 +207,6 @@ fn build_replacement_if(
         then_expr,
         Some(else_expr),
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     )
 }

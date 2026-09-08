@@ -42,6 +42,22 @@ fn cx_gate_yields_expected_qir() {
 }
 
 #[test]
+fn cx_gate_with_repeated_qubit_yields_error() {
+    check(
+        "CX 0 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: CX
+           ,----
+         1 | CX 0 0
+           :      ^
+           `----
+    "#]],
+    );
+}
+
+#[test]
 fn cnot_gate_yields_expected_qir() {
     let source = "CNOT 0 1";
     check(
@@ -441,14 +457,14 @@ fn ii_gate_with_args_yields_error() {
     check(
         source,
         &expect![[r#"
-        Qdk.Stim.Compiler.UnsupportedArgument
+            Qdk.Stim.Compiler.UnsupportedArgument
 
-          x unsupported argument in instruction: II
-           ,----
-         1 | II(0.01) 0 1
-           : ^^^^^^^^^^^^
-           `----
-    "#]],
+              x unsupported argument in instruction: II
+               ,----
+             1 | II(0.01) 0 1
+               :    ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -492,6 +508,22 @@ fn iswap_gate_yields_expected_qir() {
         !5 = !{i32 5, !"float_computations", !{!"double"}}
         !6 = !{i32 7, !"backwards_branching", i2 3}
         !7 = !{i32 1, !"arrays", i1 true}
+    "#]],
+    );
+}
+
+#[test]
+fn iswap_gate_with_repeated_qubit_yields_error() {
+    check(
+        "ISWAP 0 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: ISWAP
+           ,----
+         1 | ISWAP 0 0
+           :         ^
+           `----
     "#]],
     );
 }

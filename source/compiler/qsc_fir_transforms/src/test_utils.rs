@@ -215,13 +215,14 @@ fn lower_cached_stdlib_and_user_to_fir(
     let mut fir_store = fir::PackageStore::new();
     for (hir_id, unit) in [(PackageId::CORE, core_unit), (std_id, std_unit)] {
         let mut lowerer = qsc_lowerer::Lowerer::new();
-        let package = lowerer.lower_package(&unit.package, &fir_store);
+        let package =
+            lowerer.lower_package(&unit.package, &fir_store, map_hir_package_to_fir(hir_id));
         fir_store.insert(map_hir_package_to_fir(hir_id), package);
     }
 
     let mut lowerer = qsc_lowerer::Lowerer::new();
-    let user_package = lowerer.lower_package(&user_unit.package, &fir_store);
     let fir_pkg_id = map_hir_package_to_fir(user_hir_id);
+    let user_package = lowerer.lower_package(&user_unit.package, &fir_store, fir_pkg_id);
     fir_store.insert(fir_pkg_id, user_package);
 
     (fir_store, fir_pkg_id)

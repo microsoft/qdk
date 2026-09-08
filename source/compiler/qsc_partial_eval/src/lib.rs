@@ -41,7 +41,7 @@ use qsc_fir::{
 };
 
 pub use qsc_data_structures::intrinsic_names::is_codegen_noop_intrinsic;
-use qsc_lowerer::{map_fir_package_to_hir, map_hir_package_to_fir};
+use qsc_lowerer::{map_fir_package_span_to_hir, map_hir_package_to_fir};
 use qsc_rca::{
     ComputeKind, ComputePropertiesLookup, ItemComputeProperties, PackageStoreComputeProperties,
     RuntimeFeatureFlags, ValueKind,
@@ -167,10 +167,7 @@ impl Error {
     #[must_use]
     pub fn span(&self) -> PackageSpan {
         match self {
-            Self::CapabilityError(e) => {
-                let fir_span = e.span();
-                PackageSpan::new(map_fir_package_to_hir(fir_span.package), fir_span.span)
-            }
+            Self::CapabilityError(e) => map_fir_package_span_to_hir(e.span()),
             Self::UnexpectedDynamicValue(span)
             | Self::UnsupportedCustomIntrinsicType(_, span)
             | Self::EvaluationFailed(_, span)
@@ -406,7 +403,7 @@ impl<'a> PartialEvaluator<'a> {
         let var = Variable {
             name: ident.name.clone(),
             value: value.clone(),
-            span: ident.span,
+            span: ident.span.span,
         };
         let scope = self.eval_context.get_current_scope_mut();
         scope.env.bind_variable_in_top_frame(ident.id, var);
@@ -432,13 +429,11 @@ impl<'a> PartialEvaluator<'a> {
             input_type.push(map_fir_type_to_rir_type(&input_param.ty).map_err(|msg| {
                 Error::UnsupportedCustomIntrinsicType(
                     msg,
-                    PackageSpan {
-                        package: map_fir_package_to_hir(store_item_id.package),
-                        span: self
-                            .package_store
+                    map_fir_package_span_to_hir(
+                        self.package_store
                             .get_pat((store_item_id.package, input_param.pat).into())
                             .span,
-                    },
+                    ),
                 )
             })?);
         }
@@ -449,10 +444,7 @@ impl<'a> PartialEvaluator<'a> {
                 map_fir_type_to_rir_type(&callable_decl.output).map_err(|msg| {
                     Error::UnsupportedCustomIntrinsicType(
                         msg,
-                        PackageSpan {
-                            package: map_fir_package_to_hir(self.get_current_package_id()),
-                            span: callable_decl.span,
-                        },
+                        map_fir_package_span_to_hir(callable_decl.span),
                     )
                 })?,
             )
@@ -489,21 +481,12 @@ impl<'a> PartialEvaluator<'a> {
         let local_span = match &expr.kind {
             // Special handling for compiler generated entry expressions that come from the `@EntryPoint`
             // attributed callable.
-            ExprKind::Call(callee, _) if expr.span == Span::default() => {
+            ExprKind::Call(callee, _) if expr.span.span == Span::default() => {
                 self.get_expr(*callee).span
             }
             _ => expr.span,
         };
-        let hir_package_id = map_fir_package_to_hir(
-            self.entry
-                .expect("should have entry when getting entry expr span")
-                .expr
-                .package,
-        );
-        PackageSpan {
-            package: hir_package_id,
-            span: local_span,
-        }
+        map_fir_package_span_to_hir(local_span)
     }
 
     fn extract_program(
@@ -581,10 +564,7 @@ impl<'a> PartialEvaluator<'a> {
         self.extract_program(
             ret_val,
             output_ty,
-            PackageSpan {
-                package: map_fir_package_to_hir(callable.package),
-                span: callable_decl.span,
-            },
+            map_fir_package_span_to_hir(callable_decl.span),
         )
     }
 
@@ -1362,7 +1342,7 @@ impl<'a> PartialEvaluator<'a> {
                 let closure = resolve_closure(
                     &self.eval_context.get_current_scope().env,
                     self.get_current_package_id(),
-                    expr.span,
+                    map_fir_package_span_to_hir(expr.span),
                     args,
                     *callable,
                 )
@@ -1800,10 +1780,7 @@ impl<'a> PartialEvaluator<'a> {
                 if !missing_features.is_empty()
                     && let Some(error) = generate_errors_from_runtime_features(
                         missing_features,
-                        fir::PackageSpan::new(
-                            self.get_current_package_id(),
-                            self.get_expr(call_expr_id).span,
-                        ),
+                        self.get_expr(call_expr_id).span,
                     )
                     .drain(..)
                     .next()
@@ -2393,7 +2370,7 @@ impl<'a> PartialEvaluator<'a> {
                 let variable = Variable {
                     name,
                     value: Value::Var(eval_var),
-                    span,
+                    span: span.span,
                 };
                 body_args.push(Arg::Var(local_var_id, variable));
             } else {
@@ -3488,11 +3465,7 @@ impl<'a> PartialEvaluator<'a> {
     fn get_expr_package_span(&self, id: ExprId) -> PackageSpan {
         let fir_package_id = self.get_current_package_id();
         let expr = self.package_store.get_expr((fir_package_id, id).into());
-        let hir_package_id = map_fir_package_to_hir(fir_package_id);
-        PackageSpan {
-            package: hir_package_id,
-            span: expr.span,
-        }
+        map_fir_package_span_to_hir(expr.span)
     }
 
     fn get_pat(&self, id: PatId) -> &'a Pat {
@@ -3873,7 +3846,7 @@ impl<'a> PartialEvaluator<'a> {
                     let variable = Variable {
                         name: ident.name.clone(),
                         value: ctls_value,
-                        span: ident.span,
+                        span: ident.span.span,
                     };
                     let ctl_arg = Arg::Var(ident.id, variable);
                     Some(ctl_arg)
@@ -3907,7 +3880,7 @@ impl<'a> PartialEvaluator<'a> {
                 let variable = Variable {
                     name: ident.name.clone(),
                     value,
-                    span: ident.span,
+                    span: ident.span.span,
                 };
                 (vec![Arg::Var(ident.id, variable)], arrays)
             }
@@ -3966,14 +3939,9 @@ impl<'a> PartialEvaluator<'a> {
         if remaining_stmt_count > 0 && current_scope.is_currently_evaluating_branch() {
             let return_stmt =
                 self.get_stmt(return_stmt_id.expect("a return statement ID must have been set"));
-            let hir_package_id = map_fir_package_to_hir(self.get_current_package_id());
-            let return_stmt_package_span = PackageSpan {
-                package: hir_package_id,
-                span: return_stmt.span,
-            };
             Err(Error::Unimplemented(
                 "early return".to_string(),
-                return_stmt_package_span,
+                map_fir_package_span_to_hir(return_stmt.span),
             ))
         } else {
             Ok(last_control_flow)

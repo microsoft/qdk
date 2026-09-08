@@ -1,7 +1,6 @@
 // Copyright (c) Microsoft Corporation.
 // Licensed under the MIT License.
 
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     fir::{CallableKind, ItemId, LocalItemId},
     ty::{Arrow, FunctorSet, FunctorSetValue},
@@ -12,6 +11,7 @@ use crate::fir_builder::alloc_expr_stmt;
 use crate::test_utils::frontend_error_codes;
 
 use super::*;
+use qsc_fir::fir::PackageSpan;
 
 fn operation_arrow_ty(input: Ty, output: Ty) -> Ty {
     Ty::Arrow(Box::new(Arrow {
@@ -87,7 +87,7 @@ fn guard_stmt_with_flag_panics_on_non_unit_expr_stmt() {
         lit_expr_id,
         Expr {
             id: lit_expr_id,
-            span: qsc_data_structures::span::Span::default(),
+            span: PackageSpan::default(),
             ty: Ty::Prim(Prim::Int),
             kind: ExprKind::Lit(Lit::Int(0)),
             exec_graph_range: crate::EMPTY_EXEC_RANGE,
@@ -96,7 +96,7 @@ fn guard_stmt_with_flag_panics_on_non_unit_expr_stmt() {
 
     let stmt_id = {
         let assigner: &mut Assigner = &mut assigner;
-        alloc_expr_stmt(package, assigner, lit_expr_id, Span::default())
+        alloc_expr_stmt(package, assigner, lit_expr_id, PackageSpan::default())
     };
     let reachable = FxHashSet::default();
     let udt_pure_tys = super::super::build_scoped_udt_pure_ty_cache(&store, &reachable);

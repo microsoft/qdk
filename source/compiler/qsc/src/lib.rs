@@ -44,7 +44,7 @@ pub use qsc_data_structures::{
     span::Span, target::TargetCapabilityFlags,
 };
 
-pub use qsc_passes::{PackageType, PassContext, lower_hir_to_fir};
+pub use qsc_passes::{Error as PassError, PackageType, PassContext, lower_hir_to_fir};
 
 pub mod line_column {
     pub use qsc_data_structures::line_column::{Encoding, Position, Range};

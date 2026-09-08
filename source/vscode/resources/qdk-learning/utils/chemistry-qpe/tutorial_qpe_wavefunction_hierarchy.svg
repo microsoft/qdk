@@ -11,29 +11,26 @@
 <g id="clust1" class="cluster">
 <title>cluster_one_electron</title>
 <path fill="#e8eaf6" stroke="#5c6bc0" stroke-width="2.5" d="M20,-244.35C20,-244.35 543,-244.35 543,-244.35 549,-244.35 555,-250.35 555,-256.35 555,-256.35 555,-336.9 555,-336.9 555,-342.9 549,-348.9 543,-348.9 543,-348.9 20,-348.9 20,-348.9 14,-348.9 8,-342.9 8,-336.9 8,-336.9 8,-256.35 8,-256.35 8,-250.35 14,-244.35 20,-244.35"/>
-<text xml:space="preserve" text-anchor="middle" x="281.5" y="-331.6" font-family="Arial Bold" font-size="14.00" fill="#3949ab">One&#45;electron representation</text>
+<text xml:space="preserve" text-anchor="middle" x="281.5" y="-331.6" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">One&#45;electron representation</text>
 </g>
 <g id="clust2" class="cluster">
 <title>cluster_configuration</title>
 <path fill="#e0f2f1" stroke="#26a69a" stroke-width="2.5" d="M335,-111.8C335,-111.8 868,-111.8 868,-111.8 874,-111.8 880,-117.8 880,-123.8 880,-123.8 880,-204.35 880,-204.35 880,-210.35 874,-216.35 868,-216.35 868,-216.35 335,-216.35 335,-216.35 329,-216.35 323,-210.35 323,-204.35 323,-204.35 323,-123.8 323,-123.8 323,-117.8 329,-111.8 335,-111.8"/>
-<text xml:space="preserve" text-anchor="middle" x="601.5" y="-199.05" font-family="Arial Bold" font-size="14.00" fill="#00796b">Choose occupations</text>
+<text xml:space="preserve" text-anchor="middle" x="601.5" y="-199.05" font-family="Arial" font-weight="bold" font-size="14.00" fill="#00796b">Choose occupations</text>
 </g>
 <!-- Basis -->
 <g id="node1" class="node">
 <title>Basis</title>
 <path fill="#ffffff" stroke="#5c6bc0" stroke-width="2.5" d="M220,-317.15C220,-317.15 28,-317.15 28,-317.15 22,-317.15 16,-311.15 16,-305.15 16,-305.15 16,-264.35 16,-264.35 16,-258.35 22,-252.35 28,-252.35 28,-252.35 220,-252.35 220,-252.35 226,-252.35 232,-258.35 232,-264.35 232,-264.35 232,-305.15 232,-305.15 232,-311.15 226,-317.15 220,-317.15"/>
-<text xml:space="preserve" text-anchor="start" x="64" y="-291.95" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">Basis functions χ</text>
-<text xml:space="preserve" text-anchor="start" x="176.5" y="-291.95" font-family="Arial" font-weight="bold" baseline-shift="sub" font-size="14.00" fill="#3949ab">μ</text>
+<text xml:space="preserve" text-anchor="start" x="64" y="-291.95" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">Basis functions χ<tspan baseline-shift="sub" font-size="10.50">μ</tspan></text>
 <text xml:space="preserve" text-anchor="start" x="41.88" y="-266.8" font-family="Arial" font-size="11.00" fill="#3949ab">Nucleus&#45;centered spatial functions</text>
 </g>
 <!-- MolecularOrbital -->
 <g id="node2" class="node">
 <title>MolecularOrbital</title>
 <path fill="#ffffff" stroke="#5c6bc0" stroke-width="2.5" d="M535,-317.15C535,-317.15 343,-317.15 343,-317.15 337,-317.15 331,-311.15 331,-305.15 331,-305.15 331,-264.35 331,-264.35 331,-258.35 337,-252.35 343,-252.35 343,-252.35 535,-252.35 535,-252.35 541,-252.35 547,-258.35 547,-264.35 547,-264.35 547,-305.15 547,-305.15 547,-311.15 541,-317.15 535,-317.15"/>
-<text xml:space="preserve" text-anchor="start" x="374.12" y="-291.95" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">Molecular orbital φ</text>
-<text xml:space="preserve" text-anchor="start" x="496.38" y="-291.95" font-family="Arial" font-weight="bold" baseline-shift="sub" font-size="14.00" fill="#3949ab">p</text>
-<text xml:space="preserve" text-anchor="start" x="364.75" y="-266.8" font-family="Arial" font-size="11.00" fill="#3949ab">With α or β spin: spin orbital ψ</text>
-<text xml:space="preserve" text-anchor="start" x="508" y="-266.8" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#3949ab">p</text>
+<text xml:space="preserve" text-anchor="start" x="374.12" y="-291.95" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">Molecular orbital φ<tspan baseline-shift="sub" font-size="10.50">p</tspan></text>
+<text xml:space="preserve" text-anchor="start" x="364.75" y="-266.8" font-family="Arial" font-size="11.00" fill="#3949ab">With α or β spin: spin orbital ψ<tspan baseline-shift="sub" font-size="8.25">p</tspan></text>
 </g>
 <!-- Basis&#45;&gt;MolecularOrbital -->
 <g id="edge1" class="edge">
@@ -59,8 +56,7 @@
 <g id="node4" class="node">
 <title>Determinant</title>
 <path fill="#00796b" stroke="#004d40" stroke-width="2.5" d="M859.9,-184.6C859.9,-184.6 660.1,-184.6 660.1,-184.6 654.1,-184.6 648.1,-178.6 648.1,-172.6 648.1,-172.6 648.1,-131.8 648.1,-131.8 648.1,-125.8 654.1,-119.8 660.1,-119.8 660.1,-119.8 859.9,-119.8 859.9,-119.8 865.9,-119.8 871.9,-125.8 871.9,-131.8 871.9,-131.8 871.9,-172.6 871.9,-172.6 871.9,-178.6 865.9,-184.6 859.9,-184.6"/>
-<text xml:space="preserve" text-anchor="start" x="691.38" y="-159.4" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Slater determinant Φ</text>
-<text xml:space="preserve" text-anchor="start" x="825.62" y="-159.4" font-family="Arial" font-weight="bold" baseline-shift="sub" font-size="14.00" fill="#ffffff">I</text>
+<text xml:space="preserve" text-anchor="start" x="691.38" y="-159.4" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Slater determinant Φ<tspan baseline-shift="sub" font-size="10.50">I</tspan></text>
 <text xml:space="preserve" text-anchor="start" x="662.5" y="-134.25" font-family="Arial" font-size="11.00" fill="#e0f2f1">Antisymmetric state for one configuration</text>
 </g>
 <!-- Configuration&#45;&gt;Determinant -->
@@ -74,8 +70,7 @@
 <g id="node5" class="node">
 <title>HartreeFock</title>
 <path fill="#7b1fa2" stroke="#4a148c" stroke-width="2.5" d="M856,-64.8C856,-64.8 664,-64.8 664,-64.8 658,-64.8 652,-58.8 652,-52.8 652,-52.8 652,-12 652,-12 652,-6 658,0 664,0 664,0 856,0 856,0 862,0 868,-6 868,-12 868,-12 868,-52.8 868,-52.8 868,-58.8 862,-64.8 856,-64.8"/>
-<text xml:space="preserve" text-anchor="start" x="703" y="-39.6" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Hartree&#45;Fock Φ</text>
-<text xml:space="preserve" text-anchor="start" x="801.25" y="-39.6" font-family="Arial" font-weight="bold" baseline-shift="sub" font-size="14.00" fill="#ffffff">HF</text>
+<text xml:space="preserve" text-anchor="start" x="703" y="-39.6" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Hartree&#45;Fock Φ<tspan baseline-shift="sub" font-size="10.50">HF</tspan></text>
 <text xml:space="preserve" text-anchor="start" x="695.5" y="-14.45" font-family="Arial" font-size="11.00" fill="#f3e5f5">One optimized determinant</text>
 </g>
 <!-- Determinant&#45;&gt;HartreeFock -->
@@ -89,12 +84,7 @@
 <title>MultiConfig</title>
 <path fill="#7b1fa2" stroke="#4a148c" stroke-width="2.5" d="M1104,-64.8C1104,-64.8 912,-64.8 912,-64.8 906,-64.8 900,-58.8 900,-52.8 900,-52.8 900,-12 900,-12 900,-6 906,0 912,0 912,0 1104,0 1104,0 1110,0 1116,-6 1116,-12 1116,-12 1116,-52.8 1116,-52.8 1116,-58.8 1110,-64.8 1104,-64.8"/>
 <text xml:space="preserve" text-anchor="start" x="935.62" y="-39.6" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Multiconfigurational Ψ</text>
-<text xml:space="preserve" text-anchor="start" x="958.88" y="-14.45" font-family="Arial" font-size="11.00" fill="#f3e5f5">Combination ∑</text>
-<text xml:space="preserve" text-anchor="start" x="1030.12" y="-14.45" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#f3e5f5">I</text>
-<text xml:space="preserve" text-anchor="start" x="1032.38" y="-14.45" font-family="Arial" font-size="11.00" fill="#f3e5f5"> c</text>
-<text xml:space="preserve" text-anchor="start" x="1040.62" y="-14.45" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#f3e5f5">I</text>
-<text xml:space="preserve" text-anchor="start" x="1042.88" y="-14.45" font-family="Arial" font-size="11.00" fill="#f3e5f5"> Φ</text>
-<text xml:space="preserve" text-anchor="start" x="1054.88" y="-14.45" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#f3e5f5">I</text>
+<text xml:space="preserve" text-anchor="start" x="958.88" y="-14.45" font-family="Arial" font-size="11.00" fill="#f3e5f5">Combination ∑<tspan baseline-shift="sub" font-size="8.25">I</tspan> c<tspan baseline-shift="sub" font-size="8.25">I</tspan> Φ<tspan baseline-shift="sub" font-size="8.25">I</tspan></text>
 </g>
 <!-- Determinant&#45;&gt;MultiConfig -->
 <g id="edge5" class="edge">

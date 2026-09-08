@@ -50,7 +50,7 @@ fn i_gate_with_args_yields_error() {
               x unsupported argument in instruction: I
                ,----
              1 | I(0.1) 0
-               : ^^^^^^^^
+               :   ^^^
                `----
         "#]],
     );

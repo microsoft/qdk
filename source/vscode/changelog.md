@@ -1,5 +1,206 @@
 # QDK Changelog
 
+## v1.32.0
+
+The 1.32 release of the QDK is packed with new features and capabilities, along with numerous bug fixes and performance improvements. Highlights include new interactive learning content for quantum chemistry, a Bloch sphere visualizer, QDK-Stim support, non-Clifford stabilizer simulation, the new Q# `parallel` keyword, improved circuit rendering, and more.
+
+### QDK Learning Chemistry notebooks
+
+We've expanded our learning content with a new **Ground-state molecular energies with quantum phase estimation** tutorial for the [qdk-chemistry](https://microsoft.github.io/qdk-chemistry/) library. The course consists of several notebooks that are tightly integrated with advanced VS Code and GitHub Copilot features. (See the docs at <https://aka.ms/qdk>, or the walkthrough videos at <https://aka.ms/qdk.install> and <https://aka.ms/qdk.copilot>, for details on setting up VS Code, Python, and GitHub Copilot).
+
+To get started, open a directory in VS Code where you'd like to save your progress, and ensure you have a Python environment with the `qdk-chemistry` package installed. (The new **QDK Python environment creation** command, described below, can help with this). Then go to the **Microsoft Quantum** area in the Activity Bar and select **Start Learning**. This adds both the Katas and Chemistry courses to your workspace, ready for you to work through at your own pace.
+
+<img width="1020" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/qdk-chemistry-course.webp" />
+
+### QDK Python environment creation command
+
+Setting up a Python environment for the QDK is now easier. A new VS Code command creates a virtual environment named `.venv` in the current workspace and installs the QDK packages you select. This is especially useful for setting up the QDK Chemistry learning experience described above - just make sure `qdk-chemistry[jupyter]` is selected.
+
+From the Command Palette, select **QDK: Create a Microsoft Quantum Python virtual environment**:
+
+<img width="600" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/qdk-env-command.webp" />
+
+Then choose the Python packages you want to install. The packages selected by default are shown below:
+
+<img width="600" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/qdk-env-libraries.webp" />
+
+If a virtual environment named `.venv` already exists, the command will offer to update it instead.
+
+### Bloch sphere visualizer
+
+This release also introduces an interactive **Bloch sphere visualizer**, providing a new way to explore and understand single-qubit states and operations. In VS Code, launch it from the Command Palette using **QDK: Bloch sphere**. In Jupyter notebooks, use the `BlochSphere` widget.
+
+<img width="782" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/bloch-sphere.webp" />
+
+The Bloch sphere animates rotations as gates are applied and can also show a trace of the state vector updates as unitary matrices are applied.
+
+Rotations can be applied directly or through **rotation synthesis**, using a sequence of Hadamard and T gates.
+
+<img width="254" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/bloch-decomp.webp" />
+
+In either the VS Code visualizer or Jupyter widget, you can specify a sequence of gates using a string. For example:
+
+```python
+from qdk.widgets import BlochSphere
+display(BlochSphere('H T H'))
+```
+
+### QDK-Stim
+
+This release introduces experimental support for **QDK-Stim**, a Stim-like language in the QDK. QDK-Stim supports the instruction set made popular by Stim, additional non-Clifford operations similar to those supported by [Cliftt](https://github.com/unitaryfoundation/clifft) and [tsim](https://github.com/QuEraComputing/tsim), and several QDK-specific instructions as described below.
+
+QDK-Stim programs are compiled to QIR and can then run on any of our simulators that accept QIR, including the CPU and GPU state-vector simulators, stabilizer decomposition simulator, and density matrix simulator.
+
+Additional instructions unique to QDK-Stim include:
+
+- `SELECT / REQUIRE / NOTLEAKED` for post-selection or repeat-until-success patterns based on parity measurements and qubit-loss checks.
+- `PEEK_LOSS / LOSS_ERROR` for additional qubit-loss modeling and handling.
+
+See the notebook at `samples/notebooks/qdk_stim.ipynb` for more details and usage examples.
+
+**Note:** QDK-Stim is currently experimental, and its features will continue to be expanded and refined. Please log an issue if you encounter a problem or would like to request a feature.
+
+### Q\# `parallel` keyword
+
+Q# now includes the `parallel` keyword, which can be used as a prefix on expressions to control the space/time trade-off in generated code. As a simple example, consider the following `for` loop:
+
+```qsharp
+operation Main() : Result[] {
+    mutable results = [];
+    for i in 1..4 {
+        use q = Qubit();
+        results += [MResetX(q)];
+    }
+    results
+}
+```
+
+By default, the compiler tries to minimize qubit requirements. In this example, it reuses the qubit allocated within the loop, resulting in the circuit below. This requires only one qubit, at the expense of serializing the operations and therefore taking more time:
+
+<img width="580" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/parallel-before.webp" />
+
+Prefixing the loop with the `parallel` keyword tells the compiler to try to run iterations in parallel where possible. In this case, it uses a distinct qubit for each iteration — requiring more qubits, but reducing execution time:
+
+```qsharp
+operation Main() : Result[] {
+    mutable results = [];
+    parallel for i in 1..4 {
+        use q = Qubit();
+        results += [MResetX(q)];
+    }
+    results
+}
+```
+
+<img width="380" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/parallel-after.webp" />
+
+See PRs [#3298](https://github.com/microsoft/qdk/pull/3298) and [#3588](https://github.com/microsoft/qdk/pull/3588) for more details.
+
+### Stabilizer decomposition (non-Clifford simulation)
+
+The QDK's stabilizer simulator has always been able to scale to large numbers of qubits, but until now it was limited to Clifford operations. This release adds **stabilizer branching**, enabling the simulator to handle circuits containing a small number of non-Clifford operations while retaining the scalability of stabilizer simulation.
+
+The required state space grows exponentially with the number of non-Clifford operations, so shot throughput decreases significantly as more non-Clifford operations are added. See `samples/notebooks/stabilizer_branching.ipynb` for an example of a 111-qubit OpenQASM circuit containing 10 non-Clifford operations, which can still achieve a few hundred shots per second on a typical laptop.
+
+### Circuit rendering options
+
+You can now control how a circuit for a Q# operation is rendered by adding the `@CircuitRenderingOptions` attribute to the operation definition.
+
+The following options are currently supported:
+
+- `hideBox` (`true` or `false`): If `true`, the operation's group box is omitted and its contents are rendered directly in the containing scope.
+- `inputSizes` (array of positive integers): Specifies the lengths of qubit-array arguments (`Qubit[]`, `Qubit[][]`, etc.) used to render the operation. Values apply to inputs in declaration order and to each input's dimensions from outermost to innermost. Missing values default to 2, and extra values are ignored.
+
+For example:
+
+```qsharp
+@CircuitRenderingOptions(hideBox=true, inputSizes=[3,4])
+operation Foo(a: Qubit[], b: Qubit[]) : Unit {
+    for q in a { X(q); }
+    for q in b { H(q); }
+}
+```
+
+### Pretty-printed circuit angles
+
+Circuit diagrams are now easier to read, with common rotation angles rendered in a more natural mathematical form instead of as decimal floating-point values. For example, the image below shows the before-and-after rendering of a rotation by π/4:
+
+<img width="280" alt="image" src="https://raw.githubusercontent.com/microsoft/qdk/main/media/friendly-angles.webp" />
+
+### Deprecation of the `qsharp` Python package
+
+The [qsharp](https://pypi.org/project/qsharp/) Python package is now deprecated and will no longer receive updates. Install the QDK using the [qdk](https://pypi.org/project/qdk/) Python package instead, and update imports to use `qdk` and its submodules.
+
+## Other noteable changes
+
+- Circuit-Editor and Visualization Re-Architecting and Tests by @ScottCarda-MS in [#3425](https://github.com/microsoft/qdk/pull/3425)
+- Fix multiplatform pipeline error for macos-latest by @joao-boechat in [#3543](https://github.com/microsoft/qdk/pull/3543)
+- Enable source maps in source/npm/qsharp/src by @amcasey in [#3542](https://github.com/microsoft/qdk/pull/3542)
+- Allow overriding github deps with local deps using env variables by @fedimser in [#3541](https://github.com/microsoft/qdk/pull/3541)
+- Use a `+json` mimetype for the Q# config output so executed notebooks stay nbformat-valid by @ScottCarda-MS in [#3555](https://github.com/microsoft/qdk/pull/3555)
+- Bloch Sphere Widget - Command and Dev Playground by @ScottCarda-MS in [#3306](https://github.com/microsoft/qdk/pull/3306)
+- Drop redundant document updates in the LS by @amcasey in [#3534](https://github.com/microsoft/qdk/pull/3534)
+- Delay squiggles by @amcasey in [#3545](https://github.com/microsoft/qdk/pull/3545)
+- Unified GPU shaders by @billti in [#3483](https://github.com/microsoft/qdk/pull/3483)
+- Allow dynamic constant values to coerce to static across callable boundaries in RCA by @swernli in [#3502](https://github.com/microsoft/qdk/pull/3502)
+- Reject recursive user-defined types at type-check time by @idavis in [#3546](https://github.com/microsoft/qdk/pull/3546)
+- Remove CPU Full State Noiseless Simulator by @joao-boechat in [#3565](https://github.com/microsoft/qdk/pull/3565)
+- Prevent code meant only for simulation from leaking into generated quantum programs and analysis by @idavis in [#3540](https://github.com/microsoft/qdk/pull/3540)
+- Emitted ir functions now have internal linkage by @idavis in [#3571](https://github.com/microsoft/qdk/pull/3571)
+- New `parallel` expression in Q# by @swernli in [#3298](https://github.com/microsoft/qdk/pull/3298)
+- Support emission of locally constant arrays with dynamic contents by @swernli in [#3537](https://github.com/microsoft/qdk/pull/3537)
+- Fix spec & perf issues, rename and decouple the OpenQASM crate (`qdk_openqasm_parser` -> `qdk_openqasm`) by @idavis in [#3553](https://github.com/microsoft/qdk/pull/3553)
+- Drop `qsharp` Python Package by @ScottCarda-MS in [#3579](https://github.com/microsoft/qdk/pull/3579)
+- Fix OpenQASM file includes on Windows while preserving valid Unix paths by @idavis in [#3590](https://github.com/microsoft/qdk/pull/3590)
+- Introduce Python Notebook learning experience prototype by @amcasey in [#3526](https://github.com/microsoft/qdk/pull/3526)
+- [QRE] Build trace from Q# program by @fedimser in [#3421](https://github.com/microsoft/qdk/pull/3421)
+- Fix learning notebook tree navigation by @amcasey in [#3601](https://github.com/microsoft/qdk/pull/3601)
+- [STIM] Support Generalized Pauli Product Gates by @joao-boechat in [#3556](https://github.com/microsoft/qdk/pull/3556)
+- Introduce command and tools for venv creation by @amcasey in [#3554](https://github.com/microsoft/qdk/pull/3554)
+- add the chemistry active space notebook course by @HABER7789 in [#3568](https://github.com/microsoft/qdk/pull/3568)
+- Support readout noise in simulators and stim compiler by @joao-boechat in [#3581](https://github.com/microsoft/qdk/pull/3581)
+- Optimize execution graph with expression specific nodes by @swernli in [#3603](https://github.com/microsoft/qdk/pull/3603)
+- Add language samples for `parallel`, update notebooks by @swernli in [#3588](https://github.com/microsoft/qdk/pull/3588)
+- Fix calculated compute properties for callables invoked from `parallel` exprs by @swernli in [#3592](https://github.com/microsoft/qdk/pull/3592)
+- Guide the learning agent away from switching courses by @amcasey in [#3613](https://github.com/microsoft/qdk/pull/3613)
+- [STIM] Support readout noise for MPP by @joao-boechat in [#3608](https://github.com/microsoft/qdk/pull/3608)
+- Use relative import in QRE cirq interop to fix pyright by @swernli in [#3625](https://github.com/microsoft/qdk/pull/3625)
+- [QRE] Show errors in case when resource estimation has no results. by @fedimser in [#3615](https://github.com/microsoft/qdk/pull/3615)
+- Improve build build times by @idavis in [#3622](https://github.com/microsoft/qdk/pull/3622)
+- Use mapped qubit ids in constant arrays to respect `Relabel` by @swernli in [#3626](https://github.com/microsoft/qdk/pull/3626)
+- Circuit-Editor Multi-Target Gate Support by @ScottCarda-MS in [#3426](https://github.com/microsoft/qdk/pull/3426)
+- Circuit-Editor Classical-Control Support by @ScottCarda-MS in [#3596](https://github.com/microsoft/qdk/pull/3596)
+- Use theme aware SVG diagrams in the chemistry QPE course by @HABER7789 in [#3631](https://github.com/microsoft/qdk/pull/3631)
+- Add python widget for Bloch Sphere by @ScottCarda-MS in [#3595](https://github.com/microsoft/qdk/pull/3595)
+- RCA Perf: Remove early termination check in `analyze_expr_while` by @swernli in [#3623](https://github.com/microsoft/qdk/pull/3623)
+- Skip loop normalization when package uses no loop control by @swernli in [#3628](https://github.com/microsoft/qdk/pull/3628)
+- RCA Perf: Perform aggregation in-place rather than returning new instances. by @swernli in [#3619](https://github.com/microsoft/qdk/pull/3619)
+- Fix panic in `source/language_service/src/name_locator.rs` by @swernli in [#3636](https://github.com/microsoft/qdk/pull/3636)
+- Add stabilizer branching for non-Clifford simulation by @billti in [#3594](https://github.com/microsoft/qdk/pull/3594)
+- Add the `qdk.openqasm` parser and semantic analysis Python API by @idavis in [#3580](https://github.com/microsoft/qdk/pull/3580)
+- [STIM] Support peek_loss by @joao-boechat in [#3550](https://github.com/microsoft/qdk/pull/3550)
+- Use only cirq-core in integration tests by @swernli in [#3642](https://github.com/microsoft/qdk/pull/3642)
+- Enable user friendly angles in circuits by @idavis in [#3599](https://github.com/microsoft/qdk/pull/3599)
+- Stop expr ty errors from cascading in gate operands during OpenQASM lowering by @idavis in [#3644](https://github.com/microsoft/qdk/pull/3644)
+- [STIM] Introduce non-Clifford gates to qdk-stim by @joao-boechat in [#3643](https://github.com/microsoft/qdk/pull/3643)
+- Fix panic caused by using wrong offset in trace logging by @amcasey in [#3648](https://github.com/microsoft/qdk/pull/3648)
+- Fix OpenQASM errors when editing unsaved files by @idavis in [#3650](https://github.com/microsoft/qdk/pull/3650)
+- [Circuit renderer] Add attribute to hide wrapper operations from circuit diagrams by @fedimser in [#3630](https://github.com/microsoft/qdk/pull/3630)
+- Open notebooks at the top when switching courses or resetting a unit by @HABER7789 in [#3654](https://github.com/microsoft/qdk/pull/3654)
+- Use `PackageSpan` in Capability Errors to fix panic by @swernli in [#3656](https://github.com/microsoft/qdk/pull/3656)
+- Handle binop with dynamic constant `BigInt` values by @swernli in [#3660](https://github.com/microsoft/qdk/pull/3660)
+- Pin ipykernel to 6.x to avoid Jupyter kernel startup hangs by @HABER7789 in [#3661](https://github.com/microsoft/qdk/pull/3661)
+- Fix dynamic result bugs in GPU simulator by @joao-boechat in [#3663](https://github.com/microsoft/qdk/pull/3663)
+- Add unit to unit navigation links to Chemistry QPE notebooks by @HABER7789 in [#3646](https://github.com/microsoft/qdk/pull/3646)
+- Add Samples for Physical Qubit Addressing Mode by @ScottCarda-MS in [#3657](https://github.com/microsoft/qdk/pull/3657)
+- Fixed errors in teleportation kata by @filipw in [#3651](https://github.com/microsoft/qdk/pull/3651)
+- [QRE] Automatic error analysis for empty resource estimates by @fedimser in [#3659](https://github.com/microsoft/qdk/pull/3659)
+- Course authoring guide for QDK Learning courses by @HABER7789 in [#3655](https://github.com/microsoft/qdk/pull/3655)
+- [STIM] Finalize non-Clifford support by @joao-boechat in [#3647](https://github.com/microsoft/qdk/pull/3647)
+- [Circuit renderer] Support user-provided input sizes for circuit rendering by @fedimser in [#3658](https://github.com/microsoft/qdk/pull/3658)
+
+**Full Changelog**: <https://github.com/microsoft/qdk/compare/v1.31.0...v1.32.0>
+
 ## v1.31.0
 
 Below are some of the highlights for the 1.31 release of the QDK.

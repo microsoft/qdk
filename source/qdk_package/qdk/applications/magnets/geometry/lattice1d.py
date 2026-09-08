@@ -72,6 +72,58 @@ class Chain1D(Hypergraph):
         return coloring
 
 
+class MthNearestNeighborChain1D(Hypergraph):
+    """An open chain with connections through the m-th nearest neighbor.
+
+    Each edge is marked with one less than its neighbor distance. For example,
+    edges between adjacent vertices have mark 0, and next-nearest-neighbor
+    edges have mark 1.
+
+    Attributes:
+        length: Number of vertices in the chain.
+        m: Maximum neighbor distance included in the chain.
+    """
+
+    def __init__(self, length: int, m: int, self_loops: bool = False) -> None:
+        """Initialize an m-th nearest-neighbor 1D chain.
+
+        Args:
+            length: Number of vertices in the chain.
+            m: Maximum neighbor distance to connect.
+            self_loops: If True, include self-loop edges on each vertex
+                for single-site terms.
+        """
+        if self_loops:
+            _edges = [Hyperedge([i]) for i in range(length)]
+        else:
+            _edges = []
+
+        for distance in range(1, min(m, length - 1) + 1):
+            for i in range(length - distance):
+                edge = Hyperedge([i, i + distance])
+                edge.mark = distance - 1
+                _edges.append(edge)
+
+        super().__init__(_edges)
+        self.length = length
+        self.m = m
+
+    def edge_coloring(
+        self, seed: Optional[int] = 0, trials: int = 1
+    ) -> HypergraphEdgeColoring:
+        """Color each neighbor distance with two alternating colors."""
+        coloring = HypergraphEdgeColoring(self)
+        for edge in self.edges():
+            if len(edge.vertices) == 1:
+                coloring.add_edge(edge, -1)
+            else:
+                i, j = edge.vertices
+                distance = j - i
+                color = 2 * (distance - 1) + (i // distance) % 2
+                coloring.add_edge(edge, color)
+        return coloring
+
+
 class Ring1D(Hypergraph):
     """A one-dimensional ring (periodic chain) lattice.
 

@@ -171,7 +171,7 @@ fn m_gate_with_invalid_readout_noise_yields_error() {
               x probability for M must be between 0 and 1; found 1.1
                ,----
              1 | M(1.1) 0
-               : ^^^^^^^^
+               :   ^^^
                `----
         "#]],
     );
@@ -179,14 +179,14 @@ fn m_gate_with_invalid_readout_noise_yields_error() {
     check(
         "M(-0.1) 0",
         &expect![[r#"
-        Qdk.Stim.Compiler.InvalidProbability
+            Qdk.Stim.Compiler.InvalidProbability
 
-          x probability for M must be between 0 and 1; found -0.1
-           ,----
-         1 | M(-0.1) 0
-           : ^^^^^^^^^
-           `----
-    "#]],
+              x probability for M must be between 0 and 1; found -0.1
+               ,----
+             1 | M(-0.1) 0
+               :   ^^^^
+               `----
+        "#]],
     );
 }
 
@@ -216,7 +216,7 @@ fn m_gate_with_two_args_yields_error() {
               x too many arguments for instruction M; expected 1, found 2
                ,----
              1 | M(0.1, 0.2) 0
-               : ^^^^^^^^^^^^^
+               :        ^^^
                `----
         "#]],
     );

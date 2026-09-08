@@ -87,7 +87,7 @@ fn t_gate_with_argument_yields_error() {
               x unsupported argument in instruction: T
                ,----
              1 | T(0.5) 0
-               : ^^^^^^^^
+               :   ^^^
                `----
         "#]],
     );
@@ -572,7 +572,7 @@ fn tpp_with_argument_yields_error() {
               x unsupported argument in instruction: TPP
                ,----
              1 | TPP(0.5) Z0
-               : ^^^^^^^^^^^
+               :     ^^^
                `----
         "#]],
     );
@@ -808,7 +808,7 @@ fn ccx_gate_with_argument_yields_error() {
               x unsupported argument in instruction: CCX
                ,----
              1 | CCX(0.5) 0 1 2
-               : ^^^^^^^^^^^^^^
+               :     ^^^
                `----
         "#]],
     );
@@ -827,6 +827,58 @@ fn ccx_gate_with_negated_target_yields_error() {
                :         ^^
                `----
         "#]],
+    );
+}
+
+#[test]
+fn ccx_gate_with_repeated_qubit_yields_error() {
+    check(
+        "CCX 0 0 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 0 1
+           :       ^
+           `----
+    "#]],
+    );
+    check(
+        "CCX 0 1 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 1 0
+           :         ^
+           `----
+    "#]],
+    );
+    check(
+        "CCX 0 1 1",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 1 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 1 1
+           :         ^
+           `----
+    "#]],
+    );
+    check(
+        "CCX 0 0 0",
+        &expect![[r#"
+        Qdk.Stim.Compiler.RepeatedQubit
+
+          x qubit 0 is repeated in instruction: CCX
+           ,----
+         1 | CCX 0 0 0
+           :       ^
+           `----
+    "#]],
     );
 }
 
@@ -1059,7 +1111,7 @@ fn r_x_with_two_arguments_yields_error() {
               x too many arguments for instruction R_X; expected 1, found 2
                ,----
              1 | R_X(0.25, 0.5) 0
-               : ^^^^^^^^^^^^^^^^
+               :           ^^^
                `----
         "#]],
     );
@@ -1224,7 +1276,7 @@ fn u3_with_one_argument_yields_error() {
               x too few arguments for instruction U3; expected 3, found 1
                ,----
              1 | U3(0.1) 0
-               : ^^^^^^^^^
+               :    ^^^
                `----
         "#]],
     );
@@ -1240,7 +1292,7 @@ fn u3_with_two_arguments_yields_error() {
               x too few arguments for instruction U3; expected 3, found 2
                ,----
              1 | U3(0.1, 0.2) 0
-               : ^^^^^^^^^^^^^^
+               :    ^^^^^^^^
                `----
         "#]],
     );
@@ -1256,7 +1308,7 @@ fn u3_with_four_arguments_yields_error() {
               x too many arguments for instruction U3; expected 3, found 4
                ,----
              1 | U3(0.1, 0.2, 0.3, 0.4) 0
-               : ^^^^^^^^^^^^^^^^^^^^^^^^
+               :                   ^^^
                `----
         "#]],
     );
@@ -1473,7 +1525,7 @@ fn r_xx_with_two_arguments_yields_error() {
               x too many arguments for instruction R_XX; expected 1, found 2
                ,----
              1 | R_XX(0.25, 0.5) 0 1
-               : ^^^^^^^^^^^^^^^^^^^
+               :            ^^^
                `----
         "#]],
     );
@@ -1710,7 +1762,7 @@ fn r_pauli_with_two_arguments_yields_error() {
               x too many arguments for instruction R_PAULI; expected 1, found 2
                ,----
              1 | R_PAULI(0.25, 0.5) X0
-               : ^^^^^^^^^^^^^^^^^^^^^
+               :               ^^^
                `----
         "#]],
     );

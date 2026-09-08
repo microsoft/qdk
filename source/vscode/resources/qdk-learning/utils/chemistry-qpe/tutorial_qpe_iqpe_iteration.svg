@@ -13,9 +13,7 @@
 <title>Compute</title>
 <path fill="#e0f2f1" stroke="#00796b" stroke-width="2.5" d="M247.2,-862.2C247.2,-862.2 12,-862.2 12,-862.2 6,-862.2 0,-856.2 0,-850.2 0,-850.2 0,-805.8 0,-805.8 0,-799.8 6,-793.8 12,-793.8 12,-793.8 247.2,-793.8 247.2,-793.8 253.2,-793.8 259.2,-799.8 259.2,-805.8 259.2,-805.8 259.2,-850.2 259.2,-850.2 259.2,-856.2 253.2,-862.2 247.2,-862.2"/>
 <text xml:space="preserve" text-anchor="start" x="54.22" y="-835.2" font-family="Arial" font-weight="bold" font-size="14.00" fill="#004d40">Fresh compute register</text>
-<text xml:space="preserve" text-anchor="start" x="54.97" y="-810.05" font-family="Arial" font-size="11.00" fill="#004d40">Prepare the trial state |Ψ</text>
-<text xml:space="preserve" text-anchor="start" x="173.47" y="-810.05" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#004d40">trial</text>
-<text xml:space="preserve" text-anchor="start" x="188.47" y="-810.05" font-family="Arial" font-size="11.00" fill="#004d40">⟩</text>
+<text xml:space="preserve" text-anchor="start" x="54.97" y="-810.05" font-family="Arial" font-size="11.00" fill="#004d40">Prepare the trial state |Ψ<tspan baseline-shift="sub" font-size="8.25">trial</tspan>⟩</text>
 </g>
 <!-- Evolution -->
 <g id="node4" class="node">
@@ -42,9 +40,7 @@
 <title>Feedback</title>
 <path fill="#e8eaf6" stroke="#5c6bc0" stroke-width="2.5" d="M523.8,-748.8C523.8,-748.8 245.4,-748.8 245.4,-748.8 239.4,-748.8 233.4,-742.8 233.4,-736.8 233.4,-736.8 233.4,-692.4 233.4,-692.4 233.4,-686.4 239.4,-680.4 245.4,-680.4 245.4,-680.4 523.8,-680.4 523.8,-680.4 529.8,-680.4 535.8,-686.4 535.8,-692.4 535.8,-692.4 535.8,-736.8 535.8,-736.8 535.8,-742.8 529.8,-748.8 523.8,-748.8"/>
 <text xml:space="preserve" text-anchor="start" x="313.35" y="-721.8" font-family="Arial" font-weight="bold" font-size="14.00" fill="#283593">Apply phase feedback</text>
-<text xml:space="preserve" text-anchor="start" x="287.85" y="-696.65" font-family="Arial" font-size="11.00" fill="#283593">Use angle Φ</text>
-<text xml:space="preserve" text-anchor="start" x="348.6" y="-696.65" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#283593">k</text>
-<text xml:space="preserve" text-anchor="start" x="353.1" y="-696.65" font-family="Arial" font-size="11.00" fill="#283593"> from earlier measured bits</text>
+<text xml:space="preserve" text-anchor="start" x="287.85" y="-696.65" font-family="Arial" font-size="11.00" fill="#283593">Use angle Φ<tspan baseline-shift="sub" font-size="8.25">k</tspan> from earlier measured bits</text>
 </g>
 <!-- Ancilla&#45;&gt;Feedback -->
 <g id="edge1" class="edge">
@@ -88,8 +84,7 @@
 <g id="node7" class="node">
 <title>Majority</title>
 <path fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2.5" d="M395.8,-295.2C395.8,-295.2 117.4,-295.2 117.4,-295.2 111.4,-295.2 105.4,-289.2 105.4,-283.2 105.4,-283.2 105.4,-238.8 105.4,-238.8 105.4,-232.8 111.4,-226.8 117.4,-226.8 117.4,-226.8 395.8,-226.8 395.8,-226.8 401.8,-226.8 407.8,-232.8 407.8,-238.8 407.8,-238.8 407.8,-283.2 407.8,-283.2 407.8,-289.2 401.8,-295.2 395.8,-295.2"/>
-<text xml:space="preserve" text-anchor="start" x="170.35" y="-268.2" font-family="Arial" font-weight="bold" font-size="14.00" fill="#4a148c">Majority vote selects bit b</text>
-<text xml:space="preserve" text-anchor="start" x="336.1" y="-268.2" font-family="Arial" font-weight="bold" baseline-shift="sub" font-size="14.00" fill="#4a148c">k</text>
+<text xml:space="preserve" text-anchor="start" x="170.35" y="-268.2" font-family="Arial" font-weight="bold" font-size="14.00" fill="#4a148c">Majority vote selects bit b<tspan baseline-shift="sub" font-size="10.50">k</tspan></text>
 <text xml:space="preserve" text-anchor="start" x="182.35" y="-243.05" font-family="Arial" font-size="11.00" fill="#4a148c">Classical result for this iteration</text>
 </g>
 <!-- Shots&#45;&gt;Majority -->
@@ -103,10 +98,7 @@
 <title>Update</title>
 <path fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2.5" d="M403,-181.8C403,-181.8 110.2,-181.8 110.2,-181.8 104.2,-181.8 98.2,-175.8 98.2,-169.8 98.2,-169.8 98.2,-125.4 98.2,-125.4 98.2,-119.4 104.2,-113.4 110.2,-113.4 110.2,-113.4 403,-113.4 403,-113.4 409,-113.4 415,-119.4 415,-125.4 415,-125.4 415,-169.8 415,-169.8 415,-175.8 409,-181.8 403,-181.8"/>
 <text xml:space="preserve" text-anchor="start" x="141.1" y="-154.8" font-family="Arial" font-weight="bold" font-size="14.00" fill="#4a148c">Update the classical feedback angle</text>
-<text xml:space="preserve" text-anchor="start" x="198.48" y="-129.65" font-family="Arial" font-size="11.00" fill="#4a148c">Use b</text>
-<text xml:space="preserve" text-anchor="start" x="226.98" y="-129.65" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#4a148c">k</text>
-<text xml:space="preserve" text-anchor="start" x="231.48" y="-129.65" font-family="Arial" font-size="11.00" fill="#4a148c"> to compute Φ</text>
-<text xml:space="preserve" text-anchor="start" x="299.73" y="-129.65" font-family="Arial" baseline-shift="sub" font-size="11.00" fill="#4a148c">k+1</text>
+<text xml:space="preserve" text-anchor="start" x="198.48" y="-129.65" font-family="Arial" font-size="11.00" fill="#4a148c">Use b<tspan baseline-shift="sub" font-size="8.25">k</tspan> to compute Φ<tspan baseline-shift="sub" font-size="8.25">k+1</tspan></text>
 </g>
 <!-- Majority&#45;&gt;Update -->
 <g id="edge7" class="edge">

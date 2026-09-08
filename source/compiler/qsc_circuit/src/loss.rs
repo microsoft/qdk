@@ -151,7 +151,48 @@ mod tests {
     use qdk_simulators::noise_config::{NoiseConfig, NoiseTable, encode_pauli};
 
     use super::*;
-    use crate::builder::WireMapBuilder;
+    use crate::builder::{ClassicalControlInput, WireMapBuilder};
+
+    #[test]
+    fn ignores_classical_controls_when_selecting_noise_table() {
+        let mut noise_config = NoiseConfig::NOISELESS;
+        noise_config.x = NoiseTable {
+            qubits: 1,
+            pauli_strings: vec![encode_pauli("L")],
+            probabilities: vec![0.01],
+            on_loss: noise_config.x.on_loss,
+        };
+
+        let mut wire_map_builder = WireMapBuilder::default();
+        wire_map_builder.map_qubit(0, None);
+        wire_map_builder.link_result_to_qubit(0, 0);
+        let mut builder = OperationListBuilderWithLoss::new(
+            OperationListBuilder::new(usize::MAX, Vec::new(), false, false),
+            1,
+            Some(&noise_config),
+        );
+        let classical_controls = [ClassicalControlInput {
+            result_id: 0,
+            inverted: false,
+        }];
+        let inputs = GateInputs {
+            targets: &[0],
+            controls: &[],
+            classical_controls: &classical_controls,
+        };
+
+        builder.gate(
+            wire_map_builder.current(),
+            "X",
+            false,
+            &inputs,
+            Vec::new(),
+            None,
+            LogicalStack::default(),
+        );
+
+        assert!((builder.not_lost_probs[0] - 0.99).abs() < f64::EPSILON);
+    }
 
     #[test]
     fn tracks_cumulative_loss_and_reset() {
@@ -174,6 +215,7 @@ mod tests {
         let inputs = GateInputs {
             targets: &[0],
             controls: &[],
+            classical_controls: &[],
         };
 
         builder.gate(

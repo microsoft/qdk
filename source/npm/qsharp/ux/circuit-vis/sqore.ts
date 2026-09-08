@@ -9,6 +9,7 @@ import {
   Circuit,
   CircuitGroup,
   ComponentGrid,
+  CURRENT_VERSION,
   Operation,
   SourceLocation,
   Qubit,
@@ -641,6 +642,7 @@ export class Sqore {
     const minimizedCircuits: CircuitGroup = JSON.parse(
       JSON.stringify(circuitGroup),
     );
+    minimizedCircuits.version = CURRENT_VERSION;
     minimizedCircuits.circuits.forEach((circuit) => {
       circuit.componentGrid.forEach((col) => {
         col.components.forEach(this.minimizeOperation);

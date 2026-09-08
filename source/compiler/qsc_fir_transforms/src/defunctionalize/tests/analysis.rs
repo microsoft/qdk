@@ -5337,6 +5337,7 @@ fn analysis_callable_from_tuple_destructured_array_iteration() {
 #[test]
 fn resolve_captures_missing_binding_returns_none() {
     let package = Package {
+        id: qsc_fir::fir::PackageId::default(),
         items: IndexMap::new(),
         entry: None,
         entry_exec_graph: qsc_fir::fir::ExecGraph::default(),

@@ -76,7 +76,7 @@ fn ctl_unitary(gate: &str, targets: Vec<Register>, controls: Vec<Register>) -> O
         gate: gate.to_string(),
         args: vec![],
         is_adjoint: false,
-        controls,
+        controls: controls.into_iter().map(Into::into).collect(),
         targets,
         children: vec![],
         metadata: None,
@@ -109,7 +109,7 @@ fn ctl_unitary_with_children(
         gate: gate.to_string(),
         args: vec![],
         is_adjoint: false,
-        controls,
+        controls: controls.into_iter().map(Into::into).collect(),
         targets,
         children,
         metadata: None,
@@ -474,4 +474,26 @@ fn classical_controlled_group() {
 
     "#]]
     .assert_eq(&c.display_with_groups().to_string());
+}
+
+#[test]
+fn typescript_current_version_matches_rust() {
+    let typescript_circuit = include_str!("../../../../npm/qsharp/src/data-structures/circuit.ts");
+    let declaration = typescript_circuit
+        .lines()
+        .find(|line| {
+            line.trim_start()
+                .starts_with("export const CURRENT_VERSION")
+        })
+        .expect("TypeScript circuit schema should declare CURRENT_VERSION");
+    let (_, value) = declaration
+        .split_once('=')
+        .expect("TypeScript CURRENT_VERSION should have a value");
+    let typescript_current_version = value
+        .trim()
+        .trim_end_matches(';')
+        .parse::<usize>()
+        .expect("TypeScript CURRENT_VERSION should be an integer");
+
+    assert_eq!(typescript_current_version, CURRENT_VERSION);
 }

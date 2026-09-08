@@ -11,36 +11,35 @@
 <g id="clust1" class="cluster">
 <title>cluster_goal</title>
 <path fill="#e8eaf6" stroke="#5c6bc0" stroke-width="2.5" d="M20,-397.4C20,-397.4 234,-397.4 234,-397.4 240,-397.4 246,-403.4 246,-409.4 246,-409.4 246,-489.95 246,-489.95 246,-495.95 240,-501.95 234,-501.95 234,-501.95 20,-501.95 20,-501.95 14,-501.95 8,-495.95 8,-489.95 8,-489.95 8,-409.4 8,-409.4 8,-403.4 14,-397.4 20,-397.4"/>
-<text xml:space="preserve" text-anchor="middle" x="127" y="-484.65" font-family="Arial Bold" font-size="14.00" fill="#3949ab">Goal and reference</text>
+<text xml:space="preserve" text-anchor="middle" x="127" y="-484.65" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">Goal and reference</text>
 </g>
 <g id="clust2" class="cluster">
 <title>cluster_classical</title>
 <path fill="#e3f2fd" stroke="#42a5f5" stroke-width="2.5" d="M26,-267.6C26,-267.6 475,-267.6 475,-267.6 481,-267.6 487,-273.6 487,-279.6 487,-279.6 487,-360.15 487,-360.15 487,-366.15 481,-372.15 475,-372.15 475,-372.15 26,-372.15 26,-372.15 20,-372.15 14,-366.15 14,-360.15 14,-360.15 14,-279.6 14,-279.6 14,-273.6 20,-267.6 26,-267.6"/>
-<text xml:space="preserve" text-anchor="middle" x="250.5" y="-354.85" font-family="Arial Bold" font-size="14.00" fill="#1976d2">Classical molecular model</text>
+<text xml:space="preserve" text-anchor="middle" x="250.5" y="-354.85" font-family="Arial" font-weight="bold" font-size="14.00" fill="#1976d2">Classical molecular model</text>
 </g>
 <g id="clust3" class="cluster">
 <title>cluster_quantum</title>
 <path fill="#e0f2f1" stroke="#26a69a" stroke-width="2.5" d="M276,-137.8C276,-137.8 946,-137.8 946,-137.8 952,-137.8 958,-143.8 958,-149.8 958,-149.8 958,-230.35 958,-230.35 958,-236.35 952,-242.35 946,-242.35 946,-242.35 276,-242.35 276,-242.35 270,-242.35 264,-236.35 264,-230.35 264,-230.35 264,-149.8 264,-149.8 264,-143.8 270,-137.8 276,-137.8"/>
-<text xml:space="preserve" text-anchor="middle" x="611" y="-225.05" font-family="Arial Bold" font-size="14.00" fill="#00796b">Quantum workflow</text>
+<text xml:space="preserve" text-anchor="middle" x="611" y="-225.05" font-family="Arial" font-weight="bold" font-size="14.00" fill="#00796b">Quantum workflow</text>
 </g>
 <g id="clust4" class="cluster">
 <title>cluster_result</title>
 <path fill="#f3e5f5" stroke="#ab47bc" stroke-width="2.5" d="M745,-8C745,-8 953,-8 953,-8 959,-8 965,-14 965,-20 965,-20 965,-100.55 965,-100.55 965,-106.55 959,-112.55 953,-112.55 953,-112.55 745,-112.55 745,-112.55 739,-112.55 733,-106.55 733,-100.55 733,-100.55 733,-20 733,-20 733,-14 739,-8 745,-8"/>
-<text xml:space="preserve" text-anchor="middle" x="849" y="-95.25" font-family="Arial Bold" font-size="14.00" fill="#7b1fa2">Reconstruction and validation</text>
+<text xml:space="preserve" text-anchor="middle" x="849" y="-95.25" font-family="Arial" font-weight="bold" font-size="14.00" fill="#7b1fa2">Reconstruction and validation</text>
 </g>
 <!-- Goal -->
 <g id="node1" class="node">
 <title>Goal</title>
-<path fill="#ffffff" stroke="#5c6bc0" stroke-width="2.5" d="M226.15,-470.2C226.15,-470.2 27.85,-470.2 27.85,-470.2 21.85,-470.2 15.85,-464.2 15.85,-458.2 15.85,-458.2 15.85,-417.4 15.85,-417.4 15.85,-411.4 21.85,-405.4 27.85,-405.4 27.85,-405.4 226.15,-405.4 226.15,-405.4 232.15,-405.4 238.15,-411.4 238.15,-417.4 238.15,-417.4 238.15,-458.2 238.15,-458.2 238.15,-464.2 232.15,-470.2 226.15,-470.2"/>
-<text xml:space="preserve" text-anchor="start" x="49.75" y="-445" font-family="Arial" font-weight="bold" font-size="14.00" fill="#3949ab">Define the energy target</text>
-<text xml:space="preserve" text-anchor="start" x="30.25" y="-419.85" font-family="Arial" font-size="11.00" fill="#3949ab">Choose the matching classical reference</text>
+<path fill="#3949ab" stroke="#283593" stroke-width="2.5" d="M226.15,-470.2C226.15,-470.2 27.85,-470.2 27.85,-470.2 21.85,-470.2 15.85,-464.2 15.85,-458.2 15.85,-458.2 15.85,-417.4 15.85,-417.4 15.85,-411.4 21.85,-405.4 27.85,-405.4 27.85,-405.4 226.15,-405.4 226.15,-405.4 232.15,-405.4 238.15,-411.4 238.15,-417.4 238.15,-417.4 238.15,-458.2 238.15,-458.2 238.15,-464.2 232.15,-470.2 226.15,-470.2"/>
+<text xml:space="preserve" text-anchor="start" x="49.75" y="-445" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Define the energy target</text>
+<text xml:space="preserve" text-anchor="start" x="30.25" y="-419.85" font-family="Arial" font-size="11.00" fill="#e8eaf6">Choose the matching classical reference</text>
 </g>
 <!-- Molecule -->
 <g id="node2" class="node">
 <title>Molecule</title>
 <path fill="#1976d2" stroke="#0d47a1" stroke-width="2.5" d="M219.78,-340.4C219.78,-340.4 34.22,-340.4 34.22,-340.4 28.22,-340.4 22.22,-334.4 22.22,-328.4 22.22,-328.4 22.22,-287.6 22.22,-287.6 22.22,-281.6 28.22,-275.6 34.22,-275.6 34.22,-275.6 219.78,-275.6 219.78,-275.6 225.78,-275.6 231.78,-281.6 231.78,-287.6 231.78,-287.6 231.78,-328.4 231.78,-328.4 231.78,-334.4 225.78,-340.4 219.78,-340.4"/>
-<text xml:space="preserve" text-anchor="start" x="56.12" y="-315.2" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Describe stretched N</text>
-<text xml:space="preserve" text-anchor="start" x="191.12" y="-315.2" font-family="Arial" font-weight="bold" baseline-shift="sub" font-size="14.00" fill="#ffffff">2</text>
+<text xml:space="preserve" text-anchor="start" x="56.12" y="-315.2" font-family="Arial" font-weight="bold" font-size="14.00" fill="#ffffff">Describe stretched N<tspan baseline-shift="sub" font-size="10.50">2</tspan></text>
 <text xml:space="preserve" text-anchor="start" x="36.62" y="-290.05" font-family="Arial" font-size="11.00" fill="#e3f2fd">Geometry, charge, spin, Hartree&#45;Fock</text>
 </g>
 <!-- Goal&#45;&gt;Molecule -->

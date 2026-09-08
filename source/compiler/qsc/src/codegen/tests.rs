@@ -20,14 +20,19 @@ use qsc_data_structures::{
 };
 use qsc_eval::output::CursorReceiver;
 use qsc_eval::val::Value;
+use qsc_fir::fir::{
+    ExprKind as FirExprKind, ItemKind as FirItemKind, PackageLookup, Res as FirRes, StoreItemId,
+};
 use qsc_frontend::compile::parse_all;
 use qsc_hir::hir::{ItemKind, PackageId};
-use qsc_passes::PackageType;
-use rustc_hash::FxHashMap;
+use qsc_passes::{PackageType, lower_hir_to_fir};
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::codegen::qir::{
     CallableArgsBackend, get_qir, get_qir_from_ast, get_rir, prepare_codegen_fir_from_callable_args,
 };
+
+use super::qir::seed_entry_with_callables;
 
 fn format_interpret_errors(errors: Vec<crate::interpret::Error>) -> String {
     errors
@@ -1715,6 +1720,67 @@ fn two_callable_hof_closure_preserves_array_arg_threading() {
         !4 = !{i32 5, !"int_computations", !{!"i64"}}
     "#]]
         .assert_eq(&qir);
+}
+
+#[test]
+fn seed_entry_with_callables_preserves_callable_source_packages() {
+    let capabilities = TargetCapabilityFlags::all();
+    let (std_id, mut store) = crate::compile::package_store_with_stdlib(capabilities);
+    let dependencies: Vec<(PackageId, Option<Arc<str>>)> = vec![(std_id, None)];
+    let (unit, errors) = crate::compile::compile(
+        &store,
+        &dependencies,
+        source_map_from_source("namespace Test { operation Destination() : Unit {} }"),
+        PackageType::Lib,
+        capabilities,
+        LanguageFeatures::default(),
+    );
+    assert!(errors.is_empty(), "compilation failed: {errors:?}");
+    let destination_hir_package = store.insert(unit);
+    let (mut fir_store, destination_package, _) = lower_hir_to_fir(&store, destination_hir_package);
+    let foreign_package = qsc_lowerer::map_hir_package_to_fir(std_id);
+
+    let expected_spans: FxHashMap<StoreItemId, qsc_fir::fir::PackageSpan> = fir_store
+        .get(foreign_package)
+        .items
+        .values()
+        .filter_map(|item| match &item.kind {
+            FirItemKind::Callable(decl) if decl.span.package == foreign_package => Some((
+                StoreItemId {
+                    package: foreign_package,
+                    item: item.id,
+                },
+                decl.span,
+            )),
+            FirItemKind::Callable(_) | FirItemKind::Ty(..) => None,
+        })
+        .take(2)
+        .collect();
+    assert_eq!(expected_spans.len(), 2, "expected two foreign callables");
+    let callables: FxHashSet<_> = expected_spans.keys().copied().collect();
+
+    seed_entry_with_callables(&mut fir_store, destination_package, &callables);
+
+    let destination = fir_store.get(destination_package);
+    let entry = destination
+        .entry
+        .expect("plural seed should create an entry expression");
+    let FirExprKind::Tuple(entry_exprs) = &destination.get_expr(entry).kind else {
+        panic!("two callable seeds should create a tuple entry");
+    };
+    assert_eq!(entry_exprs.len(), expected_spans.len());
+    for expr_id in entry_exprs {
+        let expr = destination.get_expr(*expr_id);
+        let FirExprKind::Var(FirRes::Item(item), _) = &expr.kind else {
+            panic!("seeded entry child should be a global callable variable");
+        };
+        let callable = StoreItemId {
+            package: item.package,
+            item: item.item,
+        };
+        assert_eq!(expr.span, expected_spans[&callable]);
+        assert_ne!(expr.span.package, destination_package);
+    }
 }
 
 #[test]
@@ -5902,7 +5968,9 @@ fn array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed_emits_
           %var_9_1 = getelementptr [2 x i64], ptr %var_9, i64 0, i64 1
           store i64 %var_15, ptr %var_9_1
           %var_17 = load i64, ptr %var_8
-          %var_10 = getelementptr i64, ptr %var_9, i64 %var_17
+          %var_10_offset_chk = icmp slt i64 %var_17, 0
+          %var_10_offset = select i1 %var_10_offset_chk, i64 1, i64 0
+          %var_10 = getelementptr [2 x i64], ptr %var_9, i64 %var_10_offset, i64 %var_17
           %var_18 = load i64, ptr %var_10
           call void @__quantum__rt__int_record_output(i64 %var_18, ptr @0)
           ret i64 0
@@ -6124,9 +6192,13 @@ fn nested_array_with_dynamic_contents_passed_as_argument_and_dynamically_indexed
           %var_19_2 = getelementptr [3 x i64], ptr %var_19, i64 0, i64 2
           store i64 %var_33, ptr %var_19_2
           %var_35 = load i64, ptr %var_17
-          %var_20 = getelementptr i64, ptr %var_18, i64 %var_35
+          %var_20_offset_chk = icmp slt i64 %var_35, 0
+          %var_20_offset = select i1 %var_20_offset_chk, i64 1, i64 0
+          %var_20 = getelementptr [2 x i64], ptr %var_18, i64 %var_20_offset, i64 %var_35
           %var_36 = load i64, ptr %var_20
-          %var_21 = getelementptr i64, ptr %var_19, i64 %var_35
+          %var_21_offset_chk = icmp slt i64 %var_35, 0
+          %var_21_offset = select i1 %var_21_offset_chk, i64 1, i64 0
+          %var_21 = getelementptr [3 x i64], ptr %var_19, i64 %var_21_offset, i64 %var_35
           %var_37 = load i64, ptr %var_21
           call void @__quantum__rt__array_record_output(i64 2, ptr @0)
           call void @__quantum__rt__int_record_output(i64 %var_36, ptr @1)
@@ -6206,4 +6278,50 @@ fn foreign_table_lookup_callable_generates_qir() {
             "{profile:?} callable should emit an entry point, got:\n{qir}"
         );
     }
+}
+
+#[test]
+fn foreign_hof_capability_error_resolves_against_owning_package() {
+    // `ForEach` lives in the std package; specializing it for this call site
+    // clones std nodes into the user package, so the capability diagnostic must
+    // still resolve against std's source map rather than the entry map.
+    let source = r#"
+namespace Test {
+    import Std.Arrays.ForEach;
+    @EntryPoint()
+    operation Main() : Unit {
+        use q = Qubit();
+        ForEach(q => M(q) == One, [q]);
+    }
+}
+"#;
+    let errors = compile_source_to_qir_result(source, TargetCapabilityFlags::from(Profile::Base))
+        .expect_err("Base profile must reject a dynamic bool");
+
+    // The diagnostics must be owned by two different packages: the user's lambda
+    // and the std `ForEach` body specialized into the user package.
+    let mut packages: Vec<_> = errors
+        .iter()
+        .filter_map(|e| match e {
+            crate::interpret::Error::Pass(with_source) => match with_source.error() {
+                qsc_passes::Error::CapabilitiesCk(inner) => Some(inner.span().package),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect();
+    packages.sort_unstable();
+    packages.dedup();
+    assert!(
+        packages.len() >= 2,
+        "expected capability diagnostics from both the user and std packages, got {packages:?}"
+    );
+
+    // Rendering is the regression guard: resolving a std-owned span against the
+    // entry source map used to panic inside `WithSource::from_map`.
+    let rendered = format_interpret_errors(errors);
+    assert!(
+        rendered.contains("cannot use a dynamic bool"),
+        "expected a dynamic-bool capability diagnostic, got:\n{rendered}"
+    );
 }

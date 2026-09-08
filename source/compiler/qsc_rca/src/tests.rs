@@ -227,7 +227,7 @@ fn lower_hir_package_store(hir_package_store: &HirPackageStore) -> PackageStore 
         let mut lowerer = Lowerer::new();
         fir_store.insert(
             map_hir_package_to_fir(id),
-            lowerer.lower_package(&unit.package, &fir_store),
+            lowerer.lower_package(&unit.package, &fir_store, map_hir_package_to_fir(id)),
         );
     }
     fir_store

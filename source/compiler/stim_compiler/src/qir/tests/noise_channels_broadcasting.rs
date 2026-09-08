@@ -351,7 +351,7 @@ fn pauli_channel_1_with_wrong_number_of_args_yields_error() {
               x too few arguments for instruction PAULI_CHANNEL_1; expected 3, found 2
                ,----
              1 | PAULI_CHANNEL_1(0.1, 0.2) 0 1
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^^^^^^
                `----
         "#]],
     );
@@ -446,7 +446,7 @@ fn pauli_channel_2_with_wrong_number_of_args_yields_error() {
               x too few arguments for instruction PAULI_CHANNEL_2; expected 15, found 1
                ,----
              1 | PAULI_CHANNEL_2(0.1) 0 1 2 3
-               : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+               :                 ^^^
                `----
         "#]],
     );

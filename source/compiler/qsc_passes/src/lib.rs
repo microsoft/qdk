@@ -298,7 +298,6 @@ pub fn run_rca_for_callable(
     let package_compute_properties = compute_properties.get(callable.package, false);
     let capabilities_errors = check_supported_capabilities_for_callable(
         package,
-        callable.package,
         package_compute_properties,
         callable.item,
         capabilities,

@@ -44,7 +44,7 @@ use qsc_fir::fir::{
 };
 use qsc_fir::ty::Ty;
 pub use qsc_hir::hir::PackageSpan;
-use qsc_lowerer::map_fir_package_to_hir;
+use qsc_lowerer::{map_fir_package_span_to_hir, map_fir_package_to_hir};
 use rand::{SeedableRng, rngs::StdRng};
 use rustc_hash::{FxHashMap, FxHashSet};
 use std::array;
@@ -920,7 +920,8 @@ impl State {
                     }
                     ExecGraphDebugNode::Stmt(stmt) => {
                         self.idx += 1;
-                        self.current_span = globals.get_stmt((self.package, *stmt).into()).span;
+                        self.current_span =
+                            globals.get_stmt((self.package, *stmt).into()).span.span;
 
                         match self.check_for_break(breakpoints, *stmt, step, current_frame) {
                             Some(value) => value,
@@ -1015,7 +1016,7 @@ impl State {
             // of generated code. This also avoids underflowing the `u32` offset in
             // `block.span.hi - 1` below, which would otherwise surface a bogus
             // end-of-file location when stepping.
-            if block.span == Span::default() {
+            if block.span.span == Span::default() {
                 return None;
             }
             let span = Span {
@@ -1058,7 +1059,13 @@ impl State {
                     ExprKind::String(components) => self.collect_string(components),
                     ExprKind::ArrayLit(arr) => self.eval_arr_lit(arr, globals),
                     ExprKind::Closure(args, callable) => {
-                        let closure = resolve_closure(env, self.package, span, args, *callable)?;
+                        let closure = resolve_closure(
+                            env,
+                            self.package,
+                            map_fir_package_span_to_hir(expr.span),
+                            args,
+                            *callable,
+                        )?;
                         self.set_val_register(closure);
                     }
                     ExprKind::AssignField(record, field, _) => {
@@ -1097,7 +1104,7 @@ impl State {
             ExecGraphExpr::Assign(lhs) => self.eval_assign(env, globals, *lhs)?,
             ExecGraphExpr::Tuple(size) => self.eval_tup(*size),
             ExecGraphExpr::Var(res) => {
-                self.set_val_register(resolve_binding(env, self.package, *res, span)?);
+                self.set_val_register(resolve_binding(env, *res, self.to_global_span(span))?);
             }
             ExecGraphExpr::Call {
                 callee_span,
@@ -1126,7 +1133,11 @@ impl State {
                     else {
                         panic!("lhs of assign op should be a variable");
                     };
-                    self.set_val_register(resolve_binding(env, self.package, *res, *lhs_span)?);
+                    self.set_val_register(resolve_binding(
+                        env,
+                        *res,
+                        self.to_global_span(*lhs_span),
+                    )?);
                     self.push_val();
                     self.set_val_register(rhs_val);
                 }
@@ -1155,7 +1166,11 @@ impl State {
                 let ExprKind::Var(res, _) = &lhs_expr.kind else {
                     panic!("lhs of assign op should be a variable");
                 };
-                self.set_val_register(resolve_binding(env, self.package, *res, lhs_expr.span)?);
+                self.set_val_register(resolve_binding(
+                    env,
+                    *res,
+                    map_fir_package_span_to_hir(lhs_expr.span),
+                )?);
                 self.eval_update_index(*mid_span)?;
                 self.eval_assign(env, globals, *lhs)?;
             }
@@ -1225,7 +1240,7 @@ impl State {
                     var.value.append_array(rhs);
                 }
                 None => {
-                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                    return Err(Error::UnboundName(map_fir_package_span_to_hir(lhs.span)));
                 }
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
@@ -1342,10 +1357,7 @@ impl State {
             }
         };
 
-        let callee_span = PackageSpan {
-            package: map_fir_package_to_hir(callee_id.package),
-            span: callee.span,
-        };
+        let callee_span = map_fir_package_span_to_hir(callee.span);
 
         let spec = spec_from_functor_app(functor);
         match &callee.implementation {
@@ -1792,7 +1804,7 @@ impl State {
                     Variable {
                         name: variable.name.clone(),
                         value: val,
-                        span: variable.span,
+                        span: variable.span.span,
                     },
                 );
             }
@@ -1822,7 +1834,7 @@ impl State {
                     var.value = rhs;
                 }
                 None => {
-                    return Err(Error::UnboundName(self.to_global_span(lhs.span)));
+                    return Err(Error::UnboundName(map_fir_package_span_to_hir(lhs.span)));
                 }
             },
             (ExprKind::Tuple(var_tup), Value::Tuple(tup, _)) => {
@@ -1850,7 +1862,7 @@ impl State {
                 Some(var) => {
                     var.value.update_array(index, rhs, span)?;
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => return Err(Error::UnboundName(map_fir_package_span_to_hir(lhs.span))),
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
         }
@@ -1886,7 +1898,7 @@ impl State {
                         var.value.update_array(idx, rhs.clone(), range_span)?;
                     }
                 }
-                None => return Err(Error::UnboundName(self.to_global_span(lhs.span))),
+                None => return Err(Error::UnboundName(map_fir_package_span_to_hir(lhs.span))),
             },
             _ => unreachable!("unassignable array update pattern should be disallowed by compiler"),
         }
@@ -2172,7 +2184,7 @@ fn merge_fixed_args(fixed_args: Option<Rc<[Value]>>, arg: Value) -> Value {
     }
 }
 
-fn resolve_binding(env: &Env, package: PackageId, res: Res, span: Span) -> Result<Value, Error> {
+fn resolve_binding(env: &Env, res: Res, span: PackageSpan) -> Result<Value, Error> {
     Ok(match res {
         Res::Err => panic!("resolution error"),
         Res::Item(item) => Value::Global(
@@ -2182,14 +2194,7 @@ fn resolve_binding(env: &Env, package: PackageId, res: Res, span: Span) -> Resul
             },
             FunctorApp::default(),
         ),
-        Res::Local(id) => env
-            .get(id)
-            .ok_or(Error::UnboundName(PackageSpan {
-                package: map_fir_package_to_hir(package),
-                span,
-            }))?
-            .value
-            .clone(),
+        Res::Local(id) => env.get(id).ok_or(Error::UnboundName(span))?.value.clone(),
     })
 }
 
@@ -2205,7 +2210,7 @@ fn spec_from_functor_app(functor: FunctorApp) -> Spec {
 pub fn resolve_closure(
     env: &Env,
     package: PackageId,
-    span: Span,
+    span: PackageSpan,
     args: &[LocalVarId],
     callable: LocalItemId,
 ) -> Result<Value, Error> {
@@ -2213,10 +2218,7 @@ pub fn resolve_closure(
         .iter()
         .map(|&arg| Some(env.get(arg)?.value.clone()))
         .collect();
-    let args: Vec<_> = args.ok_or(Error::UnboundName(PackageSpan {
-        package: map_fir_package_to_hir(package),
-        span,
-    }))?;
+    let args: Vec<_> = args.ok_or(Error::UnboundName(span))?;
     let callable = StoreItemId {
         package,
         item: callable,

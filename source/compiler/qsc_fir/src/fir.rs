@@ -113,7 +113,7 @@ fir_id!(StmtId);
 fir_id!(LocalVarId);
 
 /// A unique identifier for a package within a package store.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PackageId(usize);
 
 /// A span qualified by the FIR package that owns it.
@@ -467,6 +467,9 @@ pub trait PackageLookup {
 /// `PackageId`s and `LocalItemId`s are 1:1 from the HIR and are not remapped.
 #[derive(Debug, Clone, Default)]
 pub struct Package {
+    /// The package this is stored under, used to qualify the spans of nodes
+    /// synthesized into it.
+    pub id: PackageId,
     /// The items in the package.
     pub items: IndexMap<LocalItemId, Item>,
     /// The entry expression for an executable package.
@@ -481,6 +484,20 @@ pub struct Package {
     pub pats: IndexMap<PatId, Pat>,
     /// The statements in the package.
     pub stmts: IndexMap<StmtId, Stmt>,
+}
+
+impl Package {
+    /// Qualifies `span` with this package, for nodes synthesized into it.
+    #[must_use]
+    pub fn span(&self, span: Span) -> PackageSpan {
+        PackageSpan::new(self.id, span)
+    }
+
+    /// The span for a node synthesized into this package with no source text.
+    #[must_use]
+    pub fn synthetic_span(&self) -> PackageSpan {
+        PackageSpan::new(self.id, Span::default())
+    }
 }
 
 impl Display for Package {
@@ -564,7 +581,7 @@ pub struct Item {
     /// The ID.
     pub id: LocalItemId,
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The parent item.
     pub parent: Option<LocalItemId>,
     /// The documentation.
@@ -583,7 +600,7 @@ impl Display for Item {
         write!(
             indent,
             "Item {} {} ({:?}):",
-            self.id, self.span, self.visibility
+            self.id, self.span.span, self.visibility
         )?;
 
         indent = set_indentation(indent, 1);
@@ -629,7 +646,7 @@ impl Display for ItemKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct CallableDecl {
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The callable kind.
     pub kind: CallableKind,
     /// The name of the callable.
@@ -667,7 +684,7 @@ impl CallableDecl {
 impl Display for CallableDecl {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
         let mut indent = set_indentation(indented(f), 0);
-        write!(indent, "Callable {} ({}):", self.span, self.kind)?;
+        write!(indent, "Callable {} ({}):", self.span.span, self.kind)?;
         indent = set_indentation(indent, 1);
         write!(indent, "\nname: {}", self.name)?;
         if !self.generics.is_empty() {
@@ -759,7 +776,7 @@ impl Display for SpecImpl {
 #[derive(Clone, Debug, PartialEq)]
 pub struct SpecDecl {
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The block that implements the specialization.
     pub block: BlockId,
     /// The input of the specialization.
@@ -770,7 +787,11 @@ pub struct SpecDecl {
 
 impl Display for SpecDecl {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "SpecDecl {}: {:?} {}", self.span, self.input, self.block)
+        write!(
+            f,
+            "SpecDecl {}: {:?} {}",
+            self.span.span, self.input, self.block
+        )
     }
 }
 
@@ -1019,7 +1040,7 @@ pub struct Block {
     /// The node ID.
     pub id: BlockId,
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The block type.
     pub ty: Ty,
     /// The statements in the block.
@@ -1029,13 +1050,13 @@ pub struct Block {
 impl Display for Block {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         if self.stmts.is_empty() {
-            write!(f, "Block {} {}: <empty>", self.id, self.span)?;
+            write!(f, "Block {} {}: <empty>", self.id, self.span.span)?;
         } else {
             let mut indent = set_indentation(indented(f), 0);
             write!(
                 indent,
                 "Block {} {} [Type {}]:",
-                self.id, self.span, self.ty
+                self.id, self.span.span, self.ty
             )?;
             indent = set_indentation(indent, 1);
             for s in &self.stmts {
@@ -1052,7 +1073,7 @@ pub struct Stmt {
     /// The stmt ID.
     pub id: StmtId,
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The statement kind.
     pub kind: StmtKind,
     /// The locations within the containing control flow graph for the current statement.
@@ -1061,7 +1082,7 @@ pub struct Stmt {
 
 impl Display for Stmt {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Stmt {} {}: {}", self.id, self.span, self.kind)
+        write!(f, "Stmt {} {}: {}", self.id, self.span.span, self.kind)
     }
 }
 
@@ -1102,7 +1123,7 @@ pub struct Expr {
     /// The expr ID.
     pub id: ExprId,
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The expression type.
     pub ty: Ty,
     /// The expression kind.
@@ -1116,7 +1137,7 @@ impl Display for Expr {
         write!(
             f,
             "Expr {} {} [Type {}]: {}",
-            self.id, self.span, self.ty, self.kind
+            self.id, self.span.span, self.ty, self.kind
         )
     }
 }
@@ -1504,7 +1525,7 @@ fn display_while(mut indent: Indented<Formatter>, cond: ExprId, block: BlockId) 
 #[derive(Clone, Debug, PartialEq)]
 pub struct FieldAssign {
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The field to assign.
     pub field: Field,
     /// The value to assign to the field.
@@ -1516,7 +1537,7 @@ impl Display for FieldAssign {
         write!(
             f,
             "FieldsAssign {}: ({}) {}",
-            self.span, self.field, self.value
+            self.span.span, self.field, self.value
         )
     }
 }
@@ -1536,7 +1557,7 @@ pub struct Pat {
     /// The node ID.
     pub id: PatId,
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The pattern type.
     pub ty: Ty,
     /// The pattern kind.
@@ -1548,7 +1569,7 @@ impl Display for Pat {
         write!(
             f,
             "Pat {} {} [Type {}]: {}",
-            self.id, self.span, self.ty, self.kind
+            self.id, self.span.span, self.ty, self.kind
         )
     }
 }
@@ -1594,14 +1615,14 @@ pub struct Ident {
     /// The node ID.
     pub id: LocalVarId,
     /// The span.
-    pub span: Span,
+    pub span: PackageSpan,
     /// The identifier name.
     pub name: Rc<str>,
 }
 
 impl Display for Ident {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(f, "Ident {} {} \"{}\"", self.id, self.span, self.name)
+        write!(f, "Ident {} {} \"{}\"", self.id, self.span.span, self.name)
     }
 }
 

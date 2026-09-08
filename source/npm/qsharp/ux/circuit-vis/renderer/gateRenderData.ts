@@ -42,6 +42,8 @@ export interface GateRenderData {
   x: number;
   /** Array of y coords of control registers. */
   controlsY: number[];
+  /** Whether each control is inverted. */
+  controlsInverted?: boolean[];
   /** Array of y coords of target registers.
    *  For `GateType.Unitary` or `GateType.ControlledUnitary`, this is an array of groups of y
    *  coords, where each group represents a unitary box to be rendered separately.

@@ -529,7 +529,7 @@ fn check_operand_for_unsupported_lift(
         let operand = package.get_expr(operand_id);
         let temp_ty = Ty::Array(Box::new(operand.ty.clone()));
         if !is_type_defaultable(package, package_id, &temp_ty) {
-            rejected.push((format!("{}", operand.ty), operand.span));
+            rejected.push((format!("{}", operand.ty), operand.span.span));
         }
     } else {
         scan_operand_tree_for_unsupported_lifts(package, package_id, operand_id, rejected);
@@ -887,7 +887,7 @@ fn anf_lift_scalar_assign_op(
         assigner,
         place_ty.clone(),
         place_expr.kind.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let temp_name = format!("{}_{}", super::super::symbols::OPERAND_TEMP, old_value_temp);
     let (old_value_local, old_value_stmt) = alloc_local_var(
@@ -903,7 +903,7 @@ fn anf_lift_scalar_assign_op(
         assigner,
         old_value_local,
         place_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let value = alloc_bin_op_expr(
         package,
@@ -912,7 +912,7 @@ fn anf_lift_scalar_assign_op(
         old_value_read,
         lifted_rhs,
         place_ty,
-        Span::default(),
+        package.synthetic_span(),
     );
     package.exprs.get_mut(expr_id).expect("expr not found").kind = ExprKind::Assign(place, value);
     prefix.insert(0, old_value_stmt);
@@ -1075,8 +1075,13 @@ fn anf_lift_operand(
             operand_id,
             Mutability::Immutable,
         );
-        let var_expr_id =
-            alloc_local_var_expr(package, assigner, local_id, operand_ty, Span::default());
+        let var_expr_id = alloc_local_var_expr(
+            package,
+            assigner,
+            local_id,
+            operand_ty,
+            package.synthetic_span(),
+        );
         replace_operand_slot(package, parent_id, operand_id, var_expr_id);
         generated_operand_reads.insert(var_expr_id);
         (local_stmt_id, var_expr_id)
@@ -1100,8 +1105,13 @@ fn anf_lift_operand(
             init_id,
             Mutability::Immutable,
         );
-        let array_var_id =
-            alloc_local_var_expr(package, assigner, local_id, array_ty, Span::default());
+        let array_var_id = alloc_local_var_expr(
+            package,
+            assigner,
+            local_id,
+            array_ty,
+            package.synthetic_span(),
+        );
         // Reading the element back through `[0]` leaves a compound `Index` in
         // the operand slot rather than a bare variable. This is a deliberate,
         // sound relaxation of strict ANF atomicity: the `[0]` read is pure,

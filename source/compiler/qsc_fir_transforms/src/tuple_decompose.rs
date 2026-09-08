@@ -51,7 +51,6 @@ use crate::reachability::{
 };
 use crate::tuple_destructuring::{normalize_tuple_copy_assignment, normalize_tuple_destructuring};
 use crate::walk_utils::{UseClass, classify_block_use, collect_expr_ids_in_local_callables};
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     Block, BlockId, CallableDecl, CallableImpl, Expr, ExprId, ExprKind, Field, ItemKind,
@@ -745,7 +744,7 @@ fn rewrite_assign_tuples(
                 assigner,
                 new_locals[0],
                 elem_types[0].clone(),
-                Span::default(),
+                package.synthetic_span(),
             );
 
             let assign = package
@@ -764,11 +763,17 @@ fn rewrite_assign_tuples(
                 assigner,
                 new_locals[i],
                 elem_types[i].clone(),
-                Span::default(),
+                package.synthetic_span(),
             );
-            let assign_id =
-                alloc_assign_expr(package, assigner, lhs_id, elements[i], Span::default());
-            let new_stmt_id = alloc_semi_stmt(package, assigner, assign_id, Span::default());
+            let assign_id = alloc_assign_expr(
+                package,
+                assigner,
+                lhs_id,
+                elements[i],
+                package.synthetic_span(),
+            );
+            let new_stmt_id =
+                alloc_semi_stmt(package, assigner, assign_id, package.synthetic_span());
             new_stmt_ids.push(new_stmt_id);
         }
 

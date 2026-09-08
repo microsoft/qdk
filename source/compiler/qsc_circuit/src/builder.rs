@@ -7,8 +7,8 @@ pub(crate) mod tests;
 use crate::{
     angle_format::format_angle,
     circuit::{
-        Circuit, ComponentColumn, Ket, Measurement, Metadata, Operation, Qubit, Register,
-        SourceLocation, Unitary, operation_list_to_grid,
+        Circuit, ComponentColumn, ControlRegister, Ket, Measurement, Metadata, Operation, Qubit,
+        Register, SourceLocation, Unitary, operation_list_to_grid,
     },
     operations::QubitParam,
 };
@@ -86,7 +86,11 @@ impl Tracer for CircuitTracer {
             self.wire_map_builder.current(),
             name,
             is_adjoint,
-            &GateInputs { targets, controls },
+            &GateInputs {
+                targets,
+                controls,
+                classical_controls: &[],
+            },
             display_args,
             None,
             called_at,
@@ -146,6 +150,7 @@ impl Tracer for CircuitTracer {
             &GateInputs {
                 targets: &qubit_args,
                 controls: &[],
+                classical_controls: &[],
             },
             if classical_args.is_empty() {
                 vec![]
@@ -723,9 +728,11 @@ impl SourceLookup for (&compile::PackageStore, &fir::PackageStore) {
                     let cond_expr = package.get_expr(cond_expr_id);
                     let expr_contents = self
                         .0
-                        .get(map_fir_package_to_hir(package_id))
+                        .get(map_fir_package_to_hir(cond_expr.span.package))
                         .and_then(|p| p.sources.find_by_offset(cond_expr.span.lo))
-                        .and_then(|s| source_span_contents(&s.contents, s.offset, cond_expr.span));
+                        .and_then(|s| {
+                            source_span_contents(&s.contents, s.offset, cond_expr.span.span)
+                        });
 
                     LexicalScope {
                         name: format!("loop: {}", expr_contents.unwrap_or_default()).into(),
@@ -1237,7 +1244,7 @@ impl OperationOrGroup {
         name: &str,
         is_adjoint: bool,
         targets: &[QubitWire],
-        controls: &[QubitWire],
+        controls: Vec<ControlRegister>,
         args: Vec<String>,
         error: Option<crate::circuit::GateErrorInfo>,
     ) -> Self {
@@ -1252,13 +1259,7 @@ impl OperationOrGroup {
                     result: None,
                 })
                 .collect(),
-            controls: controls
-                .iter()
-                .map(|q| Register {
-                    qubit: q.0,
-                    result: None,
-                })
-                .collect(),
+            controls,
             is_adjoint,
             is_conditional: false,
             metadata: None,
@@ -1302,7 +1303,7 @@ impl OperationOrGroup {
             Operation::Unitary(unitary) => unitary
                 .targets
                 .iter()
-                .chain(unitary.controls.iter())
+                .chain(unitary.controls.iter().map(|control| &control.register))
                 .filter(|r| r.result.is_none())
                 .cloned()
                 .collect(),
@@ -1338,7 +1339,12 @@ impl OperationOrGroup {
             Operation::Unitary(unitary) => unitary
                 .controls
                 .iter()
-                .filter_map(|r| r.result.map(|res| ResultWire(r.qubit, res)))
+                .filter_map(|control| {
+                    control
+                        .register
+                        .result
+                        .map(|res| ResultWire(control.register.qubit, res))
+                })
                 .collect(),
             Operation::Measurement(_) | Operation::Ket(_) => vec![],
         }
@@ -1385,7 +1391,7 @@ impl OperationOrGroup {
                     result: Some(result_wire.1),
                 };
                 control_result_ids_map.push((register.clone(), *result_id));
-                control_result_registers.push(register);
+                control_result_registers.push(ControlRegister::from(register));
             }
 
             metadata = Some(Metadata {
@@ -1404,7 +1410,10 @@ impl OperationOrGroup {
                 gate: String::new(),
                 args: vec![],
                 children: vec![],
-                targets: control_result_registers.clone(),
+                targets: control_result_registers
+                    .iter()
+                    .map(|control| control.register.clone())
+                    .collect(),
                 controls: control_result_registers,
                 is_adjoint: false,
                 metadata,
@@ -1629,6 +1638,12 @@ impl OperationListBuilder {
 pub(crate) struct GateInputs<'a> {
     pub(crate) targets: &'a [usize],
     pub(crate) controls: &'a [usize],
+    pub(crate) classical_controls: &'a [ClassicalControlInput],
+}
+
+pub(crate) struct ClassicalControlInput {
+    pub(crate) result_id: usize,
+    pub(crate) inverted: bool,
 }
 
 /// Trait representing a receiver of circuit operations that can accept
@@ -1675,13 +1690,23 @@ impl OperationReceiver for OperationListBuilder {
             .iter()
             .map(|q| wire_map.qubit_wire(*q))
             .collect::<Vec<_>>();
-        let controls = inputs
+        let controls: Vec<ControlRegister> = inputs
             .controls
             .iter()
-            .map(|q| wire_map.qubit_wire(*q))
+            .map(|q| ControlRegister {
+                register: Register::quantum(wire_map.qubit_wire(*q).0),
+                inverted: false,
+            })
+            .chain(inputs.classical_controls.iter().map(|control| {
+                let result = wire_map.result_wire(control.result_id);
+                ControlRegister {
+                    register: Register::classical(result.0, result.1),
+                    inverted: control.inverted,
+                }
+            }))
             .collect::<Vec<_>>();
         self.push_op(
-            OperationOrGroup::new_unitary(name, is_adjoint, &targets, &controls, args, error),
+            OperationOrGroup::new_unitary(name, is_adjoint, &targets, controls, args, error),
             call_stack,
             wire_map,
         );

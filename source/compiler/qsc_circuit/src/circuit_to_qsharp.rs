@@ -140,7 +140,6 @@ fn operation_return_type(circuit: &Circuit) -> &'static str {
         _ => "Result[]",
     }
 }
-
 fn supports_ctl_adj(circuit: &Circuit) -> bool {
     !circuit.component_grid.iter().any(|col| {
         col.components
@@ -268,7 +267,28 @@ fn generate_unitary_call(
     indent: &str,
 ) -> String {
     let operation_str = operation_call(unitary, qubits);
-    format!("{indent}{operation_str};\n")
+    let classical_controls = unitary
+        .controls
+        .iter()
+        .filter(|control| control.register.result.is_some())
+        .collect::<Vec<_>>();
+    if classical_controls.is_empty() {
+        format!("{indent}{operation_str};\n")
+    } else {
+        let condition = classical_controls
+            .iter()
+            .map(|control| {
+                let register = &control.register;
+                let result_id = register
+                    .result
+                    .expect("classical control should reference a measurement result");
+                let expected_result = if control.inverted { "Zero" } else { "One" };
+                format!("c{}_{result_id} == {expected_result}", register.qubit)
+            })
+            .collect::<Vec<_>>()
+            .join(" and ");
+        format!("{indent}if {condition} {{\n{indent}    {operation_str};\n{indent}}}\n")
+    }
 }
 
 fn generate_ket_call(ket: &Ket, qubits: &FxHashMap<usize, String>, indent: &str) -> String {
@@ -343,7 +363,12 @@ fn ket_call(ket: &Ket, qubits: &FxHashMap<usize, String>) -> String {
 fn operation_call(unitary: &Unitary, qubits: &FxHashMap<usize, String>) -> String {
     let gate = unitary.gate.as_str();
 
-    let is_controlled = !unitary.controls.is_empty();
+    let quantum_controls = unitary
+        .controls
+        .iter()
+        .filter(|control| control.register.result.is_none())
+        .collect::<Vec<_>>();
+    let is_controlled = !quantum_controls.is_empty();
 
     let functors = if is_controlled && unitary.is_adjoint {
         "Controlled Adjoint "
@@ -385,16 +410,9 @@ fn operation_call(unitary: &Unitary, qubits: &FxHashMap<usize, String>) -> Strin
     args.extend(targets);
 
     if is_controlled {
-        let controls = unitary
-            .controls
+        let controls = quantum_controls
             .iter()
-            .filter_map(|c| {
-                if c.result.is_none() {
-                    Some(get_qubit_name(qubits, c.qubit))
-                } else {
-                    None
-                }
-            })
+            .map(|control| get_qubit_name(qubits, control.register.qubit))
             .collect::<Vec<_>>()
             .join(", ");
         let controls = format!("[{controls}]");

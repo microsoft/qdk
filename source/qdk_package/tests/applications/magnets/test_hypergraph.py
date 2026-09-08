@@ -24,6 +24,19 @@ def test_hyperedge_init_basic():
     assert edge.vertices == (0, 1)
 
 
+def test_hyperedge_mark_defaults_to_none():
+    """Test that a hyperedge is unmarked by default."""
+    edge = Hyperedge([0, 1])
+    assert edge.mark is None
+
+
+def test_hyperedge_mark_can_be_set_to_integer():
+    """Test assigning an integer mark to a hyperedge."""
+    edge = Hyperedge([0, 1])
+    edge.mark = 0
+    assert edge.mark == 0
+
+
 def test_hyperedge_vertices_sorted():
     """Test that vertices are automatically sorted."""
     edge = Hyperedge([3, 1, 2])

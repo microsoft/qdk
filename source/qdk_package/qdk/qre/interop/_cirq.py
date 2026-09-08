@@ -285,8 +285,11 @@ class _CirqTraceBuilder:
                     # decompose the gate and handle the resulting operations recursively
                     for sub_op in gate._decompose_(op.qubits):  # type: ignore
                         self.handle_op(sub_op)
+                elif isinstance(gate, cirq.GlobalPhaseGate):
+                    # Global phase gates do not act on any qubits and can be ignored in the trace.
+                    pass
                 else:
-                    for sub_op in op._decompose_with_context_(self.decomp_context):  # type: ignore
+                    for sub_op in gate._decompose_with_context_(self.decomp_context):  # type: ignore
                         self.handle_op(sub_op)
             elif isinstance(op, ClassicallyControlledOperation):
                 if random.random() < self.classical_control_probability:

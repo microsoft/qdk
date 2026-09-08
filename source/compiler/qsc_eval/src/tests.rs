@@ -2,15 +2,17 @@
 // Licensed under the MIT License.
 
 use crate::{
-    Env, Error, ErrorBehavior, State, StepAction, StepResult, Value,
+    Env, Error, ErrorBehavior, PackageSpan, State, StepAction, StepResult, Value, Variable,
     backend::{Backend, SparseSim, TracingBackend},
     debug::Frame,
     output::{GenericReceiver, Receiver},
+    resolve_closure,
 };
 use expect_test::{Expect, expect};
 use indoc::indoc;
 use qsc_data_structures::{
-    language_features::LanguageFeatures, source::SourceMap, target::TargetCapabilityFlags,
+    language_features::LanguageFeatures, source::SourceMap, span::Span,
+    target::TargetCapabilityFlags,
 };
 use qsc_fir::fir::{self, ExecGraph, ExecGraphConfig, StmtId};
 use qsc_fir::fir::{PackageId, PackageStoreLookup};
@@ -52,20 +54,70 @@ pub(super) fn eval_graph(
     Ok(value)
 }
 
+#[test]
+fn resolve_closure_separates_callable_and_source_packages() {
+    let callable_package = PackageId::from(1usize);
+    let callable = fir::LocalItemId::from(2usize);
+    let capture = fir::LocalVarId::from(3usize);
+    let source_span = PackageSpan::new(
+        qsc_hir::hir::PackageId::from(4usize),
+        Span { lo: 5, hi: 13 },
+    );
+
+    let mut env = Env::default();
+    env.bind_variable_in_top_frame(
+        capture,
+        Variable {
+            name: "capture".into(),
+            value: Value::Int(42),
+            span: Span::default(),
+        },
+    );
+
+    let value = resolve_closure(&env, callable_package, source_span, &[capture], callable)
+        .expect("bound capture should resolve");
+    let Value::Closure(closure) = value else {
+        panic!("expected a closure value");
+    };
+    assert_eq!(
+        closure.id,
+        fir::StoreItemId {
+            package: callable_package,
+            item: callable,
+        }
+    );
+    assert_eq!(closure.fixed_args.as_ref(), &[Value::Int(42)]);
+
+    let error = resolve_closure(
+        &Env::default(),
+        callable_package,
+        source_span,
+        &[capture],
+        callable,
+    )
+    .expect_err("unbound capture should fail");
+    assert!(matches!(error, Error::UnboundName(span) if span == source_span));
+}
+
 fn check_expr(file: &str, expr: &str, expect: &Expect) {
     let mut fir_lowerer = qsc_lowerer::Lowerer::new();
     let mut core = compile::core();
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
     // store can be empty since core doesn't have any dependencies
-    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let core_fir =
+        fir_lowerer.lower_package(&core.package, &fir_store, qsc_fir::fir::PackageId::CORE);
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = fir_lowerer.lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -78,9 +130,13 @@ fn check_expr(file: &str, expr: &str, expect: &Expect) {
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
-    let entry = unit_fir.entry_exec_graph.clone();
     let id = store.insert(unit);
+    let unit_fir = fir_lowerer.lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
+    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -113,14 +169,19 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
     // store can be empty since core doesn't have any dependencies
-    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let core_fir =
+        fir_lowerer.lower_package(&core.package, &fir_store, qsc_fir::fir::PackageId::CORE);
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = fir_lowerer.lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let lib_sources = SourceMap::new([("lib".into(), lib.into())], None);
     let mut lib_unit = compile(
@@ -133,8 +194,12 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
     assert!(lib_unit.errors.is_empty(), "{:?}", lib_unit.errors);
     let lib_pass_errors = run_default_passes(store.core(), &mut lib_unit, PackageType::Lib);
     assert!(lib_pass_errors.is_empty(), "{lib_pass_errors:?}");
-    let lib_fir = fir_lowerer.lower_package(&lib_unit.package, &fir_store);
     let lib_id = store.insert(lib_unit);
+    let lib_fir = fir_lowerer.lower_package(
+        &store.get(lib_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(lib_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -147,9 +212,13 @@ fn check_expr_with_lib(lib: &str, file: &str, expr: &str, expect: &Expect) {
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
-    let entry = unit_fir.entry_exec_graph.clone();
     let id = store.insert(unit);
+    let unit_fir = fir_lowerer.lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
+    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -180,14 +249,19 @@ fn check_output(file: &str, expr: &str, expect: &Expect) {
     let mut core = compile::core();
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
-    let core_fir = fir_lowerer.lower_package(&core.package, &fir_store);
+    let core_fir =
+        fir_lowerer.lower_package(&core.package, &fir_store, qsc_fir::fir::PackageId::CORE);
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = fir_lowerer.lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = fir_lowerer.lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -200,9 +274,13 @@ fn check_output(file: &str, expr: &str, expect: &Expect) {
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = fir_lowerer.lower_package(&unit.package, &fir_store);
-    let entry = unit_fir.entry_exec_graph.clone();
     let id = store.insert(unit);
+    let unit_fir = fir_lowerer.lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
+    let entry = unit_fir.entry_exec_graph.clone();
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(
@@ -241,14 +319,22 @@ fn check_partial_eval_stmt(
     let mut core = compile::core();
     run_core_passes(&mut core);
     let fir_store = fir::PackageStore::new();
-    let core_fir = qsc_lowerer::Lowerer::new().lower_package(&core.package, &fir_store);
+    let core_fir = qsc_lowerer::Lowerer::new().lower_package(
+        &core.package,
+        &fir_store,
+        qsc_fir::fir::PackageId::CORE,
+    );
     let mut store = PackageStore::new(core);
 
     let mut std = compile::std(&store, TargetCapabilityFlags::all());
     assert!(std.errors.is_empty());
     assert!(run_default_passes(store.core(), &mut std, PackageType::Lib).is_empty());
-    let std_fir = qsc_lowerer::Lowerer::new().lower_package(&std.package, &fir_store);
     let std_id = store.insert(std);
+    let std_fir = qsc_lowerer::Lowerer::new().lower_package(
+        &store.get(std_id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(std_id),
+    );
 
     let sources = SourceMap::new([("test".into(), file.into())], Some(expr.into()));
     let mut unit = compile(
@@ -261,11 +347,15 @@ fn check_partial_eval_stmt(
     assert!(unit.errors.is_empty(), "{:?}", unit.errors);
     let pass_errors = run_default_passes(store.core(), &mut unit, PackageType::Lib);
     assert!(pass_errors.is_empty(), "{pass_errors:?}");
-    let unit_fir = qsc_lowerer::Lowerer::new().lower_package(&unit.package, &fir_store);
+    let id = store.insert(unit);
+    let unit_fir = qsc_lowerer::Lowerer::new().lower_package(
+        &store.get(id).expect("package should exist").package,
+        &fir_store,
+        map_hir_package_to_fir(id),
+    );
     fir_expect.assert_eq(&unit_fir.to_string());
 
     let entry = unit_fir.entry_exec_graph.clone();
-    let id = store.insert(unit);
 
     let mut fir_store = fir::PackageStore::new();
     fir_store.insert(

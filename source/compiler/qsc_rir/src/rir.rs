@@ -599,6 +599,14 @@ impl Variable {
             ty: Ty::Prim(Prim::Pointer),
         }
     }
+
+    #[must_use]
+    pub fn new_array(id: VariableId, size: usize, element_ty: Prim) -> Self {
+        Self {
+            variable_id: id,
+            ty: Ty::Array(size, element_ty),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

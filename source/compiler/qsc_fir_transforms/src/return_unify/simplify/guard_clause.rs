@@ -35,7 +35,6 @@
 //! The guard-set and lazy continuation must then reference exactly those
 //! locals, or the rule refuses to fire.
 
-use qsc_data_structures::span::Span;
 use qsc_fir::{
     assigner::Assigner,
     fir::{BlockId, ExprId, ExprKind, LocalVarId, Package, PackageLookup, StmtId, StmtKind, UnOp},
@@ -104,7 +103,7 @@ fn try_apply_once(
         return_slot,
         &block_ty,
     ) {
-        let not_cond = alloc_not_expr(package, assigner, cond, Span::default());
+        let not_cond = alloc_not_expr(package, assigner, cond, package.synthetic_span());
         (not_cond, v)
     } else {
         return false;
@@ -116,27 +115,27 @@ fn try_apply_once(
     };
 
     // Build the replacement: `if c { v } else { rest_block }`.
-    let v_stmt = alloc_expr_stmt(package, assigner, v_id, Span::default());
+    let v_stmt = alloc_expr_stmt(package, assigner, v_id, package.synthetic_span());
     let then_bid = alloc_block(
         package,
         assigner,
         vec![v_stmt],
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let then_expr = alloc_block_expr(
         package,
         assigner,
         then_bid,
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let else_expr = alloc_block_expr(
         package,
         assigner,
         rest_block_id,
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     let new_if = alloc_if_expr(
         package,
@@ -145,9 +144,9 @@ fn try_apply_once(
         then_expr,
         Some(else_expr),
         block_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
-    let new_stmt = alloc_expr_stmt(package, assigner, new_if, Span::default());
+    let new_stmt = alloc_expr_stmt(package, assigner, new_if, package.synthetic_span());
 
     let block = package.blocks.get_mut(block_id).expect("block not found");
     block.stmts.truncate(guard_idx);

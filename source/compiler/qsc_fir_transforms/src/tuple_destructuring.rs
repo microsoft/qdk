@@ -25,7 +25,6 @@ use crate::fir_builder::alloc_local_stmt;
 use crate::fir_builder::alloc_local_var_expr;
 use crate::fir_builder::reachable_local_callables;
 use crate::tuple_decompose::collect_all_block_ids_in_callable;
-use qsc_data_structures::span::Span;
 use qsc_fir::assigner::Assigner;
 use qsc_fir::fir::{
     BlockId, ExprId, ExprKind, ItemKind, LocalItemId, LocalVarId, Mutability, Package, PackageId,
@@ -363,7 +362,7 @@ fn apply_destructure_rewrite(
             mutability,
             pat_id,
             rhs_id,
-            Span::default(),
+            package.synthetic_span(),
         );
         new_stmt_ids.push(stmt_id);
     }
@@ -433,7 +432,7 @@ fn create_local_projection_path(
         assigner,
         source_local,
         tuple_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     );
     alloc_field_path_expr(
         package,
@@ -441,6 +440,6 @@ fn create_local_projection_path(
         base_id,
         indices.to_vec(),
         leaf_ty.clone(),
-        Span::default(),
+        package.synthetic_span(),
     )
 }

@@ -13,25 +13,20 @@ from pathlib import Path
 from IPython.display import HTML, display
 
 
-def check(notebook_dir: str | Path | None = None) -> None:
+def check() -> None:
     """Run the environment check and display results.
 
     Raises EnvironmentError if anything is wrong, which stops "Run All"
     from continuing past this cell.
-
-    Parameters
-    ----------
-    notebook_dir : path-like, optional
-        Directory containing the notebook. Defaults to Path.cwd().
     """
-    nb_dir = Path(notebook_dir) if notebook_dir else Path.cwd()
-
-    # --- Locate course.json ---
-    course_json_path = _find_course_json(nb_dir)
-    if course_json_path is None:
+    # course.json ships beside this module at the course root.
+    course_dir = Path(__file__).resolve().parent
+    course_json_path = course_dir / "course.json"
+    if not course_json_path.is_file():
         raise FileNotFoundError(
-            "Could not find course.json. Make sure you opened this notebook "
-            "from the QDK course folder."
+            "Could not find course.json. Delete the "
+            f"qdk-learning/courses/{course_dir.name} folder and reload the "
+            "window to restore the course."
         )
 
     course = json.loads(course_json_path.read_text(encoding="utf-8"))
@@ -75,22 +70,6 @@ def _can_import(module_name: str) -> bool:
         return importlib.util.find_spec(module_name) is not None
     except ModuleNotFoundError:
         return False
-
-
-def _find_course_json(nb_dir: Path) -> Path | None:
-    """Walk up from nb_dir looking for course.json."""
-    candidate = nb_dir / "course.json"
-    if candidate.exists():
-        return candidate
-    # One level up (unit notebook inside a subdirectory).
-    candidate = (nb_dir / ".." / "course.json").resolve()
-    if candidate.exists():
-        return candidate
-    # Two levels up (deeply nested unit).
-    candidate = (nb_dir / ".." / ".." / "course.json").resolve()
-    if candidate.exists():
-        return candidate
-    return None
 
 
 def _render(results: list[tuple[str, str, bool]], errors: list[str]) -> None:
