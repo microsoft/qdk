@@ -23,7 +23,8 @@ import {
   runTests as runTestsElectron,
   runVSCodeCommand,
 } from "@vscode/test-electron";
-import { readFileSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { SourceMap } from "node:module";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,17 +100,81 @@ async function runJupyterApiContractSuite() {
   const profilePath = join(cachePath, "jupyter-api-contract");
   const extensionsPath = join(profilePath, "extensions");
   const userDataPath = join(profilePath, "user-data");
+  const workspacePath = join(profilePath, "workspace");
+  const venvPath = join(workspacePath, ".venv");
+  const pythonPath = join(
+    venvPath,
+    process.platform === "win32" ? "Scripts" : "bin",
+    process.platform === "win32" ? "python.exe" : "python",
+  );
   const profileArgs = [
     `--extensions-dir=${extensionsPath}`,
     `--user-data-dir=${userDataPath}`,
   ];
 
   rmSync(profilePath, { recursive: true, force: true });
+  mkdirSync(join(workspacePath, ".vscode"), { recursive: true });
+  writeFileSync(
+    join(workspacePath, ".vscode", "settings.json"),
+    JSON.stringify({ "python.useEnvironmentsExtension": true }, null, 2),
+  );
+  writeFileSync(
+    join(workspacePath, "jupyter-api-contract.ipynb"),
+    JSON.stringify(
+      {
+        cells: [
+          {
+            cell_type: "code",
+            execution_count: null,
+            metadata: { language: "python" },
+            outputs: [],
+            source: ['print("Jupyter API contract")\n'],
+          },
+        ],
+        metadata: {
+          kernelspec: {
+            display_name: "Python 3",
+            language: "python",
+            name: "python3",
+          },
+          language_info: { name: "python" },
+        },
+        nbformat: 4,
+        nbformat_minor: 5,
+      },
+      null,
+      2,
+    ),
+  );
 
-  console.log("Installing the latest Jupyter extension from Marketplace...");
+  console.log("Creating the Jupyter API contract virtual environment...");
+  runCommand("python", ["-m", "venv", venvPath], workspacePath);
+  runCommand(
+    pythonPath,
+    [
+      "-m",
+      "pip",
+      "install",
+      "--disable-pip-version-check",
+      "--no-input",
+      "ipykernel>=6,<7",
+    ],
+    workspacePath,
+  );
+
+  console.log("Installing Python and Jupyter extensions from Marketplace...");
   // Note that this throws if installation fails
   const installResult = await runVSCodeCommand(
-    ["--install-extension", "ms-toolsai.jupyter", "--force", ...profileArgs],
+    [
+      "--install-extension",
+      "ms-python.python",
+      "--install-extension",
+      "ms-python.vscode-python-envs",
+      "--install-extension",
+      "ms-toolsai.jupyter",
+      "--force",
+      ...profileArgs,
+    ],
     { version: "stable", cachePath },
   );
   if (installResult.stdout.trim()) {
@@ -131,12 +196,28 @@ async function runJupyterApiContractSuite() {
       "jupyter-api-contract",
       "index.node.js",
     ),
-    launchArgs: [
-      join(thisDir, "suites", "empty", "test-workspace"),
-      "--log=info",
-      ...profileArgs,
-    ],
+    extensionTestsEnv: {
+      JUPYTER_API_TEST_PYTHON_PATH: pythonPath,
+    },
+    launchArgs: [workspacePath, "--log=info", ...profileArgs],
   });
+}
+
+/**
+ * @param {string} command
+ * @param {string[]} args
+ * @param {string} cwd
+ */
+function runCommand(command, args, cwd) {
+  const result = spawnSync(command, args, { cwd, stdio: "inherit" });
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(
+      `${command} ${args.join(" ")} failed with exit code ${result.status ?? result.signal}`,
+    );
+  }
 }
 
 async function runSuite(name) {
