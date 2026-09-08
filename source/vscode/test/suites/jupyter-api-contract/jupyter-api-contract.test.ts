@@ -90,19 +90,18 @@ suite("Jupyter API contract", function () {
     );
 
     let resolveEnvironmentChanged: () => void;
-    let rejectEnvironmentChanged: (reason: Error) => void;
+    let rejectEnvironmentChanged!: (reason: Error) => void;
     const environmentChanged = new Promise<void>((resolve, reject) => {
       resolveEnvironmentChanged = resolve;
       rejectEnvironmentChanged = reject;
     });
+    const environmentChangeTimeoutError = new Error(
+      `Jupyter ${version} did not report an environment change for the test notebook`,
+    );
     const eventTimeout = setTimeout(
-      () =>
-        rejectEnvironmentChanged(
-          new Error(
-            `Jupyter ${version} did not report an environment change for the test notebook`,
-          ),
-        ),
+      rejectEnvironmentChanged,
       60_000,
+      environmentChangeTimeoutError,
     );
 
     const subscription = onDidChangePythonEnvironment.call(
