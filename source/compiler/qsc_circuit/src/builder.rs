@@ -1239,7 +1239,7 @@ impl OperationOrGroup {
         targets: &[QubitWire],
         controls: &[QubitWire],
         args: Vec<String>,
-        error: Option<f64>,
+        error: Option<crate::circuit::GateErrorInfo>,
     ) -> Self {
         Self::new_single(Operation::Unitary(Unitary {
             gate: name.to_string(),
@@ -1642,7 +1642,7 @@ pub(crate) trait OperationReceiver {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        error: Option<f64>,
+        error: Option<crate::circuit::GateErrorInfo>,
         call_stack: LogicalStack,
     );
 
@@ -1667,7 +1667,7 @@ impl OperationReceiver for OperationListBuilder {
         is_adjoint: bool,
         inputs: &GateInputs,
         args: Vec<String>,
-        error: Option<f64>,
+        error: Option<crate::circuit::GateErrorInfo>,
         call_stack: LogicalStack,
     ) {
         let targets = inputs

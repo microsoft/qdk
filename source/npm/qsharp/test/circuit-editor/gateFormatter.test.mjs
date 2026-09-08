@@ -25,6 +25,7 @@ import {
   _classicalControls,
   _getQuantumControlYs,
   formatGate,
+  formatLossProbability,
 } from "../../dist/ux/circuit-vis/renderer/formatters/gateFormatter.js";
 import { GateType } from "../../dist/ux/circuit-vis/renderer/gateRenderData.js";
 import { controlCircleOffset } from "../../dist/ux/circuit-vis/renderer/constants.js";
@@ -89,6 +90,38 @@ test("CNOT error renders as a percentage badge above the target", () => {
   assert.equal(label?.getAttribute("x"), "100");
   assert.equal(label?.getAttribute("y"), "62");
   assert.equal(background?.getAttribute("rx"), "3");
+});
+
+test("loss probabilities use three significant digits with three decimal places at most", () => {
+  const examples = [
+    [0.1123, "11.2%"],
+    [0.01234, "1.23%"],
+    [0.00123, "0.123%"],
+    [0.000123, "0.012%"],
+    [0.0000123, "0.001%"],
+    [0.00000123, "0%"],
+  ];
+
+  for (const [probability, expected] of examples) {
+    assert.equal(formatLossProbability(probability), expected);
+  }
+});
+
+test("loss probability renders on its output wire just after the gate", () => {
+  const gate = formatGate(
+    makeRenderData({
+      outputErrors: [{ y: 80, probability: 0.01234 }],
+    }),
+  );
+
+  const badge = gate.querySelector(".output-error");
+  const background = badge?.querySelector(".gate-error-badge");
+  const label = badge?.querySelector(".gate-error-label");
+
+  assert.equal(label?.textContent, "1.23%");
+  assert.equal(label?.getAttribute("x"), "128");
+  assert.equal(label?.getAttribute("y"), "80");
+  assert.equal(background?.getAttribute("rx"), "8");
 });
 
 // ---------------------------------------------------------------------------

@@ -286,20 +286,22 @@ pub struct Unitary {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub error: Option<f64>,
+    pub error: Option<GateErrorInfo>,
 }
 
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct GateErrorInfo {
     // Error associated with the entire gate.
     // For example, probability of gate failure.
-    gate_error: f64,
+    pub gate_error: f64,
 
     // Errors associated with registers the gates acts on.
     // These will be displayed on circuit after gate application.
     // For example, these can be a probability that qubit is lost
     // after this gate application.
     // Registers refenced here must be among `targets` or `controls`.
-    output_errors: Vec<(Register, f64)>,
+    pub output_errors: Vec<(Register, f64)>,
 }
 
 /// Representation of a gate that will set the target to a specific state.

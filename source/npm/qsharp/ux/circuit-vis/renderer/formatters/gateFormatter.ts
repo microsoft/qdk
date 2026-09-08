@@ -118,6 +118,7 @@ const _createGate = (
   svgElems: SVGElement[],
   renderData: GateRenderData,
 ): SVGElement => {
+  svgElems = svgElems.concat(_outputErrorBadges(renderData));
   const { dataAttributes } = renderData || {};
   const expanded = renderData.isExpanded;
   const attributes: { [attr: string]: string } = { class: "gate" };
@@ -635,6 +636,29 @@ const _errorBadge = (label: string, x: number, y: number): SVGElement => {
   return group([background, labelText], { class: "gate-error" });
 };
 
+const _outputErrorBadges = (renderData: GateRenderData): SVGElement[] =>
+  (renderData.outputErrors ?? []).map(({ y, probability }) => {
+    const badge = _errorBadge(
+      formatLossProbability(probability),
+      renderData.x + renderData.width / 2 + 8,
+      y,
+    );
+    badge.classList.add("output-error");
+    const background = badge.querySelector(".gate-error-badge");
+    background?.setAttribute("rx", "8");
+    return badge;
+  });
+
+const formatLossProbability = (probability: number): string => {
+  if (probability < 1e-5) return "0%";
+
+  const percentage = probability * 100;
+  const integerDigits =
+    percentage >= 1 ? Math.floor(Math.log10(percentage)) + 1 : 0;
+  const decimalPlaces = Math.max(0, Math.min(3, 3 - integerDigits));
+  return `${Number(percentage.toFixed(decimalPlaces))}%`;
+};
+
 /**
  * Generates $\oplus$ symbol for display in CNOT gate.
  *
@@ -926,6 +950,7 @@ function _labelText(label: string, x: number, y: number): SVGTextElement {
 export {
   formatGates,
   formatGate,
+  formatLossProbability,
   // Internal helpers exposed for direct unit testing. The leading underscore signals "test-only
   // export"; matches the `_isMultiTargetOrGroup` convention in `actions/circuitActions.ts`.
   _createGate,

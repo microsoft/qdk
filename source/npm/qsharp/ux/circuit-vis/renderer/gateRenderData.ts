@@ -51,6 +51,8 @@ export interface GateRenderData {
   label: string;
   /** Gate arguments as string. */
   displayArgs?: string;
+  /** Error probabilities to display on output wires after this gate. */
+  outputErrors?: { y: number; probability: number }[];
   /** Gate width. */
   width: number;
   /** Children operations as part of group. */

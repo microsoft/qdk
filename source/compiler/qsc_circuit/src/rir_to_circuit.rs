@@ -26,6 +26,7 @@ use crate::{
         OperationListBuilder, OperationReceiver, PackageOffset, Scope, ScopeStack, SourceLookup,
         WireMap, WireMapBuilder, finish_circuit,
     },
+    loss::OperationListBuilderWithLoss,
     rir_to_circuit::control_flow::{StructuredControlFlow, reconstruct_control_flow},
 };
 
@@ -68,12 +69,13 @@ pub fn rir_to_circuit_with_noise(
     }
 
     // Initialize the operation list builder with the configuration.
-    let mut builder = OperationListBuilder::new(
+    let builder = OperationListBuilder::new(
         config.max_operations,
         user_package_ids.to_vec(),
         config.group_by_scope,
         config.source_locations,
     );
+    let mut builder = OperationListBuilderWithLoss::new(builder, num_qubits, noise_config);
 
     // First, get a structured control flow so we can traverse the program in proper execution order,
     // following any branches.
@@ -1171,7 +1173,7 @@ fn trace_gate(
     name: &str,
     is_adjoint: bool,
     operands: Operands,
-    error: Option<f64>,
+    error: Option<crate::circuit::GateErrorInfo>,
     stack: LogicalStack,
 ) -> Result<(), Error> {
     let Operands {
@@ -1202,7 +1204,10 @@ fn trace_gate(
     Ok(())
 }
 
-fn gate_error(config: &NoiseConfig<f64, f64>, callable_name: &str) -> Option<f64> {
+fn gate_error(
+    config: &NoiseConfig<f64, f64>,
+    callable_name: &str,
+) -> Option<crate::circuit::GateErrorInfo> {
     let table = match callable_name {
         "__quantum__qis__x__body" => &config.x,
         "__quantum__qis__y__body" => &config.y,
@@ -1226,7 +1231,10 @@ fn gate_error(config: &NoiseConfig<f64, f64>, callable_name: &str) -> Option<f64
         "__quantum__qis__swap__body" => &config.swap,
         _ => return None,
     };
-    total_error(table)
+    total_error(table).map(|gate_error| crate::circuit::GateErrorInfo {
+        gate_error,
+        output_errors: Vec::new(),
+    })
 }
 
 fn total_error(table: &NoiseTable<f64>) -> Option<f64> {

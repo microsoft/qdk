@@ -54,7 +54,7 @@ impl OperationReceiver for TestOperationReceiver<'_> {
         is_adjoint: bool,
         inputs: &GateInputs,
         _args: Vec<String>,
-        _error: Option<f64>,
+        _error: Option<crate::circuit::GateErrorInfo>,
         call_stack: LogicalStack,
     ) {
         let targets = inputs

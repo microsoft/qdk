@@ -456,10 +456,16 @@ const _opToRenderData = (
   if (args !== undefined && args.length > 0) renderData.displayArgs = args[0];
 
   if (op.kind === "unitary" && op.error !== undefined) {
-    const errorLabel = `${(op.error * 100).toFixed(3)}%`;
+    const errorLabel = `${(op.error.gateError * 100).toFixed(3)}%`;
     renderData.displayArgs = renderData.displayArgs
       ? `${renderData.displayArgs}; ${errorLabel}`
       : errorLabel;
+    renderData.outputErrors = op.error.outputErrors.map(
+      ([register, probability]) => ({
+        y: _getRegY(register, registers),
+        probability,
+      }),
+    );
   }
 
   // Minimum width is calculated based on the label and args. If this is a collapsed composite
