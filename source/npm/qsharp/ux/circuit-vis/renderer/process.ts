@@ -655,10 +655,15 @@ const _fillRenderDataX = (
   childScopes: Map<string, LayoutScope>;
 } => {
   let endX: number = startX;
+  const outputErrorSpacing = 20;
 
-  const colStartX: number[] = columnWidths.map((width) => {
+  const colStartX: number[] = columnWidths.map((width, colIndex) => {
     const x: number = endX;
-    endX += width + gatePadding * 2;
+    const hasOutputErrors = renderDataArray[colIndex].some(
+      ({ outputErrors }) => outputErrors != null && outputErrors.length > 0,
+    );
+    endX +=
+      width + gatePadding * 2 + (hasOutputErrors ? outputErrorSpacing : 0);
     return x;
   });
 
