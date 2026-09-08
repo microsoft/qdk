@@ -197,12 +197,17 @@ export function checkRendererContract() {
   }
 
   // Every payload the emitter builds must name a kind the renderer handles.
+  // Both sides go through `required()`: an empty list on either side would
+  // otherwise make this comparison vacuous, and the banner below would still
+  // report a kind count read from TypeScript alone.
   const tsKinds = [...schema.matchAll(/^\s+kind: "([a-z-]+)";/gm)].map(
     (m) => m[1],
   );
   const pyKinds = [...emitter.matchAll(/"kind": "([a-z-]+)"/g)].map(
     (m) => m[1],
   );
+  required("a payload kind in schema.ts", tsKinds[0]);
+  required('a "kind" in _learning_output.py', pyKinds[0]);
   const unknown = pyKinds.filter((k) => !tsKinds.includes(k));
   if (unknown.length > 0) {
     mismatches.push(
@@ -236,11 +241,18 @@ export function checkRendererContract() {
   //
   // The emitter writes most fields as dict literal keys (`"prompt": ...`) but
   // sets optional ones by assignment (`payload["multiSelect"] = True`), so the
-  // Python probe has to accept both spellings.
-  const payloadFields = ["prompt", "options", "multiSelect"];
+  // Python probe has to accept both spellings. The TypeScript side is searched
+  // across both files that touch a payload: the validator and the view read
+  // different fields, and looking at only one would let a field go unchecked
+  // the moment it moved between them.
+  const rendererSources = `${renderer}\n${readFileSync(
+    join(thisDir, "src", "notebookRenderer", "index.ts"),
+    "utf8",
+  )}`;
+  const payloadFields = ["prompt", "options", "multiSelect", "cellId"];
   const optionFields = ["id", "text", "correct", "explanation"];
   for (const field of payloadFields) {
-    const inTs = new RegExp(`payload\\.${field}\\b`).test(renderer);
+    const inTs = new RegExp(`payload\\.${field}\\b`).test(rendererSources);
     const inPy = new RegExp(`"${field}"\\s*(?::|\\])`).test(emitter);
     if (inTs !== inPy) {
       mismatches.push(
@@ -249,7 +261,7 @@ export function checkRendererContract() {
     }
   }
   for (const field of optionFields) {
-    const inTs = new RegExp(`option\\.${field}\\b`).test(renderer);
+    const inTs = new RegExp(`option\\.${field}\\b`).test(rendererSources);
     const inPy = new RegExp(`"${field}"`).test(emitter);
     if (inTs !== inPy) {
       mismatches.push(

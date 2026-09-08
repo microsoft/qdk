@@ -3,7 +3,6 @@
 
 import { log } from "qsharp-lang";
 import * as vscode from "vscode";
-import { isNotebookCourse } from "./courseLayout.js";
 import type { CopilotActionId } from "../notebookRenderer/schema.js";
 import {
   isRendererToExtensionMessage,
@@ -16,9 +15,10 @@ import type { LearningService } from "./service.js";
  *
  * A renderer webview can't execute VS Code commands, so `createRendererMessaging`
  * is the channel out. Everything arriving here is authored notebook content and
- * therefore untrusted: the renderer may only name an action id from a fixed
- * allowlist, never a prompt or command id, and any free text it contributes is
- * sanitized into an extension-owned template.
+ * therefore untrusted: the renderer may name an action id from a fixed
+ * allowlist and a quiz id of a fixed shape, and nothing else. No prose from a
+ * notebook reaches a prompt, because no amount of escaping stops a sentence
+ * from reading as an instruction.
  */
 export function registerNotebookRendererMessaging(
   context: vscode.ExtensionContext,
@@ -37,39 +37,35 @@ export function registerNotebookRendererMessaging(
       }
 
       try {
-        await handleAction(service, message.actionId, {
-          ...message.context,
-        });
+        // Detect only — never `createIfMissing`. This runs on a message a
+        // notebook asked for, and `notebookSync.ts` already sets the rule: a
+        // notebook-driven event must not materialize a learning workspace
+        // behind the learner's back. Authorizing the sender needs a loaded
+        // course, so an unstarted workspace simply means "not trusted".
+        if (!service.initialized) {
+          await service.tryInitialize();
+        }
+
+        // Any notebook can carry an output of this MIME type, so a message is
+        // only as trustworthy as the file it came from. This is the whole
+        // authorization: a workbook this workspace materialized is a course
+        // file whichever course the learner last navigated to.
+        if (
+          !service.initialized ||
+          !service.isCourseWorkbookUri(event.editor.notebook.uri)
+        ) {
+          log.warn(
+            "Learning: ignoring a renderer message from a notebook this workspace did not create.",
+          );
+          return;
+        }
+
+        await openChat(buildQuery(message.actionId, message.quizId));
       } catch (e) {
         log.error(`Learning: renderer message "${message.type}" failed`, e);
       }
     }),
   );
-}
-
-async function handleAction(
-  service: LearningService,
-  actionId: CopilotActionId,
-  context: Record<string, string>,
-): Promise<void> {
-  // The learner may open a course notebook before anything has started the
-  // learning experience. Initialize first — the same thing the "continue"
-  // command does — so the button never silently does nothing.
-  if (!service.initialized) {
-    await service.tryInitialize({ createIfMissing: true });
-  }
-
-  if (
-    !service.initialized ||
-    !isNotebookCourse(service.getActiveCourseInfo())
-  ) {
-    log.warn(
-      "Learning: ignoring a renderer action outside an active notebook course.",
-    );
-    return;
-  }
-
-  await openChat(buildQuery(actionId, context));
 }
 
 /**
@@ -79,81 +75,29 @@ async function handleAction(
  * ("/qdk-learning Give me a hint"). The `qdk-learning-*` language model tools
  * already report the learner's position, progress and code on every
  * invocation, so a long prompt would be restating what the agent can look up.
- * The question and the chosen option are the exception: a quiz is not an
- * activity, so nothing the tools can read says which of a unit's questions
- * was answered or what was picked.
+ *
+ * Nothing the renderer wrote is quoted here. An earlier version spliced in the
+ * question and the chosen option, which are notebook content and therefore
+ * attacker-supplied prose in a file that only has to sit at a workbook's path.
+ * The quiz id is enough for the agent to find the question in the open
+ * notebook, and its shape leaves no room for an instruction.
  */
-function buildQuery(
-  actionId: CopilotActionId,
-  context: Record<string, string>,
-): string {
-  const choice = sanitize(context.choice);
-  const question = sanitize(context.question);
-
+function buildQuery(actionId: CopilotActionId, quizId?: string): string {
   switch (actionId) {
     case "why-wrong":
-      if (question && choice) {
-        return `/qdk-learning I answered "${choice}" to: ${question} — why is that wrong?`;
-      }
-      return choice
-        ? `/qdk-learning I picked "${choice}" and it was marked wrong. Why?`
+      return quizId
+        ? `/qdk-learning I answered the quiz "${quizId}" in this notebook incorrectly. Why is my answer wrong?`
         : `/qdk-learning I got this question wrong. Why?`;
   }
 }
 
 async function openChat(query: string): Promise<void> {
   // No position move here. A quiz cell is deliberately not an activity, so
-  // there is nothing for `goToActivityByCellId` to find — the payload's
-  // `cellId` is the quiz's own id, not an ipynb cell id. The question and the
-  // chosen option travel in the query instead.
+  // there is nothing for `goToActivityByCellId` to find — the payload's quiz
+  // id is the quiz's own id, not an ipynb cell id.
 
   await vscode.commands.executeCommand("workbench.action.chat.open", {
     query,
     isPartialQuery: false,
   });
-}
-
-/** Longest run of renderer-supplied text we'll splice into a chat prompt. */
-const MAX_CONTEXT_CHARS = 300;
-
-/**
- * Flatten renderer-supplied text so it can sit inside a quoted prompt template.
- *
- * Control characters, line separators and newlines are folded to spaces so the
- * text can't break out of its sentence and read as a fresh instruction, double
- * quotes become single quotes so they can't close the quoted span, and the
- * result is truncated. This is defence in depth: the values are authored by the
- * course or chosen by the learner, but they still reach a language model.
- */
-function sanitize(value: string | undefined): string | undefined {
-  if (typeof value !== "string") {
-    return undefined;
-  }
-
-  let flattened = "";
-  for (const char of value) {
-    const code = char.codePointAt(0) ?? 0;
-    const isControl =
-      code < 0x20 ||
-      (code >= 0x7f && code <= 0x9f) ||
-      code === 0x2028 ||
-      code === 0x2029;
-
-    if (isControl) {
-      flattened += " ";
-    } else if (char === '"') {
-      flattened += "'";
-    } else {
-      flattened += char;
-    }
-  }
-
-  const collapsed = flattened.replace(/\s+/g, " ").trim();
-  if (collapsed.length === 0) {
-    return undefined;
-  }
-
-  return collapsed.length > MAX_CONTEXT_CHARS
-    ? `${collapsed.slice(0, MAX_CONTEXT_CHARS - 1)}\u2026`
-    : collapsed;
 }

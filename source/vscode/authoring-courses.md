@@ -174,7 +174,19 @@ quiz("grid-spacing")
 The tag keeps the cell out of the progress tree, and lets the cell below it still find the section heading above.
 One call can name several quizzes (`quiz("a", "b")`) when a section asks two questions in a row - the progress tree names a code cell after the heading above it, so two adjacent quiz cells would appear under the same name.
 
+Quiz ids are lowercase letters, digits and hyphens, up to 64 characters.
+Registering one that isn't fails when you run the cell: the id is the only thing the renderer's Copilot action sends to the extension, so a shape it can't accept would leave that button doing less than it should.
+
 Run the cell once and save, so the question ships with the notebook and a learner sees it on opening rather than after running.
+
+For the chemistry course, `utils/chemistry-qpe/details_to_quiz.py` does that baking for a whole chapter, and re-bakes it when a question's wording or options change:
+
+```
+python details_to_quiz.py 06-iterative-phase-estimation --check   # report drift, write nothing
+python details_to_quiz.py 06-iterative-phase-estimation           # re-bake what changed
+```
+
+`--check` is what catches a `_unit.py` edit that never reached the notebook, including a question deleted from a cell that still shows it.
 
 The answers are in the saved cell output, because grading happens in the renderer without a kernel.
 This keeps them out of the cell source the learner reads, which is the same protection the collapsible-answer style gave; it isn't a guarantee against a determined learner opening the `.ipynb`.

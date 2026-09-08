@@ -20,11 +20,19 @@ producing an empty cell in front of a learner.
 from __future__ import annotations
 
 import random
+import re
 from dataclasses import dataclass
 from html import escape
 from typing import Any, Iterable, Mapping, Sequence
 
 MIME_TYPE = "application/vnd.qdk.learning+json"
+
+#: A quiz id has to survive the trip to the extension host, which accepts only
+#: this shape from a notebook — nothing longer, and nothing that could read as
+#: prose. Enforcing it here means an author finds out when they run the cell,
+#: rather than a learner finding the "Why is that wrong?" button quietly doing
+#: less than it should. Keep in step with `QUIZ_ID_PATTERN` in `schema.ts`.
+_QUIZ_ID_RE = re.compile(r"\A[a-z0-9][a-z0-9-]{0,63}\Z")
 
 _CARD_STYLE = (
     "font-family:var(--qdk-font-family, system-ui, sans-serif);"
@@ -168,6 +176,12 @@ def register_quiz(
     """
     if quiz_id in _quizzes:
         raise ValueError(f"a quiz is already registered as {quiz_id!r}")
+    if not _QUIZ_ID_RE.match(quiz_id):
+        raise ValueError(
+            f"quiz id {quiz_id!r} must be lowercase letters, digits and hyphens, "
+            "start with a letter or digit, and be at most 64 characters; the "
+            "renderer's Copilot action drops anything else"
+        )
     ordered = _shuffled(quiz_id, options) if shuffle else options
     _quizzes[quiz_id] = multiple_choice(
         prompt, ordered, multi_select=multi_select, cell_id=quiz_id

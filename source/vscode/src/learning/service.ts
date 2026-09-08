@@ -655,6 +655,35 @@ export class LearningService {
     return { id: course.id, title: course.title, kind: course.kind };
   }
 
+  /**
+   * True when `uri` is a workbook this workspace materialized for a learner.
+   *
+   * Notebook output runs in a webview, and any notebook can claim a MIME type,
+   * so a message arriving from one is only as trustworthy as the file it came
+   * from. Comparing against each unit's workbook URI rather than matching the
+   * `.workbook.ipynb` suffix means a lookalike opened from elsewhere does not
+   * pass.
+   *
+   * Every known course is searched, not just the active one: which course is
+   * active is a matter of where the learner navigated last, and a workbook
+   * open in front of them is theirs either way. Narrowing to the active course
+   * would drop valid actions whenever the two disagree.
+   */
+  isCourseWorkbookUri(uri: vscode.Uri): boolean {
+    const target = uri.toString();
+    for (const course of this.requireWorkspace().courses.values()) {
+      if (!isNotebookCourse(course)) {
+        continue;
+      }
+      if (
+        course.units.some((unit) => workbookUri(unit).toString() === target)
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /** True once the user has explicitly picked a course. */
   hasUserSelectedCourse(): boolean {
     const ws = this.workspace;

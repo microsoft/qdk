@@ -46,9 +46,9 @@ export type LearningPayload = MultipleChoicePayload;
 /**
  * Copilot actions a notebook output is allowed to request.
  *
- * Security boundary: output may name an id from this list and attach small
- * structured string context. It may never send a free-form prompt string or a
- * command identifier across the renderer bridge — the wording lives in the
+ * Security boundary: output may name an id from this list, and nothing else
+ * except a quiz id of a fixed shape. It may never send free text, a prompt or
+ * a command identifier across the renderer bridge — the wording lives in the
  * extension, so a notebook cannot script the chat panel.
  */
 export const COPILOT_ACTION_IDS = ["why-wrong"] as const;
@@ -59,24 +59,22 @@ type RendererActionMessage = {
   type: "qdk-learning/action";
   rendererId: typeof RENDERER_ID;
   actionId: CopilotActionId;
-  cellId?: string;
-  context?: Record<string, string>;
+  quizId?: string;
 };
 
 export type RendererToExtensionMessage = RendererActionMessage;
 
 /**
- * Bounds on renderer-supplied strings.
+ * A quiz id is the only thing a renderer may contribute to a chat prompt.
  *
- * Only the value and cell-id limits can be reached by a payload today — the
- * key set is built here in the renderer. They are enforced anyway because this
- * validator runs on the extension host, where the message is untrusted input
- * rather than something this code produced.
+ * Everything a notebook carries is untrusted: an output of this MIME type can
+ * be hand-written, and a file at a workbook's path can be shipped by whatever
+ * produced the workspace. Free prose from such a payload reaching a prompt is
+ * an injection, and no amount of quote-stripping changes that, because the
+ * payload is a sentence either way. Constraining the one value that does cross
+ * to this shape leaves no room for an instruction.
  */
-const MAX_CONTEXT_ENTRIES = 20;
-const MAX_CONTEXT_KEY_LENGTH = 64;
-const MAX_CONTEXT_VALUE_LENGTH = 4096;
-const MAX_CELL_ID_LENGTH = 256;
+const QUIZ_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return (
@@ -98,14 +96,10 @@ export function isRendererToExtensionMessage(
     return false;
   }
 
-  if (
-    x.cellId !== undefined &&
-    !isNonEmptyShortString(x.cellId, MAX_CELL_ID_LENGTH)
-  ) {
-    return false;
-  }
-
-  return x.context === undefined || isContextRecord(x.context);
+  return (
+    x.quizId === undefined ||
+    (typeof x.quizId === "string" && QUIZ_ID_PATTERN.test(x.quizId))
+  );
 }
 
 function isCopilotActionId(value: unknown): value is CopilotActionId {
@@ -113,32 +107,4 @@ function isCopilotActionId(value: unknown): value is CopilotActionId {
     typeof value === "string" &&
     COPILOT_ACTION_IDS.includes(value as CopilotActionId)
   );
-}
-
-function isContextRecord(value: unknown): value is Record<string, string> {
-  if (!isRecord(value)) {
-    return false;
-  }
-
-  const entries = Object.entries(value);
-  return (
-    entries.length <= MAX_CONTEXT_ENTRIES &&
-    entries.every(
-      ([key, entryValue]) =>
-        isShortString(key, MAX_CONTEXT_KEY_LENGTH) &&
-        key.length > 0 &&
-        isShortString(entryValue, MAX_CONTEXT_VALUE_LENGTH),
-    )
-  );
-}
-
-function isShortString(value: unknown, maxLength: number): value is string {
-  return typeof value === "string" && value.length <= maxLength;
-}
-
-function isNonEmptyShortString(
-  value: unknown,
-  maxLength: number,
-): value is string {
-  return isShortString(value, maxLength) && value.length > 0;
 }

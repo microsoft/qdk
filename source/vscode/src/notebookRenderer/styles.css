@@ -254,6 +254,14 @@
 
 /* ── Controls and actions ─────────────────────────────────────────── */
 
+/* `display` from a rule below outranks the user-agent rule that `hidden`
+   relies on, so the attribute has to be honoured explicitly. Without this,
+   setting `.hidden = true` on a flex container does nothing and the control
+   stays on screen. */
+.qdk-learning [hidden] {
+  display: none;
+}
+
 .qdk-learning-controls,
 .qdk-learning-action-list {
   display: flex;

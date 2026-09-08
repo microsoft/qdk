@@ -3,7 +3,7 @@
 
 import type { RendererToExtensionMessage } from "./schema.js";
 
-export type PostAction = (message: RendererToExtensionMessage) => boolean;
+type PostAction = (message: RendererToExtensionMessage) => boolean;
 
 export type RenderContext = {
   postAction: PostAction;

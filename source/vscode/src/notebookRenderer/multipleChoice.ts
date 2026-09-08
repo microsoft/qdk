@@ -142,21 +142,15 @@ export function renderMultipleChoice(
   // Built once, not per grading: a learner can cycle Check/Try again any number
   // of times, and creating a fresh button each time would retain a detached
   // node and its listener for the life of the output.
-  let lastSelectedIds = new Set<string>();
   const whyWrongButton = createActionButton("Why is that wrong?");
   const onWhyWrong = () => {
+    // Only the quiz id crosses. The question and the chosen option are
+    // notebook content, and prose from a notebook must not reach a prompt.
     const posted = context.postAction({
       type: "qdk-learning/action",
       rendererId: RENDERER_ID,
       actionId: "why-wrong",
-      cellId: payload.cellId,
-      context: {
-        question: payload.prompt,
-        choice: optionViews
-          .filter((view) => lastSelectedIds.has(view.option.id))
-          .map((view) => view.option.text)
-          .join("; "),
-      },
+      quizId: payload.cellId,
     });
 
     if (!posted) {
@@ -217,7 +211,7 @@ export function renderMultipleChoice(
     actionList.hidden = true;
 
     if (!isCorrect) {
-      showWhyWrongAction(selectedIds);
+      showWhyWrongAction();
     }
 
     // Grading replaced the focused Check button, which would drop focus to the
@@ -298,8 +292,7 @@ export function renderMultipleChoice(
     }
   }
 
-  function showWhyWrongAction(selectedIds: Set<string>): void {
-    lastSelectedIds = selectedIds;
+  function showWhyWrongAction(): void {
     actionList.hidden = false;
     actionList.replaceChildren(whyWrongButton);
   }

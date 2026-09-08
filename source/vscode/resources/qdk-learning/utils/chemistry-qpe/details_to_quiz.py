@@ -323,22 +323,30 @@ def _stale_baked_outputs(notebook: dict[str, Any], emitter: Any) -> list[str]:
     """
     stale: list[str] = []
     for cell in notebook["cells"]:
-        source = "".join(cell["source"])
+        ids = _cell_quiz_ids(cell)
+        if not ids:
+            continue
+
         outputs = cell.get("outputs", [])
-        position = 0
-        for call in QUIZ_CALL.findall(source):
-            for quiz_id in QUIZ_ID.findall(call):
-                expected = _normalize_bundle(
-                    emitter._lookup_quiz(quiz_id)._repr_mimebundle_()
-                )
-                actual = (
-                    _normalize_bundle(outputs[position].get("data"))
-                    if position < len(outputs)
-                    else None
-                )
-                if actual != expected:
-                    stale.append(quiz_id)
-                position += 1
+        for position, quiz_id in enumerate(ids):
+            expected = _normalize_bundle(
+                emitter._lookup_quiz(quiz_id)._repr_mimebundle_()
+            )
+            actual = (
+                _normalize_bundle(outputs[position].get("data"))
+                if position < len(outputs)
+                else None
+            )
+            if actual != expected:
+                stale.append(quiz_id)
+
+        # An output past the last quiz the cell still calls is left over from a
+        # question that was removed. Nothing above compares it, so without this
+        # the notebook keeps showing a deleted question while --check reports
+        # the file as up to date. Naming the cell's remaining quizzes is what
+        # makes `_rebake` re-render it, which drops the extra output.
+        if len(outputs) > len(ids) and not any(i in stale for i in ids):
+            stale.extend(ids)
     return stale
 
 

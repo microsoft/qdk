@@ -44,14 +44,22 @@ export const activate: ActivationFunction<void> = (
   context: RendererContext<void>,
 ) => {
   const postAction = (message: RendererToExtensionMessage) => {
-    if (
-      context.postMessage === undefined ||
-      !isRendererToExtensionMessage(message)
-    ) {
+    if (context.postMessage === undefined) {
+      // No extension host — an exported HTML page, say.
       return false;
     }
 
-    void context.postMessage(message);
+    // Built here, but from payload values, so this is where a quiz id that
+    // would not survive the host's check is dropped. Sending the action
+    // without it still opens chat; sending it whole would be ignored.
+    const { actionId } = message;
+    const safe: RendererToExtensionMessage = isRendererToExtensionMessage(
+      message,
+    )
+      ? message
+      : { type: "qdk-learning/action", rendererId: RENDERER_ID, actionId };
+
+    void context.postMessage(safe);
     return true;
   };
 
@@ -140,7 +148,106 @@ function readPayload(outputItem: OutputItem): LearningPayload {
     throw new Error("QDK learning payload has a non-string cellId.");
   }
 
+  // Per-kind checks stay behind the kind test: a second payload kind must not
+  // have to satisfy the multiple-choice shape.
+  switch (payload.kind) {
+    case "multiple-choice":
+      assertMultipleChoice(payload);
+      break;
+  }
+
   return payload as unknown as LearningPayload;
+}
+
+/**
+ * Check the fields the question is actually drawn and graded from.
+ *
+ * Version and kind only describe the envelope. Without this a payload that
+ * survived a hand edit could set `correct: "false"`, which is a non-empty
+ * string and therefore truthy, and a wrong option would be marked right — so
+ * these are checked before anything is rendered rather than trusted.
+ */
+function assertMultipleChoice(payload: Record<string, unknown>): void {
+  if (typeof payload.prompt !== "string" || payload.prompt.length === 0) {
+    throw new Error("QDK learning payload has no question text.");
+  }
+
+  if (
+    payload.multiSelect !== undefined &&
+    typeof payload.multiSelect !== "boolean"
+  ) {
+    throw new Error("QDK learning payload has a non-boolean multiSelect.");
+  }
+
+  if (!Array.isArray(payload.options) || payload.options.length === 0) {
+    throw new Error("QDK learning payload has no options.");
+  }
+
+  const ids = new Set<string>();
+  for (const option of payload.options) {
+    if (!isRecord(option)) {
+      throw new Error("QDK learning payload has a malformed option.");
+    }
+    if (typeof option.id !== "string" || option.id.length === 0) {
+      throw new Error("QDK learning payload has an option with no id.");
+    }
+    if (ids.has(option.id)) {
+      throw new Error(
+        `QDK learning payload reuses the option id "${option.id}".`,
+      );
+    }
+    ids.add(option.id);
+
+    if (typeof option.text !== "string" || option.text.length === 0) {
+      throw new Error(
+        `QDK learning option "${option.id}" has no text to show.`,
+      );
+    }
+    if (typeof option.correct !== "boolean") {
+      throw new Error(
+        `QDK learning option "${option.id}" does not say whether it is correct.`,
+      );
+    }
+    if (
+      option.explanation !== undefined &&
+      typeof option.explanation !== "string"
+    ) {
+      throw new Error(
+        `QDK learning option "${option.id}" has a non-string explanation.`,
+      );
+    }
+  }
+
+  // Cardinality mirrors `_normalize_options` in `_learning_output.py`: the two
+  // sides describe the same payload, and a notebook can outlive — or bypass —
+  // the emitter that wrote it.
+  const correct = payload.options.filter(
+    (option) => (option as { correct: boolean }).correct,
+  ).length;
+
+  if (correct === 0) {
+    throw new Error("QDK learning payload has no correct option.");
+  }
+
+  if (payload.multiSelect === true) {
+    if (correct < 2) {
+      throw new Error(
+        "QDK learning payload says select all that apply but marks one option correct.",
+      );
+    }
+    if (correct === payload.options.length) {
+      throw new Error(
+        "QDK learning payload marks every option correct, so it cannot be answered wrongly.",
+      );
+    }
+  } else if (correct > 1) {
+    // Grading compares the selected set with the correct set, and a radio
+    // group holds one selection, so this question could never be answered
+    // right. Refusing to draw it beats showing an unwinnable one.
+    throw new Error(
+      `QDK learning payload marks ${correct} options correct but is not multi-select.`,
+    );
+  }
 }
 
 /** The only payload version this renderer understands. */
@@ -168,7 +275,6 @@ function cleanupElement(element: HTMLElement) {
 function renderError(element: HTMLElement, error: unknown) {
   const root = document.createElement("section");
   root.className = "qdk-learning qdk-learning-error";
-  root.dataset.rendererId = RENDERER_ID;
 
   const title = document.createElement("strong");
   title.textContent = "Unable to render QDK learning output.";
