@@ -8,10 +8,16 @@ The chapters are already marked up with the two seams this needs:
 Everything the converter cannot infer lives in RECIPES below. That list is the
 honest inventory of what a human still has to decide per chapter.
 
+Use ``--check`` to detect drift without writing. Write mode reconstructs each
+selected notebook, preserving existing cell IDs only when its cell structure is
+unchanged.
+
 Usage:  python rst_to_notebook.py 02
+    python rst_to_notebook.py --docs <docs> --check
 """
 
 import argparse
+import ast
 import base64
 import hashlib
 import html
@@ -53,6 +59,51 @@ IMAGE_ASSETS = {
     ),
 }
 
+# Apply these from most-specific to least-specific; earlier replacements can
+# intentionally prevent a broader later replacement from matching.
+COMMON_REWRITES = [
+    ("The tutorial script uses", "The code uses"),
+    ("the tutorial script uses", "the code uses"),
+    ("The mapping script reconstructs", "The mapping code reconstructs"),
+    ("the mapping script", "the mapping code"),
+    ("the complete script", "the complete workflow"),
+    ("The script should report", "The output should show"),
+    ("The script reports", "The output shows"),
+    ("the script reports progress", "the cell reports progress"),
+    ("the script reports that", "the function reports that"),
+    ("the script reports", "the output shows"),
+    ("The script constructs", "The code constructs"),
+    ("The script then rebuilds", "The code then rebuilds"),
+    ("The script finishes", "The code finishes"),
+    ("The script creates", "The code creates"),
+    ("The script chooses", "The code chooses"),
+    ("The script restricts", "The code restricts"),
+    ("The script ranks", "The code ranks"),
+    ("The script first prints", "The preceding output shows"),
+    ("The script computes", "The code computes"),
+    ("The script retains", "The code retains"),
+    ("The script writes", "The function writes"),
+    ("The script selects", "The workflow selects"),
+    ("the script selects", "the workflow selects"),
+    ("The script adds", "The code adds"),
+    ("the script adds", "the code adds"),
+    ("The script prints", "The cell prints"),
+    ("the script constructs", "the code constructs"),
+    ("the script output", "the output"),
+    ("the script traverses", "the code traverses"),
+    ("the script creates", "the code creates"),
+    ("the script evaluates", "the code evaluates"),
+    ("The script repeats", "The workflow repeats"),
+    ("The script configures", "The code configures"),
+    ("The script prepares", "The workflow prepares"),
+    ("before running the script", "before running the cell"),
+    ("when you run the mapping script", "when you run the mapping cell"),
+    ("did the script construct?", "did the calculation produce?"),
+    ("Does the script confirm", "Does the output confirm"),
+    ("does the script report?", "does the output show?"),
+    ("did the script produce?", "did the workflow produce?"),
+]
+
 # Per-chapter human decisions. Everything else is derived from the sources.
 RECIPES = {
     "index": {
@@ -85,6 +136,12 @@ RECIPES = {
         "py": "tutorial_describe_n2.py",
         "unit_dir": "02-describe-molecule",
         "notebook": "describe_molecule.ipynb",
+        "setup_code": (
+            "from qdk_chemistry.algorithms import create\n"
+            "from qdk_chemistry.constants import HARTREE_TO_KJ_PER_MOL\n"
+            "from qdk_chemistry.data import Structure\n"
+            "from qdk_chemistry.utils import Logger"
+        ),
         # A notebook is the example, so the download instructions are noise.
         "skip_sections": ["Example download"],
         # The reader is already inside the notebook, so nothing sends them to a terminal.
@@ -106,7 +163,7 @@ RECIPES = {
                 "code": "from _unit import exercise\n\n\n"
                 "@exercise\n"
                 "def lower_energy_basis():\n"
-                '    return "cc-pvdz"\n',
+                '    return "Replace the contents of this string with the correct basis set name"\n',
                 "hint": "Watch the signs. Both energies are negative, so the lower one is the "
                 "more negative number rather than the one closer to zero. `energies` holds a "
                 "basis-set name for each energy, and the function has to return the name.",
@@ -125,8 +182,40 @@ RECIPES = {
         "notebook": "active_space.ipynb",
         "skip_sections": ["Example download"],
         # The chapter's excerpts all assume the Hartree-Fock run that precedes them.
-        "pre_code": "from tutorial_choose_active_space import create_stretched_n2_structure",
         "pre_regions": ["hartree-fock"],
+        "setup_code": (
+            "from qdk_chemistry.algorithms import create\n"
+            "from qdk_chemistry.utils import Logger\n"
+            "from tutorial_choose_active_space import create_stretched_n2_structure"
+        ),
+        "region_prepends": {
+            "valence-space": (
+                "from qdk_chemistry.data.symmetry import SymmetryLabel, axes\n"
+                "from qdk_chemistry.utils import compute_valence_space_parameters"
+            ),
+            "refine": (
+                "from tutorial_orbital_coordinates import (\n"
+                "    coordinate_minimize_natural_orbital_coefficient_norm,\n"
+                ")"
+            ),
+        },
+        "region_appends": {
+            "valence-space": (
+                'print(\n'
+                '    f"Valence active space: {num_valence_electrons} electrons in "\n'
+                '    f"{num_valence_orbitals} spatial orbitals"\n'
+                ')\n'
+                'print(f"Active orbital indices: {valence_indices}")'
+            ),
+            "initial-casci": (
+                'print(f"Initial CASCI energy: {valence_energy:.12f} Hartree")\n'
+                'print(f"Initial determinant count: {num_valence_determinants:,}")'
+            ),
+            "final-casci": (
+                'print(f"Refined CASCI energy: {refined_energy:.12f} Hartree")\n'
+                'print(f"Refined determinant count: {num_refined_determinants:,}")'
+            ),
+        },
         "drop_blocks": [
             "run the complete script from the Visual Studio Code integrated terminal",
             "python tutorial_choose_active_space.py",
@@ -263,16 +352,16 @@ RECIPES = {
                 "space contains, then run the cell.",
                 "code": "from math import comb\n\nfrom _unit import exercise\n\n\n"
                 "@exercise\ndef determinant_count():\n"
-                "    alpha = comb(6, 3)\n"
-                "    beta = comb(6, 3)\n"
-                "    return alpha\n",
-                "hint": "`alpha` and `beta` already count the arrangements for each spin on its "
+                "    alpha_count = comb(6, 3)\n"
+                "    beta_count = comb(6, 3)\n"
+                '    return "Replace this string with code that calculates the total determinant count"\n',
+                "hint": "`alpha_count` and `beta_count` already count the arrangements for each spin on its "
                 "own. Nothing ties the two choices together, so ask yourself how many "
                 "whole-determinant arrangements a single $\\alpha$ choice can appear in.",
                 "solution": "@exercise\ndef determinant_count():\n"
-                "    alpha = comb(6, 3)\n"
-                "    beta = comb(6, 3)\n"
-                "    return alpha * beta\n",
+                "    alpha_count = comb(6, 3)\n"
+                "    beta_count = comb(6, 3)\n"
+                "    return alpha_count * beta_count\n",
                 "explanation": "The function returns the product of the two independent "
                 "occupation counts. $\\binom{6}{3}=20$, so the refined space holds "
                 "$20\\times20=400$ determinants, down from the 3,136 of the initial "
@@ -286,6 +375,16 @@ RECIPES = {
         "unit_dir": "04-map-to-qubits",
         "notebook": "map_to_qubits.ipynb",
         "skip_sections": ["Example download"],
+        "setup_code": "from qdk_chemistry.utils import Logger",
+        "region_prepends": {
+            "active-hamiltonian": "from qdk_chemistry.algorithms import create",
+            "count-qubits": (
+                "from qdk_chemistry.data.symmetry import SymmetryLabel, axes"
+            ),
+            "map-hamiltonian": "from qdk_chemistry.data import MajoranaMapping",
+            "pauli-preview-helpers": "from qdk_chemistry.data import QubitOperator\n",
+            "validate-mapping": "import numpy as np",
+        },
         # Keeps the three quiz-questions in "Running the mapping" without the terminal
         # instructions around them, which a notebook reader has no use for.
         "drop_blocks": [
@@ -303,6 +402,23 @@ RECIPES = {
                 "so the preview below displays the all-identity term",
             ),
         ],
+        "region_appends": {
+            "active-hamiltonian": (
+                'print(f"Core energy stored separately: {core_energy:.12f} Hartree")'
+            ),
+            "count-qubits": (
+                'print(f"Active spatial orbitals: {num_active_spatial_orbitals}")\n'
+                'print(f"Jordan-Wigner compute qubits: {num_active_spin_orbitals}")'
+            ),
+            "validate-mapping": (
+                'print(\n'
+                '    "Physical fixed-electron sector: "\n'
+                '    f"{len(fixed_electron_basis_indices)} of "\n'
+                '    f"{1 << num_compute_qubits:,} computational basis states"\n'
+                ')\n'
+                'print(f"Mapping validation difference: {mapping_energy_difference:.3e} Hartree")'
+            ),
+        },
         # The chapter shows the mapper output through an :append: line the converter
         # drops, and that helper lives in a region the chapter never includes.
         "extra_regions": [("Qubit Hamiltonian in Pauli form", "pauli-preview-helpers")],
@@ -319,7 +435,18 @@ RECIPES = {
                         "*Choosing the Active Space*. This cell reruns that workflow so the rest "
                         "of the notebook has a selected space to map. It is the slowest cell here.",
                     ),
-                    ("code", "active_space_result = run_active_space_workflow()\n"),
+                    (
+                        "code",
+                        "from tutorial_choose_active_space import "
+                        "run_active_space_workflow\n\n"
+                        "active_space_result = run_active_space_workflow()\n\n"
+                        "print(\n"
+                        '    f"Selected active space: {active_space_result.num_refined_electrons} electrons in "\n'
+                        '    f"{len(active_space_result.refined_indices)} spatial orbitals"\n'
+                        ")\n"
+                        'print(f"Selected-space determinants: {active_space_result.num_refined_determinants:,}")\n'
+                        'print(f"CASCI reference energy: {active_space_result.refined_energy:.12f} Hartree")\n',
+                    ),
                 ],
             },
             {
@@ -377,7 +504,7 @@ RECIPES = {
                 "code": "from _unit import exercise\n\n\n"
                 "@exercise\n"
                 "def compute_qubit_count():\n"
-                "    return 6\n",
+                '    return "Replace this string with code that calculates the compute-register size"\n',
                 "hint": "Two traps here. The answer is not the number of spatial orbitals, and "
                 "it does not include the phase-estimation ancilla. Work out what the register "
                 "stores one qubit of. `num_active_spatial_orbitals` is in scope from above.",
@@ -395,8 +522,25 @@ RECIPES = {
         "unit_dir": "05-trial-state",
         "notebook": "trial_state.ipynb",
         "skip_sections": ["Example download"],
-        # The chapter's helper calls this one, which sits outside every marked region.
-        "pre_code": "from tutorial_prepare_trial_state import leading_determinants",
+        "setup_code": "from qdk_chemistry.utils import Logger",
+        "region_prepends": {
+            "determinant-weights": (
+                "import json\n"
+                "from collections import Counter\n"
+                "from collections.abc import Iterator\n"
+                "from dataclasses import dataclass\n\n"
+                "from qdk_chemistry.data import Circuit, Wavefunction\n"
+                "from qdk_chemistry.data.symmetry import SymmetryLabel, axes\n"
+                "from tutorial_prepare_trial_state import leading_determinants\n\n\n"
+                "@dataclass\n"
+                "class DeterminantContribution:\n"
+                "    \"\"\"One determinant's contribution to the selected-space reference.\"\"\"\n\n"
+                "    occupation: str\n"
+                "    amplitude: complex\n"
+                "    weight: float\n"
+                "    cumulative_weight: float"
+            ),
+        },
         "drop_blocks": [
             "run the complete script from the Visual Studio Code integrated terminal",
             "python tutorial_prepare_trial_state.py",
@@ -408,7 +552,25 @@ RECIPES = {
                 "## Running the preparation\n\nThe cells above have already run the "
                 "preparation. Use their output to answer the questions below.",
             ),
+            (
+                "To compare other choices, change `determinant_counts` in the Jupyter "
+                "notebook and rerun its cells.",
+                "To explore another support size, change `num_determinants` above and "
+                "rerun the sparse-wavefunction and circuit cells.",
+            ),
+            (
+                "The script constructs each projected trial state",
+                "The code constructs the projected trial state",
+            ),
         ],
+        "region_appends": {
+            "sparse-trial": (
+                'print(\n'
+                '    f"Trial state: {trial_wavefunction.size()} determinants, "\n'
+                '    f"fidelity {fidelity:.4f}"\n'
+                ')'
+            ),
+        },
         "extra_regions": [],
         # The chapter's two excerpts are one pass of a loop inside a function, so the
         # surrounding context has to be supplied by hand. This list is that context.
@@ -440,6 +602,10 @@ RECIPES = {
                     ),
                     (
                         "code",
+                        "import numpy as np\n"
+                        "from qdk_chemistry.algorithms import create\n"
+                        "from tutorial_choose_active_space import "
+                        "run_active_space_workflow\n\n"
                         "active_space_result = run_active_space_workflow()\n"
                         "reference_wavefunction = active_space_result.refined_casci_wavefunction\n"
                         "selected_orbitals = active_space_result.refined_orbitals\n"
@@ -460,8 +626,10 @@ RECIPES = {
                     (
                         "md",
                         "### Choosing the determinant count\n\n"
-                        "The two cells that follow are one pass over one, two, and four "
-                        "determinants. Fix the count here so they run as ordinary cells.",
+                        "Choose how many leading determinants to retain in the trial state. "
+                        "The next two cells build and analyze one trial state using this "
+                        "value. Start with four determinants; change `num_determinants` and "
+                        "rerun those cells to explore another support size.",
                     ),
                     ("code", "num_determinants = 4\n"),
                 ],
@@ -488,8 +656,8 @@ RECIPES = {
                     (
                         "md",
                         "## Comparing the three trial states\n\n"
-                        "The script repeats the same construction for one, two, and four "
-                        "determinants. Repeat it here to see how fidelity responds to the "
+                        "The workflow repeats the same construction for one, two, and four "
+                        "determinants. Run the next cell to compare how fidelity responds to the "
                         "retained determinant count.",
                     ),
                     (
@@ -521,7 +689,7 @@ RECIPES = {
                 "code": "from _unit import exercise\n\n\n"
                 "@exercise\n"
                 "def first_majority_count():\n"
-                "    return 1\n",
+                '    return "Replace this string with the number of determinants that gives a fidelity greater than 0.5"\n',
                 "hint": "`fidelities` maps each determinant count to its fidelity. You are asked "
                 "for a count, not a fidelity, so you need the keys, filtered by what their "
                 "values do. More than one count may qualify.",
@@ -547,6 +715,13 @@ RECIPES = {
         "    print_iqpe_results,\n"
         "    run_iqpe_workflow,\n"
         ")",
+        "drop_setup_imports": {
+            "Counter",
+            "np",
+            "QubitOperator",
+            "run_qubit_mapping_workflow",
+            "run_trial_state_workflow",
+        },
         # The chapter sends the reader to a separate notebook for the circuit
         # viewer and to a terminal for the run; both happen in cells here.
         "drop_blocks": [
@@ -643,15 +818,15 @@ RECIPES = {
                 "- `compute_qubits`, how many wires hold the encoded molecular state\n"
                 "- `readout_ancillas`, how many wires are algorithm workspace rather than "
                 "spin orbitals\n\n"
-                "Read each one from `problem` or from the statistics computed above, rather "
-                "than typing the numbers in. The stub below gets all three wrong.",
+                "Use `problem` and the statistics computed above to determine each value, then "
+                "replace each placeholder string with that number.",
                 "code": "from _unit import exercise\n\n\n"
                 "@exercise\n"
                 "def validate_circuit():\n"
                 "    return {\n"
-                '        "iteration_circuits": 1,\n'
-                '        "compute_qubits": num_qubits,\n'
-                '        "readout_ancillas": 0,\n'
+                '        "iteration_circuits": "Replace this string with the number of iteration circuits",\n'
+                '        "compute_qubits": "Replace this string with the compute-qubit count",\n'
+                '        "readout_ancillas": "Replace this string with the readout-ancilla count",\n'
                 "    }\n",
                 "hint": "`problem.iteration_circuits` is a list, which settles the first one. "
                 "`problem.mapping` knows how wide the compute register is. For the third, "
@@ -683,7 +858,7 @@ RECIPES = {
                 'measured_bitstring = "010000"\n\n\n'
                 "@exercise\n"
                 "def measured_phase():\n"
-                "    return 0.0\n",
+                '    return "Replace this string with the measured phase fraction"\n',
                 "hint": "Two steps. First turn the bitstring into the grid index it represents, "
                 "which `int` can do if you tell it the base. Then scale that index by the size "
                 "of the grid, which follows from how many bits the string has.",
@@ -904,13 +1079,48 @@ def region(py_text, name):
     return textwrap.dedent(match.group(1)).strip("\n")
 
 
-def preamble(py_text):
+def preamble(py_text, drop_imports=None):
     head = py_text.split("# start-cell-", 1)[0]
     head = re.sub(r'^\s*"""(?:.|\n)*?"""\s*', "", head, count=1)
     # A workflow function opening above the first region arrives without its body.
     head = re.split(r"^def ", head, maxsplit=1, flags=re.M)[0]
     kept = [ln for ln in head.splitlines() if not ln.lstrip().startswith("#")]
-    return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip("\n")
+    source = re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip("\n")
+    return remove_imports(source, drop_imports or set())
+
+
+def remove_imports(source, names):
+    """Remove selected imported bindings while preserving the rest of a preamble."""
+    if not names:
+        return source
+    lines = source.splitlines()
+    tree = ast.parse(source)
+    for node in reversed(tree.body):
+        if not isinstance(node, (ast.Import, ast.ImportFrom)):
+            continue
+        aliases = []
+        for alias in node.names:
+            binding = alias.asname or (
+                alias.name.split(".", 1)[0]
+                if isinstance(node, ast.Import)
+                else alias.name
+            )
+            if binding not in names:
+                aliases.append(alias)
+        replacement = ""
+        if aliases:
+            replacement_node = (
+                ast.Import(names=aliases)
+                if isinstance(node, ast.Import)
+                else ast.ImportFrom(
+                    module=node.module,
+                    names=aliases,
+                    level=node.level,
+                )
+            )
+            replacement = ast.unparse(ast.fix_missing_locations(replacement_node))
+        lines[node.lineno - 1 : node.end_lineno] = [replacement] if replacement else []
+    return re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip("\n")
 
 
 # ─── Notebook cells ───
@@ -1334,7 +1544,79 @@ def merge_code_runs(cells):
     return merged
 
 
-def convert(key):
+def preserve_cell_ids(notebook, current_path, allow_cell_id_changes=False):
+    """Keep learner progress IDs when regeneration preserves the cell structure."""
+    if not current_path.is_file() or allow_cell_id_changes:
+        return
+    current = json.loads(current_path.read_text(encoding="utf-8"))
+    current_cells = current.get("cells", [])
+    generated_cells = notebook["cells"]
+    current_structure = [
+        (cell.get("cell_type"), sorted(cell.get("metadata", {}).get("tags", [])))
+        for cell in current_cells
+    ]
+    generated_structure = [
+        (cell.get("cell_type"), sorted(cell.get("metadata", {}).get("tags", [])))
+        for cell in generated_cells
+    ]
+    if current_structure != generated_structure:
+        raise SystemExit(
+            f"cell structure changed for {current_path}; rerun with "
+            "--allow-cell-id-changes only after reviewing the effect on learner progress"
+        )
+    for current_cell, generated_cell in zip(
+        current_cells, generated_cells, strict=True
+    ):
+        cell_id = current_cell.get("id")
+        if cell_id:
+            generated_cell["id"] = cell_id
+
+
+def report_drift(current_path, notebook):
+    """Report generated differences without exposing internal cell IDs."""
+    if not current_path.is_file():
+        print(f"  [drift] {current_path}: file is missing")
+        return False
+    current = json.loads(current_path.read_text(encoding="utf-8"))
+    if current == notebook:
+        print(f"  [ok] {current_path}")
+        return True
+
+    current_cells = current.get("cells", [])
+    generated_cells = notebook["cells"]
+    if len(current_cells) != len(generated_cells):
+        print(
+            f"  [drift] {current_path}: {len(current_cells)} current cells, "
+            f"{len(generated_cells)} generated cells"
+        )
+    for number, (current_cell, generated_cell) in enumerate(
+        zip(current_cells, generated_cells), start=1
+    ):
+        changed = sorted(
+            field
+            for field in set(current_cell) | set(generated_cell)
+            if current_cell.get(field) != generated_cell.get(field)
+        )
+        if changed:
+            print(
+                f"  [drift] {current_path}: cell {number} "
+                f"({current_cell.get('cell_type', 'unknown')}) changed "
+                f"{', '.join(changed)}"
+            )
+    notebook_fields = sorted(
+        field
+        for field in set(current) | set(notebook)
+        if field != "cells" and current.get(field) != notebook.get(field)
+    )
+    if notebook_fields:
+        print(
+            f"  [drift] {current_path}: notebook fields changed "
+            f"{', '.join(notebook_fields)}"
+        )
+    return False
+
+
+def convert(key, *, check=False, allow_cell_id_changes=False):
     recipe = RECIPES[key]
     blocks = strip_lab_notebook(
         parse((RST_DIR / recipe["rst"]).read_text(encoding="utf-8"))
@@ -1346,13 +1628,23 @@ def convert(key):
     attachments = {}
     skipping = False
     pending = {s: r for s, r in recipe["extra_regions"]}
+    used_regions = set()
     drop_blocks = recipe.get("drop_blocks", [])
     rewrites = recipe.get("rewrites", [])
 
     def rewrite(text):
-        for old, new in rewrites:
+        for old, new in rewrites + COMMON_REWRITES:
             text = text.replace(old, new)
         return text
+
+    def notebook_region(name):
+        used_regions.add(name)
+        source = region(py_text, name)
+        prefix = recipe.get("region_prepends", {}).get(name)
+        if prefix:
+            source = f"{prefix}\n\n{source}"
+        appendix = recipe.get("region_appends", {}).get(name)
+        return f"{source}\n\n{appendix}" if appendix else source
 
     def emit(cell):
         cells.append(cell)
@@ -1389,14 +1681,14 @@ def convert(key):
         _, name, argument, options, body = block
         if name == "admonition" and options.get("class") == "quiz-question":
             flush()
-            emit(md(quiz(argument, body)))
+            emit(md(rewrite(quiz(argument, body))))
             continue
         if name == "literalinclude":
             flush()
             marker = options.get("start-after", "").replace("# start-cell-", "").strip()
-            emit(code(region(py_text, marker)))
+            emit(code(notebook_region(marker)))
             if section in pending:
-                emit(code(region(py_text, pending.pop(section))))
+                emit(code(notebook_region(pending.pop(section))))
             continue
         if name == "include":
             included = DOCS / argument.strip().lstrip("/")
@@ -1454,11 +1746,20 @@ def convert(key):
                 "solver logs."
             ),
         ),
-        ("Setting up", code(preamble(py_text))),
+        (
+            "Setting up",
+            code(
+                (
+                    recipe.get("setup_code")
+                    or preamble(py_text, recipe.get("drop_setup_imports"))
+                )
+                + "\n\nLogger.set_global_level(Logger.LogLevel.off)"
+            ),
+        ),
     ] + (
         [("Setting up", code(recipe["pre_code"]))] if recipe.get("pre_code") else []
     ) + [
-        ("Setting up", code(region(py_text, marker)))
+        ("Setting up", code(notebook_region(marker)))
         for marker in recipe.get("pre_regions", [])
     ]
     at = next(
@@ -1473,7 +1774,7 @@ def convert(key):
         cells[end:end] = block
         owner[end:end] = [section] * len(block)
 
-    kinds = {"md": md, "code": code, "region": lambda v: code(region(py_text, v))}
+    kinds = {"md": md, "code": code, "region": lambda v: code(notebook_region(v))}
     for spec in recipe.get("inserts", []):
         splice(spec["section"], [kinds[k](v) for k, v in spec["cells"]])
 
@@ -1491,6 +1792,14 @@ def convert(key):
 
     cells = merge_markdown_runs(cells)
     cells = merge_code_runs(cells)
+    configured_regions = set(recipe.get("region_prepends", {})) | set(
+        recipe.get("region_appends", {})
+    )
+    unused_regions = configured_regions - used_regions
+    if unused_regions:
+        raise SystemExit(
+            f"unused region recipe hooks for {key}: {', '.join(sorted(unused_regions))}"
+        )
     nav = navigation(recipe["unit_dir"])
     if nav:
         cells.append(md(nav))
@@ -1505,6 +1814,9 @@ def convert(key):
         "nbformat": 4,
         "nbformat_minor": 5,
     }
+    preserve_cell_ids(notebook, out, allow_cell_id_changes)
+    if check:
+        return report_drift(out, notebook)
     out.write_text(
         json.dumps(notebook, indent=1, ensure_ascii=False) + "\n",
         encoding="utf-8",
@@ -1518,6 +1830,7 @@ def convert(key):
     )
     if pending:
         print(f"WARNING unplaced extra regions: {pending}")
+    return True
 
 
 if __name__ == "__main__":
@@ -1525,6 +1838,16 @@ if __name__ == "__main__":
     parser.add_argument("chapters", nargs="*", default=sorted(RECIPES))
     parser.add_argument("--docs", type=Path, default=DOCS, help="root of the built qdk-chemistry docs")
     parser.add_argument("--course", type=Path, default=COURSE, help="course directory to write into")
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="report whether generated notebooks match without writing files",
+    )
+    parser.add_argument(
+        "--allow-cell-id-changes",
+        action="store_true",
+        help="allow regeneration to assign new cell IDs after a reviewed structure change",
+    )
     args = parser.parse_args()
     DOCS = args.docs
     RST_DIR = DOCS / "_sources/tutorials/ground_state_molecular_energies_with_qpe"
@@ -1532,5 +1855,13 @@ if __name__ == "__main__":
     COURSE = args.course
     if not RST_DIR.is_dir():
         sys.exit(f"no tutorial sources at {RST_DIR}; pass --docs")
-    for chapter in args.chapters:
-        convert(chapter)
+    results = [
+        convert(
+            chapter,
+            check=args.check,
+            allow_cell_id_changes=args.allow_cell_id_changes,
+        )
+        for chapter in args.chapters
+    ]
+    if args.check and not all(results):
+        raise SystemExit(1)
